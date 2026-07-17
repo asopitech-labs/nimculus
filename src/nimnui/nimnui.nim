@@ -1,8 +1,15 @@
 import nimnui/platform/macos/platform
 import nimnui/mock_renderer
+import nimnui/geometry
+import nimnui/ui_tree
+import nimnui/layout
+import nimnui/events
+import nimnui/controls
+import nimnui/text
 
 export platform
 export mock_renderer
+export geometry, ui_tree, layout, events, controls, text
 
 type
   RendererKind* = enum

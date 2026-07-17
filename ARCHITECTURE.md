@@ -20,3 +20,15 @@ M1 provides a Cocoa window backed by `CAMetalLayer`, a Metal clear pass and
 rectangle pass, Retina-aware drawable sizing, basic resize handling, and
 keyboard/pointer/scroll input accounting. Editor state, text shaping, IME,
 layout, and command routing are intentionally deferred to later milestones.
+
+## M2/M3 boundary
+
+M2 introduces the platform-independent NimNUI core: geometry, a parent/child
+UI tree, Row/Column/Stack layout, focus and dirty state, capture/target/bubble
+event phases, and control descriptors. It does not yet submit UI primitives to
+Metal or connect all native events to the tree.
+
+M3 introduces UTF-8 and minimal grapheme position tracking, a reusable glyph
+atlas allocator, and the native `NSTextInputClient` boundary for composition.
+Font shaping, glyph rasterization into Metal textures, candidate positioning,
+and editor-buffer integration remain follow-up work.

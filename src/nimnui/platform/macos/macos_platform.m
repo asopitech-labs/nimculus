@@ -25,8 +25,11 @@ static void logInput(NSString *kind, NSEvent *event) {
         event.deltaX, event.deltaY);
 }
 
-@interface NimculusMetalView : NSView
+@interface NimculusMetalView : NSView <NSTextInputClient>
 @property(nonatomic, strong) CAMetalLayer *metalLayer;
+@property(nonatomic, copy) NSString *markedText;
+@property(nonatomic) NSRange markedTextRange;
+@property(nonatomic) NSRange selectedTextRange;
 @end
 
 @implementation NimculusMetalView
@@ -42,6 +45,9 @@ static void logInput(NSString *kind, NSEvent *event) {
     self.metalLayer.device = MTLCreateSystemDefaultDevice();
     self.metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
     self.metalLayer.framebufferOnly = YES;
+    self.markedText = @"";
+    self.markedTextRange = NSMakeRange(NSNotFound, 0);
+    self.selectedTextRange = NSMakeRange(0, 0);
   }
   return self;
 }
@@ -120,6 +126,49 @@ static void logInput(NSString *kind, NSEvent *event) {
   return [super resignFirstResponder];
 }
 - (void)viewDidMoveToWindow { [self.window makeFirstResponder:self]; [self updateMetrics]; }
+
+// NSTextInputClient: this is the native IME boundary used by the future editor
+// buffer. The M3 core keeps composition state separate from committed text.
+- (BOOL)hasMarkedText { return self.markedText.length > 0; }
+- (NSRange)markedRange { return self.markedTextRange; }
+- (NSRange)selectedRange { return self.selectedTextRange; }
+- (NSArray<NSAttributedStringKey> *)validAttributesForMarkedText { return @[]; }
+- (NSAttributedString *)attributedSubstringForProposedRange:(NSRange)range
+                                                     actualRange:(NSRangePointer)actualRange {
+  if (actualRange) *actualRange = range;
+  return nil;
+}
+- (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange
+      replacementRange:(NSRange)replacementRange {
+  if ([string isKindOfClass:[NSAttributedString class]]) {
+    self.markedText = [string string];
+  } else if ([string isKindOfClass:[NSString class]]) {
+    self.markedText = string;
+  } else {
+    self.markedText = @"";
+  }
+  self.markedTextRange = NSMakeRange(0, self.markedText.length);
+  self.selectedTextRange = selectedRange;
+  NSLog(@"Nimculus IME composition update length=%lu selection={%lu,%lu}",
+        self.markedText.length, selectedRange.location, selectedRange.length);
+}
+- (void)unmarkText {
+  self.markedText = @"";
+  self.markedTextRange = NSMakeRange(NSNotFound, 0);
+}
+- (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
+  NSString *committed = [string isKindOfClass:[NSAttributedString class]]
+    ? [string string] : (NSString *)string;
+  NSLog(@"Nimculus IME committed text=%@", committed);
+  [self unmarkText];
+}
+- (void)doCommandBySelector:(SEL)selector { NSLog(@"Nimculus IME command=%@", NSStringFromSelector(selector)); }
+- (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
+  if (actualRange) *actualRange = range;
+  NSRect cursor = NSMakeRect(0, 0, 1, 20);
+  return [self.window convertRectToScreen:[self convertRect:cursor toView:nil]];
+}
+- (NSUInteger)characterIndexForPoint:(NSPoint)point { return 0; }
 
 @end
 

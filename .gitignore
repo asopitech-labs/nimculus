@@ -7,6 +7,7 @@ src/nimculus/main
 nimculus/
 tests/test_platform_contract
 tests/bench_platform
+tests/test_ui_text
 *.app
 *.dmg
 references/zed/

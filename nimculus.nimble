@@ -12,6 +12,7 @@ task build, "Build the Nimculus macOS application":
 
 task test, "Run unit and integration tests":
   exec "nim c --mm:arc -r --path:src tests/test_platform_contract.nim"
+  exec "nim c --mm:arc -r --path:src tests/test_ui_text.nim"
 
 task benchmark, "Run platform benchmark smoke tests":
   exec "nim c --mm:arc -r --path:src tests/bench_platform.nim"
