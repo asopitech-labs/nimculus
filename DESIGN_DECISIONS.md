@@ -12,3 +12,22 @@ contract is still evolving.
 NimNUI owns a `CAMetalLayer` through its macOS view. Drawable size is derived
 from the backing scale factor during layout, so logical points and drawable
 pixels remain distinct for Retina displays.
+
+## Reference: Zed GPUI Metal implementation
+
+Zed was cloned at `references/zed` for local, ignored reference use. The
+current reference revision is recorded by the clone itself; the directory is
+not part of Nimculus source control.
+
+The following patterns are relevant to future NimNUI milestones:
+
+- Keep more than one drawable available when appropriate instead of assuming a
+  single-buffer swapchain (`gpui_macos/src/metal_renderer.rs`).
+- Prefer build-time Metal shader compilation and packaged metallib data for
+  production builds, with runtime shader compilation reserved for development.
+- Use reusable instance-buffer pools for batched GPU primitives rather than
+  allocating a new buffer for every rectangle.
+- Drive frame requests from display timing (`gpui_macos/src/display_link.rs`)
+  and treat display-link teardown as a lifecycle problem.
+- Keep Cocoa window/event handling separate from the Metal renderer
+  (`gpui_macos/src/window.rs` and `metal_renderer.rs`).

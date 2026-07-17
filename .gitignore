@@ -9,3 +9,4 @@ tests/test_platform_contract
 tests/bench_platform
 *.app
 *.dmg
+references/zed/
