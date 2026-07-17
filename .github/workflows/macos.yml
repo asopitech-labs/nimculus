@@ -1,0 +1,18 @@
+name: macOS
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: '2.0.x'
+      - name: Build
+        run: nimble build
+      - name: Test
+        run: nimble test
