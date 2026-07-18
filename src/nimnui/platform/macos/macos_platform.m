@@ -721,7 +721,13 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   NSLog(@"Nimculus focus lost");
   return [super resignFirstResponder];
 }
-- (void)viewDidMoveToWindow { [self.window makeFirstResponder:self]; [self updateMetrics]; }
+- (void)viewDidMoveToWindow {
+  [self.window makeFirstResponder:self];
+  // The first window attachment can occur before a layout callback. Initialize
+  // the drawable size and backing scale here as well as in layout, matching
+  // the later Retina-transition path.
+  [self updateBackingScale];
+}
 
 // NSTextInputClient: composition is forwarded to the application editor while
 // committed text remains separate until insertText is received.

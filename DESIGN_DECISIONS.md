@@ -358,6 +358,13 @@ height, not the pixel texture height. This follows Zed's separation of logical
 layout coordinates from scale-factor rasterization and keeps Retina text
 inside the texture.
 
+## M1-005: Initialize the Metal drawable on first window attachment
+
+`viewDidMoveToWindow` calls the same backing-scale update used by layout and
+Retina transitions. This guarantees `CAMetalLayer.contentsScale` and
+`drawableSize` are initialized even if AppKit attaches the view before the
+first layout callback.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback
