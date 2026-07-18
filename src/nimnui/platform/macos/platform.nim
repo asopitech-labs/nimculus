@@ -30,6 +30,7 @@ proc platformSetTextCallback*(callback: TextCallback) {.importc: "nimculus_platf
 proc platformSetFileCallback*(callback: FileCallback) {.importc: "nimculus_platform_set_file_callback", cdecl.}
 proc platformSetCommandCallback*(callback: CommandCallback) {.importc: "nimculus_platform_set_command_callback", cdecl.}
 proc platformSetEditorCursor*(x, y: cdouble) {.importc: "nimculus_platform_set_editor_cursor", cdecl.}
+proc platformSetEditorSelection*(startByte, endByte: uint32) {.importc: "nimculus_platform_set_editor_selection", cdecl.}
 proc platformSetEditorText*(text: cstring) {.importc: "nimculus_platform_set_editor_text", cdecl.}
 proc platformSetEditorComposition*(text: cstring) {.importc: "nimculus_platform_set_editor_composition", cdecl.}
 proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32) {.importc: "nimculus_platform_set_editor_highlights", cdecl.}

@@ -17,6 +17,8 @@ static NimculusFileCallback g_file_callback = NULL;
 static NimculusCommandCallback g_command_callback = NULL;
 static double g_ui_rect[4] = {360.0, 260.0, 240.0, 120.0};
 static double g_editor_cursor[2] = {8.0, 12.0};
+static NSUInteger g_editor_selection_start = 0;
+static NSUInteger g_editor_selection_end = 0;
 static NSString *g_editor_text = @"";
 static NSString *g_marked_text = @"";
 static NSString *g_clipboard_text = @"";
@@ -271,12 +273,20 @@ static void logInput(NSString *kind, NSEvent *event) {
 // committed text remains separate until insertText is received.
 - (BOOL)hasMarkedText { return self.markedText.length > 0; }
 - (NSRange)markedRange { return self.markedTextRange; }
-- (NSRange)selectedRange { return self.selectedTextRange; }
+- (NSRange)selectedRange {
+  return NSMakeRange(g_editor_selection_start,
+                     g_editor_selection_end - g_editor_selection_start);
+}
 - (NSArray<NSAttributedStringKey> *)validAttributesForMarkedText { return @[]; }
 - (NSAttributedString *)attributedSubstringForProposedRange:(NSRange)range
                                                      actualRange:(NSRangePointer)actualRange {
-  if (actualRange) *actualRange = range;
-  return nil;
+  NSString *text = g_editor_text ?: @"";
+  NSUInteger start = MIN(range.location, text.length);
+  NSUInteger end = MIN(NSMaxRange(range), text.length);
+  if (end < start) end = start;
+  NSRange actual = NSMakeRange(start, end - start);
+  if (actualRange) *actualRange = actual;
+  return [[NSAttributedString alloc] initWithString:[text substringWithRange:actual]];
 }
 - (NSAttributedString *)attributedString {
   return [[NSAttributedString alloc] initWithString:self.markedText ?: @""];
@@ -323,10 +333,22 @@ static void logInput(NSString *kind, NSEvent *event) {
   NSRect cursor = NSMakeRect(g_editor_cursor[0], g_editor_cursor[1], 1, 28);
   return [self.window convertRectToScreen:[self convertRect:cursor toView:nil]];
 }
-- (NSUInteger)characterIndexForPoint:(NSPoint)point { return 0; }
-- (CGFloat)baselineDeltaForCharacterAtIndex:(NSUInteger)index { return 0.0; }
+- (NSUInteger)characterIndexForPoint:(NSPoint)point {
+  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  CGFloat fromTop = self.bounds.size.height - point.y;
+  NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / 18.0));
+  lineIndex = MIN(lineIndex, (NSInteger)lines.count - 1);
+  NSUInteger prefix = 0;
+  for (NSInteger index = 0; index < lineIndex; index++) prefix += lines[index].length + 1;
+  NSUInteger column = (NSUInteger)MAX(0, floor((point.x - 8.0) / 8.0));
+  return prefix + MIN(column, lines[lineIndex].length);
+}
+- (CGFloat)baselineDeltaForCharacterAtIndex:(NSUInteger)index { return 18.0; }
 - (BOOL)drawsVerticallyForCharacterAtIndex:(NSUInteger)index { return NO; }
-- (CGFloat)fractionOfDistanceThroughGlyphForPoint:(NSPoint)point { return 0.0; }
+- (CGFloat)fractionOfDistanceThroughGlyphForPoint:(NSPoint)point {
+  CGFloat remainder = fmod(MAX(0.0, point.x - 8.0), 8.0) / 8.0;
+  return MIN(1.0, MAX(0.0, remainder));
+}
 
 @end
 
@@ -563,6 +585,12 @@ void nimculus_platform_set_command_callback(NimculusCommandCallback callback) { 
 void nimculus_platform_set_editor_cursor(double x, double y) {
   g_editor_cursor[0] = x;
   g_editor_cursor[1] = y;
+}
+void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_byte) {
+  NSUInteger start = utf16OffsetForUTF8Bytes(g_editor_text ?: @"", start_byte);
+  NSUInteger end = utf16OffsetForUTF8Bytes(g_editor_text ?: @"", end_byte);
+  g_editor_selection_start = MIN(start, end);
+  g_editor_selection_end = MAX(start, end);
 }
 void nimculus_platform_set_editor_text(const char *utf8) {
   g_editor_text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";

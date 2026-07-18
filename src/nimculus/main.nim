@@ -113,6 +113,9 @@ proc syncEditorCursor() =
     let location = if document == nil: (line: 0, column: 0) else:
       document[].buffer.lineColumn(editorViewState.cursor)
     platformSetEditorCursor(cdouble(8 + location.column * 8), cdouble(12 + location.line * 18))
+    let selection = if document == nil: (startByte: 0, endByte: 0) else:
+      editorViewState.selectedRange()
+    platformSetEditorSelection(uint32(selection.startByte), uint32(selection.endByte))
 
 proc refreshEditorSyntax() =
   let document = activeDocument()

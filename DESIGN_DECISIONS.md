@@ -135,6 +135,13 @@ platform bridge stores it independently and redraws it at the cursor with a
 underline, while committed text continues through the normal editor callback.
 This prevents composition updates from corrupting Undo/Redo state.
 
+## M3-005: Convert editor byte ranges at the Cocoa boundary
+
+The editor keeps UTF-8 byte offsets internally. The native text-input client
+receives UTF-16 ranges, so the bridge converts selection bounds before
+returning `selectedRange` or `attributedSubstringForProposedRange`, and
+provides a bounded character-index approximation for hit testing.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback

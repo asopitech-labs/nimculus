@@ -40,6 +40,7 @@ void nimculus_platform_set_text_callback(NimculusTextCallback callback);
 void nimculus_platform_set_file_callback(NimculusFileCallback callback);
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback);
 void nimculus_platform_set_editor_cursor(double x, double y);
+void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_byte);
 void nimculus_platform_set_editor_text(const char *utf8);
 void nimculus_platform_set_editor_composition(const char *utf8);
 void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans, uint32_t count);
