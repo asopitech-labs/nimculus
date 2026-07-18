@@ -1,9 +1,13 @@
+import std/algorithm
+import std/os
+import std/strutils
 import nimnui/nimnui
 import nimculus/editor_app
 import nimculus/editor_buffer
 import nimculus/editor_view
 import nimculus/editor_syntax
 import nimculus/tree_sitter
+import nimculus/workspace
 
 var demoTree = newUiTree()
 var demoButton = NodeId(0)
@@ -29,6 +33,21 @@ var imeState = newImeState()
 var editorSession: EditorSession
 var editorViewState = newEditorView()
 var syntaxState: EditorSyntaxState
+var activeWorkspace: Workspace
+
+proc refreshWorkspacePreview() =
+  when defined(macosx):
+    if activeWorkspace == nil: return
+    var lines = @["Workspace: " & activeWorkspace.root]
+    var children = activeWorkspace.listChildren()
+    children.sort(proc(a, b: WorkspaceEntry): int = cmp(a.relativePath, b.relativePath))
+    for entry in children:
+      if lines.len >= 12: break
+      let marker = if entry.kind == WorkspaceFileKind.directory: "[D] " else: "    "
+      lines.add(marker & entry.relativePath)
+    platformSetEditorHighlights(nil, 0)
+    platformSetEditorComposition("".cstring)
+    platformSetEditorText(lines.join("\n").cstring)
 
 proc activeDocument(): ptr FileDocument =
   if editorSession.tabs.len == 0 or editorSession.activeTab < 0 or
@@ -68,6 +87,11 @@ proc refreshEditorSyntax() =
 proc receiveNativeText(text: cstring, composing: bool) {.cdecl.} =
   let value = if text == nil: "" else: $text
   imeState.receiveText(value, composing)
+  when defined(macosx):
+    if composing:
+      platformSetEditorComposition(value.cstring)
+      return
+    platformSetEditorComposition("".cstring)
   if not composing and value.len > 0:
     let document = activeDocument()
     if document != nil:
@@ -85,6 +109,10 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
     let document = activeDocument()
     if document != nil: document[].save(filePath)
   else:
+    if dirExists(filePath):
+      activeWorkspace = openWorkspace(filePath)
+      refreshWorkspacePreview()
+      return
     try:
       editorSession.addTab(openDocument(filePath))
       let document = activeDocument()
@@ -170,6 +198,8 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
 when isMainModule:
   when defined(macosx):
     setupDemoUi()
+    activeWorkspace = openWorkspace(getCurrentDir())
+    refreshWorkspacePreview()
     platformSetTextCallback(receiveNativeText)
     platformSetInputCallback(receiveNativeInput)
     platformSetFileCallback(receiveNativeFile)

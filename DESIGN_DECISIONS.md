@@ -121,6 +121,20 @@ buffer mutations. Candidate positioning therefore follows editor state rather
 than the transient `NSTextInputClient` selection range, which is necessary for
 UTF-8 and Japanese composition.
 
+## M3-004: Render marked IME text in the native text surface
+
+Marked text is kept separate from the committed editor buffer. The native
+platform bridge stores it independently and redraws it at the cursor with a
+underline, while committed text continues through the normal editor callback.
+This prevents composition updates from corrupting Undo/Redo state.
+
+## M6-004: Open folders through the existing file callback contract
+
+The macOS open panel accepts both files and directories. The existing callback
+passes the selected path unchanged; the application checks whether it is a
+directory and opens a `Workspace`, while files continue through
+`EditorSession`. This keeps Cocoa path selection out of the workspace service.
+
 ## M6-003: Search yields cooperatively and streams file contents
 
 The UI-facing `SearchJob` processes a bounded number of files and lines per

@@ -17,6 +17,8 @@ static NimculusFileCallback g_file_callback = NULL;
 static NimculusCommandCallback g_command_callback = NULL;
 static double g_ui_rect[4] = {360.0, 260.0, 240.0, 120.0};
 static double g_editor_cursor[2] = {8.0, 12.0};
+static NSString *g_editor_text = @"";
+static NSString *g_marked_text = @"";
 static NSString *g_clipboard_text = @"";
 static char g_dialog_path[PATH_MAX] = {0};
 
@@ -97,6 +99,18 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
     CTLineDraw(line, context);
     CFRelease(line);
     lineStartByte += lineLength + 1;
+  }
+  if (g_marked_text.length > 0) {
+    NSDictionary *markedAttributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
+      (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor,
+      (id)kCTUnderlineStyleAttributeName: @1 };
+    NSAttributedString *marked = [[NSAttributedString alloc] initWithString:g_marked_text
+      attributes:markedAttributes];
+    CTLineRef markedLine = CTLineCreateWithAttributedString((CFAttributedStringRef)marked);
+    CGFloat baseline = height - g_editor_cursor[1] - 14.0;
+    CGContextSetTextPosition(context, g_editor_cursor[0], MAX(0.0, baseline));
+    CTLineDraw(markedLine, context);
+    CFRelease(markedLine);
   }
   CFRelease(font);
   CGContextRelease(context);
@@ -377,6 +391,8 @@ static void logInput(NSString *kind, NSEvent *event) {
 
 - (void)openDocument:(id)sender {
   NSOpenPanel *panel = [NSOpenPanel openPanel];
+  panel.canChooseFiles = YES;
+  panel.canChooseDirectories = YES;
   if ([panel runModal] == NSModalResponseOK) {
     if (g_file_callback) g_file_callback(panel.URL.path.UTF8String, false);
   }
@@ -440,7 +456,7 @@ static void logInput(NSString *kind, NSEvent *event) {
     textDescriptor.fragmentFunction = [library newFunctionWithName:@"textFs"];
     textDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
     g_text_pipeline = [device newRenderPipelineStateWithDescriptor:textDescriptor error:&error];
-    updateEditorTextTexture(device, @"Nimculus M2/M3");
+    updateEditorTextTexture(device, g_editor_text);
   }
 
   NSRect frame = NSMakeRect(0, 0, 960, 640);
@@ -503,8 +519,13 @@ void nimculus_platform_set_editor_cursor(double x, double y) {
   g_editor_cursor[1] = y;
 }
 void nimculus_platform_set_editor_text(const char *utf8) {
-  NSString *text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";
-  if (g_queue) updateEditorTextTexture(g_queue.device, text);
+  g_editor_text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text);
+  if (g_active_view) [g_active_view drawFrame];
+}
+void nimculus_platform_set_editor_composition(const char *utf8) {
+  g_marked_text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text);
   if (g_active_view) [g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans, uint32_t count) {
