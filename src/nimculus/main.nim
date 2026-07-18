@@ -502,8 +502,7 @@ proc refreshEditorSyntax() =
     let text = document[].buffer.toString()
     platformSetEditorText(text.cstring, uint32(text.len))
 
-proc receiveNativeText(text: cstring, composing: bool) {.cdecl.} =
-  let value = if text == nil: "" else: $text
+proc receiveNativeTextValue(value: string, composing: bool) =
   imeState.receiveText(value, composing)
   when defined(macosx):
     if composing:
@@ -519,6 +518,9 @@ proc receiveNativeText(text: cstring, composing: bool) {.cdecl.} =
       editorViewState.moveCursor(selected.startByte + value.len)
       syncEditorCursor()
       refreshEditorSyntax()
+
+proc receiveNativeText(text: cstring, composing: bool) {.cdecl.} =
+  receiveNativeTextValue(if text == nil: "" else: $text, composing)
 
 proc receiveNativeSelection(startByte, endByte: uint32) {.cdecl.} =
   let document = activeDocument()
@@ -957,17 +959,19 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       refreshEditorSyntax()
   elif name == "copy" and document != nil:
     let selected = editorViewState.selectedRange()
-    clipboardSet(document[].buffer.substring(selected.startByte, selected.endByte).cstring)
+    let copied = document[].buffer.substring(selected.startByte, selected.endByte)
+    clipboardSet(copied.cstring, uint32(copied.len))
   elif name == "cut" and document != nil:
     let selected = editorViewState.selectedRange()
-    clipboardSet(document[].buffer.substring(selected.startByte, selected.endByte).cstring)
+    let copied = document[].buffer.substring(selected.startByte, selected.endByte)
+    clipboardSet(copied.cstring, uint32(copied.len))
     if selected.endByte > selected.startByte:
       document[].buffer.edit(Edit(startByte: selected.startByte, endByte: selected.endByte, text: ""))
       editorViewState.moveCursor(selected.startByte)
       refreshEditorSyntax()
       syncEditorCursor()
   elif name == "paste":
-    receiveNativeText(clipboardGet(), false)
+    receiveNativeTextValue(clipboardGet(), false)
   elif name == "selectAll" and document != nil:
     editorViewState.selection.anchor = 0
     editorViewState.selection.active = document[].buffer.toString().len

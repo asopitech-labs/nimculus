@@ -70,7 +70,16 @@ proc platformShowFindDocument*() {.importc: "nimculus_platform_show_find_documen
 proc platformShowWorkspaceSearch*() {.importc: "nimculus_platform_show_workspace_search", cdecl.}
 proc platformShowCommandPalette*() {.importc: "nimculus_platform_show_command_palette", cdecl.}
 proc platformSetUiRectangle*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_ui_rectangle", cdecl.}
-proc clipboardSet*(text: cstring) {.importc: "nimculus_clipboard_set", cdecl.}
-proc clipboardGet*(): cstring {.importc: "nimculus_clipboard_get", cdecl.}
+proc clipboardSet*(text: cstring, length: uint32) {.importc: "nimculus_clipboard_set", cdecl.}
+proc clipboardUtf8Length*(): uint32 {.importc: "nimculus_clipboard_utf8_length", cdecl.}
+proc clipboardUtf8Bytes*(): pointer {.importc: "nimculus_clipboard_utf8_bytes", cdecl.}
+
+proc clipboardGet*(): string =
+  let length = int(clipboardUtf8Length())
+  if length <= 0: return ""
+  let bytes = clipboardUtf8Bytes()
+  if bytes == nil: return ""
+  result = newString(length)
+  copyMem(addr result[0], bytes, length)
 proc chooseOpenFile*(): cstring {.importc: "nimculus_choose_open_file", cdecl.}
 proc chooseSaveFile*(): cstring {.importc: "nimculus_choose_save_file", cdecl.}

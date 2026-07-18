@@ -31,6 +31,7 @@ static NSUInteger g_editor_selection_end = 0;
 static NSString *g_editor_text = @"";
 static NSString *g_marked_text = @"";
 static NSString *g_clipboard_text = @"";
+static NSData *g_clipboard_utf8_data = nil;
 static char g_dialog_path[PATH_MAX] = {0};
 static BOOL g_editor_dirty = NO;
 static BOOL g_close_decision = NO;
@@ -2065,15 +2066,24 @@ void nimculus_platform_set_ui_rectangle(double x, double y, double width, double
   g_ui_rect[0] = x; g_ui_rect[1] = y; g_ui_rect[2] = width; g_ui_rect[3] = height;
   markSceneFullyDirty();
 }
-void nimculus_clipboard_set(const char *utf8) {
-  g_clipboard_text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";
+void nimculus_clipboard_set(const char *utf8, uint32_t length) {
+  NSData *data = (utf8 && length > 0) ?
+    [NSData dataWithBytes:utf8 length:length] : [NSData data];
+  NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+  g_clipboard_text = text ?: @"";
+  g_clipboard_utf8_data = [g_clipboard_text dataUsingEncoding:NSUTF8StringEncoding];
   NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
   [pasteboard clearContents];
   [pasteboard setString:g_clipboard_text forType:NSPasteboardTypeString];
 }
-const char *nimculus_clipboard_get(void) {
+uint32_t nimculus_clipboard_utf8_length(void) {
   NSString *text = [[NSPasteboard generalPasteboard] stringForType:NSPasteboardTypeString];
-  return text ? text.UTF8String : "";
+  g_clipboard_text = text ?: @"";
+  g_clipboard_utf8_data = [g_clipboard_text dataUsingEncoding:NSUTF8StringEncoding];
+  return (uint32_t)g_clipboard_utf8_data.length;
+}
+const uint8_t *nimculus_clipboard_utf8_bytes(void) {
+  return (const uint8_t *)g_clipboard_utf8_data.bytes;
 }
 
 static const char *runFilePanel(BOOL save) {
