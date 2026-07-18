@@ -261,6 +261,23 @@ one-way at this boundary: Nim updates the native `selectedTextRange` through
 come back through the selection callback. Adding an ad-hoc Objective-C setter
 would not be a supported AppKit callback and could create feedback loops.
 
+## M3-014: Invalidate AppKit IME coordinates after editor movement
+
+Zed calls `NSTextInputContext.invalidateCharacterCoordinates` after the
+focused editor's geometry changes. Nimculus mirrors that boundary notification
+after synchronizing scroll, cursor, and selection state, so macOS can recompute
+the candidate window position after cursor movement, scrolling, or navigation.
+The call is a no-op when no input context is active.
+
+## M3-015: Clear native marked text when the document changes
+
+Resetting only the Nim composition payload is insufficient because AppKit
+keeps `markedText` and `markedTextRange` on the `NSTextInputClient` object.
+Document open, reload, and new-document transitions therefore clear both the
+Nim IME state and the native marked-text properties, matching Zed's explicit
+`unmark_text` path and preventing stale composition from being reported for
+the next document.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback

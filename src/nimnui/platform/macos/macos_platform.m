@@ -179,6 +179,70 @@ static void setScissorForRegion(id<MTLRenderCommandEncoder> encoder,
   if (scissor.width > 0 && scissor.height > 0) [encoder setScissorRect:scissor];
 }
 
+static NimculusPaintRegion intersectPaintRegions(NimculusPaintRegion a,
+                                                 NimculusPaintRegion b) {
+  double left = MAX(a.x, b.x);
+  double top = MAX(a.y, b.y);
+  double right = MIN(a.x + a.width, b.x + b.width);
+  double bottom = MIN(a.y + a.height, b.y + b.height);
+  NimculusPaintRegion result = {
+    (float)left, (float)top,
+    (float)MAX(0.0, right - left),
+    (float)MAX(0.0, bottom - top)
+  };
+  return result;
+}
+
+static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
+                             id<MTLDevice> device, CGSize logicalSize,
+                             NimculusPaintCommand paint) {
+  if (paint.kind == 0) { // rectangle
+    drawColoredRectangle(encoder, device, logicalSize,
+      paint.x, paint.y, paint.width, paint.height,
+      0.15f, 0.48f, 0.92f, 1.0f);
+  } else if (paint.kind == 1) { // border
+    const double thickness = 2.0;
+    drawColoredRectangle(encoder, device, logicalSize,
+      paint.x, paint.y, paint.width, thickness, 0.15f, 0.48f, 0.92f, 1.0f);
+    drawColoredRectangle(encoder, device, logicalSize,
+      paint.x, paint.y + paint.height - thickness, paint.width, thickness,
+      0.15f, 0.48f, 0.92f, 1.0f);
+    drawColoredRectangle(encoder, device, logicalSize,
+      paint.x, paint.y, thickness, paint.height, 0.15f, 0.48f, 0.92f, 1.0f);
+    drawColoredRectangle(encoder, device, logicalSize,
+      paint.x + paint.width - thickness, paint.y, thickness, paint.height,
+      0.15f, 0.48f, 0.92f, 1.0f);
+  } else if (paint.kind == 2) { // rounded rectangle
+    drawRoundedRectangle(encoder, device, logicalSize,
+      paint.x, paint.y, paint.width, paint.height, paint.radius,
+      0.15f, 0.48f, 0.92f, 1.0f);
+  } else if (paint.kind == 3) { // text placeholder; M3 owns real text shaping
+    drawColoredRectangle(encoder, device, logicalSize,
+      paint.x, paint.y, paint.width, paint.height,
+      0.55f, 0.62f, 0.72f, 0.75f);
+  } else if (paint.kind == 4) { // image placeholder until a texture handle is supplied
+    drawColoredRectangle(encoder, device, logicalSize,
+      paint.x, paint.y, paint.width, paint.height,
+      0.28f, 0.34f, 0.42f, 1.0f);
+  } else if (paint.kind == 7) { // shadow
+    drawColoredRectangle(encoder, device, logicalSize,
+      paint.x + 3.0, paint.y + 3.0, paint.width, paint.height,
+      0.0f, 0.0f, 0.0f, 0.35f);
+  } else if (paint.kind == 8) { // caret
+    drawColoredRectangle(encoder, device, logicalSize,
+      paint.x, paint.y, paint.width, paint.height,
+      0.85f, 0.90f, 1.0f, 1.0f);
+  } else if (paint.kind == 9) { // selection
+    drawColoredRectangle(encoder, device, logicalSize,
+      paint.x, paint.y, paint.width, paint.height,
+      0.20f, 0.40f, 0.75f, 0.45f);
+  } else if (paint.kind == 10) { // scrollbar
+    drawColoredRectangle(encoder, device, logicalSize,
+      paint.x, paint.y, paint.width, paint.height,
+      0.45f, 0.50f, 0.58f, 0.85f);
+  }
+}
+
 static id<MTLTexture> sceneTextureForDevice(id<MTLDevice> device, CGSize drawableSize) {
   if (drawableSize.width <= 0 || drawableSize.height <= 0) return nil;
   if (g_scene_texture && (g_scene_texture.width != (NSUInteger)drawableSize.width ||
@@ -511,56 +575,31 @@ static void logInput(NSString *kind, NSEvent *event) {
             0.055f, 0.067f, 0.090f, 1.0f);
         }
       }
-      MTLScissorRect fullScissor = {0, 0, scene.width, scene.height};
-      [encoder setScissorRect:fullScissor];
-      for (uint32_t i = 0; i < g_paint_count; i++) {
-        NimculusPaintCommand paint = g_paint_commands[i];
-        NimculusPaintRegion clip = {paint.clip_x, paint.clip_y, paint.clip_width, paint.clip_height};
-        setScissorForRegion(encoder, clip, logicalSize, drawableSize);
-        if (paint.kind == 0) { // rectangle
-          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
-            paint.x, paint.y, paint.width, paint.height,
-            0.15f, 0.48f, 0.92f, 1.0f);
-        } else if (paint.kind == 1) { // border
-          const double thickness = 2.0;
-          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
-            paint.x, paint.y, paint.width, thickness, 0.15f, 0.48f, 0.92f, 1.0f);
-          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
-            paint.x, paint.y + paint.height - thickness, paint.width, thickness,
-            0.15f, 0.48f, 0.92f, 1.0f);
-          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
-            paint.x, paint.y, thickness, paint.height, 0.15f, 0.48f, 0.92f, 1.0f);
-          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
-            paint.x + paint.width - thickness, paint.y, thickness, paint.height,
-            0.15f, 0.48f, 0.92f, 1.0f);
-        } else if (paint.kind == 2) { // rounded rectangle
-          drawRoundedRectangle(encoder, drawable.texture.device, logicalSize,
-            paint.x, paint.y, paint.width, paint.height, paint.radius,
-            0.15f, 0.48f, 0.92f, 1.0f);
-        } else if (paint.kind == 3) { // text placeholder; M3 owns real text shaping
-          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
-            paint.x, paint.y, paint.width, paint.height,
-            0.55f, 0.62f, 0.72f, 0.75f);
-        } else if (paint.kind == 4) { // image placeholder until a texture handle is supplied
-          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
-            paint.x, paint.y, paint.width, paint.height,
-            0.28f, 0.34f, 0.42f, 1.0f);
-        } else if (paint.kind == 7) { // shadow
-          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
-            paint.x + 3.0, paint.y + 3.0, paint.width, paint.height,
-            0.0f, 0.0f, 0.0f, 0.35f);
-        } else if (paint.kind == 8) { // caret
-          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
-            paint.x, paint.y, paint.width, paint.height,
-            0.85f, 0.90f, 1.0f, 1.0f);
-        } else if (paint.kind == 9) { // selection
-          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
-            paint.x, paint.y, paint.width, paint.height,
-            0.20f, 0.40f, 0.75f, 0.45f);
-        } else if (paint.kind == 10) { // scrollbar
-          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
-            paint.x, paint.y, paint.width, paint.height,
-            0.45f, 0.50f, 0.58f, 0.85f);
+      if (g_paint_dirty_count == 0) {
+        MTLScissorRect fullScissor = {0, 0, scene.width, scene.height};
+        [encoder setScissorRect:fullScissor];
+        for (uint32_t i = 0; i < g_paint_count; i++) {
+          NimculusPaintCommand paint = g_paint_commands[i];
+          NimculusPaintRegion clip = {paint.clip_x, paint.clip_y,
+                                      paint.clip_width, paint.clip_height};
+          setScissorForRegion(encoder, clip, logicalSize, drawableSize);
+          drawPaintCommand(encoder, drawable.texture.device, logicalSize, paint);
+        }
+      } else {
+        // Retained scene pixels outside the damage regions stay intact. Each
+        // command is therefore clipped to dirty ∩ command clip, matching the
+        // damage/scissor boundary used by Zed's renderer.
+        for (uint32_t dirtyIndex = 0; dirtyIndex < g_paint_dirty_count; dirtyIndex++) {
+          NimculusPaintRegion dirty = g_paint_dirty_regions[dirtyIndex];
+          for (uint32_t i = 0; i < g_paint_count; i++) {
+            NimculusPaintCommand paint = g_paint_commands[i];
+            NimculusPaintRegion clip = {paint.clip_x, paint.clip_y,
+                                        paint.clip_width, paint.clip_height};
+            NimculusPaintRegion visible = intersectPaintRegions(dirty, clip);
+            if (visible.width <= 0 || visible.height <= 0) continue;
+            setScissorForRegion(encoder, visible, logicalSize, drawableSize);
+            drawPaintCommand(encoder, drawable.texture.device, logicalSize, paint);
+          }
         }
       }
       if (g_paint_count == 0) {
@@ -1344,6 +1383,14 @@ void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t lin
   g_editor_cursor[1] = 12.0 + visibleLine * 18.0;
   markSceneFullyDirty();
 }
+void nimculus_platform_invalidate_ime_coordinates(void) {
+  // Zed invalidates NSTextInputContext's cached character coordinates whenever
+  // the editor cursor moves. Without this, AppKit can keep placing the IME
+  // candidate window at the previous cursor position after navigation or
+  // scrolling.
+  NSTextInputContext *inputContext = [NSTextInputContext currentInputContext];
+  if (inputContext) [inputContext invalidateCharacterCoordinates];
+}
 uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y) {
   NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
   if (lines.count == 0) return 0;
@@ -1453,6 +1500,17 @@ void nimculus_platform_set_editor_text(const char *utf8) {
 }
 void nimculus_platform_set_editor_composition(const char *utf8) {
   g_marked_text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";
+  markSceneFullyDirty();
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text);
+  if (g_active_view) [g_active_view drawFrame];
+}
+void nimculus_platform_clear_editor_composition(void) {
+  g_marked_text = @"";
+  if (g_active_view) {
+    NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+    view.markedText = @"";
+    view.markedTextRange = NSMakeRange(NSNotFound, 0);
+  }
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text);
   if (g_active_view) [g_active_view drawFrame];

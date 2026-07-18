@@ -13,6 +13,11 @@ suite "macOS platform contract":
     let after = platformInputCount()
     check after >= before
 
+  test "IME coordinate invalidation is safe without an active input context":
+    platformInvalidateImeCoordinates()
+    platformClearEditorComposition()
+    check true
+
   test "native Metal layer contract is available":
     # CI and terminal-only sessions may not expose a Metal device. In that
     # environment the native smoke test is unavailable, not a contract failure.

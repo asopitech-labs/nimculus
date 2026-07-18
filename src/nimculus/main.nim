@@ -142,7 +142,7 @@ var suppressRecoveryWrite = false
 proc resetImeState() =
   imeState = newImeState()
   when defined(macosx):
-    platformSetEditorComposition("".cstring)
+    platformClearEditorComposition()
 
 proc activeDocument(): ptr FileDocument
 proc refreshWorkspacePreview()
@@ -381,6 +381,7 @@ proc syncEditorCursor() =
     let selection = if document == nil: (startByte: 0, endByte: 0) else:
       editorViewState.selectedRange()
     platformSetEditorSelection(uint32(selection.startByte), uint32(selection.endByte))
+    platformInvalidateImeCoordinates()
     platformSetEditorDirty(document != nil and document[].buffer.isDirty)
 
 when defined(macosx):

@@ -40,6 +40,7 @@ proc platformSetFileCallback*(callback: FileCallback) {.importc: "nimculus_platf
 proc platformSetCommandCallback*(callback: CommandCallback) {.importc: "nimculus_platform_set_command_callback", cdecl.}
 proc platformSetEditorCursor*(x, y: cdouble) {.importc: "nimculus_platform_set_editor_cursor", cdecl.}
 proc platformSetEditorCursorByte*(byteOffset, line: uint32) {.importc: "nimculus_platform_set_editor_cursor_byte", cdecl.}
+proc platformInvalidateImeCoordinates*() {.importc: "nimculus_platform_invalidate_ime_coordinates", cdecl.}
 proc platformEditorByteOffsetAtPoint*(x, y: cdouble): uint32 {.importc: "nimculus_platform_editor_byte_offset_at_point", cdecl.}
 proc platformEditorUtf16OffsetAtPoint*(x, y: cdouble): uint32 {.importc: "nimculus_platform_editor_utf16_offset_at_point", cdecl.}
 proc platformSetEditorScrollLine*(line: uint32) {.importc: "nimculus_platform_set_editor_scroll_line", cdecl.}
@@ -50,6 +51,7 @@ proc platformShowSavePanelAndClose*() {.importc: "nimculus_platform_show_save_pa
 proc platformSetEditorSelection*(startByte, endByte: uint32) {.importc: "nimculus_platform_set_editor_selection", cdecl.}
 proc platformSetEditorText*(text: cstring) {.importc: "nimculus_platform_set_editor_text", cdecl.}
 proc platformSetEditorComposition*(text: cstring) {.importc: "nimculus_platform_set_editor_composition", cdecl.}
+proc platformClearEditorComposition*() {.importc: "nimculus_platform_clear_editor_composition", cdecl.}
 proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32) {.importc: "nimculus_platform_set_editor_highlights", cdecl.}
 proc platformSetRecentFiles*(paths: ptr cstring, count: uint32) {.importc: "nimculus_platform_set_recent_files", cdecl.}
 proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}
