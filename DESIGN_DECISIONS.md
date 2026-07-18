@@ -554,6 +554,11 @@ is redirected to a unique temporary file. Cancellation terminates the process
 before the caller waits for completion, matching Zed's cancellable search-task
 boundary.
 
+Workspace ignore evaluation delegates Git-compatible pattern semantics to the
+`gitignore` package's `IgnoreStack`, mirroring Zed's `ignore` crate. Each root
+owns its own lazy stack so nested `.gitignore` files and negation precedence do
+not leak between workspace roots.
+
 Filesystem callbacks are treated as producer threads, not as UI state owners.
 The workspace watcher appends under a lock, and the UI polling boundary drains
 the queue under the same lock before applying a refresh. This prevents a

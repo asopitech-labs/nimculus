@@ -23,6 +23,28 @@ suite "M6 workspace":
     removeDir(root / "src"); removeDir(root / "ignored");
     removeFile(root / ".gitignore"); removeFile(root / "cache.tmp"); removeDir(root)
 
+  test "gitignore supports negation, anchored globs, and nested files":
+    let root = getTempDir() / "nimculus-m6-ignore-spec"
+    createDir(root); createDir(root / "src"); createDir(root / "build")
+    createDir(root / "src" / "nested")
+    writeFile(root / ".gitignore", "*.log\n!/keep.log\n/build/\n")
+    writeFile(root / "keep.log", "keep")
+    writeFile(root / "drop.log", "drop")
+    writeFile(root / "build" / "artifact.txt", "artifact")
+    writeFile(root / "src" / ".gitignore", "nested/\n")
+    writeFile(root / "src" / "nested" / "file.txt", "nested")
+    let workspace = openWorkspace(root)
+    let entries = workspace.enumerateFiles()
+    check entries.allIt(not it.relativePath.endsWith("drop.log"))
+    check entries.allIt(not it.relativePath.startsWith("build/"))
+    check entries.allIt(not it.relativePath.startsWith("src/nested/"))
+    check entries.anyIt(it.relativePath == "keep.log")
+    removeFile(root / "src" / "nested" / "file.txt"); removeDir(root / "src" / "nested")
+    removeFile(root / "src" / ".gitignore"); removeDir(root / "src")
+    removeFile(root / "build" / "artifact.txt"); removeDir(root / "build")
+    removeFile(root / ".gitignore"); removeFile(root / "keep.log"); removeFile(root / "drop.log")
+    removeDir(root)
+
   test "search can be cancelled":
     let root = getTempDir() / "nimculus-m6-search"
     createDir(root)

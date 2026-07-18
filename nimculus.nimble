@@ -7,6 +7,7 @@ bin           = @ ["nimculus/main"]
 
 requires "nim >= 2.0.0"
 requires "graphemes >= 0.12.0"
+requires "gitignore >= 0.1.0"
 
 task build, "Build the Nimculus macOS application":
   exec "nim c --mm:arc -d:release src/nimculus/main.nim"

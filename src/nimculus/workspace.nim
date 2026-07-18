@@ -5,6 +5,7 @@ import std/algorithm
 import std/osproc
 import std/locks
 import std/times
+import gitignore/repo
 
 when defined(posix):
   import posix
@@ -44,7 +45,7 @@ type
     root*: string
     roots*: seq[string]
     entries*: Table[string, WorkspaceEntry]
-    ignoredPatternsByRoot: Table[string, seq[string]]
+    ignoreStacksByRoot: Table[string, IgnoreStack]
     watchers: seq[pointer]
     changes*: seq[string]
     changesLock: Lock
@@ -58,36 +59,23 @@ when defined(macosx):
 proc newCancelToken*(): CancelToken = CancelToken(cancelled: false)
 proc cancel*(token: CancelToken) = token.cancelled = true
 
-proc matchesIgnore(path, pattern: string): bool =
-  let normalized = path.replace("\\", "/")
-  let p = pattern.strip(chars = {'/'})
-  if p.len == 0 or p[0] == '#': return false
-  if p.startsWith("*"): return normalized.endsWith(p[1..^1])
-  normalized == p or normalized.endsWith("/" & p) or normalized.contains("/" & p & "/")
-
-proc loadIgnoreFile(root: string): seq[string] =
-  let path = root / ".gitignore"
-  if fileExists(path):
-    for line in readFile(path).splitLines:
-      if line.strip.len > 0 and not line.strip.startsWith("#"): result.add(line.strip)
-
-proc isIgnored(workspace: Workspace, root, relative: string): bool =
+proc isIgnored(workspace: Workspace, root, relative: string, isDir: bool): bool =
   if relative == ".git" or relative.startsWith(".git/"): return true
-  for pattern in workspace.ignoredPatternsByRoot.getOrDefault(root, @[]):
-    if matchesIgnore(relative, pattern): return true
+  if root notin workspace.ignoreStacksByRoot: return false
+  workspace.ignoreStacksByRoot[root].isIgnored(relative, isDir)
 
 proc openWorkspace*(root: string): Workspace =
   result = Workspace(root: absolutePath(root))
   initLock(result.changesLock)
   result.roots = @[result.root]
-  result.ignoredPatternsByRoot = initTable[string, seq[string]]()
-  result.ignoredPatternsByRoot[result.root] = loadIgnoreFile(result.root)
+  result.ignoreStacksByRoot = initTable[string, IgnoreStack]()
+  result.ignoreStacksByRoot[result.root] = newIgnoreStack(result.root)
 
 proc addRoot*(workspace: Workspace, root: string) =
   let absolute = absolutePath(root)
   if absolute notin workspace.roots:
     workspace.roots.add(absolute)
-    workspace.ignoredPatternsByRoot[absolute] = loadIgnoreFile(absolute)
+    workspace.ignoreStacksByRoot[absolute] = newIgnoreStack(absolute)
 
 proc rootPaths*(workspace: Workspace): seq[string] = workspace.roots
 
@@ -119,7 +107,7 @@ proc listChildrenAt*(workspace: Workspace, root: string; relative = ""): seq[Wor
   if not dirExists(directory): return
   for kind, path in walkDir(directory, relative = false):
     let relativePath = relative / path.extractFilename
-    let ignored = workspace.isIgnored(root, relativePath)
+    let ignored = workspace.isIgnored(root, relativePath, kind == pcDir)
     let entry = WorkspaceEntry(path: path, relativePath: relativePath,
       kind: if kind == pcDir: WorkspaceFileKind.directory else: WorkspaceFileKind.file, ignored: ignored)
     workspace.entries[root / relativePath] = entry
