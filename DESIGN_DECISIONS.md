@@ -368,6 +368,14 @@ Only existing directories are restored, and the first valid root becomes the
 active workspace while later roots are added before watcher startup. This
 preserves the workspace topology without persisting transient file contents.
 
+## M6-015: Use the bounded text surface for initial Quick Open
+
+Quick Open sends its query through the native command callback and reuses the
+Workspace fuzzy-search service. The bounded result list is stored as
+`WorkspaceEntry` rows, so the same pointer-to-row mapping opens a selected file
+or directory. This keeps the first vertical slice small while preserving the
+search service's cancellation and root-aware path semantics.
+
 ## M6-003: Search yields cooperatively and streams file contents
 
 The UI-facing `SearchJob` processes a bounded number of files and lines per

@@ -110,6 +110,7 @@ var workspaceSearchQuery = ""
 var workspaceSearchResults: seq[SearchResult]
 var workspaceSearchCancelled = false
 var workspacePreviewEntries: seq[WorkspaceEntry]
+var workspacePreviewMode = ""
 var externalAlertShown = false
 var editorPointerDragging = false
 var sessionFilePath = ""
@@ -178,6 +179,7 @@ proc openActiveWorkspace(path: string) =
 proc refreshWorkspacePreview() =
   when defined(macosx):
     if activeWorkspace == nil: return
+    workspacePreviewMode = "tree"
     workspacePreviewEntries.setLen(0)
     var lines = @["Workspace: " & activeWorkspace.root]
     for rootIndex, root in activeWorkspace.rootPaths:
@@ -215,6 +217,7 @@ proc workspaceRelativePayload(name, prefix: string): string =
 proc renderWorkspaceSearch() =
   when defined(macosx):
     if activeWorkspace == nil or workspaceSearchQuery.len == 0: return
+    workspacePreviewMode = "search"
     workspacePreviewEntries.setLen(0)
     var lines = @["Search: " & workspaceSearchQuery]
     for result in workspaceSearchResults:
@@ -239,6 +242,20 @@ proc showWorkspaceSearch(query: string) =
     workspaceSearchCancelled = false
     workspaceSearchJob = activeWorkspace.startSearch(query)
     renderWorkspaceSearch()
+
+proc showQuickOpen(query: string) =
+  when defined(macosx):
+    if activeWorkspace == nil or query.len == 0: return
+    workspacePreviewMode = "quickOpen"
+    workspaceSearchQuery = ""
+    workspacePreviewEntries = activeWorkspace.fuzzyFileSearch(query, limit = 100)
+    var lines = @["Quick Open: " & query]
+    for entry in workspacePreviewEntries:
+      if lines.len >= 12: break
+      lines.add(entry.relativePath)
+    platformSetEditorHighlights(nil, 0)
+    platformSetEditorComposition("".cstring)
+    platformSetEditorText(lines.join("\n").cstring)
 
 proc cancelWorkspaceSearch() =
   when defined(macosx):
@@ -365,6 +382,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       return
     try:
       workspacePreviewEntries.setLen(0)
+      workspacePreviewMode = ""
       editorSession.addTab(openDocument(filePath))
       let document = activeDocument()
       if document != nil: editorViewState.moveCursor(0)
@@ -498,6 +516,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     externalAlertShown = false
   elif name.startsWith("workspaceSearch:"):
     showWorkspaceSearch(name[16 .. ^1])
+  elif name.startsWith("quickOpen:"):
+    showQuickOpen(name[10 .. ^1].strip)
   elif name.startsWith("workspaceCreateFile:") and activeWorkspace != nil:
     let relative = workspaceRelativePayload(name, "workspaceCreateFile:")
     if relative.len == 0: return
@@ -652,9 +672,13 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       editorViewState.scrollLine = max(0, min(maxScroll, editorViewState.scrollLine + delta))
       syncEditorCursor()
       refreshEditorSyntax()
-    if document == nil and kind == pointerDown:
+    if kind == pointerDown and workspacePreviewMode == "quickOpen" and
+        workspacePreviewEntries.len > 0:
       openWorkspaceEntryAtPoint(event.y)
-    if document != nil and kind in {pointerDown, pointerMove, pointerUp}:
+    elif document == nil and kind == pointerDown:
+      openWorkspaceEntryAtPoint(event.y)
+    if document != nil and workspacePreviewMode != "quickOpen" and
+        kind in {pointerDown, pointerMove, pointerUp}:
       let offset = editorOffsetAtPoint(document, event.x, event.y)
       if kind == pointerDown:
         editorPointerDragging = true

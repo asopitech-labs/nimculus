@@ -703,6 +703,10 @@ static void logInput(NSString *kind, NSEvent *event) {
     action:@selector(openRecent:) keyEquivalent:@""]];
   [fileMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Add Workspace Folder…"
     action:@selector(addWorkspaceFolder:) keyEquivalent:@""]];
+  NSMenuItem *quickOpen = [[NSMenuItem alloc] initWithTitle:@"Quick Open…"
+    action:@selector(quickOpen:) keyEquivalent:@"p"];
+  quickOpen.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  [fileMenu addItem:quickOpen];
   [fileMenu addItem:[NSMenuItem separatorItem]];
   [fileMenu addItem:[[NSMenuItem alloc] initWithTitle:@"New File…"
     action:@selector(createWorkspaceFile:) keyEquivalent:@""]];
@@ -910,6 +914,21 @@ static void logInput(NSString *kind, NSEvent *event) {
       NSString *command = [NSString stringWithFormat:@"workspaceAddRoot:%@", url.path];
       g_command_callback(command.UTF8String);
     }
+  }
+}
+
+- (void)quickOpen:(id)sender {
+  (void)sender;
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = @"Quick Open";
+  alert.informativeText = @"Enter part of a file name or path.";
+  NSTextField *field = [self workspacePathField:@"File name"];
+  alert.accessoryView = field;
+  [alert addButtonWithTitle:@"Search"];
+  [alert addButtonWithTitle:@"Cancel"];
+  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
+    NSString *command = [NSString stringWithFormat:@"quickOpen:%@", field.stringValue];
+    g_command_callback(command.UTF8String);
   }
 }
 
