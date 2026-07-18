@@ -361,6 +361,13 @@ callback; Nim validates it as a directory, adds its own ignore configuration,
 restarts the watcher set, and rebuilds the bounded preview. Root labels are
 represented as actionable rows so the preview-to-path mapping remains exact.
 
+## M6-014: Persist workspace roots with the editor session
+
+Workspace roots are stored as absolute paths alongside tabs and recent files.
+Only existing directories are restored, and the first valid root becomes the
+active workspace while later roots are added before watcher startup. This
+preserves the workspace topology without persisting transient file contents.
+
 ## M6-003: Search yields cooperatively and streams file contents
 
 The UI-facing `SearchJob` processes a bounded number of files and lines per

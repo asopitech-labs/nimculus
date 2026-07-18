@@ -96,10 +96,12 @@ suite "M5 editor services":
     writeFile(path, "session")
     var session: EditorSession
     session.addTab(openDocument(path))
+    session.workspaceRoots = @[getTempDir()]
     let sessionPath = getTempDir() / "nimculus-m5-session.json"
     session.saveSession(sessionPath)
     let restored = loadSession(sessionPath)
     check restored.tabs.len == 1
+    check restored.workspaceRoots == @[getTempDir()]
     restored.tabs[0].document.writeRecovery(recoveryPath)
     check recoverDocument(recoveryPath).buffer.toString() == "session"
     removeFile(path); removeFile(sessionPath); removeFile(recoveryPath)

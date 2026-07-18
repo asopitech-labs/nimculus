@@ -24,6 +24,7 @@ type
     split*: bool
     splitDirection*: SplitDirection
     recentFiles*: seq[string]
+    workspaceRoots*: seq[string]
 
 proc fileStamp(path: string): tuple[size: int64, modified: Time] =
   let info = getFileInfo(path)

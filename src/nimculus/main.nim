@@ -129,6 +129,7 @@ proc setupPersistencePaths() =
 proc persistSession() =
   if sessionFilePath.len == 0: return
   try:
+    if activeWorkspace != nil: editorSession.workspaceRoots = activeWorkspace.rootPaths
     saveSession(editorSession, sessionFilePath)
     let document = activeDocument()
     if not suppressRecoveryWrite and document != nil and document[].buffer.isDirty:
@@ -687,7 +688,15 @@ when isMainModule:
     restoreSession()
     syncRecentFiles()
     setupDemoUi()
-    openActiveWorkspace(getCurrentDir())
+    let initialRoot = if editorSession.workspaceRoots.len > 0:
+      editorSession.workspaceRoots[0]
+    else: getCurrentDir()
+    openActiveWorkspace(if dirExists(initialRoot): initialRoot else: getCurrentDir())
+    if editorSession.workspaceRoots.len > 1:
+      for root in editorSession.workspaceRoots[1 .. ^1]:
+        if dirExists(root): activeWorkspace.addRoot(root)
+      activeWorkspace.startWatching()
+      refreshWorkspacePreview()
     platformSetTextCallback(receiveNativeText)
     platformSetInputCallback(receiveNativeInput)
     platformSetFileCallback(receiveNativeFile)

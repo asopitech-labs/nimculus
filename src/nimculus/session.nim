@@ -6,7 +6,8 @@ import nimculus/editor_buffer
 proc saveSession*(session: EditorSession, path: string) =
   var root = %*{"activeTab": session.activeTab, "split": session.split,
                 "splitDirection": $session.splitDirection,
-                "recentFiles": session.recentFiles}
+                "recentFiles": session.recentFiles,
+                "workspaceRoots": session.workspaceRoots}
   var tabs = newJArray()
   for tab in session.tabs: tabs.add(%*{"path": tab.document.path, "title": tab.title})
   root["tabs"] = tabs
@@ -29,6 +30,9 @@ proc loadSession*(path: string): EditorSession =
   if root.hasKey("recentFiles") and root["recentFiles"].kind == JArray:
     for item in root["recentFiles"].getElems:
       if item.kind == JString: result.recentFiles.add(item.getStr)
+  if root.hasKey("workspaceRoots") and root["workspaceRoots"].kind == JArray:
+    for item in root["workspaceRoots"].getElems:
+      if item.kind == JString and dirExists(item.getStr): result.workspaceRoots.add(item.getStr)
   if not root.hasKey("tabs") or root["tabs"].kind != JArray: return
   for item in root["tabs"].getElems:
     if item.kind != JObject or not item.hasKey("path"): continue
