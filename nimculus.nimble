@@ -18,6 +18,7 @@ task test, "Run unit and integration tests":
   exec "nim c --mm:arc -r --path:src tests/test_workspace.nim"
   exec "nim c --mm:arc -r --path:src tests/test_tree_sitter.nim"
   exec "nim c --mm:arc -r --path:src tests/test_syntax.nim"
+  exec "nim c --mm:arc -r --path:src tests/test_editor_syntax.nim"
 
 task benchmark, "Run platform benchmark smoke tests":
   exec "nim c --mm:arc -r --path:src tests/bench_platform.nim"

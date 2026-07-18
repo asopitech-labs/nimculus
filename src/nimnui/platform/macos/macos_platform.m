@@ -23,6 +23,38 @@ static id<MTLRenderPipelineState> g_pipeline = nil;
 static id<MTLRenderPipelineState> g_text_pipeline = nil;
 static id<MTLCommandQueue> g_queue = nil;
 static id<MTLTexture> g_text_texture = nil;
+static id g_active_view = nil;
+
+static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
+  if (!device) return;
+  const size_t width = 1024, height = 256;
+  NSMutableData *pixels = [NSMutableData dataWithLength:width * height];
+  CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceGray();
+  CGContextRef context = CGBitmapContextCreate(pixels.mutableBytes, width, height, 8,
+    width, colorSpace, (CGBitmapInfo)kCGImageAlphaNone);
+  CGColorSpaceRelease(colorSpace);
+  if (!context) return;
+  CGContextSetGrayFillColor(context, 1.0, 1.0);
+  CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), 14.0, NULL);
+  NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
+  NSArray<NSString *> *lines = [(text ?: @"") componentsSeparatedByString:@"\n"];
+  NSUInteger visibleLines = MIN(lines.count, (NSUInteger)12);
+  for (NSUInteger index = 0; index < visibleLines; index++) {
+    CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)[[NSAttributedString alloc]
+      initWithString:lines[index] attributes:attributes]);
+    CGContextSetTextPosition(context, 8.0, height - 24.0 * (index + 1));
+    CTLineDraw(line, context);
+    CFRelease(line);
+  }
+  CFRelease(font);
+  CGContextRelease(context);
+  MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm
+    width:width height:height mipmapped:NO];
+  descriptor.usage = MTLTextureUsageShaderRead;
+  g_text_texture = [device newTextureWithDescriptor:descriptor];
+  [g_text_texture replaceRegion:MTLRegionMake2D(0, 0, width, height)
+    mipmapLevel:0 withBytes:pixels.bytes bytesPerRow:width];
+}
 
 static double millisecondsSince(uint64_t start) {
   mach_timebase_info_data_t timebase;
@@ -367,6 +399,7 @@ static void logInput(NSString *kind, NSEvent *event) {
   self.window.title = @"Nimculus";
   [self setupMainMenu];
   self.view = [[NimculusMetalView alloc] initWithFrame:frame];
+  g_active_view = self.view;
   self.window.contentView = self.view;
   [self.window center];
   [self.window makeKeyAndOrderFront:nil];
@@ -404,6 +437,11 @@ void nimculus_platform_set_command_callback(NimculusCommandCallback callback) { 
 void nimculus_platform_set_editor_cursor(double x, double y) {
   g_editor_cursor[0] = x;
   g_editor_cursor[1] = y;
+}
+void nimculus_platform_set_editor_text(const char *utf8) {
+  NSString *text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";
+  if (g_queue) updateEditorTextTexture(g_queue.device, text);
+  if (g_active_view) [g_active_view drawFrame];
 }
 void nimculus_platform_set_ui_rectangle(double x, double y, double width, double height) {
   g_ui_rect[0] = x; g_ui_rect[1] = y; g_ui_rect[2] = width; g_ui_rect[3] = height;

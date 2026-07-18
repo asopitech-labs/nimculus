@@ -13,6 +13,7 @@ tests/test_editor_fuzz
 tests/test_workspace
 tests/test_tree_sitter
 tests/test_syntax
+tests/test_editor_syntax
 tests/bench_editor
 tests/bench_large_editor
 tests/bench_buffer_strategies

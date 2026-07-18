@@ -7,11 +7,11 @@
 | M0：モノレポ基盤 | 🟡 実装済み・CI確認待ち | Apple Silicon のローカル build / test / benchmark は確認済み |
 | M1：macOS ウィンドウと Metal 描画 | 🟡 実装済み・追加検証待ち | Cocoa / Metal / Retina / 基本入力を実装済み |
 | M2：NimNUI 基礎 UI システム | 🟡 実装済み・GUI検証待ち | UIツリー、レイアウト、状態、イベント、PaintList、macOS入力を実装。世代付きIDとUIギャラリー実機検証が残る |
-| M3：macOS テキスト描画と IME | 🟡 実装済み・GUI実機検証待ち | Core Text、glyph atlas/Metal texture、IME、候補位置、clipboardを実装。実エディタへの描画接続と日本語IME実機確認が残る |
+| M3：macOS テキスト描画と IME | 🟡 実装済み・GUI実機検証待ち | Core Text、動的Metal文字テクスチャ、IME、候補位置、clipboardを実装。日本語IMEとRetina実機確認が残る |
 | M4：エディタバッファと編集コア | ✅ 完了 | Piece Table、原子的編集、Undo/Redo、複数カーソル、位置変換、fuzz、候補構造比較を実装・検証済み |
-| M5：macOS 最小実用エディタ | 🟡 実装済み・GUI実機検証待ち | 編集サービスとmacOSメニュー/IME/Finder接続を実装。実エディタ描画、標準編集コマンド、GUI実機確認が残る |
+| M5：macOS 最小実用エディタ | 🟡 実装済み・GUI実機検証待ち | 編集サービス、動的文書表示、macOSメニュー/IME/Finder接続を実装。GUI実機確認が残る |
 | M6：macOS プロジェクト・ワークスペース | 🟡 部分実装 | 遅延ファイルツリー、`.gitignore`、検索キャンセル、FSEvents監視を実装。複数ルート、ファイル操作、ripgrep/fuzzy、Worktree、10万ファイル計測が残る |
-| M7：Tree-sitter | 🟡 部分実装 | Nim/Rust/TypeScript/Python/JSON/MarkdownのFFI、増分解析、構文サービス基盤、可視範囲ハイライトAPIを実装。実エディタへの遅延ハイライト接続が残る |
+| M7：Tree-sitter | 🟡 実装済み・Metal表示接続待ち | Nim/Rust/TypeScript/Python/JSON/MarkdownのFFI、増分解析、構文状態、可視範囲ハイライトAPIをエディタ更新経路へ接続。Metal文字描画への最終接続が残る |
 
 チェック済み項目は、コード実装とローカル検証の両方を確認できたものを示す。CIの実行成功、実機での個別入力、未実装のAPIは未チェックのまま残す。
 

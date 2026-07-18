@@ -2,6 +2,8 @@ import nimnui/nimnui
 import nimculus/editor_app
 import nimculus/editor_buffer
 import nimculus/editor_view
+import nimculus/editor_syntax
+import nimculus/tree_sitter
 
 var demoTree = newUiTree()
 var demoButton = NodeId(0)
@@ -26,6 +28,7 @@ proc setupDemoUi() =
 var imeState = newImeState()
 var editorSession: EditorSession
 var editorViewState = newEditorView()
+var syntaxState: EditorSyntaxState
 
 proc activeDocument(): ptr FileDocument =
   if editorSession.tabs.len == 0 or editorSession.activeTab < 0 or
@@ -39,6 +42,19 @@ proc syncEditorCursor() =
       document[].buffer.lineColumn(editorViewState.cursor)
     platformSetEditorCursor(cdouble(8 + location.column * 8), cdouble(12 + location.line * 18))
 
+proc refreshEditorSyntax() =
+  let document = activeDocument()
+  if document == nil: return
+  var grammar: GrammarKind
+  try: grammar = grammarForPath(document[].path)
+  except ValueError: return
+  if syntaxState == nil or syntaxState.grammar != grammar:
+    if syntaxState != nil: syntaxState.close()
+    syntaxState = newEditorSyntax(document[].path, document[].buffer.toString())
+  elif syntaxState != nil:
+    syntaxState.update(document[].buffer.toString())
+  when defined(macosx): platformSetEditorText(document[].buffer.toString().cstring)
+
 proc receiveNativeText(text: cstring, composing: bool) {.cdecl.} =
   let value = if text == nil: "" else: $text
   imeState.receiveText(value, composing)
@@ -50,6 +66,7 @@ proc receiveNativeText(text: cstring, composing: bool) {.cdecl.} =
         endByte: selected.endByte, text: value))
       editorViewState.moveCursor(selected.startByte + value.len)
       syncEditorCursor()
+      refreshEditorSyntax()
 
 proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
   if path == nil or ($path).len == 0: return
@@ -63,6 +80,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       let document = activeDocument()
       if document != nil: editorViewState.moveCursor(0)
       syncEditorCursor()
+      refreshEditorSyntax()
     except CatchableError:
       discard
 
@@ -101,6 +119,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       document[].buffer.edit(Edit(startByte: start, endByte: finish, text: ""))
       editorViewState.moveCursor(start)
       syncEditorCursor()
+      refreshEditorSyntax()
   elif name == "undo" and document != nil:
     discard document[].buffer.undo()
   elif name == "redo" and document != nil:
@@ -114,6 +133,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     if selected.endByte > selected.startByte:
       document[].buffer.edit(Edit(startByte: selected.startByte, endByte: selected.endByte, text: ""))
       editorViewState.moveCursor(selected.startByte)
+      refreshEditorSyntax()
       syncEditorCursor()
   elif name == "paste":
     receiveNativeText(clipboardGet(), false)
