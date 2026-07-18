@@ -23,12 +23,15 @@ layout, and command routing are intentionally deferred to later milestones.
 
 ## M2/M3 boundary
 
-M2 introduces the platform-independent NimNUI core: geometry, a parent/child
-UI tree, Row/Column/Stack layout, focus and dirty state, capture/target/bubble
-event phases, and control descriptors. It does not yet submit UI primitives to
-Metal or connect all native events to the tree.
+M2 provides the platform-independent NimNUI core: geometry, a parent/child UI
+tree, Row/Column/Stack layout, alignment, scrolling and viewport clipping,
+focus and dirty state, capture/target/bubble event phases, command shortcuts,
+control descriptors, and a dirty-filtered `PaintList`. Native macOS input is
+translated into Nim events and the demo UI submits a rectangle to Metal.
 
-M3 introduces UTF-8 and minimal grapheme position tracking, a reusable glyph
-atlas allocator, and the native `NSTextInputClient` boundary for composition.
-Font shaping, glyph rasterization into Metal textures, candidate positioning,
-and editor-buffer integration remain follow-up work.
+M3 provides UTF-8/grapheme position tracking, combining and joiner handling,
+Core Text font enumeration and measurement, a reusable glyph atlas with
+eviction and visible-range layout, Core Graphics rasterization into an
+`MTLTexture`, and a Metal text pipeline. The native view implements the
+`NSTextInputClient` contract, forwards composition/commit events to Nim,
+returns screen-space candidate rectangles, and exposes the macOS clipboard.

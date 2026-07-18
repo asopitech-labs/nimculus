@@ -6,10 +6,16 @@ import nimnui/layout
 import nimnui/events
 import nimnui/controls
 import nimnui/text
+import nimnui/render
+import nimnui/ime
+import nimnui/commands
 
 export platform
 export mock_renderer
 export geometry, ui_tree, layout, events, controls, text
+export render
+export ime
+export commands
 
 type
   RendererKind* = enum

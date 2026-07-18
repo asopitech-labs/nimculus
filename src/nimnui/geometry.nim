@@ -15,6 +15,7 @@ type
     top*, right*, bottom*, left*: Pixels
 
 proc px*(value: float32): Pixels = Pixels(value)
+proc `==`*(a, b: Pixels): bool = float32(a) == float32(b)
 proc `+`*(a, b: Pixels): Pixels = Pixels(float32(a) + float32(b))
 proc `-`*(a, b: Pixels): Pixels = Pixels(float32(a) - float32(b))
 proc `*`*(a: Pixels, b: float32): Pixels = Pixels(float32(a) * b)
@@ -34,3 +35,6 @@ proc contains*(rect: Rect, point: Point): bool =
   float32(point.y) >= float32(rect.origin.y) and
   float32(point.x) <= float32(rect.origin.x + rect.size.width) and
   float32(point.y) <= float32(rect.origin.y + rect.size.height)
+
+proc offset*(rect: Rect, dx, dy: Pixels): Rect =
+  Rect(origin: Point(x: rect.origin.x + dx, y: rect.origin.y + dy), size: rect.size)

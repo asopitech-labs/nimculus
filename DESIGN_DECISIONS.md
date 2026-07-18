@@ -31,3 +31,18 @@ The following patterns are relevant to future NimNUI milestones:
   and treat display-link teardown as a lifecycle problem.
 - Keep Cocoa window/event handling separate from the Metal renderer
   (`gpui_macos/src/window.rs` and `metal_renderer.rs`).
+
+## M3-001: Core Text for macOS shaping and atlas source
+
+Core Text is the macOS-native shaping and font discovery boundary. Its line
+and run metrics provide glyph counts and typographic bounds, while the first
+atlas is rasterized into CPU memory and uploaded with `MTLTexture`'s
+`replaceRegion` API. This keeps shaping/font fallback platform-native and
+keeps Metal responsible for texture sampling and presentation.
+
+## M3-002: NSTextInputClient is the IME boundary
+
+The custom `NSView` implements `NSTextInputClient`; marked text, committed text,
+selection, and the candidate rectangle are forwarded through a C callback into
+the Nim IME state. The editor buffer remains separate so composition does not
+mutate committed text prematurely.

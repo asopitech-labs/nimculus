@@ -59,6 +59,12 @@ proc markPaintClean*(tree: var UiTree, id: NodeId) =
   let index = nodeIndex(tree, id)
   if index >= 0: tree.nodes[index].paintDirty = false
 
+proc setState*(tree: var UiTree, id: NodeId, state: UiState) =
+  let index = nodeIndex(tree, id)
+  if index >= 0:
+    tree.nodes[index].state = state
+    tree.nodes[index].paintDirty = true
+
 proc focus*(tree: var UiTree, id: NodeId): bool =
   let index = nodeIndex(tree, id)
   if index < 0 or not tree.nodes[index].focusable: return false

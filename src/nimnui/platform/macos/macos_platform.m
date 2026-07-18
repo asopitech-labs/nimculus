@@ -1,14 +1,22 @@
 #import <Cocoa/Cocoa.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <CoreText/CoreText.h>
+#import <CoreGraphics/CoreGraphics.h>
 #import <mach/mach_time.h>
 #include "platform.h"
 
 static uint64_t g_input_count = 0;
 static NimculusPlatformMetrics g_metrics = {1.0, 0, 0, 0, 0, 0.0, 0};
+static NimculusInputCallback g_input_callback = NULL;
+static NimculusTextCallback g_text_callback = NULL;
+static double g_ui_rect[4] = {360.0, 260.0, 240.0, 120.0};
+static NSString *g_clipboard_text = @"";
 
 static id<MTLRenderPipelineState> g_pipeline = nil;
+static id<MTLRenderPipelineState> g_text_pipeline = nil;
 static id<MTLCommandQueue> g_queue = nil;
+static id<MTLTexture> g_text_texture = nil;
 
 static double millisecondsSince(uint64_t start) {
   mach_timebase_info_data_t timebase;
@@ -23,6 +31,16 @@ static void logInput(NSString *kind, NSEvent *event) {
   NSLog(@"Nimculus input kind=%@ keyCode=%hu modifiers=0x%lx x=%.1f y=%.1f dx=%.1f dy=%.1f",
         kind, event.keyCode, event.modifierFlags, location.x, location.y,
         event.deltaX, event.deltaY);
+  if (g_input_callback) {
+    NimculusInputEvent input = {
+      .type = (uint32_t)event.type,
+      .key_code = event.keyCode,
+      .modifiers = (uint32_t)event.modifierFlags,
+      .x = location.x, .y = location.y,
+      .delta_x = event.deltaX, .delta_y = event.deltaY,
+    };
+    g_input_callback(&input);
+  }
 }
 
 @interface NimculusMetalView : NSView <NSTextInputClient>
@@ -90,15 +108,33 @@ static void logInput(NSString *kind, NSEvent *event) {
   id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
   if (g_pipeline) {
     [encoder setRenderPipelineState:g_pipeline];
-    static const float vertices[] = {
-      -0.72f, -0.18f, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
-       0.72f, -0.18f, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
-      -0.72f,  0.18f, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
-       0.72f,  0.18f, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
+    float left = (float)(g_ui_rect[0] / self.bounds.size.width * 2.0 - 1.0);
+    float right = (float)((g_ui_rect[0] + g_ui_rect[2]) / self.bounds.size.width * 2.0 - 1.0);
+    float top = (float)(1.0 - g_ui_rect[1] / self.bounds.size.height * 2.0);
+    float bottom = (float)(1.0 - (g_ui_rect[1] + g_ui_rect[3]) / self.bounds.size.height * 2.0);
+    const float vertices[] = {
+      left, bottom, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
+      right, bottom, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
+      left, top, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
+      right, top, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
     };
     id<MTLBuffer> buffer = [drawable.texture.device newBufferWithBytes:vertices
       length:sizeof(vertices) options:MTLResourceStorageModeShared];
     [encoder setVertexBuffer:buffer offset:0 atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+  }
+  if (g_text_pipeline && g_text_texture) {
+    const float textVertices[] = {
+      -0.90f, 0.78f, 0.0f, 0.0f,
+      -0.45f, 0.78f, 1.0f, 0.0f,
+      -0.90f, 0.68f, 0.0f, 1.0f,
+      -0.45f, 0.68f, 1.0f, 1.0f,
+    };
+    id<MTLBuffer> textBuffer = [drawable.texture.device newBufferWithBytes:textVertices
+      length:sizeof(textVertices) options:MTLResourceStorageModeShared];
+    [encoder setRenderPipelineState:g_text_pipeline];
+    [encoder setVertexBuffer:textBuffer offset:0 atIndex:0];
+    [encoder setFragmentTexture:g_text_texture atIndex:0];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
   }
   [encoder endEncoding];
@@ -138,6 +174,9 @@ static void logInput(NSString *kind, NSEvent *event) {
   if (actualRange) *actualRange = range;
   return nil;
 }
+- (NSAttributedString *)attributedString {
+  return [[NSAttributedString alloc] initWithString:self.markedText ?: @""];
+}
 - (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange
       replacementRange:(NSRange)replacementRange {
   if ([string isKindOfClass:[NSAttributedString class]]) {
@@ -151,6 +190,7 @@ static void logInput(NSString *kind, NSEvent *event) {
   self.selectedTextRange = selectedRange;
   NSLog(@"Nimculus IME composition update length=%lu selection={%lu,%lu}",
         self.markedText.length, selectedRange.location, selectedRange.length);
+  if (g_text_callback) g_text_callback(self.markedText.UTF8String, true);
 }
 - (void)unmarkText {
   self.markedText = @"";
@@ -160,15 +200,20 @@ static void logInput(NSString *kind, NSEvent *event) {
   NSString *committed = [string isKindOfClass:[NSAttributedString class]]
     ? [string string] : (NSString *)string;
   NSLog(@"Nimculus IME committed text=%@", committed);
+  if (g_text_callback) g_text_callback(committed.UTF8String, false);
   [self unmarkText];
 }
 - (void)doCommandBySelector:(SEL)selector { NSLog(@"Nimculus IME command=%@", NSStringFromSelector(selector)); }
 - (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
   if (actualRange) *actualRange = range;
-  NSRect cursor = NSMakeRect(0, 0, 1, 20);
+  CGFloat cursorX = 8.0 + self.selectedTextRange.location * 8.0;
+  NSRect cursor = NSMakeRect(cursorX, 12.0, 1, 28);
   return [self.window convertRectToScreen:[self convertRect:cursor toView:nil]];
 }
 - (NSUInteger)characterIndexForPoint:(NSPoint)point { return 0; }
+- (CGFloat)baselineDeltaForCharacterAtIndex:(NSUInteger)index { return 0.0; }
+- (BOOL)drawsVerticallyForCharacterAtIndex:(NSUInteger)index { return NO; }
+- (CGFloat)fractionOfDistanceThroughGlyphForPoint:(NSPoint)point { return 0.0; }
 
 @end
 
@@ -178,6 +223,35 @@ static void logInput(NSString *kind, NSEvent *event) {
 @end
 
 @implementation NimculusAppDelegate
+
+- (void)createTextAtlas:(id<MTLDevice>)device {
+  const size_t width = 512, height = 64;
+  NSMutableData *pixels = [NSMutableData dataWithLength:width * height];
+  CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceGray();
+  CGContextRef context = CGBitmapContextCreate(pixels.mutableBytes, width, height, 8,
+    width, colorSpace, (CGBitmapInfo)kCGImageAlphaNone);
+  CGColorSpaceRelease(colorSpace);
+  if (!context) return;
+  CGContextSetGrayFillColor(context, 1.0, 1.0);
+  CTFontRef font = CTFontCreateWithName(CFSTR("Hiragino Sans"), 28.0, NULL);
+  NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
+  NSAttributedString *string = [[NSAttributedString alloc] initWithString:@"Nimculus M2/M3"
+    attributes:attributes];
+  CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)string);
+  CGContextSetTextPosition(context, 8.0, 12.0);
+  CTLineDraw(line, context);
+  CFRelease(line);
+  CFRelease(font);
+  CGContextRelease(context);
+
+  MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm
+    width:width height:height mipmapped:NO];
+  descriptor.usage = MTLTextureUsageShaderRead;
+  g_text_texture = [device newTextureWithDescriptor:descriptor];
+  [g_text_texture replaceRegion:MTLRegionMake2D(0, 0, width, height)
+    mipmapLevel:0 withBytes:pixels.bytes bytesPerRow:width];
+}
+
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
   id<MTLDevice> device = MTLCreateSystemDefaultDevice();
   g_queue = [device newCommandQueue];
@@ -185,7 +259,10 @@ static void logInput(NSString *kind, NSEvent *event) {
   NSString *source = @"#include <metal_stdlib>\nusing namespace metal;\n"
     "struct V { float4 pos [[position]]; float4 color; };\n"
     "vertex V vs(uint id [[vertex_id]], constant float4 *v [[buffer(0)]]) { V o; o.pos=v[id*2]; o.color=v[id*2+1]; return o; }\n"
-    "fragment float4 fs(V in [[stage_in]]) { return in.color; }";
+    "fragment float4 fs(V in [[stage_in]]) { return in.color; }\n"
+    "struct TV { float4 pos [[position]]; float2 uv; };\n"
+    "vertex TV textVs(uint id [[vertex_id]], constant float4 *v [[buffer(0)]]) { TV o; o.pos=float4(v[id].xy,0,1); o.uv=v[id].zw; return o; }\n"
+    "fragment float4 textFs(TV in [[stage_in]], texture2d<float> atlas [[texture(0)]]) { constexpr sampler s(filter::linear); float a=atlas.sample(s,in.uv).r; return float4(0.85,0.90,1.0,a); }";
   id<MTLLibrary> library = [device newLibraryWithSource:source options:nil error:&error];
   if (library) {
     MTLRenderPipelineDescriptor *descriptor = [MTLRenderPipelineDescriptor new];
@@ -193,6 +270,12 @@ static void logInput(NSString *kind, NSEvent *event) {
     descriptor.fragmentFunction = [library newFunctionWithName:@"fs"];
     descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
     g_pipeline = [device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+    MTLRenderPipelineDescriptor *textDescriptor = [MTLRenderPipelineDescriptor new];
+    textDescriptor.vertexFunction = [library newFunctionWithName:@"textVs"];
+    textDescriptor.fragmentFunction = [library newFunctionWithName:@"textFs"];
+    textDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+    g_text_pipeline = [device newRenderPipelineStateWithDescriptor:textDescriptor error:&error];
+    [self createTextAtlas:device];
   }
 
   NSRect frame = NSMakeRect(0, 0, 960, 640);
@@ -226,3 +309,18 @@ void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics) {
 }
 
 uint64_t nimculus_platform_input_count(void) { return g_input_count; }
+void nimculus_platform_set_input_callback(NimculusInputCallback callback) { g_input_callback = callback; }
+void nimculus_platform_set_text_callback(NimculusTextCallback callback) { g_text_callback = callback; }
+void nimculus_platform_set_ui_rectangle(double x, double y, double width, double height) {
+  g_ui_rect[0] = x; g_ui_rect[1] = y; g_ui_rect[2] = width; g_ui_rect[3] = height;
+}
+void nimculus_clipboard_set(const char *utf8) {
+  g_clipboard_text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";
+  NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+  [pasteboard clearContents];
+  [pasteboard setString:g_clipboard_text forType:NSPasteboardTypeString];
+}
+const char *nimculus_clipboard_get(void) {
+  NSString *text = [[NSPasteboard generalPasteboard] stringForType:NSPasteboardTypeString];
+  return text ? text.UTF8String : "";
+}
