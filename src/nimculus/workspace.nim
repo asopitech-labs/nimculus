@@ -433,7 +433,14 @@ proc changedPaths*(workspace: Workspace): seq[string] =
   if workspace == nil: return
   acquire(workspace.changesLock)
   try:
-    result = workspace.changes
+    # FSEvents may report the same path repeatedly in one burst. Expose the
+    # same coalesced, normalized change-set contract as Zed's UpdatedEntriesSet.
+    var seen = initTable[string, bool]()
+    for path in workspace.changes:
+      let normalized = normalizedPath(path)
+      if normalized notin seen:
+        seen[normalized] = true
+        result.add(normalized)
     workspace.changes.setLen(0)
   finally:
     release(workspace.changesLock)

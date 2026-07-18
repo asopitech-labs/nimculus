@@ -128,6 +128,7 @@ var workspaceSearchJob: SearchJob
 var workspaceSearchQuery = ""
 var workspaceSearchResults: seq[SearchResult]
 var workspaceSearchCancelled = false
+var workspaceQuickOpenQuery = ""
 var workspacePreviewEntries: seq[WorkspaceEntry]
 var workspacePreviewMode = ""
 var externalAlertShown = false
@@ -198,6 +199,7 @@ proc openActiveWorkspace(path: string) =
     activeWorkspace = openWorkspace(path)
     activeWorkspace.startWatching()
     workspaceSearchQuery = ""
+    workspaceQuickOpenQuery = ""
     workspaceSearchResults.setLen(0)
     workspaceSearchCancelled = false
     refreshWorkspacePreview()
@@ -275,6 +277,7 @@ proc showQuickOpen(query: string) =
     if activeWorkspace == nil or query.len == 0: return
     workspacePreviewMode = "quickOpen"
     workspaceSearchQuery = ""
+    workspaceQuickOpenQuery = query
     workspacePreviewEntries = activeWorkspace.fuzzyFileSearch(query, limit = 100)
     var lines = @["Quick Open: " & query]
     for entry in workspacePreviewEntries:
@@ -301,8 +304,22 @@ proc pollWorkspaceSearch() =
     if document != nil and document[].path.len > 0 and document[].externallyChanged() and not externalAlertShown:
       externalAlertShown = true
       platformShowExternalChange(document[].path.cstring)
+    if changed.len > 0:
+      if workspaceSearchJob != nil:
+        # Invalidate results produced against the pre-change filesystem view.
+        workspaceSearchJob.cancelSearch()
+        workspaceSearchResults.setLen(0)
+        workspaceSearchCancelled = false
+        workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery)
+      elif workspacePreviewMode == "search" and workspaceSearchQuery.len > 0:
+        workspaceSearchResults.setLen(0)
+        workspaceSearchCancelled = false
+        workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery)
+      elif workspacePreviewMode == "tree" and document == nil:
+        refreshWorkspacePreview()
+      elif workspacePreviewMode == "quickOpen":
+        showQuickOpen(workspaceQuickOpenQuery)
     if workspaceSearchJob == nil:
-      if changed.len > 0 and document == nil: refreshWorkspacePreview()
       return
     for result in workspaceSearchJob.pollSearch(maxFiles = 8, maxLines = 256):
       if workspaceSearchResults.len < 256: workspaceSearchResults.add(result)

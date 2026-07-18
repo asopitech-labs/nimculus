@@ -88,6 +88,22 @@ suite "M6 workspace":
     check cancelled.isComplete
     removeFile(root / "a.txt"); removeFile(root / "b.txt"); removeDir(root)
 
+  test "changed paths are normalized and coalesced":
+    let root = getTempDir() / "nimculus-m6-change-set"
+    createDir(root)
+    let filePath = root / "a.txt"
+    writeFile(filePath, "value")
+    let workspace = openWorkspace(root)
+    workspace.changes.add(filePath)
+    workspace.changes.add(normalizedPath(root / "." / "a.txt"))
+    workspace.changes.add(root / "b.txt")
+    let changed = workspace.changedPaths()
+    check changed.len == 2
+    check changed[0] == normalizedPath(filePath)
+    check changed[1] == normalizedPath(root / "b.txt")
+    check workspace.changedPaths().len == 0
+    removeFile(filePath); removeDir(root)
+
   test "supports roots, file operations, and fuzzy search":
     let root = getTempDir() / "nimculus-m6-ops"
     let second = getTempDir() / "nimculus-m6-ops-second"

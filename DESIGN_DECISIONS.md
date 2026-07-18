@@ -633,3 +633,22 @@ operations therefore use `createFileAt`, `createDirectoryAt`,
 `deleteEntryAt`, and `renameEntryAt`; the older operations remain convenience
 wrappers for the primary root. This prevents a secondary root from being
 silently redirected to the primary workspace.
+
+## M6-016: Coalesce filesystem changes before UI invalidation
+
+Zed's worktree scanner publishes an `UpdatedEntriesSet` after reconciling
+filesystem events with a new snapshot; consumers do not process every raw
+watcher callback independently. Nimculus keeps the lightweight FSEvents bridge,
+but applies the same boundary in `Workspace.changedPaths`: callback paths are
+drained under the existing lock, normalized, deduplicated in arrival order, and
+only then consumed by the UI. This prevents an FSEvents burst from repeatedly
+rebuilding the preview or restarting search for the same path.
+
+## M6-017: Invalidate workspace search on filesystem changes
+
+Zed associates search results with the current worktree state. Nimculus's
+cooperative search job is therefore cancelled and restarted when the watcher
+drain reports a change, including when the previous job has already completed
+but its search view remains visible. Partial results are cleared before the
+restart, so stale matches are never presented as current. Quick Open retains
+its query and re-runs fuzzy matching on the updated workspace entries.
