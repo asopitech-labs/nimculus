@@ -60,9 +60,45 @@ typedef struct NimculusDrawUniforms {
 
 static id<MTLRenderPipelineState> g_pipeline = nil;
 static id<MTLRenderPipelineState> g_text_pipeline = nil;
+static id<MTLRenderPipelineState> g_glyph_pipeline = nil;
 static id<MTLCommandQueue> g_queue = nil;
 static id<MTLTexture> g_text_texture = nil;
 static CGFloat g_text_texture_scale = 1.0;
+static id<MTLTexture> g_glyph_atlas_texture = nil;
+static CGFloat g_glyph_atlas_scale = 0.0;
+static NSMutableDictionary<NSString *, NSValue *> *g_glyph_atlas_entries = nil;
+static NSUInteger g_glyph_atlas_next_x = 0;
+static NSUInteger g_glyph_atlas_next_y = 0;
+static NSUInteger g_glyph_atlas_row_height = 0;
+static uint64_t g_glyph_atlas_hit_count = 0;
+static uint64_t g_glyph_atlas_miss_count = 0;
+static uint64_t g_glyph_atlas_eviction_count = 0;
+
+typedef struct NimculusGlyphAtlasEntry {
+  uint32_t x;
+  uint32_t y;
+  uint32_t width;
+  uint32_t height;
+  float bounds_x;
+  float bounds_y;
+  float bounds_width;
+  float bounds_height;
+} NimculusGlyphAtlasEntry;
+
+typedef struct NimculusGlyphVertex {
+  float x;
+  float y;
+  float u;
+  float v;
+  float red;
+  float green;
+  float blue;
+  float alpha;
+} NimculusGlyphVertex;
+
+static NimculusGlyphVertex *g_glyph_vertices = NULL;
+static uint32_t g_glyph_vertex_count = 0;
+static uint32_t g_glyph_vertex_capacity = 0;
 static id<MTLTexture> g_scene_texture = nil;
 static BOOL g_scene_initialized = NO;
 static BOOL g_scene_dirty = YES;
@@ -362,6 +398,8 @@ static CGPoint editorPointForUTF16Offset(NSUInteger documentOffset) {
                      12.0 + visibleLine * 18.0);
 }
 
+static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text);
+
 static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
   if (!device) return;
   CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
@@ -423,10 +461,6 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
         }
       }
     }
-    CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
-    CGContextSetTextPosition(context, 8.0, logicalHeight - lineHeight * (displayIndex + 1));
-    CTLineDraw(line, context);
-    CFRelease(line);
     lineStartByte += lineLength + 1;
     lineStartUnit = lineEndUnit + 1;
   }
@@ -458,6 +492,236 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
   [g_text_texture replaceRegion:MTLRegionMake2D(0, 0, width, height)
     mipmapLevel:0 withBytes:pixels.bytes bytesPerRow:width * 4];
   g_text_texture_scale = scale;
+  updateEditorGlyphAtlas(device, text);
+}
+
+static void resetGlyphVertices(void) {
+  g_glyph_vertex_count = 0;
+}
+
+static void ensureGlyphAtlas(id<MTLDevice> device, CGFloat scale) {
+  const NSUInteger atlasSize = 2048;
+  if (!g_glyph_atlas_texture || fabs(g_glyph_atlas_scale - scale) > 0.001) {
+    MTLTextureDescriptor *descriptor = [MTLTextureDescriptor
+      texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm
+      width:atlasSize height:atlasSize mipmapped:NO];
+    descriptor.usage = MTLTextureUsageShaderRead;
+    g_glyph_atlas_texture = [device newTextureWithDescriptor:descriptor];
+    g_glyph_atlas_scale = scale;
+    g_glyph_atlas_entries = [NSMutableDictionary dictionary];
+    g_glyph_atlas_next_x = 0;
+    g_glyph_atlas_next_y = 0;
+    g_glyph_atlas_row_height = 0;
+  }
+  if (!g_glyph_atlas_entries) g_glyph_atlas_entries = [NSMutableDictionary dictionary];
+}
+
+static void appendGlyphVertex(NimculusGlyphVertex vertex) {
+  if (g_glyph_vertex_count == g_glyph_vertex_capacity) {
+    uint32_t capacity = g_glyph_vertex_capacity == 0 ? 1024 : g_glyph_vertex_capacity * 2;
+    NimculusGlyphVertex *vertices = realloc(g_glyph_vertices,
+      sizeof(NimculusGlyphVertex) * capacity);
+    if (!vertices) return;
+    g_glyph_vertices = vertices;
+    g_glyph_vertex_capacity = capacity;
+  }
+  g_glyph_vertices[g_glyph_vertex_count++] = vertex;
+}
+
+static void colorForGlyphRun(CTRunRef run, CGFloat *red, CGFloat *green,
+                             CGFloat *blue, CGFloat *alpha) {
+  *red = 0.85; *green = 0.90; *blue = 1.0; *alpha = 1.0;
+  NSDictionary *attributes = (__bridge NSDictionary *)CTRunGetAttributes(run);
+  CGColorRef color = (__bridge CGColorRef)[attributes objectForKey:(id)kCTForegroundColorAttributeName];
+  if (!color) return;
+  NSColor *nsColor = [NSColor colorWithCGColor:color];
+  NSColor *rgb = [nsColor colorUsingColorSpace:[NSColorSpace genericRGBColorSpace]];
+  if (!rgb) return;
+  *red = rgb.redComponent;
+  *green = rgb.greenComponent;
+  *blue = rgb.blueComponent;
+  *alpha = rgb.alphaComponent;
+}
+
+static BOOL atlasEntryForGlyph(id<MTLDevice> device, CTFontRef font, CGGlyph glyph,
+                               CGFloat scale, NimculusGlyphAtlasEntry *entry) {
+  if (!device || !font || !entry) return NO;
+  NSString *fontName = (__bridge_transfer NSString *)CTFontCopyPostScriptName(font);
+  NSString *key = [NSString stringWithFormat:@"%@|%.3f|%u", fontName ?: @"system",
+    scale, (unsigned)glyph];
+  NSValue *cached = [g_glyph_atlas_entries objectForKey:key];
+  if (cached) {
+    [cached getValue:entry];
+    g_glyph_atlas_hit_count++;
+    return entry->width > 0 && entry->height > 0;
+  }
+  g_glyph_atlas_miss_count++;
+  CGRect bounds = CTFontGetBoundingRectsForGlyphs(font, kCTFontOrientationDefault,
+    &glyph, NULL, 1);
+  memset(entry, 0, sizeof(*entry));
+  entry->bounds_x = bounds.origin.x;
+  entry->bounds_y = bounds.origin.y;
+  entry->bounds_width = bounds.size.width;
+  entry->bounds_height = bounds.size.height;
+  if (bounds.size.width <= 0.0 || bounds.size.height <= 0.0) {
+    [g_glyph_atlas_entries setObject:[NSValue valueWithBytes:entry
+      objCType:@encode(NimculusGlyphAtlasEntry)] forKey:key];
+    return NO;
+  }
+  NSUInteger padding = 1;
+  NSUInteger width = (NSUInteger)ceil(bounds.size.width * scale) + padding * 2;
+  NSUInteger height = (NSUInteger)ceil(bounds.size.height * scale) + padding * 2;
+  const NSUInteger atlasSize = 2048;
+  if (width >= atlasSize || height >= atlasSize) return NO;
+  if (g_glyph_atlas_next_x + width > atlasSize) {
+    g_glyph_atlas_next_x = 0;
+    g_glyph_atlas_next_y += g_glyph_atlas_row_height;
+    g_glyph_atlas_row_height = 0;
+  }
+  if (g_glyph_atlas_next_y + height > atlasSize) {
+    [g_glyph_atlas_entries removeAllObjects];
+    g_glyph_atlas_next_x = 0;
+    g_glyph_atlas_next_y = 0;
+    g_glyph_atlas_row_height = 0;
+    g_glyph_atlas_eviction_count++;
+  }
+  if (g_glyph_atlas_next_x + width > atlasSize ||
+      g_glyph_atlas_next_y + height > atlasSize) return NO;
+  NSUInteger x = g_glyph_atlas_next_x;
+  NSUInteger y = g_glyph_atlas_next_y;
+  g_glyph_atlas_next_x += width;
+  g_glyph_atlas_row_height = MAX(g_glyph_atlas_row_height, height);
+  NSMutableData *pixels = [NSMutableData dataWithLength:width * height];
+  CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceGray();
+  CGContextRef context = CGBitmapContextCreate(pixels.mutableBytes, width, height, 8,
+    width, colorSpace, (CGBitmapInfo)kCGImageAlphaNone);
+  CGColorSpaceRelease(colorSpace);
+  if (!context) return NO;
+  CGContextSetGrayFillColor(context, 1.0, 1.0);
+  CGContextScaleCTM(context, scale, scale);
+  CGPoint origin = CGPointMake((CGFloat)padding / scale - bounds.origin.x,
+    (CGFloat)padding / scale - bounds.origin.y);
+  CTFontDrawGlyphs(font, &glyph, &origin, 1, context);
+  CGContextRelease(context);
+  [g_glyph_atlas_texture replaceRegion:MTLRegionMake2D(x, y, width, height)
+    mipmapLevel:0 withBytes:pixels.bytes bytesPerRow:width];
+  entry->x = (uint32_t)x;
+  entry->y = (uint32_t)y;
+  entry->width = (uint32_t)width;
+  entry->height = (uint32_t)height;
+  [g_glyph_atlas_entries setObject:[NSValue valueWithBytes:entry
+    objCType:@encode(NimculusGlyphAtlasEntry)] forKey:key];
+  return YES;
+}
+
+static float normalizedX(CGFloat value, CGFloat width) {
+  return (float)(value / width * 2.0 - 1.0);
+}
+
+static float normalizedY(CGFloat value, CGFloat height) {
+  return (float)(1.0 - value / height * 2.0);
+}
+
+static void appendGlyphQuad(CGSize logicalSize, CGFloat scale,
+                            NimculusGlyphAtlasEntry entry, CGPoint glyphOrigin,
+                            CGFloat baselineY, CGFloat red, CGFloat green,
+                            CGFloat blue, CGFloat alpha) {
+  if (entry.width == 0 || entry.height == 0 || logicalSize.width <= 0 ||
+      logicalSize.height <= 0) return;
+  CGFloat x0 = 8.0 + glyphOrigin.x + entry.bounds_x;
+  CGFloat x1 = x0 + entry.bounds_width;
+  CGFloat bottomOrigin = baselineY + entry.bounds_y;
+  CGFloat y0 = logicalSize.height - (bottomOrigin + entry.bounds_height);
+  CGFloat y1 = logicalSize.height - bottomOrigin;
+  float u0 = (float)entry.x / 2048.0f;
+  float u1 = (float)(entry.x + entry.width) / 2048.0f;
+  float v0 = 1.0f - (float)(entry.y + entry.height) / 2048.0f;
+  float v1 = 1.0f - (float)entry.y / 2048.0f;
+  NimculusGlyphVertex vertices[6] = {
+    {normalizedX(x0, logicalSize.width), normalizedY(y1, logicalSize.height), u0, v0, red, green, blue, alpha},
+    {normalizedX(x1, logicalSize.width), normalizedY(y1, logicalSize.height), u1, v0, red, green, blue, alpha},
+    {normalizedX(x0, logicalSize.width), normalizedY(y0, logicalSize.height), u0, v1, red, green, blue, alpha},
+    {normalizedX(x0, logicalSize.width), normalizedY(y0, logicalSize.height), u0, v1, red, green, blue, alpha},
+    {normalizedX(x1, logicalSize.width), normalizedY(y1, logicalSize.height), u1, v0, red, green, blue, alpha},
+    {normalizedX(x1, logicalSize.width), normalizedY(y0, logicalSize.height), u1, v1, red, green, blue, alpha}
+  };
+  (void)scale;
+  for (NSUInteger index = 0; index < 6; index++) appendGlyphVertex(vertices[index]);
+}
+
+static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
+  if (!device) return;
+  CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+  ensureGlyphAtlas(device, scale);
+  resetGlyphVertices();
+  CTFontRef baseFont = editorFont();
+  if (!baseFont) return;
+  NSColor *baseColor = [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0];
+  NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)baseFont,
+    (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
+  NSArray<NSString *> *lines = [(text ?: @"") componentsSeparatedByString:@"\n"];
+  NSUInteger startLine = MIN(g_editor_scroll_line, lines.count);
+  const CGFloat lineHeight = 18.0;
+  NSUInteger visibleLines = MIN(lines.count - startLine,
+    (NSUInteger)MAX(1.0, ceil(g_editor_rect[3] / lineHeight)));
+  NSUInteger lineStartByte = 0;
+  for (NSUInteger index = 0; index < startLine; index++) {
+    lineStartByte += [[lines[index] dataUsingEncoding:NSUTF8StringEncoding] length] + 1;
+  }
+  CGSize logicalSize = CGSizeMake(MAX(1.0, g_editor_rect[2]),
+                                  MAX(1.0, g_editor_rect[3]));
+  for (NSUInteger displayIndex = 0; displayIndex < visibleLines; displayIndex++) {
+    NSString *lineText = lines[startLine + displayIndex];
+    NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
+    NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
+      initWithString:lineText attributes:attributes];
+    for (uint32_t spanIndex = 0; spanIndex < g_highlight_count; spanIndex++) {
+      NimculusHighlightSpan span = g_highlights[spanIndex];
+      if (span.end_byte > lineStartByte && span.start_byte < lineStartByte + lineLength) {
+        NSUInteger startByte = MAX((NSUInteger)span.start_byte, lineStartByte) - lineStartByte;
+        NSUInteger endByte = MIN((NSUInteger)span.end_byte, lineStartByte + lineLength) - lineStartByte;
+        NSUInteger startUnit = utf16OffsetForUTF8Bytes(lineText, startByte);
+        NSUInteger endUnit = utf16OffsetForUTF8Bytes(lineText, endByte);
+        if (endUnit > startUnit) {
+          CGFloat red, green, blue;
+          highlightColor(span.kind, &red, &green, &blue);
+          NSColor *color = [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1.0];
+          [attributed addAttribute:(id)kCTForegroundColorAttributeName
+            value:(id)color.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
+        }
+      }
+    }
+    CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
+    CFArrayRef runs = CTLineGetGlyphRuns(line);
+    CGFloat baselineY = logicalSize.height - lineHeight * (displayIndex + 1);
+    for (CFIndex runIndex = 0; runIndex < CFArrayGetCount(runs); runIndex++) {
+      CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, runIndex);
+      NSDictionary *runAttributes = (__bridge NSDictionary *)CTRunGetAttributes(run);
+      CTFontRef font = (__bridge CTFontRef)[runAttributes objectForKey:(id)kCTFontAttributeName];
+      if (!font) font = baseFont;
+      CGFloat red, green, blue, alpha;
+      colorForGlyphRun(run, &red, &green, &blue, &alpha);
+      CFIndex glyphCount = CTRunGetGlyphCount(run);
+      if (glyphCount == 0) continue;
+      CGGlyph *glyphs = malloc(sizeof(CGGlyph) * (NSUInteger)glyphCount);
+      CGPoint *positions = malloc(sizeof(CGPoint) * (NSUInteger)glyphCount);
+      if (!glyphs || !positions) { free(glyphs); free(positions); continue; }
+      CTRunGetGlyphs(run, CFRangeMake(0, glyphCount), glyphs);
+      CTRunGetPositions(run, CFRangeMake(0, glyphCount), positions);
+      for (CFIndex glyphIndex = 0; glyphIndex < glyphCount; glyphIndex++) {
+        NimculusGlyphAtlasEntry entry;
+        if (atlasEntryForGlyph(device, font, glyphs[glyphIndex], scale, &entry)) {
+          appendGlyphQuad(logicalSize, scale, entry, positions[glyphIndex], baselineY,
+            red, green, blue, alpha);
+        }
+      }
+      free(glyphs);
+      free(positions);
+    }
+    CFRelease(line);
+    lineStartByte += lineLength + 1;
+  }
+  CFRelease(baseFont);
 }
 
 static double millisecondsSince(uint64_t start) {
@@ -648,6 +912,26 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
         drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
           g_ui_rect[0], g_ui_rect[1], g_ui_rect[2], g_ui_rect[3],
           0.15f, 0.48f, 0.92f, 1.0f);
+      }
+    }
+    if (g_glyph_pipeline && g_glyph_atlas_texture && g_glyph_vertex_count > 0) {
+      id<MTLBuffer> glyphBuffer = [drawable.texture.device newBufferWithBytes:g_glyph_vertices
+        length:sizeof(NimculusGlyphVertex) * g_glyph_vertex_count
+        options:MTLResourceStorageModeShared];
+      [encoder setRenderPipelineState:g_glyph_pipeline];
+      [encoder setVertexBuffer:glyphBuffer offset:0 atIndex:0];
+      [encoder setFragmentTexture:g_glyph_atlas_texture atIndex:0];
+      if (g_paint_dirty_count == 0) {
+        MTLScissorRect fullScissor = {0, 0, scene.width, scene.height};
+        [encoder setScissorRect:fullScissor];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
+          vertexCount:g_glyph_vertex_count];
+      } else {
+        for (uint32_t i = 0; i < g_paint_dirty_count; i++) {
+          setScissorForRegion(encoder, g_paint_dirty_regions[i], logicalSize, drawableSize);
+          [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
+            vertexCount:g_glyph_vertex_count];
+        }
       }
     }
     if (g_text_pipeline && g_text_texture) {
@@ -1354,6 +1638,13 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     "struct TV { float4 pos [[position]]; float2 uv; };\n"
     "vertex TV textVs(uint id [[vertex_id]], constant float4 *v [[buffer(0)]]) { TV o; o.pos=float4(v[id].xy,0,1); o.uv=v[id].zw; return o; }\n"
     "fragment float4 textFs(TV in [[stage_in]], texture2d<float> atlas [[texture(0)]]) { constexpr sampler s(filter::linear); return atlas.sample(s,in.uv); }";
+  source = [source stringByAppendingString:
+    @"\nstruct GV { float4 pos [[position]]; float2 uv; float4 color; };\n"
+     "vertex GV glyphVs(uint id [[vertex_id]], constant float4 *v [[buffer(0)]]) { "
+     "GV o; o.pos=float4(v[id*2].xy,0,1); o.uv=v[id*2].zw; o.color=v[id*2+1]; return o; }\n"
+     "fragment float4 glyphFs(GV in [[stage_in]], texture2d<float> atlas [[texture(0)]]) { "
+     "constexpr sampler s(filter::linear); float alpha=atlas.sample(s,in.uv).r; "
+     "return float4(in.color.rgb,in.color.a*alpha); }"];
   id<MTLLibrary> library = [device newLibraryWithSource:source options:nil error:&error];
   if (library) {
     MTLRenderPipelineDescriptor *descriptor = [MTLRenderPipelineDescriptor new];
@@ -1365,7 +1656,22 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     textDescriptor.vertexFunction = [library newFunctionWithName:@"textVs"];
     textDescriptor.fragmentFunction = [library newFunctionWithName:@"textFs"];
     textDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+    textDescriptor.colorAttachments[0].blendingEnabled = YES;
+    textDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+    textDescriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    textDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+    textDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
     g_text_pipeline = [device newRenderPipelineStateWithDescriptor:textDescriptor error:&error];
+    MTLRenderPipelineDescriptor *glyphDescriptor = [MTLRenderPipelineDescriptor new];
+    glyphDescriptor.vertexFunction = [library newFunctionWithName:@"glyphVs"];
+    glyphDescriptor.fragmentFunction = [library newFunctionWithName:@"glyphFs"];
+    glyphDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+    glyphDescriptor.colorAttachments[0].blendingEnabled = YES;
+    glyphDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+    glyphDescriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    glyphDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+    glyphDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    g_glyph_pipeline = [device newRenderPipelineStateWithDescriptor:glyphDescriptor error:&error];
     updateEditorTextTexture(device, g_editor_text);
   }
 

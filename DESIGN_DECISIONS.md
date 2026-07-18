@@ -93,6 +93,14 @@ matching the current `backingScaleFactor`, then uploaded at pixel resolution.
 This keeps Core Text coordinates stable while avoiding a low-resolution texture
 being stretched on Retina displays.
 
+The committed editor glyphs use a separate monochrome Metal atlas. Atlas keys
+include the Core Text PostScript font name, backing scale, and glyph ID, so
+fallback runs and Retina variants cannot alias one another. Glyph quads are
+generated only for visible lines, while selection, caret, and marked text remain
+in the transparent overlay texture. The atlas uses a bounded shelf allocator;
+when the atlas is full, entries are discarded and visible glyphs are rebuilt,
+which gives deterministic bounded memory rather than unbounded texture growth.
+
 ## M3-002: NSTextInputClient is the IME boundary
 
 The custom `NSView` implements `NSTextInputClient`; marked text, committed text,
