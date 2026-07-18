@@ -531,6 +531,11 @@ AppKit modifier flags are likewise converted by
 `macOSModifiers` before shortcut resolution. Zed is used as an implementation
 reference, not as an API compatibility target.
 
+For NSTextInputClient, `unmarkText` is a state transition rather than only a
+native drawing operation. It therefore sends an empty composing callback to
+Nim, matching Zed's `InputHandler::unmark_text` contract and preventing stale
+composition state after IME cancellation.
+
 Filesystem callbacks are treated as producer threads, not as UI state owners.
 The workspace watcher appends under a lock, and the UI polling boundary drains
 the queue under the same lock before applying a refresh. This prevents a

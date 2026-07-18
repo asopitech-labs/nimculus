@@ -623,6 +623,10 @@ static void logInput(NSString *kind, NSEvent *event) {
 - (void)unmarkText {
   self.markedText = @"";
   self.markedTextRange = NSMakeRange(NSNotFound, 0);
+  // AppKit can cancel composition without calling insertText:. Mirror Zed's
+  // InputHandler::unmark_text contract so the Nim-side composition state is
+  // cleared as well as the native marked-text surface.
+  if (g_text_callback) g_text_callback("", true);
 }
 - (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
   NSString *committed = [string isKindOfClass:[NSAttributedString class]]
