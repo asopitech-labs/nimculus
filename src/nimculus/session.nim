@@ -80,16 +80,29 @@ proc loadSession*(path: string): EditorSession =
   for item in root["tabs"].getElems:
     if item.kind != JObject or not item.hasKey("path"): continue
     let filePath = jsonString(item, "path", "")
+    let savedDirty = jsonBool(item, "dirty", false)
     var document: FileDocument
     var canRestore = false
     try:
       if filePath.len > 0 and fileExists(filePath):
         document = openDocument(filePath)
-        if jsonBool(item, "dirty", false) and item.hasKey("content") and
+        if savedDirty and item.hasKey("content") and
            item["content"].kind == JString:
           document.buffer = initPieceTable(item["content"].getStr)
           document.lineEnding = if jsonString(item, "lineEnding", "lf") == "crlf": crlf else: lf
           document.buffer.markDirty()
+        canRestore = true
+      elif filePath.len > 0 and savedDirty and item.hasKey("content") and
+           item["content"].kind == JString:
+        # Keep an unsaved named buffer even when the disk file was deleted or
+        # moved after the last session write.  The path remains attached so a
+        # later Save can recreate it, matching Zed's Deleted disk state rather
+        # than silently dropping the user's only dirty copy.
+        document = newDocument()
+        document.path = filePath
+        document.buffer = initPieceTable(item["content"].getStr)
+        document.lineEnding = if jsonString(item, "lineEnding", "lf") == "crlf": crlf else: lf
+        document.buffer.markDirty()
         canRestore = true
       elif filePath.len == 0 and item.hasKey("content") and
            item["content"].kind == JString:
