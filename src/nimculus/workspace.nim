@@ -39,8 +39,8 @@ type
     root*: string
     roots*: seq[string]
     entries*: Table[string, WorkspaceEntry]
-    ignoredPatterns*: seq[string]
-    watcher*: pointer
+    ignoredPatternsByRoot: Table[string, seq[string]]
+    watchers: seq[pointer]
     changes*: seq[string]
 
 when defined(macosx):
@@ -65,19 +65,22 @@ proc loadIgnoreFile(root: string): seq[string] =
     for line in readFile(path).splitLines:
       if line.strip.len > 0 and not line.strip.startsWith("#"): result.add(line.strip)
 
-proc isIgnored(workspace: Workspace, relative: string): bool =
+proc isIgnored(workspace: Workspace, root, relative: string): bool =
   if relative == ".git" or relative.startsWith(".git/"): return true
-  for pattern in workspace.ignoredPatterns:
+  for pattern in workspace.ignoredPatternsByRoot.getOrDefault(root, @[]):
     if matchesIgnore(relative, pattern): return true
 
 proc openWorkspace*(root: string): Workspace =
   result = Workspace(root: absolutePath(root))
   result.roots = @[result.root]
-  result.ignoredPatterns = loadIgnoreFile(result.root)
+  result.ignoredPatternsByRoot = initTable[string, seq[string]]()
+  result.ignoredPatternsByRoot[result.root] = loadIgnoreFile(result.root)
 
 proc addRoot*(workspace: Workspace, root: string) =
   let absolute = absolutePath(root)
-  if absolute notin workspace.roots: workspace.roots.add(absolute)
+  if absolute notin workspace.roots:
+    workspace.roots.add(absolute)
+    workspace.ignoredPatternsByRoot[absolute] = loadIgnoreFile(absolute)
 
 proc rootPaths*(workspace: Workspace): seq[string] = workspace.roots
 
@@ -86,7 +89,7 @@ proc listChildrenAt*(workspace: Workspace, root: string; relative = ""): seq[Wor
   if not dirExists(directory): return
   for kind, path in walkDir(directory, relative = false):
     let relativePath = relative / path.extractFilename
-    let ignored = workspace.isIgnored(relativePath)
+    let ignored = workspace.isIgnored(root, relativePath)
     let entry = WorkspaceEntry(path: path, relativePath: relativePath,
       kind: if kind == pcDir: WorkspaceFileKind.directory else: WorkspaceFileKind.file, ignored: ignored)
     workspace.entries[root / relativePath] = entry
@@ -307,11 +310,17 @@ when defined(macosx):
     let workspace = cast[Workspace](context)
     if workspace != nil: workspace.changes.add($path)
 
+proc stopWatching*(workspace: Workspace)
+
 proc startWatching*(workspace: Workspace) =
   when defined(macosx):
-    workspace.watcher = startWorkspaceWatcher(workspace.root.cstring, receiveWorkspaceChange, cast[pointer](workspace))
+    workspace.stopWatching()
+    for root in workspace.roots:
+      let watcher = startWorkspaceWatcher(root.cstring, receiveWorkspaceChange, cast[pointer](workspace))
+      if watcher != nil: workspace.watchers.add(watcher)
 
 proc stopWatching*(workspace: Workspace) =
   when defined(macosx):
-    if workspace.watcher != nil: stopWorkspaceWatcher(workspace.watcher)
-    workspace.watcher = nil
+    for watcher in workspace.watchers:
+      if watcher != nil: stopWorkspaceWatcher(watcher)
+    workspace.watchers.setLen(0)

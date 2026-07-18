@@ -181,6 +181,10 @@ active root, and consumes coalesced changed paths from the same main-loop tick
 used by search. The preview is refreshed only when no editor document is
 active, so file notifications cannot overwrite an open document surface.
 
+Each additional root owns its own ignore patterns and FSEvents stream. A
+change in one root therefore cannot accidentally apply the primary root's
+ignore rules or stop another root's watcher.
+
 ## M6-003: Search yields cooperatively and streams file contents
 
 The UI-facing `SearchJob` processes a bounded number of files and lines per

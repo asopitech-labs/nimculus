@@ -58,18 +58,24 @@ suite "M6 workspace":
     let root = getTempDir() / "nimculus-m6-ops"
     let second = getTempDir() / "nimculus-m6-ops-second"
     createDir(root); createDir(second)
+    createDir(second / "ignored")
+    writeFile(second / ".gitignore", "ignored\n")
+    writeFile(second / "ignored" / "secret.txt", "secret")
     var workspace = openWorkspace(root)
     workspace.addRoot(second)
     discard workspace.createFile("src/main.nim", "proc main() = discard")
     writeFile(second / "README.md", "nimculus")
     check workspace.rootPaths.len == 2
     check workspace.fuzzyFileSearch("main").len == 1
+    check workspace.enumerateFiles().allIt(not it.relativePath.endsWith("secret.txt"))
     check workspace.renameEntry("src/main.nim", "src/app.nim").endsWith("src/app.nim")
     check fileExists(root / "src/app.nim")
     discard workspace.createDirectory("empty")
     workspace.deleteEntry("empty")
     workspace.deleteEntry("src/app.nim")
     removeDir(root / "src")
+    removeFile(second / ".gitignore"); removeFile(second / "ignored" / "secret.txt")
+    removeDir(second / "ignored")
     removeDir(root); removeDir(second)
 
   test "uses ripgrep-compatible search results when available":
