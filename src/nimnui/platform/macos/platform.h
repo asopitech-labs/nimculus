@@ -56,6 +56,7 @@ typedef struct NimculusPaintCommand {
   float transform_d;
   float transform_tx;
   float transform_ty;
+  uint32_t image_id;
 } NimculusPaintCommand;
 
 typedef struct NimculusPaintRegion {
@@ -98,6 +99,8 @@ void nimculus_platform_clear_editor_composition(void);
 void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans, uint32_t count);
 void nimculus_platform_set_recent_files(const char *const *paths, uint32_t count);
 void nimculus_platform_set_paint_commands(const NimculusPaintCommand *commands, uint32_t count);
+void nimculus_platform_set_image_rgba(uint32_t image_id, uint32_t width, uint32_t height,
+                                      const uint8_t *rgba, uint32_t length);
 void nimculus_platform_set_paint_dirty_regions(const NimculusPaintRegion *regions, uint32_t count);
 void nimculus_platform_show_external_change(const char *path);
 void nimculus_platform_show_find_document(void);

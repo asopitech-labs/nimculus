@@ -13,6 +13,7 @@ type
     text*: string
     radius*: Pixels
     transform*: Transform2D
+    imageId*: uint32
 
   PaintList* = object
     commands*: seq[PaintCommand]
@@ -66,7 +67,8 @@ proc drawText*(paint: var PaintList, bounds: Rect, text: string) =
 proc drawBorder*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: border, bounds: bounds, clip: bounds))
 proc drawRoundedRectangle*(paint: var PaintList, bounds: Rect, radius: Pixels) =
   paint.add(PaintCommand(kind: roundedRectangle, bounds: bounds, clip: bounds, radius: radius))
-proc drawImage*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: image, bounds: bounds, clip: bounds))
+proc drawImage*(paint: var PaintList, bounds: Rect, imageId: uint32 = 0) =
+  paint.add(PaintCommand(kind: image, bounds: bounds, clip: bounds, imageId: imageId))
 proc pushClip*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: clip, bounds: bounds, clip: bounds))
   let transform = if paint.transformStack.len > 0: paint.transformStack[^1] else: identityTransform()

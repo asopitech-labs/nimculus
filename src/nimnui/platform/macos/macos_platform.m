@@ -62,6 +62,7 @@ typedef struct NimculusDrawUniforms {
 static id<MTLRenderPipelineState> g_pipeline = nil;
 static id<MTLRenderPipelineState> g_text_pipeline = nil;
 static id<MTLRenderPipelineState> g_glyph_pipeline = nil;
+static id<MTLRenderPipelineState> g_image_pipeline = nil;
 static id<MTLCommandQueue> g_queue = nil;
 static id<MTLTexture> g_text_texture = nil;
 static CGFloat g_text_texture_scale = 1.0;
@@ -75,6 +76,10 @@ static NSUInteger g_glyph_atlas_row_height = 0;
 static uint64_t g_glyph_atlas_hit_count = 0;
 static uint64_t g_glyph_atlas_miss_count = 0;
 static uint64_t g_glyph_atlas_eviction_count = 0;
+
+void nimculus_platform_set_image_rgba(uint32_t image_id, uint32_t width,
+                                      uint32_t height, const uint8_t *rgba,
+                                      uint32_t length);
 
 typedef struct NimculusGlyphAtlasEntry {
   uint32_t x;
@@ -102,6 +107,7 @@ static NimculusGlyphVertex *g_glyph_vertices = NULL;
 static uint32_t g_glyph_vertex_count = 0;
 static uint32_t g_glyph_vertex_capacity = 0;
 static id<MTLTexture> g_scene_texture = nil;
+static NSMutableDictionary<NSNumber *, id<MTLTexture>> *g_image_textures = nil;
 static BOOL g_scene_initialized = NO;
 static BOOL g_scene_dirty = YES;
 static id g_active_view = nil;
@@ -177,6 +183,36 @@ static void drawColoredRectangle(id<MTLRenderCommandEncoder> encoder,
                                  float red, float green, float blue, float alpha) {
   drawColoredRectangleWithTransform(encoder, device, logicalSize, x, y, width, height,
     red, green, blue, alpha, identityAffine());
+}
+
+static void drawImageTexture(id<MTLRenderCommandEncoder> encoder,
+                             id<MTLDevice> device, CGSize logicalSize,
+                             double x, double y, double width, double height,
+                             NimculusAffine transform,
+                             id<MTLTexture> texture) {
+  if (!texture || logicalSize.width <= 0 || logicalSize.height <= 0 ||
+      width <= 0 || height <= 0) return;
+  float vertices[16];
+  CGPoint bottomLeft = applyAffine(transform, x, y + height);
+  CGPoint bottomRight = applyAffine(transform, x + width, y + height);
+  CGPoint topLeft = applyAffine(transform, x, y);
+  CGPoint topRight = applyAffine(transform, x + width, y);
+  float *points[] = {&vertices[0], &vertices[4], &vertices[8], &vertices[12]};
+  CGPoint positions[] = {bottomLeft, bottomRight, topLeft, topRight};
+  float u[] = {0.0f, 1.0f, 0.0f, 1.0f};
+  float v[] = {1.0f, 1.0f, 0.0f, 0.0f};
+  for (int index = 0; index < 4; index++) {
+    points[index][0] = (float)(positions[index].x / logicalSize.width * 2.0 - 1.0);
+    points[index][1] = (float)(1.0 - positions[index].y / logicalSize.height * 2.0);
+    points[index][2] = u[index];
+    points[index][3] = v[index];
+  }
+  id<MTLBuffer> buffer = [device newBufferWithBytes:vertices length:sizeof(vertices)
+    options:MTLResourceStorageModeShared];
+  if (!buffer) return;
+  [encoder setVertexBuffer:buffer offset:0 atIndex:0];
+  [encoder setFragmentTexture:texture atIndex:0];
+  [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
 }
 
 static void drawRoundedRectangleWithTransform(id<MTLRenderCommandEncoder> encoder,
@@ -284,6 +320,17 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
   const double y = paint.source_y;
   const double width = paint.source_width;
   const double height = paint.source_height;
+  if (paint.kind == 4 && paint.image_id != 0 && g_image_pipeline && g_image_textures) {
+    id<MTLTexture> texture = g_image_textures[@(paint.image_id)];
+    if (texture) {
+      [encoder setRenderPipelineState:g_image_pipeline];
+      drawImageTexture(encoder, device, logicalSize, x, y, width, height,
+        transform, texture);
+      [encoder setRenderPipelineState:g_pipeline];
+      return;
+    }
+  }
+  [encoder setRenderPipelineState:g_pipeline];
   if (paint.kind == 0) { // rectangle
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height,
@@ -1709,7 +1756,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     "fragment float4 fs(V in [[stage_in]]) { return in.color; }\n"
     "struct TV { float4 pos [[position]]; float2 uv; };\n"
     "vertex TV textVs(uint id [[vertex_id]], constant float4 *v [[buffer(0)]]) { TV o; o.pos=float4(v[id].xy,0,1); o.uv=v[id].zw; return o; }\n"
-    "fragment float4 textFs(TV in [[stage_in]], texture2d<float> atlas [[texture(0)]]) { constexpr sampler s(filter::linear); return atlas.sample(s,in.uv); }";
+    "fragment float4 textFs(TV in [[stage_in]], texture2d<float> atlas [[texture(0)]]) { constexpr sampler s(filter::linear); return atlas.sample(s,in.uv); }\n"
+    "vertex TV imageVs(uint id [[vertex_id]], constant float4 *v [[buffer(0)]]) { TV o; o.pos=float4(v[id].xy,0,1); o.uv=v[id].zw; return o; }\n"
+    "fragment float4 imageFs(TV in [[stage_in]], texture2d<float> image [[texture(0)]]) { constexpr sampler s(filter::linear, address::clamp_to_edge); return image.sample(s,in.uv); }";
   source = [source stringByAppendingString:
     @"\nstruct GV { float4 pos [[position]]; float2 uv; float4 color; };\n"
      "vertex GV glyphVs(uint id [[vertex_id]], constant float4 *v [[buffer(0)]]) { "
@@ -1744,7 +1793,30 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     glyphDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
     glyphDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
     g_glyph_pipeline = [device newRenderPipelineStateWithDescriptor:glyphDescriptor error:&error];
+    MTLRenderPipelineDescriptor *imageDescriptor = [MTLRenderPipelineDescriptor new];
+    imageDescriptor.vertexFunction = [library newFunctionWithName:@"imageVs"];
+    imageDescriptor.fragmentFunction = [library newFunctionWithName:@"imageFs"];
+    imageDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+    imageDescriptor.colorAttachments[0].blendingEnabled = YES;
+    imageDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+    imageDescriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    imageDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+    imageDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    g_image_pipeline = [device newRenderPipelineStateWithDescriptor:imageDescriptor error:&error];
+    g_image_textures = [NSMutableDictionary dictionary];
     updateEditorTextTexture(device, g_editor_text, YES);
+    uint8_t demoPixels[16 * 16 * 4];
+    for (uint32_t y = 0; y < 16; y++) {
+      for (uint32_t x = 0; x < 16; x++) {
+        const BOOL alternate = ((x / 4) + (y / 4)) % 2 == 0;
+        const NSUInteger offset = ((NSUInteger)y * 16 + x) * 4;
+        demoPixels[offset + 0] = alternate ? 80 : 30;
+        demoPixels[offset + 1] = alternate ? 180 : 90;
+        demoPixels[offset + 2] = alternate ? 240 : 150;
+        demoPixels[offset + 3] = 255;
+      }
+    }
+    nimculus_platform_set_image_rgba(1, 16, 16, demoPixels, sizeof(demoPixels));
   }
 
   NSRect frame = NSMakeRect(0, 0, 960, 640);
@@ -2114,6 +2186,27 @@ void nimculus_platform_set_paint_commands(const NimculusPaintCommand *commands, 
     }
   }
   g_scene_dirty = YES;
+}
+void nimculus_platform_set_image_rgba(uint32_t image_id, uint32_t width,
+                                      uint32_t height, const uint8_t *rgba,
+                                      uint32_t length) {
+  if (!g_image_textures || image_id == 0) return;
+  uint64_t required = (uint64_t)width * (uint64_t)height * 4u;
+  if (!rgba || width == 0 || height == 0 || required > UINT32_MAX || length < required) {
+    [g_image_textures removeObjectForKey:@(image_id)];
+    markSceneFullyDirty();
+    return;
+  }
+  MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:
+    MTLPixelFormatRGBA8Unorm width:width height:height mipmapped:NO];
+  descriptor.usage = MTLTextureUsageShaderRead;
+  id<MTLTexture> texture = [g_queue.device newTextureWithDescriptor:descriptor];
+  if (!texture) return;
+  [texture replaceRegion:MTLRegionMake2D(0, 0, width, height) mipmapLevel:0
+    withBytes:rgba bytesPerRow:(NSUInteger)width * 4];
+  g_image_textures[@(image_id)] = texture;
+  markSceneFullyDirty();
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_paint_dirty_regions(const NimculusPaintRegion *regions, uint32_t count) {
   free(g_paint_dirty_regions);

@@ -31,6 +31,7 @@ type
     radius*: cfloat
     sourceX*, sourceY*, sourceWidth*, sourceHeight*: cfloat
     transformA*, transformB*, transformC*, transformD*, transformTx*, transformTy*: cfloat
+    imageId*: uint32
   NativePaintRegion* {.bycopy.} = object
     x*, y*, width*, height*: cfloat
   NimculusInputEvent* {.bycopy.} = object
@@ -66,6 +67,7 @@ proc platformClearEditorComposition*() {.importc: "nimculus_platform_clear_edito
 proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32) {.importc: "nimculus_platform_set_editor_highlights", cdecl.}
 proc platformSetRecentFiles*(paths: ptr cstring, count: uint32) {.importc: "nimculus_platform_set_recent_files", cdecl.}
 proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}
+proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer, length: uint32) {.importc: "nimculus_platform_set_image_rgba", cdecl.}
 proc platformSetPaintDirtyRegions*(regions: ptr NativePaintRegion, count: uint32) {.importc: "nimculus_platform_set_paint_dirty_regions", cdecl.}
 proc platformShowExternalChange*(path: cstring) {.importc: "nimculus_platform_show_external_change", cdecl.}
 proc platformShowFindDocument*() {.importc: "nimculus_platform_show_find_document", cdecl.}

@@ -769,14 +769,18 @@ rebuilds geometry on pointer movement. The editor pointer path is suspended
 while the split handle is active, preventing a drag from changing both the
 split position and text selection.
 
-## M2-012: Keep placeholder drawing separate from M3 text and image resources
+## M2-012: Keep text and image resources separate from PaintList geometry
 
-M2 now emits visible placeholder rectangles for text and image paint kinds,
-so every initial paint kind has a native path without inventing a texture
-resource ABI prematurely. M3 owns Core Text text surfaces; a future image
-resource API can replace the image placeholder without changing layout or
-dirty-region contracts. Affine transforms are applied in PaintList before
-dirty filtering, keeping hit-test and repaint bounds in logical UI space.
+M2 keeps text and image commands lightweight: text remains a placeholder in
+the generic PaintList because M3 owns Core Text and glyph-atlas rendering,
+while images carry a stable `imageId`. The macOS backend accepts decoded RGBA8
+pixels through `nimculus_platform_set_image_rgba`, owns the corresponding
+Metal textures, and resolves the ID during rendering. Missing IDs retain a
+deterministic placeholder, so layout and dirty-region behavior do not depend
+on resource lifetime. This follows Zed's separation between scene geometry
+and renderer-owned GPU resources. Affine transforms are applied in PaintList
+before dirty filtering, keeping hit-test and repaint bounds in logical UI
+space.
 
 ## M1-010: Keep a real Metal uniform binding in the first renderer
 

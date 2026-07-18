@@ -77,7 +77,7 @@ proc setupDemoUi() =
   paint.drawText(Rect(origin: Point(x: px(margin * 2 + 16), y: px(margin * 2 + 18)),
     size: Size(width: px(150), height: px(22))), "Nimculus")
   paint.drawImage(Rect(origin: Point(x: px(viewportWidth - margin * 3 - 24), y: px(margin * 2 + 16)),
-    size: Size(width: px(24), height: px(24))))
+    size: Size(width: px(24), height: px(24))), imageId = 1)
   paint.pushTransform(translationTransform(px(6), px(6)))
   paint.drawRectangle(Rect(origin: Point(x: px(margin * 2 + 260), y: px(margin * 2 + 16)),
     size: Size(width: px(12), height: px(12))))
@@ -113,7 +113,8 @@ proc setupDemoUi() =
       transformC: cfloat(command.transform.c),
       transformD: cfloat(command.transform.d),
       transformTx: cfloat(command.transform.tx),
-      transformTy: cfloat(command.transform.ty))
+      transformTy: cfloat(command.transform.ty),
+      imageId: command.imageId)
   if nativeCommands.len > 0:
     platformSetPaintCommands(addr nativeCommands[0], uint32(nativeCommands.len))
   else:

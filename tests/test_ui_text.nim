@@ -311,6 +311,13 @@ suite "M3 text foundation":
     check paint.commands[0].sourceBounds == Rect(size: Size(width: px(20), height: px(10)))
     check paint.commands[0].transform.tx == 10.0
     check paint.commands[0].transform.ty == 12.0
+    check paint.commands[1].imageId == 0
+
+    paint.clear()
+    paint.invalidate(Rect(size: Size(width: px(100), height: px(100))))
+    paint.drawImage(Rect(size: Size(width: px(12), height: px(12))), imageId = 7)
+    check paint.commands.len == 1
+    check paint.commands[0].imageId == 7
 
   test "scroll and split models clamp interaction":
     var scroll = ScrollModel(contentSize: px(100), viewportSize: px(30))
