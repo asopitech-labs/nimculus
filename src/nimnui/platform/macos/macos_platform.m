@@ -483,6 +483,14 @@ static void logInput(NSString *kind, NSEvent *event) {
           drawRoundedRectangle(encoder, drawable.texture.device, logicalSize,
             paint.x, paint.y, paint.width, paint.height, paint.radius,
             0.15f, 0.48f, 0.92f, 1.0f);
+        } else if (paint.kind == 3) { // text placeholder; M3 owns real text shaping
+          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
+            paint.x, paint.y, paint.width, paint.height,
+            0.55f, 0.62f, 0.72f, 0.75f);
+        } else if (paint.kind == 4) { // image placeholder until a texture handle is supplied
+          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
+            paint.x, paint.y, paint.width, paint.height,
+            0.28f, 0.34f, 0.42f, 1.0f);
         } else if (paint.kind == 7) { // shadow
           drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
             paint.x + 3.0, paint.y + 3.0, paint.width, paint.height,
@@ -626,8 +634,20 @@ static void logInput(NSString *kind, NSEvent *event) {
   NSString *name = NSStringFromSelector(selector);
   if ([name isEqualToString:@"moveLeft:"]) { if (g_command_callback) g_command_callback("moveLeft"); }
   else if ([name isEqualToString:@"moveRight:"]) { if (g_command_callback) g_command_callback("moveRight"); }
+  else if ([name isEqualToString:@"moveUp:"]) { if (g_command_callback) g_command_callback("moveUp"); }
+  else if ([name isEqualToString:@"moveDown:"]) { if (g_command_callback) g_command_callback("moveDown"); }
   else if ([name isEqualToString:@"moveLeftAndModifySelection:"]) { if (g_command_callback) g_command_callback("selectLeft"); }
   else if ([name isEqualToString:@"moveRightAndModifySelection:"]) { if (g_command_callback) g_command_callback("selectRight"); }
+  else if ([name isEqualToString:@"moveUpAndModifySelection:"]) { if (g_command_callback) g_command_callback("selectUp"); }
+  else if ([name isEqualToString:@"moveDownAndModifySelection:"]) { if (g_command_callback) g_command_callback("selectDown"); }
+  else if ([name isEqualToString:@"moveToBeginningOfLine:"]) { if (g_command_callback) g_command_callback("moveToBeginningOfLine"); }
+  else if ([name isEqualToString:@"moveToEndOfLine:"]) { if (g_command_callback) g_command_callback("moveToEndOfLine"); }
+  else if ([name isEqualToString:@"moveToBeginningOfLineAndModifySelection:"]) { if (g_command_callback) g_command_callback("selectToBeginningOfLine"); }
+  else if ([name isEqualToString:@"moveToEndOfLineAndModifySelection:"]) { if (g_command_callback) g_command_callback("selectToEndOfLine"); }
+  else if ([name isEqualToString:@"moveToBeginningOfDocument:"]) { if (g_command_callback) g_command_callback("moveToBeginningOfDocument"); }
+  else if ([name isEqualToString:@"moveToEndOfDocument:"]) { if (g_command_callback) g_command_callback("moveToEndOfDocument"); }
+  else if ([name isEqualToString:@"insertNewline:"]) { if (g_command_callback) g_command_callback("insertNewline"); }
+  else if ([name isEqualToString:@"insertTab:"]) { if (g_command_callback) g_command_callback("insertTab"); }
   else if ([name isEqualToString:@"moveWordLeft:"]) { if (g_command_callback) g_command_callback("moveWordLeft"); }
   else if ([name isEqualToString:@"moveWordRight:"]) { if (g_command_callback) g_command_callback("moveWordRight"); }
   else if ([name isEqualToString:@"moveWordLeftAndModifySelection:"]) { if (g_command_callback) g_command_callback("selectWordLeft"); }

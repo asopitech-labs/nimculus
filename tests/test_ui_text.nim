@@ -124,6 +124,18 @@ suite "M3 text foundation":
       size: Size(width: px(10), height: px(10))))
     check paint.commands.len == 4
 
+  test "paint list applies affine transforms before dirty filtering":
+    var paint: PaintList
+    paint.invalidate(Rect(size: Size(width: px(100), height: px(100))))
+    paint.pushTransform(translationTransform(px(10), px(12)))
+    paint.drawText(Rect(size: Size(width: px(20), height: px(10))), "placeholder")
+    paint.drawImage(Rect(origin: Point(x: px(20), y: px(20)),
+      size: Size(width: px(10), height: px(10))))
+    paint.popTransform()
+    check paint.commands.len == 2
+    check float32(paint.commands[0].bounds.origin.x) == 10.0
+    check float32(paint.commands[0].bounds.origin.y) == 12.0
+
   test "scroll and split models clamp interaction":
     var scroll = ScrollModel(contentSize: px(100), viewportSize: px(30))
     scroll.scrollBy(px(80))

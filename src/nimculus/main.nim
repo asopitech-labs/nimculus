@@ -19,6 +19,7 @@ var demoSplitNode = NodeId(0)
 var demoScrollNode = NodeId(0)
 var demoSplitRatio = 0.5'f32
 var demoSplitDragging = false
+var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 
 proc setupDemoUi() =
   demoTree = newUiTree()
@@ -53,6 +54,7 @@ proc setupDemoUi() =
   let editorHeight = max(0'f32, viewportHeight - 208'f32)
   let editor = Rect(origin: Point(x: px(margin * 2), y: px(128)),
     size: Size(width: px(editorWidth), height: px(editorHeight)))
+  demoEditorBounds = editor
   let splitBar = Rect(origin: Point(x: px(margin * 2 + editorWidth * demoSplitRatio), y: px(128)),
     size: Size(width: px(2), height: px(editorHeight)))
   let scrollbar = Rect(origin: Point(x: px(margin * 2 + editorWidth + 24), y: px(144)),
@@ -67,6 +69,14 @@ proc setupDemoUi() =
   paint.drawBorder(panel)
   paint.drawRoundedRectangle(toolbar, px(8))
   paint.drawBorder(toolbar)
+  paint.drawText(Rect(origin: Point(x: px(margin * 2 + 16), y: px(margin * 2 + 18)),
+    size: Size(width: px(150), height: px(22))), "Nimculus")
+  paint.drawImage(Rect(origin: Point(x: px(viewportWidth - margin * 3 - 24), y: px(margin * 2 + 16)),
+    size: Size(width: px(24), height: px(24))))
+  paint.pushTransform(translationTransform(px(6), px(6)))
+  paint.drawRectangle(Rect(origin: Point(x: px(margin * 2 + 260), y: px(margin * 2 + 16)),
+    size: Size(width: px(12), height: px(12))))
+  paint.popTransform()
   paint.drawSelection(Rect(origin: Point(x: px(72), y: px(145)),
     size: Size(width: px(220), height: px(24))))
   paint.pushClip(editor)
@@ -402,7 +412,7 @@ when defined(macosx):
     var metrics: PlatformMetrics
     platformGetMetrics(addr metrics)
     let viewHeight = if metrics.heightPoints > 0: metrics.heightPoints else: 640'u32
-    let top = float32(viewHeight) - float32(y)
+    let top = float32(viewHeight) - float32(y) - float32(demoEditorBounds.origin.y)
     let line = int(floor((top - 4.0'f32) / 18.0'f32))
     let entryIndex = line - 1
     if entryIndex < 0 or entryIndex >= workspacePreviewEntries.len: return
@@ -411,6 +421,27 @@ when defined(macosx):
       openActiveWorkspace(entry.path)
     else:
       receiveNativeFile(entry.path.cstring, false)
+
+  proc openWorkspaceSearchResultAtPoint(y: cdouble) =
+    if activeWorkspace == nil or workspaceSearchResults.len == 0: return
+    var metrics: PlatformMetrics
+    platformGetMetrics(addr metrics)
+    let viewHeight = if metrics.heightPoints > 0: metrics.heightPoints else: 640'u32
+    let top = float32(viewHeight) - float32(y) - float32(demoEditorBounds.origin.y)
+    let line = int(floor((top - 4.0'f32) / 18.0'f32))
+    let resultIndex = line - 1
+    if resultIndex < 0 or resultIndex >= workspaceSearchResults.len: return
+    let match = workspaceSearchResults[resultIndex]
+    let path = if fileExists(match.path): match.path else: activeWorkspace.root / match.path
+    receiveNativeFile(path.cstring, false)
+    let document = activeDocument()
+    if document != nil:
+      let lineIndex = max(0, match.line - 1)
+      let lineStart = document[].buffer.byteOffsetAtLineColumn(lineIndex, 0)
+      editorViewState.moveCursor(min(document[].buffer.toString().len,
+        lineStart + max(0, match.column - 1)))
+      syncEditorCursor()
+      refreshEditorSyntax()
 
 proc previousBoundary(text: string, offset: int): int =
   var resultOffset = max(0, min(offset, text.len)) - 1
@@ -423,6 +454,18 @@ proc nextBoundary(text: string, offset: int): int =
     inc resultOffset
     while resultOffset < text.len and (ord(text[resultOffset]) and 0xC0) == 0x80: inc resultOffset
   resultOffset
+
+proc lineEndOffset(document: ptr FileDocument, line: int): int =
+  if document == nil or document[].buffer.lineStarts.len == 0: return 0
+  let source = document[].buffer.toString()
+  let targetLine = max(0, min(line, document[].buffer.lineStarts.high))
+  let start = document[].buffer.lineStarts[targetLine]
+  let finish = if targetLine + 1 < document[].buffer.lineStarts.len:
+    document[].buffer.lineStarts[targetLine + 1]
+  else: source.len
+  let lineText = source[start ..< finish]
+  let positions = textPositions(lineText)
+  start + (if positions.len > 0: positions[^1].byteOffset else: 0)
 
 proc receiveNativeCommand(command: cstring) {.cdecl.} =
   if command == nil: return
@@ -595,6 +638,33 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "moveRight" and document != nil:
     editorViewState.moveCursor(nextBoundary(document[].buffer.toString(), editorViewState.cursor))
     syncEditorCursor()
+  elif name in ["moveUp", "moveDown", "selectUp", "selectDown"] and document != nil:
+    let location = document[].buffer.lineColumn(editorViewState.cursor)
+    let delta = if name in ["moveUp", "selectUp"]: -1 else: 1
+    let targetLine = max(0, min(document[].buffer.lineStarts.high, location.line + delta))
+    let target = document[].buffer.byteOffsetAtLineColumn(targetLine, location.column)
+    editorViewState.moveCursor(target, selecting = name.startsWith("select"))
+    syncEditorCursor()
+  elif name in ["moveToBeginningOfLine", "selectToBeginningOfLine"] and document != nil:
+    let location = document[].buffer.lineColumn(editorViewState.cursor)
+    editorViewState.moveCursor(document[].buffer.lineStarts[location.line],
+      selecting = name.startsWith("select"))
+    syncEditorCursor()
+  elif name in ["moveToEndOfLine", "selectToEndOfLine"] and document != nil:
+    let location = document[].buffer.lineColumn(editorViewState.cursor)
+    editorViewState.moveCursor(lineEndOffset(document, location.line),
+      selecting = name.startsWith("select"))
+    syncEditorCursor()
+  elif name == "moveToBeginningOfDocument" and document != nil:
+    editorViewState.moveCursor(0)
+    syncEditorCursor()
+  elif name == "moveToEndOfDocument" and document != nil:
+    editorViewState.moveCursor(document[].buffer.toString().len)
+    syncEditorCursor()
+  elif name == "insertNewline" and document != nil:
+    receiveNativeText("\n".cstring, false)
+  elif name == "insertTab" and document != nil:
+    receiveNativeText("\t".cstring, false)
   elif name == "selectRight" and document != nil:
     editorViewState.moveCursor(nextBoundary(document[].buffer.toString(), editorViewState.cursor), selecting = true)
     syncEditorCursor()
@@ -692,6 +762,9 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     if kind == pointerDown and workspacePreviewMode == "quickOpen" and
         workspacePreviewEntries.len > 0:
       openWorkspaceEntryAtPoint(event.y)
+    elif kind == pointerDown and workspacePreviewMode == "search" and
+        workspaceSearchResults.len > 0:
+      openWorkspaceSearchResultAtPoint(event.y)
     elif document == nil and kind == pointerDown:
       openWorkspaceEntryAtPoint(event.y)
     if document != nil and not splitPointerHandled and not demoSplitDragging and workspacePreviewMode != "quickOpen" and

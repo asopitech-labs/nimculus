@@ -385,6 +385,15 @@ Workspace fuzzy-search service. The bounded result list is stored as
 or directory. This keeps the first vertical slice small while preserving the
 search service's cancellation and root-aware path semantics.
 
+Workspace search results use a separate row mapping because they carry a line
+and column rather than a `WorkspaceEntry`. Clicking a result opens the
+resolved file and moves the editor cursor to that byte position after the
+document has loaded.
+
+The same logical editor bounds are also used for preview-row hit-testing, so
+moving the text surface below a toolbar does not shift Workspace, Quick Open,
+or search-result selection by the toolbar height.
+
 ## M6-003: Search yields cooperatively and streams file contents
 
 The UI-facing `SearchJob` processes a bounded number of files and lines per
@@ -441,6 +450,15 @@ rebuilds geometry on pointer movement. The editor pointer path is suspended
 while the split handle is active, preventing a drag from changing both the
 split position and text selection.
 
+## M2-012: Keep placeholder drawing separate from M3 text and image resources
+
+M2 now emits visible placeholder rectangles for text and image paint kinds,
+so every initial paint kind has a native path without inventing a texture
+resource ABI prematurely. M3 owns Core Text text surfaces; a future image
+resource API can replace the image placeholder without changing layout or
+dirty-region contracts. Affine transforms are applied in PaintList before
+dirty filtering, keeping hit-test and repaint bounds in logical UI space.
+
 ## M1-010: Keep a real Metal uniform binding in the first renderer
 
 The initial rectangle shader receives a small `buffer(1)` uniform block. Its
@@ -448,3 +466,12 @@ opacity value is currently fixed at `1.0`, but the binding is real and is
 consumed by the fragment color path. This preserves the uniform-buffer
 contract for later transforms, scale, and opacity without pretending that a
 vertex-only buffer satisfies the M1 requirement.
+
+## M5-013: Route Cocoa editor selectors through byte-based editor commands
+
+`NSTextInputClient` reports navigation selectors in NSString semantics, but
+the editor owns UTF-8 byte offsets. The bridge therefore emits semantic
+commands (`moveUp`, line boundaries, document boundaries, newline, and tab),
+and Nim resolves them through the existing buffer position helpers. This
+keeps Cocoa selector handling out of the editor buffer while preserving
+Unicode-safe movement.

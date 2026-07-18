@@ -16,6 +16,7 @@ type
     commands*: seq[PaintCommand]
     dirty*: seq[Rect]
     clipStack*: seq[Rect]
+    transformStack*: seq[Transform2D]
 
 proc intersects*(a, b: Rect): bool =
   float32(a.origin.x) < float32(b.origin.x + b.size.width) and
@@ -34,12 +35,15 @@ proc intersection*(a, b: Rect): Rect =
 proc invalidate*(paint: var PaintList, rect: Rect) = paint.dirty.add(rect)
 
 proc add*(paint: var PaintList, command: PaintCommand) =
+  let transform = if paint.transformStack.len > 0: paint.transformStack[^1] else: identityTransform()
+  let transformedBounds = transform.transformRect(command.bounds)
   for dirty in paint.dirty:
-    var visible = intersection(command.bounds, dirty)
+    var visible = intersection(transformedBounds, dirty)
     if paint.clipStack.len > 0:
       visible = intersection(visible, paint.clipStack[^1])
     if float32(visible.size.width) > 0 and float32(visible.size.height) > 0:
       var clipped = command
+      clipped.bounds = transformedBounds
       clipped.clip = visible
       paint.commands.add(clipped)
 
@@ -47,6 +51,7 @@ proc clear*(paint: var PaintList) =
   paint.commands.setLen(0)
   paint.dirty.setLen(0)
   paint.clipStack.setLen(0)
+  paint.transformStack.setLen(0)
 
 proc drawRectangle*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: rectangle, bounds: bounds, clip: bounds))
@@ -60,12 +65,19 @@ proc drawRoundedRectangle*(paint: var PaintList, bounds: Rect, radius: Pixels) =
 proc drawImage*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: image, bounds: bounds, clip: bounds))
 proc pushClip*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: clip, bounds: bounds, clip: bounds))
+  let transform = if paint.transformStack.len > 0: paint.transformStack[^1] else: identityTransform()
+  let transformedBounds = transform.transformRect(bounds)
   let effective = if paint.clipStack.len > 0:
-    intersection(bounds, paint.clipStack[^1])
-  else: bounds
+    intersection(transformedBounds, paint.clipStack[^1])
+  else: transformedBounds
   paint.clipStack.add(effective)
 proc popClip*(paint: var PaintList) =
   if paint.clipStack.len > 0: paint.clipStack.setLen(paint.clipStack.len - 1)
+proc pushTransform*(paint: var PaintList, transform: Transform2D) =
+  let current = if paint.transformStack.len > 0: paint.transformStack[^1] else: identityTransform()
+  paint.transformStack.add(current * transform)
+proc popTransform*(paint: var PaintList) =
+  if paint.transformStack.len > 0: paint.transformStack.setLen(paint.transformStack.len - 1)
 proc drawShadow*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: shadow, bounds: bounds, clip: bounds))
 proc drawCaret*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: caret, bounds: bounds, clip: bounds))
 proc drawSelection*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: selection, bounds: bounds, clip: bounds))
