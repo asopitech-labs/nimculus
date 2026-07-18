@@ -546,6 +546,11 @@ glyph atlas as well. This keeps the Zed-style atlas cache out of high-frequency
 cursor movement while ensuring retained-scene redraws never reuse stale caret
 or selection pixels.
 
+FSEvents watcher creation is transactional: allocation, path conversion,
+stream creation, and stream start must all succeed before the watcher is
+published. Failed starts release the stream and watcher immediately, matching
+the ownership boundary used by Zed's filesystem event service.
+
 Committed editor glyphs use the Metal atlas as the primary text path. The
 Core Text texture is kept as a transparent overlay for selection, marked IME
 composition, and caret; it renders the full line only when atlas generation
