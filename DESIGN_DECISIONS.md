@@ -368,6 +368,15 @@ Only existing directories are restored, and the first valid root becomes the
 active workspace while later roots are added before watcher startup. This
 preserves the workspace topology without persisting transient file contents.
 
+## M7-016: Derive Tree-sitter edits at the editor syntax boundary
+
+The editor syntax service receives complete post-edit text but not an editor
+transaction. It derives the smallest changed byte interval using common
+prefix/suffix scanning, expands interval edges to UTF-8 boundaries, computes
+Tree-sitter row/byte-column points, applies `TSInputEdit`, and parses with the
+previous tree. This keeps the buffer API independent of Tree-sitter while
+making the actual editor update path incremental.
+
 ## M6-015: Use the bounded text surface for initial Quick Open
 
 Quick Open sends its query through the native command callback and reuses the

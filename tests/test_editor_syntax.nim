@@ -8,6 +8,7 @@ suite "M7 editor syntax integration":
     check state.visibleHighlights(0, 10).len > 0
     state.update("def main():\n  return 2")
     check state.tree != nil
+    check state.tree.source == "def main():\n  return 2"
     state.close()
 
   test "unsupported files remain plain text":
