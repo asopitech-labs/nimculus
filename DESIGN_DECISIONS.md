@@ -390,6 +390,11 @@ and column rather than a `WorkspaceEntry`. Clicking a result opens the
 resolved file and moves the editor cursor to that byte position after the
 document has loaded.
 
+Workspace mutation boundaries use the canonical path of the existing target,
+or the canonical parent plus basename for a new target. This closes the gap
+where lexical `..` checks pass but a symlinked directory redirects create,
+rename, or delete operations outside the workspace root.
+
 The same logical editor bounds are also used for preview-row hit-testing, so
 moving the text surface below a toolbar does not shift Workspace, Quick Open,
 or search-result selection by the toolbar height.

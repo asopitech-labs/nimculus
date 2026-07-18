@@ -4,6 +4,9 @@ import std/tables
 import std/algorithm
 import std/osproc
 
+when defined(posix):
+  import posix
+
 when defined(macosx):
   {.compile: "workspace_macos.m".}
   {.passL: "-framework Cocoa -framework CoreServices -framework CoreFoundation".}
@@ -84,6 +87,29 @@ proc addRoot*(workspace: Workspace, root: string) =
 
 proc rootPaths*(workspace: Workspace): seq[string] = workspace.roots
 
+proc canonicalPath(path: string): string =
+  when defined(posix):
+    var buffer = newString(4096)
+    if realpath(path.cstring, buffer.cstring) == nil:
+      raise newException(IOError, "cannot resolve workspace path: " & path)
+    result = $buffer.cstring
+  else:
+    result = normalizedPath(path)
+
+proc boundaryPath(path: string): string =
+  if fileExists(path) or dirExists(path):
+    return canonicalPath(path)
+  var current = normalizedPath(path)
+  var missing: seq[string]
+  while not fileExists(current) and not dirExists(current):
+    let parent = current.parentDir
+    if parent == current: return normalizedPath(path)
+    missing.add(current.extractFilename)
+    current = parent
+  result = canonicalPath(current)
+  for index in countdown(missing.high, 0):
+    result = result / missing[index]
+
 proc listChildrenAt*(workspace: Workspace, root: string; relative = ""): seq[WorkspaceEntry] =
   let directory = root / relative
   if not dirExists(directory): return
@@ -114,8 +140,9 @@ proc enumerateFiles*(workspace: Workspace, token: CancelToken = nil): seq[Worksp
 
 proc resolvePath(workspace: Workspace, relative: string): string =
   let candidate = normalizedPath(workspace.root / relative)
-  let root = normalizedPath(workspace.root)
-  if candidate == root or candidate.startsWith(root & DirSep): return candidate
+  let root = canonicalPath(workspace.root)
+  let checked = boundaryPath(candidate)
+  if checked == root or checked.startsWith(root & DirSep): return candidate
   raise newException(ValueError, "workspace path escapes root")
 
 proc resolveEntryPath(workspace: Workspace, relative: string): string =

@@ -82,6 +82,20 @@ suite "M6 workspace":
     removeDir(second / "ignored")
     removeDir(root); removeDir(second)
 
+  test "rejects symlink paths that escape the workspace root":
+    let root = getTempDir() / "nimculus-m6-symlink-root"
+    let outside = getTempDir() / "nimculus-m6-symlink-outside"
+    createDir(root); createDir(outside)
+    when defined(posix):
+      createSymlink(outside, root / "escape")
+      let workspace = openWorkspace(root)
+      expect ValueError:
+        discard workspace.createFile("escape/new.txt")
+      expect ValueError:
+        workspace.deleteEntry("escape")
+      removeFile(root / "escape")
+    removeDir(root); removeDir(outside)
+
   test "uses ripgrep-compatible search results when available":
     let root = getTempDir() / "nimculus-m6-rg"
     createDir(root)
