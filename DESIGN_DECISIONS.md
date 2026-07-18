@@ -304,6 +304,14 @@ layer (new, save, find, workspace search, and cancellation), while Go to Line
 uses a dedicated numeric command. This gives the palette real execution
 semantics without duplicating editor behavior in AppKit.
 
+## M5-012: Synchronize Open Recent as a copied native list
+
+The Nim session owns recent-file ordering. The native bridge receives a copied
+array whenever the session is restored or a file is opened, and presents it in
+the standard File menu's Open Recent dialog. The bridge copies the UTF-8 paths
+immediately, so the temporary Nim pointer array does not become retained
+native state.
+
 ## M6-008: Make the lazy workspace preview actionable
 
 The initial workspace tree is rendered as a bounded text preview. Its visible

@@ -30,6 +30,7 @@ static NSString *g_clipboard_text = @"";
 static char g_dialog_path[PATH_MAX] = {0};
 static BOOL g_editor_dirty = NO;
 static BOOL g_close_decision = NO;
+static NSArray<NSString *> *g_recent_files = nil;
 
 static id<MTLRenderPipelineState> g_pipeline = nil;
 static id<MTLRenderPipelineState> g_text_pipeline = nil;
@@ -681,6 +682,8 @@ static void logInput(NSString *kind, NSEvent *event) {
   save.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   close.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   [fileMenu addItem:newDocument]; [fileMenu addItem:open]; [fileMenu addItem:save]; [fileMenu addItem:close];
+  [fileMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Open Recent…"
+    action:@selector(openRecent:) keyEquivalent:@""]];
   [fileMenu addItem:[NSMenuItem separatorItem]];
   [fileMenu addItem:[[NSMenuItem alloc] initWithTitle:@"New File…"
     action:@selector(createWorkspaceFile:) keyEquivalent:@""]];
@@ -852,6 +855,28 @@ static void logInput(NSString *kind, NSEvent *event) {
   panel.canChooseDirectories = YES;
   if ([panel runModal] == NSModalResponseOK) {
     if (g_file_callback) g_file_callback(panel.URL.path.UTF8String, false);
+  }
+}
+
+- (void)openRecent:(id)sender {
+  (void)sender;
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = @"Open Recent";
+  if (g_recent_files.count == 0) {
+    alert.informativeText = @"No recent files.";
+    [alert addButtonWithTitle:@"OK"];
+    [alert runModal];
+    return;
+  }
+  NSPopUpButton *popup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 360, 26)
+    pullsDown:NO];
+  [popup addItemsWithTitles:g_recent_files];
+  alert.accessoryView = popup;
+  [alert addButtonWithTitle:@"Open"];
+  [alert addButtonWithTitle:@"Cancel"];
+  if ([alert runModal] == NSAlertFirstButtonReturn && g_file_callback) {
+    NSString *path = popup.selectedItem.title;
+    if (path.length > 0) g_file_callback(path.UTF8String, false);
   }
 }
 
@@ -1126,6 +1151,16 @@ void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans,
     }
   }
   markSceneFullyDirty();
+}
+void nimculus_platform_set_recent_files(const char *const *paths, uint32_t count) {
+  NSMutableArray<NSString *> *files = [NSMutableArray arrayWithCapacity:count];
+  for (uint32_t index = 0; index < count; index++) {
+    if (paths[index]) {
+      NSString *path = [NSString stringWithUTF8String:paths[index]];
+      if (path.length > 0) [files addObject:path];
+    }
+  }
+  g_recent_files = [files copy];
 }
 void nimculus_platform_set_paint_commands(const NimculusPaintCommand *commands, uint32_t count) {
   free(g_paint_commands);

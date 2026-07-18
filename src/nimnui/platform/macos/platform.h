@@ -67,6 +67,7 @@ void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_by
 void nimculus_platform_set_editor_text(const char *utf8);
 void nimculus_platform_set_editor_composition(const char *utf8);
 void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans, uint32_t count);
+void nimculus_platform_set_recent_files(const char *const *paths, uint32_t count);
 void nimculus_platform_set_paint_commands(const NimculusPaintCommand *commands, uint32_t count);
 void nimculus_platform_set_paint_dirty_regions(const NimculusPaintRegion *regions, uint32_t count);
 void nimculus_platform_show_external_change(const char *path);

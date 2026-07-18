@@ -103,6 +103,16 @@ proc persistSession() =
   except CatchableError:
     discard
 
+proc syncRecentFiles() =
+  when defined(macosx):
+    var paths = newSeq[cstring](editorSession.recentFiles.len)
+    for index, path in editorSession.recentFiles:
+      paths[index] = path.cstring
+    if paths.len > 0:
+      platformSetRecentFiles(addr paths[0], uint32(paths.len))
+    else:
+      platformSetRecentFiles(nil, 0)
+
 proc restoreSession() =
   if sessionFilePath.len == 0: return
   if fileExists(sessionFilePath):
@@ -303,6 +313,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       let document = activeDocument()
       if document != nil: editorViewState.moveCursor(0)
       editorSession.recordRecent(filePath)
+      syncRecentFiles()
       syncEditorCursor()
       refreshEditorSyntax()
       persistSession()
@@ -604,6 +615,7 @@ when isMainModule:
   when defined(macosx):
     setupPersistencePaths()
     restoreSession()
+    syncRecentFiles()
     setupDemoUi()
     openActiveWorkspace(getCurrentDir())
     platformSetTextCallback(receiveNativeText)
