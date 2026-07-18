@@ -171,6 +171,13 @@ line and grapheme column, then resolves that column through the shared text
 position helper. Pointer drag selection therefore cannot split a multibyte
 character or grapheme cluster.
 
+## M5-007: Route AppKit movement selectors instead of key-code guesses
+
+The native text responder forwards `move*AndModifySelection:`, word movement,
+and word deletion selectors to the editor command ABI. This preserves macOS's
+keyboard-layout and modifier interpretation in AppKit while keeping UTF-8
+boundary decisions in the editor core.
+
 ## M5-005: Resolve external changes at the application boundary
 
 The editor service remains responsible for comparing file stamps. The macOS

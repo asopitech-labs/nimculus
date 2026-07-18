@@ -34,6 +34,42 @@ proc byteOffsetAtLineColumn*(buffer: PieceTable, line, column: int): int =
   let targetColumn = max(0, min(column, positions.high))
   start + positions[targetColumn].byteOffset
 
+proc isWordSpace(value: char): bool = value in {' ', '\t', '\n', '\r'}
+
+proc previousTextBoundary(text: string, offset: int): int =
+  var resultOffset = max(0, min(offset, text.len)) - 1
+  while resultOffset > 0 and (ord(text[resultOffset]) and 0xC0) == 0x80: dec resultOffset
+  max(0, resultOffset)
+
+proc nextTextBoundary(text: string, offset: int): int =
+  var resultOffset = max(0, min(offset, text.len))
+  if resultOffset < text.len:
+    inc resultOffset
+    while resultOffset < text.len and (ord(text[resultOffset]) and 0xC0) == 0x80: inc resultOffset
+  resultOffset
+
+proc previousWordBoundary*(text: string, offset: int): int =
+  var cursor = max(0, min(offset, text.len))
+  while cursor > 0:
+    let previous = previousTextBoundary(text, cursor)
+    if not text[previous].isWordSpace: break
+    cursor = previous
+  while cursor > 0:
+    let previous = previousTextBoundary(text, cursor)
+    if text[previous].isWordSpace: break
+    cursor = previous
+  cursor
+
+proc nextWordBoundary*(text: string, offset: int): int =
+  var cursor = max(0, min(offset, text.len))
+  while cursor < text.len:
+    if not text[cursor].isWordSpace: break
+    cursor = nextTextBoundary(text, cursor)
+  while cursor < text.len:
+    if text[cursor].isWordSpace: break
+    cursor = nextTextBoundary(text, cursor)
+  cursor
+
 proc selectedRange*(view: EditorViewState): tuple[startByte, endByte: int] =
   (startByte: min(view.selection.anchor, view.selection.active),
    endByte: max(view.selection.anchor, view.selection.active))

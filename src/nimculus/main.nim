@@ -306,15 +306,34 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "moveLeft" and document != nil:
     editorViewState.moveCursor(previousBoundary(document[].buffer.toString(), editorViewState.cursor))
     syncEditorCursor()
+  elif name == "selectLeft" and document != nil:
+    editorViewState.moveCursor(previousBoundary(document[].buffer.toString(), editorViewState.cursor), selecting = true)
+    syncEditorCursor()
   elif name == "moveRight" and document != nil:
     editorViewState.moveCursor(nextBoundary(document[].buffer.toString(), editorViewState.cursor))
     syncEditorCursor()
-  elif name in ["deleteBackward", "deleteForward"] and document != nil:
+  elif name == "selectRight" and document != nil:
+    editorViewState.moveCursor(nextBoundary(document[].buffer.toString(), editorViewState.cursor), selecting = true)
+    syncEditorCursor()
+  elif name == "moveWordLeft" and document != nil:
+    editorViewState.moveCursor(previousWordBoundary(document[].buffer.toString(), editorViewState.cursor))
+    syncEditorCursor()
+  elif name == "selectWordLeft" and document != nil:
+    editorViewState.moveCursor(previousWordBoundary(document[].buffer.toString(), editorViewState.cursor), selecting = true)
+    syncEditorCursor()
+  elif name == "moveWordRight" and document != nil:
+    editorViewState.moveCursor(nextWordBoundary(document[].buffer.toString(), editorViewState.cursor))
+    syncEditorCursor()
+  elif name == "selectWordRight" and document != nil:
+    editorViewState.moveCursor(nextWordBoundary(document[].buffer.toString(), editorViewState.cursor), selecting = true)
+    syncEditorCursor()
+  elif name in ["deleteBackward", "deleteForward", "deleteWordBackward"] and document != nil:
     let selected = editorViewState.selectedRange()
     var start = selected.startByte
     var finish = selected.endByte
     if start == finish:
-      if name == "deleteBackward": start = previousBoundary(document[].buffer.toString(), start)
+      if name == "deleteWordBackward": start = previousWordBoundary(document[].buffer.toString(), start)
+      elif name == "deleteBackward": start = previousBoundary(document[].buffer.toString(), start)
       else: finish = nextBoundary(document[].buffer.toString(), finish)
     if finish > start:
       document[].buffer.edit(Edit(startByte: start, endByte: finish, text: ""))

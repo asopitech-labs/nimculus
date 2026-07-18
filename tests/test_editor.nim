@@ -42,6 +42,8 @@ suite "M4 editor buffer":
     check buffer.byteOffsetAtLineColumn(1, 0) == 2
     check buffer.byteOffsetAtLineColumn(1, 1) == 6
     check buffer.byteOffsetAtLineColumn(1, 2) == 9
+    check previousWordBoundary("hello 世界", 12) == 6
+    check nextWordBoundary("hello 世界", 0) == 5
 
   test "saved state tracks edits":
     var buffer = initPieceTable("content")
