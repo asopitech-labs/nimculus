@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: jiro4989/setup-nim-action@v2
         with:
-          nim-version: '2.0.x'
+          nim-version: '2.2.x'
       - name: Build
         run: nimble build
       - name: Lint
