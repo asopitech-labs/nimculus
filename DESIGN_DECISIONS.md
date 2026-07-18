@@ -70,6 +70,14 @@ M5 external-change detection treats deletion as a change, and session loading
 accepts partial metadata so a damaged or older session file cannot crash
 startup.
 
+## M5-002: Route native document actions through a narrow callback
+
+The macOS delegate owns Cocoa menus and panels, but it reports only the
+selected path and whether the action is opening or saving. Nimculus owns
+`EditorSession`, document loading, and buffer mutation. This keeps AppKit
+objects out of the editor core while making Open, Save, Finder `openFiles:`,
+and IME committed text reach the active document.
+
 ## M6-001: Lazy workspace enumeration with cancellation
 
 Workspace opening records the root and ignore rules without reading file

@@ -12,6 +12,7 @@ static uint64_t g_input_count = 0;
 static NimculusPlatformMetrics g_metrics = {1.0, 0, 0, 0, 0, 0.0, 0};
 static NimculusInputCallback g_input_callback = NULL;
 static NimculusTextCallback g_text_callback = NULL;
+static NimculusFileCallback g_file_callback = NULL;
 static double g_ui_rect[4] = {360.0, 260.0, 240.0, 120.0};
 static NSString *g_clipboard_text = @"";
 static char g_dialog_path[PATH_MAX] = {0};
@@ -147,7 +148,7 @@ static void logInput(NSString *kind, NSEvent *event) {
   g_metrics.frame_count++;
 }
 
-- (void)keyDown:(NSEvent *)event { logInput(@"keyDown", event); }
+- (void)keyDown:(NSEvent *)event { logInput(@"keyDown", event); [self interpretKeyEvents:@[event]]; }
 - (void)keyUp:(NSEvent *)event { logInput(@"keyUp", event); }
 - (void)flagsChanged:(NSEvent *)event { logInput(@"flagsChanged", event); }
 - (void)mouseDown:(NSEvent *)event { logInput(@"mouseDown", event); }
@@ -166,8 +167,8 @@ static void logInput(NSString *kind, NSEvent *event) {
 }
 - (void)viewDidMoveToWindow { [self.window makeFirstResponder:self]; [self updateMetrics]; }
 
-// NSTextInputClient: this is the native IME boundary used by the future editor
-// buffer. The M3 core keeps composition state separate from committed text.
+// NSTextInputClient: composition is forwarded to the application editor while
+// committed text remains separate until insertText is received.
 - (BOOL)hasMarkedText { return self.markedText.length > 0; }
 - (NSRange)markedRange { return self.markedTextRange; }
 - (NSRange)selectedRange { return self.selectedTextRange; }
@@ -191,8 +192,6 @@ static void logInput(NSString *kind, NSEvent *event) {
   }
   self.markedTextRange = NSMakeRange(0, self.markedText.length);
   self.selectedTextRange = selectedRange;
-  NSLog(@"Nimculus IME composition update length=%lu selection={%lu,%lu}",
-        self.markedText.length, selectedRange.location, selectedRange.length);
   if (g_text_callback) g_text_callback(self.markedText.UTF8String, true);
 }
 - (void)unmarkText {
@@ -202,11 +201,10 @@ static void logInput(NSString *kind, NSEvent *event) {
 - (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
   NSString *committed = [string isKindOfClass:[NSAttributedString class]]
     ? [string string] : (NSString *)string;
-  NSLog(@"Nimculus IME committed text=%@", committed);
   if (g_text_callback) g_text_callback(committed.UTF8String, false);
   [self unmarkText];
 }
-- (void)doCommandBySelector:(SEL)selector { NSLog(@"Nimculus IME command=%@", NSStringFromSelector(selector)); }
+- (void)doCommandBySelector:(SEL)selector { (void)selector; }
 - (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
   if (actualRange) *actualRange = range;
   CGFloat cursorX = 8.0 + self.selectedTextRange.location * 8.0;
@@ -247,23 +245,49 @@ static void logInput(NSString *kind, NSEvent *event) {
   [fileItem setSubmenu:fileMenu];
   [mainMenu addItem:fileItem];
 
-  for (NSString *title in @[@"Edit", @"View", @"Window"]) {
-    [mainMenu addItem:[[NSMenuItem alloc] initWithTitle:title action:NULL keyEquivalent:@""]];
-  }
+  NSMenuItem *editItem = [[NSMenuItem alloc] initWithTitle:@"Edit" action:NULL keyEquivalent:@""];
+  NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
+  [editMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Undo" action:@selector(undo:) keyEquivalent:@"z"]];
+  [editMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Redo" action:@selector(redo:) keyEquivalent:@"Z"]];
+  [editMenu addItem:[NSMenuItem separatorItem]];
+  [editMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Cut" action:@selector(cut:) keyEquivalent:@"x"]];
+  [editMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"]];
+  [editMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"]];
+  [editMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"]];
+  for (NSMenuItem *item in editMenu.itemArray) item.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  [editItem setSubmenu:editMenu];
+  [mainMenu addItem:editItem];
+
+  NSMenuItem *viewItem = [[NSMenuItem alloc] initWithTitle:@"View" action:NULL keyEquivalent:@""];
+  NSMenu *viewMenu = [[NSMenu alloc] initWithTitle:@"View"];
+  NSMenuItem *fullScreen = [[NSMenuItem alloc] initWithTitle:@"Enter Full Screen" action:@selector(toggleFullScreen:) keyEquivalent:@"f"];
+  fullScreen.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagControl;
+  [viewMenu addItem:fullScreen];
+  [viewItem setSubmenu:viewMenu];
+  [mainMenu addItem:viewItem];
+
+  NSMenuItem *windowItem = [[NSMenuItem alloc] initWithTitle:@"Window" action:NULL keyEquivalent:@""];
+  NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];
+  NSMenuItem *minimize = [[NSMenuItem alloc] initWithTitle:@"Minimize" action:@selector(performMiniaturize:) keyEquivalent:@"m"];
+  minimize.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  [windowMenu addItem:minimize];
+  [windowMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Zoom" action:@selector(performZoom:) keyEquivalent:@""]];
+  [windowItem setSubmenu:windowMenu];
+  [mainMenu addItem:windowItem];
   [NSApp setMainMenu:mainMenu];
 }
 
 - (void)openDocument:(id)sender {
   NSOpenPanel *panel = [NSOpenPanel openPanel];
   if ([panel runModal] == NSModalResponseOK) {
-    NSLog(@"Nimculus open file=%@", panel.URL.path);
+    if (g_file_callback) g_file_callback(panel.URL.path.UTF8String, false);
   }
 }
 
 - (void)saveDocument:(id)sender {
   NSSavePanel *panel = [NSSavePanel savePanel];
   if ([panel runModal] == NSModalResponseOK) {
-    NSLog(@"Nimculus save file=%@", panel.URL.path);
+    if (g_file_callback) g_file_callback(panel.URL.path.UTF8String, true);
   }
 }
 
@@ -333,6 +357,12 @@ static void logInput(NSString *kind, NSEvent *event) {
   [self.window center];
   [self.window makeKeyAndOrderFront:nil];
 }
+- (void)application:(NSApplication *)application openFiles:(NSArray<NSString *> *)filenames {
+  (void)application;
+  for (NSString *path in filenames) {
+    if (g_file_callback) g_file_callback(path.UTF8String, false);
+  }
+}
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender { return YES; }
 @end
 
@@ -355,6 +385,7 @@ void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics) {
 uint64_t nimculus_platform_input_count(void) { return g_input_count; }
 void nimculus_platform_set_input_callback(NimculusInputCallback callback) { g_input_callback = callback; }
 void nimculus_platform_set_text_callback(NimculusTextCallback callback) { g_text_callback = callback; }
+void nimculus_platform_set_file_callback(NimculusFileCallback callback) { g_file_callback = callback; }
 void nimculus_platform_set_ui_rectangle(double x, double y, double width, double height) {
   g_ui_rect[0] = x; g_ui_rect[1] = y; g_ui_rect[2] = width; g_ui_rect[3] = height;
 }

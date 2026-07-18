@@ -25,3 +25,4 @@ M1 の最小縦切りは macOS ウィンドウ、`CAMetalLayer`、Metal の clea
 - [設計判断](./DESIGN_DECISIONS.md)
 - [ロードマップ](./ROADMAP.md)
 - [開発ガイドライン](./DEVELOPMENT_GUIDELINES.md)
+- [実装レビュー](./IMPLEMENTATION_REVIEW.md)

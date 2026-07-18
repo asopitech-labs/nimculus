@@ -16,12 +16,14 @@ proc platformInputCount*(): uint64 {.importc: "nimculus_platform_input_count", c
 type
   InputCallback* = proc(event: ptr NimculusInputEvent) {.cdecl.}
   TextCallback* = proc(utf8: cstring, composing: bool) {.cdecl.}
+  FileCallback* = proc(path: cstring, saving: bool) {.cdecl.}
   NimculusInputEvent* {.bycopy.} = object
     kind*, keyCode*, modifiers*: uint32
     x*, y*, deltaX*, deltaY*: cdouble
 
 proc platformSetInputCallback*(callback: InputCallback) {.importc: "nimculus_platform_set_input_callback", cdecl.}
 proc platformSetTextCallback*(callback: TextCallback) {.importc: "nimculus_platform_set_text_callback", cdecl.}
+proc platformSetFileCallback*(callback: FileCallback) {.importc: "nimculus_platform_set_file_callback", cdecl.}
 proc platformSetUiRectangle*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_ui_rectangle", cdecl.}
 proc clipboardSet*(text: cstring) {.importc: "nimculus_clipboard_set", cdecl.}
 proc clipboardGet*(): cstring {.importc: "nimculus_clipboard_get", cdecl.}

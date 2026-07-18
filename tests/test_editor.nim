@@ -106,3 +106,14 @@ suite "M5 editor services":
     check session.activeTab == -1
     check session.tabs.len == 0
     removeFile(path)
+
+  test "session loader tolerates invalid JSON and out of range active tab":
+    let invalidPath = getTempDir() / "nimculus-m5-invalid-session.json"
+    writeFile(invalidPath, "not-json")
+    check loadSession(invalidPath).activeTab == -1
+    removeFile(invalidPath)
+
+    let rangePath = getTempDir() / "nimculus-m5-range-session.json"
+    writeFile(rangePath, "{\"activeTab\": 99, \"tabs\": []}")
+    check loadSession(rangePath).activeTab == -1
+    removeFile(rangePath)

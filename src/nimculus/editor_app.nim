@@ -86,6 +86,7 @@ proc addTab*(session: var EditorSession, document: FileDocument) =
 
 proc closeActiveTab*(session: var EditorSession): bool =
   if session.tabs.len == 0: return false
+  session.activeTab = max(0, min(session.activeTab, session.tabs.high))
   if session.tabs[session.activeTab].document.buffer.isDirty: return false
   session.tabs.delete(session.activeTab)
   session.activeTab = min(session.activeTab, session.tabs.high)

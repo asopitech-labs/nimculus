@@ -6,12 +6,12 @@
 |---|---|---|
 | M0：モノレポ基盤 | 🟡 実装済み・CI確認待ち | Apple Silicon のローカル build / test / benchmark は確認済み |
 | M1：macOS ウィンドウと Metal 描画 | 🟡 実装済み・追加検証待ち | Cocoa / Metal / Retina / 基本入力を実装済み |
-| M2：NimNUI 基礎 UI システム | ✅ 完了 | UIツリー、レイアウト、状態、イベント、PaintList、macOS入力を実装 |
-| M3：macOS テキスト描画と IME | ✅ 完了 | Core Text、glyph atlas/Metal texture、IME、候補位置、clipboardを実装 |
-| M4：エディタバッファと編集コア | ✅ 完了 | Piece Table、検証済み原子的編集、Undo/Redo、複数カーソル、位置変換、fuzzを実装 |
-| M5：macOS 最小実用エディタ | ✅ 完了 | ファイル、検索/置換、削除を含む外部変更検知、タブ/分割、耐性のあるセッション、リカバリー、macOSメニュー/ダイアログを実装 |
-| M6：macOS プロジェクト・ワークスペース | ✅ 完了 | 遅延ファイルツリー、`.gitignore`、検索キャンセル、FSEvents監視を実装・検証済み |
-| M7：Tree-sitter | ✅ 完了 | Nim/Rust/TypeScript/Python/JSON/MarkdownのFFI、増分解析、構文サービスを実装・検証済み |
+| M2：NimNUI 基礎 UI システム | 🟡 実装済み・GUI検証待ち | UIツリー、レイアウト、状態、イベント、PaintList、macOS入力を実装。世代付きIDとUIギャラリー実機検証が残る |
+| M3：macOS テキスト描画と IME | 🟡 実装済み・GUI実機検証待ち | Core Text、glyph atlas/Metal texture、IME、候補位置、clipboardを実装。実エディタへの描画接続と日本語IME実機確認が残る |
+| M4：エディタバッファと編集コア | 🟡 実装済み・候補構造比較待ち | Piece Table、検証済み原子的編集、Undo/Redo、複数カーソル、位置変換、fuzzを実装。Rope/Piece Tree/Gap Buffer/Hybrid比較ベンチマークが残る |
+| M5：macOS 最小実用エディタ | 🟡 実装済み・GUI実機検証待ち | 編集サービスとmacOSメニュー/IME/Finder接続を実装。実エディタ描画、標準編集コマンド、GUI実機確認が残る |
+| M6：macOS プロジェクト・ワークスペース | 🟡 部分実装 | 遅延ファイルツリー、`.gitignore`、検索キャンセル、FSEvents監視を実装。複数ルート、ファイル操作、ripgrep/fuzzy、Worktree、10万ファイル計測が残る |
+| M7：Tree-sitter | 🟡 部分実装 | Nim/Rust/TypeScript/Python/JSON/MarkdownのFFI、増分解析、構文サービス基盤を実装。indentation、selection expansion、syntax-aware navigation、遅延ハイライトが残る |
 
 チェック済み項目は、コード実装とローカル検証の両方を確認できたものを示す。CIの実行成功、実機での個別入力、未実装のAPIは未チェックのまま残す。
 
