@@ -103,6 +103,11 @@ suite "M6 workspace":
     check workspace.fuzzyFileSearch("main").len == 1
     check workspace.enumerateFiles().allIt(not it.relativePath.endsWith("secret.txt"))
     check workspace.createFileAt(second, "src/secondary.nim", "discard").endsWith("src/secondary.nim")
+    let secondaryLocation = workspace.splitWorkspacePath(second / "src/secondary.nim")
+    check secondaryLocation.root == absolutePath(second)
+    check secondaryLocation.relative == "src/secondary.nim"
+    expect ValueError:
+      discard workspace.splitWorkspacePath(getTempDir() / "outside-workspace.txt")
     check workspace.enumerateFiles().anyIt(it.rootPath == absolutePath(second) and
       it.relativePath == "src/secondary.nim")
     check workspace.searchWorkspace("discard").anyIt(it.path == second / "src/secondary.nim")

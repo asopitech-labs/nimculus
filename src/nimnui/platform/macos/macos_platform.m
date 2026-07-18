@@ -1067,7 +1067,7 @@ static void logInput(NSString *kind, NSEvent *event) {
   (void)sender;
   NSAlert *alert = [[NSAlert alloc] init];
   alert.messageText = @"New File";
-  NSTextField *field = [self workspacePathField:@"Relative path, e.g. src/new_file.nim"];
+  NSTextField *field = [self workspacePathField:@"Relative path, or absolute path in a workspace root"];
   alert.accessoryView = field;
   [alert addButtonWithTitle:@"Create"];
   [alert addButtonWithTitle:@"Cancel"];
@@ -1081,7 +1081,7 @@ static void logInput(NSString *kind, NSEvent *event) {
   (void)sender;
   NSAlert *alert = [[NSAlert alloc] init];
   alert.messageText = @"New Folder";
-  NSTextField *field = [self workspacePathField:@"Relative path, e.g. src/new_folder"];
+  NSTextField *field = [self workspacePathField:@"Relative path, or absolute path in a workspace root"];
   alert.accessoryView = field;
   [alert addButtonWithTitle:@"Create"];
   [alert addButtonWithTitle:@"Cancel"];
@@ -1098,8 +1098,8 @@ static void logInput(NSString *kind, NSEvent *event) {
   NSStackView *fields = [[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 320, 56)];
   fields.orientation = NSUserInterfaceLayoutOrientationVertical;
   fields.spacing = 8;
-  NSTextField *oldField = [self workspacePathField:@"Existing relative path"];
-  NSTextField *newField = [self workspacePathField:@"New relative path"];
+  NSTextField *oldField = [self workspacePathField:@"Existing relative or absolute path"];
+  NSTextField *newField = [self workspacePathField:@"New relative or absolute path"];
   [fields addArrangedSubview:oldField];
   [fields addArrangedSubview:newField];
   alert.accessoryView = fields;
@@ -1117,7 +1117,7 @@ static void logInput(NSString *kind, NSEvent *event) {
   NSAlert *alert = [[NSAlert alloc] init];
   alert.messageText = @"Delete Workspace Entry";
   alert.informativeText = @"Deleting a directory requires it to be empty.";
-  NSTextField *field = [self workspacePathField:@"Relative path"];
+  NSTextField *field = [self workspacePathField:@"Relative or absolute path in a workspace root"];
   alert.accessoryView = field;
   [alert addButtonWithTitle:@"Delete"];
   [alert addButtonWithTitle:@"Cancel"];

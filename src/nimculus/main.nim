@@ -586,38 +586,45 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name.startsWith("quickOpen:"):
     showQuickOpen(name[10 .. ^1].strip)
   elif name.startsWith("workspaceCreateFile:") and activeWorkspace != nil:
-    let relative = workspaceRelativePayload(name, "workspaceCreateFile:")
-    if relative.len == 0: return
+    let payload = workspaceRelativePayload(name, "workspaceCreateFile:")
+    if payload.len == 0: return
     try:
-      discard activeWorkspace.createFile(relative)
-      refreshWorkspaceAfterMutation("Created " & relative)
+      let location = activeWorkspace.splitWorkspacePath(payload)
+      discard activeWorkspace.createFileAt(location.root, location.relative)
+      refreshWorkspaceAfterMutation("Created " & payload)
     except CatchableError as error:
       editorViewState.statusMessage = "Create failed: " & error.msg
   elif name.startsWith("workspaceCreateDirectory:") and activeWorkspace != nil:
-    let relative = workspaceRelativePayload(name, "workspaceCreateDirectory:")
-    if relative.len == 0: return
+    let payload = workspaceRelativePayload(name, "workspaceCreateDirectory:")
+    if payload.len == 0: return
     try:
-      discard activeWorkspace.createDirectory(relative)
-      refreshWorkspaceAfterMutation("Created " & relative)
+      let location = activeWorkspace.splitWorkspacePath(payload)
+      discard activeWorkspace.createDirectoryAt(location.root, location.relative)
+      refreshWorkspaceAfterMutation("Created " & payload)
     except CatchableError as error:
       editorViewState.statusMessage = "Create failed: " & error.msg
   elif name.startsWith("workspaceDelete:") and activeWorkspace != nil:
-    let relative = workspaceRelativePayload(name, "workspaceDelete:")
-    if relative.len == 0: return
+    let payload = workspaceRelativePayload(name, "workspaceDelete:")
+    if payload.len == 0: return
     try:
-      activeWorkspace.deleteEntry(relative)
-      refreshWorkspaceAfterMutation("Deleted " & relative)
+      let location = activeWorkspace.splitWorkspacePath(payload)
+      activeWorkspace.deleteEntryAt(location.root, location.relative)
+      refreshWorkspaceAfterMutation("Deleted " & payload)
     except CatchableError as error:
       editorViewState.statusMessage = "Delete failed: " & error.msg
   elif name.startsWith("workspaceRename:") and activeWorkspace != nil:
     let payload = workspaceRelativePayload(name, "workspaceRename:")
     let separator = payload.find('\x1f')
     if separator <= 0 or separator + 1 >= payload.len: return
-    let oldRelative = payload[0 ..< separator].strip
-    let newRelative = payload[separator + 1 .. ^1].strip
+    let oldPayload = payload[0 ..< separator].strip
+    let newPayload = payload[separator + 1 .. ^1].strip
     try:
-      discard activeWorkspace.renameEntry(oldRelative, newRelative)
-      refreshWorkspaceAfterMutation("Renamed " & oldRelative & " to " & newRelative)
+      let oldLocation = activeWorkspace.splitWorkspacePath(oldPayload)
+      let newLocation = activeWorkspace.splitWorkspacePath(newPayload)
+      if oldLocation.root != newLocation.root:
+        raise newException(ValueError, "rename must stay within one workspace root")
+      discard activeWorkspace.renameEntryAt(oldLocation.root, oldLocation.relative, newLocation.relative)
+      refreshWorkspaceAfterMutation("Renamed " & oldPayload & " to " & newPayload)
     except CatchableError as error:
       editorViewState.statusMessage = "Rename failed: " & error.msg
   elif name.startsWith("findDocument:") and document != nil:

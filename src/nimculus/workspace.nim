@@ -163,6 +163,22 @@ proc resolvePathAt*(workspace: Workspace, root, relative: string): string =
   if checked == canonicalRoot or checked.startsWith(canonicalRoot & DirSep): return candidate
   raise newException(ValueError, "workspace path escapes root")
 
+proc splitWorkspacePath*(workspace: Workspace, path: string): tuple[root, relative: string] =
+  ## Resolve an operation payload to its owning workspace root. Relative
+  ## payloads retain the primary-root convenience behavior; absolute payloads
+  ## must belong to a registered root so secondary roots cannot be redirected
+  ## silently to the primary root.
+  if not isAbsolute(path):
+    return (root: workspace.root, relative: path)
+  let candidate = normalizedPath(path)
+  for root in workspace.roots:
+    let normalizedRoot = normalizedPath(root)
+    if candidate == normalizedRoot:
+      return (root: root, relative: "")
+    if candidate.startsWith(normalizedRoot & DirSep):
+      return (root: root, relative: candidate[(normalizedRoot.len + 1) .. ^1])
+  raise newException(ValueError, "path is outside registered workspace roots")
+
 proc resolvePath(workspace: Workspace, relative: string): string =
   workspace.resolvePathAt(workspace.root, relative)
 
