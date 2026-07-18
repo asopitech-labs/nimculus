@@ -477,6 +477,18 @@ bool nimculus_platform_run(void) {
   return true;
 }
 
+bool nimculus_platform_validate_native(void) {
+  id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+  if (!device) return false;
+  CAMetalLayer *layer = [CAMetalLayer layer];
+  layer.device = device;
+  layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+  layer.contentsScale = 2.0;
+  layer.drawableSize = CGSizeMake(1280.0, 800.0);
+  return layer.device != nil && layer.drawableSize.width == 1280.0 &&
+    layer.drawableSize.height == 800.0;
+}
+
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics) {
   if (metrics) *metrics = g_metrics;
 }

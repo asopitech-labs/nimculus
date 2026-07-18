@@ -12,3 +12,6 @@ suite "macOS platform contract":
     let before = platformInputCount()
     let after = platformInputCount()
     check after >= before
+
+  test "native Metal layer contract is available":
+    check platformValidateNative()
