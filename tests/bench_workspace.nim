@@ -3,7 +3,7 @@ import std/times
 import std/strutils
 import nimculus/workspace
 
-let fileCount = parseInt(getEnv("NIMCULUS_WORKSPACE_BENCH_FILES", "10000"))
+let fileCount = parseInt(getEnv("NIMCULUS_WORKSPACE_BENCH_FILES", "100000"))
 let root = getTempDir() / "nimculus-workspace-benchmark"
 if dirExists(root): removeDir(root)
 createDir(root)

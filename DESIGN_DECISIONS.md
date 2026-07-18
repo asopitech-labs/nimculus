@@ -1,5 +1,12 @@
 # Design Decisions
 
+## M0-001: Use Nim standard tooling for the first quality gate
+
+`nimpretty` is exposed through `nimble format` and `nim check` through
+`nimble lint`. Both run without an additional package manager dependency and
+the static check is part of the macOS CI gate. A third-party linter can be
+added later only when it covers a demonstrated gap.
+
 ## M1-001: Keep the macOS bridge in Objective-C
 
 The first macOS vertical slice uses Objective-C for Cocoa and Metal APIs and
@@ -113,3 +120,12 @@ The native view receives the current logical cursor coordinates from Nim after
 buffer mutations. Candidate positioning therefore follows editor state rather
 than the transient `NSTextInputClient` selection range, which is necessary for
 UTF-8 and Japanese composition.
+
+## M6-003: Search yields cooperatively and streams file contents
+
+The UI-facing `SearchJob` processes a bounded number of files and lines per
+poll, preserves pending directory/file state between polls, and reads the
+active file with `readLine` instead of loading the complete file. Cancellation
+closes an active file immediately. The existing synchronous search functions
+remain as convenience APIs, while application UI code must use the yielding
+job for large workspaces.

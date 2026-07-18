@@ -60,6 +60,11 @@ platform → renderer → NimNUI → editor core → application services
 - benchmark runner
 - mock renderer
 
+formatter は `nimble format`（Nim 標準 `nimpretty`）、静的検査は
+`nimble lint`（Nim 標準 `nim check`）を使用する。依存ライブラリを追加する
+場合は、標準ツールで検出できない問題を対象にし、採用理由を
+`DESIGN_DECISIONS.md`へ記録する。
+
 モノレポの初期段階で、NimNUI と Nimculus のアプリ層を分離する。ビルド、テスト、ベンチマーク、モック描画を単独で実行できる状態を保つ。
 
 ### 3.2 ドキュメント

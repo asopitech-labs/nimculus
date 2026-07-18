@@ -18,6 +18,8 @@ tests/bench_editor
 tests/bench_large_editor
 tests/bench_buffer_strategies
 tests/bench_workspace
+tests/bench_syntax
 *.app
 *.dmg
 references/zed/
+.nimcache/

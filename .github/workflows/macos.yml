@@ -14,5 +14,7 @@ jobs:
           nim-version: '2.0.x'
       - name: Build
         run: nimble build
+      - name: Lint
+        run: nimble lint
       - name: Test
         run: nimble test

@@ -23,6 +23,18 @@ type
     root*, head*, branch*: string
   CancelToken* = ref object
     cancelled*: bool
+  SearchJob* = ref object
+    workspace*: Workspace
+    query*: string
+    token*: CancelToken
+    pendingDirectories: seq[tuple[root: string, relative: string]]
+    pendingFiles: seq[WorkspaceEntry]
+    bufferedResults: seq[SearchResult]
+    activeFile: File
+    activeEntry: WorkspaceEntry
+    activeLine: int
+    hasActiveFile: bool
+    complete*: bool
   Workspace* = ref object
     root*: string
     roots*: seq[string]
@@ -144,6 +156,83 @@ proc fuzzyFileSearch*(workspace: Workspace, query: string, limit = 100): seq[Wor
 
 proc searchWorkspace*(workspace: Workspace, query: string,
                       token: CancelToken = nil): seq[SearchResult]
+
+proc startSearch*(workspace: Workspace, query: string,
+                  token: CancelToken = nil): SearchJob =
+  result = SearchJob(workspace: workspace, query: query,
+    token: if token == nil: newCancelToken() else: token)
+  if query.len == 0:
+    result.complete = true
+    return
+  for root in workspace.roots:
+    result.pendingDirectories.add((root: root, relative: ""))
+
+proc cancelSearch*(job: SearchJob) =
+  if job != nil:
+    if job.hasActiveFile: close(job.activeFile)
+    job.hasActiveFile = false
+    if job.token != nil: job.token.cancel()
+
+proc isComplete*(job: SearchJob): bool = job == nil or job.complete
+
+proc searchLine(job: SearchJob, line: string, lineNumber: int,
+                entry: WorkspaceEntry) =
+  var offset = 0
+  while true:
+    let column = line.find(job.query, offset)
+    if column < 0: break
+    job.bufferedResults.add(SearchResult(path: entry.relativePath,
+      line: lineNumber, column: column + 1, text: line))
+    offset = column + max(1, job.query.len)
+
+proc pollSearch*(job: SearchJob, maxFiles = 16, maxLines = 4096): seq[SearchResult] =
+  ## Process bounded file/line work. Call this from the application's scheduler
+  ## so a large workspace search can yield between batches without loading a
+  ## complete file into memory.
+  if job == nil or job.complete: return
+  if job.token != nil and job.token.cancelled:
+    job.complete = true
+    return
+  var processedFiles = 0
+  var processedLines = 0
+  while processedFiles < max(1, maxFiles) and processedLines < max(1, maxLines):
+    if job.token != nil and job.token.cancelled:
+      job.complete = true
+      break
+    if not job.hasActiveFile and job.pendingFiles.len == 0:
+      if job.pendingDirectories.len == 0:
+        job.complete = true
+        break
+      let directory = job.pendingDirectories.pop()
+      for entry in job.workspace.listChildrenAt(directory.root, directory.relative):
+        if entry.kind == WorkspaceFileKind.directory:
+          job.pendingDirectories.add((root: directory.root, relative: entry.relativePath))
+        else:
+          var file = entry
+          if directory.root != job.workspace.root:
+            file.relativePath = directory.root / entry.relativePath
+          job.pendingFiles.add(file)
+      continue
+    if not job.hasActiveFile:
+      job.activeEntry = job.pendingFiles.pop()
+      if not open(job.activeFile, job.activeEntry.path, fmRead):
+        inc processedFiles
+        continue
+      job.activeLine = 0
+      job.hasActiveFile = true
+    var line = ""
+    if job.activeFile.readLine(line):
+      inc job.activeLine
+      job.searchLine(line, job.activeLine, job.activeEntry)
+      inc processedLines
+    else:
+      close(job.activeFile)
+      job.hasActiveFile = false
+      inc processedFiles
+  if not job.hasActiveFile and job.pendingFiles.len == 0 and job.pendingDirectories.len == 0:
+    job.complete = true
+  result = job.bufferedResults
+  job.bufferedResults.setLen(0)
 
 proc searchRipgrep*(workspace: Workspace, query: string,
                     token: CancelToken = nil): seq[SearchResult] =

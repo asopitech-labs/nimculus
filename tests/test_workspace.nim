@@ -35,6 +35,25 @@ suite "M6 workspace":
     check workspace.searchWorkspace("needle", token).len == 0
     removeFile(root / "a.txt"); removeDir(root)
 
+  test "search job yields bounded batches and can be cancelled":
+    let root = getTempDir() / "nimculus-m6-search-job"
+    createDir(root)
+    writeFile(root / "a.txt", "needle")
+    writeFile(root / "b.txt", "needle")
+    let workspace = openWorkspace(root)
+    let job = workspace.startSearch("needle")
+    let firstBatch = job.pollSearch(1)
+    check firstBatch.len == 1
+    check not job.isComplete
+    let secondBatch = job.pollSearch(1)
+    check secondBatch.len == 1
+    check job.isComplete
+    let cancelled = workspace.startSearch("needle")
+    cancelled.cancelSearch()
+    check cancelled.pollSearch(1).len == 0
+    check cancelled.isComplete
+    removeFile(root / "a.txt"); removeFile(root / "b.txt"); removeDir(root)
+
   test "supports roots, file operations, and fuzzy search":
     let root = getTempDir() / "nimculus-m6-ops"
     let second = getTempDir() / "nimculus-m6-ops-second"
