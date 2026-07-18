@@ -622,28 +622,30 @@ static float normalizedY(CGFloat value, CGFloat height) {
   return (float)(1.0 - value / height * 2.0);
 }
 
-static void appendGlyphQuad(CGSize logicalSize, CGFloat scale,
+static void appendGlyphQuad(CGSize sceneSize, CGRect editorRect, CGFloat scale,
                             NimculusGlyphAtlasEntry entry, CGPoint glyphOrigin,
                             CGFloat baselineY, CGFloat red, CGFloat green,
                             CGFloat blue, CGFloat alpha) {
-  if (entry.width == 0 || entry.height == 0 || logicalSize.width <= 0 ||
-      logicalSize.height <= 0) return;
-  CGFloat x0 = 8.0 + glyphOrigin.x + entry.bounds_x;
+  if (entry.width == 0 || entry.height == 0 || sceneSize.width <= 0 ||
+      sceneSize.height <= 0 || editorRect.size.width <= 0 ||
+      editorRect.size.height <= 0) return;
+  CGFloat x0 = editorRect.origin.x + 8.0 + glyphOrigin.x + entry.bounds_x;
   CGFloat x1 = x0 + entry.bounds_width;
   CGFloat bottomOrigin = baselineY + entry.bounds_y;
-  CGFloat y0 = logicalSize.height - (bottomOrigin + entry.bounds_height);
-  CGFloat y1 = logicalSize.height - bottomOrigin;
+  CGFloat y0 = editorRect.origin.y + editorRect.size.height -
+    (bottomOrigin + entry.bounds_height);
+  CGFloat y1 = editorRect.origin.y + editorRect.size.height - bottomOrigin;
   float u0 = (float)entry.x / 2048.0f;
   float u1 = (float)(entry.x + entry.width) / 2048.0f;
   float v0 = 1.0f - (float)(entry.y + entry.height) / 2048.0f;
   float v1 = 1.0f - (float)entry.y / 2048.0f;
   NimculusGlyphVertex vertices[6] = {
-    {normalizedX(x0, logicalSize.width), normalizedY(y1, logicalSize.height), u0, v0, red, green, blue, alpha},
-    {normalizedX(x1, logicalSize.width), normalizedY(y1, logicalSize.height), u1, v0, red, green, blue, alpha},
-    {normalizedX(x0, logicalSize.width), normalizedY(y0, logicalSize.height), u0, v1, red, green, blue, alpha},
-    {normalizedX(x0, logicalSize.width), normalizedY(y0, logicalSize.height), u0, v1, red, green, blue, alpha},
-    {normalizedX(x1, logicalSize.width), normalizedY(y1, logicalSize.height), u1, v0, red, green, blue, alpha},
-    {normalizedX(x1, logicalSize.width), normalizedY(y0, logicalSize.height), u1, v1, red, green, blue, alpha}
+    {normalizedX(x0, sceneSize.width), normalizedY(y1, sceneSize.height), u0, v0, red, green, blue, alpha},
+    {normalizedX(x1, sceneSize.width), normalizedY(y1, sceneSize.height), u1, v0, red, green, blue, alpha},
+    {normalizedX(x0, sceneSize.width), normalizedY(y0, sceneSize.height), u0, v1, red, green, blue, alpha},
+    {normalizedX(x0, sceneSize.width), normalizedY(y0, sceneSize.height), u0, v1, red, green, blue, alpha},
+    {normalizedX(x1, sceneSize.width), normalizedY(y1, sceneSize.height), u1, v0, red, green, blue, alpha},
+    {normalizedX(x1, sceneSize.width), normalizedY(y0, sceneSize.height), u1, v1, red, green, blue, alpha}
   };
   (void)scale;
   for (NSUInteger index = 0; index < 6; index++) appendGlyphVertex(vertices[index]);
@@ -668,8 +670,14 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
   for (NSUInteger index = 0; index < startLine; index++) {
     lineStartByte += [[lines[index] dataUsingEncoding:NSUTF8StringEncoding] length] + 1;
   }
-  CGSize logicalSize = CGSizeMake(MAX(1.0, g_editor_rect[2]),
-                                  MAX(1.0, g_editor_rect[3]));
+  CGSize editorSize = CGSizeMake(MAX(1.0, g_editor_rect[2]),
+                                 MAX(1.0, g_editor_rect[3]));
+  CGSize sceneSize = CGSizeMake(MAX((CGFloat)g_metrics.width_points,
+                                    g_editor_rect[0] + editorSize.width),
+                                MAX((CGFloat)g_metrics.height_points,
+                                    g_editor_rect[1] + editorSize.height));
+  CGRect editorRect = CGRectMake(g_editor_rect[0], g_editor_rect[1],
+                                 editorSize.width, editorSize.height);
   for (NSUInteger displayIndex = 0; displayIndex < visibleLines; displayIndex++) {
     NSString *lineText = lines[startLine + displayIndex];
     NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
@@ -693,7 +701,7 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
     }
     CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
     CFArrayRef runs = CTLineGetGlyphRuns(line);
-    CGFloat baselineY = logicalSize.height - lineHeight * (displayIndex + 1);
+    CGFloat baselineY = editorSize.height - lineHeight * (displayIndex + 1);
     for (CFIndex runIndex = 0; runIndex < CFArrayGetCount(runs); runIndex++) {
       CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, runIndex);
       NSDictionary *runAttributes = (__bridge NSDictionary *)CTRunGetAttributes(run);
@@ -711,7 +719,7 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
       for (CFIndex glyphIndex = 0; glyphIndex < glyphCount; glyphIndex++) {
         NimculusGlyphAtlasEntry entry;
         if (atlasEntryForGlyph(device, font, glyphs[glyphIndex], scale, &entry)) {
-          appendGlyphQuad(logicalSize, scale, entry, positions[glyphIndex], baselineY,
+          appendGlyphQuad(sceneSize, editorRect, scale, entry, positions[glyphIndex], baselineY,
             red, green, blue, alpha);
         }
       }

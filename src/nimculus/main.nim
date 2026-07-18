@@ -445,8 +445,20 @@ proc refreshEditorSyntax() =
   let document = activeDocument()
   if document == nil: return
   var grammar: GrammarKind
-  try: grammar = grammarForPath(document[].path)
-  except ValueError: return
+  try:
+    grammar = grammarForPath(document[].path)
+  except ValueError:
+    # Zed keeps a buffer as plain text when language detection has no match;
+    # changing from a parsed file must therefore clear the old syntax state
+    # and still refresh the native text surface.
+    if syntaxState != nil:
+      syntaxState.close()
+      syntaxState = nil
+    when defined(macosx):
+      platformSetEditorHighlights(nil, 0)
+      let text = document[].buffer.toString()
+      platformSetEditorText(text.cstring, uint32(text.len))
+    return
   if syntaxState == nil or syntaxState.grammar != grammar:
     if syntaxState != nil: syntaxState.close()
     syntaxState = newEditorSyntax(document[].path, document[].buffer.toString())

@@ -101,6 +101,11 @@ in the transparent overlay texture. The atlas uses a bounded shelf allocator;
 when the atlas is full, entries are discarded and visible glyphs are rebuilt,
 which gives deterministic bounded memory rather than unbounded texture growth.
 
+When a file has no registered grammar, the editor deliberately falls back to
+plain text: the previous parser and highlight spans are released and the new
+document is still sent to the native text surface. This prevents a tab switch
+from retaining syntax colors or stale text from the previously parsed file.
+
 ## M3-002: NSTextInputClient is the IME boundary
 
 The custom `NSView` implements `NSTextInputClient`; marked text, committed text,
