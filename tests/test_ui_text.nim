@@ -78,6 +78,18 @@ suite "M2 UI foundation":
     check tree.hitTest(Point(x: px(20), y: px(20))) == front
     check tree.hitTest(Point(x: px(90), y: px(90))) == root
 
+  test "hit testing respects ancestor viewport bounds":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let scroll = tree.addNode(root)
+    let child = tree.addNode(scroll)
+    tree.node(root).bounds = Rect(size: Size(width: px(100), height: px(100)))
+    tree.node(scroll).bounds = Rect(size: Size(width: px(40), height: px(40)))
+    tree.node(child).bounds = Rect(origin: Point(x: px(30), y: px(30)),
+      size: Size(width: px(40), height: px(40)))
+    check tree.hitTest(Point(x: px(35), y: px(35))) == child
+    check tree.hitTest(Point(x: px(60), y: px(60))) == root
+
   test "focus traversal reaches the next focusable node":
     var tree = newUiTree()
     let first = tree.addNode(focusable = true)

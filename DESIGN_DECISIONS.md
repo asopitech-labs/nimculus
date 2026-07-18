@@ -513,3 +513,7 @@ movement must never introduce a boundary inside one grapheme cluster.
 Visible text ranges use that same boundary list. The renderer may still shape
 each visible run independently, but it never starts or ends a run halfway
 through a grapheme cluster.
+
+Pointer hit-testing follows the same viewport contract as painting: a node is
+eligible only when the point is inside all of its ancestor bounds. This keeps
+scroll-container content from receiving events after it has been clipped.

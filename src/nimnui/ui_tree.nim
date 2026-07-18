@@ -71,10 +71,20 @@ proc setSizeConstraints*(tree: var UiTree, id: NodeId, preferred, minimum, maxim
     tree.markLayoutDirty(id)
 
 proc hitTest*(tree: UiTree, point: Point): NodeId =
-  ## Return the deepest/topmost node containing a point. Nodes are traversed
-  ## in reverse insertion order so later painted siblings receive the event.
+  ## Return the deepest/topmost node containing a point. A node is eligible
+  ## only while every ancestor contains the point, matching viewport clipping
+  ## for both painting and pointer routing.
   for index in countdown(tree.nodes.high, 0):
-    if tree.nodes[index].bounds.contains(point): return tree.nodes[index].id
+    if not tree.nodes[index].bounds.contains(point): continue
+    var current = tree.nodes[index].parent
+    var visible = true
+    while current != NodeId(0):
+      let ancestorIndex = tree.nodeIndex(current)
+      if ancestorIndex < 0 or not tree.nodes[ancestorIndex].bounds.contains(point):
+        visible = false
+        break
+      current = tree.nodes[ancestorIndex].parent
+    if visible: return tree.nodes[index].id
   NodeId(0)
 
 proc handle*(tree: UiTree, id: NodeId): NodeHandle =
