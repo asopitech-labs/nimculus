@@ -928,3 +928,11 @@ query all cancel and clear the previous job before changing the active view.
 This is required because `SearchJob` retains the `Workspace` it is traversing;
 otherwise a result from a previous root could be rendered after a workspace
 switch.
+
+## M6-020: Preserve one ripgrep result per matching line
+
+Zed's project search streams matches as independent result records. The
+previous `--null-data` invocation changed ripgrep's line model and could merge
+multiple matches from one file into one payload. Nimculus now uses `--null`
+only, parses the path NUL and result-line newline separately, and keeps the
+path/text colon-safe. A same-file multi-match test protects this contract.

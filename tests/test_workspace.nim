@@ -193,12 +193,14 @@ suite "M6 workspace":
     let root = getTempDir() / "nimculus-m6-rg-colon"
     createDir(root)
     let path = root / "a:b.txt"
-    writeFile(path, "needle: here")
+    writeFile(path, "needle: here\nneedle again")
     let workspace = openWorkspace(root)
     let results = workspace.searchRipgrep("needle")
-    check results.len == 1
+    check results.len == 2
     check results[0].path.endsWith("a:b.txt")
     check results[0].text == "needle: here"
+    check results[1].line == 2
+    check results[1].text == "needle again"
     removeFile(path); removeDir(root)
 
   test "keeps Git worktree state keyed by worktree root":

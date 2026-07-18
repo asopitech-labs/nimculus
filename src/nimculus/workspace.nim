@@ -419,6 +419,31 @@ proc runSearchProcess(command: string, token: CancelToken): tuple[exitCode: int,
     result.exitCode = output.exitCode
     result.output = output.output
 
+proc appendRipgrepRecord(results: var seq[SearchResult], root, path, payload: string) =
+  let parts = payload.split(':', maxsplit = 2)
+  if path.len == 0 or parts.len < 3: return
+  try:
+    results.add(SearchResult(path: path, rootPath: root, line: parseInt(parts[0]),
+      column: parseInt(parts[1]), text: parts[2]))
+  except ValueError:
+    discard
+
+proc parseRipgrepOutput(output, root: string): seq[SearchResult] =
+  ## `rg --null` emits one path NUL and one result line per match. Keep the
+  ## path delimiter separate from the line delimiter so filenames may contain
+  ## colons or newlines and multiple matches in one file are not collapsed.
+  var offset = 0
+  while offset < output.len:
+    let pathEnd = output.find('\0', offset)
+    if pathEnd < 0: break
+    let resultStart = pathEnd + 1
+    let resultEnd = output.find('\n', resultStart)
+    let endOffset = if resultEnd < 0: output.len else: resultEnd
+    if resultStart <= endOffset:
+      result.appendRipgrepRecord(root, output[offset ..< pathEnd],
+        output[resultStart ..< endOffset])
+    offset = if resultEnd < 0: output.len else: resultEnd + 1
+
 proc searchRipgrep*(workspace: Workspace, query: string,
                     token: CancelToken = nil): seq[SearchResult] =
   if query.len == 0 or (token != nil and token.cancelled): return
@@ -427,28 +452,16 @@ proc searchRipgrep*(workspace: Workspace, query: string,
     for root in workspace.roots:
       if token != nil and token.cancelled: return
       # NUL-separate the path and each result record. Plain ':' parsing breaks
-      # on macOS filenames and source lines containing colons.
-      let command = "rg --color never --no-heading --line-number --column --null --null-data --glob !.git " &
+      # on macOS filenames and source lines containing colons. Do not use
+      # --null-data: it changes ripgrep's record model and collapses multiple
+      # matching lines into one payload.
+      let command = "rg --color never --no-heading --line-number --column --null --glob !.git " &
         quoteShell(query) & " " & quoteShell(root)
       let output = runSearchProcess(command, token)
       if output.exitCode > 1:
         usedRipgrep = false
         break
-      let records = output.output.split('\0')
-      var index = 0
-      while index + 1 < records.len:
-        let path = records[index]
-        let payload = records[index + 1]
-        index += 2
-        if path.len == 0: continue
-        for line in payload.splitLines:
-          let parts = line.split(':', maxsplit = 2)
-          if parts.len < 3: continue
-          try:
-            result.add(SearchResult(path: path, rootPath: root, line: parseInt(parts[0]),
-              column: parseInt(parts[1]), text: parts[2]))
-          except ValueError:
-            discard
+      result.add(parseRipgrepOutput(output.output, root))
     if usedRipgrep and workspace.roots.len > 0: return
   except CatchableError:
     discard
