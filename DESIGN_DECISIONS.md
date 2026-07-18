@@ -541,10 +541,9 @@ terminator. The editor buffer normalizes working text to LF, and the document
 save layer restores CRLF only at serialization, so movement does not depend on
 the on-disk line-ending format.
 
-Option word movement classifies each extended grapheme's Unicode whitespace
-property. ASCII-byte checks are insufficient for full-width spaces and other
-Unicode separators; punctuation/subword refinement remains a later movement
-policy decision.
+Option word movement classifies each extended grapheme as Unicode whitespace,
+word text, or punctuation. It follows Zed's punctuation skip behavior while
+keeping the storage and cursor offsets byte-based.
 
 Filesystem callbacks are treated as producer threads, not as UI state owners.
 The workspace watcher appends under a lock, and the UI polling boundary drains

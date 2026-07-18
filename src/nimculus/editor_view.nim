@@ -42,6 +42,35 @@ proc isWordSpace(cluster: string): bool =
     if not rune.isWhiteSpace: return false
   true
 
+type
+  WordClass = enum wordWhitespace, wordText, wordPunctuation
+  GraphemeInfo = object
+    startByte, endByte: int
+    kind: WordClass
+
+proc firstRune(cluster: string): Rune =
+  for rune in cluster.runes:
+    return rune
+  Rune(0)
+
+proc classifyWordGrapheme(cluster: string): WordClass =
+  if cluster.isWordSpace: return wordWhitespace
+  let rune = cluster.firstRune
+  let value = int(rune)
+  if rune.isAlpha or (value >= ord('0') and value <= ord('9')) or value == ord('_'):
+    wordText
+  else:
+    wordPunctuation
+
+proc graphemeInfo(text: string): seq[GraphemeInfo] =
+  let positions = textPositions(text)
+  if positions.len < 2: return
+  for index in 0 ..< positions.len - 1:
+    let startByte = positions[index].byteOffset
+    let endByte = positions[index + 1].byteOffset
+    result.add(GraphemeInfo(startByte: startByte, endByte: endByte,
+      kind: classifyWordGrapheme(text[startByte ..< endByte])))
+
 proc previousGraphemeBoundary*(text: string, offset: int): int =
   let bounded = max(0, min(offset, text.len))
   let positions = textPositions(text)
@@ -56,28 +85,51 @@ proc nextGraphemeBoundary*(text: string, offset: int): int =
   text.len
 
 proc previousWordBoundary*(text: string, offset: int): int =
-  var cursor = max(0, min(offset, text.len))
-  while cursor > 0:
-    let previous = previousGraphemeBoundary(text, cursor)
-    if not text[previous ..< cursor].isWordSpace: break
-    cursor = previous
-  while cursor > 0:
-    let previous = previousGraphemeBoundary(text, cursor)
-    if text[previous ..< cursor].isWordSpace: break
-    cursor = previous
-  cursor
+  let clusters = text.graphemeInfo
+  if clusters.len == 0: return 0
+  let cursor = max(0, min(offset, text.len))
+  var nextIndex = 0
+  while nextIndex < clusters.len and clusters[nextIndex].endByte <= cursor: inc nextIndex
+  var rightIndex = nextIndex - 1
+  while rightIndex >= 0 and clusters[rightIndex].kind == wordWhitespace: dec rightIndex
+  if rightIndex < 0: return 0
+  var firstIteration = true
+  while rightIndex > 0:
+    let right = clusters[rightIndex]
+    let left = clusters[rightIndex - 1]
+    if left.kind != right.kind and right.kind != wordWhitespace:
+      # Match Zed's Alt-left behavior: punctuation immediately before a word
+      # is crossed together with that word's preceding text.
+      if firstIteration and right.kind == wordPunctuation and left.kind != wordPunctuation:
+        firstIteration = false
+      else:
+        return right.startByte
+    firstIteration = false
+    dec rightIndex
+  0
 
 proc nextWordBoundary*(text: string, offset: int): int =
-  var cursor = max(0, min(offset, text.len))
-  while cursor < text.len:
-    let next = nextGraphemeBoundary(text, cursor)
-    if not text[cursor ..< next].isWordSpace: break
-    cursor = next
-  while cursor < text.len:
-    let next = nextGraphemeBoundary(text, cursor)
-    if text[cursor ..< next].isWordSpace: break
-    cursor = next
-  cursor
+  let clusters = text.graphemeInfo
+  if clusters.len == 0: return 0
+  let cursor = max(0, min(offset, text.len))
+  var index = 0
+  while index < clusters.len and clusters[index].endByte <= cursor: inc index
+  while index < clusters.len and clusters[index].kind == wordWhitespace: inc index
+  if index >= clusters.len: return text.len
+  var firstIteration = true
+  while index + 1 < clusters.len:
+    let left = clusters[index]
+    let right = clusters[index + 1]
+    if left.kind != right.kind and left.kind != wordWhitespace:
+      # Match Zed's Alt-right behavior: a leading punctuation run is skipped
+      # before stopping at the next word boundary.
+      if firstIteration and left.kind == wordPunctuation and right.kind != wordPunctuation:
+        firstIteration = false
+      else:
+        return right.startByte
+    firstIteration = false
+    inc index
+  text.len
 
 proc selectedRange*(view: EditorViewState): tuple[startByte, endByte: int] =
   (startByte: min(view.selection.anchor, view.selection.active),

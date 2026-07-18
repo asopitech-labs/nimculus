@@ -85,6 +85,12 @@ suite "M4 editor buffer":
     check nextWordBoundary(text, 0) == 5
     check previousWordBoundary("é project", 4) == 0
 
+  test "word movement separates punctuation like macOS Option movement":
+    check previousWordBoundary("foo.bar", 7) == 4
+    check previousWordBoundary("foo.", 4) == 0
+    check nextWordBoundary("foo.bar", 0) == 3
+    check nextWordBoundary(".hello", 0) == 6
+
 suite "M5 editor services":
   test "open save search replace and external change":
     let path = getTempDir() / "nimculus-m5-test.txt"
