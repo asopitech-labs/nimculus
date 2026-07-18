@@ -49,3 +49,19 @@ NimNUI text, selection, cursor, status and native AppKit services
 The Piece Table is independent of the UI and is exercised by deterministic
 fuzz tests. M5 services preserve CRLF/LF style, detect external changes, and
 persist tabs, recent files, and recovery data separately from rendering.
+
+## M6 workspace layer
+
+`src/nimculus/workspace.nim` owns lazy directory enumeration, `.gitignore`
+filtering, cancellable file search, and change batching. The macOS-only
+`workspace_macos.m` file is a narrow FSEvents bridge; CoreServices types do
+not leak into the application layer. File contents are loaded only when a
+search or editor open operation explicitly requests them.
+
+## M7 syntax layer
+
+`tree_sitter.nim` exposes a small parser/tree API and statically registers the
+initial Nim, Rust, TypeScript, Python, JSON, and Markdown grammars. The core
+runtime and every generated grammar are compiled as separate C translation
+units because generated parsers reuse internal symbol names. `syntax.nim`
+converts syntax nodes into highlight spans and structural services.

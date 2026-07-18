@@ -61,3 +61,18 @@ boundaries.
 File documents, tabs, splits, search/replace, session persistence, and recovery
 are Nim services. AppKit only supplies the native menu and modal file panels;
 file correctness and recovery remain testable without a GUI session.
+
+## M6-001: Lazy workspace enumeration with cancellation
+
+Workspace opening records the root and ignore rules without reading file
+contents. Directory children and search are enumerated on demand and accept
+a cancellation token. FSEvents is isolated behind a C callback bridge and
+reports paths only; application policy decides how to refresh them.
+
+## M7-001: Static, independently compiled Tree-sitter grammars
+
+The initial six grammars are pinned as git submodules under `references/` and
+compiled through a C ABI. Each generated parser is a separate translation
+unit because generated symbols are not namespace-safe when concatenated.
+This keeps grammar loading deterministic and avoids a runtime shared-library
+trust boundary.

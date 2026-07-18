@@ -10,6 +10,9 @@ tests/bench_platform
 tests/test_ui_text
 tests/test_editor
 tests/test_editor_fuzz
+tests/test_workspace
+tests/test_tree_sitter
+tests/test_syntax
 tests/bench_editor
 tests/bench_large_editor
 *.app
