@@ -4,6 +4,7 @@ import std/tables
 import std/algorithm
 import std/osproc
 import std/locks
+import std/times
 
 when defined(posix):
   import posix
@@ -273,6 +274,42 @@ proc pollSearch*(job: SearchJob, maxFiles = 16, maxLines = 4096): seq[SearchResu
   result = job.bufferedResults
   job.bufferedResults.setLen(0)
 
+proc runSearchProcess(command: string, token: CancelToken): tuple[exitCode: int, output: string] =
+  ## Run an external search without making cancellation wait for command exit.
+  ## POSIX uses a shell only for file redirection; the command itself is fully
+  ## quoteShell-escaped by the caller and is executed as `exec`-equivalent.
+  when defined(posix):
+    let outputPath = getTempDir() / ("nimculus-rg-" & $getCurrentProcessId() & "-" &
+      $int(epochTime() * 1_000_000) & ".out")
+    var process: Process
+    try:
+      process = startProcess("exec " & command & " > " & quoteShell(outputPath) & " 2>&1",
+        options = {poEvalCommand})
+      while process.running:
+        if token != nil and token.cancelled:
+          process.terminate()
+          discard process.waitForExit()
+          process.close()
+          if fileExists(outputPath): removeFile(outputPath)
+          return (-1, "")
+        sleep(10)
+      let exitCode = process.waitForExit()
+      process.close()
+      result.exitCode = exitCode
+      if fileExists(outputPath):
+        result.output = readFile(outputPath)
+        removeFile(outputPath)
+    except CatchableError:
+      if process != nil:
+        try: process.close()
+        except CatchableError: discard
+      if fileExists(outputPath): removeFile(outputPath)
+      raise
+  else:
+    let output = execCmdEx(command)
+    result.exitCode = output.exitCode
+    result.output = output.output
+
 proc searchRipgrep*(workspace: Workspace, query: string,
                     token: CancelToken = nil): seq[SearchResult] =
   if query.len == 0 or (token != nil and token.cancelled): return
@@ -280,20 +317,29 @@ proc searchRipgrep*(workspace: Workspace, query: string,
   try:
     for root in workspace.roots:
       if token != nil and token.cancelled: return
-      let command = "rg --color never --no-heading --line-number --column --glob !.git " &
+      # NUL-separate the path and each result record. Plain ':' parsing breaks
+      # on macOS filenames and source lines containing colons.
+      let command = "rg --color never --no-heading --line-number --column --null --null-data --glob !.git " &
         quoteShell(query) & " " & quoteShell(root)
-      let output = execCmdEx(command)
+      let output = runSearchProcess(command, token)
       if output.exitCode > 1:
         usedRipgrep = false
         break
-      for line in output.output.splitLines:
-        let parts = line.split(':', maxsplit = 3)
-        if parts.len < 4: continue
-        let lineNumber = parseInt(parts[parts.len - 3])
-        let column = parseInt(parts[parts.len - 2])
-        let text = parts[parts.len - 1]
-        let path = parts[0 ..< parts.len - 3].join(":")
-        result.add(SearchResult(path: path, line: lineNumber, column: column, text: text))
+      let records = output.output.split('\0')
+      var index = 0
+      while index + 1 < records.len:
+        let path = records[index]
+        let payload = records[index + 1]
+        index += 2
+        if path.len == 0: continue
+        for line in payload.splitLines:
+          let parts = line.split(':', maxsplit = 2)
+          if parts.len < 3: continue
+          try:
+            result.add(SearchResult(path: path, line: parseInt(parts[0]),
+              column: parseInt(parts[1]), text: parts[2]))
+          except ValueError:
+            discard
     if usedRipgrep and workspace.roots.len > 0: return
   except CatchableError:
     discard

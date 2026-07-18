@@ -106,6 +106,18 @@ suite "M6 workspace":
     check results[0].line == 1
     removeFile(root / "main.nim"); removeDir(root)
 
+  test "ripgrep results preserve colons in paths and source lines":
+    let root = getTempDir() / "nimculus-m6-rg-colon"
+    createDir(root)
+    let path = root / "a:b.txt"
+    writeFile(path, "needle: here")
+    let workspace = openWorkspace(root)
+    let results = workspace.searchRipgrep("needle")
+    check results.len == 1
+    check results[0].path.endsWith("a:b.txt")
+    check results[0].text == "needle: here"
+    removeFile(path); removeDir(root)
+
   test "keeps Git worktree state keyed by worktree root":
     let workspace = openWorkspace(getCurrentDir())
     let states = workspace.gitWorktreeStates()

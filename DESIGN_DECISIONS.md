@@ -545,6 +545,15 @@ Option word movement classifies each extended grapheme as Unicode whitespace,
 word text, or punctuation. It follows Zed's punctuation skip behavior while
 keeping the storage and cursor offsets byte-based.
 
+Workspace ripgrep integration uses NUL-delimited path/result records. A
+colon-delimited parser is not a valid file-search protocol because both POSIX
+paths and source text may contain colons.
+
+The external search process is launched asynchronously on POSIX and its output
+is redirected to a unique temporary file. Cancellation terminates the process
+before the caller waits for completion, matching Zed's cancellable search-task
+boundary.
+
 Filesystem callbacks are treated as producer threads, not as UI state owners.
 The workspace watcher appends under a lock, and the UI polling boundary drains
 the queue under the same lock before applying a refresh. This prevents a
