@@ -866,6 +866,7 @@ void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_by
   g_editor_selection_start = MIN(start, end);
   g_editor_selection_end = MAX(start, end);
   markSceneFullyDirty();
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_text(const char *utf8) {
   g_editor_text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";

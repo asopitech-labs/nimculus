@@ -289,6 +289,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     showWorkspaceSearch(name[16 .. ^1])
   elif name == "cancel":
     imeState.composition.setLen(0)
+    when defined(macosx): platformSetEditorComposition("".cstring)
   elif name == "moveLeft" and document != nil:
     editorViewState.moveCursor(previousBoundary(document[].buffer.toString(), editorViewState.cursor))
     syncEditorCursor()
@@ -308,9 +309,15 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       syncEditorCursor()
       refreshEditorSyntax()
   elif name == "undo" and document != nil:
-    discard document[].buffer.undo()
+    if document[].buffer.undo():
+      editorViewState.moveCursor(min(editorViewState.cursor, document[].buffer.toString().len))
+      syncEditorCursor()
+      refreshEditorSyntax()
   elif name == "redo" and document != nil:
-    discard document[].buffer.redo()
+    if document[].buffer.redo():
+      editorViewState.moveCursor(min(editorViewState.cursor, document[].buffer.toString().len))
+      syncEditorCursor()
+      refreshEditorSyntax()
   elif name == "copy" and document != nil:
     let selected = editorViewState.selectedRange()
     clipboardSet(document[].buffer.substring(selected.startByte, selected.endByte).cstring)
