@@ -9,9 +9,8 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-      - uses: jiro4989/setup-nim-action@v2
-        with:
-          nim-version: '2.2.x'
+      - name: Setup Nim
+        run: brew install nim
       - name: Build
         run: nimble build
       - name: Lint
