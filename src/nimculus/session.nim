@@ -15,10 +15,14 @@ proc saveSession*(session: EditorSession, path: string) =
 proc loadSession*(path: string): EditorSession =
   if not fileExists(path): return
   let root = parseJson(readFile(path))
-  result.activeTab = root["activeTab"].getInt(-1)
-  result.split = root["split"].getBool(false)
-  for item in root["recentFiles"].getElems: result.recentFiles.add(item.getStr)
+  if root.hasKey("activeTab"): result.activeTab = root["activeTab"].getInt(-1)
+  else: result.activeTab = -1
+  if root.hasKey("split"): result.split = root["split"].getBool(false)
+  if root.hasKey("recentFiles") and root["recentFiles"].kind == JArray:
+    for item in root["recentFiles"].getElems: result.recentFiles.add(item.getStr)
+  if not root.hasKey("tabs") or root["tabs"].kind != JArray: return
   for item in root["tabs"].getElems:
+    if item.kind != JObject or not item.hasKey("path"): continue
     let filePath = item["path"].getStr
     if filePath.len > 0 and fileExists(filePath): result.addTab(openDocument(filePath))
 

@@ -62,6 +62,14 @@ File documents, tabs, splits, search/replace, session persistence, and recovery
 are Nim services. AppKit only supplies the native menu and modal file panels;
 file correctness and recovery remain testable without a GUI session.
 
+M4 edit transactions validate all ranges and reject overlap before applying
+any change. This preserves the atomicity contract for multi-cursor edits and
+prevents a partially applied transaction from corrupting undo history.
+
+M5 external-change detection treats deletion as a change, and session loading
+accepts partial metadata so a damaged or older session file cannot crash
+startup.
+
 ## M6-001: Lazy workspace enumeration with cancellation
 
 Workspace opening records the root and ignore rules without reading file

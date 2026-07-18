@@ -8,8 +8,8 @@
 | M1：macOS ウィンドウと Metal 描画 | 🟡 実装済み・追加検証待ち | Cocoa / Metal / Retina / 基本入力を実装済み |
 | M2：NimNUI 基礎 UI システム | ✅ 完了 | UIツリー、レイアウト、状態、イベント、PaintList、macOS入力を実装 |
 | M3：macOS テキスト描画と IME | ✅ 完了 | Core Text、glyph atlas/Metal texture、IME、候補位置、clipboardを実装 |
-| M4：エディタバッファと編集コア | ✅ 完了 | Piece Table、Undo/Redo、複数カーソル、位置変換、fuzzを実装 |
-| M5：macOS 最小実用エディタ | ✅ 完了 | ファイル、検索/置換、タブ/分割、セッション、リカバリー、macOSメニュー/ダイアログを実装 |
+| M4：エディタバッファと編集コア | ✅ 完了 | Piece Table、検証済み原子的編集、Undo/Redo、複数カーソル、位置変換、fuzzを実装 |
+| M5：macOS 最小実用エディタ | ✅ 完了 | ファイル、検索/置換、削除を含む外部変更検知、タブ/分割、耐性のあるセッション、リカバリー、macOSメニュー/ダイアログを実装 |
 | M6：macOS プロジェクト・ワークスペース | ✅ 完了 | 遅延ファイルツリー、`.gitignore`、検索キャンセル、FSEvents監視を実装・検証済み |
 | M7：Tree-sitter | ✅ 完了 | Nim/Rust/TypeScript/Python/JSON/MarkdownのFFI、増分解析、構文サービスを実装・検証済み |
 

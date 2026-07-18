@@ -55,7 +55,8 @@ proc save*(document: var FileDocument, path = "") =
   document.buffer.markSaved()
 
 proc externallyChanged*(document: FileDocument): bool =
-  if document.path.len == 0 or not fileExists(document.path): return false
+  if document.path.len == 0: return false
+  if not fileExists(document.path): return document.externalSize > 0
   let stamp = fileStamp(document.path)
   stamp.size != document.externalSize or stamp.modified != document.externalModified
 

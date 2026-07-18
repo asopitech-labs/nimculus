@@ -93,8 +93,17 @@ proc edit*(table: var PieceTable, edit: Edit, recordUndo = true) =
   inc table.version
 
 proc applyEdits*(table: var PieceTable, edits: seq[Edit]) =
+  if edits.len == 0: return
+  let contentLength = table.toString().len
   var ordered = edits
-  ordered.sort(proc(a, b: Edit): int = cmp(b.startByte, a.startByte))
+  for edit in ordered:
+    if edit.startByte < 0 or edit.endByte < edit.startByte or edit.endByte > contentLength:
+      raise newException(ValueError, "edit range is outside the buffer")
+  ordered.sort(proc(a, b: Edit): int = cmp(a.startByte, b.startByte))
+  for index in 1 ..< ordered.len:
+    if ordered[index - 1].endByte > ordered[index].startByte:
+      raise newException(ValueError, "overlapping edits are not atomic")
+  ordered.reverse()
   var transaction = EditTransaction(records: newSeq[EditRecord](edits.len))
   for index, edit in edits:
     transaction.records[index] = EditRecord(startByte: edit.startByte,

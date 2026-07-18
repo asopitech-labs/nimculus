@@ -27,6 +27,14 @@ suite "M4 editor buffer":
     check buffer.undo()
     check buffer.toString() == "a a a"
 
+  test "overlapping edits fail before mutating the buffer":
+    var buffer = initPieceTable("abcdef")
+    expect ValueError:
+      buffer.applyEdits(@[
+        Edit(startByte: 1, endByte: 4, text: "x"),
+        Edit(startByte: 3, endByte: 5, text: "y")])
+    check buffer.toString() == "abcdef"
+
   test "line and UTF-16 positions handle Japanese and astral characters":
     var buffer = initPieceTable("A\n😀日本")
     check buffer.lineColumn(2) == (line: 1, column: 0)
@@ -54,6 +62,7 @@ suite "M5 editor services":
     writeFile(path, "changed")
     check document.externallyChanged
     removeFile(path)
+    check document.externallyChanged
 
   test "tabs and split sessions":
     var session: EditorSession
@@ -89,3 +98,11 @@ suite "M5 editor services":
     restored.tabs[0].document.writeRecovery(recoveryPath)
     check recoverDocument(recoveryPath).buffer.toString() == "session"
     removeFile(path); removeFile(sessionPath); removeFile(recoveryPath)
+
+  test "session loader tolerates partial metadata":
+    let path = getTempDir() / "nimculus-m5-partial-session.json"
+    writeFile(path, "{\"tabs\": []}")
+    let session = loadSession(path)
+    check session.activeTab == -1
+    check session.tabs.len == 0
+    removeFile(path)
