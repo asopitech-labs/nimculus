@@ -735,7 +735,15 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     of 11'u32: keyUp
     of 22'u32: scroll
     else: command
-  let point = Point(x: px(float32(event.x)), y: px(float32(event.y)))
+  # AppKit view points use a bottom-left origin. NimNUI layout and hit-test
+  # rectangles use a top-left origin, so normalize once at the boundary.
+  var uiY = float32(event.y)
+  when defined(macosx):
+    var metrics: PlatformMetrics
+    platformGetMetrics(addr metrics)
+    if metrics.heightPoints > 0:
+      uiY = float32(metrics.heightPoints) - float32(event.y)
+  let point = Point(x: px(float32(event.x)), y: px(uiY))
   let hit = demoTree.hitTest(point)
   let target = if kind == keyDown or kind == keyUp or kind == command:
     if demoTree.focused != NodeId(0): demoTree.focused else: hit

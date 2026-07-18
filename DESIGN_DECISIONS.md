@@ -517,3 +517,9 @@ through a grapheme cluster.
 Pointer hit-testing follows the same viewport contract as painting: a node is
 eligible only when the point is inside all of its ancestor bounds. This keeps
 scroll-container content from receiving events after it has been clipped.
+
+AppKit `NSView` input points are bottom-origin while NimNUI layout rectangles
+are top-origin. The platform boundary converts the Y coordinate once before
+UI hit-testing and event dispatch; editor text callbacks retain their own
+native coordinate conversion because they also account for the editor rect
+and scroll line.
