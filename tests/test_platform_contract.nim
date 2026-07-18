@@ -22,8 +22,10 @@ suite "macOS platform contract":
       echo "  [SKIP] native Metal layer contract (no Metal device in this session)"
 
   test "Core Text hit-test preserves UTF-8 and UTF-16 contracts":
+    platformSetEditorRect(48.0, 128.0, 400.0, 300.0)
     platformSetEditorText("A日本語🙂\nnext".cstring)
     platformSetEditorScrollLine(0)
-    check platformEditorUtf16OffsetAtPoint(0.0, 640.0) == 0'u32
-    check platformEditorByteOffsetAtPoint(10000.0, 640.0) == 14'u32
-    check platformEditorUtf16OffsetAtPoint(10000.0, 640.0) == 6'u32
+    check platformEditorUtf16OffsetAtPoint(48.0, 512.0) == 0'u32
+    check platformEditorByteOffsetAtPoint(10000.0, 512.0) == 14'u32
+    check platformEditorUtf16OffsetAtPoint(10000.0, 512.0) == 6'u32
+    check platformEditorByteOffsetAtPoint(48.0, 490.0) == 15'u32

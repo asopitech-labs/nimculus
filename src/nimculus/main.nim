@@ -106,6 +106,8 @@ proc setupDemoUi() =
     platformSetPaintDirtyRegions(nil, 0)
   platformSetUiRectangle(float32(bounds.origin.x), float32(bounds.origin.y),
                          float32(bounds.size.width), float32(bounds.size.height))
+  platformSetEditorRect(float64(float32(editor.origin.x)), float64(float32(editor.origin.y)),
+                        float64(float32(editor.size.width)), float64(float32(editor.size.height)))
 
 var imeState = newImeState()
 var editorSession: EditorSession

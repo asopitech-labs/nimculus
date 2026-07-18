@@ -17,6 +17,7 @@ static NimculusTextCallback g_text_callback = NULL;
 static NimculusFileCallback g_file_callback = NULL;
 static NimculusCommandCallback g_command_callback = NULL;
 static double g_ui_rect[4] = {360.0, 260.0, 240.0, 120.0};
+static double g_editor_rect[4] = {48.0, 128.0, 828.0, 432.0};
 static NimculusPaintCommand *g_paint_commands = NULL;
 static uint32_t g_paint_count = 0;
 static NimculusPaintRegion *g_paint_dirty_regions = NULL;
@@ -229,8 +230,8 @@ static CGFloat editorTextOffset(NSString *line, NSUInteger utf16Index) {
 static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
   if (!device) return;
   CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
-  const size_t width = (size_t)ceil(1024.0 * scale);
-  const size_t height = (size_t)ceil(256.0 * scale);
+  const size_t width = (size_t)ceil(MAX(1.0, g_editor_rect[2]) * scale);
+  const size_t height = (size_t)ceil(MAX(1.0, g_editor_rect[3]) * scale);
   NSMutableData *pixels = [NSMutableData dataWithLength:width * height * 4];
   CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
   CGContextRef context = CGBitmapContextCreate(pixels.mutableBytes, width, height, 8,
@@ -509,11 +510,15 @@ static void logInput(NSString *kind, NSEvent *event) {
       }
     }
     if (g_text_pipeline && g_text_texture) {
+      const float left = (float)(g_editor_rect[0] / logicalSize.width * 2.0 - 1.0);
+      const float right = (float)((g_editor_rect[0] + g_editor_rect[2]) / logicalSize.width * 2.0 - 1.0);
+      const float top = (float)(1.0 - g_editor_rect[1] / logicalSize.height * 2.0);
+      const float bottom = (float)(1.0 - (g_editor_rect[1] + g_editor_rect[3]) / logicalSize.height * 2.0);
       const float textVertices[] = {
-        -0.90f, 0.78f, 0.0f, 0.0f,
-        -0.45f, 0.78f, 1.0f, 0.0f,
-        -0.90f, 0.68f, 0.0f, 1.0f,
-        -0.45f, 0.68f, 1.0f, 1.0f,
+        left, top, 0.0f, 0.0f,
+        right, top, 1.0f, 0.0f,
+        left, bottom, 0.0f, 1.0f,
+        right, bottom, 1.0f, 1.0f,
       };
       id<MTLBuffer> textBuffer = [drawable.texture.device newBufferWithBytes:textVertices
         length:sizeof(textVertices) options:MTLResourceStorageModeShared];
@@ -646,8 +651,8 @@ static void logInput(NSString *kind, NSEvent *event) {
   // The editor keeps cursor Y in top-origin logical coordinates, while NSView
   // uses a bottom-origin coordinate system for this protocol callback.
   CGFloat lineHeight = 18.0;
-  CGFloat viewY = self.bounds.size.height - g_editor_cursor[1] - lineHeight;
-  NSRect cursor = NSMakeRect(g_editor_cursor[0], MAX(0.0, viewY), 0, lineHeight);
+  CGFloat viewY = self.bounds.size.height - g_editor_rect[1] - g_editor_cursor[1] - lineHeight;
+  NSRect cursor = NSMakeRect(g_editor_rect[0] + g_editor_cursor[0], MAX(0.0, viewY), 0, lineHeight);
   return [self.window convertRectToScreen:[self convertRect:cursor toView:nil]];
 }
 - (NSUInteger)characterIndexForPoint:(NSPoint)point {
@@ -660,7 +665,7 @@ static void logInput(NSString *kind, NSEvent *event) {
   NSPoint viewPoint = [self convertPoint:point fromView:nil];
   NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
   if (lines.count == 0) return 0.0;
-  CGFloat fromTop = self.bounds.size.height - viewPoint.y;
+  CGFloat fromTop = self.bounds.size.height - viewPoint.y - g_editor_rect[1];
   NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / 18.0));
   lineIndex = MIN(lineIndex + (NSInteger)g_editor_scroll_line, (NSInteger)lines.count - 1);
   NSString *lineText = lines[(NSUInteger)lineIndex];
@@ -670,7 +675,7 @@ static void logInput(NSString *kind, NSEvent *event) {
   NSAttributedString *attributed = [[NSAttributedString alloc]
     initWithString:lineText attributes:attributes];
   CTLineRef ctLine = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
-  CGFloat textX = MAX(0.0, viewPoint.x - 8.0);
+  CGFloat textX = MAX(0.0, viewPoint.x - g_editor_rect[0] - 8.0);
   CFIndex index = CTLineGetStringIndexForPosition(ctLine, CGPointMake(textX, 0.0));
   if (index == kCFNotFound) index = (CFIndex)lineText.length;
   CGFloat left = CTLineGetOffsetForStringIndex(ctLine, index, NULL);
@@ -1232,7 +1237,7 @@ uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y) {
   NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
   if (lines.count == 0) return 0;
   CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
-  CGFloat fromTop = viewHeight - y;
+  CGFloat fromTop = viewHeight - y - g_editor_rect[1];
   NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / 18.0));
   lineIndex = MIN(lineIndex + (NSInteger)g_editor_scroll_line, (NSInteger)lines.count - 1);
   NSString *lineText = lines[(NSUInteger)lineIndex];
@@ -1243,7 +1248,7 @@ uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y) {
     initWithString:lineText attributes:attributes];
   CTLineRef ctLine = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
   CFIndex localIndex = CTLineGetStringIndexForPosition(ctLine,
-    CGPointMake(MAX(0.0, x - 8.0), 0.0));
+    CGPointMake(MAX(0.0, x - g_editor_rect[0] - 8.0), 0.0));
   if (localIndex == kCFNotFound) localIndex = (CFIndex)lineText.length;
   NSUInteger documentIndex = 0;
   for (NSInteger index = 0; index < lineIndex; index++) {
@@ -1258,7 +1263,7 @@ uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y) {
   NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
   if (lines.count == 0) return 0;
   CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
-  CGFloat fromTop = viewHeight - y;
+  CGFloat fromTop = viewHeight - y - g_editor_rect[1];
   NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / 18.0));
   lineIndex = MIN(lineIndex + (NSInteger)g_editor_scroll_line, (NSInteger)lines.count - 1);
   NSString *lineText = lines[(NSUInteger)lineIndex];
@@ -1272,7 +1277,7 @@ uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y) {
   NSAttributedString *attributed = [[NSAttributedString alloc]
     initWithString:lineText attributes:attributes];
   CTLineRef ctLine = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
-  CGFloat textX = MAX(0.0, x - 8.0);
+  CGFloat textX = MAX(0.0, x - g_editor_rect[0] - 8.0);
   CFIndex utf16Index = CTLineGetStringIndexForPosition(ctLine, CGPointMake(textX, 0.0));
   if (utf16Index == kCFNotFound) utf16Index = (CFIndex)lineText.length;
   NSUInteger localByte = utf8BytesForUTF16Offset(lineText, (NSUInteger)utf16Index);
@@ -1284,6 +1289,15 @@ void nimculus_platform_set_editor_scroll_line(uint32_t line) {
   g_editor_scroll_line = line;
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text);
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+void nimculus_platform_set_editor_rect(double x, double y, double width, double height) {
+  g_editor_rect[0] = MAX(0.0, x);
+  g_editor_rect[1] = MAX(0.0, y);
+  g_editor_rect[2] = MAX(1.0, width);
+  g_editor_rect[3] = MAX(1.0, height);
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text);
+  markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_dirty(bool dirty) { g_editor_dirty = dirty ? YES : NO; }

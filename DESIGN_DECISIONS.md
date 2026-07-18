@@ -414,6 +414,19 @@ UTF-8 byte ranges and the platform setter performs the conversion at the
 boundary; this prevents astral characters and Japanese text from shifting
 selection or composition positions.
 
+## M3-018: Treat the editor rectangle as the text-surface contract
+
+The text texture is sized from the current logical editor rectangle and
+backing scale, then mapped to that same rectangle in the Metal pass. Nim sends
+the rectangle after every layout, so window resize cannot leave text at a
+fixed NDC position or stretch a stale 1024x256 surface over the editor.
+
+All native text protocol coordinates are derived from the same editor
+rectangle: cursor and text are local to the texture, while
+`firstRectForCharacterRange:`, pointer hit-testing, and fraction queries add
+or subtract the rectangle origin at the Cocoa boundary. This avoids an IME
+candidate offset that only appears after the editor is placed below a toolbar.
+
 ## M2-011: Store flex and size constraints on UI nodes
 
 Flex grow belongs to a child in Row or Column layout, not to the container's
