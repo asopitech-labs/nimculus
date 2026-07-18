@@ -299,3 +299,12 @@ when defined(macosx):
       check metrics.width > 0
       check metrics.ascent > 0
       check metrics.glyphCount > 0
+
+    test "Core Text measurement preserves embedded NUL bytes":
+      var metrics, prefix: NativeTextMetrics
+      let text = "A\0B"
+      nativeMeasureTextUtf8("A", 1, "Hiragino Sans", 14, addr prefix)
+      nativeMeasureTextUtf8(text.cstring, uint32(text.len), "Hiragino Sans", 14,
+                            addr metrics)
+      check metrics.width > prefix.width
+      check metrics.glyphCount > prefix.glyphCount

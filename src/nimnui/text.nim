@@ -36,6 +36,9 @@ when defined(macosx):
   proc nativeEnumerateFonts*(callback: FontCallback) {.importc: "nimculus_enumerate_fonts", cdecl.}
   proc nativeMeasureText*(text, fontName: cstring, size: cdouble,
                           metrics: ptr NativeTextMetrics) {.importc: "nimculus_measure_text", cdecl.}
+  proc nativeMeasureTextUtf8*(text: cstring, length: uint32, fontName: cstring,
+                              size: cdouble, metrics: ptr NativeTextMetrics)
+                              {.importc: "nimculus_measure_text_utf8", cdecl.}
 
 proc textPositions*(text: string): seq[TextPosition] =
   ## Return byte offsets at Unicode extended grapheme boundaries.

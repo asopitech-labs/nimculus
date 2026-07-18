@@ -535,6 +535,11 @@ Clipboard transfers use explicit UTF-8 byte lengths and a retained NSData
 buffer for reads. Copy/Cut/Paste therefore preserve embedded U+0000 bytes
 instead of passing document text through a NUL-terminated C string.
 
+Core Text measurement exposes the same explicit UTF-8 byte-length boundary as
+editor text upload. The legacy NUL-terminated wrapper remains for callers
+whose input is guaranteed to be C-string text, while the editor-facing API
+uses `nimculus_measure_text_utf8` so measurement cannot truncate a document.
+
 Committed editor glyphs use the Metal atlas as the primary text path. The
 Core Text texture is kept as a transparent overlay for selection, marked IME
 composition, and caret; it renders the full line only when atlas generation

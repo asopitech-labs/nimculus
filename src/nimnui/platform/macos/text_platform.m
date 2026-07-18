@@ -34,14 +34,12 @@ void nimculus_enumerate_fonts(NimculusFontCallback callback) {
   CFRelease(names);
 }
 
-void nimculus_measure_text(const char *utf8, const char *font_name, double size,
-                           NimculusTextMetrics *metrics) {
+static void measureTextString(NSString *string, const char *font_name, double size,
+                              NimculusTextMetrics *metrics) {
   if (!metrics) return;
   memset(metrics, 0, sizeof(*metrics));
-  if (!utf8) return;
   CTFontRef font = makeFont(font_name, size);
   if (!font) return;
-  NSString *string = [NSString stringWithUTF8String:utf8];
   if (!string) { CFRelease(font); return; }
   NSDictionary *attributes = @{(id)kCTFontAttributeName: (id)font};
   NSAttributedString *attributed = [[NSAttributedString alloc] initWithString:string
@@ -56,4 +54,24 @@ void nimculus_measure_text(const char *utf8, const char *font_name, double size,
   }
   CFRelease(line);
   CFRelease(font);
+}
+
+void nimculus_measure_text(const char *utf8, const char *font_name, double size,
+                           NimculusTextMetrics *metrics) {
+  if (!utf8) {
+    measureTextString(nil, font_name, size, metrics);
+    return;
+  }
+  measureTextString([[NSString alloc] initWithBytes:utf8 length:strlen(utf8)
+                                           encoding:NSUTF8StringEncoding],
+                    font_name, size, metrics);
+}
+
+void nimculus_measure_text_utf8(const uint8_t *utf8, uint32_t length,
+                                const char *font_name, double size,
+                                NimculusTextMetrics *metrics) {
+  NSString *string = (utf8 && length > 0)
+    ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
+    : @"";
+  measureTextString(string, font_name, size, metrics);
 }
