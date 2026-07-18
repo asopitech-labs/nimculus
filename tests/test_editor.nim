@@ -144,6 +144,15 @@ suite "M5 editor services":
     removeFile(path)
     check document.externallyChanged
 
+  test "keeping edits after external deletion records deleted disk state":
+    let path = getTempDir() / "nimculus-m5-keep-deleted.txt"
+    writeFile(path, "content")
+    var document = openDocument(path)
+    removeFile(path)
+    check document.externallyChanged
+    document.acceptExternalState()
+    check not document.externallyChanged
+
   test "tabs and split sessions":
     var session: EditorSession
     var view = newEditorView()

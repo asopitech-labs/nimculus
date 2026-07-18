@@ -805,11 +805,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     except CatchableError:
       externalAlertShown = false
   elif name == "keepExternal" and document != nil:
-    if fileExists(document[].path):
-      let info = getFileInfo(document[].path)
-      document[].externalExists = true
-      document[].externalSize = info.size
-      document[].externalModified = info.lastWriteTime
+    document[].acceptExternalState()
     externalAlertShown = false
   elif name.startsWith("workspaceSearch:"):
     showWorkspaceSearch(name[16 .. ^1])

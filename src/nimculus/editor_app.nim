@@ -72,6 +72,19 @@ proc externallyChanged*(document: FileDocument): bool =
   let stamp = fileStamp(document.path)
   stamp.size != document.externalSize or stamp.modified != document.externalModified
 
+proc acceptExternalState*(document: var FileDocument) =
+  ## Record the current disk state after the user chooses Keep Editing.
+  ## Deletion is a real state, not an absent stamp; this mirrors Zed's
+  ## DiskState::Deleted and prevents the same alert from firing every tick.
+  if document.path.len == 0: return
+  if not fileExists(document.path):
+    document.externalExists = false
+    return
+  let stamp = fileStamp(document.path)
+  document.externalExists = true
+  document.externalSize = stamp.size
+  document.externalModified = stamp.modified
+
 proc search*(document: FileDocument, query: string, caseSensitive = true): seq[SearchMatch] =
   if query.len == 0: return
   let haystack = if caseSensitive: document.buffer.toString() else: document.buffer.toString().toLowerAscii()
