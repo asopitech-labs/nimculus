@@ -272,6 +272,11 @@ filesystem behavior and therefore requires an empty directory. Successful
 mutations refresh the preview and restart the FSEvents watcher; failures are
 reported through the editor status message.
 
+The mutation API also rejects an empty relative path independently of the UI.
+This prevents callers from treating the workspace root as a deletable or
+movable entry while still allowing normalized descendants and rejecting paths
+that escape the root.
+
 ## M6-003: Search yields cooperatively and streams file contents
 
 The UI-facing `SearchJob` processes a bounded number of files and lines per

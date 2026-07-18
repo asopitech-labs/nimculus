@@ -73,6 +73,10 @@ suite "M6 workspace":
     discard workspace.createDirectory("empty")
     workspace.deleteEntry("empty")
     workspace.deleteEntry("src/app.nim")
+    expect ValueError:
+      workspace.deleteEntry("")
+    expect ValueError:
+      discard workspace.renameEntry("", "moved")
     removeDir(root / "src")
     removeFile(second / ".gitignore"); removeFile(second / "ignored" / "secret.txt")
     removeDir(second / "ignored")

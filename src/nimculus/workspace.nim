@@ -118,8 +118,14 @@ proc resolvePath(workspace: Workspace, relative: string): string =
   if candidate == root or candidate.startsWith(root & DirSep): return candidate
   raise newException(ValueError, "workspace path escapes root")
 
-proc createFile*(workspace: Workspace, relative: string, content = ""): string =
+proc resolveEntryPath(workspace: Workspace, relative: string): string =
   let path = workspace.resolvePath(relative)
+  if path == normalizedPath(workspace.root):
+    raise newException(ValueError, "workspace root is not an entry")
+  path
+
+proc createFile*(workspace: Workspace, relative: string, content = ""): string =
+  let path = workspace.resolveEntryPath(relative)
   if fileExists(path) or dirExists(path): raise newException(IOError, "path already exists")
   let parent = path.parentDir
   if not dirExists(parent): createDir(parent)
@@ -127,19 +133,19 @@ proc createFile*(workspace: Workspace, relative: string, content = ""): string =
   path
 
 proc createDirectory*(workspace: Workspace, relative: string): string =
-  let path = workspace.resolvePath(relative)
+  let path = workspace.resolveEntryPath(relative)
   if fileExists(path) or dirExists(path): raise newException(IOError, "path already exists")
   createDir(path)
   path
 
 proc deleteEntry*(workspace: Workspace, relative: string) =
-  let path = workspace.resolvePath(relative)
+  let path = workspace.resolveEntryPath(relative)
   if dirExists(path): removeDir(path)
   elif fileExists(path): removeFile(path)
 
 proc renameEntry*(workspace: Workspace, relative, newRelative: string): string =
-  let oldPath = workspace.resolvePath(relative)
-  let newPath = workspace.resolvePath(newRelative)
+  let oldPath = workspace.resolveEntryPath(relative)
+  let newPath = workspace.resolveEntryPath(newRelative)
   if not fileExists(oldPath) and not dirExists(oldPath): raise newException(IOError, "path does not exist")
   if fileExists(newPath) or dirExists(newPath): raise newException(IOError, "destination already exists")
   moveFile(oldPath, newPath)
