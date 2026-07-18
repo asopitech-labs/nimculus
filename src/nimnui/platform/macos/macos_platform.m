@@ -443,7 +443,9 @@ static void logInput(NSString *kind, NSEvent *event) {
   } else {
     self.markedText = @"";
   }
-  self.markedTextRange = NSMakeRange(0, self.markedText.length);
+  // NSTextInputClient ranges are UTF-16 offsets in the document, not offsets
+  // relative to the composition string.
+  self.markedTextRange = NSMakeRange(g_editor_selection_start, self.markedText.length);
   self.selectedTextRange = selectedRange;
   if (g_text_callback) g_text_callback(self.markedText.UTF8String, true);
 }
@@ -472,8 +474,15 @@ static void logInput(NSString *kind, NSEvent *event) {
 - (void)paste:(id)sender { if (g_command_callback) g_command_callback("paste"); }
 - (void)selectAll:(id)sender { if (g_command_callback) g_command_callback("selectAll"); }
 - (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
-  if (actualRange) *actualRange = range;
-  NSRect cursor = NSMakeRect(g_editor_cursor[0], g_editor_cursor[1], 1, 28);
+  NSUInteger documentLength = g_editor_text.length;
+  NSUInteger start = MIN(range.location, documentLength);
+  NSUInteger length = MIN(range.length, documentLength - start);
+  if (actualRange) *actualRange = NSMakeRange(start, length);
+  // The editor keeps cursor Y in top-origin logical coordinates, while NSView
+  // uses a bottom-origin coordinate system for this protocol callback.
+  CGFloat lineHeight = 18.0;
+  CGFloat viewY = self.bounds.size.height - g_editor_cursor[1] - lineHeight;
+  NSRect cursor = NSMakeRect(g_editor_cursor[0], MAX(0.0, viewY), 0, lineHeight);
   return [self.window convertRectToScreen:[self convertRect:cursor toView:nil]];
 }
 - (NSUInteger)characterIndexForPoint:(NSPoint)point {

@@ -146,9 +146,11 @@ baseline without mutating the unsaved buffer.
 ## M3-003: Synchronize the IME candidate rectangle from editor state
 
 The native view receives the current logical cursor coordinates from Nim after
-buffer mutations. Candidate positioning therefore follows editor state rather
-than the transient `NSTextInputClient` selection range, which is necessary for
-UTF-8 and Japanese composition.
+buffer mutations. `firstRectForCharacterRange:` converts the editor's top-origin
+logical Y coordinate into the bottom-origin NSView coordinate and returns a
+zero-width insertion rectangle. Candidate positioning therefore follows
+editor state rather than the transient `NSTextInputClient` selection range,
+which is necessary for UTF-8 and Japanese composition.
 
 ## M3-004: Render marked IME text in the native text surface
 
