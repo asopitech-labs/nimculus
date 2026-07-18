@@ -848,8 +848,9 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   else: hit
   when defined(macosx):
     let document = activeDocument()
+    let inEditor = demoEditorBounds.contains(point)
     var splitPointerHandled = false
-    if document != nil and kind == scroll:
+    if document != nil and kind == scroll and inEditor:
       let delta = if event.deltaY > 0: -3 elif event.deltaY < 0: 3 else: 0
       let maxScroll = max(0, document[].buffer.lineStarts.len - editorVisibleLineCount())
       editorViewState.scrollLine = max(0, min(maxScroll, editorViewState.scrollLine + delta))
@@ -877,7 +878,8 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       openWorkspaceSearchResultAtPoint(event.y)
     elif document == nil and kind == pointerDown:
       openWorkspaceEntryAtPoint(event.y)
-    if document != nil and not splitPointerHandled and not demoSplitDragging and workspacePreviewMode != "quickOpen" and
+    if document != nil and not splitPointerHandled and not demoSplitDragging and
+        workspacePreviewMode != "quickOpen" and (inEditor or editorPointerDragging) and
         kind in {pointerDown, pointerMove, pointerUp}:
       let offset = editorOffsetAtPoint(document, event.x, event.y)
       if kind == pointerDown:

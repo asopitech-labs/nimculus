@@ -324,6 +324,15 @@ continues through the native input context. The native menu remains the
 key-equivalent owner for menu items, while the registry provides the same
 semantic path for application-level shortcuts that do not have a menu item.
 
+## M5-007: Start editor pointer selection only inside the editor viewport
+
+Editor scrolling and pointer selection are gated by the top-origin editor
+viewport rectangle. A pointer down outside that rectangle cannot move the
+editor caret; after a valid down, the active drag continues outside the
+rectangle until pointer-up. This mirrors GPUI's captured hitbox contract and
+prevents toolbar, sidebar, and empty-window clicks from changing document
+selection.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback
