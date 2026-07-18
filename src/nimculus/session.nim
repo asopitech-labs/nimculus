@@ -84,15 +84,20 @@ proc loadSession*(path: string): EditorSession =
     var document: FileDocument
     var canRestore = false
     try:
-      if filePath.len > 0 and fileExists(filePath):
-        document = openDocument(filePath)
-        if savedDirty and item.hasKey("content") and
-           item["content"].kind == JString:
-          document.buffer = initPieceTable(item["content"].getStr)
-          document.lineEnding = if jsonString(item, "lineEnding", "lf") == "crlf": crlf else: lf
-          document.buffer.markDirty()
-        canRestore = true
-      elif filePath.len > 0 and savedDirty and item.hasKey("content") and
+      if filePath.len > 0 and fileExists(filePath) and not dirExists(filePath):
+        try:
+          document = openDocument(filePath)
+          if savedDirty and item.hasKey("content") and
+             item["content"].kind == JString:
+            document.buffer = initPieceTable(item["content"].getStr)
+            document.lineEnding = if jsonString(item, "lineEnding", "lf") == "crlf": crlf else: lf
+            document.buffer.markDirty()
+          canRestore = true
+        except CatchableError:
+          # A permission/read failure is treated like a missing disk state;
+          # a serialized dirty buffer is still recoverable below.
+          discard
+      if not canRestore and filePath.len > 0 and savedDirty and item.hasKey("content") and
            item["content"].kind == JString:
         # Keep an unsaved named buffer even when the disk file was deleted or
         # moved after the last session write.  The path remains attached so a
@@ -104,7 +109,7 @@ proc loadSession*(path: string): EditorSession =
         document.lineEnding = if jsonString(item, "lineEnding", "lf") == "crlf": crlf else: lf
         document.buffer.markDirty()
         canRestore = true
-      elif filePath.len == 0 and item.hasKey("content") and
+      elif not canRestore and filePath.len == 0 and item.hasKey("content") and
            item["content"].kind == JString:
         document = newDocument()
         document.buffer = initPieceTable(item["content"].getStr)

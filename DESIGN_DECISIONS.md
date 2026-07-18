@@ -521,10 +521,11 @@ serialized dirty content is layered back over it without modifying the file.
 This protects non-active dirty tabs if the process crashes before the normal
 close confirmation can run.
 
-If the named file has disappeared by the time of restore, the serialized dirty
-buffer is still reconstructed with its original path and marked dirty. This is
-the local equivalent of Zed's `DiskState::Deleted`: the user's unsaved content
-remains available and a later Save can recreate the path.
+If the named file has disappeared, become a directory, or cannot be read by the
+time of restore, the serialized dirty buffer is still reconstructed with its
+original path and marked dirty. This is the local equivalent of Zed's
+`DiskState::Deleted`: the user's unsaved content remains available and a later
+Save can recreate the path once the disk state is repaired.
 
 The explicit Don’t Save all-tabs exit path calls session persistence with
 `preserveDirty = false`: dirty named tabs are recorded only by path and reopen

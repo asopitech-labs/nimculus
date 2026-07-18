@@ -271,6 +271,26 @@ suite "M5 editor services":
     removeFile(path)
     removeFile(sessionPath)
 
+  test "session restores dirty named tab when its path becomes a directory":
+    let path = getTempDir() / "nimculus-m5-directory-dirty-session.txt"
+    writeFile(path, "on disk")
+    var session: EditorSession
+    var document = openDocument(path)
+    document.buffer.edit(Edit(startByte: 0, endByte: document.buffer.toString().len,
+      text: "recover me"))
+    session.addTab(document)
+    let sessionPath = getTempDir() / "nimculus-m5-directory-dirty-session.json"
+    session.saveSession(sessionPath)
+    removeFile(path)
+    createDir(path)
+    let restored = loadSession(sessionPath)
+    check restored.tabs.len == 1
+    check restored.tabs[0].document.path == path
+    check restored.tabs[0].document.buffer.toString() == "recover me"
+    check restored.tabs[0].document.buffer.isDirty
+    removeDir(path)
+    removeFile(sessionPath)
+
   test "discarded session omits dirty buffers":
     let namedPath = getTempDir() / "nimculus-m5-discarded.txt"
     writeFile(namedPath, "on disk")
