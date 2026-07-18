@@ -535,6 +535,12 @@ Clipboard transfers use explicit UTF-8 byte lengths and a retained NSData
 buffer for reads. Copy/Cut/Paste therefore preserve embedded U+0000 bytes
 instead of passing document text through a NUL-terminated C string.
 
+Committed editor glyphs use the Metal atlas as the primary text path. The
+Core Text texture is kept as a transparent overlay for selection, marked IME
+composition, and caret; it renders the full line only when atlas generation
+is unavailable. This follows Zed's atlas-backed glyph rendering while keeping
+a visible-text fallback for native-resource failures.
+
 The explicit Don’t Save all-tabs exit path calls session persistence with
 `preserveDirty = false`: dirty named tabs are recorded only by path and reopen
 from disk, while dirty untitled tabs are omitted. This prevents a discard intent

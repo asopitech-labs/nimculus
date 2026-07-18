@@ -67,6 +67,7 @@ static id<MTLTexture> g_text_texture = nil;
 static CGFloat g_text_texture_scale = 1.0;
 static id<MTLTexture> g_glyph_atlas_texture = nil;
 static CGFloat g_glyph_atlas_scale = 0.0;
+static BOOL g_glyph_rendering_available = NO;
 static NSMutableDictionary<NSString *, NSValue *> *g_glyph_atlas_entries = nil;
 static NSUInteger g_glyph_atlas_next_x = 0;
 static NSUInteger g_glyph_atlas_next_y = 0;
@@ -403,6 +404,11 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text);
 
 static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
   if (!device) return;
+  // The atlas is the primary committed-text renderer. The Core Text texture
+  // remains an overlay for selection, marked composition, and caret, with a
+  // complete-text fallback only when atlas generation is unavailable.
+  updateEditorGlyphAtlas(device, text);
+  const BOOL drawFallbackText = !g_glyph_rendering_available;
   CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
   const size_t width = (size_t)ceil(MAX(1.0, g_editor_rect[2]) * scale);
   const size_t height = (size_t)ceil(MAX(1.0, g_editor_rect[3]) * scale);
@@ -462,6 +468,13 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
         }
       }
     }
+    if (drawFallbackText) {
+      CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
+      CGContextSetTextPosition(context, 8.0,
+        logicalHeight - lineHeight * (displayIndex + 1) + 1.0);
+      CTLineDraw(line, context);
+      CFRelease(line);
+    }
     lineStartByte += lineLength + 1;
     lineStartUnit = lineEndUnit + 1;
   }
@@ -493,7 +506,6 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
   [g_text_texture replaceRegion:MTLRegionMake2D(0, 0, width, height)
     mipmapLevel:0 withBytes:pixels.bytes bytesPerRow:width * 4];
   g_text_texture_scale = scale;
-  updateEditorGlyphAtlas(device, text);
 }
 
 static void resetGlyphVertices(void) {
@@ -653,6 +665,7 @@ static void appendGlyphQuad(CGSize sceneSize, CGRect editorRect, CGFloat scale,
 }
 
 static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
+  g_glyph_rendering_available = NO;
   if (!device) return;
   CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
   ensureGlyphAtlas(device, scale);
@@ -731,6 +744,7 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
     lineStartByte += lineLength + 1;
   }
   CFRelease(baseFont);
+  g_glyph_rendering_available = g_glyph_pipeline != nil && g_glyph_vertex_count > 0;
 }
 
 static double millisecondsSince(uint64_t start) {
