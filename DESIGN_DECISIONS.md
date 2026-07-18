@@ -578,6 +578,18 @@ initial close/terminate delegate callback must return cancellation while the
 panel is open; after Nim reports a successful save, Cocoa explicitly retries
 the window close. A failed or cancelled save never retries it.
 
+Retina scale is also an independent lifecycle event from bounds resize. The
+AppKit view handles `viewDidChangeBackingProperties` and updates
+`CAMetalLayer.contentsScale`, drawable pixels, metrics, and the Core Text
+texture there. This follows Zed's `view_did_change_backing_properties` path and
+keeps a window moved between displays from retaining the previous monitor's
+scale.
+
+The AppKit tracking area also emits explicit enter/exit events. NimNUI keeps
+those distinct from pointer motion so hover state is cleared when the pointer
+leaves the view, matching Zed's separate mouse-exit platform event instead of
+letting an exit event fall through to command routing.
+
 Line navigation uses an exclusive byte offset immediately before the line
 terminator. The editor buffer normalizes working text to LF, and the document
 save layer restores CRLF only at serialization, so movement does not depend on

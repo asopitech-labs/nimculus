@@ -17,6 +17,8 @@ suite "M2 UI foundation":
   test "AppKit pointer and modifier event types preserve routing":
     check nativeEventKind(1) == pointerDown
     check nativeEventKind(6) == pointerMove
+    check nativeEventKind(8) == pointerEnter
+    check nativeEventKind(9) == pointerExit
     check nativeEventKind(12) == modifiersChanged
     check nativeEventKind(22) == scroll
     check nativeEventButton(1) == 0

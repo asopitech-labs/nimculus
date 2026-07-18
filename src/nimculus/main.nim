@@ -861,10 +861,13 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           editorViewState.moveCursor(offset, selecting = true)
           syncEditorCursor()
         editorPointerDragging = false
-  if kind == pointerMove:
+  if kind in {pointerMove, pointerEnter}:
     for node in demoTree.nodes:
       if node.state == hovered and node.id != hit: demoTree.setState(node.id, normal)
     if hit != NodeId(0): demoTree.setState(hit, hovered)
+  elif kind == pointerExit:
+    for node in demoTree.nodes:
+      if node.state == hovered: demoTree.setState(node.id, normal)
   elif kind == pointerDown and hit != NodeId(0):
     if demoTree.node(hit).focusable: discard demoTree.focus(hit)
     demoTree.setState(hit, active)

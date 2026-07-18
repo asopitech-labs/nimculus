@@ -5,7 +5,7 @@ import nimnui/ui_tree
 
 type
   UiEventKind* = enum
-    pointerDown, pointerUp, pointerMove, scroll, keyDown, keyUp,
+    pointerDown, pointerUp, pointerMove, pointerEnter, pointerExit, scroll, keyDown, keyUp,
     modifiersChanged, command
 
   EventPhase* = enum
@@ -37,6 +37,8 @@ proc nativeEventKind*(eventType: uint32): UiEventKind =
   of 1'u32, 3'u32, 25'u32: pointerDown
   of 2'u32, 4'u32, 26'u32: pointerUp
   of 5'u32, 6'u32, 7'u32, 27'u32: pointerMove
+  of 8'u32: pointerEnter
+  of 9'u32: pointerExit
   of 10'u32: keyDown
   of 11'u32: keyUp
   of 12'u32: modifiersChanged

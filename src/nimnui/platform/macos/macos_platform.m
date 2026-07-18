@@ -454,6 +454,10 @@ static void logInput(NSString *kind, NSEvent *event) {
 
 - (void)layout {
   [super layout];
+  [self updateBackingScale];
+}
+
+- (void)updateBackingScale {
   CGFloat scale = self.window.backingScaleFactor ?: 1.0;
   self.metalLayer.contentsScale = scale;
   self.metalLayer.drawableSize = CGSizeMake(self.bounds.size.width * scale,
@@ -463,6 +467,15 @@ static void logInput(NSString *kind, NSEvent *event) {
     updateEditorTextTexture(g_queue.device, g_editor_text);
   }
   [self drawFrame];
+}
+
+- (void)viewDidChangeBackingProperties {
+  [super viewDidChangeBackingProperties];
+  // Moving a window between Retina and non-Retina screens does not require a
+  // bounds/layout change. AppKit reports that transition here; update the
+  // drawable and Core Text texture just as Zed updates its window scale
+  // factor in its backing-properties callback.
+  [self updateBackingScale];
 }
 
 - (void)drawFrame {
@@ -617,6 +630,8 @@ static void logInput(NSString *kind, NSEvent *event) {
 - (void)otherMouseUp:(NSEvent *)event { logInput(@"otherMouseUp", event); }
 - (void)otherMouseDragged:(NSEvent *)event { logInput(@"otherMouseDragged", event); }
 - (void)scrollWheel:(NSEvent *)event { logInput(@"scrollWheel", event); }
+- (void)mouseEntered:(NSEvent *)event { logInput(@"mouseEntered", event); }
+- (void)mouseExited:(NSEvent *)event { logInput(@"mouseExited", event); }
 - (BOOL)becomeFirstResponder {
   NSLog(@"Nimculus focus gained");
   return [super becomeFirstResponder];
