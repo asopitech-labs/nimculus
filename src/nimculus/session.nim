@@ -2,16 +2,7 @@ import std/json
 import std/os
 import nimculus/editor_app
 import nimculus/editor_buffer
-
-proc atomicWriteFile(path, content: string) =
-  ## Keep the previous session/recovery file intact if writing is interrupted.
-  let temporary = path & ".tmp." & $getCurrentProcessId()
-  try:
-    writeFile(temporary, content)
-    moveFile(temporary, path)
-  except CatchableError:
-    if fileExists(temporary): removeFile(temporary)
-    raise
+import nimculus/atomic_io
 
 proc saveSession*(session: EditorSession, path: string) =
   var root = %*{"activeTab": session.activeTab, "split": session.split,

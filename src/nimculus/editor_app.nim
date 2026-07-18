@@ -3,6 +3,7 @@ import std/times
 import std/strutils
 import std/sequtils
 import nimculus/editor_buffer
+import nimculus/atomic_io
 
 type
   LineEnding* = enum lf, crlf
@@ -49,7 +50,7 @@ proc save*(document: var FileDocument, path = "") =
   if targetPath.len == 0: raise newException(IOError, "document has no path")
   var content = document.buffer.toString()
   if document.lineEnding == crlf: content = content.replace("\n", "\r\n")
-  writeFile(targetPath, content)
+  atomicWriteFile(targetPath, content)
   document.path = targetPath
   let stamp = fileStamp(targetPath)
   document.externalSize = stamp.size

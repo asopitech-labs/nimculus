@@ -63,6 +63,7 @@ suite "M5 editor services":
     check document.replaceAll("one", "1") == 2
     document.save()
     check readFile(path) == "1\r\ntwo\r\n1"
+    check not fileExists(path & ".tmp." & $getCurrentProcessId())
     check not document.externallyChanged
     writeFile(path, "changed")
     check document.externallyChanged

@@ -485,9 +485,11 @@ Save callbacks use the same rule: file I/O exceptions are caught inside Nim
 before returning through the C function pointer, and the editor status reports
 the failure. No CatchableError is allowed to cross the Cocoa callback ABI.
 
-`FileDocument.save` also commits the requested path only after `writeFile`
-returns successfully. A failed Save As therefore cannot silently retarget the
-document to a path that was never written.
+`FileDocument.save` writes through the same-directory atomic-write helper used
+by session and recovery files, and commits the requested path only after the
+rename succeeds. A failed Save As therefore cannot silently retarget the
+document to a path that was never written, and an interrupted save does not
+leave a partially written target.
 
 Session and recovery files use a same-directory temporary file followed by
 rename. The temporary name includes the process id, and failures remove only
