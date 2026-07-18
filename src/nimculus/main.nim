@@ -622,7 +622,6 @@ when isMainModule:
     platformSetInputCallback(receiveNativeInput)
     platformSetFileCallback(receiveNativeFile)
     platformSetCommandCallback(receiveNativeCommand)
-    platformSetUiRectangle(360, 260, 240, 120)
     if activeDocument() != nil:
       syncEditorCursor()
       refreshEditorSyntax()

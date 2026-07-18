@@ -312,6 +312,13 @@ the standard File menu's Open Recent dialog. The bridge copies the UTF-8 paths
 immediately, so the temporary Nim pointer array does not become retained
 native state.
 
+## M2-009: Use one layout result for native demo geometry
+
+The demo UI sends the rectangle calculated by `UiTree.layoutNode` through the
+PaintList and native UI rectangle bridge. The application entry point does not
+override that geometry with a second hard-coded rectangle, preventing hit-test,
+PaintList, and Metal output from diverging.
+
 ## M6-008: Make the lazy workspace preview actionable
 
 The initial workspace tree is rendered as a bounded text preview. Its visible
