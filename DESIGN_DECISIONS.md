@@ -77,6 +77,11 @@ atlas is rasterized into CPU memory and uploaded with `MTLTexture`'s
 `replaceRegion` API. This keeps shaping/font fallback platform-native and
 keeps Metal responsible for texture sampling and presentation.
 
+The editor texture is rasterized in logical points under a CGContext scale
+matching the current `backingScaleFactor`, then uploaded at pixel resolution.
+This keeps Core Text coordinates stable while avoiding a low-resolution texture
+being stretched on Retina displays.
+
 ## M3-002: NSTextInputClient is the IME boundary
 
 The custom `NSView` implements `NSTextInputClient`; marked text, committed text,

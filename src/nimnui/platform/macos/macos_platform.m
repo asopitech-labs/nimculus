@@ -33,6 +33,7 @@ static id<MTLRenderPipelineState> g_pipeline = nil;
 static id<MTLRenderPipelineState> g_text_pipeline = nil;
 static id<MTLCommandQueue> g_queue = nil;
 static id<MTLTexture> g_text_texture = nil;
+static CGFloat g_text_texture_scale = 1.0;
 static id<MTLTexture> g_scene_texture = nil;
 static BOOL g_scene_initialized = NO;
 static BOOL g_scene_dirty = YES;
@@ -190,13 +191,16 @@ static NSUInteger utf16OffsetForUTF8Bytes(NSString *line, NSUInteger targetBytes
 
 static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
   if (!device) return;
-  const size_t width = 1024, height = 256;
+  CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+  const size_t width = (size_t)ceil(1024.0 * scale);
+  const size_t height = (size_t)ceil(256.0 * scale);
   NSMutableData *pixels = [NSMutableData dataWithLength:width * height * 4];
   CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
   CGContextRef context = CGBitmapContextCreate(pixels.mutableBytes, width, height, 8,
     width * 4, colorSpace, kCGImageAlphaPremultipliedLast);
   CGColorSpaceRelease(colorSpace);
   if (!context) return;
+  CGContextScaleCTM(context, scale, scale);
   CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), 14.0, NULL);
   NSColor *baseColor = [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0];
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
@@ -270,6 +274,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
   g_text_texture = [device newTextureWithDescriptor:descriptor];
   [g_text_texture replaceRegion:MTLRegionMake2D(0, 0, width, height)
     mipmapLevel:0 withBytes:pixels.bytes bytesPerRow:width * 4];
+  g_text_texture_scale = scale;
 }
 
 static double millisecondsSince(uint64_t start) {
@@ -358,6 +363,9 @@ static void logInput(NSString *kind, NSEvent *event) {
   self.metalLayer.drawableSize = CGSizeMake(self.bounds.size.width * scale,
                                             self.bounds.size.height * scale);
   [self updateMetrics];
+  if (g_queue && fabs(g_text_texture_scale - g_metrics.scale_factor) > 0.001) {
+    updateEditorTextTexture(g_queue.device, g_editor_text);
+  }
   [self drawFrame];
 }
 
