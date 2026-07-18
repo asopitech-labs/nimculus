@@ -295,6 +295,13 @@ All AppKit-provided UTF-16 ranges are bounded with subtraction-based length
 clamping before `NSMaxRange` is evaluated. This avoids integer wraparound for
 malformed or `NSNotFound`-style ranges at the native boundary.
 
+The optional `attributedString` selector returns committed document text, not
+the transient marked composition; this follows the AppKit protocol contract.
+
+Editor Core Text paths use Menlo when available and fall back to the system
+font through `CTFontCreateUIFontForLanguage`. This keeps measurement, hit-test,
+and texture generation valid even when the preferred font is unavailable.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback

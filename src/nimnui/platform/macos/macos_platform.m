@@ -270,6 +270,12 @@ static void highlightColor(uint32_t kind, CGFloat *r, CGFloat *g, CGFloat *b) {
   else if (kind == 5) { *r = 0.65; *g = 0.70; *b = 0.78; }
 }
 
+static CTFontRef editorFont(void) {
+  CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), 14.0, NULL);
+  if (!font) font = CTFontCreateUIFontForLanguage(kCTFontSystemFontType, 14.0, NULL);
+  return font;
+}
+
 static NSUInteger utf16OffsetForUTF8Bytes(NSString *line, NSUInteger targetBytes) {
   NSUInteger bytes = 0;
   NSUInteger units = 0;
@@ -323,7 +329,7 @@ static NSRange boundedDocumentRange(NSRange range, NSUInteger documentLength) {
 }
 
 static CGFloat editorTextOffset(NSString *line, NSUInteger utf16Index) {
-  CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), 14.0, NULL);
+  CTFontRef font = editorFont();
   if (!font) return 0.0;
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
   NSString *value = line ?: @"";
@@ -366,7 +372,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
   CGColorSpaceRelease(colorSpace);
   if (!context) return;
   CGContextScaleCTM(context, scale, scale);
-  CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), 14.0, NULL);
+  CTFontRef font = editorFont();
   NSColor *baseColor = [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0];
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
     (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
@@ -722,7 +728,10 @@ static void logInput(NSString *kind, NSEvent *event) {
   return [[NSAttributedString alloc] initWithString:[text substringWithRange:actual]];
 }
 - (NSAttributedString *)attributedString {
-  return [[NSAttributedString alloc] initWithString:self.markedText ?: @""];
+  // This optional NSTextInputClient method describes the committed document,
+  // not the transient marked composition. Zed does not register the optional
+  // selector, but since Nimculus exposes it, return the actual document.
+  return [[NSAttributedString alloc] initWithString:g_editor_text ?: @""];
 }
 - (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange
       replacementRange:(NSRange)replacementRange {
@@ -848,7 +857,7 @@ static void logInput(NSString *kind, NSEvent *event) {
   NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / 18.0));
   lineIndex = MIN(lineIndex + (NSInteger)g_editor_scroll_line, (NSInteger)lines.count - 1);
   NSString *lineText = lines[(NSUInteger)lineIndex];
-  CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), 14.0, NULL);
+  CTFontRef font = editorFont();
   if (!font) return 0.0;
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
   NSAttributedString *attributed = [[NSAttributedString alloc]
@@ -1256,6 +1265,7 @@ static void logInput(NSString *kind, NSEvent *event) {
   if (!context) return;
   CGContextSetGrayFillColor(context, 1.0, 1.0);
   CTFontRef font = CTFontCreateWithName(CFSTR("Hiragino Sans"), 28.0, NULL);
+  if (!font) font = CTFontCreateUIFontForLanguage(kCTFontSystemFontType, 28.0, NULL);
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
   NSAttributedString *string = [[NSAttributedString alloc] initWithString:@"Nimculus M2/M3"
     attributes:attributes];
@@ -1429,7 +1439,7 @@ uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y) {
   NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / 18.0));
   lineIndex = MIN(lineIndex + (NSInteger)g_editor_scroll_line, (NSInteger)lines.count - 1);
   NSString *lineText = lines[(NSUInteger)lineIndex];
-  CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), 14.0, NULL);
+  CTFontRef font = editorFont();
   if (!font) return 0;
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
   NSAttributedString *attributed = [[NSAttributedString alloc]
@@ -1459,7 +1469,7 @@ uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y) {
   for (NSInteger index = 0; index < lineIndex; index++) {
     lineStartByte += [[lines[(NSUInteger)index] dataUsingEncoding:NSUTF8StringEncoding] length] + 1;
   }
-  CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), 14.0, NULL);
+  CTFontRef font = editorFont();
   if (!font) return (uint32_t)lineStartByte;
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
   NSAttributedString *attributed = [[NSAttributedString alloc]
