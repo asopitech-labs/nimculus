@@ -1,4 +1,5 @@
 import std/unittest
+import std/sequtils
 import nimculus/tree_sitter
 import nimculus/syntax
 
@@ -31,5 +32,8 @@ suite "M7 syntax services":
     let expanded = tree.expandSelection(14, 15)
     check expanded.endByte >= expanded.startByte
     check tree.nextSyntaxNode(0).endByte > 0
+    let items = tree.outline
+    check items.len > 0
+    check items.anyIt(it.name == "f")
     tree.close()
     parser.close()

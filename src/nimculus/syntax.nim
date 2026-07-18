@@ -68,10 +68,46 @@ proc foldRanges*(tree: SyntaxTree, source: string): seq[FoldRange] =
     let lines = source[node.startByte.int ..< node.endByte.int].count('\n')
     if lines > 0: result.add(FoldRange(startByte: node.startByte, endByte: node.endByte))
 
+proc identifierChar(value: char): bool =
+  value in {'a'..'z', 'A'..'Z', '0'..'9', '_'}
+
+proc declarationName(source, kind: string, startByte, endByte: uint32): string =
+  if source.len == 0 or startByte >= uint32(source.len): return
+  let finish = min(int(endByte), source.len)
+  if finish <= int(startByte): return
+  let declaration = source[int(startByte) ..< finish]
+  let keywords = case kind
+    of "function_definition", "function_item": @[
+      "function", "def", "fn", "proc", "func", "method", "template"]
+    of "class_definition": @["class"]
+    of "struct_item": @["struct"]
+    of "proc_decl": @["proc", "func", "method", "template"]
+    of "type_declaration": @[
+      "type", "struct", "class", "interface", "enum"]
+    else: @[]
+  for keyword in keywords:
+    var offset = declaration.find(keyword)
+    while offset >= 0:
+      let beforeIsBoundary = offset == 0 or not identifierChar(declaration[offset - 1])
+      let after = offset + keyword.len
+      let afterIsBoundary = after >= declaration.len or not identifierChar(declaration[after])
+      if beforeIsBoundary and afterIsBoundary:
+        var cursor = after
+        while cursor < declaration.len and not identifierChar(declaration[cursor]): inc cursor
+        let nameStart = cursor
+        while cursor < declaration.len and identifierChar(declaration[cursor]): inc cursor
+        if cursor > nameStart and not declaration[nameStart].isDigit:
+          return declaration[nameStart ..< cursor]
+      let nextOffset = offset + keyword.len
+      if nextOffset >= declaration.len: break
+      offset = declaration.find(keyword, nextOffset)
+
 proc outline*(tree: SyntaxTree): seq[OutlineItem] =
   for node in tree.nodes:
     if node.kind in ["function_definition", "function_item", "class_definition", "struct_item", "proc_decl", "type_declaration"]:
-      result.add(OutlineItem(name: node.kind, kind: node.kind, startByte: node.startByte, endByte: node.endByte))
+      let name = tree.source.declarationName(node.kind, node.startByte, node.endByte)
+      result.add(OutlineItem(name: if name.len > 0: name else: node.kind,
+        kind: node.kind, startByte: node.startByte, endByte: node.endByte))
 
 proc indentationLevel*(source: string, byteOffset: int, indentWidth = 2): int =
   if source.len == 0: return 0
