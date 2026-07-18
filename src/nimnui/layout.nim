@@ -30,17 +30,45 @@ proc layoutNode*(tree: var UiTree, id: NodeId, bounds: Rect, spec: LayoutSpec) =
   let content = bounds.inset(spec.padding)
   let children = tree.nodes[index].children
   if children.len == 0: return
-  let count = Pixels(children.len.float32)
   var cursor = if spec.direction == row: content.origin.x - spec.scrollOffset else: content.origin.y - spec.scrollOffset
   let available = if spec.direction == row: content.size.width else: content.size.height
   let gapTotal = spec.gap * float32(max(0, children.len - 1))
-  let childExtent = minPx(spec.maxSize.width, maxPx(spec.minSize.width,
-    maxPx(px(0), (available - gapTotal) / count)))
-  for child in children:
+  var extents = newSeq[Pixels](children.len)
+  var baseTotal = px(0)
+  var totalGrow = 0'f32
+  for index, child in children:
+    let childIndex = tree.nodeIndex(child)
+    let childNode = tree.nodes[childIndex]
+    let preferred = if spec.direction == row: childNode.preferredSize.width else: childNode.preferredSize.height
+    let minimum = if spec.direction == row: childNode.minSize.width else: childNode.minSize.height
+    let maximum = if spec.direction == row: childNode.maxSize.width else: childNode.maxSize.height
+    let initial = if float32(preferred) > 0: preferred else: minimum
+    extents[index] = minPx(maximum, maxPx(minimum, initial))
+    baseTotal = baseTotal + extents[index]
+    totalGrow += childNode.flexGrow
+  let remaining = maxPx(px(0), available - gapTotal - baseTotal)
+  if totalGrow > 0:
+    for index, child in children:
+      let childNode = tree.nodes[tree.nodeIndex(child)]
+      extents[index] = extents[index] + remaining * (childNode.flexGrow / totalGrow)
+      let minimum = if spec.direction == row: childNode.minSize.width else: childNode.minSize.height
+      let maximum = if spec.direction == row: childNode.maxSize.width else: childNode.maxSize.height
+      extents[index] = minPx(maximum, maxPx(minimum, extents[index]))
+  elif children.len > 0 and baseTotal == px(0):
+    let equalExtent = maxPx(px(0), (available - gapTotal) / px(float32(children.len)))
+    for index in 0 ..< extents.len: extents[index] = equalExtent
+  for index, child in children:
+    let childNode = tree.nodes[tree.nodeIndex(child)]
+    let crossPreferred = if spec.direction == row: childNode.preferredSize.height else: childNode.preferredSize.width
+    let crossMinimum = if spec.direction == row: childNode.minSize.height else: childNode.minSize.width
+    let crossMaximum = if spec.direction == row: childNode.maxSize.height else: childNode.maxSize.width
+    let crossAvailable = if spec.direction == row: content.size.height else: content.size.width
+    let crossExtent = if float32(crossPreferred) > 0: minPx(crossMaximum, maxPx(crossMinimum, crossPreferred))
+      else: minPx(crossMaximum, maxPx(crossMinimum, crossAvailable))
     var childSize = if spec.direction == row:
-      Size(width: childExtent, height: content.size.height)
+      Size(width: extents[index], height: crossExtent)
     else:
-      Size(width: content.size.width, height: childExtent)
+      Size(width: crossExtent, height: extents[index])
     if spec.direction == stack: childSize = content.size
     let childOrigin = if spec.direction == row:
       Point(x: cursor, y: if spec.alignment == alignCenter: content.origin.y + (content.size.height - childSize.height) / px(2)
@@ -55,5 +83,5 @@ proc layoutNode*(tree: var UiTree, id: NodeId, bounds: Rect, spec: LayoutSpec) =
       finalBounds.size = Size(width: px(0), height: px(0))
     elif spec.viewport.size.width != px(0):
       finalBounds = intersection(finalBounds, spec.viewport)
-    tree.nodes[tree.nodes.mapIt(it.id).find(child)].bounds = finalBounds
-    if spec.direction != stack: cursor = cursor + childExtent + spec.gap
+    tree.nodes[tree.nodeIndex(child)].bounds = finalBounds
+    if spec.direction != stack: cursor = cursor + extents[index] + spec.gap

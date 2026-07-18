@@ -16,6 +16,22 @@ suite "M2 UI foundation":
     check float32(tree.node(first).bounds.size.width) == 48.0
     check float32(tree.node(second).bounds.origin.x) == 52.0
 
+  test "flex grow and child size constraints affect layout":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let first = tree.addNode(root)
+    let second = tree.addNode(root)
+    tree.setFlexGrow(first, 1.0)
+    tree.setFlexGrow(second, 2.0)
+    tree.setSizeConstraints(first, Size(width: px(0), height: px(0)),
+      Size(width: px(0), height: px(0)), Size(width: px(1000), height: px(1000)))
+    tree.setSizeConstraints(second, Size(width: px(0), height: px(0)),
+      Size(width: px(0), height: px(0)), Size(width: px(1000), height: px(1000)))
+    let spec = LayoutSpec(direction: row, maxSize: Size(width: px(10000), height: px(10000)))
+    tree.layoutNode(root, Rect(size: Size(width: px(90), height: px(20))), spec)
+    check float32(tree.node(first).bounds.size.width) == 30.0
+    check float32(tree.node(second).bounds.size.width) == 60.0
+
   test "focus and dirty state are explicit":
     var tree = newUiTree()
     let root = tree.addNode()

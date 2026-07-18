@@ -15,6 +15,10 @@ import nimculus/session
 
 var demoTree = newUiTree()
 var demoButton = NodeId(0)
+var demoSplitNode = NodeId(0)
+var demoScrollNode = NodeId(0)
+var demoSplitRatio = 0.5'f32
+var demoSplitDragging = false
 
 proc setupDemoUi() =
   demoTree = newUiTree()
@@ -23,6 +27,8 @@ proc setupDemoUi() =
   let split = makeControl(demoTree, root, ControlKind.splitPane, "Editor split")
   let scroll = makeControl(demoTree, root, ControlKind.scrollView, "Editor scroll")
   demoButton = button.node
+  demoSplitNode = split.node
+  demoScrollNode = scroll.node
   var metrics: PlatformMetrics
   platformGetMetrics(addr metrics)
   let viewportWidth = if metrics.widthPoints > 0: float32(metrics.widthPoints) else: 960'f32
@@ -47,7 +53,7 @@ proc setupDemoUi() =
   let editorHeight = max(0'f32, viewportHeight - 208'f32)
   let editor = Rect(origin: Point(x: px(margin * 2), y: px(128)),
     size: Size(width: px(editorWidth), height: px(editorHeight)))
-  let splitBar = Rect(origin: Point(x: px(margin * 2 + editorWidth * 0.5), y: px(128)),
+  let splitBar = Rect(origin: Point(x: px(margin * 2 + editorWidth * demoSplitRatio), y: px(128)),
     size: Size(width: px(2), height: px(editorHeight)))
   let scrollbar = Rect(origin: Point(x: px(margin * 2 + editorWidth + 24), y: px(144)),
     size: Size(width: px(8), height: px(max(0'f32, editorHeight - 32'f32))))
@@ -65,6 +71,7 @@ proc setupDemoUi() =
     size: Size(width: px(220), height: px(24))))
   paint.pushClip(editor)
   paint.drawRectangle(editor)
+  paint.drawRectangle(splitBar)
   paint.drawCaret(Rect(origin: Point(x: px(74), y: px(176)),
     size: Size(width: px(2), height: px(20))))
   paint.popClip()
@@ -308,13 +315,7 @@ proc syncEditorCursor() =
 when defined(macosx):
   proc editorOffsetAtPoint(document: ptr FileDocument, x, y: cdouble): int =
     if document == nil: return 0
-    var metrics: PlatformMetrics
-    platformGetMetrics(addr metrics)
-    let viewHeight = if metrics.heightPoints > 0: metrics.heightPoints else: 640'u32
-    let top = float32(viewHeight) - float32(y)
-    let line = editorViewState.scrollLine + max(0, int(floor((top - 4.0'f32) / 18.0'f32)))
-    let column = max(0, int(floor((float32(x) - 8.0'f32) / 8.0'f32)))
-    document[].buffer.byteOffsetAtLineColumn(line, column)
+    int(platformEditorByteOffsetAtPoint(x, y))
 
 proc refreshEditorSyntax() =
   let document = activeDocument()
@@ -665,18 +666,33 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   else: hit
   when defined(macosx):
     let document = activeDocument()
+    var splitPointerHandled = false
     if document != nil and kind == scroll:
       let delta = if event.deltaY > 0: -3 elif event.deltaY < 0: 3 else: 0
       let maxScroll = max(0, document[].buffer.lineStarts.len - 12)
       editorViewState.scrollLine = max(0, min(maxScroll, editorViewState.scrollLine + delta))
       syncEditorCursor()
       refreshEditorSyntax()
+    if kind == pointerDown and hit == demoSplitNode:
+      demoSplitDragging = true
+      editorPointerDragging = false
+      splitPointerHandled = true
+    elif demoSplitDragging and kind == pointerMove:
+      let editorBounds = demoTree.node(demoScrollNode).bounds
+      let width = max(1'f32, float32(editorBounds.size.width))
+      demoSplitRatio = min(0.9'f32, max(0.1'f32,
+        (float32(event.x) - float32(editorBounds.origin.x)) / width))
+      setupDemoUi()
+      splitPointerHandled = true
+    elif demoSplitDragging and kind == pointerUp:
+      demoSplitDragging = false
+      splitPointerHandled = true
     if kind == pointerDown and workspacePreviewMode == "quickOpen" and
         workspacePreviewEntries.len > 0:
       openWorkspaceEntryAtPoint(event.y)
     elif document == nil and kind == pointerDown:
       openWorkspaceEntryAtPoint(event.y)
-    if document != nil and workspacePreviewMode != "quickOpen" and
+    if document != nil and not splitPointerHandled and not demoSplitDragging and workspacePreviewMode != "quickOpen" and
         kind in {pointerDown, pointerMove, pointerUp}:
       let offset = editorOffsetAtPoint(document, event.x, event.y)
       if kind == pointerDown:

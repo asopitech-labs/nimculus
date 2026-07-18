@@ -402,3 +402,36 @@ then asks Core Text for the glyph offset with
 offsets. This keeps cursor, selection, and IME geometry aligned for Japanese,
 emoji, combining characters, and proportional fallback runs instead of
 assuming a fixed eight-pixel character width.
+
+The reverse path uses `CTLineGetStringIndexForPosition` and converts the
+result back to UTF-8 bytes before the editor applies a pointer selection. The
+same bridge is used by `NSTextInputClient` character-index queries, so native
+IME services and editor pointer input share one text hit-test contract.
+
+The native selection state is stored in UTF-16 units because Core Text and
+`NSTextInputClient` consume NSString ranges. The Nim editor continues to own
+UTF-8 byte ranges and the platform setter performs the conversion at the
+boundary; this prevents astral characters and Japanese text from shifting
+selection or composition positions.
+
+## M2-011: Store flex and size constraints on UI nodes
+
+Flex grow belongs to a child in Row or Column layout, not to the container's
+layout specification. `UiNode` therefore stores flex grow plus preferred,
+minimum, and maximum sizes. The layout pass first allocates preferred/minimum
+extents, then distributes remaining space by flex weight and clamps the
+result. A container with no child constraints retains equal distribution for
+the initial gallery and existing callers.
+
+The first split-pane vertical slice keeps the ratio in application state and
+rebuilds geometry on pointer movement. The editor pointer path is suspended
+while the split handle is active, preventing a drag from changing both the
+split position and text selection.
+
+## M1-010: Keep a real Metal uniform binding in the first renderer
+
+The initial rectangle shader receives a small `buffer(1)` uniform block. Its
+opacity value is currently fixed at `1.0`, but the binding is real and is
+consumed by the fragment color path. This preserves the uniform-buffer
+contract for later transforms, scale, and opacity without pretending that a
+vertex-only buffer satisfies the M1 requirement.

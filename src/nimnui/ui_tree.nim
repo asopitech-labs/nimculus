@@ -19,6 +19,8 @@ type
     paintDirty*: bool
     focusable*: bool
     generation*: uint32
+    flexGrow*: float32
+    preferredSize*, minSize*, maxSize*: Size
 
   UiTree* = object
     nodes*: seq[UiNode]
@@ -30,6 +32,11 @@ proc `==`*(a, b: NodeId): bool = uint64(a) == uint64(b)
 
 proc newUiTree*(): UiTree = UiTree(nextId: 1, nextGeneration: 1, focused: NodeId(0))
 
+proc nodeIndex*(tree: UiTree, id: NodeId): int =
+  for index, node in tree.nodes:
+    if node.id == id: return index
+  -1
+
 proc addNode*(tree: var UiTree, parent: NodeId = NodeId(0), focusable = false): NodeId =
   let id = NodeId(tree.nextId)
   inc tree.nextId
@@ -37,7 +44,7 @@ proc addNode*(tree: var UiTree, parent: NodeId = NodeId(0), focusable = false): 
   inc tree.nextGeneration
   tree.nodes.add(UiNode(id: id, parent: parent, state: normal,
                         layoutDirty: true, paintDirty: true, focusable: focusable,
-                        generation: generation))
+                        generation: generation, maxSize: Size(width: px(100000), height: px(100000))))
   if parent != NodeId(0):
     for node in tree.nodes.mitems:
       if node.id == parent:
@@ -47,10 +54,21 @@ proc addNode*(tree: var UiTree, parent: NodeId = NodeId(0), focusable = false): 
         break
   id
 
-proc nodeIndex(tree: UiTree, id: NodeId): int =
-  for index, node in tree.nodes:
-    if node.id == id: return index
-  -1
+proc markLayoutDirty*(tree: var UiTree, id: NodeId)
+
+proc setFlexGrow*(tree: var UiTree, id: NodeId, value: float32) =
+  let index = tree.nodeIndex(id)
+  if index >= 0:
+    tree.nodes[index].flexGrow = max(0'f32, value)
+    tree.markLayoutDirty(id)
+
+proc setSizeConstraints*(tree: var UiTree, id: NodeId, preferred, minimum, maximum: Size) =
+  let index = tree.nodeIndex(id)
+  if index >= 0:
+    tree.nodes[index].preferredSize = preferred
+    tree.nodes[index].minSize = minimum
+    tree.nodes[index].maxSize = maximum
+    tree.markLayoutDirty(id)
 
 proc hitTest*(tree: UiTree, point: Point): NodeId =
   ## Return the deepest/topmost node containing a point. Nodes are traversed

@@ -20,3 +20,10 @@ suite "macOS platform contract":
       check true
     else:
       echo "  [SKIP] native Metal layer contract (no Metal device in this session)"
+
+  test "Core Text hit-test preserves UTF-8 and UTF-16 contracts":
+    platformSetEditorText("A日本語🙂\nnext".cstring)
+    platformSetEditorScrollLine(0)
+    check platformEditorUtf16OffsetAtPoint(0.0, 640.0) == 0'u32
+    check platformEditorByteOffsetAtPoint(10000.0, 640.0) == 14'u32
+    check platformEditorUtf16OffsetAtPoint(10000.0, 640.0) == 6'u32

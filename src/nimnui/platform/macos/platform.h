@@ -61,6 +61,8 @@ void nimculus_platform_set_file_callback(NimculusFileCallback callback);
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback);
 void nimculus_platform_set_editor_cursor(double x, double y);
 void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t line);
+uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y);
+uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y);
 void nimculus_platform_set_editor_scroll_line(uint32_t line);
 void nimculus_platform_set_editor_dirty(bool dirty);
 void nimculus_platform_set_close_decision(bool allow);

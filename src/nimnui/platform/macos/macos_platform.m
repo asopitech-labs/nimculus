@@ -35,6 +35,10 @@ static NSArray<NSString *> *g_recent_files = nil;
 static uint32_t g_last_width_points = 0;
 static uint32_t g_last_height_points = 0;
 
+typedef struct NimculusDrawUniforms {
+  float opacity;
+} NimculusDrawUniforms;
+
 static id<MTLRenderPipelineState> g_pipeline = nil;
 static id<MTLRenderPipelineState> g_text_pipeline = nil;
 static id<MTLCommandQueue> g_queue = nil;
@@ -72,6 +76,10 @@ static void drawColoredRectangle(id<MTLRenderCommandEncoder> encoder,
   id<MTLBuffer> buffer = [device newBufferWithBytes:vertices length:sizeof(vertices)
     options:MTLResourceStorageModeShared];
   [encoder setVertexBuffer:buffer offset:0 atIndex:0];
+  NimculusDrawUniforms uniforms = {1.0f};
+  id<MTLBuffer> uniformBuffer = [device newBufferWithBytes:&uniforms
+    length:sizeof(uniforms) options:MTLResourceStorageModeShared];
+  [encoder setVertexBuffer:uniformBuffer offset:0 atIndex:1];
   [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
 }
 
@@ -127,6 +135,10 @@ static void drawRoundedRectangle(id<MTLRenderCommandEncoder> encoder,
   free(vertices);
   free(triangles);
   [encoder setVertexBuffer:buffer offset:0 atIndex:0];
+  NimculusDrawUniforms uniforms = {1.0f};
+  id<MTLBuffer> uniformBuffer = [device newBufferWithBytes:&uniforms
+    length:sizeof(uniforms) options:MTLResourceStorageModeShared];
+  [encoder setVertexBuffer:uniformBuffer offset:0 atIndex:1];
   [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
     vertexCount:triangleVertexCount];
 }
@@ -193,6 +205,12 @@ static NSUInteger utf16OffsetForUTF8Bytes(NSString *line, NSUInteger targetBytes
     index += width;
   }
   return units;
+}
+
+static NSUInteger utf8BytesForUTF16Offset(NSString *line, NSUInteger targetUnits) {
+  NSUInteger units = MIN(targetUnits, line.length);
+  if (units == 0) return 0;
+  return [[line substringToIndex:units] dataUsingEncoding:NSUTF8StringEncoding].length;
 }
 
 static CGFloat editorTextOffset(NSString *line, NSUInteger utf16Index) {
@@ -633,20 +651,36 @@ static void logInput(NSString *kind, NSEvent *event) {
   return [self.window convertRectToScreen:[self convertRect:cursor toView:nil]];
 }
 - (NSUInteger)characterIndexForPoint:(NSPoint)point {
-  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
-  CGFloat fromTop = self.bounds.size.height - point.y;
-  NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / 18.0));
-  lineIndex = MIN(lineIndex + (NSInteger)g_editor_scroll_line, (NSInteger)lines.count - 1);
-  NSUInteger prefix = 0;
-  for (NSInteger index = 0; index < lineIndex; index++) prefix += lines[index].length + 1;
-  NSUInteger column = (NSUInteger)MAX(0, floor((point.x - 8.0) / 8.0));
-  return prefix + MIN(column, lines[lineIndex].length);
+  NSPoint viewPoint = [self convertPoint:point fromView:nil];
+  return nimculus_platform_editor_utf16_offset_at_point(viewPoint.x, viewPoint.y);
 }
 - (CGFloat)baselineDeltaForCharacterAtIndex:(NSUInteger)index { return 18.0; }
 - (BOOL)drawsVerticallyForCharacterAtIndex:(NSUInteger)index { return NO; }
 - (CGFloat)fractionOfDistanceThroughGlyphForPoint:(NSPoint)point {
-  CGFloat remainder = fmod(MAX(0.0, point.x - 8.0), 8.0) / 8.0;
-  return MIN(1.0, MAX(0.0, remainder));
+  NSPoint viewPoint = [self convertPoint:point fromView:nil];
+  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  if (lines.count == 0) return 0.0;
+  CGFloat fromTop = self.bounds.size.height - viewPoint.y;
+  NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / 18.0));
+  lineIndex = MIN(lineIndex + (NSInteger)g_editor_scroll_line, (NSInteger)lines.count - 1);
+  NSString *lineText = lines[(NSUInteger)lineIndex];
+  CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), 14.0, NULL);
+  if (!font) return 0.0;
+  NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
+  NSAttributedString *attributed = [[NSAttributedString alloc]
+    initWithString:lineText attributes:attributes];
+  CTLineRef ctLine = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
+  CGFloat textX = MAX(0.0, viewPoint.x - 8.0);
+  CFIndex index = CTLineGetStringIndexForPosition(ctLine, CGPointMake(textX, 0.0));
+  if (index == kCFNotFound) index = (CFIndex)lineText.length;
+  CGFloat left = CTLineGetOffsetForStringIndex(ctLine, index, NULL);
+  CFIndex next = MIN(index + 1, (CFIndex)lineText.length);
+  CGFloat right = CTLineGetOffsetForStringIndex(ctLine, next, NULL);
+  CGFloat width = right - left;
+  CGFloat fraction = width > 0.0 ? (textX - left) / width : 0.0;
+  CFRelease(ctLine);
+  CFRelease(font);
+  return MIN(1.0, MAX(0.0, fraction));
 }
 
 @end
@@ -1062,7 +1096,8 @@ static void logInput(NSString *kind, NSEvent *event) {
   NSError *error = nil;
   NSString *source = @"#include <metal_stdlib>\nusing namespace metal;\n"
     "struct V { float4 pos [[position]]; float4 color; };\n"
-    "vertex V vs(uint id [[vertex_id]], constant float4 *v [[buffer(0)]]) { V o; o.pos=v[id*2]; o.color=v[id*2+1]; return o; }\n"
+    "struct U { float opacity; };\n"
+    "vertex V vs(uint id [[vertex_id]], constant float4 *v [[buffer(0)]], constant U& u [[buffer(1)]]) { V o; o.pos=v[id*2]; o.color=v[id*2+1] * u.opacity; return o; }\n"
     "fragment float4 fs(V in [[stage_in]]) { return in.color; }\n"
     "struct TV { float4 pos [[position]]; float2 uv; };\n"
     "vertex TV textVs(uint id [[vertex_id]], constant float4 *v [[buffer(0)]]) { TV o; o.pos=float4(v[id].xy,0,1); o.uv=v[id].zw; return o; }\n"
@@ -1192,6 +1227,58 @@ void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t lin
   NSUInteger visibleLine = lineIndex > g_editor_scroll_line ? lineIndex - g_editor_scroll_line : 0;
   g_editor_cursor[1] = 12.0 + visibleLine * 18.0;
   markSceneFullyDirty();
+}
+uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y) {
+  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  if (lines.count == 0) return 0;
+  CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
+  CGFloat fromTop = viewHeight - y;
+  NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / 18.0));
+  lineIndex = MIN(lineIndex + (NSInteger)g_editor_scroll_line, (NSInteger)lines.count - 1);
+  NSString *lineText = lines[(NSUInteger)lineIndex];
+  CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), 14.0, NULL);
+  if (!font) return 0;
+  NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
+  NSAttributedString *attributed = [[NSAttributedString alloc]
+    initWithString:lineText attributes:attributes];
+  CTLineRef ctLine = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
+  CFIndex localIndex = CTLineGetStringIndexForPosition(ctLine,
+    CGPointMake(MAX(0.0, x - 8.0), 0.0));
+  if (localIndex == kCFNotFound) localIndex = (CFIndex)lineText.length;
+  NSUInteger documentIndex = 0;
+  for (NSInteger index = 0; index < lineIndex; index++) {
+    documentIndex += lines[(NSUInteger)index].length + 1;
+  }
+  documentIndex += MIN((NSUInteger)localIndex, lineText.length);
+  CFRelease(ctLine);
+  CFRelease(font);
+  return (uint32_t)documentIndex;
+}
+uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y) {
+  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  if (lines.count == 0) return 0;
+  CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
+  CGFloat fromTop = viewHeight - y;
+  NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / 18.0));
+  lineIndex = MIN(lineIndex + (NSInteger)g_editor_scroll_line, (NSInteger)lines.count - 1);
+  NSString *lineText = lines[(NSUInteger)lineIndex];
+  NSUInteger lineStartByte = 0;
+  for (NSInteger index = 0; index < lineIndex; index++) {
+    lineStartByte += [[lines[(NSUInteger)index] dataUsingEncoding:NSUTF8StringEncoding] length] + 1;
+  }
+  CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), 14.0, NULL);
+  if (!font) return (uint32_t)lineStartByte;
+  NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
+  NSAttributedString *attributed = [[NSAttributedString alloc]
+    initWithString:lineText attributes:attributes];
+  CTLineRef ctLine = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
+  CGFloat textX = MAX(0.0, x - 8.0);
+  CFIndex utf16Index = CTLineGetStringIndexForPosition(ctLine, CGPointMake(textX, 0.0));
+  if (utf16Index == kCFNotFound) utf16Index = (CFIndex)lineText.length;
+  NSUInteger localByte = utf8BytesForUTF16Offset(lineText, (NSUInteger)utf16Index);
+  CFRelease(ctLine);
+  CFRelease(font);
+  return (uint32_t)(lineStartByte + localByte);
 }
 void nimculus_platform_set_editor_scroll_line(uint32_t line) {
   g_editor_scroll_line = line;
