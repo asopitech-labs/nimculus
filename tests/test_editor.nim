@@ -40,6 +40,8 @@ suite "M4 editor buffer":
   test "line and UTF-16 positions handle Japanese and astral characters":
     var buffer = initPieceTable("A\n😀日本")
     check buffer.lineColumn(2) == (line: 1, column: 0)
+    check buffer.lineColumn(6) == (line: 1, column: 1)
+    check buffer.lineColumn(12) == (line: 1, column: 3)
     check buffer.utf16Position(6) == (line: 1, character: 2)
     check buffer.byteOffsetAtLineColumn(1, 0) == 2
     check buffer.byteOffsetAtLineColumn(1, 1) == 6

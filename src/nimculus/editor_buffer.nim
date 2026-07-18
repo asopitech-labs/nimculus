@@ -145,7 +145,7 @@ proc redo*(table: var PieceTable): bool =
 proc markSaved*(table: var PieceTable) = table.savedVersion = table.version
 proc isDirty*(table: PieceTable): bool = table.version != table.savedVersion
 
-proc lineColumn*(table: PieceTable, byteOffset: int): tuple[line, column: int] =
+proc lineByteColumn(table: PieceTable, byteOffset: int): tuple[line, column: int] =
   let offset = max(0, min(byteOffset, table.toString().len))
   var line = 0
   for index, start in table.lineStarts:
@@ -153,8 +153,21 @@ proc lineColumn*(table: PieceTable, byteOffset: int): tuple[line, column: int] =
     line = index
   (line: line, column: offset - table.lineStarts[line])
 
+proc lineColumn*(table: PieceTable, byteOffset: int): tuple[line, column: int] =
+  ## Return a line and grapheme column, never a UTF-8 byte column.
+  let location = table.lineByteColumn(byteOffset)
+  let lineEnd = if location.line + 1 < table.lineStarts.len:
+    table.lineStarts[location.line + 1]
+  else: table.toString().len
+  let positions = textPositions(table.substring(table.lineStarts[location.line], lineEnd))
+  var column = 0
+  for position in positions:
+    if position.byteOffset > location.column: break
+    column = position.graphemeIndex
+  (line: location.line, column: column)
+
 proc utf16Position*(table: PieceTable, byteOffset: int): tuple[line, character: int] =
-  let location = table.lineColumn(byteOffset)
+  let location = table.lineByteColumn(byteOffset)
   let lineText = table.substring(table.lineStarts[location.line],
     if location.line + 1 < table.lineStarts.len: table.lineStarts[location.line + 1] else: table.toString().len)
   var units = 0
@@ -165,7 +178,7 @@ proc utf16Position*(table: PieceTable, byteOffset: int): tuple[line, character: 
   (line: location.line, character: units)
 
 proc graphemePosition*(table: PieceTable, byteOffset: int): TextPosition =
-  let location = table.lineColumn(byteOffset)
+  let location = table.lineByteColumn(byteOffset)
   let start = table.lineStarts[location.line]
   let lineEnd = if location.line + 1 < table.lineStarts.len: table.lineStarts[location.line + 1] else: table.toString().len
   let positions = textPositions(table.substring(start, lineEnd))

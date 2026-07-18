@@ -514,6 +514,11 @@ Visible text ranges use that same boundary list. The renderer may still shape
 each visible run independently, but it never starts or ends a run halfway
 through a grapheme cluster.
 
+The public editor line-column contract uses grapheme columns. Byte offsets are
+kept for storage and are converted explicitly through `byteOffsetAtLineColumn`
+or the private byte-column path used by UTF-16/LSP conversion. This prevents
+vertical movement from passing a byte count as a grapheme column.
+
 Pointer hit-testing follows the same viewport contract as painting: a node is
 eligible only when the point is inside all of its ancestor bounds. This keeps
 scroll-container content from receiving events after it has been clipped.
