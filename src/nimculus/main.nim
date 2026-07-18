@@ -53,7 +53,17 @@ proc refreshEditorSyntax() =
     syntaxState = newEditorSyntax(document[].path, document[].buffer.toString())
   elif syntaxState != nil:
     syntaxState.update(document[].buffer.toString())
-  when defined(macosx): platformSetEditorText(document[].buffer.toString().cstring)
+  when defined(macosx):
+    let highlights = if syntaxState == nil: @[] else:
+      syntaxState.visibleHighlights(0, uint32(min(document[].buffer.toString().len, 4096)))
+    var nativeHighlights = newSeq[NativeHighlightSpan](highlights.len)
+    for index, span in highlights:
+      nativeHighlights[index] = NativeHighlightSpan(startByte: span.startByte,
+        endByte: span.endByte, kind: uint32(ord(span.kind)))
+    var highlightPtr: ptr NativeHighlightSpan = nil
+    if nativeHighlights.len > 0: highlightPtr = addr nativeHighlights[0]
+    platformSetEditorHighlights(highlightPtr, uint32(nativeHighlights.len))
+    platformSetEditorText(document[].buffer.toString().cstring)
 
 proc receiveNativeText(text: cstring, composing: bool) {.cdecl.} =
   let value = if text == nil: "" else: $text

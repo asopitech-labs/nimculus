@@ -25,6 +25,11 @@ typedef void (*NimculusInputCallback)(const NimculusInputEvent *event);
 typedef void (*NimculusTextCallback)(const char *utf8, bool composing);
 typedef void (*NimculusFileCallback)(const char *path, bool saving);
 typedef void (*NimculusCommandCallback)(const char *command);
+typedef struct NimculusHighlightSpan {
+  uint32_t start_byte;
+  uint32_t end_byte;
+  uint32_t kind;
+} NimculusHighlightSpan;
 
 bool nimculus_platform_run(void);
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics);
@@ -35,6 +40,7 @@ void nimculus_platform_set_file_callback(NimculusFileCallback callback);
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback);
 void nimculus_platform_set_editor_cursor(double x, double y);
 void nimculus_platform_set_editor_text(const char *utf8);
+void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans, uint32_t count);
 void nimculus_platform_set_ui_rectangle(double x, double y, double width, double height);
 void nimculus_clipboard_set(const char *utf8);
 const char *nimculus_clipboard_get(void);

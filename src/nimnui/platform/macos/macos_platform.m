@@ -5,6 +5,7 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <mach/mach_time.h>
 #include <limits.h>
+#include <stdlib.h>
 #include <string.h>
 #include "platform.h"
 
@@ -24,36 +25,60 @@ static id<MTLRenderPipelineState> g_text_pipeline = nil;
 static id<MTLCommandQueue> g_queue = nil;
 static id<MTLTexture> g_text_texture = nil;
 static id g_active_view = nil;
+static NimculusHighlightSpan *g_highlights = NULL;
+static uint32_t g_highlight_count = 0;
+
+static void highlightColor(uint32_t kind, CGFloat *r, CGFloat *g, CGFloat *b) {
+  *r = 0.85; *g = 0.90; *b = 1.0;
+  if (kind == 0) { *r = 0.35; *g = 0.70; *b = 1.0; }
+  else if (kind == 1) { *r = 0.95; *g = 0.65; *b = 0.35; }
+  else if (kind == 2) { *r = 0.80; *g = 0.55; *b = 1.0; }
+  else if (kind == 3) { *r = 0.45; *g = 0.75; *b = 0.50; }
+  else if (kind == 5) { *r = 0.65; *g = 0.70; *b = 0.78; }
+}
 
 static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
   if (!device) return;
   const size_t width = 1024, height = 256;
-  NSMutableData *pixels = [NSMutableData dataWithLength:width * height];
-  CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceGray();
+  NSMutableData *pixels = [NSMutableData dataWithLength:width * height * 4];
+  CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
   CGContextRef context = CGBitmapContextCreate(pixels.mutableBytes, width, height, 8,
-    width, colorSpace, (CGBitmapInfo)kCGImageAlphaNone);
+    width * 4, colorSpace, kCGImageAlphaPremultipliedLast);
   CGColorSpaceRelease(colorSpace);
   if (!context) return;
-  CGContextSetGrayFillColor(context, 1.0, 1.0);
   CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), 14.0, NULL);
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
   NSArray<NSString *> *lines = [(text ?: @"") componentsSeparatedByString:@"\n"];
   NSUInteger visibleLines = MIN(lines.count, (NSUInteger)12);
+  NSUInteger lineStartByte = 0;
   for (NSUInteger index = 0; index < visibleLines; index++) {
+    NSUInteger lineLength = [[lines[index] dataUsingEncoding:NSUTF8StringEncoding] length];
+    uint32_t kind = 4;
+    for (uint32_t spanIndex = 0; spanIndex < g_highlight_count; spanIndex++) {
+      NimculusHighlightSpan span = g_highlights[spanIndex];
+      if (span.end_byte > lineStartByte && span.start_byte < lineStartByte + lineLength) {
+        kind = span.kind;
+        break;
+      }
+    }
+    CGFloat red, green, blue;
+    highlightColor(kind, &red, &green, &blue);
+    CGContextSetRGBFillColor(context, red, green, blue, 1.0);
     CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)[[NSAttributedString alloc]
       initWithString:lines[index] attributes:attributes]);
     CGContextSetTextPosition(context, 8.0, height - 24.0 * (index + 1));
     CTLineDraw(line, context);
     CFRelease(line);
+    lineStartByte += lineLength + 1;
   }
   CFRelease(font);
   CGContextRelease(context);
-  MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm
+  MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
     width:width height:height mipmapped:NO];
   descriptor.usage = MTLTextureUsageShaderRead;
   g_text_texture = [device newTextureWithDescriptor:descriptor];
   [g_text_texture replaceRegion:MTLRegionMake2D(0, 0, width, height)
-    mipmapLevel:0 withBytes:pixels.bytes bytesPerRow:width];
+    mipmapLevel:0 withBytes:pixels.bytes bytesPerRow:width * 4];
 }
 
 static double millisecondsSince(uint64_t start) {
@@ -375,7 +400,7 @@ static void logInput(NSString *kind, NSEvent *event) {
     "fragment float4 fs(V in [[stage_in]]) { return in.color; }\n"
     "struct TV { float4 pos [[position]]; float2 uv; };\n"
     "vertex TV textVs(uint id [[vertex_id]], constant float4 *v [[buffer(0)]]) { TV o; o.pos=float4(v[id].xy,0,1); o.uv=v[id].zw; return o; }\n"
-    "fragment float4 textFs(TV in [[stage_in]], texture2d<float> atlas [[texture(0)]]) { constexpr sampler s(filter::linear); float a=atlas.sample(s,in.uv).r; return float4(0.85,0.90,1.0,a); }";
+    "fragment float4 textFs(TV in [[stage_in]], texture2d<float> atlas [[texture(0)]]) { constexpr sampler s(filter::linear); return atlas.sample(s,in.uv); }";
   id<MTLLibrary> library = [device newLibraryWithSource:source options:nil error:&error];
   if (library) {
     MTLRenderPipelineDescriptor *descriptor = [MTLRenderPipelineDescriptor new];
@@ -388,7 +413,7 @@ static void logInput(NSString *kind, NSEvent *event) {
     textDescriptor.fragmentFunction = [library newFunctionWithName:@"textFs"];
     textDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
     g_text_pipeline = [device newRenderPipelineStateWithDescriptor:textDescriptor error:&error];
-    [self createTextAtlas:device];
+    updateEditorTextTexture(device, @"Nimculus M2/M3");
   }
 
   NSRect frame = NSMakeRect(0, 0, 960, 640);
@@ -442,6 +467,18 @@ void nimculus_platform_set_editor_text(const char *utf8) {
   NSString *text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";
   if (g_queue) updateEditorTextTexture(g_queue.device, text);
   if (g_active_view) [g_active_view drawFrame];
+}
+void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans, uint32_t count) {
+  free(g_highlights);
+  g_highlights = NULL;
+  g_highlight_count = 0;
+  if (spans && count > 0) {
+    g_highlights = malloc(sizeof(NimculusHighlightSpan) * count);
+    if (g_highlights) {
+      memcpy(g_highlights, spans, sizeof(NimculusHighlightSpan) * count);
+      g_highlight_count = count;
+    }
+  }
 }
 void nimculus_platform_set_ui_rectangle(double x, double y, double width, double height) {
   g_ui_rect[0] = x; g_ui_rect[1] = y; g_ui_rect[2] = width; g_ui_rect[3] = height;
