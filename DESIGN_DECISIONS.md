@@ -142,6 +142,10 @@ receives only a command tick, polls `SearchJob`, and redraws the bounded result
 view. This keeps search progress responsive without making the workspace
 service depend on AppKit or a background-thread ownership model.
 
+The Edit menu exposes cancellation as a separate command. Cancellation closes
+the active stream, drops pending work, and leaves a cancelled status in the
+search view instead of silently showing stale partial results.
+
 ## M6-003: Search yields cooperatively and streams file contents
 
 The UI-facing `SearchJob` processes a bounded number of files and lines per

@@ -371,6 +371,10 @@ static void logInput(NSString *kind, NSEvent *event) {
     action:@selector(findInWorkspace:) keyEquivalent:@"f"];
   workspaceSearch.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
   [editMenu addItem:workspaceSearch];
+  NSMenuItem *cancelSearch = [[NSMenuItem alloc] initWithTitle:@"Cancel Workspace Search"
+    action:@selector(cancelWorkspaceSearch:) keyEquivalent:@"."];
+  cancelSearch.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  [editMenu addItem:cancelSearch];
   for (NSMenuItem *item in editMenu.itemArray) {
     if (item != workspaceSearch) item.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   }
@@ -410,6 +414,11 @@ static void logInput(NSString *kind, NSEvent *event) {
     NSString *command = [NSString stringWithFormat:@"workspaceSearch:%@", field.stringValue];
     g_command_callback(command.UTF8String);
   }
+}
+
+- (void)cancelWorkspaceSearch:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("cancelWorkspaceSearch");
 }
 
 - (void)emitWorkspaceSearchTick:(NSTimer *)timer {

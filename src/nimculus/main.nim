@@ -38,6 +38,7 @@ var activeWorkspace: Workspace
 var workspaceSearchJob: SearchJob
 var workspaceSearchQuery = ""
 var workspaceSearchResults: seq[SearchResult]
+var workspaceSearchCancelled = false
 
 proc refreshWorkspacePreview() =
   when defined(macosx):
@@ -67,6 +68,8 @@ proc renderWorkspaceSearch() =
       lines.add(result.path & ":" & $result.line & ":" & $result.column & " " & result.text)
     if workspaceSearchJob != nil and not workspaceSearchJob.isComplete:
       lines.add("… search continues")
+    elif workspaceSearchCancelled:
+      lines.add("Search cancelled")
     if workspaceSearchResults.len == 0 and workspaceSearchJob != nil and workspaceSearchJob.isComplete:
       lines.add("No matches")
     platformSetEditorHighlights(nil, 0)
@@ -79,7 +82,16 @@ proc showWorkspaceSearch(query: string) =
     if activeWorkspace == nil or query.len == 0: return
     workspaceSearchQuery = query
     workspaceSearchResults.setLen(0)
+    workspaceSearchCancelled = false
     workspaceSearchJob = activeWorkspace.startSearch(query)
+    renderWorkspaceSearch()
+
+proc cancelWorkspaceSearch() =
+  when defined(macosx):
+    if workspaceSearchJob == nil: return
+    workspaceSearchJob.cancelSearch()
+    workspaceSearchJob = nil
+    workspaceSearchCancelled = true
     renderWorkspaceSearch()
 
 proc pollWorkspaceSearch() =
@@ -184,6 +196,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   let document = activeDocument()
   if name == "workspaceSearchTick":
     pollWorkspaceSearch()
+  elif name == "cancelWorkspaceSearch":
+    cancelWorkspaceSearch()
   elif name.startsWith("workspaceSearch:"):
     showWorkspaceSearch(name[16 .. ^1])
   elif name == "cancel":
