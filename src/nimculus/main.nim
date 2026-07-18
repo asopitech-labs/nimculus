@@ -281,7 +281,8 @@ proc refreshWorkspacePreview() =
     platformSetEditorScrollLine(0)
     platformSetEditorCursorByte(0, 0)
     platformSetEditorSelection(0, 0)
-    platformSetEditorText(lines.join("\n").cstring)
+    let text = lines.join("\n")
+    platformSetEditorText(text.cstring, uint32(text.len))
 
 proc refreshWorkspaceAfterMutation(message: string) =
   when defined(macosx):
@@ -314,7 +315,8 @@ proc renderWorkspaceSearch() =
     platformSetEditorScrollLine(0)
     platformSetEditorCursorByte(0, 0)
     platformSetEditorSelection(0, 0)
-    platformSetEditorText(lines.join("\n").cstring)
+    let text = lines.join("\n")
+    platformSetEditorText(text.cstring, uint32(text.len))
 
 proc renderQuickOpen() =
   when defined(macosx):
@@ -332,7 +334,8 @@ proc renderQuickOpen() =
     platformSetEditorScrollLine(0)
     platformSetEditorCursorByte(0, 0)
     platformSetEditorSelection(0, 0)
-    platformSetEditorText(lines.join("\n").cstring)
+    let text = lines.join("\n")
+    platformSetEditorText(text.cstring, uint32(text.len))
 
 proc showWorkspaceSearch(query: string) =
   when defined(macosx):
@@ -466,7 +469,8 @@ proc refreshEditorSyntax() =
     var highlightPtr: ptr NativeHighlightSpan = nil
     if nativeHighlights.len > 0: highlightPtr = addr nativeHighlights[0]
     platformSetEditorHighlights(highlightPtr, uint32(nativeHighlights.len))
-    platformSetEditorText(document[].buffer.toString().cstring)
+    let text = document[].buffer.toString()
+    platformSetEditorText(text.cstring, uint32(text.len))
 
 proc receiveNativeText(text: cstring, composing: bool) {.cdecl.} =
   let value = if text == nil: "" else: $text
@@ -631,7 +635,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     when defined(macosx):
       platformSetEditorHighlights(nil, 0)
       platformSetEditorComposition("".cstring)
-      platformSetEditorText("".cstring)
+      platformSetEditorText("".cstring, 0)
       syncEditorCursor()
   elif name == "saveSession":
     persistSession()

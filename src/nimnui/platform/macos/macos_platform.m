@@ -1580,11 +1580,18 @@ void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_by
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
-void nimculus_platform_set_editor_text(const char *utf8) {
-  g_editor_text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";
+void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
+  g_editor_text = (utf8 && length > 0)
+    ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
+    : @"";
+  if (!g_editor_text) g_editor_text = @"";
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text);
   if (g_active_view) [g_active_view drawFrame];
+}
+uint32_t nimculus_platform_editor_text_utf8_length(void) {
+  NSData *data = [g_editor_text dataUsingEncoding:NSUTF8StringEncoding];
+  return data ? (uint32_t)data.length : 0;
 }
 void nimculus_platform_set_editor_composition(const char *utf8) {
   g_marked_text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";

@@ -52,7 +52,8 @@ proc platformSetEditorDirty*(dirty: bool) {.importc: "nimculus_platform_set_edit
 proc platformSetCloseDecision*(allow: bool) {.importc: "nimculus_platform_set_close_decision", cdecl.}
 proc platformShowSavePanelAndClose*() {.importc: "nimculus_platform_show_save_panel_and_close", cdecl.}
 proc platformSetEditorSelection*(startByte, endByte: uint32) {.importc: "nimculus_platform_set_editor_selection", cdecl.}
-proc platformSetEditorText*(text: cstring) {.importc: "nimculus_platform_set_editor_text", cdecl.}
+proc platformSetEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_text", cdecl.}
+proc platformEditorTextUtf8Length*(): uint32 {.importc: "nimculus_platform_editor_text_utf8_length", cdecl.}
 proc platformSetEditorComposition*(text: cstring) {.importc: "nimculus_platform_set_editor_composition", cdecl.}
 proc platformClearEditorComposition*() {.importc: "nimculus_platform_clear_editor_composition", cdecl.}
 proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32) {.importc: "nimculus_platform_set_editor_highlights", cdecl.}

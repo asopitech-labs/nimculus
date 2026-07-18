@@ -358,6 +358,14 @@ height, not the pixel texture height. This follows Zed's separation of logical
 layout coordinates from scale-factor rasterization and keeps Retina text
 inside the texture.
 
+## M3-019: Pass editor text with an explicit UTF-8 byte length
+
+The native editor surface receives `(pointer, byte length)` rather than a
+NUL-terminated C string. A U+0000 byte is valid UTF-8 editor content and must
+not truncate Core Text layout, hit-testing, or IME document coordinates. The
+native side constructs `NSString` with `initWithBytes:length:encoding:` and
+the platform contract includes a length-preservation test.
+
 ## M1-005: Initialize the Metal drawable on first window attachment
 
 `viewDidMoveToWindow` calls the same backing-scale update used by layout and

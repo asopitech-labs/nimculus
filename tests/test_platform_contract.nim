@@ -28,9 +28,14 @@ suite "macOS platform contract":
 
   test "Core Text hit-test preserves UTF-8 and UTF-16 contracts":
     platformSetEditorRect(48.0, 128.0, 400.0, 300.0)
-    platformSetEditorText("A日本語🙂\nnext".cstring)
+    let text = "A日本語🙂\nnext"
+    platformSetEditorText(text.cstring, uint32(text.len))
     platformSetEditorScrollLine(0)
     check platformEditorUtf16OffsetAtPoint(48.0, 512.0) == 0'u32
     check platformEditorByteOffsetAtPoint(10000.0, 512.0) == 14'u32
     check platformEditorUtf16OffsetAtPoint(10000.0, 512.0) == 6'u32
     check platformEditorByteOffsetAtPoint(48.0, 490.0) == 15'u32
+    let nulText = "A\0B"
+    platformSetEditorText(nulText.cstring, uint32(nulText.len))
+    check platformEditorTextUtf8Length() == uint32(nulText.len)
+    platformSetEditorText("".cstring, 0)
