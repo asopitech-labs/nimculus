@@ -16,6 +16,23 @@ type
   CommandRegistry* = object
     commands*: seq[Command]
 
+const
+  ## NSEventModifierFlags values used by AppKit. Keep this conversion at the
+  ## platform boundary; command matching should not depend on Cocoa bitmasks.
+  macOSShiftFlag = 1'u32 shl 17
+  macOSControlFlag = 1'u32 shl 18
+  macOSOptionFlag = 1'u32 shl 19
+  macOSCommandFlag = 1'u32 shl 20
+
+proc macOSModifiers*(flags: uint32): set[Modifier] =
+  ## Convert NSEvent.modifierFlags into NimNUI's platform-neutral shortcut set.
+  ## This follows Zed's gpui_macos event mapping: control, alternate/option,
+  ## shift, and command are independent modifier bits.
+  if (flags and macOSCommandFlag) != 0: result.incl(commandModifier)
+  if (flags and macOSOptionFlag) != 0: result.incl(optionModifier)
+  if (flags and macOSControlFlag) != 0: result.incl(controlModifier)
+  if (flags and macOSShiftFlag) != 0: result.incl(shiftModifier)
+
 proc register*(registry: var CommandRegistry, command: Command) = registry.commands.add(command)
 
 proc resolve*(registry: CommandRegistry, shortcut: Shortcut): Command =

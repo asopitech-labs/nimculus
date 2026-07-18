@@ -3,6 +3,16 @@ import std/unicode
 import nimnui/nimnui
 
 suite "M2 UI foundation":
+  test "macOS modifier flags map to shortcut modifiers":
+    let flags = (1'u32 shl 17) or (1'u32 shl 18) or
+      (1'u32 shl 19) or (1'u32 shl 20)
+    check macOSModifiers(flags) == {
+      commandModifier, optionModifier, controlModifier, shiftModifier}
+    check macOSModifiers(1'u32 shl 16) == {}
+    let event = UiEvent(kind: keyDown, shortcutModifiers: macOSModifiers(flags))
+    check event.shortcutModifiers == {commandModifier, optionModifier,
+      controlModifier, shiftModifier}
+
   test "command registry resolves exact macOS-style modifiers":
     var registry: CommandRegistry
     var invoked = false

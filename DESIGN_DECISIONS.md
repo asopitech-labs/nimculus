@@ -518,12 +518,16 @@ checked against the ignored local reference at `references/zed`:
 - `crates/gpui_macos/src/shaders.metal`: device coordinates are derived from a
   named viewport size, with the Y direction made explicit at the renderer
   boundary.
+- `crates/gpui_macos/src/events.rs`: NSEvent modifier flags are normalized into
+  platform-neutral control/alternate/shift/command state before command
+  matching.
 
 Nimculus therefore keeps PieceTable offsets byte-based, applies UTF-8
 character-boundary validation in the storage layer, applies grapheme
 boundaries in editor navigation/display, and converts AppKit coordinates once
-at the platform boundary. Zed is used as an implementation reference, not as
-an API compatibility target.
+at the platform boundary. AppKit modifier flags are likewise converted by
+`macOSModifiers` before shortcut resolution. Zed is used as an implementation
+reference, not as an API compatibility target.
 
 Filesystem callbacks are treated as producer threads, not as UI state owners.
 The workspace watcher appends under a lock, and the UI polling boundary drains

@@ -1,4 +1,5 @@
 import std/sequtils
+import nimnui/commands
 import nimnui/geometry
 import nimnui/ui_tree
 
@@ -15,7 +16,10 @@ type
     target*: NodeId
     position*: Point
     keyCode*: uint32
+    ## Raw platform flags are retained for diagnostics and platform-specific
+    ## handling. Command routing should use shortcutModifiers.
     modifiers*: uint32
+    shortcutModifiers*: set[Modifier]
     deltaX*, deltaY*: float32
     command*: string
     handled*: bool

@@ -805,6 +805,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     demoTree.setState(hit, if demoTree.focused == hit: focused else: normal)
   var uiEvent = UiEvent(kind: kind, target: target,
     position: point, keyCode: event.keyCode, modifiers: event.modifiers,
+    shortcutModifiers: macOSModifiers(event.modifiers),
     deltaX: float32(event.deltaX), deltaY: float32(event.deltaY))
   discard demoTree.dispatch(uiEvent)
 
