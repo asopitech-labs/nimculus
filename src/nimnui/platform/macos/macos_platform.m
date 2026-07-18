@@ -34,6 +34,7 @@ static NSString *g_clipboard_text = @"";
 static char g_dialog_path[PATH_MAX] = {0};
 static BOOL g_editor_dirty = NO;
 static BOOL g_close_decision = NO;
+static BOOL g_terminate_decision = NO;
 static NSArray<NSString *> *g_recent_files = nil;
 static uint32_t g_last_width_points = 0;
 static uint32_t g_last_height_points = 0;
@@ -929,11 +930,23 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 
 - (BOOL)windowShouldClose:(NSWindow *)window {
   (void)window;
+  if (g_command_callback) {
+    g_command_callback("quitRequest");
+    return NO;
+  }
   return [self confirmClose];
 }
 
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)application {
   (void)application;
+  if (g_terminate_decision) {
+    g_terminate_decision = NO;
+    return NSTerminateNow;
+  }
+  if (g_command_callback) {
+    g_command_callback("quitRequest");
+    return NSTerminateCancel;
+  }
   return [self confirmClose] ? NSTerminateNow : NSTerminateCancel;
 }
 
@@ -955,7 +968,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   NSMenuItem *newDocument = [[NSMenuItem alloc] initWithTitle:@"New" action:@selector(newDocument:) keyEquivalent:@"n"];
   NSMenuItem *open = [[NSMenuItem alloc] initWithTitle:@"Open…" action:@selector(openDocument:) keyEquivalent:@"o"];
   NSMenuItem *save = [[NSMenuItem alloc] initWithTitle:@"Save" action:@selector(saveDocument:) keyEquivalent:@"s"];
-  NSMenuItem *close = [[NSMenuItem alloc] initWithTitle:@"Close Window" action:@selector(performClose:) keyEquivalent:@"w"];
+  NSMenuItem *close = [[NSMenuItem alloc] initWithTitle:@"Close Tab" action:@selector(closeDocument:) keyEquivalent:@"w"];
   newDocument.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   open.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   save.keyEquivalentModifierMask = NSEventModifierFlagCommand;
@@ -1295,6 +1308,11 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   if (g_command_callback) g_command_callback("save");
 }
 
+- (void)closeDocument:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("closeTabRequest");
+}
+
 - (void)createTextAtlas:(id<MTLDevice>)device {
   const size_t width = 512, height = 64;
   NSMutableData *pixels = [NSMutableData dataWithLength:width * height];
@@ -1548,6 +1566,54 @@ void nimculus_platform_set_editor_rect(double x, double y, double width, double 
 }
 void nimculus_platform_set_editor_dirty(bool dirty) { g_editor_dirty = dirty ? YES : NO; }
 void nimculus_platform_set_close_decision(bool allow) { g_close_decision = allow ? YES : NO; }
+void nimculus_platform_request_close_tab(void) {
+  if (!g_editor_dirty) {
+    if (g_command_callback) g_command_callback("closeTabConfirmed");
+    return;
+  }
+  g_close_decision = NO;
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = @"Unsaved Changes";
+  alert.informativeText = @"The current document has unsaved changes.";
+  [alert addButtonWithTitle:@"Save"];
+  [alert addButtonWithTitle:@"Don’t Save"];
+  [alert addButtonWithTitle:@"Cancel"];
+  NSInteger response = [alert runModal];
+  if (response == NSAlertSecondButtonReturn) {
+    if (g_command_callback) g_command_callback("closeTabConfirmed");
+  } else if (response == NSAlertFirstButtonReturn && g_command_callback) {
+    g_command_callback("saveAndCloseTab");
+    if (g_close_decision) g_command_callback("closeTabConfirmed");
+  }
+}
+void nimculus_platform_show_save_panel_and_close_tab(void) {
+  g_close_decision = NO;
+  NSSavePanel *panel = [NSSavePanel savePanel];
+  if ([panel runModal] == NSModalResponseOK) {
+    if (g_file_callback) g_file_callback(panel.URL.path.UTF8String, true);
+  }
+}
+void nimculus_platform_confirm_quit(void);
+void nimculus_platform_request_quit(void) {
+  g_close_decision = NO;
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = @"Unsaved Changes";
+  alert.informativeText = @"One or more tabs have unsaved changes.";
+  [alert addButtonWithTitle:@"Save All"];
+  [alert addButtonWithTitle:@"Don’t Save"];
+  [alert addButtonWithTitle:@"Cancel"];
+  NSInteger response = [alert runModal];
+  if (response == NSAlertSecondButtonReturn) {
+    if (g_command_callback) g_command_callback("discardAllAndQuit");
+  } else if (response == NSAlertFirstButtonReturn && g_command_callback) {
+    g_command_callback("saveAllAndQuit");
+  }
+  if (g_close_decision) nimculus_platform_confirm_quit();
+}
+void nimculus_platform_confirm_quit(void) {
+  g_terminate_decision = YES;
+  [NSApp terminate:nil];
+}
 void nimculus_platform_show_save_panel_and_close(void) {
   g_close_decision = NO;
   NSSavePanel *panel = [NSSavePanel savePanel];

@@ -114,13 +114,18 @@ proc switchTab*(session: var EditorSession, view: var EditorViewState, delta: in
   session.loadActiveView(view)
   true
 
-proc closeActiveTab*(session: var EditorSession): bool =
+proc closeActiveTab*(session: var EditorSession, forceDirty = false): bool =
   if session.tabs.len == 0: return false
   session.activeTab = max(0, min(session.activeTab, session.tabs.high))
-  if session.tabs[session.activeTab].document.buffer.isDirty: return false
+  if session.tabs[session.activeTab].document.buffer.isDirty and not forceDirty: return false
   session.tabs.delete(session.activeTab)
   session.activeTab = min(session.activeTab, session.tabs.high)
   true
+
+proc hasDirtyTabs*(session: EditorSession): bool =
+  for tab in session.tabs:
+    if tab.document.buffer.isDirty: return true
+  false
 
 proc splitEditor*(session: var EditorSession, direction: SplitDirection) =
   session.split = true

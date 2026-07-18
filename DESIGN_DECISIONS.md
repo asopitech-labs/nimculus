@@ -405,6 +405,24 @@ serialization stores the same state with bounds and grapheme clamping on load.
 This follows Zed's item-owned selection/focus behavior and prevents changing
 tabs from moving the cursor or viewport in an unrelated buffer.
 
+## M5-010: Cmd-W closes the active tab before the window
+
+The File menu's Cmd-W action requests an active-tab close. The native prompt
+keeps Save / Don't Save / Cancel synchronous at the callback boundary; Nim
+removes the tab only after a successful save or an explicit discard. An
+untitled tab uses a Save Panel, while the title-bar close remains a window
+close operation. This follows Zed's `Pane::close_active_item` contract and
+avoids terminating a workspace when multiple tabs remain.
+
+## M5-011: Cmd-Q resolves every dirty tab before termination
+
+Application termination and the title-bar window close are intercepted before
+AppKit exits. Nimculus reports whether any tab is dirty, then a native Save
+All / Don't Save / Cancel prompt is used. Save All writes every dirty tab
+(including sequential Save Panels for untitled tabs); termination is retried
+only after all writes succeed. This prevents an inactive dirty buffer from
+being lost when the active tab is clean.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback

@@ -513,6 +513,8 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
     if document != nil:
       try:
         document[].save(filePath)
+        if editorSession.activeTab >= 0 and editorSession.activeTab < editorSession.tabs.len:
+          editorSession.tabs[editorSession.activeTab].title = splitFile(filePath).name
         externalAlertShown = false
         editorViewState.statusMessage = "Saved " & filePath
         syncEditorCursor()
@@ -604,6 +606,66 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     if activeDocument() != nil: refreshEditorSyntax()
   elif name == "windowFocusLost":
     resetPointerInteractions()
+  elif name == "quitRequest":
+    when defined(macosx):
+      if editorSession.hasDirtyTabs(): platformRequestQuit()
+      else: platformConfirmQuit()
+  elif name == "saveAllAndQuit":
+    var success = true
+    for tab in editorSession.tabs.mitems:
+      if not tab.document.buffer.isDirty: continue
+      try:
+        if tab.document.path.len > 0:
+          tab.document.save()
+          tab.title = splitFile(tab.document.path).name
+        else:
+          let path = chooseSaveFile()
+          if path == nil or ($path).len == 0:
+            success = false
+          else:
+            let target = $path
+            tab.document.save(target)
+            tab.title = splitFile(target).name
+      except CatchableError:
+        success = false
+    platformSetCloseDecision(success and not editorSession.hasDirtyTabs())
+  elif name == "discardAllAndQuit":
+    suppressRecoveryWrite = true
+    if recoveryFilePath.len > 0 and fileExists(recoveryFilePath):
+      removeFile(recoveryFilePath)
+    platformSetCloseDecision(true)
+  elif name == "closeTabRequest":
+    when defined(macosx): platformRequestCloseTab()
+  elif name == "saveAndCloseTab":
+    if document == nil or not document[].buffer.isDirty:
+      platformSetCloseDecision(true)
+    elif document[].path.len > 0:
+      try:
+        document[].save()
+        syncEditorCursor()
+        platformSetCloseDecision(true)
+      except CatchableError:
+        platformSetCloseDecision(false)
+    else:
+      when defined(macosx): platformShowSavePanelAndCloseTab()
+  elif name == "closeTabConfirmed":
+    if editorSession.closeActiveTab(forceDirty = true):
+      resetImeState()
+      resetEditorViewState()
+      externalAlertShown = false
+      if syntaxState != nil:
+        syntaxState.close()
+        syntaxState = nil
+      workspacePreviewMode = ""
+      when defined(macosx):
+        platformSetEditorHighlights(nil, 0)
+        syncEditorCursor()
+        let current = activeDocument()
+        if current == nil:
+          platformSetEditorText("".cstring, 0)
+        else:
+          refreshEditorSyntax()
+      persistSession()
   elif name in ["previousTab", "nextTab"]:
     let delta = if name == "previousTab": -1 else: 1
     if editorSession.switchTab(editorViewState, delta):

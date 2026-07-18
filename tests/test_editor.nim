@@ -159,6 +159,18 @@ suite "M5 editor services":
     check session.closeActiveTab()
     check session.tabs.len == 2
 
+  test "dirty tab close requires an explicit discard":
+    var session: EditorSession
+    var document = newDocument()
+    document.buffer.edit(Edit(startByte: 0, endByte: 0, text: "unsaved"))
+    session.addTab(document)
+    check session.hasDirtyTabs()
+    check not session.closeActiveTab()
+    check session.tabs.len == 1
+    check session.closeActiveTab(forceDirty = true)
+    check session.tabs.len == 0
+    check not session.hasDirtyTabs()
+
   test "view state exposes cursor, selection, lines and status":
     var buffer = initPieceTable("one\ntwo")
     var view = newEditorView()
