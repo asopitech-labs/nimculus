@@ -1769,6 +1769,20 @@ bool nimculus_platform_validate_native(void) {
     layer.drawableSize.height == 800.0;
 }
 
+bool nimculus_platform_validate_glyph_atlas(void) {
+  id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+  if (!device) return false;
+  if (g_metrics.scale_factor <= 0.0) g_metrics.scale_factor = 2.0;
+  if (g_editor_rect[2] <= 0.0) g_editor_rect[2] = 640.0;
+  if (g_editor_rect[3] <= 0.0) g_editor_rect[3] = 320.0;
+  NSString *sample = @"A日本語🙂";
+  updateEditorGlyphAtlas(device, sample);
+  if (!g_glyph_atlas_texture || g_glyph_vertex_count == 0) return false;
+  uint64_t hitsBefore = g_glyph_atlas_hit_count;
+  updateEditorGlyphAtlas(device, sample);
+  return g_glyph_vertex_count > 0 && g_glyph_atlas_hit_count > hitsBefore;
+}
+
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics) {
   if (metrics) *metrics = g_metrics;
 }

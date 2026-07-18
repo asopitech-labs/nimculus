@@ -106,6 +106,12 @@ plain text: the previous parser and highlight spans are released and the new
 document is still sent to the native text surface. This prevents a tab switch
 from retaining syntax colors or stale text from the previously parsed file.
 
+The platform contract also includes a headless native atlas smoke check. It
+uploads mixed Latin, Japanese, and emoji glyphs, then rebuilds the same visible
+range and requires cache hits. This verifies the Metal/Core Text boundary
+without claiming that GUI rendering or IME behavior has been manually
+validated.
+
 ## M3-002: NSTextInputClient is the IME boundary
 
 The custom `NSView` implements `NSTextInputClient`; marked text, committed text,

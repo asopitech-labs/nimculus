@@ -57,6 +57,7 @@ typedef struct NimculusPaintRegion {
 
 bool nimculus_platform_run(void);
 bool nimculus_platform_validate_native(void);
+bool nimculus_platform_validate_glyph_atlas(void);
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics);
 uint64_t nimculus_platform_input_count(void);
 void nimculus_platform_set_input_callback(NimculusInputCallback callback);

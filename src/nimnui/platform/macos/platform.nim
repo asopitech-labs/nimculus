@@ -12,6 +12,7 @@ type
 
 proc platformRun*(): bool {.importc: "nimculus_platform_run", cdecl.}
 proc platformValidateNative*(): bool {.importc: "nimculus_platform_validate_native", cdecl.}
+proc platformValidateGlyphAtlas*(): bool {.importc: "nimculus_platform_validate_glyph_atlas", cdecl.}
 proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
 proc platformInputCount*(): uint64 {.importc: "nimculus_platform_input_count", cdecl.}
 type
