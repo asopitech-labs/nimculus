@@ -135,6 +135,13 @@ passes the selected path unchanged; the application checks whether it is a
 directory and opens a `Workspace`, while files continue through
 `EditorSession`. This keeps Cocoa path selection out of the workspace service.
 
+## M6-005: Poll search work from the main run loop
+
+Workspace search is advanced in bounded batches by a 50ms Cocoa timer. Nim
+receives only a command tick, polls `SearchJob`, and redraws the bounded result
+view. This keeps search progress responsive without making the workspace
+service depend on AppKit or a background-thread ownership model.
+
 ## M6-003: Search yields cooperatively and streams file contents
 
 The UI-facing `SearchJob` processes a bounded number of files and lines per

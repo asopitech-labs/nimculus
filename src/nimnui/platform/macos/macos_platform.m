@@ -333,6 +333,7 @@ static void logInput(NSString *kind, NSEvent *event) {
 @interface NimculusAppDelegate : NSObject <NSApplicationDelegate>
 @property(nonatomic, strong) NSWindow *window;
 @property(nonatomic, strong) NimculusMetalView *view;
+@property(nonatomic, strong) NSTimer *workspaceSearchTimer;
 @end
 
 @implementation NimculusAppDelegate
@@ -366,7 +367,13 @@ static void logInput(NSString *kind, NSEvent *event) {
   [editMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"]];
   [editMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"]];
   [editMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"]];
-  for (NSMenuItem *item in editMenu.itemArray) item.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  NSMenuItem *workspaceSearch = [[NSMenuItem alloc] initWithTitle:@"Find in Workspace…"
+    action:@selector(findInWorkspace:) keyEquivalent:@"f"];
+  workspaceSearch.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
+  [editMenu addItem:workspaceSearch];
+  for (NSMenuItem *item in editMenu.itemArray) {
+    if (item != workspaceSearch) item.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  }
   [editItem setSubmenu:editMenu];
   [mainMenu addItem:editItem];
 
@@ -387,6 +394,27 @@ static void logInput(NSString *kind, NSEvent *event) {
   [windowItem setSubmenu:windowMenu];
   [mainMenu addItem:windowItem];
   [NSApp setMainMenu:mainMenu];
+}
+
+- (void)findInWorkspace:(id)sender {
+  (void)sender;
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = @"Find in Workspace";
+  alert.informativeText = @"Enter text to search in the current workspace.";
+  NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
+  field.placeholderString = @"Search text";
+  alert.accessoryView = field;
+  [alert addButtonWithTitle:@"Find"];
+  [alert addButtonWithTitle:@"Cancel"];
+  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
+    NSString *command = [NSString stringWithFormat:@"workspaceSearch:%@", field.stringValue];
+    g_command_callback(command.UTF8String);
+  }
+}
+
+- (void)emitWorkspaceSearchTick:(NSTimer *)timer {
+  (void)timer;
+  if (g_command_callback) g_command_callback("workspaceSearchTick");
 }
 
 - (void)openDocument:(id)sender {
@@ -471,6 +499,8 @@ static void logInput(NSString *kind, NSEvent *event) {
   self.window.contentView = self.view;
   [self.window center];
   [self.window makeKeyAndOrderFront:nil];
+  self.workspaceSearchTimer = [NSTimer scheduledTimerWithTimeInterval:0.05
+    target:self selector:@selector(emitWorkspaceSearchTick:) userInfo:nil repeats:YES];
 }
 - (void)application:(NSApplication *)application openFiles:(NSArray<NSString *> *)filenames {
   (void)application;

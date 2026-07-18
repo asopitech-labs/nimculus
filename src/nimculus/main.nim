@@ -1,6 +1,7 @@
 import std/algorithm
 import std/os
 import std/strutils
+import std/tables
 import nimnui/nimnui
 import nimculus/editor_app
 import nimculus/editor_buffer
@@ -34,6 +35,9 @@ var editorSession: EditorSession
 var editorViewState = newEditorView()
 var syntaxState: EditorSyntaxState
 var activeWorkspace: Workspace
+var workspaceSearchJob: SearchJob
+var workspaceSearchQuery = ""
+var workspaceSearchResults: seq[SearchResult]
 
 proc refreshWorkspacePreview() =
   when defined(macosx):
@@ -45,9 +49,46 @@ proc refreshWorkspacePreview() =
       if lines.len >= 12: break
       let marker = if entry.kind == WorkspaceFileKind.directory: "[D] " else: "    "
       lines.add(marker & entry.relativePath)
+    let states = activeWorkspace.gitWorktreeStates()
+    for root, state in states:
+      if lines.len >= 12: break
+      let shortHead = if state.head.len > 8: state.head[0 .. 7] else: state.head
+      lines.add("[G] " & state.branch & " " & shortHead)
     platformSetEditorHighlights(nil, 0)
     platformSetEditorComposition("".cstring)
     platformSetEditorText(lines.join("\n").cstring)
+
+proc renderWorkspaceSearch() =
+  when defined(macosx):
+    if activeWorkspace == nil or workspaceSearchQuery.len == 0: return
+    var lines = @["Search: " & workspaceSearchQuery]
+    for result in workspaceSearchResults:
+      if lines.len >= 12: break
+      lines.add(result.path & ":" & $result.line & ":" & $result.column & " " & result.text)
+    if workspaceSearchJob != nil and not workspaceSearchJob.isComplete:
+      lines.add("… search continues")
+    if workspaceSearchResults.len == 0 and workspaceSearchJob != nil and workspaceSearchJob.isComplete:
+      lines.add("No matches")
+    platformSetEditorHighlights(nil, 0)
+    platformSetEditorComposition("".cstring)
+    platformSetEditorText(lines.join("\n").cstring)
+
+proc showWorkspaceSearch(query: string) =
+  when defined(macosx):
+    if workspaceSearchJob != nil: workspaceSearchJob.cancelSearch()
+    if activeWorkspace == nil or query.len == 0: return
+    workspaceSearchQuery = query
+    workspaceSearchResults.setLen(0)
+    workspaceSearchJob = activeWorkspace.startSearch(query)
+    renderWorkspaceSearch()
+
+proc pollWorkspaceSearch() =
+  when defined(macosx):
+    if workspaceSearchJob == nil: return
+    for result in workspaceSearchJob.pollSearch(maxFiles = 8, maxLines = 256):
+      if workspaceSearchResults.len < 256: workspaceSearchResults.add(result)
+    renderWorkspaceSearch()
+    if workspaceSearchJob.isComplete: workspaceSearchJob = nil
 
 proc activeDocument(): ptr FileDocument =
   if editorSession.tabs.len == 0 or editorSession.activeTab < 0 or
@@ -105,6 +146,9 @@ proc receiveNativeText(text: cstring, composing: bool) {.cdecl.} =
 proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
   if path == nil or ($path).len == 0: return
   let filePath = $path
+  if workspaceSearchJob != nil:
+    workspaceSearchJob.cancelSearch()
+    workspaceSearchJob = nil
   if saving:
     let document = activeDocument()
     if document != nil: document[].save(filePath)
@@ -138,7 +182,11 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   if command == nil: return
   let name = $command
   let document = activeDocument()
-  if name == "cancel":
+  if name == "workspaceSearchTick":
+    pollWorkspaceSearch()
+  elif name.startsWith("workspaceSearch:"):
+    showWorkspaceSearch(name[16 .. ^1])
+  elif name == "cancel":
     imeState.composition.setLen(0)
   elif name == "moveLeft" and document != nil:
     editorViewState.moveCursor(previousBoundary(document[].buffer.toString(), editorViewState.cursor))
