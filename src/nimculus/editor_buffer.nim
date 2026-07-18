@@ -181,6 +181,20 @@ proc lineColumn*(table: PieceTable, byteOffset: int): tuple[line, column: int] =
     column = position.graphemeIndex
   (line: location.line, column: column)
 
+proc lineEndByteOffset*(table: PieceTable, line: int): int =
+  ## Return the cursor position immediately before the line terminator.
+  ## Internal storage uses LF, while the saved file may use CRLF later.
+  if table.lineStarts.len == 0: return 0
+  let targetLine = max(0, min(line, table.lineStarts.high))
+  let start = table.lineStarts[targetLine]
+  let finish = if targetLine + 1 < table.lineStarts.len:
+    table.lineStarts[targetLine + 1]
+  else: table.toString().len
+  if finish > start:
+    let content = table.toString()
+    if content[finish - 1] == '\n': return finish - 1
+  finish
+
 proc utf16Position*(table: PieceTable, byteOffset: int): tuple[line, character: int] =
   let location = table.lineByteColumn(byteOffset)
   let lineText = table.substring(table.lineStarts[location.line],

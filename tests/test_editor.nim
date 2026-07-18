@@ -58,6 +58,12 @@ suite "M4 editor buffer":
     check previousWordBoundary("hello 世界", 12) == 6
     check nextWordBoundary("hello 世界", 0) == 5
 
+  test "line end stops before the line terminator":
+    let buffer = initPieceTable("one\ntwo\n")
+    check buffer.lineEndByteOffset(0) == 3
+    check buffer.lineEndByteOffset(1) == 7
+    check buffer.lineEndByteOffset(2) == 8
+
   test "saved state tracks edits":
     var buffer = initPieceTable("content")
     buffer.markSaved()

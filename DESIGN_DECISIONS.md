@@ -536,6 +536,11 @@ native drawing operation. It therefore sends an empty composing callback to
 Nim, matching Zed's `InputHandler::unmark_text` contract and preventing stale
 composition state after IME cancellation.
 
+Line navigation uses an exclusive byte offset immediately before the line
+terminator. The editor buffer normalizes working text to LF, and the document
+save layer restores CRLF only at serialization, so movement does not depend on
+the on-disk line-ending format.
+
 Filesystem callbacks are treated as producer threads, not as UI state owners.
 The workspace watcher appends under a lock, and the UI polling boundary drains
 the queue under the same lock before applying a refresh. This prevents a

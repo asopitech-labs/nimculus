@@ -461,15 +461,7 @@ proc nextBoundary(text: string, offset: int): int =
 
 proc lineEndOffset(document: ptr FileDocument, line: int): int =
   if document == nil or document[].buffer.lineStarts.len == 0: return 0
-  let source = document[].buffer.toString()
-  let targetLine = max(0, min(line, document[].buffer.lineStarts.high))
-  let start = document[].buffer.lineStarts[targetLine]
-  let finish = if targetLine + 1 < document[].buffer.lineStarts.len:
-    document[].buffer.lineStarts[targetLine + 1]
-  else: source.len
-  let lineText = source[start ..< finish]
-  let positions = textPositions(lineText)
-  start + (if positions.len > 0: positions[^1].byteOffset else: 0)
+  document[].buffer.lineEndByteOffset(line)
 
 proc receiveNativeCommand(command: cstring) {.cdecl.} =
   if command == nil: return
