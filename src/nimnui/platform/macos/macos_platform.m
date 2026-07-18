@@ -903,6 +903,11 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 
 @implementation NimculusAppDelegate
 
+- (void)applicationDidResignActive:(NSNotification *)notification {
+  (void)notification;
+  if (g_command_callback) g_command_callback("windowFocusLost");
+}
+
 - (BOOL)confirmClose {
   if (!g_editor_dirty) return YES;
   g_close_decision = NO;

@@ -23,9 +23,11 @@ var demoSplitDragging = false
 var activePointerNode = NodeId(0)
 var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 
+proc resetPointerInteractions()
+
 proc setupDemoUi() =
   demoTree = newUiTree()
-  activePointerNode = NodeId(0)
+  resetPointerInteractions()
   let root = demoTree.addNode()
   let button = makeControl(demoTree, root, ControlKind.button, "Nimculus", focusable = true)
   let split = makeControl(demoTree, root, ControlKind.splitPane, "Editor split")
@@ -165,6 +167,15 @@ var suppressRecoveryWrite = false
 proc resetEditorViewState() =
   editorViewState = newEditorView()
   editorScrollRemainder = 0'f32
+
+proc resetPointerInteractions() =
+  demoSplitDragging = false
+  editorPointerDragging = false
+  if activePointerNode != NodeId(0):
+    demoTree.setActive(activePointerNode, false)
+    activePointerNode = NodeId(0)
+  for node in demoTree.nodes:
+    if node.hoveredState: demoTree.setHovered(node.id, false)
 
 proc resetImeState() =
   imeState = newImeState()
@@ -584,6 +595,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "windowResized":
     setupDemoUi()
     if activeDocument() != nil: refreshEditorSyntax()
+  elif name == "windowFocusLost":
+    resetPointerInteractions()
   elif name.startsWith("workspaceAddRoot:") and activeWorkspace != nil:
     let path = workspaceRelativePayload(name, "workspaceAddRoot:")
     if path.len == 0 or not dirExists(path): return

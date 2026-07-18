@@ -365,6 +365,14 @@ Retina transitions. This guarantees `CAMetalLayer.contentsScale` and
 `drawableSize` are initialized even if AppKit attaches the view before the
 first layout callback.
 
+## M2-013: Clear pointer capture on application deactivation
+
+The macOS delegate reports `applicationDidResignActive` as a semantic
+`windowFocusLost` event. Nimculus clears split dragging, editor selection
+dragging, active state, and hover state together. This mirrors GPUI's pointer
+capture lifecycle, where capture is released at the end of the interaction and
+must not leak across a window-state transition.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback
