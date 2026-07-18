@@ -287,6 +287,9 @@ static double millisecondsSince(uint64_t start) {
 static void logInput(NSString *kind, NSEvent *event) {
   g_input_count++;
   NSPoint location = event.locationInWindow;
+  if (g_active_view) {
+    location = [(NSView *)g_active_view convertPoint:event.locationInWindow fromView:nil];
+  }
   NSLog(@"Nimculus input kind=%@ keyCode=%hu modifiers=0x%lx x=%.1f y=%.1f dx=%.1f dy=%.1f",
         kind, event.keyCode, event.modifierFlags, location.x, location.y,
         event.deltaX, event.deltaY);
