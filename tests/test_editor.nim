@@ -1,5 +1,7 @@
 import std/unittest
 import std/os
+when defined(posix):
+  import std/files
 import std/strutils
 import nimculus/editor_buffer
 import nimculus/editor_app
@@ -64,6 +66,12 @@ suite "M5 editor services":
     document.save()
     check readFile(path) == "1\r\ntwo\r\n1"
     check not fileExists(path & ".tmp." & $getCurrentProcessId())
+    when defined(posix):
+      let originalPermissions = getFilePermissions(path)
+      setFilePermissions(path, originalPermissions + {fpUserExec})
+      document.buffer.edit(Edit(startByte: 0, endByte: 1, text: "x"))
+      document.save()
+      check fpUserExec in getFilePermissions(path)
     check not document.externallyChanged
     writeFile(path, "changed")
     check document.externallyChanged

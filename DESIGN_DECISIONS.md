@@ -500,3 +500,7 @@ The Untitled-document close flow uses the same success boundary: the native
 Save Panel starts with close disallowed, and Nim enables it only after the
 atomic document save returns successfully. A failed Save As cannot therefore
 close the window while the document is still dirty.
+
+The atomic helper copies the existing target's Unix permission set to the
+temporary file before the rename. Replacing a file must not silently remove
+the executable bit or other user/group access modes.
