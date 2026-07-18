@@ -21,6 +21,11 @@ type
   CommandCallback* = proc(command: cstring) {.cdecl.}
   NativeHighlightSpan* {.bycopy.} = object
     startByte*, endByte*, kind*: uint32
+  NativePaintCommand* {.bycopy.} = object
+    kind*: uint32
+    x*, y*, width*, height*: cfloat
+    clipX*, clipY*, clipWidth*, clipHeight*: cfloat
+    radius*: cfloat
   NimculusInputEvent* {.bycopy.} = object
     kind*, keyCode*, modifiers*: uint32
     x*, y*, deltaX*, deltaY*: cdouble
@@ -34,6 +39,7 @@ proc platformSetEditorSelection*(startByte, endByte: uint32) {.importc: "nimculu
 proc platformSetEditorText*(text: cstring) {.importc: "nimculus_platform_set_editor_text", cdecl.}
 proc platformSetEditorComposition*(text: cstring) {.importc: "nimculus_platform_set_editor_composition", cdecl.}
 proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32) {.importc: "nimculus_platform_set_editor_highlights", cdecl.}
+proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}
 proc platformShowExternalChange*(path: cstring) {.importc: "nimculus_platform_show_external_change", cdecl.}
 proc platformSetUiRectangle*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_ui_rectangle", cdecl.}
 proc clipboardSet*(text: cstring) {.importc: "nimculus_clipboard_set", cdecl.}

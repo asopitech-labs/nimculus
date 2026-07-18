@@ -3,6 +3,7 @@ import std/os
 import std/strutils
 import std/tables
 import nimnui/nimnui
+import nimnui/render
 import nimculus/editor_app
 import nimculus/editor_buffer
 import nimculus/editor_view
@@ -27,6 +28,26 @@ proc setupDemoUi() =
     viewport: Rect(size: Size(width: px(960), height: px(640))))
   demoTree.layoutNode(root, Rect(size: Size(width: px(960), height: px(640))), spec)
   let bounds = demoTree.node(button.node).bounds
+  var paint: PaintList
+  paint.invalidate(Rect(size: Size(width: px(960), height: px(640))))
+  paint.drawRectangle(bounds)
+  var nativeCommands = newSeq[NativePaintCommand](paint.commands.len)
+  for index, command in paint.commands:
+    nativeCommands[index] = NativePaintCommand(
+      kind: uint32(ord(command.kind)),
+      x: cfloat(float32(command.bounds.origin.x)),
+      y: cfloat(float32(command.bounds.origin.y)),
+      width: cfloat(float32(command.bounds.size.width)),
+      height: cfloat(float32(command.bounds.size.height)),
+      clipX: cfloat(float32(command.clip.origin.x)),
+      clipY: cfloat(float32(command.clip.origin.y)),
+      clipWidth: cfloat(float32(command.clip.size.width)),
+      clipHeight: cfloat(float32(command.clip.size.height)),
+      radius: cfloat(float32(command.radius)))
+  if nativeCommands.len > 0:
+    platformSetPaintCommands(addr nativeCommands[0], uint32(nativeCommands.len))
+  else:
+    platformSetPaintCommands(nil, 0)
   platformSetUiRectangle(float32(bounds.origin.x), float32(bounds.origin.y),
                          float32(bounds.size.width), float32(bounds.size.height))
 

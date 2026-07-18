@@ -39,6 +39,16 @@ The following patterns are relevant to future NimNUI milestones:
 - Keep Cocoa window/event handling separate from the Metal renderer
   (`gpui_macos/src/window.rs` and `metal_renderer.rs`).
 
+## M2-001: Transfer PaintList commands through a small native ABI
+
+The first generalized rendering slice transfers `PaintList` rectangle commands
+as a by-value C array to the macOS renderer. The platform layer owns a copied
+command buffer, so Nim temporary sequences do not cross the callback boundary.
+The ABI carries bounds and clip data from the start; the current Metal slice
+renders rectangle bounds and leaves dirty-region partial redraw as a separate
+decision. This preserves a direct path to batching without forcing Cocoa or
+Metal types into NimNUI's core model.
+
 ## M3-001: Core Text for macOS shaping and atlas source
 
 Core Text is the macOS-native shaping and font discovery boundary. Its line

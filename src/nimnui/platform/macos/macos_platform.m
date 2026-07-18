@@ -16,6 +16,8 @@ static NimculusTextCallback g_text_callback = NULL;
 static NimculusFileCallback g_file_callback = NULL;
 static NimculusCommandCallback g_command_callback = NULL;
 static double g_ui_rect[4] = {360.0, 260.0, 240.0, 120.0};
+static NimculusPaintCommand *g_paint_commands = NULL;
+static uint32_t g_paint_count = 0;
 static double g_editor_cursor[2] = {8.0, 12.0};
 static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
@@ -233,20 +235,27 @@ static void logInput(NSString *kind, NSEvent *event) {
   id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
   if (g_pipeline) {
     [encoder setRenderPipelineState:g_pipeline];
-    float left = (float)(g_ui_rect[0] / self.bounds.size.width * 2.0 - 1.0);
-    float right = (float)((g_ui_rect[0] + g_ui_rect[2]) / self.bounds.size.width * 2.0 - 1.0);
-    float top = (float)(1.0 - g_ui_rect[1] / self.bounds.size.height * 2.0);
-    float bottom = (float)(1.0 - (g_ui_rect[1] + g_ui_rect[3]) / self.bounds.size.height * 2.0);
-    const float vertices[] = {
-      left, bottom, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
-      right, bottom, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
-      left, top, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
-      right, top, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
-    };
-    id<MTLBuffer> buffer = [drawable.texture.device newBufferWithBytes:vertices
-      length:sizeof(vertices) options:MTLResourceStorageModeShared];
-    [encoder setVertexBuffer:buffer offset:0 atIndex:0];
-    [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+    uint32_t count = g_paint_count;
+    for (uint32_t i = 0; i < (count > 0 ? count : 1); i++) {
+      double x = count > 0 ? g_paint_commands[i].x : g_ui_rect[0];
+      double y = count > 0 ? g_paint_commands[i].y : g_ui_rect[1];
+      double width = count > 0 ? g_paint_commands[i].width : g_ui_rect[2];
+      double height = count > 0 ? g_paint_commands[i].height : g_ui_rect[3];
+      float left = (float)(x / self.bounds.size.width * 2.0 - 1.0);
+      float right = (float)((x + width) / self.bounds.size.width * 2.0 - 1.0);
+      float top = (float)(1.0 - y / self.bounds.size.height * 2.0);
+      float bottom = (float)(1.0 - (y + height) / self.bounds.size.height * 2.0);
+      const float vertices[] = {
+        left, bottom, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
+        right, bottom, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
+        left, top, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
+        right, top, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
+      };
+      id<MTLBuffer> buffer = [drawable.texture.device newBufferWithBytes:vertices
+        length:sizeof(vertices) options:MTLResourceStorageModeShared];
+      [encoder setVertexBuffer:buffer offset:0 atIndex:0];
+      [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+    }
   }
   if (g_text_pipeline && g_text_texture) {
     const float textVertices[] = {
@@ -646,6 +655,18 @@ void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans,
     if (g_highlights) {
       memcpy(g_highlights, spans, sizeof(NimculusHighlightSpan) * count);
       g_highlight_count = count;
+    }
+  }
+}
+void nimculus_platform_set_paint_commands(const NimculusPaintCommand *commands, uint32_t count) {
+  free(g_paint_commands);
+  g_paint_commands = NULL;
+  g_paint_count = 0;
+  if (commands && count > 0) {
+    g_paint_commands = malloc(sizeof(NimculusPaintCommand) * count);
+    if (g_paint_commands) {
+      memcpy(g_paint_commands, commands, sizeof(NimculusPaintCommand) * count);
+      g_paint_count = count;
     }
   }
 }
