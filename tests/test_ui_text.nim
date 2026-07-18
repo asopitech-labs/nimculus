@@ -97,13 +97,16 @@ suite "M3 text foundation":
     var paint: PaintList
     paint.invalidate(Rect(size: Size(width: px(100), height: px(100))))
     paint.pushClip(Rect(size: Size(width: px(20), height: px(20))))
+    paint.pushClip(Rect(origin: Point(x: px(10), y: px(10)),
+      size: Size(width: px(40), height: px(40))))
     paint.drawRectangle(Rect(size: Size(width: px(80), height: px(80))))
-    check paint.commands.len == 2
-    check float32(paint.commands[^1].clip.size.width) == 20.0
+    check paint.commands.len == 3
+    check float32(paint.commands[^1].clip.size.width) == 10.0
+    paint.popClip()
     paint.popClip()
     paint.drawRectangle(Rect(origin: Point(x: px(40), y: px(40)),
       size: Size(width: px(10), height: px(10))))
-    check paint.commands.len == 3
+    check paint.commands.len == 4
 
   test "scroll and split models clamp interaction":
     var scroll = ScrollModel(contentSize: px(100), viewportSize: px(30))

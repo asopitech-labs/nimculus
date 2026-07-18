@@ -60,7 +60,10 @@ proc drawRoundedRectangle*(paint: var PaintList, bounds: Rect, radius: Pixels) =
 proc drawImage*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: image, bounds: bounds, clip: bounds))
 proc pushClip*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: clip, bounds: bounds, clip: bounds))
-  paint.clipStack.add(bounds)
+  let effective = if paint.clipStack.len > 0:
+    intersection(bounds, paint.clipStack[^1])
+  else: bounds
+  paint.clipStack.add(effective)
 proc popClip*(paint: var PaintList) =
   if paint.clipStack.len > 0: paint.clipStack.setLen(paint.clipStack.len - 1)
 proc drawShadow*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: shadow, bounds: bounds, clip: bounds))
