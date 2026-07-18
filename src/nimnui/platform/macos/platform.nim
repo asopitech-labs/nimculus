@@ -29,6 +29,8 @@ type
     x*, y*, width*, height*: cfloat
     clipX*, clipY*, clipWidth*, clipHeight*: cfloat
     radius*: cfloat
+    sourceX*, sourceY*, sourceWidth*, sourceHeight*: cfloat
+    transformA*, transformB*, transformC*, transformD*, transformTx*, transformTy*: cfloat
   NativePaintRegion* {.bycopy.} = object
     x*, y*, width*, height*: cfloat
   NimculusInputEvent* {.bycopy.} = object

@@ -115,21 +115,52 @@ static void markSceneFullyDirty(void) {
   g_paint_dirty_count = 0;
 }
 
-static void drawColoredRectangle(id<MTLRenderCommandEncoder> encoder,
+typedef struct NimculusAffine {
+  float a, b, c, d, tx, ty;
+} NimculusAffine;
+
+static NimculusAffine identityAffine(void) {
+  NimculusAffine result = {1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};
+  return result;
+}
+
+static NimculusAffine paintAffine(NimculusPaintCommand paint) {
+  return (NimculusAffine){paint.transform_a, paint.transform_b,
+    paint.transform_c, paint.transform_d, paint.transform_tx, paint.transform_ty};
+}
+
+static CGPoint applyAffine(NimculusAffine transform, double x, double y) {
+  return CGPointMake(transform.a * x + transform.c * y + transform.tx,
+                     transform.b * x + transform.d * y + transform.ty);
+}
+
+static void writeLogicalVertex(float *vertex, CGPoint point, CGSize logicalSize,
+                               float red, float green, float blue, float alpha) {
+  vertex[0] = (float)(point.x / logicalSize.width * 2.0 - 1.0);
+  vertex[1] = (float)(1.0 - point.y / logicalSize.height * 2.0);
+  vertex[2] = 0.0f;
+  vertex[3] = 1.0f;
+  vertex[4] = red;
+  vertex[5] = green;
+  vertex[6] = blue;
+  vertex[7] = alpha;
+}
+
+static void drawColoredRectangleWithTransform(id<MTLRenderCommandEncoder> encoder,
                                  id<MTLDevice> device, CGSize logicalSize,
                                  double x, double y, double width, double height,
-                                 float red, float green, float blue, float alpha) {
+                                 float red, float green, float blue, float alpha,
+                                 NimculusAffine transform) {
   if (logicalSize.width <= 0 || logicalSize.height <= 0 || width <= 0 || height <= 0) return;
-  float left = (float)(x / logicalSize.width * 2.0 - 1.0);
-  float right = (float)((x + width) / logicalSize.width * 2.0 - 1.0);
-  float top = (float)(1.0 - y / logicalSize.height * 2.0);
-  float bottom = (float)(1.0 - (y + height) / logicalSize.height * 2.0);
-  const float vertices[] = {
-    left, bottom, 0.0f, 1.0f, red, green, blue, alpha,
-    right, bottom, 0.0f, 1.0f, red, green, blue, alpha,
-    left, top, 0.0f, 1.0f, red, green, blue, alpha,
-    right, top, 0.0f, 1.0f, red, green, blue, alpha,
-  };
+  float vertices[32];
+  writeLogicalVertex(&vertices[0], applyAffine(transform, x, y + height), logicalSize,
+    red, green, blue, alpha);
+  writeLogicalVertex(&vertices[8], applyAffine(transform, x + width, y + height), logicalSize,
+    red, green, blue, alpha);
+  writeLogicalVertex(&vertices[16], applyAffine(transform, x, y), logicalSize,
+    red, green, blue, alpha);
+  writeLogicalVertex(&vertices[24], applyAffine(transform, x + width, y), logicalSize,
+    red, green, blue, alpha);
   id<MTLBuffer> buffer = [device newBufferWithBytes:vertices length:sizeof(vertices)
     options:MTLResourceStorageModeShared];
   [encoder setVertexBuffer:buffer offset:0 atIndex:0];
@@ -140,11 +171,19 @@ static void drawColoredRectangle(id<MTLRenderCommandEncoder> encoder,
   [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
 }
 
-static void drawRoundedRectangle(id<MTLRenderCommandEncoder> encoder,
+static void drawColoredRectangle(id<MTLRenderCommandEncoder> encoder,
+                                 id<MTLDevice> device, CGSize logicalSize,
+                                 double x, double y, double width, double height,
+                                 float red, float green, float blue, float alpha) {
+  drawColoredRectangleWithTransform(encoder, device, logicalSize, x, y, width, height,
+    red, green, blue, alpha, identityAffine());
+}
+
+static void drawRoundedRectangleWithTransform(id<MTLRenderCommandEncoder> encoder,
                                  id<MTLDevice> device, CGSize logicalSize,
                                  double x, double y, double width, double height,
                                  double radius, float red, float green,
-                                 float blue, float alpha) {
+                                 float blue, float alpha, NimculusAffine transform) {
   if (logicalSize.width <= 0 || logicalSize.height <= 0 || width <= 0 || height <= 0) return;
   const int cornerSegments = 6;
   const int perimeterPoints = (cornerSegments + 1) * 4;
@@ -154,10 +193,8 @@ static void drawRoundedRectangle(id<MTLRenderCommandEncoder> encoder,
   double r = MIN(radius, MIN(width, height) / 2.0);
   double centerX = x + width / 2.0;
   double centerY = y + height / 2.0;
-  vertices[0] = (float)(centerX / logicalSize.width * 2.0 - 1.0);
-  vertices[1] = (float)(1.0 - centerY / logicalSize.height * 2.0);
-  vertices[2] = 0.0f; vertices[3] = 1.0f;
-  vertices[4] = red; vertices[5] = green; vertices[6] = blue; vertices[7] = alpha;
+  writeLogicalVertex(&vertices[0], applyAffine(transform, centerX, centerY), logicalSize,
+    red, green, blue, alpha);
   const double centers[4][2] = {
     {x + r, y + r}, {x + width - r, y + r},
     {x + width - r, y + height - r}, {x + r, y + height - r}
@@ -170,11 +207,8 @@ static void drawRoundedRectangle(id<MTLRenderCommandEncoder> encoder,
       double pointX = centers[corner][0] + cos(angle) * r;
       double pointY = centers[corner][1] + sin(angle) * r;
       int offset = vertex * 8;
-      vertices[offset] = (float)(pointX / logicalSize.width * 2.0 - 1.0);
-      vertices[offset + 1] = (float)(1.0 - pointY / logicalSize.height * 2.0);
-      vertices[offset + 2] = 0.0f; vertices[offset + 3] = 1.0f;
-      vertices[offset + 4] = red; vertices[offset + 5] = green;
-      vertices[offset + 6] = blue; vertices[offset + 7] = alpha;
+      writeLogicalVertex(&vertices[offset], applyAffine(transform, pointX, pointY), logicalSize,
+        red, green, blue, alpha);
       vertex++;
     }
   }
@@ -198,6 +232,15 @@ static void drawRoundedRectangle(id<MTLRenderCommandEncoder> encoder,
   [encoder setVertexBuffer:uniformBuffer offset:0 atIndex:1];
   [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
     vertexCount:triangleVertexCount];
+}
+
+static void drawRoundedRectangle(id<MTLRenderCommandEncoder> encoder,
+                                 id<MTLDevice> device, CGSize logicalSize,
+                                 double x, double y, double width, double height,
+                                 double radius, float red, float green,
+                                 float blue, float alpha) {
+  drawRoundedRectangleWithTransform(encoder, device, logicalSize, x, y, width, height,
+    radius, red, green, blue, alpha, identityAffine());
 }
 
 static void setScissorForRegion(id<MTLRenderCommandEncoder> encoder,
@@ -236,50 +279,55 @@ static NimculusPaintRegion intersectPaintRegions(NimculusPaintRegion a,
 static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
                              id<MTLDevice> device, CGSize logicalSize,
                              NimculusPaintCommand paint) {
+  NimculusAffine transform = paintAffine(paint);
+  const double x = paint.source_x;
+  const double y = paint.source_y;
+  const double width = paint.source_width;
+  const double height = paint.source_height;
   if (paint.kind == 0) { // rectangle
-    drawColoredRectangle(encoder, device, logicalSize,
-      paint.x, paint.y, paint.width, paint.height,
-      0.15f, 0.48f, 0.92f, 1.0f);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y, width, height,
+      0.15f, 0.48f, 0.92f, 1.0f, transform);
   } else if (paint.kind == 1) { // border
     const double thickness = 2.0;
-    drawColoredRectangle(encoder, device, logicalSize,
-      paint.x, paint.y, paint.width, thickness, 0.15f, 0.48f, 0.92f, 1.0f);
-    drawColoredRectangle(encoder, device, logicalSize,
-      paint.x, paint.y + paint.height - thickness, paint.width, thickness,
-      0.15f, 0.48f, 0.92f, 1.0f);
-    drawColoredRectangle(encoder, device, logicalSize,
-      paint.x, paint.y, thickness, paint.height, 0.15f, 0.48f, 0.92f, 1.0f);
-    drawColoredRectangle(encoder, device, logicalSize,
-      paint.x + paint.width - thickness, paint.y, thickness, paint.height,
-      0.15f, 0.48f, 0.92f, 1.0f);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y, width, thickness, 0.15f, 0.48f, 0.92f, 1.0f, transform);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y + height - thickness, width, thickness,
+      0.15f, 0.48f, 0.92f, 1.0f, transform);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y, thickness, height, 0.15f, 0.48f, 0.92f, 1.0f, transform);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x + width - thickness, y, thickness, height,
+      0.15f, 0.48f, 0.92f, 1.0f, transform);
   } else if (paint.kind == 2) { // rounded rectangle
-    drawRoundedRectangle(encoder, device, logicalSize,
-      paint.x, paint.y, paint.width, paint.height, paint.radius,
-      0.15f, 0.48f, 0.92f, 1.0f);
+    drawRoundedRectangleWithTransform(encoder, device, logicalSize,
+      x, y, width, height, paint.radius,
+      0.15f, 0.48f, 0.92f, 1.0f, transform);
   } else if (paint.kind == 3) { // text placeholder; M3 owns real text shaping
-    drawColoredRectangle(encoder, device, logicalSize,
-      paint.x, paint.y, paint.width, paint.height,
-      0.55f, 0.62f, 0.72f, 0.75f);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y, width, height,
+      0.55f, 0.62f, 0.72f, 0.75f, transform);
   } else if (paint.kind == 4) { // image placeholder until a texture handle is supplied
-    drawColoredRectangle(encoder, device, logicalSize,
-      paint.x, paint.y, paint.width, paint.height,
-      0.28f, 0.34f, 0.42f, 1.0f);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y, width, height,
+      0.28f, 0.34f, 0.42f, 1.0f, transform);
   } else if (paint.kind == 7) { // shadow
-    drawColoredRectangle(encoder, device, logicalSize,
-      paint.x + 3.0, paint.y + 3.0, paint.width, paint.height,
-      0.0f, 0.0f, 0.0f, 0.35f);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x + 3.0, y + 3.0, width, height,
+      0.0f, 0.0f, 0.0f, 0.35f, transform);
   } else if (paint.kind == 8) { // caret
-    drawColoredRectangle(encoder, device, logicalSize,
-      paint.x, paint.y, paint.width, paint.height,
-      0.85f, 0.90f, 1.0f, 1.0f);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y, width, height,
+      0.85f, 0.90f, 1.0f, 1.0f, transform);
   } else if (paint.kind == 9) { // selection
-    drawColoredRectangle(encoder, device, logicalSize,
-      paint.x, paint.y, paint.width, paint.height,
-      0.20f, 0.40f, 0.75f, 0.45f);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y, width, height,
+      0.20f, 0.40f, 0.75f, 0.45f, transform);
   } else if (paint.kind == 10) { // scrollbar
-    drawColoredRectangle(encoder, device, logicalSize,
-      paint.x, paint.y, paint.width, paint.height,
-      0.45f, 0.50f, 0.58f, 0.85f);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y, width, height,
+      0.45f, 0.50f, 0.58f, 0.85f, transform);
   }
 }
 

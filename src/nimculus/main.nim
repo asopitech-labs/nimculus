@@ -103,7 +103,17 @@ proc setupDemoUi() =
       clipY: cfloat(float32(command.clip.origin.y)),
       clipWidth: cfloat(float32(command.clip.size.width)),
       clipHeight: cfloat(float32(command.clip.size.height)),
-      radius: cfloat(float32(command.radius)))
+      radius: cfloat(float32(command.radius)),
+      sourceX: cfloat(float32(command.sourceBounds.origin.x)),
+      sourceY: cfloat(float32(command.sourceBounds.origin.y)),
+      sourceWidth: cfloat(float32(command.sourceBounds.size.width)),
+      sourceHeight: cfloat(float32(command.sourceBounds.size.height)),
+      transformA: cfloat(command.transform.a),
+      transformB: cfloat(command.transform.b),
+      transformC: cfloat(command.transform.c),
+      transformD: cfloat(command.transform.d),
+      transformTx: cfloat(command.transform.tx),
+      transformTy: cfloat(command.transform.ty))
   if nativeCommands.len > 0:
     platformSetPaintCommands(addr nativeCommands[0], uint32(nativeCommands.len))
   else:

@@ -78,6 +78,15 @@ valid degenerate clip rather than an instruction to disable clipping; an
 entirely zero-sized viewport remains the unset sentinel used by the current
 layout API.
 
+## M2-005: Preserve affine geometry across the native paint ABI
+
+`PaintList` keeps both the transformed damage bounds and the original source
+rectangle plus its cumulative affine transform. The macOS bridge receives all
+of these values and applies the matrix to Metal vertices; it must not render a
+rotated or reflected primitive as only its axis-aligned bounding box. Scissor
+regions continue to use the transformed bounds as conservative damage clips,
+matching Zed's separation of scene geometry from damage tracking.
+
 ## M2-004: Release focus when a focus path becomes disabled
 
 Disabling a focused node or one of its ancestors clears the `UiTree.focused`

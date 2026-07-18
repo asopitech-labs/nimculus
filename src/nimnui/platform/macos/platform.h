@@ -46,6 +46,16 @@ typedef struct NimculusPaintCommand {
   float clip_width;
   float clip_height;
   float radius;
+  float source_x;
+  float source_y;
+  float source_width;
+  float source_height;
+  float transform_a;
+  float transform_b;
+  float transform_c;
+  float transform_d;
+  float transform_tx;
+  float transform_ty;
 } NimculusPaintCommand;
 
 typedef struct NimculusPaintRegion {

@@ -8,9 +8,11 @@ type
   PaintCommand* = object
     kind*: PaintKind
     bounds*: Rect
+    sourceBounds*: Rect
     clip*: Rect
     text*: string
     radius*: Pixels
+    transform*: Transform2D
 
   PaintList* = object
     commands*: seq[PaintCommand]
@@ -43,8 +45,10 @@ proc add*(paint: var PaintList, command: PaintCommand) =
       visible = intersection(visible, paint.clipStack[^1])
     if float32(visible.size.width) > 0 and float32(visible.size.height) > 0:
       var clipped = command
+      clipped.sourceBounds = command.bounds
       clipped.bounds = transformedBounds
       clipped.clip = visible
+      clipped.transform = transform
       paint.commands.add(clipped)
 
 proc clear*(paint: var PaintList) =
