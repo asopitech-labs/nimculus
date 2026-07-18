@@ -249,6 +249,18 @@ while leaving pixel composition in the native renderer.
 The grapheme boundary helper explicitly handles emoji regional-indicator
 pairs and CRLF, in addition to combining marks, modifiers, and ZWJ sequences.
 
+## M3-013: Keep macOS selection synchronization one-way at the AppKit boundary
+
+Zed's common `InputHandler` exposes `set_selected_text_range` as a reverse
+platform contract, but its macOS `NSTextInputClient` registration implements
+the AppKit protocol's `selectedRange` getter and does not register a
+`setSelectedRange:` selector. AppKit's `NSTextInputClient` protocol likewise
+does not define that setter. Nimculus therefore keeps selection synchronization
+one-way at this boundary: Nim updates the native `selectedTextRange` through
+`platformSetEditorSelection`, while AppKit-originated IME replacement ranges
+come back through the selection callback. Adding an ad-hoc Objective-C setter
+would not be a supported AppKit callback and could create feedback loops.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback
