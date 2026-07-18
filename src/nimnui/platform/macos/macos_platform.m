@@ -245,6 +245,7 @@ static void logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic, copy) NSString *markedText;
 @property(nonatomic) NSRange markedTextRange;
 @property(nonatomic) NSRange selectedTextRange;
+@property(nonatomic, strong) NSTrackingArea *trackingArea;
 @end
 
 @implementation NimculusMetalView
@@ -264,11 +265,23 @@ static void logInput(NSString *kind, NSEvent *event) {
     self.markedText = @"";
     self.markedTextRange = NSMakeRange(NSNotFound, 0);
     self.selectedTextRange = NSMakeRange(0, 0);
+    [self updateTrackingAreas];
   }
   return self;
 }
 
 - (BOOL)acceptsFirstResponder { return YES; }
+
+- (void)updateTrackingAreas {
+  if (self.trackingArea) [self removeTrackingArea:self.trackingArea];
+  self.trackingArea = [[NSTrackingArea alloc]
+    initWithRect:NSZeroRect
+    options:(NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited |
+             NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect)
+    owner:self userInfo:nil];
+  [self addTrackingArea:self.trackingArea];
+  [super updateTrackingAreas];
+}
 
 - (void)updateMetrics {
   CGFloat scale = self.window.backingScaleFactor ?: 1.0;
@@ -399,6 +412,8 @@ static void logInput(NSString *kind, NSEvent *event) {
 - (void)mouseDown:(NSEvent *)event { logInput(@"mouseDown", event); }
 - (void)mouseUp:(NSEvent *)event { logInput(@"mouseUp", event); }
 - (void)mouseMoved:(NSEvent *)event { logInput(@"mouseMoved", event); }
+- (void)mouseDragged:(NSEvent *)event { logInput(@"mouseDragged", event); }
+- (void)rightMouseDragged:(NSEvent *)event { logInput(@"rightMouseDragged", event); }
 - (void)rightMouseDown:(NSEvent *)event { logInput(@"rightMouseDown", event); }
 - (void)rightMouseUp:(NSEvent *)event { logInput(@"rightMouseUp", event); }
 - (void)scrollWheel:(NSEvent *)event { logInput(@"scrollWheel", event); }
@@ -683,6 +698,7 @@ static void logInput(NSString *kind, NSEvent *event) {
                NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
     backing:NSBackingStoreBuffered defer:NO];
   self.window.title = @"Nimculus";
+  self.window.acceptsMouseMovedEvents = YES;
   [self setupMainMenu];
   self.view = [[NimculusMetalView alloc] initWithFrame:frame];
   g_active_view = self.view;

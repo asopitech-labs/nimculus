@@ -61,6 +61,13 @@ before dispatch. Hover, active, and focus state transitions are applied at the
 application boundary; the event retains native modifier flags and scroll
 deltas so controls can consume them without another platform dependency.
 
+## M1-003: Use an AppKit tracking area for pointer motion
+
+`mouseMoved` is delivered only when the window accepts mouse-motion events and
+the view has an active tracking area. The macOS bridge therefore owns an
+`NSTrackingArea` with `InVisibleRect` and `ActiveInKeyWindow`, while drag
+callbacks use the same input event ABI as ordinary pointer events.
+
 ## M3-001: Core Text for macOS shaping and atlas source
 
 Core Text is the macOS-native shaping and font discovery boundary. Its line
