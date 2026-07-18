@@ -22,15 +22,22 @@ proc jsonString(node: JsonNode, key, fallback: string): string =
   except CatchableError: discard
   fallback
 
-proc saveSession*(session: EditorSession, path: string) =
-  var root = %*{"activeTab": session.activeTab, "split": session.split,
+proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
+  var root = %*{"activeTab": -1, "split": session.split,
                 "splitDirection": $session.splitDirection,
                 "recentFiles": session.recentFiles,
                 "workspaceRoots": session.workspaceRoots}
   var tabs = newJArray()
-  for tab in session.tabs:
+  var savedActive = -1
+  for originalIndex, tab in session.tabs:
+    let dirty = tab.document.buffer.isDirty
+    # A discarded untitled buffer has no disk path to reopen, so do not carry
+    # it into the next session. Clean untitled tabs remain restorable.
+    if not preserveDirty and dirty and tab.document.path.len == 0: continue
+    let saveDirty = preserveDirty and dirty
+    if originalIndex == session.activeTab: savedActive = tabs.len
     var serializedTab = %*{"path": tab.document.path, "title": tab.title,
-      "dirty": tab.document.buffer.isDirty,
+      "dirty": saveDirty,
       "view": {
         "anchor": tab.view.selection.anchor,
         "active": tab.view.selection.active,
@@ -40,10 +47,11 @@ proc saveSession*(session: EditorSession, path: string) =
         "showIndentGuides": tab.view.showIndentGuides,
         "indentWidth": tab.view.indentWidth
       }}
-    if tab.document.path.len == 0 or tab.document.buffer.isDirty:
+    if tab.document.path.len == 0 or saveDirty:
       serializedTab["content"] = %tab.document.buffer.toString()
       serializedTab["lineEnding"] = %($tab.document.lineEnding)
     tabs.add(serializedTab)
+  root["activeTab"] = %savedActive
   root["tabs"] = tabs
   atomicWriteFile(path, $root)
 

@@ -521,6 +521,11 @@ serialized dirty content is layered back over it without modifying the file.
 This protects non-active dirty tabs if the process crashes before the normal
 close confirmation can run.
 
+The explicit Don’t Save all-tabs exit path calls session persistence with
+`preserveDirty = false`: dirty named tabs are recorded only by path and reopen
+from disk, while dirty untitled tabs are omitted. This prevents a discard intent
+from being reversed by the final `applicationWillTerminate` session write.
+
 An explicit external-file Reload replaces the buffer but preserves the active
 view's selection, cursor, scroll, and display settings, clamping only values
 that no longer fit the new text. This matches Zed's reload behavior and avoids

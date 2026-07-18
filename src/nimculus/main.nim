@@ -163,6 +163,7 @@ var sessionFilePath = ""
 var recoveryFilePath = ""
 var persistenceTick = 0
 var suppressRecoveryWrite = false
+var discardDirtyOnExit = false
 
 proc resetEditorViewState() =
   editorViewState = newEditorView()
@@ -203,13 +204,14 @@ proc persistSession() =
   try:
     editorSession.saveActiveView(editorViewState)
     if activeWorkspace != nil: editorSession.workspaceRoots = activeWorkspace.rootPaths
-    saveSession(editorSession, sessionFilePath)
+    saveSession(editorSession, sessionFilePath, preserveDirty = not discardDirtyOnExit)
     let document = activeDocument()
     if not suppressRecoveryWrite and document != nil and document[].buffer.isDirty:
       writeRecovery(document[], recoveryFilePath)
     elif fileExists(recoveryFilePath):
       removeFile(recoveryFilePath)
     suppressRecoveryWrite = false
+    discardDirtyOnExit = false
   except CatchableError:
     discard
 
@@ -643,6 +645,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     platformSetCloseDecision(success and not editorSession.hasDirtyTabs())
   elif name == "discardAllAndQuit":
     suppressRecoveryWrite = true
+    discardDirtyOnExit = true
     if recoveryFilePath.len > 0 and fileExists(recoveryFilePath):
       removeFile(recoveryFilePath)
     platformSetCloseDecision(true)

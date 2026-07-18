@@ -249,6 +249,26 @@ suite "M5 editor services":
     removeFile(path)
     removeFile(sessionPath)
 
+  test "discarded session omits dirty buffers":
+    let namedPath = getTempDir() / "nimculus-m5-discarded.txt"
+    writeFile(namedPath, "on disk")
+    var session: EditorSession
+    var named = openDocument(namedPath)
+    named.buffer.edit(Edit(startByte: 0, endByte: named.buffer.toString().len, text: "discard me"))
+    session.addTab(named)
+    var untitled = newDocument()
+    untitled.buffer.edit(Edit(startByte: 0, endByte: 0, text: "discard too"))
+    session.addTab(untitled)
+    let sessionPath = getTempDir() / "nimculus-m5-discarded.json"
+    session.saveSession(sessionPath, preserveDirty = false)
+    let restored = loadSession(sessionPath)
+    check restored.tabs.len == 1
+    check restored.tabs[0].document.path == namedPath
+    check restored.tabs[0].document.buffer.toString() == "on disk"
+    check not restored.tabs[0].document.buffer.isDirty
+    removeFile(namedPath)
+    removeFile(sessionPath)
+
   test "external reload preserves view state and clamps selection":
     let path = getTempDir() / "nimculus-m5-reload.txt"
     writeFile(path, "before🙂\nsecond")
