@@ -1323,10 +1323,10 @@ void nimculus_platform_set_editor_rect(double x, double y, double width, double 
 void nimculus_platform_set_editor_dirty(bool dirty) { g_editor_dirty = dirty ? YES : NO; }
 void nimculus_platform_set_close_decision(bool allow) { g_close_decision = allow ? YES : NO; }
 void nimculus_platform_show_save_panel_and_close(void) {
+  g_close_decision = NO;
   NSSavePanel *panel = [NSSavePanel savePanel];
   if ([panel runModal] == NSModalResponseOK) {
     if (g_file_callback) g_file_callback(panel.URL.path.UTF8String, true);
-    g_close_decision = YES;
   }
 }
 void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_byte) {

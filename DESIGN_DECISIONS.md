@@ -495,3 +495,8 @@ Session and recovery files use a same-directory temporary file followed by
 rename. The temporary name includes the process id, and failures remove only
 that temporary file. This gives startup recovery a complete previous file or
 a complete new file, rather than a partially serialized JSON/text file.
+
+The Untitled-document close flow uses the same success boundary: the native
+Save Panel starts with close disallowed, and Nim enables it only after the
+atomic document save returns successfully. A failed Save As cannot therefore
+close the window while the document is still dirty.

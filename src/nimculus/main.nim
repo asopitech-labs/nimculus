@@ -390,8 +390,14 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
         externalAlertShown = false
         editorViewState.statusMessage = "Saved " & filePath
         syncEditorCursor()
+        when defined(macosx):
+          # The native Save Panel used by close confirmation must only allow
+          # termination after the document write has actually succeeded.
+          platformSetCloseDecision(true)
       except CatchableError as error:
         editorViewState.statusMessage = "Save failed: " & error.msg
+        when defined(macosx):
+          platformSetCloseDecision(false)
   else:
     if dirExists(filePath):
       openActiveWorkspace(filePath)
