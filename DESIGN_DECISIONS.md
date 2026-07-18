@@ -185,6 +185,10 @@ through `findDocument:`. Nim performs the search and selection against the
 active document, so search semantics and byte ranges remain testable without
 AppKit.
 
+Replace All uses the same boundary with a Unit Separator between query and
+replacement. The UI is intentionally a single transaction through
+`FileDocument.replaceAll`, so undo/redo can treat the operation atomically.
+
 ## M5-005: Resolve external changes at the application boundary
 
 The editor service remains responsible for comparing file stamps. The macOS

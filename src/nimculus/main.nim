@@ -315,6 +315,19 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       refreshEditorSyntax()
     else:
       editorViewState.statusMessage = "No matches for " & query
+  elif name.startsWith("replaceDocument:") and document != nil:
+    let prefix = "replaceDocument:"
+    let payload = if name.len > prefix.len: name[prefix.len .. ^1] else: ""
+    let separator = payload.find('\x1f')
+    if separator <= 0:
+      editorViewState.statusMessage = "Replace requires search and replacement"
+      return
+    let query = payload[0 ..< separator]
+    let replacement = if separator + 1 < payload.len: payload[separator + 1 .. ^1] else: ""
+    let count = document[].replaceAll(query, replacement)
+    editorViewState.statusMessage = "Replaced " & $count & " matches"
+    syncEditorCursor()
+    refreshEditorSyntax()
   elif name == "cancel":
     imeState.composition.setLen(0)
     when defined(macosx): platformSetEditorComposition("".cstring)

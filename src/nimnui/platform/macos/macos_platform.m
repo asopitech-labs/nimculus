@@ -661,6 +661,9 @@ static void logInput(NSString *kind, NSEvent *event) {
     action:@selector(findInDocument:) keyEquivalent:@"f"];
   findDocument.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   [editMenu addItem:findDocument];
+  NSMenuItem *replaceDocument = [[NSMenuItem alloc] initWithTitle:@"Replace…"
+    action:@selector(replaceInDocument:) keyEquivalent:@""];
+  [editMenu addItem:replaceDocument];
   NSMenuItem *workspaceSearch = [[NSMenuItem alloc] initWithTitle:@"Find in Workspace…"
     action:@selector(findInWorkspace:) keyEquivalent:@"f"];
   workspaceSearch.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
@@ -721,6 +724,31 @@ static void logInput(NSString *kind, NSEvent *event) {
   [alert addButtonWithTitle:@"Cancel"];
   if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
     NSString *command = [NSString stringWithFormat:@"findDocument:%@", field.stringValue];
+    g_command_callback(command.UTF8String);
+  }
+}
+
+- (void)replaceInDocument:(id)sender {
+  (void)sender;
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = @"Replace in Document";
+  NSStackView *fields = [[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 320, 56)];
+  fields.orientation = NSUserInterfaceLayoutOrientationVertical;
+  fields.spacing = 8;
+  NSTextField *query = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
+  query.placeholderString = @"Search text";
+  NSTextField *replacement = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
+  replacement.placeholderString = @"Replacement";
+  [fields addArrangedSubview:query];
+  [fields addArrangedSubview:replacement];
+  alert.accessoryView = fields;
+  [alert addButtonWithTitle:@"Replace All"];
+  [alert addButtonWithTitle:@"Cancel"];
+  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
+    // Unit Separator is not valid in normal text input and keeps this ABI
+    // independent of colons/newlines in either field.
+    NSString *command = [NSString stringWithFormat:@"replaceDocument:%@\x1f%@",
+      query.stringValue, replacement.stringValue];
     g_command_callback(command.UTF8String);
   }
 }
