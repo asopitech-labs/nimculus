@@ -48,6 +48,17 @@ proc setupDemoUi() =
     platformSetPaintCommands(addr nativeCommands[0], uint32(nativeCommands.len))
   else:
     platformSetPaintCommands(nil, 0)
+  var nativeDirty = newSeq[NativePaintRegion](paint.dirty.len)
+  for index, dirty in paint.dirty:
+    nativeDirty[index] = NativePaintRegion(
+      x: cfloat(float32(dirty.origin.x)),
+      y: cfloat(float32(dirty.origin.y)),
+      width: cfloat(float32(dirty.size.width)),
+      height: cfloat(float32(dirty.size.height)))
+  if nativeDirty.len > 0:
+    platformSetPaintDirtyRegions(addr nativeDirty[0], uint32(nativeDirty.len))
+  else:
+    platformSetPaintDirtyRegions(nil, 0)
   platformSetUiRectangle(float32(bounds.origin.x), float32(bounds.origin.y),
                          float32(bounds.size.width), float32(bounds.size.height))
 

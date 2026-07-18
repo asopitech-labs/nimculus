@@ -45,9 +45,14 @@ The first generalized rendering slice transfers `PaintList` rectangle commands
 as a by-value C array to the macOS renderer. The platform layer owns a copied
 command buffer, so Nim temporary sequences do not cross the callback boundary.
 The ABI carries bounds and clip data from the start; the current Metal slice
-renders rectangle bounds and leaves dirty-region partial redraw as a separate
-decision. This preserves a direct path to batching without forcing Cocoa or
-Metal types into NimNUI's core model.
+renders rectangle bounds and uses clip regions as scissor rectangles. A
+retained BGRA scene texture is updated with `MTLLoadActionLoad` and dirty
+region background clears, then copied to the newly acquired `CAMetalDrawable`
+with a blit pass. This is required because the drawable is a presentation
+target, not the retained source surface. The first slice supports rectangle,
+selection, and caret colors; other paint kinds remain explicit follow-up work.
+This preserves a direct path to batching without forcing Cocoa or Metal types
+into NimNUI's core model.
 
 ## M3-001: Core Text for macOS shaping and atlas source
 

@@ -18,6 +18,8 @@ static NimculusCommandCallback g_command_callback = NULL;
 static double g_ui_rect[4] = {360.0, 260.0, 240.0, 120.0};
 static NimculusPaintCommand *g_paint_commands = NULL;
 static uint32_t g_paint_count = 0;
+static NimculusPaintRegion *g_paint_dirty_regions = NULL;
+static uint32_t g_paint_dirty_count = 0;
 static double g_editor_cursor[2] = {8.0, 12.0};
 static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
@@ -30,9 +32,77 @@ static id<MTLRenderPipelineState> g_pipeline = nil;
 static id<MTLRenderPipelineState> g_text_pipeline = nil;
 static id<MTLCommandQueue> g_queue = nil;
 static id<MTLTexture> g_text_texture = nil;
+static id<MTLTexture> g_scene_texture = nil;
+static BOOL g_scene_initialized = NO;
+static BOOL g_scene_dirty = YES;
 static id g_active_view = nil;
 static NimculusHighlightSpan *g_highlights = NULL;
 static uint32_t g_highlight_count = 0;
+
+static void markSceneFullyDirty(void) {
+  g_scene_dirty = YES;
+  free(g_paint_dirty_regions);
+  g_paint_dirty_regions = NULL;
+  g_paint_dirty_count = 0;
+}
+
+static void drawColoredRectangle(id<MTLRenderCommandEncoder> encoder,
+                                 id<MTLDevice> device, CGSize logicalSize,
+                                 double x, double y, double width, double height,
+                                 float red, float green, float blue, float alpha) {
+  if (logicalSize.width <= 0 || logicalSize.height <= 0 || width <= 0 || height <= 0) return;
+  float left = (float)(x / logicalSize.width * 2.0 - 1.0);
+  float right = (float)((x + width) / logicalSize.width * 2.0 - 1.0);
+  float top = (float)(1.0 - y / logicalSize.height * 2.0);
+  float bottom = (float)(1.0 - (y + height) / logicalSize.height * 2.0);
+  const float vertices[] = {
+    left, bottom, 0.0f, 1.0f, red, green, blue, alpha,
+    right, bottom, 0.0f, 1.0f, red, green, blue, alpha,
+    left, top, 0.0f, 1.0f, red, green, blue, alpha,
+    right, top, 0.0f, 1.0f, red, green, blue, alpha,
+  };
+  id<MTLBuffer> buffer = [device newBufferWithBytes:vertices length:sizeof(vertices)
+    options:MTLResourceStorageModeShared];
+  [encoder setVertexBuffer:buffer offset:0 atIndex:0];
+  [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+}
+
+static void setScissorForRegion(id<MTLRenderCommandEncoder> encoder,
+                                NimculusPaintRegion region, CGSize logicalSize,
+                                CGSize drawableSize) {
+  if (logicalSize.width <= 0 || logicalSize.height <= 0) return;
+  double scaleX = drawableSize.width / logicalSize.width;
+  double scaleY = drawableSize.height / logicalSize.height;
+  double x = MAX(0.0, MIN(logicalSize.width, region.x));
+  double y = MAX(0.0, MIN(logicalSize.height, region.y));
+  double right = MAX(x, MIN(logicalSize.width, region.x + region.width));
+  double bottom = MAX(y, MIN(logicalSize.height, region.y + region.height));
+  MTLScissorRect scissor = {
+    (NSUInteger)floor(x * scaleX),
+    (NSUInteger)floor((logicalSize.height - bottom) * scaleY),
+    (NSUInteger)ceil((right - x) * scaleX),
+    (NSUInteger)ceil((bottom - y) * scaleY)
+  };
+  if (scissor.width > 0 && scissor.height > 0) [encoder setScissorRect:scissor];
+}
+
+static id<MTLTexture> sceneTextureForDevice(id<MTLDevice> device, CGSize drawableSize) {
+  if (drawableSize.width <= 0 || drawableSize.height <= 0) return nil;
+  if (g_scene_texture && (g_scene_texture.width != (NSUInteger)drawableSize.width ||
+                          g_scene_texture.height != (NSUInteger)drawableSize.height)) {
+    g_scene_texture = nil;
+    g_scene_initialized = NO;
+  }
+  if (!g_scene_texture) {
+    MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:
+      MTLPixelFormatBGRA8Unorm width:(NSUInteger)drawableSize.width
+      height:(NSUInteger)drawableSize.height mipmapped:NO];
+    descriptor.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+    g_scene_texture = [device newTextureWithDescriptor:descriptor];
+    g_scene_initialized = NO;
+  }
+  return g_scene_texture;
+}
 
 static void highlightColor(uint32_t kind, CGFloat *r, CGFloat *g, CGFloat *b) {
   *r = 0.85; *g = 0.90; *b = 1.0;
@@ -189,7 +259,8 @@ static void logInput(NSString *kind, NSEvent *event) {
     self.layer = self.metalLayer;
     self.metalLayer.device = MTLCreateSystemDefaultDevice();
     self.metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
-    self.metalLayer.framebufferOnly = YES;
+    // The retained scene is copied into each newly acquired drawable.
+    self.metalLayer.framebufferOnly = NO;
     self.markedText = @"";
     self.markedTextRange = NSMakeRange(NSNotFound, 0);
     self.selectedTextRange = NSMakeRange(0, 0);
@@ -224,54 +295,98 @@ static void logInput(NSString *kind, NSEvent *event) {
   uint64_t start = mach_absolute_time();
   id<CAMetalDrawable> drawable = [self.metalLayer nextDrawable];
   if (!drawable || !g_queue) return;
-
-  MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
-  pass.colorAttachments[0].texture = drawable.texture;
-  pass.colorAttachments[0].loadAction = MTLLoadActionClear;
-  pass.colorAttachments[0].storeAction = MTLStoreActionStore;
-  pass.colorAttachments[0].clearColor = MTLClearColorMake(0.055, 0.067, 0.090, 1.0);
-
   id<MTLCommandBuffer> command = [g_queue commandBuffer];
-  id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
-  if (g_pipeline) {
-    [encoder setRenderPipelineState:g_pipeline];
-    uint32_t count = g_paint_count;
-    for (uint32_t i = 0; i < (count > 0 ? count : 1); i++) {
-      double x = count > 0 ? g_paint_commands[i].x : g_ui_rect[0];
-      double y = count > 0 ? g_paint_commands[i].y : g_ui_rect[1];
-      double width = count > 0 ? g_paint_commands[i].width : g_ui_rect[2];
-      double height = count > 0 ? g_paint_commands[i].height : g_ui_rect[3];
-      float left = (float)(x / self.bounds.size.width * 2.0 - 1.0);
-      float right = (float)((x + width) / self.bounds.size.width * 2.0 - 1.0);
-      float top = (float)(1.0 - y / self.bounds.size.height * 2.0);
-      float bottom = (float)(1.0 - (y + height) / self.bounds.size.height * 2.0);
-      const float vertices[] = {
-        left, bottom, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
-        right, bottom, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
-        left, top, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
-        right, top, 0.0f, 1.0f, 0.15f, 0.48f, 0.92f, 1.0f,
-      };
-      id<MTLBuffer> buffer = [drawable.texture.device newBufferWithBytes:vertices
-        length:sizeof(vertices) options:MTLResourceStorageModeShared];
-      [encoder setVertexBuffer:buffer offset:0 atIndex:0];
-      [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+  CGSize drawableSize = CGSizeMake(drawable.texture.width, drawable.texture.height);
+  id<MTLTexture> scene = sceneTextureForDevice(drawable.texture.device, drawableSize);
+  if (!scene) return;
+  if (g_scene_dirty || !g_scene_initialized) {
+    MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+    pass.colorAttachments[0].texture = scene;
+    pass.colorAttachments[0].loadAction = g_scene_initialized ? MTLLoadActionLoad : MTLLoadActionClear;
+    pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+    pass.colorAttachments[0].clearColor = MTLClearColorMake(0.055, 0.067, 0.090, 1.0);
+    id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
+    CGSize logicalSize = self.bounds.size;
+    CGSize drawableSize = CGSizeMake(scene.width, scene.height);
+    if (g_pipeline) {
+      [encoder setRenderPipelineState:g_pipeline];
+      if (!g_scene_initialized || g_paint_dirty_count == 0) {
+        NimculusPaintRegion full = {0, 0, (float)logicalSize.width, (float)logicalSize.height};
+        setScissorForRegion(encoder, full, logicalSize, drawableSize);
+        drawColoredRectangle(encoder, drawable.texture.device, logicalSize, 0, 0,
+          logicalSize.width, logicalSize.height, 0.055f, 0.067f, 0.090f, 1.0f);
+      } else {
+        for (uint32_t i = 0; i < g_paint_dirty_count; i++) {
+          NimculusPaintRegion region = g_paint_dirty_regions[i];
+          setScissorForRegion(encoder, region, logicalSize, drawableSize);
+          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
+            region.x, region.y, region.width, region.height,
+            0.055f, 0.067f, 0.090f, 1.0f);
+        }
+      }
+      MTLScissorRect fullScissor = {0, 0, scene.width, scene.height};
+      [encoder setScissorRect:fullScissor];
+      for (uint32_t i = 0; i < g_paint_count; i++) {
+        NimculusPaintCommand paint = g_paint_commands[i];
+        NimculusPaintRegion clip = {paint.clip_x, paint.clip_y, paint.clip_width, paint.clip_height};
+        setScissorForRegion(encoder, clip, logicalSize, drawableSize);
+        if (paint.kind == 0) {
+          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
+            paint.x, paint.y, paint.width, paint.height,
+            0.15f, 0.48f, 0.92f, 1.0f);
+        } else if (paint.kind == 8) {
+          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
+            paint.x, paint.y, paint.width, paint.height,
+            0.20f, 0.40f, 0.75f, 0.45f);
+        } else if (paint.kind == 9) {
+          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
+            paint.x, paint.y, paint.width, paint.height,
+            0.85f, 0.90f, 1.0f, 1.0f);
+        }
+      }
+      if (g_paint_count == 0) {
+        NimculusPaintRegion full = {g_ui_rect[0], g_ui_rect[1], g_ui_rect[2], g_ui_rect[3]};
+        setScissorForRegion(encoder, full, logicalSize, drawableSize);
+        drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
+          g_ui_rect[0], g_ui_rect[1], g_ui_rect[2], g_ui_rect[3],
+          0.15f, 0.48f, 0.92f, 1.0f);
+      }
     }
+    if (g_text_pipeline && g_text_texture) {
+      const float textVertices[] = {
+        -0.90f, 0.78f, 0.0f, 0.0f,
+        -0.45f, 0.78f, 1.0f, 0.0f,
+        -0.90f, 0.68f, 0.0f, 1.0f,
+        -0.45f, 0.68f, 1.0f, 1.0f,
+      };
+      id<MTLBuffer> textBuffer = [drawable.texture.device newBufferWithBytes:textVertices
+        length:sizeof(textVertices) options:MTLResourceStorageModeShared];
+      [encoder setRenderPipelineState:g_text_pipeline];
+      [encoder setVertexBuffer:textBuffer offset:0 atIndex:0];
+      [encoder setFragmentTexture:g_text_texture atIndex:0];
+      if (g_paint_dirty_count == 0) {
+        MTLScissorRect fullScissor = {0, 0, scene.width, scene.height};
+        [encoder setScissorRect:fullScissor];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+      } else {
+        for (uint32_t i = 0; i < g_paint_dirty_count; i++) {
+          setScissorForRegion(encoder, g_paint_dirty_regions[i], logicalSize, drawableSize);
+          [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+        }
+      }
+    }
+    [encoder endEncoding];
+    g_scene_initialized = YES;
+    g_scene_dirty = NO;
+    free(g_paint_dirty_regions);
+    g_paint_dirty_regions = NULL;
+    g_paint_dirty_count = 0;
   }
-  if (g_text_pipeline && g_text_texture) {
-    const float textVertices[] = {
-      -0.90f, 0.78f, 0.0f, 0.0f,
-      -0.45f, 0.78f, 1.0f, 0.0f,
-      -0.90f, 0.68f, 0.0f, 1.0f,
-      -0.45f, 0.68f, 1.0f, 1.0f,
-    };
-    id<MTLBuffer> textBuffer = [drawable.texture.device newBufferWithBytes:textVertices
-      length:sizeof(textVertices) options:MTLResourceStorageModeShared];
-    [encoder setRenderPipelineState:g_text_pipeline];
-    [encoder setVertexBuffer:textBuffer offset:0 atIndex:0];
-    [encoder setFragmentTexture:g_text_texture atIndex:0];
-    [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
-  }
-  [encoder endEncoding];
+  id<MTLBlitCommandEncoder> blit = [command blitCommandEncoder];
+  [blit copyFromTexture:scene sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
+    sourceSize:MTLSizeMake(scene.width, scene.height, 1) toTexture:drawable.texture
+    destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
+  [blit endEncoding];
   [command presentDrawable:drawable];
   [command commit];
   g_metrics.last_frame_time_ms = millisecondsSince(start);
@@ -629,20 +744,24 @@ void nimculus_platform_set_command_callback(NimculusCommandCallback callback) { 
 void nimculus_platform_set_editor_cursor(double x, double y) {
   g_editor_cursor[0] = x;
   g_editor_cursor[1] = y;
+  markSceneFullyDirty();
 }
 void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_byte) {
   NSUInteger start = utf16OffsetForUTF8Bytes(g_editor_text ?: @"", start_byte);
   NSUInteger end = utf16OffsetForUTF8Bytes(g_editor_text ?: @"", end_byte);
   g_editor_selection_start = MIN(start, end);
   g_editor_selection_end = MAX(start, end);
+  markSceneFullyDirty();
 }
 void nimculus_platform_set_editor_text(const char *utf8) {
   g_editor_text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";
+  markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text);
   if (g_active_view) [g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_composition(const char *utf8) {
   g_marked_text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";
+  markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text);
   if (g_active_view) [g_active_view drawFrame];
 }
@@ -657,6 +776,7 @@ void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans,
       g_highlight_count = count;
     }
   }
+  markSceneFullyDirty();
 }
 void nimculus_platform_set_paint_commands(const NimculusPaintCommand *commands, uint32_t count) {
   free(g_paint_commands);
@@ -669,9 +789,24 @@ void nimculus_platform_set_paint_commands(const NimculusPaintCommand *commands, 
       g_paint_count = count;
     }
   }
+  g_scene_dirty = YES;
+}
+void nimculus_platform_set_paint_dirty_regions(const NimculusPaintRegion *regions, uint32_t count) {
+  free(g_paint_dirty_regions);
+  g_paint_dirty_regions = NULL;
+  g_paint_dirty_count = 0;
+  if (regions && count > 0) {
+    g_paint_dirty_regions = malloc(sizeof(NimculusPaintRegion) * count);
+    if (g_paint_dirty_regions) {
+      memcpy(g_paint_dirty_regions, regions, sizeof(NimculusPaintRegion) * count);
+      g_paint_dirty_count = count;
+    }
+  }
+  g_scene_dirty = YES;
 }
 void nimculus_platform_set_ui_rectangle(double x, double y, double width, double height) {
   g_ui_rect[0] = x; g_ui_rect[1] = y; g_ui_rect[2] = width; g_ui_rect[3] = height;
+  markSceneFullyDirty();
 }
 void nimculus_clipboard_set(const char *utf8) {
   g_clipboard_text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";

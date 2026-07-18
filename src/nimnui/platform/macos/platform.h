@@ -44,6 +44,13 @@ typedef struct NimculusPaintCommand {
   float radius;
 } NimculusPaintCommand;
 
+typedef struct NimculusPaintRegion {
+  float x;
+  float y;
+  float width;
+  float height;
+} NimculusPaintRegion;
+
 bool nimculus_platform_run(void);
 bool nimculus_platform_validate_native(void);
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics);
@@ -58,6 +65,7 @@ void nimculus_platform_set_editor_text(const char *utf8);
 void nimculus_platform_set_editor_composition(const char *utf8);
 void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans, uint32_t count);
 void nimculus_platform_set_paint_commands(const NimculusPaintCommand *commands, uint32_t count);
+void nimculus_platform_set_paint_dirty_regions(const NimculusPaintRegion *regions, uint32_t count);
 void nimculus_platform_show_external_change(const char *path);
 void nimculus_platform_set_ui_rectangle(double x, double y, double width, double height);
 void nimculus_clipboard_set(const char *utf8);
