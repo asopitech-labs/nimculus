@@ -93,6 +93,18 @@ suite "M3 text foundation":
     paint.drawRectangle(Rect(origin: Point(x: px(20), y: px(20)), size: Size(width: px(4), height: px(4))))
     check paint.commands.len == 1
 
+  test "paint list applies nested clip regions":
+    var paint: PaintList
+    paint.invalidate(Rect(size: Size(width: px(100), height: px(100))))
+    paint.pushClip(Rect(size: Size(width: px(20), height: px(20))))
+    paint.drawRectangle(Rect(size: Size(width: px(80), height: px(80))))
+    check paint.commands.len == 2
+    check float32(paint.commands[^1].clip.size.width) == 20.0
+    paint.popClip()
+    paint.drawRectangle(Rect(origin: Point(x: px(40), y: px(40)),
+      size: Size(width: px(10), height: px(10))))
+    check paint.commands.len == 3
+
   test "scroll and split models clamp interaction":
     var scroll = ScrollModel(contentSize: px(100), viewportSize: px(30))
     scroll.scrollBy(px(80))

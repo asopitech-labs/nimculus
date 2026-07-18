@@ -62,6 +62,13 @@ before dispatch. Hover, active, and focus state transitions are applied at the
 application boundary; the event retains native modifier flags and scroll
 deltas so controls can consume them without another platform dependency.
 
+## M2-003: Resolve clip regions in PaintList before crossing the ABI
+
+PaintList owns a nested clip stack and intersects each command with both the
+active clip and dirty regions. The native renderer receives the resulting clip
+rectangle as a scissor region; it does not need to reproduce UI-tree clip
+ownership or maintain a second stack.
+
 ## M1-003: Use an AppKit tracking area for pointer motion
 
 `mouseMoved` is delivered only when the window accepts mouse-motion events and

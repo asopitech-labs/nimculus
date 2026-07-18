@@ -15,6 +15,7 @@ type
   PaintList* = object
     commands*: seq[PaintCommand]
     dirty*: seq[Rect]
+    clipStack*: seq[Rect]
 
 proc intersects*(a, b: Rect): bool =
   float32(a.origin.x) < float32(b.origin.x + b.size.width) and
@@ -34,15 +35,18 @@ proc invalidate*(paint: var PaintList, rect: Rect) = paint.dirty.add(rect)
 
 proc add*(paint: var PaintList, command: PaintCommand) =
   for dirty in paint.dirty:
-    if intersects(command.bounds, dirty):
+    var visible = intersection(command.bounds, dirty)
+    if paint.clipStack.len > 0:
+      visible = intersection(visible, paint.clipStack[^1])
+    if float32(visible.size.width) > 0 and float32(visible.size.height) > 0:
       var clipped = command
-      clipped.clip = intersection(command.bounds, dirty)
+      clipped.clip = visible
       paint.commands.add(clipped)
-      return
 
 proc clear*(paint: var PaintList) =
   paint.commands.setLen(0)
   paint.dirty.setLen(0)
+  paint.clipStack.setLen(0)
 
 proc drawRectangle*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: rectangle, bounds: bounds, clip: bounds))
@@ -54,7 +58,11 @@ proc drawBorder*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(ki
 proc drawRoundedRectangle*(paint: var PaintList, bounds: Rect, radius: Pixels) =
   paint.add(PaintCommand(kind: roundedRectangle, bounds: bounds, clip: bounds, radius: radius))
 proc drawImage*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: image, bounds: bounds, clip: bounds))
-proc pushClip*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: clip, bounds: bounds, clip: bounds))
+proc pushClip*(paint: var PaintList, bounds: Rect) =
+  paint.add(PaintCommand(kind: clip, bounds: bounds, clip: bounds))
+  paint.clipStack.add(bounds)
+proc popClip*(paint: var PaintList) =
+  if paint.clipStack.len > 0: paint.clipStack.setLen(paint.clipStack.len - 1)
 proc drawShadow*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: shadow, bounds: bounds, clip: bounds))
 proc drawCaret*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: caret, bounds: bounds, clip: bounds))
 proc drawSelection*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: selection, bounds: bounds, clip: bounds))
