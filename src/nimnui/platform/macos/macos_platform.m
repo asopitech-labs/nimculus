@@ -28,6 +28,8 @@ static NSString *g_editor_text = @"";
 static NSString *g_marked_text = @"";
 static NSString *g_clipboard_text = @"";
 static char g_dialog_path[PATH_MAX] = {0};
+static BOOL g_editor_dirty = NO;
+static BOOL g_close_decision = NO;
 
 static id<MTLRenderPipelineState> g_pipeline = nil;
 static id<MTLRenderPipelineState> g_text_pipeline = nil;
@@ -626,6 +628,34 @@ static void logInput(NSString *kind, NSEvent *event) {
 
 @implementation NimculusAppDelegate
 
+- (BOOL)confirmClose {
+  if (!g_editor_dirty) return YES;
+  g_close_decision = NO;
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = @"Unsaved Changes";
+  alert.informativeText = @"The current document has unsaved changes.";
+  [alert addButtonWithTitle:@"Save"];
+  [alert addButtonWithTitle:@"Don’t Save"];
+  [alert addButtonWithTitle:@"Cancel"];
+  NSInteger response = [alert runModal];
+  if (response == NSAlertSecondButtonReturn) {
+    g_close_decision = YES;
+  } else if (response == NSAlertFirstButtonReturn && g_command_callback) {
+    g_command_callback("saveAndClose");
+  }
+  return g_close_decision;
+}
+
+- (BOOL)windowShouldClose:(NSWindow *)window {
+  (void)window;
+  return [self confirmClose];
+}
+
+- (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)application {
+  (void)application;
+  return [self confirmClose] ? NSTerminateNow : NSTerminateCancel;
+}
+
 - (void)setupMainMenu {
   NSMenu *mainMenu = [[NSMenu alloc] initWithTitle:@"MainMenu"];
   NSMenuItem *appItem = [[NSMenuItem alloc] initWithTitle:@"Nimculus" action:NULL keyEquivalent:@""];
@@ -996,6 +1026,15 @@ void nimculus_platform_set_editor_cursor(double x, double y) {
   g_editor_cursor[0] = x;
   g_editor_cursor[1] = y;
   markSceneFullyDirty();
+}
+void nimculus_platform_set_editor_dirty(bool dirty) { g_editor_dirty = dirty ? YES : NO; }
+void nimculus_platform_set_close_decision(bool allow) { g_close_decision = allow ? YES : NO; }
+void nimculus_platform_show_save_panel_and_close(void) {
+  NSSavePanel *panel = [NSSavePanel savePanel];
+  if ([panel runModal] == NSModalResponseOK) {
+    if (g_file_callback) g_file_callback(panel.URL.path.UTF8String, true);
+    g_close_decision = YES;
+  }
 }
 void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_byte) {
   NSUInteger start = utf16OffsetForUTF8Bytes(g_editor_text ?: @"", start_byte);

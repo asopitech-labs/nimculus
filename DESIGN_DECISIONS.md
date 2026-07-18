@@ -277,6 +277,15 @@ This prevents callers from treating the workspace root as a deletable or
 movable entry while still allowing normalized descendants and rejecting paths
 that escape the root.
 
+## M5-009: Keep close confirmation in the native lifecycle
+
+The application layer owns the authoritative dirty state and publishes it to
+the AppKit bridge. `windowShouldClose:` and `applicationShouldTerminate:` use
+the same native alert, while Save delegates the actual document write to Nim.
+An existing path is saved directly; an untitled document uses `NSSavePanel`.
+The bridge returns Cancel until the application layer explicitly reports a
+successful save, so a failed save cannot silently close the document.
+
 ## M6-008: Make the lazy workspace preview actionable
 
 The initial workspace tree is rendered as a bounded text preview. Its visible

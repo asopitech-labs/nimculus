@@ -186,6 +186,7 @@ proc syncEditorCursor() =
     let selection = if document == nil: (startByte: 0, endByte: 0) else:
       editorViewState.selectedRange()
     platformSetEditorSelection(uint32(selection.startByte), uint32(selection.endByte))
+    platformSetEditorDirty(document != nil and document[].buffer.isDirty)
 
 when defined(macosx):
   proc editorOffsetAtPoint(document: ptr FileDocument, x, y: cdouble): int =
@@ -250,6 +251,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
     if document != nil:
       document[].save(filePath)
       externalAlertShown = false
+      syncEditorCursor()
   else:
     if dirExists(filePath):
       openActiveWorkspace(filePath)
@@ -312,6 +314,19 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       platformSetEditorComposition("".cstring)
       platformSetEditorText("".cstring)
       syncEditorCursor()
+  elif name == "saveAndClose":
+    let document = activeDocument()
+    if document == nil or not document[].buffer.isDirty:
+      platformSetCloseDecision(true)
+    elif document[].path.len > 0:
+      try:
+        document[].save()
+        syncEditorCursor()
+        platformSetCloseDecision(true)
+      except CatchableError:
+        platformSetCloseDecision(false)
+    else:
+      platformShowSavePanelAndClose()
   elif name == "reloadExternal" and document != nil:
     try:
       editorSession.tabs[editorSession.activeTab].document = openDocument(document[].path)
