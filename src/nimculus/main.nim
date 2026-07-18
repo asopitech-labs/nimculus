@@ -23,30 +23,39 @@ proc setupDemoUi() =
   let split = makeControl(demoTree, root, ControlKind.splitPane, "Editor split")
   let scroll = makeControl(demoTree, root, ControlKind.scrollView, "Editor scroll")
   demoButton = button.node
+  var metrics: PlatformMetrics
+  platformGetMetrics(addr metrics)
+  let viewportWidth = if metrics.widthPoints > 0: float32(metrics.widthPoints) else: 960'f32
+  let viewportHeight = if metrics.heightPoints > 0: float32(metrics.heightPoints) else: 640'f32
+  let viewport = Rect(size: Size(width: px(viewportWidth), height: px(viewportHeight)))
   let spec = LayoutSpec(direction: row,
     size: Size(width: px(0), height: px(0)),
     minSize: Size(width: px(0), height: px(0)),
     maxSize: Size(width: px(10000), height: px(10000)),
     padding: EdgeInsets(top: px(20), right: px(20), bottom: px(20), left: px(20)),
     gap: px(8), alignment: alignCenter,
-    viewport: Rect(size: Size(width: px(960), height: px(640))))
-  demoTree.layoutNode(root, Rect(size: Size(width: px(960), height: px(640))), spec)
+    viewport: viewport)
+  demoTree.layoutNode(root, viewport, spec)
   let bounds = demoTree.node(button.node).bounds
-  let panel = Rect(origin: Point(x: px(24), y: px(24)),
-    size: Size(width: px(912), height: px(592)))
-  let toolbar = Rect(origin: Point(x: px(48), y: px(48)),
-    size: Size(width: px(864), height: px(56)))
-  let editor = Rect(origin: Point(x: px(48), y: px(128)),
-    size: Size(width: px(780), height: px(400)))
-  let splitBar = Rect(origin: Point(x: px(430), y: px(128)),
-    size: Size(width: px(2), height: px(400)))
-  let scrollbar = Rect(origin: Point(x: px(804), y: px(144)),
-    size: Size(width: px(8), height: px(160)))
+  let margin = 24'f32
+  let panel = Rect(origin: Point(x: px(margin), y: px(margin)),
+    size: Size(width: px(max(0'f32, viewportWidth - margin * 2)),
+               height: px(max(0'f32, viewportHeight - margin * 2))))
+  let toolbar = Rect(origin: Point(x: px(margin * 2), y: px(margin * 2)),
+    size: Size(width: px(max(0'f32, viewportWidth - margin * 4)), height: px(56)))
+  let editorWidth = max(0'f32, viewportWidth - margin * 4 - 84'f32)
+  let editorHeight = max(0'f32, viewportHeight - 208'f32)
+  let editor = Rect(origin: Point(x: px(margin * 2), y: px(128)),
+    size: Size(width: px(editorWidth), height: px(editorHeight)))
+  let splitBar = Rect(origin: Point(x: px(margin * 2 + editorWidth * 0.5), y: px(128)),
+    size: Size(width: px(2), height: px(editorHeight)))
+  let scrollbar = Rect(origin: Point(x: px(margin * 2 + editorWidth + 24), y: px(144)),
+    size: Size(width: px(8), height: px(max(0'f32, editorHeight - 32'f32))))
   demoTree.node(button.node).bounds = toolbar
   demoTree.node(split.node).bounds = splitBar
   demoTree.node(scroll.node).bounds = editor
   var paint: PaintList
-  paint.invalidate(Rect(size: Size(width: px(960), height: px(640))))
+  paint.invalidate(viewport)
   paint.drawShadow(panel.offset(px(4), px(6)))
   paint.drawRoundedRectangle(panel, px(12))
   paint.drawBorder(panel)
@@ -397,6 +406,9 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     pollWorkspaceSearch()
   elif name == "cancelWorkspaceSearch":
     cancelWorkspaceSearch()
+  elif name == "windowResized":
+    setupDemoUi()
+    if activeDocument() != nil: refreshEditorSyntax()
   elif name == "newDocument":
     editorSession.addTab(newDocument())
     externalAlertShown = false

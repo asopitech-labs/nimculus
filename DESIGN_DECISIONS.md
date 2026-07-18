@@ -328,6 +328,13 @@ responsible for Retina scaling and drawable resizing. This gives the native
 renderer one deterministic smoke scene without coupling the editor surface to
 demo-only controls.
 
+## M1-009: Rebuild UI geometry from AppKit resize metrics
+
+The platform bridge reports changed point dimensions through the existing
+command callback. NimNUI then rebuilds the demo tree and PaintList from those
+dimensions, so hit-testing and native drawing share the same geometry. The
+Metal layer remains responsible for pixel drawable resizing and Retina scale.
+
 ## M3-012: Share the editor viewport origin across native text paths
 
 The editor stores a logical `scrollLine` in Nim. The native bridge receives

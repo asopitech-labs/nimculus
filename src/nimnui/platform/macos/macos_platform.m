@@ -32,6 +32,8 @@ static char g_dialog_path[PATH_MAX] = {0};
 static BOOL g_editor_dirty = NO;
 static BOOL g_close_decision = NO;
 static NSArray<NSString *> *g_recent_files = nil;
+static uint32_t g_last_width_points = 0;
+static uint32_t g_last_height_points = 0;
 
 static id<MTLRenderPipelineState> g_pipeline = nil;
 static id<MTLRenderPipelineState> g_text_pipeline = nil;
@@ -368,6 +370,13 @@ static void logInput(NSString *kind, NSEvent *event) {
   g_metrics.height_points = (uint32_t)MAX(0, bounds.size.height);
   g_metrics.width_pixels = (uint32_t)MAX(0, drawable.width);
   g_metrics.height_pixels = (uint32_t)MAX(0, drawable.height);
+  if (g_command_callback &&
+      (g_last_width_points != g_metrics.width_points ||
+       g_last_height_points != g_metrics.height_points)) {
+    g_last_width_points = g_metrics.width_points;
+    g_last_height_points = g_metrics.height_points;
+    g_command_callback("windowResized");
+  }
 }
 
 - (void)layout {
