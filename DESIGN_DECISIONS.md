@@ -389,6 +389,14 @@ syntax state, and native selection/caret synchronization. This follows Zed's
 pane tab ownership: buffers remain intact while the active editor view is
 rebound to the selected tab.
 
+## M5-009: Persist editor view state per tab
+
+Each `EditorTab` owns its selection, scroll line, and view preferences. Tab
+activation saves the current view and restores the target view, while session
+serialization stores the same state with bounds and grapheme clamping on load.
+This follows Zed's item-owned selection/focus behavior and prevents changing
+tabs from moving the cursor or viewport in an unrelated buffer.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback

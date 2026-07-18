@@ -201,6 +201,7 @@ proc setupPersistencePaths() =
 proc persistSession() =
   if sessionFilePath.len == 0: return
   try:
+    editorSession.saveActiveView(editorViewState)
     if activeWorkspace != nil: editorSession.workspaceRoots = activeWorkspace.rootPaths
     saveSession(editorSession, sessionFilePath)
     let document = activeDocument()
@@ -236,6 +237,7 @@ proc restoreSession() =
       editorViewState.statusMessage = "Recovered unsaved document"
     except CatchableError:
       discard
+  editorSession.loadActiveView(editorViewState)
 
 proc openActiveWorkspace(path: string) =
   when defined(macosx):
@@ -525,6 +527,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
     try:
       workspacePreviewEntries.setLen(0)
       workspacePreviewMode = ""
+      editorSession.saveActiveView(editorViewState)
       editorSession.addTab(openDocument(filePath))
       resetImeState()
       resetEditorViewState()
@@ -599,7 +602,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     resetPointerInteractions()
   elif name in ["previousTab", "nextTab"]:
     let delta = if name == "previousTab": -1 else: 1
-    if editorSession.switchTab(delta):
+    if editorSession.switchTab(editorViewState, delta):
       resetImeState()
       resetEditorViewState()
       workspacePreviewMode = ""
@@ -617,6 +620,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     activeWorkspace.startWatching()
     refreshWorkspacePreview()
   elif name == "newDocument":
+    editorSession.saveActiveView(editorViewState)
     editorSession.addTab(newDocument())
     resetImeState()
     externalAlertShown = false

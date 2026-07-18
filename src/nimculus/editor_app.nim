@@ -4,6 +4,7 @@ import std/strutils
 import std/sequtils
 import nimculus/editor_buffer
 import nimculus/atomic_io
+import nimculus/editor_view
 
 type
   LineEnding* = enum lf, crlf
@@ -18,6 +19,9 @@ type
   EditorTab* = object
     document*: FileDocument
     title*: string
+    ## Per-tab transient editor state, matching Zed's item-owned selections
+    ## and scroll position rather than sharing one pane state across buffers.
+    view*: EditorViewState
   SplitDirection* = enum splitVertical, splitHorizontal
   EditorSession* = object
     tabs*: seq[EditorTab]
@@ -84,8 +88,16 @@ proc replaceAll*(document: var FileDocument, query, replacement: string,
 
 proc addTab*(session: var EditorSession, document: FileDocument) =
   let title = if document.path.len > 0: splitFile(document.path).name else: "Untitled"
-  session.tabs.add(EditorTab(document: document, title: title))
+  session.tabs.add(EditorTab(document: document, title: title, view: newEditorView()))
   session.activeTab = session.tabs.high
+
+proc saveActiveView*(session: var EditorSession, view: EditorViewState) =
+  if session.activeTab >= 0 and session.activeTab < session.tabs.len:
+    session.tabs[session.activeTab].view = view
+
+proc loadActiveView*(session: EditorSession, view: var EditorViewState) =
+  if session.activeTab >= 0 and session.activeTab < session.tabs.len:
+    view = session.tabs[session.activeTab].view
 
 proc switchTab*(session: var EditorSession, delta: int): bool =
   ## Move around the existing tabs without mutating their buffers.
@@ -93,6 +105,13 @@ proc switchTab*(session: var EditorSession, delta: int): bool =
   let current = max(0, min(session.activeTab, session.tabs.high))
   let count = session.tabs.len
   session.activeTab = ((current + delta) mod count + count) mod count
+  true
+
+proc switchTab*(session: var EditorSession, view: var EditorViewState, delta: int): bool =
+  ## Activate another item while preserving each tab's selection and viewport.
+  session.saveActiveView(view)
+  if not session.switchTab(delta): return false
+  session.loadActiveView(view)
   true
 
 proc closeActiveTab*(session: var EditorSession): bool =

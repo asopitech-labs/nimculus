@@ -138,18 +138,26 @@ suite "M5 editor services":
 
   test "tabs and split sessions":
     var session: EditorSession
+    var view = newEditorView()
     session.addTab(newDocument())
     session.addTab(newDocument())
     check session.activeTab == 1
-    check session.switchTab(-1)
+    view.moveCursor(5)
+    check session.switchTab(view, -1)
     check session.activeTab == 0
-    check session.switchTab(1)
+    check view.cursor == 0
+    view.moveCursor(3)
+    check session.switchTab(view, 1)
     check session.activeTab == 1
+    check view.cursor == 5
+    session.saveActiveView(view)
+    session.addTab(newDocument())
+    check session.tabs[1].view.cursor == 5
     session.splitEditor(splitVertical)
-    check session.tabs.len == 2
+    check session.tabs.len == 3
     check session.split
     check session.closeActiveTab()
-    check session.tabs.len == 1
+    check session.tabs.len == 2
 
   test "view state exposes cursor, selection, lines and status":
     var buffer = initPieceTable("one\ntwo")
@@ -165,9 +173,11 @@ suite "M5 editor services":
   test "session and recovery round trip":
     let path = getTempDir() / "nimculus-m5-session.txt"
     let recoveryPath = getTempDir() / "nimculus-m5-recovery.txt"
-    writeFile(path, "session")
+    writeFile(path, "session\none\ntwo\nthree")
     var session: EditorSession
     session.addTab(openDocument(path))
+    session.tabs[0].view.moveCursor(3)
+    session.tabs[0].view.scrollLine = 2
     session.workspaceRoots = @[getTempDir()]
     let sessionPath = getTempDir() / "nimculus-m5-session.json"
     session.saveSession(sessionPath)
@@ -175,9 +185,11 @@ suite "M5 editor services":
     let restored = loadSession(sessionPath)
     check restored.tabs.len == 1
     check restored.workspaceRoots == @[getTempDir()]
+    check restored.tabs[0].view.cursor == 3
+    check restored.tabs[0].view.scrollLine == 2
     restored.tabs[0].document.writeRecovery(recoveryPath)
     check not fileExists(recoveryPath & ".tmp." & $getCurrentProcessId())
-    check recoverDocument(recoveryPath).buffer.toString() == "session"
+    check recoverDocument(recoveryPath).buffer.toString() == "session\none\ntwo\nthree"
     removeFile(path); removeFile(sessionPath); removeFile(recoveryPath)
 
   test "session loader tolerates partial metadata":
