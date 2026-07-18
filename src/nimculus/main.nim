@@ -387,7 +387,7 @@ proc pollWorkspaceSearch() =
         workspaceSearchResults.setLen(0)
         workspaceSearchCancelled = false
         workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery)
-      elif workspacePreviewMode == "tree" and document == nil:
+      elif workspacePreviewMode == "tree":
         refreshWorkspacePreview()
       elif workspacePreviewMode == "quickOpen":
         showQuickOpen(workspaceQuickOpenQuery)

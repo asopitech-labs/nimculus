@@ -373,6 +373,14 @@ dragging, active state, and hover state together. This mirrors GPUI's pointer
 capture lifecycle, where capture is released at the end of the interaction and
 must not leak across a window-state transition.
 
+## M6-005: Refresh the visible workspace tree independently of the editor
+
+FSEvents changes refresh the workspace tree whenever the tree preview is the
+active surface, even if an editor document remains open in the session. The
+workspace view and the active buffer are separate state owners, matching Zed's
+worktree entry updates and preventing stale tree contents after a root or
+session transition.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback
