@@ -1,4 +1,5 @@
 import std/unicode
+import graphemes
 import nimnui/geometry
 
 when defined(macosx):
@@ -36,49 +37,17 @@ when defined(macosx):
   proc nativeMeasureText*(text, fontName: cstring, size: cdouble,
                           metrics: ptr NativeTextMetrics) {.importc: "nimculus_measure_text", cdecl.}
 
-proc isCombiningMark(rune: Rune): bool =
-  let value = int(rune)
-  (value >= 0x0300 and value <= 0x036F) or
-  (value >= 0x1AB0 and value <= 0x1AFF) or
-  (value >= 0x1DC0 and value <= 0x1DFF) or
-  (value >= 0x20D0 and value <= 0x20FF) or
-  (value >= 0xFE20 and value <= 0xFE2F)
-
-proc isGraphemeExtend(rune: Rune): bool =
-  let value = int(rune)
-  isCombiningMark(rune) or (value >= 0xFE00 and value <= 0xFE0F) or
-    (value >= 0x1F3FB and value <= 0x1F3FF)
-
-proc isRegionalIndicator(rune: Rune): bool =
-  let value = int(rune)
-  value >= 0x1F1E6 and value <= 0x1F1FF
-
 proc textPositions*(text: string): seq[TextPosition] =
+  ## Return byte offsets at Unicode extended grapheme boundaries.
+  ## Zed uses unicode-segmentation for this same display/navigation contract;
+  ## nim-graphemes implements Unicode TR29 rather than a hand-written subset.
   result.add(TextPosition(byteOffset: 0, graphemeIndex: 0))
-  var byteOffset = 0
   var grapheme = 0
-  var clusterHasBase = false
-  var previousWasJoiner = false
-  var regionalRun = 0
-  var previousWasCR = false
-  for rune in text.runes:
-    let width = rune.size
-    byteOffset += width
-    let extend = isGraphemeExtend(rune)
-    let joiner = int(rune) == 0x200D
-    let regionalPair = isRegionalIndicator(rune) and (regionalRun mod 2 == 1)
-    let crlfPair = int(rune) == 0x0A and previousWasCR
-    if not clusterHasBase or (not extend and not previousWasJoiner and not joiner and
-                              not regionalPair and not crlfPair):
-      inc grapheme
-      result.add(TextPosition(byteOffset: byteOffset, graphemeIndex: grapheme))
-    else:
-      result[^1].byteOffset = byteOffset
-    clusterHasBase = clusterHasBase or not extend
-    previousWasJoiner = joiner
-    if isRegionalIndicator(rune): inc regionalRun
-    else: regionalRun = 0
-    previousWasCR = int(rune) == 0x0D
+  for bounds in text.graphemeBounds:
+    inc grapheme
+    # graphemeBounds uses inclusive byte slices; TextPosition stores the
+    # conventional exclusive end offset used by PieceTable and text slices.
+    result.add(TextPosition(byteOffset: bounds.b + 1, graphemeIndex: grapheme))
 
 proc layoutText*(text: string, advance = px(8)): TextLayout =
   result.positions = textPositions(text)

@@ -133,6 +133,12 @@ suite "M3 text foundation":
     let newlinePositions = textPositions("a\r\nb")
     check newlinePositions[^1].graphemeIndex == 3
 
+  test "positions follow Unicode TR29 beyond basic combining and emoji":
+    let text = "؀Aक्\u0915가👩🏻‍💻"
+    let positions = textPositions(text)
+    check positions.len == 5
+    check positions[^1].byteOffset == text.len
+
   test "glyph atlas reuses glyphs":
     var atlas = newGlyphAtlas(64, 64)
     let first = atlas.insertGlyph(Rune(65), 8, 12)

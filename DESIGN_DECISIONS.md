@@ -524,8 +524,10 @@ checked against the ignored local reference at `references/zed`:
 
 Nimculus therefore keeps PieceTable offsets byte-based, applies UTF-8
 character-boundary validation in the storage layer, applies grapheme
-boundaries in editor navigation/display, and converts AppKit coordinates once
-at the platform boundary. AppKit modifier flags are likewise converted by
+boundaries in editor navigation/display using the Unicode TR29 `graphemes`
+package (`graphemes >= 0.12.0`), and converts AppKit coordinates once at the
+platform boundary.
+AppKit modifier flags are likewise converted by
 `macOSModifiers` before shortcut resolution. Zed is used as an implementation
 reference, not as an API compatibility target.
 
