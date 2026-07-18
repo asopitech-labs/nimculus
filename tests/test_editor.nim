@@ -211,7 +211,9 @@ suite "M5 editor services":
     check restored.splitDirection == splitHorizontal
     restored.tabs[0].document.writeRecovery(recoveryPath)
     check not fileExists(recoveryPath & ".tmp." & $getCurrentProcessId())
-    check recoverDocument(recoveryPath).buffer.toString() == "session\none\ntwo\nthree"
+    let recovered = recoverDocument(recoveryPath)
+    check recovered.buffer.toString() == "session\none\ntwo\nthree"
+    check recovered.buffer.isDirty
     removeFile(path); removeFile(sessionPath); removeFile(recoveryPath)
 
   test "session restores dirty untitled tabs":

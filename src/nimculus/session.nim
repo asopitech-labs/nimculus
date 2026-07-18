@@ -112,3 +112,7 @@ proc writeRecovery*(document: FileDocument, path: string) =
 proc recoverDocument*(path: string): FileDocument =
   result = newDocument()
   result.buffer = initPieceTable(readFile(path))
+  # Recovery content was not committed to a named file. Keep it dirty so the
+  # next persistence tick cannot mistake it for saved content and delete the
+  # only copy of the recovered buffer.
+  result.buffer.markDirty()

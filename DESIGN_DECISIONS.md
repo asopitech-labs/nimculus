@@ -515,6 +515,11 @@ successful save or an explicit Don't Save decision removes it. The recovery
 file intentionally contains only the active buffer; the session file remains
 the source of truth for tab paths, untitled content, and recent files.
 
+`recoverDocument` marks the reconstructed buffer dirty even though its text is
+loaded as the original piece source. Recovery is therefore preserved until an
+explicit save or discard decision, rather than being deleted as soon as the
+first persistence tick runs.
+
 ## M5-011: Keep command palette actions on the existing command ABI
 
 The initial macOS command palette is a native modal prompt rather than a new
