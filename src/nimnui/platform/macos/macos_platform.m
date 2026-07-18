@@ -15,6 +15,7 @@ static NimculusTextCallback g_text_callback = NULL;
 static NimculusFileCallback g_file_callback = NULL;
 static NimculusCommandCallback g_command_callback = NULL;
 static double g_ui_rect[4] = {360.0, 260.0, 240.0, 120.0};
+static double g_editor_cursor[2] = {8.0, 12.0};
 static NSString *g_clipboard_text = @"";
 static char g_dialog_path[PATH_MAX] = {0};
 
@@ -221,8 +222,7 @@ static void logInput(NSString *kind, NSEvent *event) {
 - (void)selectAll:(id)sender { if (g_command_callback) g_command_callback("selectAll"); }
 - (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
   if (actualRange) *actualRange = range;
-  CGFloat cursorX = 8.0 + self.selectedTextRange.location * 8.0;
-  NSRect cursor = NSMakeRect(cursorX, 12.0, 1, 28);
+  NSRect cursor = NSMakeRect(g_editor_cursor[0], g_editor_cursor[1], 1, 28);
   return [self.window convertRectToScreen:[self convertRect:cursor toView:nil]];
 }
 - (NSUInteger)characterIndexForPoint:(NSPoint)point { return 0; }
@@ -401,6 +401,10 @@ void nimculus_platform_set_input_callback(NimculusInputCallback callback) { g_in
 void nimculus_platform_set_text_callback(NimculusTextCallback callback) { g_text_callback = callback; }
 void nimculus_platform_set_file_callback(NimculusFileCallback callback) { g_file_callback = callback; }
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback) { g_command_callback = callback; }
+void nimculus_platform_set_editor_cursor(double x, double y) {
+  g_editor_cursor[0] = x;
+  g_editor_cursor[1] = y;
+}
 void nimculus_platform_set_ui_rectangle(double x, double y, double width, double height) {
   g_ui_rect[0] = x; g_ui_rect[1] = y; g_ui_rect[2] = width; g_ui_rect[3] = height;
 }

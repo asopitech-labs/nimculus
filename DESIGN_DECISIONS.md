@@ -106,3 +106,10 @@ AppKit command selectors are converted into a small string command ABI. The
 Nim application applies them to the active document, using UTF-8 codepoint
 boundaries for cursor movement and deletion. This prevents Cocoa responder
 objects from owning buffer mutation.
+
+## M3-003: Synchronize the IME candidate rectangle from editor state
+
+The native view receives the current logical cursor coordinates from Nim after
+buffer mutations. Candidate positioning therefore follows editor state rather
+than the transient `NSTextInputClient` selection range, which is necessary for
+UTF-8 and Japanese composition.

@@ -32,6 +32,13 @@ proc activeDocument(): ptr FileDocument =
       editorSession.activeTab >= editorSession.tabs.len: return nil
   addr editorSession.tabs[editorSession.activeTab].document
 
+proc syncEditorCursor() =
+  when defined(macosx):
+    let document = activeDocument()
+    let location = if document == nil: (line: 0, column: 0) else:
+      document[].buffer.lineColumn(editorViewState.cursor)
+    platformSetEditorCursor(cdouble(8 + location.column * 8), cdouble(12 + location.line * 18))
+
 proc receiveNativeText(text: cstring, composing: bool) {.cdecl.} =
   let value = if text == nil: "" else: $text
   imeState.receiveText(value, composing)
@@ -42,6 +49,7 @@ proc receiveNativeText(text: cstring, composing: bool) {.cdecl.} =
       document[].buffer.edit(Edit(startByte: selected.startByte,
         endByte: selected.endByte, text: value))
       editorViewState.moveCursor(selected.startByte + value.len)
+      syncEditorCursor()
 
 proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
   if path == nil or ($path).len == 0: return
@@ -54,6 +62,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       editorSession.addTab(openDocument(filePath))
       let document = activeDocument()
       if document != nil: editorViewState.moveCursor(0)
+      syncEditorCursor()
     except CatchableError:
       discard
 
@@ -77,8 +86,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     imeState.composition.setLen(0)
   elif name == "moveLeft" and document != nil:
     editorViewState.moveCursor(previousBoundary(document[].buffer.toString(), editorViewState.cursor))
+    syncEditorCursor()
   elif name == "moveRight" and document != nil:
     editorViewState.moveCursor(nextBoundary(document[].buffer.toString(), editorViewState.cursor))
+    syncEditorCursor()
   elif name in ["deleteBackward", "deleteForward"] and document != nil:
     let selected = editorViewState.selectedRange()
     var start = selected.startByte
@@ -89,6 +100,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     if finish > start:
       document[].buffer.edit(Edit(startByte: start, endByte: finish, text: ""))
       editorViewState.moveCursor(start)
+      syncEditorCursor()
   elif name == "undo" and document != nil:
     discard document[].buffer.undo()
   elif name == "redo" and document != nil:
@@ -102,11 +114,13 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     if selected.endByte > selected.startByte:
       document[].buffer.edit(Edit(startByte: selected.startByte, endByte: selected.endByte, text: ""))
       editorViewState.moveCursor(selected.startByte)
+      syncEditorCursor()
   elif name == "paste":
     receiveNativeText(clipboardGet(), false)
   elif name == "selectAll" and document != nil:
     editorViewState.selection.anchor = 0
     editorViewState.selection.active = document[].buffer.toString().len
+    syncEditorCursor()
 
 proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   if event.isNil: return

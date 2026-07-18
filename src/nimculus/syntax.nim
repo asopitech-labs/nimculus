@@ -27,6 +27,11 @@ proc highlight*(tree: SyntaxTree): seq[HighlightSpan] =
     if node.endByte > node.startByte:
       result.add(HighlightSpan(startByte: node.startByte, endByte: node.endByte, kind: classify(node.kind)))
 
+proc highlightVisible*(tree: SyntaxTree, firstByte, lastByte: uint32): seq[HighlightSpan] =
+  for span in tree.highlight():
+    if span.endByte > firstByte and span.startByte < lastByte:
+      result.add(span)
+
 proc matchingBracket*(source: string, position: int): int =
   if position < 0 or position >= source.len: return -1
   let current = source[position]

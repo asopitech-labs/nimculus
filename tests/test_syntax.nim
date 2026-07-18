@@ -23,6 +23,7 @@ suite "M7 syntax services":
     let parser = newTreeSitterParser(grammarPython)
     var tree = parser.parse("def f():\n  return (1)")
     check tree.highlight.len > 0
+    check tree.highlightVisible(0, 8).len < tree.highlight.len
     check matchingBracket("(abc)", 0) == 4
     check matchingBracket("(abc)", 4) == 0
     check tree.foldRanges("def f():\n  return (1)").len > 0

@@ -33,6 +33,7 @@ void nimculus_platform_set_input_callback(NimculusInputCallback callback);
 void nimculus_platform_set_text_callback(NimculusTextCallback callback);
 void nimculus_platform_set_file_callback(NimculusFileCallback callback);
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback);
+void nimculus_platform_set_editor_cursor(double x, double y);
 void nimculus_platform_set_ui_rectangle(double x, double y, double width, double height);
 void nimculus_clipboard_set(const char *utf8);
 const char *nimculus_clipboard_get(void);
