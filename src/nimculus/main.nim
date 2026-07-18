@@ -20,6 +20,8 @@ proc setupDemoUi() =
   demoTree = newUiTree()
   let root = demoTree.addNode()
   let button = makeControl(demoTree, root, ControlKind.button, "Nimculus", focusable = true)
+  let split = makeControl(demoTree, root, ControlKind.splitPane, "Editor split")
+  let scroll = makeControl(demoTree, root, ControlKind.scrollView, "Editor scroll")
   demoButton = button.node
   let spec = LayoutSpec(direction: row,
     size: Size(width: px(0), height: px(0)),
@@ -30,9 +32,34 @@ proc setupDemoUi() =
     viewport: Rect(size: Size(width: px(960), height: px(640))))
   demoTree.layoutNode(root, Rect(size: Size(width: px(960), height: px(640))), spec)
   let bounds = demoTree.node(button.node).bounds
+  let panel = Rect(origin: Point(x: px(24), y: px(24)),
+    size: Size(width: px(912), height: px(592)))
+  let toolbar = Rect(origin: Point(x: px(48), y: px(48)),
+    size: Size(width: px(864), height: px(56)))
+  let editor = Rect(origin: Point(x: px(48), y: px(128)),
+    size: Size(width: px(780), height: px(400)))
+  let splitBar = Rect(origin: Point(x: px(430), y: px(128)),
+    size: Size(width: px(2), height: px(400)))
+  let scrollbar = Rect(origin: Point(x: px(804), y: px(144)),
+    size: Size(width: px(8), height: px(160)))
+  demoTree.node(button.node).bounds = toolbar
+  demoTree.node(split.node).bounds = splitBar
+  demoTree.node(scroll.node).bounds = editor
   var paint: PaintList
   paint.invalidate(Rect(size: Size(width: px(960), height: px(640))))
-  paint.drawRectangle(bounds)
+  paint.drawShadow(panel.offset(px(4), px(6)))
+  paint.drawRoundedRectangle(panel, px(12))
+  paint.drawBorder(panel)
+  paint.drawRoundedRectangle(toolbar, px(8))
+  paint.drawBorder(toolbar)
+  paint.drawSelection(Rect(origin: Point(x: px(72), y: px(145)),
+    size: Size(width: px(220), height: px(24))))
+  paint.pushClip(editor)
+  paint.drawRectangle(editor)
+  paint.drawCaret(Rect(origin: Point(x: px(74), y: px(176)),
+    size: Size(width: px(2), height: px(20))))
+  paint.popClip()
+  paint.drawScrollbar(scrollbar)
   var nativeCommands = newSeq[NativePaintCommand](paint.commands.len)
   for index, command in paint.commands:
     nativeCommands[index] = NativePaintCommand(

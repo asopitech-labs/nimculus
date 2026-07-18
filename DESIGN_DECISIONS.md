@@ -319,6 +319,15 @@ PaintList and native UI rectangle bridge. The application entry point does not
 override that geometry with a second hard-coded rectangle, preventing hit-test,
 PaintList, and Metal output from diverging.
 
+## M2-010: Exercise native paint kinds in the startup gallery
+
+The startup gallery intentionally emits one retained PaintList containing the
+basic native paint kinds and a nested clip region. The gallery geometry is
+static for the initial 960x640 surface, while the platform layer remains
+responsible for Retina scaling and drawable resizing. This gives the native
+renderer one deterministic smoke scene without coupling the editor surface to
+demo-only controls.
+
 ## M6-008: Make the lazy workspace preview actionable
 
 The initial workspace tree is rendered as a bounded text preview. Its visible
