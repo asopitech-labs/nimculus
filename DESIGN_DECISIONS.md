@@ -7,6 +7,10 @@
 the static check is part of the macOS CI gate. A third-party linter can be
 added later only when it covers a demonstrated gap.
 
+The macOS workflow installs Nim with Homebrew rather than the third-party
+setup action because the latter failed before Build on the macOS-14 runner.
+The successful workflow run is recorded in `ROADMAP.md`.
+
 ## M1-001: Keep the macOS bridge in Objective-C
 
 The first macOS vertical slice uses Objective-C for Cocoa and Metal APIs and
