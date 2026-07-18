@@ -573,6 +573,11 @@ boundaries and clamps a malformed midpoint request before it can create an
 unpaired surrogate. Native selection callbacks are then clamped to an editor
 grapheme boundary before editing or deletion.
 
+Untitled-document close is asynchronous at the Cocoa Save Panel boundary. The
+initial close/terminate delegate callback must return cancellation while the
+panel is open; after Nim reports a successful save, Cocoa explicitly retries
+the window close. A failed or cancelled save never retries it.
+
 Line navigation uses an exclusive byte offset immediately before the line
 terminator. The editor buffer normalizes working text to LF, and the document
 save layer restores CRLF only at serialization, so movement does not depend on

@@ -1403,6 +1403,18 @@ void nimculus_platform_show_save_panel_and_close(void) {
   NSSavePanel *panel = [NSSavePanel savePanel];
   if ([panel runModal] == NSModalResponseOK) {
     if (g_file_callback) g_file_callback(panel.URL.path.UTF8String, true);
+    // windowShouldClose/applicationShouldTerminate already returned a
+    // deferred cancellation while the modal Save Panel was open. A successful
+    // Nim save changes g_close_decision asynchronously at this boundary, so
+    // explicitly retry the close only after the write succeeded. The second
+    // close observes a clean document and is accepted by confirmClose.
+    if (g_close_decision) {
+      id delegate = [NSApp delegate];
+      if ([delegate respondsToSelector:@selector(window)]) {
+        NSWindow *window = [delegate window];
+        if (window) [window performClose:nil];
+      }
+    }
   }
 }
 void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_byte) {
