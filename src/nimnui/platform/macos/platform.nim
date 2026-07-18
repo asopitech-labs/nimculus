@@ -17,6 +17,7 @@ proc platformInputCount*(): uint64 {.importc: "nimculus_platform_input_count", c
 type
   InputCallback* = proc(event: ptr NimculusInputEvent) {.cdecl.}
   TextCallback* = proc(utf8: cstring, composing: bool) {.cdecl.}
+  SelectionCallback* = proc(startByte, endByte: uint32) {.cdecl.}
   FileCallback* = proc(path: cstring, saving: bool) {.cdecl.}
   CommandCallback* = proc(command: cstring) {.cdecl.}
   NativeHighlightSpan* {.bycopy.} = object
@@ -34,6 +35,7 @@ type
 
 proc platformSetInputCallback*(callback: InputCallback) {.importc: "nimculus_platform_set_input_callback", cdecl.}
 proc platformSetTextCallback*(callback: TextCallback) {.importc: "nimculus_platform_set_text_callback", cdecl.}
+proc platformSetSelectionCallback*(callback: SelectionCallback) {.importc: "nimculus_platform_set_selection_callback", cdecl.}
 proc platformSetFileCallback*(callback: FileCallback) {.importc: "nimculus_platform_set_file_callback", cdecl.}
 proc platformSetCommandCallback*(callback: CommandCallback) {.importc: "nimculus_platform_set_command_callback", cdecl.}
 proc platformSetEditorCursor*(x, y: cdouble) {.importc: "nimculus_platform_set_editor_cursor", cdecl.}

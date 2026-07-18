@@ -377,6 +377,14 @@ proc receiveNativeText(text: cstring, composing: bool) {.cdecl.} =
       syncEditorCursor()
       refreshEditorSyntax()
 
+proc receiveNativeSelection(startByte, endByte: uint32) {.cdecl.} =
+  let document = activeDocument()
+  if document == nil: return
+  let length = document[].buffer.toString().len
+  editorViewState.selection.anchor = min(int(startByte), length)
+  editorViewState.selection.active = min(int(endByte), length)
+  syncEditorCursor()
+
 proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
   if path == nil or ($path).len == 0: return
   let filePath = $path
@@ -817,6 +825,7 @@ when isMainModule:
       activeWorkspace.startWatching()
       refreshWorkspacePreview()
     platformSetTextCallback(receiveNativeText)
+    platformSetSelectionCallback(receiveNativeSelection)
     platformSetInputCallback(receiveNativeInput)
     platformSetFileCallback(receiveNativeFile)
     platformSetCommandCallback(receiveNativeCommand)

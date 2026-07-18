@@ -33,8 +33,8 @@ proc inset*(rect: Rect, padding: EdgeInsets): Rect =
 proc contains*(rect: Rect, point: Point): bool =
   float32(point.x) >= float32(rect.origin.x) and
   float32(point.y) >= float32(rect.origin.y) and
-  float32(point.x) <= float32(rect.origin.x + rect.size.width) and
-  float32(point.y) <= float32(rect.origin.y + rect.size.height)
+  float32(point.x) < float32(rect.origin.x + rect.size.width) and
+  float32(point.y) < float32(rect.origin.y + rect.size.height)
 
 proc offset*(rect: Rect, dx, dy: Pixels): Rect =
   Rect(origin: Point(x: rect.origin.x + dx, y: rect.origin.y + dy), size: rect.size)

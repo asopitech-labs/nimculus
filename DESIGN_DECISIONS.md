@@ -536,6 +536,13 @@ native drawing operation. It therefore sends an empty composing callback to
 Nim, matching Zed's `InputHandler::unmark_text` contract and preventing stale
 composition state after IME cancellation.
 
+`setMarkedText:selectedRange:replacementRange:` also forwards the replacement
+range. AppKit reports that range in UTF-16 units, while the editor buffer uses
+UTF-8 byte offsets, so the native bridge converts the document range before
+updating Nim's selection. This follows Zed's
+`replace_and_mark_text_in_range` contract and avoids replacing the wrong text
+when an IME supplies a range different from the current caret selection.
+
 Line navigation uses an exclusive byte offset immediately before the line
 terminator. The editor buffer normalizes working text to LF, and the document
 save layer restores CRLF only at serialization, so movement does not depend on

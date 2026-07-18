@@ -23,6 +23,7 @@ typedef struct NimculusInputEvent {
 
 typedef void (*NimculusInputCallback)(const NimculusInputEvent *event);
 typedef void (*NimculusTextCallback)(const char *utf8, bool composing);
+typedef void (*NimculusSelectionCallback)(uint32_t start_byte, uint32_t end_byte);
 typedef void (*NimculusFileCallback)(const char *path, bool saving);
 typedef void (*NimculusCommandCallback)(const char *command);
 typedef struct NimculusHighlightSpan {
@@ -57,6 +58,7 @@ void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics);
 uint64_t nimculus_platform_input_count(void);
 void nimculus_platform_set_input_callback(NimculusInputCallback callback);
 void nimculus_platform_set_text_callback(NimculusTextCallback callback);
+void nimculus_platform_set_selection_callback(NimculusSelectionCallback callback);
 void nimculus_platform_set_file_callback(NimculusFileCallback callback);
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback);
 void nimculus_platform_set_editor_cursor(double x, double y);

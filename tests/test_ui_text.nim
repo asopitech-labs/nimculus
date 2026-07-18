@@ -58,6 +58,32 @@ suite "M2 UI foundation":
     check float32(tree.node(first).bounds.size.width) == 30.0
     check float32(tree.node(second).bounds.size.width) == 60.0
 
+  test "stack layout overlays children in the content rectangle":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let first = tree.addNode(root)
+    let second = tree.addNode(root)
+    let bounds = Rect(origin: Point(x: px(10), y: px(20)),
+      size: Size(width: px(300), height: px(200)))
+    tree.layoutNode(root, bounds, LayoutSpec(direction: stack,
+      padding: EdgeInsets(top: px(8), right: px(12), bottom: px(16), left: px(10))))
+    let expected = Rect(origin: Point(x: px(20), y: px(28)),
+      size: Size(width: px(278), height: px(176)))
+    check tree.node(first).bounds == expected
+    check tree.node(second).bounds == expected
+
+  test "rect hit testing uses half-open edges":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let first = tree.addNode(root)
+    let second = tree.addNode(root)
+    tree.node(root).bounds = Rect(size: Size(width: px(100), height: px(20)))
+    tree.node(first).bounds = Rect(size: Size(width: px(50), height: px(20)))
+    tree.node(second).bounds = Rect(origin: Point(x: px(50), y: px(0)),
+      size: Size(width: px(50), height: px(20)))
+    check tree.hitTest(Point(x: px(50), y: px(10))) == second
+    check tree.hitTest(Point(x: px(100), y: px(10))) == NodeId(0)
+
   test "focus and dirty state are explicit":
     var tree = newUiTree()
     let root = tree.addNode()

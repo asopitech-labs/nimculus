@@ -30,6 +30,17 @@ proc layoutNode*(tree: var UiTree, id: NodeId, bounds: Rect, spec: LayoutSpec) =
   let content = bounds.inset(spec.padding)
   let children = tree.nodes[index].children
   if children.len == 0: return
+  if spec.direction == stack:
+    ## Stack children share the content rectangle. Do not run the row/column
+    ## cursor allocation first: that would leave overlay children at different
+    ## positions even though their final sizes are identical.
+    for child in children:
+      var childBounds = content
+      if spec.viewport.size.width != px(0):
+        childBounds = intersection(childBounds, spec.viewport)
+      tree.nodes[tree.nodeIndex(child)].bounds = childBounds
+      tree.nodes[tree.nodeIndex(child)].layoutDirty = false
+    return
   var cursor = if spec.direction == row: content.origin.x - spec.scrollOffset else: content.origin.y - spec.scrollOffset
   let available = if spec.direction == row: content.size.width else: content.size.height
   let gapTotal = spec.gap * float32(max(0, children.len - 1))
@@ -69,7 +80,6 @@ proc layoutNode*(tree: var UiTree, id: NodeId, bounds: Rect, spec: LayoutSpec) =
       Size(width: extents[index], height: crossExtent)
     else:
       Size(width: crossExtent, height: extents[index])
-    if spec.direction == stack: childSize = content.size
     let childOrigin = if spec.direction == row:
       Point(x: cursor, y: if spec.alignment == alignCenter: content.origin.y + (content.size.height - childSize.height) / px(2)
         elif spec.alignment == alignEnd: content.origin.y + content.size.height - childSize.height
@@ -84,4 +94,4 @@ proc layoutNode*(tree: var UiTree, id: NodeId, bounds: Rect, spec: LayoutSpec) =
     elif spec.viewport.size.width != px(0):
       finalBounds = intersection(finalBounds, spec.viewport)
     tree.nodes[tree.nodeIndex(child)].bounds = finalBounds
-    if spec.direction != stack: cursor = cursor + extents[index] + spec.gap
+    cursor = cursor + extents[index] + spec.gap

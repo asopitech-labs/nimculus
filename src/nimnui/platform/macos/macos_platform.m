@@ -14,6 +14,7 @@ static uint64_t g_input_count = 0;
 static NimculusPlatformMetrics g_metrics = {1.0, 0, 0, 0, 0, 0.0, 0};
 static NimculusInputCallback g_input_callback = NULL;
 static NimculusTextCallback g_text_callback = NULL;
+static NimculusSelectionCallback g_selection_callback = NULL;
 static NimculusFileCallback g_file_callback = NULL;
 static NimculusCommandCallback g_command_callback = NULL;
 static double g_ui_rect[4] = {360.0, 260.0, 240.0, 120.0};
@@ -212,6 +213,13 @@ static NSUInteger utf8BytesForUTF16Offset(NSString *line, NSUInteger targetUnits
   NSUInteger units = MIN(targetUnits, line.length);
   if (units == 0) return 0;
   return [[line substringToIndex:units] dataUsingEncoding:NSUTF8StringEncoding].length;
+}
+
+static NSUInteger utf8BytesForDocumentUTF16Offset(NSString *text, NSUInteger targetUnits) {
+  NSString *value = text ?: @"";
+  NSUInteger units = MIN(targetUnits, value.length);
+  if (units == 0) return 0;
+  return [[value substringToIndex:units] dataUsingEncoding:NSUTF8StringEncoding].length;
 }
 
 static CGFloat editorTextOffset(NSString *line, NSUInteger utf16Index) {
@@ -588,8 +596,7 @@ static void logInput(NSString *kind, NSEvent *event) {
 - (BOOL)hasMarkedText { return self.markedText.length > 0; }
 - (NSRange)markedRange { return self.markedTextRange; }
 - (NSRange)selectedRange {
-  return NSMakeRange(g_editor_selection_start,
-                     g_editor_selection_end - g_editor_selection_start);
+  return self.selectedTextRange;
 }
 - (NSArray<NSAttributedStringKey> *)validAttributesForMarkedText { return @[]; }
 - (NSAttributedString *)attributedSubstringForProposedRange:(NSRange)range
@@ -614,10 +621,26 @@ static void logInput(NSString *kind, NSEvent *event) {
   } else {
     self.markedText = @"";
   }
-  // NSTextInputClient ranges are UTF-16 offsets in the document, not offsets
-  // relative to the composition string.
-  self.markedTextRange = NSMakeRange(g_editor_selection_start, self.markedText.length);
-  self.selectedTextRange = selectedRange;
+  // NSTextInputClient supplies UTF-16 document ranges. Zed forwards the
+  // replacement range to its InputHandler instead of assuming it equals the
+  // current selection; do the same at the Cocoa/Nim boundary.
+  NSRange effectiveReplacement = replacementRange.location == NSNotFound
+    ? NSMakeRange(g_editor_selection_start,
+                  g_editor_selection_end - g_editor_selection_start)
+    : replacementRange;
+  NSUInteger textLength = g_editor_text.length;
+  NSUInteger replacementStart = MIN(effectiveReplacement.location, textLength);
+  NSUInteger replacementEnd = MIN(NSMaxRange(effectiveReplacement), textLength);
+  if (replacementEnd < replacementStart) replacementEnd = replacementStart;
+  uint32_t startByte = (uint32_t)utf8BytesForDocumentUTF16Offset(g_editor_text, replacementStart);
+  uint32_t endByte = (uint32_t)utf8BytesForDocumentUTF16Offset(g_editor_text, replacementEnd);
+  if (g_selection_callback) g_selection_callback(startByte, endByte);
+  self.markedTextRange = NSMakeRange(replacementStart, self.markedText.length);
+  NSUInteger markedSelection = MIN(selectedRange.location, self.markedText.length);
+  markedSelection = self.markedTextRange.location + markedSelection;
+  self.selectedTextRange = NSMakeRange(markedSelection,
+                                       MIN(selectedRange.length,
+                                           self.markedText.length - (markedSelection - self.markedTextRange.location)));
   if (g_text_callback) g_text_callback(self.markedText.UTF8String, true);
 }
 - (void)unmarkText {
@@ -1232,6 +1255,7 @@ void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics) {
 uint64_t nimculus_platform_input_count(void) { return g_input_count; }
 void nimculus_platform_set_input_callback(NimculusInputCallback callback) { g_input_callback = callback; }
 void nimculus_platform_set_text_callback(NimculusTextCallback callback) { g_text_callback = callback; }
+void nimculus_platform_set_selection_callback(NimculusSelectionCallback callback) { g_selection_callback = callback; }
 void nimculus_platform_set_file_callback(NimculusFileCallback callback) { g_file_callback = callback; }
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback) { g_command_callback = callback; }
 void nimculus_platform_set_editor_cursor(double x, double y) {
@@ -1338,6 +1362,11 @@ void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_by
   NSUInteger end = utf16OffsetForUTF8Bytes(g_editor_text ?: @"", end_byte);
   g_editor_selection_start = MIN(start, end);
   g_editor_selection_end = MAX(start, end);
+  if (g_active_view) {
+    NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+    view.selectedTextRange = NSMakeRange(g_editor_selection_start,
+      g_editor_selection_end - g_editor_selection_start);
+  }
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
