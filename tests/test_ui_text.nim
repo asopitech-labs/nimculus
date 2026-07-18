@@ -13,6 +13,15 @@ suite "M2 UI foundation":
     check event.shortcutModifiers == {commandModifier, optionModifier,
       controlModifier, shiftModifier}
 
+  test "AppKit pointer and modifier event types preserve routing":
+    check nativeEventKind(1) == pointerDown
+    check nativeEventKind(6) == pointerMove
+    check nativeEventKind(12) == modifiersChanged
+    check nativeEventKind(22) == scroll
+    check nativeEventButton(1) == 0
+    check nativeEventButton(3) == 1
+    check nativeEventButton(25) == 2
+
   test "command registry resolves exact macOS-style modifiers":
     var registry: CommandRegistry
     var invoked = false

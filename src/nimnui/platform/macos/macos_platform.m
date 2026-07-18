@@ -37,6 +37,21 @@ static NSArray<NSString *> *g_recent_files = nil;
 static uint32_t g_last_width_points = 0;
 static uint32_t g_last_height_points = 0;
 
+static uint32_t mouseButtonForEvent(NSEvent *event) {
+  switch (event.type) {
+    case NSEventTypeRightMouseDown:
+    case NSEventTypeRightMouseUp:
+    case NSEventTypeRightMouseDragged:
+      return 1;
+    case NSEventTypeOtherMouseDown:
+    case NSEventTypeOtherMouseUp:
+    case NSEventTypeOtherMouseDragged:
+      return 2;
+    default:
+      return 0;
+  }
+}
+
 typedef struct NimculusDrawUniforms {
   float opacity;
 } NimculusDrawUniforms;
@@ -351,6 +366,7 @@ static void logInput(NSString *kind, NSEvent *event) {
       .type = (uint32_t)event.type,
       .key_code = event.keyCode,
       .modifiers = (uint32_t)event.modifierFlags,
+      .button = mouseButtonForEvent(event),
       .x = location.x, .y = location.y,
       .delta_x = event.deltaX, .delta_y = event.deltaY,
     };
@@ -580,6 +596,9 @@ static void logInput(NSString *kind, NSEvent *event) {
 - (void)rightMouseDragged:(NSEvent *)event { logInput(@"rightMouseDragged", event); }
 - (void)rightMouseDown:(NSEvent *)event { logInput(@"rightMouseDown", event); }
 - (void)rightMouseUp:(NSEvent *)event { logInput(@"rightMouseUp", event); }
+- (void)otherMouseDown:(NSEvent *)event { logInput(@"otherMouseDown", event); }
+- (void)otherMouseUp:(NSEvent *)event { logInput(@"otherMouseUp", event); }
+- (void)otherMouseDragged:(NSEvent *)event { logInput(@"otherMouseDragged", event); }
 - (void)scrollWheel:(NSEvent *)event { logInput(@"scrollWheel", event); }
 - (BOOL)becomeFirstResponder {
   NSLog(@"Nimculus focus gained");

@@ -531,6 +531,12 @@ AppKit modifier flags are likewise converted by
 `macOSModifiers` before shortcut resolution. Zed is used as an implementation
 reference, not as an API compatibility target.
 
+The AppKit event bridge preserves event class before NimNUI routing: left,
+right, and other mouse buttons carry a button id; dragged events remain
+pointer moves; and `flagsChanged` remains a modifier-change event. This
+matches Zed's `PlatformInput` classification and prevents AppKit NSEvent type
+numbers from falling through to the generic command path.
+
 For NSTextInputClient, `unmarkText` is a state transition rather than only a
 native drawing operation. It therefore sends an empty composing callback to
 Nim, matching Zed's `InputHandler::unmark_text` contract and preventing stale

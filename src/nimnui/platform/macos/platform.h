@@ -15,6 +15,7 @@ typedef struct NimculusInputEvent {
   uint32_t type;
   uint32_t key_code;
   uint32_t modifiers;
+  uint32_t button;
   double x;
   double y;
   double delta_x;

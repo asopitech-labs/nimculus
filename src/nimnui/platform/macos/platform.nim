@@ -30,7 +30,7 @@ type
   NativePaintRegion* {.bycopy.} = object
     x*, y*, width*, height*: cfloat
   NimculusInputEvent* {.bycopy.} = object
-    kind*, keyCode*, modifiers*: uint32
+    kind*, keyCode*, modifiers*, button*: uint32
     x*, y*, deltaX*, deltaY*: cdouble
 
 proc platformSetInputCallback*(callback: InputCallback) {.importc: "nimculus_platform_set_input_callback", cdecl.}

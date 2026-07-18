@@ -727,14 +727,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
 
 proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   if event.isNil: return
-  let kind = case event.kind
-    of 1'u32: pointerDown
-    of 2'u32: pointerUp
-    of 5'u32: pointerMove
-    of 10'u32: keyDown
-    of 11'u32: keyUp
-    of 22'u32: scroll
-    else: command
+  let kind = nativeEventKind(event.kind)
   # AppKit view points use a bottom-left origin. NimNUI layout and hit-test
   # rectangles use a top-left origin, so normalize once at the boundary.
   var uiY = float32(event.y)
@@ -745,7 +738,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       uiY = float32(metrics.heightPoints) - float32(event.y)
   let point = Point(x: px(float32(event.x)), y: px(uiY))
   let hit = demoTree.hitTest(point)
-  let target = if kind == keyDown or kind == keyUp or kind == command:
+  let target = if kind in {keyDown, keyUp, modifiersChanged, command}:
     if demoTree.focused != NodeId(0): demoTree.focused else: hit
   else: hit
   when defined(macosx):
@@ -804,7 +797,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   elif kind == pointerUp and hit != NodeId(0):
     demoTree.setState(hit, if demoTree.focused == hit: focused else: normal)
   var uiEvent = UiEvent(kind: kind, target: target,
-    position: point, keyCode: event.keyCode, modifiers: event.modifiers,
+    position: point, keyCode: event.keyCode, button: event.button, modifiers: event.modifiers,
     shortcutModifiers: macOSModifiers(event.modifiers),
     deltaX: float32(event.deltaX), deltaY: float32(event.deltaY))
   discard demoTree.dispatch(uiEvent)
