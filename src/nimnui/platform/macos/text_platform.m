@@ -13,13 +13,27 @@ static CTFontRef makeFont(const char *name, double size) {
 }
 
 bool nimculus_font_available(const char *name, double size) {
-  if (!name) return false;
-  CTFontRef font = makeFont(name, size);
-  if (!font) return false;
-  CFStringRef actual = CTFontCopyPostScriptName(font);
-  bool available = actual != NULL;
-  if (actual) CFRelease(actual);
-  CFRelease(font);
+  if (!name || size <= 0.0) return false;
+  NSString *requested = [NSString stringWithUTF8String:name];
+  if (!requested || requested.length == 0) return false;
+
+  // Do not use makeFont here: it intentionally falls back to the system
+  // font for shaping, which would make every unknown name appear available.
+  // Availability is an exact database query; fallback remains a separate
+  // rendering concern, matching Zed's font resolution contract.
+  CFArrayRef postScriptNames = CTFontManagerCopyAvailablePostScriptNames();
+  CFArrayRef familyNames = CTFontManagerCopyAvailableFontFamilyNames();
+  bool available = false;
+  for (CFIndex i = 0; i < CFArrayGetCount(postScriptNames) && !available; i++) {
+    NSString *candidate = (NSString *)CFArrayGetValueAtIndex(postScriptNames, i);
+    available = [candidate isEqualToString:requested];
+  }
+  for (CFIndex i = 0; i < CFArrayGetCount(familyNames) && !available; i++) {
+    NSString *candidate = (NSString *)CFArrayGetValueAtIndex(familyNames, i);
+    available = [candidate isEqualToString:requested];
+  }
+  CFRelease(postScriptNames);
+  CFRelease(familyNames);
   return available;
 }
 

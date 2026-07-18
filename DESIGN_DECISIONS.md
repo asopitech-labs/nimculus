@@ -73,6 +73,11 @@ active clip and dirty regions. The native renderer receives the resulting clip
 rectangle as a scissor region; it does not need to reproduce UI-tree clip
 ownership or maintain a second stack.
 
+Viewport activation checks both dimensions. A zero width or zero height is a
+valid degenerate clip rather than an instruction to disable clipping; an
+entirely zero-sized viewport remains the unset sentinel used by the current
+layout API.
+
 ## M2-004: Release focus when a focus path becomes disabled
 
 Disabling a focused node or one of its ancestors clears the `UiTree.focused`
@@ -95,6 +100,12 @@ and run metrics provide glyph counts and typographic bounds, while the first
 atlas is rasterized into CPU memory and uploaded with `MTLTexture`'s
 `replaceRegion` API. This keeps shaping/font fallback platform-native and
 keeps Metal responsible for texture sampling and presentation.
+
+Font availability is queried against Core Text's registered PostScript and
+family name databases without invoking the shaping fallback constructor. An
+unknown configured font must remain unavailable; fallback is applied only when
+resolving a render run, following Zed's separation between font resolution and
+glyph fallback.
 
 The editor texture is rasterized in logical points under a CGContext scale
 matching the current `backingScaleFactor`, then uploaded at pixel resolution.

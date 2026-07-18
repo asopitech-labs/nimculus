@@ -95,6 +95,17 @@ suite "M2 UI foundation":
     check tree.node(first).bounds == expected
     check tree.node(second).bounds == expected
 
+  test "viewport clipping remains active when only height is nonzero":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let child = tree.addNode(root)
+    tree.layoutNode(root, Rect(size: Size(width: px(100), height: px(100))),
+      LayoutSpec(direction: stack,
+        viewport: Rect(origin: Point(x: px(10), y: px(20)),
+          size: Size(width: px(0), height: px(40)))))
+    check tree.node(child).bounds.size.width == px(0)
+    check tree.node(child).bounds.size.height == px(40)
+
   test "rect hit testing uses half-open edges":
     var tree = newUiTree()
     let root = tree.addNode()
@@ -322,6 +333,10 @@ when defined(macosx):
       check metrics.width > 0
       check metrics.ascent > 0
       check metrics.glyphCount > 0
+
+    test "font availability does not accept fallback fonts":
+      check not nativeFontAvailable("Nimculus Font That Does Not Exist", 14)
+      check not nativeFontAvailable("Hiragino Sans", 0)
 
     test "Core Text measurement preserves embedded NUL bytes":
       var metrics, prefix: NativeTextMetrics
