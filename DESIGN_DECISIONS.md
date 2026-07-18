@@ -73,6 +73,14 @@ active clip and dirty regions. The native renderer receives the resulting clip
 rectangle as a scissor region; it does not need to reproduce UI-tree clip
 ownership or maintain a second stack.
 
+## M2-004: Release focus when a focus path becomes disabled
+
+Disabling a focused node or one of its ancestors clears the `UiTree.focused`
+owner and the node's focused flag. This follows Zed's explicit focus-loss
+model: a disabled view must not continue receiving keyboard routing merely
+because it held focus before the state change. Pointer hit-testing and focus
+traversal apply the same disabled-path rule.
+
 ## M1-003: Use an AppKit tracking area for pointer motion
 
 `mouseMoved` is delivered only when the window accepts mouse-motion events and

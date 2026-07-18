@@ -154,6 +154,25 @@ proc setDisabled*(tree: var UiTree, id: NodeId, value: bool) =
   if index >= 0:
     tree.nodes[index].disabledState = value
     tree.updateVisualState(index)
+    if value and tree.focused != NodeId(0):
+      # Disabling a focused node, or one of its ancestors, invalidates the
+      # current focus path. Keep the focus owner and visual flags in sync so
+      # keyboard routing cannot continue targeting disabled UI.
+      var current = tree.focused
+      var focusMustClear = false
+      while current != NodeId(0):
+        if current == id:
+          focusMustClear = true
+          break
+        let currentIndex = nodeIndex(tree, current)
+        if currentIndex < 0: break
+        current = tree.nodes[currentIndex].parent
+      if focusMustClear:
+        let focusedIndex = nodeIndex(tree, tree.focused)
+        if focusedIndex >= 0:
+          tree.nodes[focusedIndex].focusedState = false
+          tree.updateVisualState(focusedIndex)
+        tree.focused = NodeId(0)
 
 proc focus*(tree: var UiTree, id: NodeId): bool =
   let index = nodeIndex(tree, id)

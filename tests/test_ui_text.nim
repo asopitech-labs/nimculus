@@ -133,12 +133,24 @@ suite "M2 UI foundation":
     check tree.node(button).state == focused
     tree.setDisabled(button, true)
     check tree.node(button).state == disabled
+    check tree.focused == NodeId(0)
+    check not tree.node(button).focusedState
     check not tree.focus(button)
     tree.node(root).bounds = Rect(size: Size(width: px(100), height: px(40)))
     tree.node(button).bounds = Rect(size: Size(width: px(100), height: px(40)))
     check tree.hitTest(Point(x: px(10), y: px(10))) != button
     tree.setDisabled(root, true)
     check tree.hitTest(Point(x: px(10), y: px(10))) == NodeId(0)
+
+  test "disabling a focused ancestor clears descendant focus":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let panel = tree.addNode(root)
+    let button = tree.addNode(panel, focusable = true)
+    check tree.focus(button)
+    tree.setDisabled(panel, true)
+    check tree.focused == NodeId(0)
+    check not tree.node(button).focusedState
 
   test "node handles carry a generation":
     var tree = newUiTree()
