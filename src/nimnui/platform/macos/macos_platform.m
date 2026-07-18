@@ -1129,10 +1129,10 @@ static void logInput(NSString *kind, NSEvent *event) {
 }
 
 - (void)saveDocument:(id)sender {
-  NSSavePanel *panel = [NSSavePanel savePanel];
-  if ([panel runModal] == NSModalResponseOK) {
-    if (g_file_callback) g_file_callback(panel.URL.path.UTF8String, true);
-  }
+  (void)sender;
+  // Nim decides whether the active document already has a path. Existing
+  // files must save directly on Cmd+S; only untitled documents need a panel.
+  if (g_command_callback) g_command_callback("save");
 }
 
 - (void)createTextAtlas:(id<MTLDevice>)device {

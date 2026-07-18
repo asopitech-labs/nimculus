@@ -129,6 +129,11 @@ M5 external-change detection treats deletion as a change, and session loading
 accepts partial metadata so a damaged or older session file cannot crash
 startup.
 
+The native Save menu dispatches a semantic `save` command instead of opening a
+panel unconditionally. Nim saves an existing document at its current path and
+opens `NSSavePanel` only for an untitled document, keeping the platform menu
+contract independent from document ownership.
+
 Dirty state compares a saved content revision with the current content
 revision, not the number of edit/undo operations. Undo and redo restore the
 revision represented by their transaction, so returning to the saved content

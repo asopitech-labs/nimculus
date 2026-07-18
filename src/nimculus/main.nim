@@ -531,8 +531,17 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "new": receiveNativeCommand("newDocument".cstring)
     of "save":
       when defined(macosx):
-        let path = chooseSaveFile()
-        if path != nil and ($path).len > 0: receiveNativeFile(path, true)
+        if document != nil and document[].path.len > 0:
+          try:
+            document[].save()
+            editorViewState.statusMessage = "Saved " & document[].path
+            syncEditorCursor()
+            refreshEditorSyntax()
+          except CatchableError as error:
+            editorViewState.statusMessage = "Save failed: " & error.msg
+        else:
+          let path = chooseSaveFile()
+          if path != nil and ($path).len > 0: receiveNativeFile(path, true)
     of "find":
       when defined(macosx):
         platformShowFindDocument()
