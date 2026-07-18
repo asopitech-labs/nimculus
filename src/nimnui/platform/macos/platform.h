@@ -32,3 +32,5 @@ void nimculus_platform_set_text_callback(NimculusTextCallback callback);
 void nimculus_platform_set_ui_rectangle(double x, double y, double width, double height);
 void nimculus_clipboard_set(const char *utf8);
 const char *nimculus_clipboard_get(void);
+const char *nimculus_choose_open_file(void);
+const char *nimculus_choose_save_file(void);

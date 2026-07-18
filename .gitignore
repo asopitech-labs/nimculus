@@ -4,10 +4,14 @@ nimblecache/
 htmldocs/
 build/
 src/nimculus/main
-nimculus/
+/nimculus/
 tests/test_platform_contract
 tests/bench_platform
 tests/test_ui_text
+tests/test_editor
+tests/test_editor_fuzz
+tests/bench_editor
+tests/bench_large_editor
 *.app
 *.dmg
 references/zed/

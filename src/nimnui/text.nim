@@ -3,7 +3,7 @@ import nimnui/geometry
 
 when defined(macosx):
   {.compile: "platform/macos/text_platform.m".}
-  {.passL: "-framework CoreText -framework CoreFoundation".}
+  {.passL: "-framework Cocoa -framework CoreText -framework CoreFoundation".}
 
 type
   TextPosition* = object

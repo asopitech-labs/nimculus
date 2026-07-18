@@ -25,3 +25,5 @@ proc platformSetTextCallback*(callback: TextCallback) {.importc: "nimculus_platf
 proc platformSetUiRectangle*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_ui_rectangle", cdecl.}
 proc clipboardSet*(text: cstring) {.importc: "nimculus_clipboard_set", cdecl.}
 proc clipboardGet*(): cstring {.importc: "nimculus_clipboard_get", cdecl.}
+proc chooseOpenFile*(): cstring {.importc: "nimculus_choose_open_file", cdecl.}
+proc chooseSaveFile*(): cstring {.importc: "nimculus_choose_save_file", cdecl.}

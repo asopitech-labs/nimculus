@@ -35,3 +35,17 @@ eviction and visible-range layout, Core Graphics rasterization into an
 `MTLTexture`, and a Metal text pipeline. The native view implements the
 `NSTextInputClient` contract, forwards composition/commit events to Nim,
 returns screen-space candidate rectangles, and exposes the macOS clipboard.
+
+## M4/M5 editor layers
+
+```text
+FileDocument / EditorSession / EditorView
+                 ↓
+PieceTable + edit transactions + line/UTF-16 indexes
+                 ↓
+NimNUI text, selection, cursor, status and native AppKit services
+```
+
+The Piece Table is independent of the UI and is exercised by deterministic
+fuzz tests. M5 services preserve CRLF/LF style, detect external changes, and
+persist tabs, recent files, and recovery data separately from rendering.

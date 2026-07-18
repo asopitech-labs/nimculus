@@ -4,6 +4,8 @@
 #import <CoreText/CoreText.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <mach/mach_time.h>
+#include <limits.h>
+#include <string.h>
 #include "platform.h"
 
 static uint64_t g_input_count = 0;
@@ -12,6 +14,7 @@ static NimculusInputCallback g_input_callback = NULL;
 static NimculusTextCallback g_text_callback = NULL;
 static double g_ui_rect[4] = {360.0, 260.0, 240.0, 120.0};
 static NSString *g_clipboard_text = @"";
+static char g_dialog_path[PATH_MAX] = {0};
 
 static id<MTLRenderPipelineState> g_pipeline = nil;
 static id<MTLRenderPipelineState> g_text_pipeline = nil;
@@ -224,6 +227,46 @@ static void logInput(NSString *kind, NSEvent *event) {
 
 @implementation NimculusAppDelegate
 
+- (void)setupMainMenu {
+  NSMenu *mainMenu = [[NSMenu alloc] initWithTitle:@"MainMenu"];
+  NSMenuItem *appItem = [[NSMenuItem alloc] initWithTitle:@"Nimculus" action:NULL keyEquivalent:@""];
+  NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"Nimculus"];
+  [appMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Quit Nimculus" action:@selector(terminate:) keyEquivalent:@"q"]];
+  [appItem setSubmenu:appMenu];
+  [mainMenu addItem:appItem];
+
+  NSMenuItem *fileItem = [[NSMenuItem alloc] initWithTitle:@"File" action:NULL keyEquivalent:@""];
+  NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
+  NSMenuItem *open = [[NSMenuItem alloc] initWithTitle:@"Open…" action:@selector(openDocument:) keyEquivalent:@"o"];
+  NSMenuItem *save = [[NSMenuItem alloc] initWithTitle:@"Save" action:@selector(saveDocument:) keyEquivalent:@"s"];
+  NSMenuItem *close = [[NSMenuItem alloc] initWithTitle:@"Close Window" action:@selector(performClose:) keyEquivalent:@"w"];
+  open.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  save.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  close.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  [fileMenu addItem:open]; [fileMenu addItem:save]; [fileMenu addItem:close];
+  [fileItem setSubmenu:fileMenu];
+  [mainMenu addItem:fileItem];
+
+  for (NSString *title in @[@"Edit", @"View", @"Window"]) {
+    [mainMenu addItem:[[NSMenuItem alloc] initWithTitle:title action:NULL keyEquivalent:@""]];
+  }
+  [NSApp setMainMenu:mainMenu];
+}
+
+- (void)openDocument:(id)sender {
+  NSOpenPanel *panel = [NSOpenPanel openPanel];
+  if ([panel runModal] == NSModalResponseOK) {
+    NSLog(@"Nimculus open file=%@", panel.URL.path);
+  }
+}
+
+- (void)saveDocument:(id)sender {
+  NSSavePanel *panel = [NSSavePanel savePanel];
+  if ([panel runModal] == NSModalResponseOK) {
+    NSLog(@"Nimculus save file=%@", panel.URL.path);
+  }
+}
+
 - (void)createTextAtlas:(id<MTLDevice>)device {
   const size_t width = 512, height = 64;
   NSMutableData *pixels = [NSMutableData dataWithLength:width * height];
@@ -284,6 +327,7 @@ static void logInput(NSString *kind, NSEvent *event) {
                NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
     backing:NSBackingStoreBuffered defer:NO];
   self.window.title = @"Nimculus";
+  [self setupMainMenu];
   self.view = [[NimculusMetalView alloc] initWithFrame:frame];
   self.window.contentView = self.view;
   [self.window center];
@@ -324,3 +368,18 @@ const char *nimculus_clipboard_get(void) {
   NSString *text = [[NSPasteboard generalPasteboard] stringForType:NSPasteboardTypeString];
   return text ? text.UTF8String : "";
 }
+
+static const char *runFilePanel(BOOL save) {
+  @autoreleasepool {
+    NSSavePanel *savePanel = save ? [NSSavePanel savePanel] : nil;
+    NSOpenPanel *openPanel = save ? nil : [NSOpenPanel openPanel];
+    NSInteger response = save ? [savePanel runModal] : [openPanel runModal];
+    if (response != NSModalResponseOK) { g_dialog_path[0] = '\0'; return g_dialog_path; }
+    NSString *path = save ? savePanel.URL.path : openPanel.URL.path;
+    strncpy(g_dialog_path, path.UTF8String ?: "", sizeof(g_dialog_path) - 1);
+    g_dialog_path[sizeof(g_dialog_path) - 1] = '\0';
+    return g_dialog_path;
+  }
+}
+const char *nimculus_choose_open_file(void) { return runFilePanel(NO); }
+const char *nimculus_choose_save_file(void) { return runFilePanel(YES); }

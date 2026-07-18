@@ -46,3 +46,18 @@ The custom `NSView` implements `NSTextInputClient`; marked text, committed text,
 selection, and the candidate rectangle are forwarded through a C callback into
 the Nim IME state. The editor buffer remains separate so composition does not
 mutate committed text prematurely.
+
+## M4-001: Piece Table for the first editor buffer
+
+M4 uses an original/additions/pieces representation. Edits append to the
+additions buffer and update piece boundaries, while line starts are rebuilt at
+the edit boundary. Edit records store before/after text so Undo/Redo and
+multi-cursor transactions share one atomic path. UTF-8 byte offsets remain the
+internal source of truth; grapheme and UTF-16 positions are derived at API
+boundaries.
+
+## M5-001: Keep editor services independent of AppKit
+
+File documents, tabs, splits, search/replace, session persistence, and recovery
+are Nim services. AppKit only supplies the native menu and modal file panels;
+file correctness and recovery remain testable without a GUI session.
