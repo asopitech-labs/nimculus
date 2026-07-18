@@ -2,6 +2,7 @@ import std/unittest
 import std/os
 import std/sequtils
 import std/strutils
+import std/tables
 import nimculus/workspace
 
 suite "M6 workspace":
@@ -61,3 +62,11 @@ suite "M6 workspace":
     check results.len == 1
     check results[0].line == 1
     removeFile(root / "main.nim"); removeDir(root)
+
+  test "keeps Git worktree state keyed by worktree root":
+    let workspace = openWorkspace(getCurrentDir())
+    let states = workspace.gitWorktreeStates()
+    check states.len >= 1
+    for root, state in states:
+      check root == state.root
+      check state.head.len > 0

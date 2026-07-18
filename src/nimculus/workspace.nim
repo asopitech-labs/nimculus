@@ -19,6 +19,8 @@ type
     path*: string
     line*, column*: int
     text*: string
+  WorktreeState* = object
+    root*, head*, branch*: string
   CancelToken* = ref object
     cancelled*: bool
   Workspace* = ref object
@@ -176,6 +178,17 @@ proc gitWorktrees*(workspace: Workspace): seq[string] =
       if line.startsWith("worktree "): result.add(line[9 .. ^1])
   except CatchableError:
     discard
+
+proc gitWorktreeStates*(workspace: Workspace): Table[string, WorktreeState] =
+  result = initTable[string, WorktreeState]()
+  for root in workspace.gitWorktrees():
+    try:
+      let head = execCmdEx("git -C " & quoteShell(root) & " rev-parse HEAD").output.strip
+      let branchResult = execCmdEx("git -C " & quoteShell(root) & " symbolic-ref --short HEAD")
+      let branch = if branchResult.exitCode == 0: branchResult.output.strip else: "(detached)"
+      result[root] = WorktreeState(root: root, head: head, branch: branch)
+    except CatchableError:
+      discard
 
 proc searchWorkspace*(workspace: Workspace, query: string,
                       token: CancelToken = nil): seq[SearchResult] =
