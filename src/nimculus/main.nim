@@ -42,6 +42,17 @@ var workspaceSearchCancelled = false
 var externalAlertShown = false
 
 proc activeDocument(): ptr FileDocument
+proc refreshWorkspacePreview()
+
+proc openActiveWorkspace(path: string) =
+  when defined(macosx):
+    if activeWorkspace != nil: activeWorkspace.stopWatching()
+    activeWorkspace = openWorkspace(path)
+    activeWorkspace.startWatching()
+    workspaceSearchQuery = ""
+    workspaceSearchResults.setLen(0)
+    workspaceSearchCancelled = false
+    refreshWorkspacePreview()
 
 proc refreshWorkspacePreview() =
   when defined(macosx):
@@ -99,11 +110,14 @@ proc cancelWorkspaceSearch() =
 
 proc pollWorkspaceSearch() =
   when defined(macosx):
+    let changed = if activeWorkspace == nil: @[] else: activeWorkspace.changedPaths()
     let document = activeDocument()
     if document != nil and document[].path.len > 0 and document[].externallyChanged() and not externalAlertShown:
       externalAlertShown = true
       platformShowExternalChange(document[].path.cstring)
-    if workspaceSearchJob == nil: return
+    if workspaceSearchJob == nil:
+      if changed.len > 0 and document == nil: refreshWorkspacePreview()
+      return
     for result in workspaceSearchJob.pollSearch(maxFiles = 8, maxLines = 256):
       if workspaceSearchResults.len < 256: workspaceSearchResults.add(result)
     renderWorkspaceSearch()
@@ -178,8 +192,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       externalAlertShown = false
   else:
     if dirExists(filePath):
-      activeWorkspace = openWorkspace(filePath)
-      refreshWorkspacePreview()
+      openActiveWorkspace(filePath)
       return
     try:
       editorSession.addTab(openDocument(filePath))
@@ -302,8 +315,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
 when isMainModule:
   when defined(macosx):
     setupDemoUi()
-    activeWorkspace = openWorkspace(getCurrentDir())
-    refreshWorkspacePreview()
+    openActiveWorkspace(getCurrentDir())
     platformSetTextCallback(receiveNativeText)
     platformSetInputCallback(receiveNativeInput)
     platformSetFileCallback(receiveNativeFile)

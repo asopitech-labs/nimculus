@@ -174,6 +174,13 @@ The Edit menu exposes cancellation as a separate command. Cancellation closes
 the active stream, drops pending work, and leaves a cancelled status in the
 search view instead of silently showing stale partial results.
 
+## M6-006: Start and consume FSEvents with the Workspace lifecycle
+
+Opening a folder stops the previous watcher, starts a new watcher for the
+active root, and consumes coalesced changed paths from the same main-loop tick
+used by search. The preview is refreshed only when no editor document is
+active, so file notifications cannot overwrite an open document surface.
+
 ## M6-003: Search yields cooperatively and streams file contents
 
 The UI-facing `SearchJob` processes a bounded number of files and lines per
