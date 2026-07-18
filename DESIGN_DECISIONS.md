@@ -352,6 +352,14 @@ rectangle until pointer-up. This mirrors GPUI's captured hitbox contract and
 prevents toolbar, sidebar, and empty-window clicks from changing document
 selection.
 
+## M5-008: Normalize selections after document-size changes
+
+Document-wide replacement can remove bytes beyond either endpoint, and a
+replacement can end inside a previously selected grapheme cluster. The view
+state therefore clamps both endpoints to the new UTF-8 length and floors them
+to grapheme boundaries before native synchronization. This keeps editing,
+status reporting, and `NSTextInputClient` ranges within one buffer snapshot.
+
 ## M1-004: Preserve precise macOS scroll deltas
 
 The native input ABI carries AppKit's `hasPreciseScrollingDeltas` distinction.

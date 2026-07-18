@@ -182,6 +182,14 @@ suite "M5 editor services":
     view.openCommandPalette()
     check view.commandPaletteOpen
 
+  test "selection clamps to grapheme boundaries after document shrink":
+    var view = newEditorView()
+    view.selection.anchor = 100
+    view.selection.active = 4
+    view.clampSelectionToText("A🙂")
+    check view.selection.anchor == "A🙂".len
+    check view.selection.active == 1
+
   test "session and recovery round trip":
     let path = getTempDir() / "nimculus-m5-session.txt"
     let recoveryPath = getTempDir() / "nimculus-m5-recovery.txt"

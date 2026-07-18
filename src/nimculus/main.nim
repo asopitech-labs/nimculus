@@ -855,6 +855,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     let query = payload[0 ..< separator]
     let replacement = if separator + 1 < payload.len: payload[separator + 1 .. ^1] else: ""
     let count = document[].replaceAll(query, replacement)
+    editorViewState.clampSelectionToText(document[].buffer.toString())
     editorViewState.statusMessage = "Replaced " & $count & " matches"
     syncEditorCursor()
     refreshEditorSyntax()

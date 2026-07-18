@@ -158,6 +158,15 @@ proc selectedRange*(view: EditorViewState): tuple[startByte, endByte: int] =
   (startByte: min(view.selection.anchor, view.selection.active),
    endByte: max(view.selection.anchor, view.selection.active))
 
+proc clampSelectionToText*(view: var EditorViewState, text: string) =
+  ## Keep selection endpoints valid after a document-wide replacement or
+  ## external buffer update. Endpoints are byte offsets, but must still land
+  ## on extended grapheme boundaries before they are sent to AppKit.
+  view.selection.anchor = floorGraphemeBoundary(text,
+    min(max(0, view.selection.anchor), text.len))
+  view.selection.active = floorGraphemeBoundary(text,
+    min(max(0, view.selection.active), text.len))
+
 proc lineNumber*(buffer: PieceTable, line: int): string = $(line + 1)
 
 proc statusBarText*(view: EditorViewState, buffer: PieceTable): string =
