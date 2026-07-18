@@ -60,7 +60,7 @@ proc dispatchShortcut*(registry: CommandRegistry, shortcut: Shortcut): bool =
 proc focusNext*(tree: var UiTree): NodeId =
   var focusables: seq[NodeId]
   for node in tree.nodes:
-    if node.focusable and not node.disabledState: focusables.add(node.id)
+    if node.focusable and not tree.isDisabledPath(node.id): focusables.add(node.id)
   if focusables.len == 0: return NodeId(0)
   var current = 0
   for index, id in focusables:

@@ -174,9 +174,19 @@ proc setDisabled*(tree: var UiTree, id: NodeId, value: bool) =
           tree.updateVisualState(focusedIndex)
         tree.focused = NodeId(0)
 
+proc isDisabledPath*(tree: UiTree, id: NodeId): bool =
+  ## A node is not focusable while any node on its focus path is disabled.
+  var current = id
+  while current != NodeId(0):
+    let index = tree.nodeIndex(current)
+    if index < 0: return false
+    if tree.nodes[index].disabledState: return true
+    current = tree.nodes[index].parent
+  false
+
 proc focus*(tree: var UiTree, id: NodeId): bool =
   let index = nodeIndex(tree, id)
-  if index < 0 or not tree.nodes[index].focusable or tree.nodes[index].disabledState: return false
+  if index < 0 or not tree.nodes[index].focusable or tree.isDisabledPath(id): return false
   if tree.focused != NodeId(0):
     let oldIndex = nodeIndex(tree, tree.focused)
     if oldIndex >= 0:

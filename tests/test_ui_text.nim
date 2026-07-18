@@ -179,6 +179,26 @@ suite "M2 UI foundation":
     tree.setDisabled(disabledButton, true)
     check tree.focusNext() == enabledButton
 
+  test "focus rejects controls below a disabled ancestor":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let panel = tree.addNode(root)
+    let button = tree.addNode(panel, focusable = true)
+    tree.setDisabled(panel, true)
+    check not tree.focus(button)
+    check tree.focused == NodeId(0)
+
+  test "focus traversal skips controls below a disabled ancestor":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let panel = tree.addNode(root)
+    let disabledButton = tree.addNode(panel, focusable = true)
+    let enabledButton = tree.addNode(root, focusable = true)
+    tree.setDisabled(panel, true)
+    check tree.isDisabledPath(disabledButton)
+    check tree.focusNext() == enabledButton
+    check tree.focused == enabledButton
+
   test "hit testing selects the topmost node":
     var tree = newUiTree()
     let root = tree.addNode()
