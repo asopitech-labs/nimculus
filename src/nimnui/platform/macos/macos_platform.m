@@ -5,6 +5,7 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <mach/mach_time.h>
 #include <limits.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include "platform.h"
@@ -65,6 +66,62 @@ static void drawColoredRectangle(id<MTLRenderCommandEncoder> encoder,
     options:MTLResourceStorageModeShared];
   [encoder setVertexBuffer:buffer offset:0 atIndex:0];
   [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+}
+
+static void drawRoundedRectangle(id<MTLRenderCommandEncoder> encoder,
+                                 id<MTLDevice> device, CGSize logicalSize,
+                                 double x, double y, double width, double height,
+                                 double radius, float red, float green,
+                                 float blue, float alpha) {
+  if (logicalSize.width <= 0 || logicalSize.height <= 0 || width <= 0 || height <= 0) return;
+  const int cornerSegments = 6;
+  const int perimeterPoints = (cornerSegments + 1) * 4;
+  const int vertexCount = perimeterPoints + 1;
+  float *vertices = malloc(sizeof(float) * vertexCount * 8);
+  if (!vertices) return;
+  double r = MIN(radius, MIN(width, height) / 2.0);
+  double centerX = x + width / 2.0;
+  double centerY = y + height / 2.0;
+  vertices[0] = (float)(centerX / logicalSize.width * 2.0 - 1.0);
+  vertices[1] = (float)(1.0 - centerY / logicalSize.height * 2.0);
+  vertices[2] = 0.0f; vertices[3] = 1.0f;
+  vertices[4] = red; vertices[5] = green; vertices[6] = blue; vertices[7] = alpha;
+  const double centers[4][2] = {
+    {x + r, y + r}, {x + width - r, y + r},
+    {x + width - r, y + height - r}, {x + r, y + height - r}
+  };
+  const double starts[4] = {M_PI, -M_PI / 2.0, 0.0, M_PI / 2.0};
+  int vertex = 1;
+  for (int corner = 0; corner < 4; corner++) {
+    for (int step = 0; step <= cornerSegments; step++) {
+      double angle = starts[corner] + (M_PI / 2.0) * step / cornerSegments;
+      double pointX = centers[corner][0] + cos(angle) * r;
+      double pointY = centers[corner][1] + sin(angle) * r;
+      int offset = vertex * 8;
+      vertices[offset] = (float)(pointX / logicalSize.width * 2.0 - 1.0);
+      vertices[offset + 1] = (float)(1.0 - pointY / logicalSize.height * 2.0);
+      vertices[offset + 2] = 0.0f; vertices[offset + 3] = 1.0f;
+      vertices[offset + 4] = red; vertices[offset + 5] = green;
+      vertices[offset + 6] = blue; vertices[offset + 7] = alpha;
+      vertex++;
+    }
+  }
+  const int triangleVertexCount = perimeterPoints * 3;
+  float *triangles = malloc(sizeof(float) * triangleVertexCount * 8);
+  if (!triangles) { free(vertices); return; }
+  for (int point = 0; point < perimeterPoints; point++) {
+    int next = (point + 1) % perimeterPoints;
+    memcpy(&triangles[point * 24], &vertices[0], sizeof(float) * 8);
+    memcpy(&triangles[point * 24 + 8], &vertices[(point + 1) * 8], sizeof(float) * 8);
+    memcpy(&triangles[point * 24 + 16], &vertices[(next + 1) * 8], sizeof(float) * 8);
+  }
+  id<MTLBuffer> buffer = [device newBufferWithBytes:triangles
+    length:sizeof(float) * triangleVertexCount * 8 options:MTLResourceStorageModeShared];
+  free(vertices);
+  free(triangles);
+  [encoder setVertexBuffer:buffer offset:0 atIndex:0];
+  [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
+    vertexCount:triangleVertexCount];
 }
 
 static void setScissorForRegion(id<MTLRenderCommandEncoder> encoder,
@@ -343,18 +400,42 @@ static void logInput(NSString *kind, NSEvent *event) {
         NimculusPaintCommand paint = g_paint_commands[i];
         NimculusPaintRegion clip = {paint.clip_x, paint.clip_y, paint.clip_width, paint.clip_height};
         setScissorForRegion(encoder, clip, logicalSize, drawableSize);
-        if (paint.kind == 0) {
+        if (paint.kind == 0) { // rectangle
           drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
             paint.x, paint.y, paint.width, paint.height,
             0.15f, 0.48f, 0.92f, 1.0f);
-        } else if (paint.kind == 8) {
+        } else if (paint.kind == 1) { // border
+          const double thickness = 2.0;
           drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
-            paint.x, paint.y, paint.width, paint.height,
-            0.20f, 0.40f, 0.75f, 0.45f);
-        } else if (paint.kind == 9) {
+            paint.x, paint.y, paint.width, thickness, 0.15f, 0.48f, 0.92f, 1.0f);
+          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
+            paint.x, paint.y + paint.height - thickness, paint.width, thickness,
+            0.15f, 0.48f, 0.92f, 1.0f);
+          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
+            paint.x, paint.y, thickness, paint.height, 0.15f, 0.48f, 0.92f, 1.0f);
+          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
+            paint.x + paint.width - thickness, paint.y, thickness, paint.height,
+            0.15f, 0.48f, 0.92f, 1.0f);
+        } else if (paint.kind == 2) { // rounded rectangle
+          drawRoundedRectangle(encoder, drawable.texture.device, logicalSize,
+            paint.x, paint.y, paint.width, paint.height, paint.radius,
+            0.15f, 0.48f, 0.92f, 1.0f);
+        } else if (paint.kind == 7) { // shadow
+          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
+            paint.x + 3.0, paint.y + 3.0, paint.width, paint.height,
+            0.0f, 0.0f, 0.0f, 0.35f);
+        } else if (paint.kind == 8) { // caret
           drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
             paint.x, paint.y, paint.width, paint.height,
             0.85f, 0.90f, 1.0f, 1.0f);
+        } else if (paint.kind == 9) { // selection
+          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
+            paint.x, paint.y, paint.width, paint.height,
+            0.20f, 0.40f, 0.75f, 0.45f);
+        } else if (paint.kind == 10) { // scrollbar
+          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
+            paint.x, paint.y, paint.width, paint.height,
+            0.45f, 0.50f, 0.58f, 0.85f);
         }
       }
       if (g_paint_count == 0) {

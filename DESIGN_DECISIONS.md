@@ -50,9 +50,10 @@ retained BGRA scene texture is updated with `MTLLoadActionLoad` and dirty
 region background clears, then copied to the newly acquired `CAMetalDrawable`
 with a blit pass. This is required because the drawable is a presentation
 target, not the retained source surface. The first slice supports rectangle,
-selection, and caret colors; other paint kinds remain explicit follow-up work.
-This preserves a direct path to batching without forcing Cocoa or Metal types
-into NimNUI's core model.
+border, rounded rectangle, shadow, caret, selection, and scrollbar primitives;
+text/image/clip/transform remain separate renderer work. This preserves a
+direct path to batching without forcing Cocoa or Metal types into NimNUI's
+core model.
 
 ## M2-002: Hit-test native pointer events before UI dispatch
 
