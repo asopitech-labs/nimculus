@@ -507,11 +507,13 @@ successful save, so a failed save cannot silently close the document.
 
 The macOS application stores session metadata under
 `~/Library/Application Support/Nimculus`. Startup restores existing tabs and
-then restores the active recovery buffer when present. A main-loop tick writes
-the active dirty document to a separate recovery file, while a successful save
-or an explicit Don't Save decision removes it. The recovery file intentionally
-contains only the active buffer; the session file remains the source of truth
-for tab paths and recent files.
+then restores the active recovery buffer when present. Untitled tabs serialize
+their UTF-8 content, line-ending mode, dirty state, and view state directly in
+the session file, so they are not silently lost on restart. A main-loop tick
+writes the active dirty document to a separate recovery file, while a
+successful save or an explicit Don't Save decision removes it. The recovery
+file intentionally contains only the active buffer; the session file remains
+the source of truth for tab paths, untitled content, and recent files.
 
 ## M5-011: Keep command palette actions on the existing command ABI
 

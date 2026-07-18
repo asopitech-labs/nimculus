@@ -15,6 +15,13 @@ proc jsonBool(node: JsonNode, key: string, fallback: bool): bool =
   try: node[key].getBool(fallback)
   except CatchableError: fallback
 
+proc jsonString(node: JsonNode, key, fallback: string): string =
+  if node == nil or node.kind != JObject or not node.hasKey(key): return fallback
+  try:
+    if node[key].kind == JString: return node[key].getStr
+  except CatchableError: discard
+  fallback
+
 proc saveSession*(session: EditorSession, path: string) =
   var root = %*{"activeTab": session.activeTab, "split": session.split,
                 "splitDirection": $session.splitDirection,
@@ -22,7 +29,8 @@ proc saveSession*(session: EditorSession, path: string) =
                 "workspaceRoots": session.workspaceRoots}
   var tabs = newJArray()
   for tab in session.tabs:
-    tabs.add(%*{"path": tab.document.path, "title": tab.title,
+    var serializedTab = %*{"path": tab.document.path, "title": tab.title,
+      "dirty": tab.document.buffer.isDirty,
       "view": {
         "anchor": tab.view.selection.anchor,
         "active": tab.view.selection.active,
@@ -31,7 +39,11 @@ proc saveSession*(session: EditorSession, path: string) =
         "softWrap": tab.view.softWrap,
         "showIndentGuides": tab.view.showIndentGuides,
         "indentWidth": tab.view.indentWidth
-      }})
+      }}
+    if tab.document.path.len == 0:
+      serializedTab["content"] = %tab.document.buffer.toString()
+      serializedTab["lineEnding"] = %($tab.document.lineEnding)
+    tabs.add(serializedTab)
   root["tabs"] = tabs
   atomicWriteFile(path, $root)
 
@@ -46,9 +58,10 @@ proc loadSession*(path: string): EditorSession =
   if root.kind != JObject:
     result.activeTab = -1
     return
-  if root.hasKey("activeTab"): result.activeTab = root["activeTab"].getInt(-1)
-  else: result.activeTab = -1
-  if root.hasKey("split"): result.split = root["split"].getBool(false)
+  result.activeTab = jsonInt(root, "activeTab", -1)
+  result.split = jsonBool(root, "split", false)
+  let direction = jsonString(root, "splitDirection", "splitVertical")
+  result.splitDirection = if direction == "splitHorizontal": splitHorizontal else: splitVertical
   if root.hasKey("recentFiles") and root["recentFiles"].kind == JArray:
     for item in root["recentFiles"].getElems:
       if item.kind == JString: result.recentFiles.add(item.getStr)
@@ -58,13 +71,27 @@ proc loadSession*(path: string): EditorSession =
   if not root.hasKey("tabs") or root["tabs"].kind != JArray: return
   for item in root["tabs"].getElems:
     if item.kind != JObject or not item.hasKey("path"): continue
-    let filePath = item["path"].getStr
-    if filePath.len > 0 and fileExists(filePath):
-      try:
-        result.addTab(openDocument(filePath))
+    let filePath = jsonString(item, "path", "")
+    var document: FileDocument
+    var canRestore = false
+    try:
+      if filePath.len > 0 and fileExists(filePath):
+        document = openDocument(filePath)
+        canRestore = true
+      elif filePath.len == 0 and item.hasKey("content") and
+           item["content"].kind == JString:
+        document = newDocument()
+        document.buffer = initPieceTable(item["content"].getStr)
+        document.lineEnding = if jsonString(item, "lineEnding", "lf") == "crlf": crlf else: lf
+        if jsonBool(item, "dirty", false): document.buffer.markDirty()
+        canRestore = true
+      if canRestore:
+        result.addTab(document)
+        let tabIndex = result.tabs.high
+        let savedTitle = jsonString(item, "title", "")
+        if savedTitle.len > 0: result.tabs[tabIndex].title = savedTitle
         if item.hasKey("view") and item["view"].kind == JObject:
           let view = item["view"]
-          let tabIndex = result.tabs.high
           let tabView = addr result.tabs[tabIndex].view
           let text = result.tabs[tabIndex].document.buffer.toString()
           tabView[].selection.anchor = floorGraphemeBoundary(text, jsonInt(view, "anchor", 0))
@@ -75,7 +102,7 @@ proc loadSession*(path: string): EditorSession =
           tabView[].softWrap = jsonBool(view, "softWrap", false)
           tabView[].showIndentGuides = jsonBool(view, "showIndentGuides", true)
           tabView[].indentWidth = max(1, jsonInt(view, "indentWidth", 2))
-      except CatchableError: discard
+    except CatchableError: discard
   if result.tabs.len == 0: result.activeTab = -1
   else: result.activeTab = max(0, min(result.activeTab, result.tabs.high))
 

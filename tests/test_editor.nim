@@ -198,6 +198,7 @@ suite "M5 editor services":
     session.addTab(openDocument(path))
     session.tabs[0].view.moveCursor(3)
     session.tabs[0].view.scrollLine = 2
+    session.splitEditor(splitHorizontal)
     session.workspaceRoots = @[getTempDir()]
     let sessionPath = getTempDir() / "nimculus-m5-session.json"
     session.saveSession(sessionPath)
@@ -207,10 +208,25 @@ suite "M5 editor services":
     check restored.workspaceRoots == @[getTempDir()]
     check restored.tabs[0].view.cursor == 3
     check restored.tabs[0].view.scrollLine == 2
+    check restored.splitDirection == splitHorizontal
     restored.tabs[0].document.writeRecovery(recoveryPath)
     check not fileExists(recoveryPath & ".tmp." & $getCurrentProcessId())
     check recoverDocument(recoveryPath).buffer.toString() == "session\none\ntwo\nthree"
     removeFile(path); removeFile(sessionPath); removeFile(recoveryPath)
+
+  test "session restores dirty untitled tabs":
+    var session: EditorSession
+    var untitled = newDocument()
+    untitled.buffer.edit(Edit(startByte: 0, endByte: 0, text: "draft🙂"))
+    session.addTab(untitled)
+    let sessionPath = getTempDir() / "nimculus-m5-untitled-session.json"
+    session.saveSession(sessionPath)
+    let restored = loadSession(sessionPath)
+    check restored.tabs.len == 1
+    check restored.tabs[0].document.path == ""
+    check restored.tabs[0].document.buffer.toString() == "draft🙂"
+    check restored.tabs[0].document.buffer.isDirty
+    removeFile(sessionPath)
 
   test "session loader tolerates partial metadata":
     let path = getTempDir() / "nimculus-m5-partial-session.json"
@@ -230,3 +246,13 @@ suite "M5 editor services":
     writeFile(rangePath, "{\"activeTab\": 99, \"tabs\": []}")
     check loadSession(rangePath).activeTab == -1
     removeFile(rangePath)
+
+    let malformedPath = getTempDir() / "nimculus-m5-malformed-session.json"
+    writeFile(malformedPath,
+      "{\"activeTab\":\"bad\",\"split\":\"bad\",\"splitDirection\":7," &
+      "\"tabs\":[{\"path\":7}]}")
+    let malformed = loadSession(malformedPath)
+    check malformed.activeTab == -1
+    check not malformed.split
+    check malformed.tabs.len == 0
+    removeFile(malformedPath)

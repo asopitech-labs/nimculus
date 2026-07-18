@@ -206,6 +206,12 @@ proc markSaved*(table: var PieceTable) =
   table.savedVersion = table.version
   table.savedContentVersion = table.contentVersion
 
+proc markDirty*(table: var PieceTable) =
+  ## Restore a serialized unsaved document without manufacturing an undo edit.
+  inc table.nextContentVersion
+  table.contentVersion = table.nextContentVersion
+  inc table.version
+
 proc isDirty*(table: PieceTable): bool =
   table.contentVersion != table.savedContentVersion
 
