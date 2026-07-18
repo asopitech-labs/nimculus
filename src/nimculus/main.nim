@@ -437,6 +437,12 @@ proc activeDocument(): ptr FileDocument =
 proc syncEditorCursor() =
   when defined(macosx):
     let document = activeDocument()
+    if document != nil:
+      # Undo/redo and external reload can shorten or reshape the buffer
+      # without passing through the normal movement commands. Normalize both
+      # endpoints before deriving line/UTF-16 positions or sending them to
+      # NSTextInputClient, so a selection never lands inside a grapheme.
+      editorViewState.clampSelectionToText(document[].buffer.toString())
     let visibleLines = editorVisibleLineCount()
     let location = if document == nil: (line: 0, column: 0) else:
       document[].buffer.lineColumn(editorViewState.cursor)
