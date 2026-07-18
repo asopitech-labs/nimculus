@@ -311,7 +311,7 @@ This matches GPUI's separate focus/hover interaction lifecycle and prevents a
 pointer move from erasing keyboard focus. Active pointer state is also cleared
 on pointer-up even when the release occurs outside the original hit target.
 Disabled nodes and descendants of disabled nodes are excluded from pointer
-hit-testing and cannot acquire focus.
+hit-testing, cannot acquire focus, and are skipped by keyboard focus traversal.
 
 ## M6-004: Open folders through the existing file callback contract
 

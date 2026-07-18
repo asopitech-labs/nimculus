@@ -137,6 +137,14 @@ suite "M2 UI foundation":
     check tree.isValid(handle)
     check not tree.isValid(NodeHandle(id: node, generation: handle.generation + 1))
 
+  test "focus traversal skips disabled controls":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let disabledButton = tree.addNode(root, focusable = true)
+    let enabledButton = tree.addNode(root, focusable = true)
+    tree.setDisabled(disabledButton, true)
+    check tree.focusNext() == enabledButton
+
   test "hit testing selects the topmost node":
     var tree = newUiTree()
     let root = tree.addNode()
