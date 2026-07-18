@@ -16,6 +16,7 @@ proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_plat
 proc platformInputCount*(): uint64 {.importc: "nimculus_platform_input_count", cdecl.}
 type
   InputCallback* = proc(event: ptr NimculusInputEvent) {.cdecl.}
+  ShortcutCallback* = proc(event: ptr NimculusInputEvent): bool {.cdecl.}
   TextCallback* = proc(utf8: cstring, composing: bool) {.cdecl.}
   SelectionCallback* = proc(startByte, endByte: uint32) {.cdecl.}
   FileCallback* = proc(path: cstring, saving: bool) {.cdecl.}
@@ -34,6 +35,7 @@ type
     x*, y*, deltaX*, deltaY*: cdouble
 
 proc platformSetInputCallback*(callback: InputCallback) {.importc: "nimculus_platform_set_input_callback", cdecl.}
+proc platformSetShortcutCallback*(callback: ShortcutCallback) {.importc: "nimculus_platform_set_shortcut_callback", cdecl.}
 proc platformSetTextCallback*(callback: TextCallback) {.importc: "nimculus_platform_set_text_callback", cdecl.}
 proc platformSetSelectionCallback*(callback: SelectionCallback) {.importc: "nimculus_platform_set_selection_callback", cdecl.}
 proc platformSetFileCallback*(callback: FileCallback) {.importc: "nimculus_platform_set_file_callback", cdecl.}
@@ -59,6 +61,7 @@ proc platformSetPaintDirtyRegions*(regions: ptr NativePaintRegion, count: uint32
 proc platformShowExternalChange*(path: cstring) {.importc: "nimculus_platform_show_external_change", cdecl.}
 proc platformShowFindDocument*() {.importc: "nimculus_platform_show_find_document", cdecl.}
 proc platformShowWorkspaceSearch*() {.importc: "nimculus_platform_show_workspace_search", cdecl.}
+proc platformShowCommandPalette*() {.importc: "nimculus_platform_show_command_palette", cdecl.}
 proc platformSetUiRectangle*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_ui_rectangle", cdecl.}
 proc clipboardSet*(text: cstring) {.importc: "nimculus_clipboard_set", cdecl.}
 proc clipboardGet*(): cstring {.importc: "nimculus_clipboard_get", cdecl.}

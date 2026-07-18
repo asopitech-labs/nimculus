@@ -14,6 +14,7 @@ import nimculus/workspace
 import nimculus/session
 
 var demoTree = newUiTree()
+var shortcutRegistry: CommandRegistry
 var demoButton = NodeId(0)
 var demoSplitNode = NodeId(0)
 var demoScrollNode = NodeId(0)
@@ -120,6 +121,25 @@ proc setupDemoUi() =
                          float32(bounds.size.width), float32(bounds.size.height))
   platformSetEditorRect(float64(float32(editor.origin.x)), float64(float32(editor.origin.y)),
                         float64(float32(editor.size.width)), float64(float32(editor.size.height)))
+
+proc receiveNativeCommand(command: cstring) {.cdecl.}
+
+proc dispatchNativeShortcut(event: ptr NimculusInputEvent): bool {.cdecl.} =
+  if event == nil: return false
+  shortcutRegistry.dispatchShortcut(Shortcut(
+    keyCode: event.keyCode,
+    modifiers: macOSModifiers(event.modifiers)))
+
+proc setupShortcutRegistry() =
+  shortcutRegistry = CommandRegistry()
+  shortcutRegistry.register(Command(
+    name: "commandPalette",
+    shortcut: Shortcut(keyCode: 35, modifiers: {commandModifier, shiftModifier}),
+    action: proc() = platformShowCommandPalette()))
+  shortcutRegistry.register(Command(
+    name: "workspaceSearch",
+    shortcut: Shortcut(keyCode: 3, modifiers: {commandModifier, shiftModifier}),
+    action: proc() = platformShowWorkspaceSearch()))
 
 var imeState = newImeState()
 var editorSession: EditorSession
@@ -895,6 +915,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
 when isMainModule:
   when defined(macosx):
     setupPersistencePaths()
+    setupShortcutRegistry()
     restoreSession()
     syncRecentFiles()
     setupDemoUi()
@@ -910,6 +931,7 @@ when isMainModule:
     platformSetTextCallback(receiveNativeText)
     platformSetSelectionCallback(receiveNativeSelection)
     platformSetInputCallback(receiveNativeInput)
+    platformSetShortcutCallback(dispatchNativeShortcut)
     platformSetFileCallback(receiveNativeFile)
     platformSetCommandCallback(receiveNativeCommand)
     if activeDocument() != nil:

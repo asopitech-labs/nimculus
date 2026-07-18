@@ -313,6 +313,17 @@ on pointer-up even when the release occurs outside the original hit target.
 Disabled nodes and descendants of disabled nodes are excluded from pointer
 hit-testing, cannot acquire focus, and are skipped by keyboard focus traversal.
 
+## M2-012: Resolve macOS shortcuts before AppKit text input fallback
+
+`CommandRegistry` is connected to the native `keyDown` boundary through a
+boolean shortcut callback. A registered shortcut is considered handled and is
+not forwarded to `interpretKeyEvents:`/the IME; an unregistered shortcut keeps
+the existing AppKit text-input path. This follows Zed's `handle_key_event`
+contract, where a handled key event stops propagation while an unhandled event
+continues through the native input context. The native menu remains the
+key-equivalent owner for menu items, while the registry provides the same
+semantic path for application-level shortcuts that do not have a menu item.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback

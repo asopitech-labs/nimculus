@@ -13,6 +13,7 @@
 static uint64_t g_input_count = 0;
 static NimculusPlatformMetrics g_metrics = {1.0, 0, 0, 0, 0, 0.0, 0};
 static NimculusInputCallback g_input_callback = NULL;
+static NimculusShortcutCallback g_shortcut_callback = NULL;
 static NimculusTextCallback g_text_callback = NULL;
 static NimculusSelectionCallback g_selection_callback = NULL;
 static NimculusFileCallback g_file_callback = NULL;
@@ -464,7 +465,7 @@ static double millisecondsSince(uint64_t start) {
   return (double)nanos / 1000000.0;
 }
 
-static void logInput(NSString *kind, NSEvent *event) {
+static BOOL logInput(NSString *kind, NSEvent *event) {
   g_input_count++;
   NSPoint location = event.locationInWindow;
   if (g_active_view) {
@@ -482,8 +483,13 @@ static void logInput(NSString *kind, NSEvent *event) {
       .x = location.x, .y = location.y,
       .delta_x = event.deltaX, .delta_y = event.deltaY,
     };
-    g_input_callback(&input);
+    if (event.type == NSEventTypeKeyDown && g_shortcut_callback &&
+        g_shortcut_callback(&input)) {
+      return YES;
+    }
+    if (g_input_callback) g_input_callback(&input);
   }
+  return NO;
 }
 
 @interface NimculusMetalView : NSView <NSTextInputClient>
@@ -686,7 +692,10 @@ static void logInput(NSString *kind, NSEvent *event) {
   g_metrics.frame_count++;
 }
 
-- (void)keyDown:(NSEvent *)event { logInput(@"keyDown", event); [self interpretKeyEvents:@[event]]; }
+- (void)keyDown:(NSEvent *)event {
+  if (logInput(@"keyDown", event)) return;
+  [self interpretKeyEvents:@[event]];
+}
 - (void)keyUp:(NSEvent *)event { logInput(@"keyUp", event); }
 - (void)flagsChanged:(NSEvent *)event { logInput(@"flagsChanged", event); }
 - (void)mouseDown:(NSEvent *)event { logInput(@"mouseDown", event); }
@@ -1366,6 +1375,13 @@ void nimculus_platform_show_workspace_search(void) {
   }
 }
 
+void nimculus_platform_show_command_palette(void) {
+  id delegate = [NSApp delegate];
+  if ([delegate respondsToSelector:@selector(openCommandPalette:)]) {
+    [delegate performSelector:@selector(openCommandPalette:) withObject:nil];
+  }
+}
+
 bool nimculus_platform_run(void) {
   @autoreleasepool {
     NSApplication *app = [NSApplication sharedApplication];
@@ -1396,6 +1412,7 @@ void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics) {
 
 uint64_t nimculus_platform_input_count(void) { return g_input_count; }
 void nimculus_platform_set_input_callback(NimculusInputCallback callback) { g_input_callback = callback; }
+void nimculus_platform_set_shortcut_callback(NimculusShortcutCallback callback) { g_shortcut_callback = callback; }
 void nimculus_platform_set_text_callback(NimculusTextCallback callback) { g_text_callback = callback; }
 void nimculus_platform_set_selection_callback(NimculusSelectionCallback callback) { g_selection_callback = callback; }
 void nimculus_platform_set_file_callback(NimculusFileCallback callback) { g_file_callback = callback; }
