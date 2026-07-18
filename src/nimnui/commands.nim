@@ -23,6 +23,23 @@ proc resolve*(registry: CommandRegistry, shortcut: Shortcut): Command =
     if command.shortcut.keyCode == shortcut.keyCode and command.shortcut.modifiers == shortcut.modifiers:
       return command
 
+proc tryResolve*(registry: CommandRegistry, shortcut: Shortcut,
+                 command: var Command): bool =
+  ## Resolve a shortcut without using an all-zero Command as a sentinel.
+  for candidate in registry.commands:
+    if candidate.shortcut.keyCode == shortcut.keyCode and
+        candidate.shortcut.modifiers == shortcut.modifiers:
+      command = candidate
+      return true
+  false
+
+proc dispatchShortcut*(registry: CommandRegistry, shortcut: Shortcut): bool =
+  ## Invoke exactly one registered command and report whether it was handled.
+  var command: Command
+  if not registry.tryResolve(shortcut, command): return false
+  if command.action != nil: command.action()
+  true
+
 proc focusNext*(tree: var UiTree): NodeId =
   var focusables: seq[NodeId]
   for node in tree.nodes:

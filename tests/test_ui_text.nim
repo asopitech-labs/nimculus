@@ -3,6 +3,22 @@ import std/unicode
 import nimnui/nimnui
 
 suite "M2 UI foundation":
+  test "command registry resolves exact macOS-style modifiers":
+    var registry: CommandRegistry
+    var invoked = false
+    registry.register(Command(name: "save",
+      shortcut: Shortcut(keyCode: 1, modifiers: {commandModifier, shiftModifier}),
+      action: proc() = invoked = true))
+    var resolved: Command
+    check registry.tryResolve(Shortcut(keyCode: 1,
+      modifiers: {commandModifier, shiftModifier}), resolved)
+    check resolved.name == "save"
+    check registry.dispatchShortcut(Shortcut(keyCode: 1,
+      modifiers: {commandModifier, shiftModifier}))
+    check invoked
+    check not registry.dispatchShortcut(Shortcut(keyCode: 2,
+      modifiers: {commandModifier}))
+
   test "row layout distributes children and preserves parent":
     var tree = newUiTree()
     let root = tree.addNode()
