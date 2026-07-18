@@ -129,6 +129,11 @@ M5 external-change detection treats deletion as a change, and session loading
 accepts partial metadata so a damaged or older session file cannot crash
 startup.
 
+Dirty state compares a saved content revision with the current content
+revision, not the number of edit/undo operations. Undo and redo restore the
+revision represented by their transaction, so returning to the saved content
+clears the dirty indicator even though the operation counter has advanced.
+
 ## M5-002: Route native document actions through a narrow callback
 
 The macOS delegate owns Cocoa menus and panels, but it reports only the

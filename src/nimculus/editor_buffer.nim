@@ -17,12 +17,14 @@ type
     before*, after*: string
   EditTransaction = object
     records*: seq[EditRecord]
+    beforeContentVersion, afterContentVersion: uint64
   PieceTable* = object
     original*, additions*: string
     pieces*: seq[Piece]
     lineStarts*: seq[int]
     undoStack*, redoStack*: seq[EditTransaction]
     savedVersion*, version*: uint64
+    savedContentVersion, contentVersion, nextContentVersion: uint64
 
 proc rebuildIndex*(table: var PieceTable)
 
@@ -127,10 +129,17 @@ proc edit*(table: var PieceTable, edit: Edit, recordUndo = true) =
   let start = edit.startByte
   let finish = edit.endByte
   let oldText = table.substring(start, finish)
+  let beforeContentVersion = table.contentVersion
+  inc table.nextContentVersion
+  let afterContentVersion = table.nextContentVersion
   table.replaceInternal(start, finish, edit.text)
   if recordUndo:
-    table.undoStack.add(EditTransaction(records: @[EditRecord(startByte: start, before: oldText, after: edit.text)]))
+    table.undoStack.add(EditTransaction(
+      records: @[EditRecord(startByte: start, before: oldText, after: edit.text)],
+      beforeContentVersion: beforeContentVersion,
+      afterContentVersion: afterContentVersion))
     table.redoStack.setLen(0)
+  table.contentVersion = afterContentVersion
   inc table.version
 
 proc applyEdits*(table: var PieceTable, edits: seq[Edit]) =
@@ -143,7 +152,12 @@ proc applyEdits*(table: var PieceTable, edits: seq[Edit]) =
     if ordered[index - 1].endByte > ordered[index].startByte:
       raise newException(ValueError, "overlapping edits are not atomic")
   ordered.reverse()
+  let beforeContentVersion = table.contentVersion
+  inc table.nextContentVersion
+  let afterContentVersion = table.nextContentVersion
   var transaction = EditTransaction(records: newSeq[EditRecord](edits.len))
+  transaction.beforeContentVersion = beforeContentVersion
+  transaction.afterContentVersion = afterContentVersion
   for index, edit in edits:
     transaction.records[index] = EditRecord(startByte: edit.startByte,
       before: table.substring(edit.startByte, edit.endByte), after: edit.text)
@@ -151,6 +165,7 @@ proc applyEdits*(table: var PieceTable, edits: seq[Edit]) =
     table.replaceInternal(edit.startByte, edit.endByte, edit.text)
   table.undoStack.add(transaction)
   table.redoStack.setLen(0)
+  table.contentVersion = afterContentVersion
   inc table.version
 
 proc undo*(table: var PieceTable): bool =
@@ -163,7 +178,10 @@ proc undo*(table: var PieceTable): bool =
     let current = table.substring(record.startByte, record.startByte + record.after.len)
     table.replaceInternal(record.startByte, record.startByte + record.after.len, record.before)
     redo.records.add(EditRecord(startByte: record.startByte, before: record.before, after: current))
+  redo.beforeContentVersion = transaction.beforeContentVersion
+  redo.afterContentVersion = transaction.afterContentVersion
   table.redoStack.add(redo)
+  table.contentVersion = transaction.beforeContentVersion
   inc table.version
   true
 
@@ -177,12 +195,19 @@ proc redo*(table: var PieceTable): bool =
     let current = table.substring(record.startByte, record.startByte + record.before.len)
     table.replaceInternal(record.startByte, record.startByte + record.before.len, record.after)
     undo.records.add(EditRecord(startByte: record.startByte, before: current, after: record.after))
+  undo.beforeContentVersion = transaction.beforeContentVersion
+  undo.afterContentVersion = transaction.afterContentVersion
   table.undoStack.add(undo)
+  table.contentVersion = transaction.afterContentVersion
   inc table.version
   true
 
-proc markSaved*(table: var PieceTable) = table.savedVersion = table.version
-proc isDirty*(table: PieceTable): bool = table.version != table.savedVersion
+proc markSaved*(table: var PieceTable) =
+  table.savedVersion = table.version
+  table.savedContentVersion = table.contentVersion
+
+proc isDirty*(table: PieceTable): bool =
+  table.contentVersion != table.savedContentVersion
 
 proc lineByteColumn(table: PieceTable, byteOffset: int): tuple[line, column: int] =
   let offset = max(0, min(byteOffset, table.contentLength))

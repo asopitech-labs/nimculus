@@ -72,6 +72,18 @@ suite "M4 editor buffer":
     buffer.markSaved()
     check not buffer.isDirty
 
+  test "undoing back to the saved content clears dirty state":
+    var buffer = initPieceTable("content")
+    buffer.markSaved()
+    buffer.edit(Edit(startByte: 7, endByte: 7, text: "!"))
+    check buffer.isDirty
+    check buffer.undo()
+    check not buffer.isDirty
+    check buffer.redo()
+    check buffer.isDirty
+    check buffer.undo()
+    check not buffer.isDirty
+
   test "cursor and deletion boundaries preserve grapheme clusters":
     let text = "é🙂‍💻"
     check previousGraphemeBoundary(text, text.len) == 3
