@@ -475,3 +475,7 @@ commands (`moveUp`, line boundaries, document boundaries, newline, and tab),
 and Nim resolves them through the existing buffer position helpers. This
 keeps Cocoa selector handling out of the editor buffer while preserving
 Unicode-safe movement.
+
+Save callbacks use the same rule: file I/O exceptions are caught inside Nim
+before returning through the C function pointer, and the editor status reports
+the failure. No CatchableError is allowed to cross the Cocoa callback ABI.

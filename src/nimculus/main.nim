@@ -385,9 +385,13 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
   if saving:
     let document = activeDocument()
     if document != nil:
-      document[].save(filePath)
-      externalAlertShown = false
-      syncEditorCursor()
+      try:
+        document[].save(filePath)
+        externalAlertShown = false
+        editorViewState.statusMessage = "Saved " & filePath
+        syncEditorCursor()
+      except CatchableError as error:
+        editorViewState.statusMessage = "Save failed: " & error.msg
   else:
     if dirExists(filePath):
       openActiveWorkspace(filePath)
