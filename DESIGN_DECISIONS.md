@@ -278,6 +278,23 @@ Nim IME state and the native marked-text properties, matching Zed's explicit
 `unmark_text` path and preventing stale composition from being reported for
 the next document.
 
+## M3-016: Normalize NSTextInputClient point coordinates from screen space
+
+AppKit passes `characterIndexForPoint:` and
+`fractionOfDistanceThroughGlyphForPoint:` points in screen coordinates. The
+native bridge now converts screen → window → view coordinates before invoking
+the editor hit-test, following Zed's `screen_point_to_gpui_point` boundary.
+`firstRectForCharacterRange:` continues to return screen coordinates as
+required by the protocol.
+
+The first-rect implementation also uses the requested UTF-16 range's start
+offset to compute the line and Core Text glyph x-position, rather than always
+returning the last synchronized cursor position.
+
+All AppKit-provided UTF-16 ranges are bounded with subtraction-based length
+clamping before `NSMaxRange` is evaluated. This avoids integer wraparound for
+malformed or `NSNotFound`-style ranges at the native boundary.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback

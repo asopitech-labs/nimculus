@@ -316,6 +316,12 @@ static NSUInteger utf8BytesForDocumentUTF16Offset(NSString *text, NSUInteger tar
   return utf8BytesForUTF16Offset(text ?: @"", targetUnits);
 }
 
+static NSRange boundedDocumentRange(NSRange range, NSUInteger documentLength) {
+  NSUInteger start = MIN(range.location, documentLength);
+  NSUInteger length = MIN(range.length, documentLength - start);
+  return NSMakeRange(start, length);
+}
+
 static CGFloat editorTextOffset(NSString *line, NSUInteger utf16Index) {
   CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), 14.0, NULL);
   if (!font) return 0.0;
@@ -327,6 +333,25 @@ static CGFloat editorTextOffset(NSString *line, NSUInteger utf16Index) {
   CFRelease(ctLine);
   CFRelease(font);
   return offset;
+}
+
+static CGPoint editorPointForUTF16Offset(NSUInteger documentOffset) {
+  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  NSUInteger remaining = MIN(documentOffset, g_editor_text.length);
+  NSUInteger lineIndex = 0;
+  NSString *lineText = lines.count > 0 ? lines[0] : @"";
+  for (NSUInteger index = 0; index < lines.count; index++) {
+    lineText = lines[index];
+    if (remaining <= lineText.length || index + 1 == lines.count) {
+      lineIndex = index;
+      break;
+    }
+    remaining -= lineText.length + 1;
+  }
+  NSUInteger visibleLine = lineIndex > g_editor_scroll_line
+    ? lineIndex - g_editor_scroll_line : 0;
+  return CGPointMake(8.0 + editorTextOffset(lineText, remaining),
+                     12.0 + visibleLine * 18.0);
 }
 
 static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
@@ -692,10 +717,7 @@ static void logInput(NSString *kind, NSEvent *event) {
 - (NSAttributedString *)attributedSubstringForProposedRange:(NSRange)range
                                                      actualRange:(NSRangePointer)actualRange {
   NSString *text = g_editor_text ?: @"";
-  NSUInteger start = MIN(range.location, text.length);
-  NSUInteger end = MIN(NSMaxRange(range), text.length);
-  if (end < start) end = start;
-  NSRange actual = NSMakeRange(start, end - start);
+  NSRange actual = boundedDocumentRange(range, text.length);
   if (actualRange) *actualRange = actual;
   return [[NSAttributedString alloc] initWithString:[text substringWithRange:actual]];
 }
@@ -719,9 +741,9 @@ static void logInput(NSString *kind, NSEvent *event) {
                   g_editor_selection_end - g_editor_selection_start)
     : replacementRange;
   NSUInteger textLength = g_editor_text.length;
-  NSUInteger replacementStart = MIN(effectiveReplacement.location, textLength);
-  NSUInteger replacementEnd = MIN(NSMaxRange(effectiveReplacement), textLength);
-  if (replacementEnd < replacementStart) replacementEnd = replacementStart;
+  NSRange boundedReplacement = boundedDocumentRange(effectiveReplacement, textLength);
+  NSUInteger replacementStart = boundedReplacement.location;
+  NSUInteger replacementEnd = NSMaxRange(boundedReplacement);
   uint32_t startByte = (uint32_t)utf8BytesForDocumentUTF16Offset(g_editor_text, replacementStart);
   uint32_t endByte = (uint32_t)utf8BytesForDocumentUTF16Offset(g_editor_text, replacementEnd);
   if (g_selection_callback) g_selection_callback(startByte, endByte);
@@ -746,9 +768,9 @@ static void logInput(NSString *kind, NSEvent *event) {
     ? [string string] : (NSString *)string;
   if (replacementRange.location != NSNotFound && g_selection_callback) {
     NSUInteger textLength = g_editor_text.length;
-    NSUInteger startUnit = MIN(replacementRange.location, textLength);
-    NSUInteger endUnit = MIN(NSMaxRange(replacementRange), textLength);
-    if (endUnit < startUnit) endUnit = startUnit;
+    NSRange boundedReplacement = boundedDocumentRange(replacementRange, textLength);
+    NSUInteger startUnit = boundedReplacement.location;
+    NSUInteger endUnit = NSMaxRange(boundedReplacement);
     uint32_t startByte = (uint32_t)utf8BytesForDocumentUTF16Offset(g_editor_text, startUnit);
     uint32_t endByte = (uint32_t)utf8BytesForDocumentUTF16Offset(g_editor_text, endUnit);
     // NSTextInputClient may commit text with a replacement range even when
@@ -800,18 +822,26 @@ static void logInput(NSString *kind, NSEvent *event) {
   // The editor keeps cursor Y in top-origin logical coordinates, while NSView
   // uses a bottom-origin coordinate system for this protocol callback.
   CGFloat lineHeight = 18.0;
-  CGFloat viewY = self.bounds.size.height - g_editor_rect[1] - g_editor_cursor[1] - lineHeight;
-  NSRect cursor = NSMakeRect(g_editor_rect[0] + g_editor_cursor[0], MAX(0.0, viewY), 0, lineHeight);
+  CGPoint logical = editorPointForUTF16Offset(start);
+  CGFloat viewY = self.bounds.size.height - g_editor_rect[1] - logical.y - lineHeight;
+  NSRect cursor = NSMakeRect(g_editor_rect[0] + logical.x, MAX(0.0, viewY), 0, lineHeight);
   return [self.window convertRectToScreen:[self convertRect:cursor toView:nil]];
 }
 - (NSUInteger)characterIndexForPoint:(NSPoint)point {
-  NSPoint viewPoint = [self convertPoint:point fromView:nil];
+  // NSTextInputClient supplies this point in screen coordinates. Convert it
+  // through the window before handing it to the view-local editor hit-test;
+  // treating screen coordinates as window coordinates breaks on any window
+  // that is not positioned at the screen origin (the same conversion Zed uses
+  // in screen_point_to_gpui_point).
+  NSPoint windowPoint = self.window ? [self.window convertScreenToBase:point] : point;
+  NSPoint viewPoint = [self convertPoint:windowPoint fromView:nil];
   return nimculus_platform_editor_utf16_offset_at_point(viewPoint.x, viewPoint.y);
 }
 - (CGFloat)baselineDeltaForCharacterAtIndex:(NSUInteger)index { return 18.0; }
 - (BOOL)drawsVerticallyForCharacterAtIndex:(NSUInteger)index { return NO; }
 - (CGFloat)fractionOfDistanceThroughGlyphForPoint:(NSPoint)point {
-  NSPoint viewPoint = [self convertPoint:point fromView:nil];
+  NSPoint windowPoint = self.window ? [self.window convertScreenToBase:point] : point;
+  NSPoint viewPoint = [self convertPoint:windowPoint fromView:nil];
   NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
   if (lines.count == 0) return 0.0;
   CGFloat fromTop = self.bounds.size.height - viewPoint.y - g_editor_rect[1];
@@ -1500,6 +1530,14 @@ void nimculus_platform_set_editor_text(const char *utf8) {
 }
 void nimculus_platform_set_editor_composition(const char *utf8) {
   g_marked_text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";
+  if (g_marked_text.length == 0 && g_active_view) {
+    // Empty composition updates are also used by command/menu paths to end
+    // composition. Keep the NSTextInputClient state in lockstep instead of
+    // leaving a stale marked range behind.
+    NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+    view.markedText = @"";
+    view.markedTextRange = NSMakeRange(NSNotFound, 0);
+  }
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text);
   if (g_active_view) [g_active_view drawFrame];
