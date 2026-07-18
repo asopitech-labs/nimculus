@@ -917,3 +917,14 @@ enumeration and candidate matching are advanced in bounded timer polls, with a
 cancel token on Workspace switches, document opens, new queries, and watcher
 invalidations. The existing synchronous `fuzzyFileSearch` API remains as a
 library convenience, while the application path uses the non-blocking job.
+
+## M6-019: Cancel stale search jobs at every workspace-view transition
+
+Zed's project search replaces the pending search task when the query changes
+and does not let an older result stream update the current search view. Nimculus
+applies the same ownership rule to the macOS application boundary: switching
+workspace, switching between Workspace Search and Quick Open, and clearing a
+query all cancel and clear the previous job before changing the active view.
+This is required because `SearchJob` retains the `Workspace` it is traversing;
+otherwise a result from a previous root could be rendered after a workspace
+switch.

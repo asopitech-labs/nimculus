@@ -244,6 +244,11 @@ proc restoreSession() =
 proc openActiveWorkspace(path: string) =
   when defined(macosx):
     if activeWorkspace != nil: activeWorkspace.stopWatching()
+    # A search job owns the workspace snapshot it is traversing.  Drop it
+    # before replacing activeWorkspace so results from the previous root
+    # cannot be rendered after the switch.
+    if workspaceSearchJob != nil: workspaceSearchJob.cancelSearch()
+    workspaceSearchJob = nil
     if workspaceQuickOpenJob != nil: workspaceQuickOpenJob.cancelFuzzySearch()
     workspaceQuickOpenJob = nil
     activeWorkspace = openWorkspace(path)
@@ -342,23 +347,34 @@ proc renderQuickOpen() =
 proc showWorkspaceSearch(query: string) =
   when defined(macosx):
     if workspaceSearchJob != nil: workspaceSearchJob.cancelSearch()
+    workspaceSearchJob = nil
     if workspaceQuickOpenJob != nil: workspaceQuickOpenJob.cancelFuzzySearch()
     workspaceQuickOpenJob = nil
-    if activeWorkspace == nil or query.len == 0: return
+    workspaceQuickOpenQuery = ""
     workspaceSearchQuery = query
     workspaceSearchResults.setLen(0)
     workspaceSearchCancelled = false
+    if activeWorkspace == nil or query.len == 0:
+      if activeWorkspace != nil: refreshWorkspacePreview()
+      return
     workspaceSearchJob = activeWorkspace.startSearch(query)
     renderWorkspaceSearch()
 
 proc showQuickOpen(query: string) =
   when defined(macosx):
-    if activeWorkspace == nil or query.len == 0: return
+    if workspaceSearchJob != nil: workspaceSearchJob.cancelSearch()
+    workspaceSearchJob = nil
     if workspaceQuickOpenJob != nil: workspaceQuickOpenJob.cancelFuzzySearch()
+    workspaceQuickOpenJob = nil
     workspacePreviewMode = "quickOpen"
     workspaceSearchQuery = ""
+    workspaceSearchResults.setLen(0)
+    workspaceSearchCancelled = false
     workspaceQuickOpenQuery = query
     workspacePreviewEntries.setLen(0)
+    if activeWorkspace == nil or query.len == 0:
+      if activeWorkspace != nil: refreshWorkspacePreview()
+      return
     workspaceQuickOpenJob = activeWorkspace.startFuzzySearch(query)
     renderQuickOpen()
 
