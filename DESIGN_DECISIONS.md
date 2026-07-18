@@ -521,6 +521,11 @@ serialized dirty content is layered back over it without modifying the file.
 This protects non-active dirty tabs if the process crashes before the normal
 close confirmation can run.
 
+An explicit external-file Reload replaces the buffer but preserves the active
+view's selection, cursor, scroll, and display settings, clamping only values
+that no longer fit the new text. This matches Zed's reload behavior and avoids
+turning an external edit into an unexpected navigation reset.
+
 `recoverDocument` marks the reconstructed buffer dirty even though its text is
 loaded as the original piece source. Recovery is therefore preserved until an
 explicit save or discard decision, rather than being deleted as soon as the

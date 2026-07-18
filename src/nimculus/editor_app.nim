@@ -127,6 +127,19 @@ proc hasDirtyTabs*(session: EditorSession): bool =
     if tab.document.buffer.isDirty: return true
   false
 
+proc reloadActiveDocument*(session: var EditorSession, view: var EditorViewState): bool =
+  ## Reload the active named document while preserving the item's view state.
+  ## The file is opened before replacing the tab, so a failed read leaves the
+  ## current buffer untouched.
+  if session.activeTab < 0 or session.activeTab >= session.tabs.len: return false
+  let path = session.tabs[session.activeTab].document.path
+  if path.len == 0: return false
+  let reloaded = openDocument(path)
+  session.tabs[session.activeTab].document = reloaded
+  view.clampSelectionToText(reloaded.buffer.toString())
+  view.scrollLine = min(max(0, view.scrollLine), max(0, reloaded.buffer.lineStarts.high))
+  true
+
 proc splitEditor*(session: var EditorSession, direction: SplitDirection) =
   session.split = true
   session.splitDirection = direction

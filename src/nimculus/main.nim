@@ -767,9 +767,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       platformShowSavePanelAndClose()
   elif name == "reloadExternal" and document != nil:
     try:
-      editorSession.tabs[editorSession.activeTab].document = openDocument(document[].path)
+      discard editorSession.reloadActiveDocument(editorViewState)
       resetImeState()
-      resetEditorViewState()
       if syntaxState != nil:
         syntaxState.close()
         syntaxState = nil

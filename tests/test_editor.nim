@@ -249,6 +249,24 @@ suite "M5 editor services":
     removeFile(path)
     removeFile(sessionPath)
 
+  test "external reload preserves view state and clamps selection":
+    let path = getTempDir() / "nimculus-m5-reload.txt"
+    writeFile(path, "before🙂\nsecond")
+    var session: EditorSession
+    session.addTab(openDocument(path))
+    var view = newEditorView()
+    view.selection.anchor = "before🙂".len
+    view.selection.active = "before🙂".len
+    view.scrollLine = 4
+    view.softWrap = true
+    writeFile(path, "after")
+    check session.reloadActiveDocument(view)
+    check session.tabs[0].document.buffer.toString() == "after"
+    check view.cursor == "after".len
+    check view.scrollLine == 0
+    check view.softWrap
+    removeFile(path)
+
   test "session loader tolerates partial metadata":
     let path = getTempDir() / "nimculus-m5-partial-session.json"
     writeFile(path, "{\"tabs\": []}")
