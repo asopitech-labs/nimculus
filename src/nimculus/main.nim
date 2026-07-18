@@ -1,4 +1,5 @@
 import std/algorithm
+import std/math
 import std/os
 import std/strutils
 import std/tables
@@ -72,6 +73,7 @@ var workspaceSearchQuery = ""
 var workspaceSearchResults: seq[SearchResult]
 var workspaceSearchCancelled = false
 var externalAlertShown = false
+var editorPointerDragging = false
 
 proc activeDocument(): ptr FileDocument
 proc refreshWorkspacePreview()
@@ -169,6 +171,17 @@ proc syncEditorCursor() =
     let selection = if document == nil: (startByte: 0, endByte: 0) else:
       editorViewState.selectedRange()
     platformSetEditorSelection(uint32(selection.startByte), uint32(selection.endByte))
+
+when defined(macosx):
+  proc editorOffsetAtPoint(document: ptr FileDocument, x, y: cdouble): int =
+    if document == nil: return 0
+    var metrics: PlatformMetrics
+    platformGetMetrics(addr metrics)
+    let viewHeight = if metrics.heightPoints > 0: metrics.heightPoints else: 640'u32
+    let top = float32(viewHeight) - float32(y)
+    let line = max(0, int(floor((top - 4.0'f32) / 18.0'f32)))
+    let column = max(0, int(floor((float32(x) - 8.0'f32) / 8.0'f32)))
+    document[].buffer.byteOffsetAtLineColumn(line, column)
 
 proc refreshEditorSyntax() =
   let document = activeDocument()
@@ -351,6 +364,22 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   let target = if kind == keyDown or kind == keyUp or kind == command:
     if demoTree.focused != NodeId(0): demoTree.focused else: hit
   else: hit
+  when defined(macosx):
+    let document = activeDocument()
+    if document != nil and kind in {pointerDown, pointerMove, pointerUp}:
+      let offset = editorOffsetAtPoint(document, event.x, event.y)
+      if kind == pointerDown:
+        editorPointerDragging = true
+        editorViewState.moveCursor(offset)
+        syncEditorCursor()
+      elif kind == pointerMove and editorPointerDragging:
+        editorViewState.moveCursor(offset, selecting = true)
+        syncEditorCursor()
+      elif kind == pointerUp:
+        if editorPointerDragging:
+          editorViewState.moveCursor(offset, selecting = true)
+          syncEditorCursor()
+        editorPointerDragging = false
   if kind == pointerMove:
     for node in demoTree.nodes:
       if node.state == hovered and node.id != hit: demoTree.setState(node.id, normal)

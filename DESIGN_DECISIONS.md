@@ -163,6 +163,14 @@ itself. It emits a narrow `newDocument` command; Nim creates a new
 `FileDocument`, resets the view/syntax state, and keeps the document eligible
 for the existing Save As path.
 
+## M5-006: Convert pointer positions to editor grapheme boundaries in Nim
+
+The native callback reports window coordinates, but the editor core owns UTF-8
+byte offsets. Nim converts the bottom-origin AppKit Y coordinate to a logical
+line and grapheme column, then resolves that column through the shared text
+position helper. Pointer drag selection therefore cannot split a multibyte
+character or grapheme cluster.
+
 ## M5-005: Resolve external changes at the application boundary
 
 The editor service remains responsible for comparing file stamps. The macOS

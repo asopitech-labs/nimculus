@@ -1,5 +1,6 @@
 import std/strutils
 import nimculus/editor_buffer
+import nimnui/text
 
 type
   EditorViewState* = object
@@ -19,6 +20,19 @@ proc cursor*(view: EditorViewState): int = view.selection.active
 proc moveCursor*(view: var EditorViewState, byteOffset: int, selecting = false) =
   if not selecting: view.selection.anchor = byteOffset
   view.selection.active = byteOffset
+
+proc byteOffsetAtLineColumn*(buffer: PieceTable, line, column: int): int =
+  ## Convert a logical grapheme column into a UTF-8 byte offset.
+  let text = buffer.toString()
+  if buffer.lineStarts.len == 0: return 0
+  let targetLine = max(0, min(line, buffer.lineStarts.high))
+  let start = buffer.lineStarts[targetLine]
+  let finish = if targetLine + 1 < buffer.lineStarts.len:
+    buffer.lineStarts[targetLine + 1]
+  else: text.len
+  let positions = textPositions(buffer.substring(start, finish))
+  let targetColumn = max(0, min(column, positions.high))
+  start + positions[targetColumn].byteOffset
 
 proc selectedRange*(view: EditorViewState): tuple[startByte, endByte: int] =
   (startByte: min(view.selection.anchor, view.selection.active),

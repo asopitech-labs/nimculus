@@ -39,6 +39,9 @@ suite "M4 editor buffer":
     var buffer = initPieceTable("A\n😀日本")
     check buffer.lineColumn(2) == (line: 1, column: 0)
     check buffer.utf16Position(6) == (line: 1, character: 2)
+    check buffer.byteOffsetAtLineColumn(1, 0) == 2
+    check buffer.byteOffsetAtLineColumn(1, 1) == 6
+    check buffer.byteOffsetAtLineColumn(1, 2) == 9
 
   test "saved state tracks edits":
     var buffer = initPieceTable("content")
