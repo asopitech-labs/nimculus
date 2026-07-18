@@ -60,6 +60,7 @@ void nimculus_platform_set_text_callback(NimculusTextCallback callback);
 void nimculus_platform_set_file_callback(NimculusFileCallback callback);
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback);
 void nimculus_platform_set_editor_cursor(double x, double y);
+void nimculus_platform_set_editor_scroll_line(uint32_t line);
 void nimculus_platform_set_editor_dirty(bool dirty);
 void nimculus_platform_set_close_decision(bool allow);
 void nimculus_platform_show_save_panel_and_close(void);

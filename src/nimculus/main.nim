@@ -260,7 +260,15 @@ proc syncEditorCursor() =
     let document = activeDocument()
     let location = if document == nil: (line: 0, column: 0) else:
       document[].buffer.lineColumn(editorViewState.cursor)
-    platformSetEditorCursor(cdouble(8 + location.column * 8), cdouble(12 + location.line * 18))
+    if document != nil:
+      let lastVisibleLine = max(0, document[].buffer.lineStarts.len - 12)
+      if location.line < editorViewState.scrollLine:
+        editorViewState.scrollLine = location.line
+      elif location.line >= editorViewState.scrollLine + 12:
+        editorViewState.scrollLine = min(lastVisibleLine, location.line - 11)
+    let visibleLine = max(0, location.line - editorViewState.scrollLine)
+    platformSetEditorScrollLine(uint32(max(0, editorViewState.scrollLine)))
+    platformSetEditorCursor(cdouble(8 + location.column * 8), cdouble(12 + visibleLine * 18))
     let selection = if document == nil: (startByte: 0, endByte: 0) else:
       editorViewState.selectedRange()
     platformSetEditorSelection(uint32(selection.startByte), uint32(selection.endByte))
@@ -273,7 +281,7 @@ when defined(macosx):
     platformGetMetrics(addr metrics)
     let viewHeight = if metrics.heightPoints > 0: metrics.heightPoints else: 640'u32
     let top = float32(viewHeight) - float32(y)
-    let line = max(0, int(floor((top - 4.0'f32) / 18.0'f32)))
+    let line = editorViewState.scrollLine + max(0, int(floor((top - 4.0'f32) / 18.0'f32)))
     let column = max(0, int(floor((float32(x) - 8.0'f32) / 8.0'f32)))
     document[].buffer.byteOffsetAtLineColumn(line, column)
 
@@ -290,7 +298,13 @@ proc refreshEditorSyntax() =
     syntaxState.update(document[].buffer.toString())
   when defined(macosx):
     let highlights = if syntaxState == nil: @[] else:
-      syntaxState.visibleHighlights(0, uint32(min(document[].buffer.toString().len, 4096)))
+      let firstLine = min(editorViewState.scrollLine, document[].buffer.lineStarts.high)
+      let firstByte = document[].buffer.lineStarts[firstLine]
+      let requestedLastLine = firstLine + 12
+      let lastByte = if requestedLastLine < document[].buffer.lineStarts.len:
+        document[].buffer.lineStarts[requestedLastLine]
+      else: document[].buffer.toString().len
+      syntaxState.visibleHighlights(uint32(firstByte), uint32(lastByte))
     var nativeHighlights = newSeq[NativeHighlightSpan](highlights.len)
     for index, span in highlights:
       nativeHighlights[index] = NativeHighlightSpan(startByte: span.startByte,
@@ -608,6 +622,12 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   else: hit
   when defined(macosx):
     let document = activeDocument()
+    if document != nil and kind == scroll:
+      let delta = if event.deltaY > 0: -3 elif event.deltaY < 0: 3 else: 0
+      let maxScroll = max(0, document[].buffer.lineStarts.len - 12)
+      editorViewState.scrollLine = max(0, min(maxScroll, editorViewState.scrollLine + delta))
+      syncEditorCursor()
+      refreshEditorSyntax()
     if document == nil and kind == pointerDown:
       openWorkspaceEntryAtPoint(event.y)
     if document != nil and kind in {pointerDown, pointerMove, pointerUp}:

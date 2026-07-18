@@ -328,6 +328,15 @@ responsible for Retina scaling and drawable resizing. This gives the native
 renderer one deterministic smoke scene without coupling the editor surface to
 demo-only controls.
 
+## M3-012: Share the editor viewport origin across native text paths
+
+The editor stores a logical `scrollLine` in Nim. The native bridge receives
+that line and renders only the corresponding bounded window of text, while
+selection UTF-16 offsets and syntax byte spans remain document-relative. Nim
+subtracts the same origin for cursor and IME coordinates and adds it for
+pointer hit-testing, preventing viewport scrolling from changing document
+positions.
+
 ## M6-008: Make the lazy workspace preview actionable
 
 The initial workspace tree is rendered as a bounded text preview. Its visible

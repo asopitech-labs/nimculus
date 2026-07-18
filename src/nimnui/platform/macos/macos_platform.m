@@ -22,6 +22,7 @@ static uint32_t g_paint_count = 0;
 static NimculusPaintRegion *g_paint_dirty_regions = NULL;
 static uint32_t g_paint_dirty_count = 0;
 static double g_editor_cursor[2] = {8.0, 12.0};
+static NSUInteger g_editor_scroll_line = 0;
 static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
 static NSString *g_editor_text = @"";
@@ -209,10 +210,17 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
     (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
   NSArray<NSString *> *lines = [(text ?: @"") componentsSeparatedByString:@"\n"];
-  NSUInteger visibleLines = MIN(lines.count, (NSUInteger)12);
+  NSUInteger startLine = MIN(g_editor_scroll_line, lines.count);
+  NSUInteger visibleLines = MIN(lines.count - startLine, (NSUInteger)12);
   NSUInteger lineStartByte = 0;
   NSUInteger lineStartUnit = 0;
-  for (NSUInteger index = 0; index < visibleLines; index++) {
+  for (NSUInteger index = 0; index < startLine; index++) {
+    NSString *skippedLine = lines[index];
+    lineStartByte += [[skippedLine dataUsingEncoding:NSUTF8StringEncoding] length] + 1;
+    lineStartUnit += skippedLine.length + 1;
+  }
+  for (NSUInteger displayIndex = 0; displayIndex < visibleLines; displayIndex++) {
+    NSUInteger index = startLine + displayIndex;
     NSString *lineText = lines[index];
     NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
     NSUInteger lineEndUnit = lineStartUnit + lineText.length;
@@ -222,7 +230,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
       NSUInteger endUnit = MIN(g_editor_selection_end, lineEndUnit) - lineStartUnit;
       CGContextSetRGBFillColor(context, 0.20, 0.40, 0.75, 0.45);
       CGContextFillRect(context, CGRectMake(8.0 + startUnit * 8.0,
-        height - 24.0 * (index + 1) - 4.0,
+        height - 24.0 * (displayIndex + 1) - 4.0,
         MAX(1.0, (endUnit - startUnit) * 8.0), 20.0));
     }
     NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
@@ -244,7 +252,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
       }
     }
     CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
-    CGContextSetTextPosition(context, 8.0, height - 24.0 * (index + 1));
+    CGContextSetTextPosition(context, 8.0, height - 24.0 * (displayIndex + 1));
     CTLineDraw(line, context);
     CFRelease(line);
     lineStartByte += lineLength + 1;
@@ -606,7 +614,7 @@ static void logInput(NSString *kind, NSEvent *event) {
   NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
   CGFloat fromTop = self.bounds.size.height - point.y;
   NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / 18.0));
-  lineIndex = MIN(lineIndex, (NSInteger)lines.count - 1);
+  lineIndex = MIN(lineIndex + (NSInteger)g_editor_scroll_line, (NSInteger)lines.count - 1);
   NSUInteger prefix = 0;
   for (NSInteger index = 0; index < lineIndex; index++) prefix += lines[index].length + 1;
   NSUInteger column = (NSUInteger)MAX(0, floor((point.x - 8.0) / 8.0));
@@ -1109,6 +1117,12 @@ void nimculus_platform_set_editor_cursor(double x, double y) {
   g_editor_cursor[0] = x;
   g_editor_cursor[1] = y;
   markSceneFullyDirty();
+}
+void nimculus_platform_set_editor_scroll_line(uint32_t line) {
+  g_editor_scroll_line = line;
+  markSceneFullyDirty();
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text);
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_dirty(bool dirty) { g_editor_dirty = dirty ? YES : NO; }
 void nimculus_platform_set_close_decision(bool allow) { g_close_decision = allow ? YES : NO; }
