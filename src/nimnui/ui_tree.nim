@@ -19,6 +19,7 @@ type
     paintDirty*: bool
     focusable*: bool
     generation*: uint32
+    focusedState*, hoveredState*, activeState*, disabledState*: bool
     flexGrow*: float32
     preferredSize*, minSize*, maxSize*: Size
 
@@ -56,6 +57,18 @@ proc addNode*(tree: var UiTree, parent: NodeId = NodeId(0), focusable = false): 
 
 proc markLayoutDirty*(tree: var UiTree, id: NodeId)
 
+proc updateVisualState(tree: var UiTree, index: int) =
+  if index < 0 or index >= tree.nodes.len: return
+  let node = tree.nodes[index]
+  let visual = if node.disabledState: disabled
+    elif node.activeState: active
+    elif node.focusedState: focused
+    elif node.hoveredState: hovered
+    else: normal
+  if tree.nodes[index].state != visual:
+    tree.nodes[index].state = visual
+    tree.nodes[index].paintDirty = true
+
 proc setFlexGrow*(tree: var UiTree, id: NodeId, value: float32) =
   let index = tree.nodeIndex(id)
   if index >= 0:
@@ -75,12 +88,14 @@ proc hitTest*(tree: UiTree, point: Point): NodeId =
   ## only while every ancestor contains the point, matching viewport clipping
   ## for both painting and pointer routing.
   for index in countdown(tree.nodes.high, 0):
+    if tree.nodes[index].disabledState: continue
     if not tree.nodes[index].bounds.contains(point): continue
     var current = tree.nodes[index].parent
     var visible = true
     while current != NodeId(0):
       let ancestorIndex = tree.nodeIndex(current)
-      if ancestorIndex < 0 or not tree.nodes[ancestorIndex].bounds.contains(point):
+      if ancestorIndex < 0 or tree.nodes[ancestorIndex].disabledState or
+          not tree.nodes[ancestorIndex].bounds.contains(point):
         visible = false
         break
       current = tree.nodes[ancestorIndex].parent
@@ -114,16 +129,41 @@ proc markPaintClean*(tree: var UiTree, id: NodeId) =
 proc setState*(tree: var UiTree, id: NodeId, state: UiState) =
   let index = nodeIndex(tree, id)
   if index >= 0:
-    tree.nodes[index].state = state
-    tree.nodes[index].paintDirty = true
+    # Preserve the legacy single-state API while keeping the underlying
+    # interaction flags independent for native event routing.
+    tree.nodes[index].focusedState = state == focused
+    tree.nodes[index].hoveredState = state == hovered
+    tree.nodes[index].activeState = state == active
+    tree.nodes[index].disabledState = state == disabled
+    tree.updateVisualState(index)
+
+proc setHovered*(tree: var UiTree, id: NodeId, value: bool) =
+  let index = nodeIndex(tree, id)
+  if index >= 0:
+    tree.nodes[index].hoveredState = value
+    tree.updateVisualState(index)
+
+proc setActive*(tree: var UiTree, id: NodeId, value: bool) =
+  let index = nodeIndex(tree, id)
+  if index >= 0:
+    tree.nodes[index].activeState = value
+    tree.updateVisualState(index)
+
+proc setDisabled*(tree: var UiTree, id: NodeId, value: bool) =
+  let index = nodeIndex(tree, id)
+  if index >= 0:
+    tree.nodes[index].disabledState = value
+    tree.updateVisualState(index)
 
 proc focus*(tree: var UiTree, id: NodeId): bool =
   let index = nodeIndex(tree, id)
-  if index < 0 or not tree.nodes[index].focusable: return false
+  if index < 0 or not tree.nodes[index].focusable or tree.nodes[index].disabledState: return false
   if tree.focused != NodeId(0):
     let oldIndex = nodeIndex(tree, tree.focused)
-    if oldIndex >= 0: tree.nodes[oldIndex].state = normal
+    if oldIndex >= 0:
+      tree.nodes[oldIndex].focusedState = false
+      tree.updateVisualState(oldIndex)
   tree.focused = id
-  tree.nodes[index].state = focused
-  tree.nodes[index].paintDirty = true
+  tree.nodes[index].focusedState = true
+  tree.updateVisualState(index)
   true

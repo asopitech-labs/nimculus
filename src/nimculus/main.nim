@@ -19,10 +19,12 @@ var demoSplitNode = NodeId(0)
 var demoScrollNode = NodeId(0)
 var demoSplitRatio = 0.5'f32
 var demoSplitDragging = false
+var activePointerNode = NodeId(0)
 var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 
 proc setupDemoUi() =
   demoTree = newUiTree()
+  activePointerNode = NodeId(0)
   let root = demoTree.addNode()
   let button = makeControl(demoTree, root, ControlKind.button, "Nimculus", focusable = true)
   let split = makeControl(demoTree, root, ControlKind.splitPane, "Editor split")
@@ -872,16 +874,18 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
         editorPointerDragging = false
   if kind in {pointerMove, pointerEnter}:
     for node in demoTree.nodes:
-      if node.state == hovered and node.id != hit: demoTree.setState(node.id, normal)
-    if hit != NodeId(0): demoTree.setState(hit, hovered)
+      if node.hoveredState and node.id != hit: demoTree.setHovered(node.id, false)
+    if hit != NodeId(0): demoTree.setHovered(hit, true)
   elif kind == pointerExit:
     for node in demoTree.nodes:
-      if node.state == hovered: demoTree.setState(node.id, normal)
+      if node.hoveredState: demoTree.setHovered(node.id, false)
   elif kind == pointerDown and hit != NodeId(0):
     if demoTree.node(hit).focusable: discard demoTree.focus(hit)
-    demoTree.setState(hit, active)
-  elif kind == pointerUp and hit != NodeId(0):
-    demoTree.setState(hit, if demoTree.focused == hit: focused else: normal)
+    demoTree.setActive(hit, true)
+    activePointerNode = hit
+  if kind == pointerUp and activePointerNode != NodeId(0):
+    demoTree.setActive(activePointerNode, false)
+    activePointerNode = NodeId(0)
   var uiEvent = UiEvent(kind: kind, target: target,
     position: point, keyCode: event.keyCode, button: event.button, modifiers: event.modifiers,
     shortcutModifiers: macOSModifiers(event.modifiers),

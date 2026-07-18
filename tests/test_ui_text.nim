@@ -107,6 +107,28 @@ suite "M2 UI foundation":
     tree.markLayoutDirty(button)
     check tree.node(button).paintDirty
 
+  test "focus, hover, active, and disabled states coexist":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let button = tree.addNode(root, focusable = true)
+    check tree.focus(button)
+    tree.setHovered(button, true)
+    tree.setActive(button, true)
+    check tree.node(button).focusedState
+    check tree.node(button).hoveredState
+    check tree.node(button).activeState
+    check tree.node(button).state == active
+    tree.setActive(button, false)
+    check tree.node(button).state == focused
+    tree.setDisabled(button, true)
+    check tree.node(button).state == disabled
+    check not tree.focus(button)
+    tree.node(root).bounds = Rect(size: Size(width: px(100), height: px(40)))
+    tree.node(button).bounds = Rect(size: Size(width: px(100), height: px(40)))
+    check tree.hitTest(Point(x: px(10), y: px(10))) != button
+    tree.setDisabled(root, true)
+    check tree.hitTest(Point(x: px(10), y: px(10))) == NodeId(0)
+
   test "node handles carry a generation":
     var tree = newUiTree()
     let node = tree.addNode()

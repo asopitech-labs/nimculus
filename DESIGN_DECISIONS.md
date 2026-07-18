@@ -302,6 +302,17 @@ Editor Core Text paths use Menlo when available and fall back to the system
 font through `CTFontCreateUIFontForLanguage`. This keeps measurement, hit-test,
 and texture generation valid even when the preferred font is unavailable.
 
+## M2-011: Keep interaction states orthogonal
+
+Focus, hover, active, and disabled are stored as independent flags on each
+`UiNode`. The legacy `state` field remains a visual-priority projection
+(`disabled > active > focused > hovered > normal`) for existing render code.
+This matches GPUI's separate focus/hover interaction lifecycle and prevents a
+pointer move from erasing keyboard focus. Active pointer state is also cleared
+on pointer-up even when the release occurs outside the original hit target.
+Disabled nodes and descendants of disabled nodes are excluded from pointer
+hit-testing and cannot acquire focus.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback
