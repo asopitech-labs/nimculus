@@ -268,7 +268,9 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
     (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
   NSArray<NSString *> *lines = [(text ?: @"") componentsSeparatedByString:@"\n"];
   NSUInteger startLine = MIN(g_editor_scroll_line, lines.count);
-  NSUInteger visibleLines = MIN(lines.count - startLine, (NSUInteger)12);
+  const CGFloat lineHeight = 18.0;
+  NSUInteger visibleLines = MIN(lines.count - startLine,
+    (NSUInteger)MAX(1.0, ceil(g_editor_rect[3] / lineHeight)));
   NSUInteger lineStartByte = 0;
   NSUInteger lineStartUnit = 0;
   for (NSUInteger index = 0; index < startLine; index++) {
@@ -287,7 +289,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
       NSUInteger endUnit = MIN(g_editor_selection_end, lineEndUnit) - lineStartUnit;
       CGContextSetRGBFillColor(context, 0.20, 0.40, 0.75, 0.45);
       CGContextFillRect(context, CGRectMake(8.0 + editorTextOffset(lineText, startUnit),
-        height - 24.0 * (displayIndex + 1) - 4.0,
+        height - lineHeight * (displayIndex + 1) - 4.0,
         MAX(1.0, editorTextOffset(lineText, endUnit) - editorTextOffset(lineText, startUnit)), 20.0));
     }
     NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
@@ -309,7 +311,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
       }
     }
     CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
-    CGContextSetTextPosition(context, 8.0, height - 24.0 * (displayIndex + 1));
+    CGContextSetTextPosition(context, 8.0, height - lineHeight * (displayIndex + 1));
     CTLineDraw(line, context);
     CFRelease(line);
     lineStartByte += lineLength + 1;

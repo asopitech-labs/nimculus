@@ -140,6 +140,13 @@ var suppressRecoveryWrite = false
 proc activeDocument(): ptr FileDocument
 proc refreshWorkspacePreview()
 
+when defined(macosx):
+  proc editorVisibleLineCount(): int =
+    ## Keep cursor reveal, syntax requests, and native text rendering on the
+    ## same viewport contract. The old fixed 12-line value left taller windows
+    ## only half painted.
+    max(1, int(ceil(float32(demoEditorBounds.size.height) / 18'f32)))
+
 proc setupPersistencePaths() =
   let directory = getHomeDir() / "Library" / "Application Support" / "Nimculus"
   if not dirExists(directory): createDir(directory)
@@ -310,14 +317,15 @@ proc activeDocument(): ptr FileDocument =
 proc syncEditorCursor() =
   when defined(macosx):
     let document = activeDocument()
+    let visibleLines = editorVisibleLineCount()
     let location = if document == nil: (line: 0, column: 0) else:
       document[].buffer.lineColumn(editorViewState.cursor)
     if document != nil:
-      let lastVisibleLine = max(0, document[].buffer.lineStarts.len - 12)
+      let lastVisibleLine = max(0, document[].buffer.lineStarts.len - visibleLines)
       if location.line < editorViewState.scrollLine:
         editorViewState.scrollLine = location.line
-      elif location.line >= editorViewState.scrollLine + 12:
-        editorViewState.scrollLine = min(lastVisibleLine, location.line - 11)
+      elif location.line >= editorViewState.scrollLine + visibleLines:
+        editorViewState.scrollLine = min(lastVisibleLine, location.line - visibleLines + 1)
     platformSetEditorScrollLine(uint32(max(0, editorViewState.scrollLine)))
     platformSetEditorCursorByte(uint32(editorViewState.cursor), uint32(max(0, location.line)))
     let selection = if document == nil: (startByte: 0, endByte: 0) else:
@@ -343,9 +351,10 @@ proc refreshEditorSyntax() =
     syntaxState.update(document[].buffer.toString())
   when defined(macosx):
     let highlights = if syntaxState == nil: @[] else:
+      let visibleLines = editorVisibleLineCount()
       let firstLine = min(editorViewState.scrollLine, document[].buffer.lineStarts.high)
       let firstByte = document[].buffer.lineStarts[firstLine]
-      let requestedLastLine = firstLine + 12
+      let requestedLastLine = firstLine + visibleLines
       let lastByte = if requestedLastLine < document[].buffer.lineStarts.len:
         document[].buffer.lineStarts[requestedLastLine]
       else: document[].buffer.toString().len
@@ -746,7 +755,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     var splitPointerHandled = false
     if document != nil and kind == scroll:
       let delta = if event.deltaY > 0: -3 elif event.deltaY < 0: 3 else: 0
-      let maxScroll = max(0, document[].buffer.lineStarts.len - 12)
+      let maxScroll = max(0, document[].buffer.lineStarts.len - editorVisibleLineCount())
       editorViewState.scrollLine = max(0, min(maxScroll, editorViewState.scrollLine + delta))
       syncEditorCursor()
       refreshEditorSyntax()
