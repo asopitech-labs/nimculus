@@ -45,12 +45,13 @@ proc newDocument*(): FileDocument =
   result.buffer.markSaved()
 
 proc save*(document: var FileDocument, path = "") =
-  if path.len > 0: document.path = path
-  if document.path.len == 0: raise newException(IOError, "document has no path")
+  let targetPath = if path.len > 0: path else: document.path
+  if targetPath.len == 0: raise newException(IOError, "document has no path")
   var content = document.buffer.toString()
   if document.lineEnding == crlf: content = content.replace("\n", "\r\n")
-  writeFile(document.path, content)
-  let stamp = fileStamp(document.path)
+  writeFile(targetPath, content)
+  document.path = targetPath
+  let stamp = fileStamp(targetPath)
   document.externalSize = stamp.size
   document.externalModified = stamp.modified
   document.buffer.markSaved()

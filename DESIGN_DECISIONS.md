@@ -479,3 +479,7 @@ Unicode-safe movement.
 Save callbacks use the same rule: file I/O exceptions are caught inside Nim
 before returning through the C function pointer, and the editor status reports
 the failure. No CatchableError is allowed to cross the Cocoa callback ABI.
+
+`FileDocument.save` also commits the requested path only after `writeFile`
+returns successfully. A failed Save As therefore cannot silently retarget the
+document to a path that was never written.

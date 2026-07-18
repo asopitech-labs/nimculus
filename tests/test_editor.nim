@@ -67,6 +67,16 @@ suite "M5 editor services":
     writeFile(path, "changed")
     check document.externallyChanged
     removeFile(path)
+
+  test "failed save does not change the document path":
+    let path = getTempDir() / "nimculus-m5-save-source.txt"
+    writeFile(path, "source")
+    var document = openDocument(path)
+    let invalidPath = getTempDir() / "nimculus-m5-missing-dir" / "target.txt"
+    expect IOError:
+      document.save(invalidPath)
+    check document.path == path
+    removeFile(path)
     check document.externallyChanged
 
   test "tabs and split sessions":
