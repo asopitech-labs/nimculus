@@ -19,10 +19,12 @@ type
   WorkspaceEntry* = object
     path*: string
     relativePath*: string
+    rootPath*: string
     kind*: WorkspaceFileKind
     ignored*: bool
   SearchResult* = object
     path*: string
+    rootPath*: string
     line*, column*: int
     text*: string
   WorktreeState* = object
@@ -126,7 +128,7 @@ proc listChildrenAt*(workspace: Workspace, root: string; relative = ""): seq[Wor
   for kind, path in walkDir(directory, relative = false):
     let relativePath = relative / path.extractFilename
     let ignored = workspace.isIgnored(root, relativePath, kind == pcDir)
-    let entry = WorkspaceEntry(path: path, relativePath: relativePath,
+    let entry = WorkspaceEntry(path: path, relativePath: relativePath, rootPath: root,
       kind: if kind == pcDir: WorkspaceFileKind.directory else: WorkspaceFileKind.file, ignored: ignored)
     workspace.entries[root / relativePath] = entry
     if not ignored: result.add(entry)
@@ -145,48 +147,72 @@ proc enumerateFiles*(workspace: Workspace, token: CancelToken = nil): seq[Worksp
         if entry.kind == WorkspaceFileKind.directory: pending.add(entry.relativePath)
         else:
           var normalized = entry
-          if root != workspace.root: normalized.relativePath = root / entry.relativePath
           result.add(normalized)
 
-proc resolvePath(workspace: Workspace, relative: string): string =
-  let candidate = normalizedPath(workspace.root / relative)
-  let root = canonicalPath(workspace.root)
+proc normalizedWorkspaceRoot(workspace: Workspace, root: string): string =
+  let absolute = absolutePath(root)
+  for registeredRoot in workspace.roots:
+    if normalizedPath(registeredRoot) == normalizedPath(absolute): return normalizedPath(registeredRoot)
+  raise newException(ValueError, "root is not registered in workspace: " & root)
+
+proc resolvePathAt*(workspace: Workspace, root, relative: string): string =
+  let registeredRoot = workspace.normalizedWorkspaceRoot(root)
+  let candidate = normalizedPath(registeredRoot / relative)
+  let canonicalRoot = canonicalPath(registeredRoot)
   let checked = boundaryPath(candidate)
-  if checked == root or checked.startsWith(root & DirSep): return candidate
+  if checked == canonicalRoot or checked.startsWith(canonicalRoot & DirSep): return candidate
   raise newException(ValueError, "workspace path escapes root")
 
-proc resolveEntryPath(workspace: Workspace, relative: string): string =
-  let path = workspace.resolvePath(relative)
-  if path == normalizedPath(workspace.root):
+proc resolvePath(workspace: Workspace, relative: string): string =
+  workspace.resolvePathAt(workspace.root, relative)
+
+proc resolveEntryPathAt(workspace: Workspace, root, relative: string): string =
+  let path = workspace.resolvePathAt(root, relative)
+  if path == normalizedPath(root):
     raise newException(ValueError, "workspace root is not an entry")
   path
 
-proc createFile*(workspace: Workspace, relative: string, content = ""): string =
-  let path = workspace.resolveEntryPath(relative)
+proc resolveEntryPath(workspace: Workspace, relative: string): string =
+  workspace.resolveEntryPathAt(workspace.root, relative)
+
+proc createFileAt*(workspace: Workspace, root, relative: string, content = ""): string =
+  let path = workspace.resolveEntryPathAt(root, relative)
   if fileExists(path) or dirExists(path): raise newException(IOError, "path already exists")
   let parent = path.parentDir
   if not dirExists(parent): createDir(parent)
   writeFile(path, content)
   path
 
-proc createDirectory*(workspace: Workspace, relative: string): string =
-  let path = workspace.resolveEntryPath(relative)
+proc createFile*(workspace: Workspace, relative: string, content = ""): string =
+  workspace.createFileAt(workspace.root, relative, content)
+
+proc createDirectoryAt*(workspace: Workspace, root, relative: string): string =
+  let path = workspace.resolveEntryPathAt(root, relative)
   if fileExists(path) or dirExists(path): raise newException(IOError, "path already exists")
   createDir(path)
   path
 
-proc deleteEntry*(workspace: Workspace, relative: string) =
-  let path = workspace.resolveEntryPath(relative)
+proc createDirectory*(workspace: Workspace, relative: string): string =
+  workspace.createDirectoryAt(workspace.root, relative)
+
+proc deleteEntryAt*(workspace: Workspace, root, relative: string) =
+  let path = workspace.resolveEntryPathAt(root, relative)
   if dirExists(path): removeDir(path)
   elif fileExists(path): removeFile(path)
 
-proc renameEntry*(workspace: Workspace, relative, newRelative: string): string =
-  let oldPath = workspace.resolveEntryPath(relative)
-  let newPath = workspace.resolveEntryPath(newRelative)
+proc deleteEntry*(workspace: Workspace, relative: string) =
+  workspace.deleteEntryAt(workspace.root, relative)
+
+proc renameEntryAt*(workspace: Workspace, root, relative, newRelative: string): string =
+  let oldPath = workspace.resolveEntryPathAt(root, relative)
+  let newPath = workspace.resolveEntryPathAt(root, newRelative)
   if not fileExists(oldPath) and not dirExists(oldPath): raise newException(IOError, "path does not exist")
   if fileExists(newPath) or dirExists(newPath): raise newException(IOError, "destination already exists")
   moveFile(oldPath, newPath)
   newPath
+
+proc renameEntry*(workspace: Workspace, relative, newRelative: string): string =
+  workspace.renameEntryAt(workspace.root, relative, newRelative)
 
 proc fuzzyFileSearch*(workspace: Workspace, query: string, limit = 100): seq[WorkspaceEntry] =
   if query.len == 0: return
@@ -227,7 +253,7 @@ proc searchLine(job: SearchJob, line: string, lineNumber: int,
   while true:
     let column = line.find(job.query, offset)
     if column < 0: break
-    job.bufferedResults.add(SearchResult(path: entry.relativePath,
+    job.bufferedResults.add(SearchResult(path: entry.path, rootPath: entry.rootPath,
       line: lineNumber, column: column + 1, text: line))
     offset = column + max(1, job.query.len)
 
@@ -255,8 +281,6 @@ proc pollSearch*(job: SearchJob, maxFiles = 16, maxLines = 4096): seq[SearchResu
           job.pendingDirectories.add((root: directory.root, relative: entry.relativePath))
         else:
           var file = entry
-          if directory.root != job.workspace.root:
-            file.relativePath = directory.root / entry.relativePath
           job.pendingFiles.add(file)
       continue
     if not job.hasActiveFile:
@@ -342,7 +366,7 @@ proc searchRipgrep*(workspace: Workspace, query: string,
           let parts = line.split(':', maxsplit = 2)
           if parts.len < 3: continue
           try:
-            result.add(SearchResult(path: path, line: parseInt(parts[0]),
+            result.add(SearchResult(path: path, rootPath: root, line: parseInt(parts[0]),
               column: parseInt(parts[1]), text: parts[2]))
           except ValueError:
             discard
@@ -383,7 +407,7 @@ proc searchWorkspace*(workspace: Workspace, query: string,
         while true:
           let column = line.find(query, offset)
           if column < 0: break
-          result.add(SearchResult(path: entry.relativePath, line: lineNumber + 1,
+          result.add(SearchResult(path: entry.path, rootPath: entry.rootPath, line: lineNumber + 1,
             column: column + 1, text: line))
           offset = column + max(1, query.len)
     except CatchableError:

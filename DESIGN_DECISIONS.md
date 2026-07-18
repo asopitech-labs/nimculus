@@ -595,3 +595,12 @@ are top-origin. The platform boundary converts the Y coordinate once before
 UI hit-testing and event dispatch; editor text callbacks retain their own
 native coordinate conversion because they also account for the editor rect
 and scroll line.
+
+Workspace paths are owned by an explicit root. This follows Zed's
+`ProjectPath { worktree_id, path }` model: `WorkspaceEntry.rootPath` remains
+the owning root and `relativePath` remains relative to that root, while
+search results expose an absolute `path` for opening. Root-sensitive file
+operations therefore use `createFileAt`, `createDirectoryAt`,
+`deleteEntryAt`, and `renameEntryAt`; the older operations remain convenience
+wrappers for the primary root. This prevents a secondary root from being
+silently redirected to the primary workspace.

@@ -205,7 +205,8 @@ proc refreshWorkspacePreview() =
       if rootIndex > 0:
         if lines.len >= 12: break
         lines.add("Root: " & root)
-        workspacePreviewEntries.add(WorkspaceEntry(path: root, kind: WorkspaceFileKind.directory))
+        workspacePreviewEntries.add(WorkspaceEntry(path: root, rootPath: root,
+          relativePath: root, kind: WorkspaceFileKind.directory))
       var children = activeWorkspace.listChildrenAt(root)
       children.sort(proc(a, b: WorkspaceEntry): int = cmp(a.relativePath, b.relativePath))
       for entry in children:
@@ -442,8 +443,7 @@ when defined(macosx):
     let resultIndex = line - 1
     if resultIndex < 0 or resultIndex >= workspaceSearchResults.len: return
     let match = workspaceSearchResults[resultIndex]
-    let path = if fileExists(match.path): match.path else: activeWorkspace.root / match.path
-    receiveNativeFile(path.cstring, false)
+    receiveNativeFile(match.path.cstring, false)
     let document = activeDocument()
     if document != nil:
       let lineIndex = max(0, match.line - 1)

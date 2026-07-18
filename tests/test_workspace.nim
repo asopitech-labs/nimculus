@@ -102,6 +102,13 @@ suite "M6 workspace":
     check workspace.rootPaths.len == 2
     check workspace.fuzzyFileSearch("main").len == 1
     check workspace.enumerateFiles().allIt(not it.relativePath.endsWith("secret.txt"))
+    check workspace.createFileAt(second, "src/secondary.nim", "discard").endsWith("src/secondary.nim")
+    check workspace.enumerateFiles().anyIt(it.rootPath == absolutePath(second) and
+      it.relativePath == "src/secondary.nim")
+    check workspace.searchWorkspace("discard").anyIt(it.path == second / "src/secondary.nim")
+    check workspace.renameEntryAt(second, "src/secondary.nim", "src/renamed.nim").endsWith("src/renamed.nim")
+    workspace.deleteEntryAt(second, "src/renamed.nim")
+    check not fileExists(second / "src" / "renamed.nim")
     check workspace.renameEntry("src/main.nim", "src/app.nim").endsWith("src/app.nim")
     check fileExists(root / "src/app.nim")
     discard workspace.createDirectory("empty")
