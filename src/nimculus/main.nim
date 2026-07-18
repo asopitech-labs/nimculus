@@ -125,6 +125,7 @@ var editorViewState = newEditorView()
 var syntaxState: EditorSyntaxState
 var activeWorkspace: Workspace
 var workspaceSearchJob: SearchJob
+var workspaceQuickOpenJob: FuzzySearchJob
 var workspaceSearchQuery = ""
 var workspaceSearchResults: seq[SearchResult]
 var workspaceSearchCancelled = false
@@ -196,6 +197,8 @@ proc restoreSession() =
 proc openActiveWorkspace(path: string) =
   when defined(macosx):
     if activeWorkspace != nil: activeWorkspace.stopWatching()
+    if workspaceQuickOpenJob != nil: workspaceQuickOpenJob.cancelFuzzySearch()
+    workspaceQuickOpenJob = nil
     activeWorkspace = openWorkspace(path)
     activeWorkspace.startWatching()
     workspaceSearchQuery = ""
@@ -262,9 +265,26 @@ proc renderWorkspaceSearch() =
     platformSetEditorComposition("".cstring)
     platformSetEditorText(lines.join("\n").cstring)
 
+proc renderQuickOpen() =
+  when defined(macosx):
+    if activeWorkspace == nil or workspaceQuickOpenQuery.len == 0: return
+    workspacePreviewMode = "quickOpen"
+    workspaceSearchQuery = ""
+    var lines = @["Quick Open: " & workspaceQuickOpenQuery]
+    for entry in workspacePreviewEntries:
+      if lines.len >= 12: break
+      lines.add(entry.relativePath)
+    if workspaceQuickOpenJob != nil and not workspaceQuickOpenJob.isComplete:
+      lines.add("… searching workspace")
+    platformSetEditorHighlights(nil, 0)
+    platformSetEditorComposition("".cstring)
+    platformSetEditorText(lines.join("\n").cstring)
+
 proc showWorkspaceSearch(query: string) =
   when defined(macosx):
     if workspaceSearchJob != nil: workspaceSearchJob.cancelSearch()
+    if workspaceQuickOpenJob != nil: workspaceQuickOpenJob.cancelFuzzySearch()
+    workspaceQuickOpenJob = nil
     if activeWorkspace == nil or query.len == 0: return
     workspaceSearchQuery = query
     workspaceSearchResults.setLen(0)
@@ -275,17 +295,13 @@ proc showWorkspaceSearch(query: string) =
 proc showQuickOpen(query: string) =
   when defined(macosx):
     if activeWorkspace == nil or query.len == 0: return
+    if workspaceQuickOpenJob != nil: workspaceQuickOpenJob.cancelFuzzySearch()
     workspacePreviewMode = "quickOpen"
     workspaceSearchQuery = ""
     workspaceQuickOpenQuery = query
-    workspacePreviewEntries = activeWorkspace.fuzzyFileSearch(query, limit = 100)
-    var lines = @["Quick Open: " & query]
-    for entry in workspacePreviewEntries:
-      if lines.len >= 12: break
-      lines.add(entry.relativePath)
-    platformSetEditorHighlights(nil, 0)
-    platformSetEditorComposition("".cstring)
-    platformSetEditorText(lines.join("\n").cstring)
+    workspacePreviewEntries.setLen(0)
+    workspaceQuickOpenJob = activeWorkspace.startFuzzySearch(query)
+    renderQuickOpen()
 
 proc cancelWorkspaceSearch() =
   when defined(macosx):
@@ -311,6 +327,10 @@ proc pollWorkspaceSearch() =
         workspaceSearchResults.setLen(0)
         workspaceSearchCancelled = false
         workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery)
+      elif workspaceQuickOpenJob != nil:
+        workspaceQuickOpenJob.cancelFuzzySearch()
+        workspacePreviewEntries.setLen(0)
+        workspaceQuickOpenJob = activeWorkspace.startFuzzySearch(workspaceQuickOpenQuery)
       elif workspacePreviewMode == "search" and workspaceSearchQuery.len > 0:
         workspaceSearchResults.setLen(0)
         workspaceSearchCancelled = false
@@ -319,6 +339,14 @@ proc pollWorkspaceSearch() =
         refreshWorkspacePreview()
       elif workspacePreviewMode == "quickOpen":
         showQuickOpen(workspaceQuickOpenQuery)
+    if workspaceQuickOpenJob != nil:
+      for entry in workspaceQuickOpenJob.pollFuzzySearch(maxEntries = 256, maxResults = 100):
+        if workspacePreviewEntries.len < 100: workspacePreviewEntries.add(entry)
+      workspacePreviewEntries.sort(proc(a, b: WorkspaceEntry): int =
+        let lengthOrder = cmp(a.relativePath.len, b.relativePath.len)
+        if lengthOrder != 0: lengthOrder else: cmp(a.relativePath, b.relativePath))
+      renderQuickOpen()
+      if workspaceQuickOpenJob.isComplete: workspaceQuickOpenJob = nil
     if workspaceSearchJob == nil:
       return
     for result in workspaceSearchJob.pollSearch(maxFiles = 8, maxLines = 256):
@@ -406,9 +434,10 @@ proc receiveNativeText(text: cstring, composing: bool) {.cdecl.} =
 proc receiveNativeSelection(startByte, endByte: uint32) {.cdecl.} =
   let document = activeDocument()
   if document == nil: return
-  let length = document[].buffer.toString().len
-  editorViewState.selection.anchor = min(int(startByte), length)
-  editorViewState.selection.active = min(int(endByte), length)
+  let text = document[].buffer.toString()
+  let length = text.len
+  editorViewState.selection.anchor = floorGraphemeBoundary(text, min(int(startByte), length))
+  editorViewState.selection.active = floorGraphemeBoundary(text, min(int(endByte), length))
   syncEditorCursor()
 
 proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
@@ -417,6 +446,9 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
   if workspaceSearchJob != nil:
     workspaceSearchJob.cancelSearch()
     workspaceSearchJob = nil
+  if workspaceQuickOpenJob != nil:
+    workspaceQuickOpenJob.cancelFuzzySearch()
+    workspaceQuickOpenJob = nil
   if saving:
     let document = activeDocument()
     if document != nil:

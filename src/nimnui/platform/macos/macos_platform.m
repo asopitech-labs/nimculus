@@ -225,16 +225,31 @@ static NSUInteger utf16OffsetForUTF8Bytes(NSString *line, NSUInteger targetBytes
 }
 
 static NSUInteger utf8BytesForUTF16Offset(NSString *line, NSUInteger targetUnits) {
-  NSUInteger units = MIN(targetUnits, line.length);
-  if (units == 0) return 0;
-  return [[line substringToIndex:units] dataUsingEncoding:NSUTF8StringEncoding].length;
+  NSString *value = line ?: @"";
+  NSUInteger target = MIN(targetUnits, value.length);
+  NSUInteger units = 0;
+  NSUInteger bytes = 0;
+  while (units < target) {
+    NSUInteger width = 1;
+    unichar first = [value characterAtIndex:units];
+    if (first >= 0xD800 && first <= 0xDBFF && units + 1 < value.length) {
+      unichar second = [value characterAtIndex:units + 1];
+      if (second >= 0xDC00 && second <= 0xDFFF) width = 2;
+    }
+    // Never manufacture an unpaired surrogate when AppKit asks for a
+    // UTF-16 position inside an emoji or another supplementary scalar.
+    if (units + width > target) break;
+    NSString *scalar = [value substringWithRange:NSMakeRange(units, width)];
+    NSData *encoded = [scalar dataUsingEncoding:NSUTF8StringEncoding];
+    if (!encoded) break;
+    bytes += encoded.length;
+    units += width;
+  }
+  return bytes;
 }
 
 static NSUInteger utf8BytesForDocumentUTF16Offset(NSString *text, NSUInteger targetUnits) {
-  NSString *value = text ?: @"";
-  NSUInteger units = MIN(targetUnits, value.length);
-  if (units == 0) return 0;
-  return [[value substringToIndex:units] dataUsingEncoding:NSUTF8StringEncoding].length;
+  return utf8BytesForUTF16Offset(text ?: @"", targetUnits);
 }
 
 static CGFloat editorTextOffset(NSString *line, NSUInteger utf16Index) {
@@ -675,6 +690,18 @@ static void logInput(NSString *kind, NSEvent *event) {
 - (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
   NSString *committed = [string isKindOfClass:[NSAttributedString class]]
     ? [string string] : (NSString *)string;
+  if (replacementRange.location != NSNotFound && g_selection_callback) {
+    NSUInteger textLength = g_editor_text.length;
+    NSUInteger startUnit = MIN(replacementRange.location, textLength);
+    NSUInteger endUnit = MIN(NSMaxRange(replacementRange), textLength);
+    if (endUnit < startUnit) endUnit = startUnit;
+    uint32_t startByte = (uint32_t)utf8BytesForDocumentUTF16Offset(g_editor_text, startUnit);
+    uint32_t endByte = (uint32_t)utf8BytesForDocumentUTF16Offset(g_editor_text, endUnit);
+    // NSTextInputClient may commit text with a replacement range even when
+    // no preceding marked-text update selected it. Preserve Zed's
+    // insert_text(range) contract at the Nim boundary.
+    g_selection_callback(startByte, endByte);
+  }
   if (g_text_callback) g_text_callback(committed.UTF8String, false);
   [self unmarkText];
 }

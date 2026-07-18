@@ -565,6 +565,14 @@ updating Nim's selection. This follows Zed's
 `replace_and_mark_text_in_range` contract and avoids replacing the wrong text
 when an IME supplies a range different from the current caret selection.
 
+The same replacement-range contract applies to `insertText:replacementRange:`.
+Some input sources commit text with a replacement range without a preceding
+marked-text update, so the native bridge forwards that range before forwarding
+the committed text. UTF-16-to-UTF-8 conversion walks complete Unicode scalar
+boundaries and clamps a malformed midpoint request before it can create an
+unpaired surrogate. Native selection callbacks are then clamped to an editor
+grapheme boundary before editing or deletion.
+
 Line navigation uses an exclusive byte offset immediately before the line
 terminator. The editor buffer normalizes working text to LF, and the document
 save layer restores CRLF only at serialization, so movement does not depend on
@@ -652,3 +660,13 @@ drain reports a change, including when the previous job has already completed
 but its search view remains visible. Partial results are cleared before the
 restart, so stale matches are never presented as current. Quick Open retains
 its query and re-runs fuzzy matching on the updated workspace entries.
+
+## M6-018: Make Quick Open cooperative
+
+Zed's tab/file finders consume project candidates from asynchronous worktree
+and fuzzy-search tasks rather than blocking the window while walking a project.
+Nimculus now uses `FuzzySearchJob` for the macOS Quick Open path. Directory
+enumeration and candidate matching are advanced in bounded timer polls, with a
+cancel token on Workspace switches, document opens, new queries, and watcher
+invalidations. The existing synchronous `fuzzyFileSearch` API remains as a
+library convenience, while the application path uses the non-blocking job.

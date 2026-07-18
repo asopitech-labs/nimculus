@@ -84,6 +84,18 @@ proc nextGraphemeBoundary*(text: string, offset: int): int =
     if position.byteOffset > bounded: return position.byteOffset
   text.len
 
+proc floorGraphemeBoundary*(text: string, offset: int): int =
+  ## Clamp an externally supplied byte position without moving a position
+  ## that is already a valid grapheme boundary. Native text systems report
+  ## UTF-16/codepoint positions, while editor deletion and selection use
+  ## extended grapheme clusters.
+  let bounded = max(0, min(offset, text.len))
+  let positions = textPositions(text)
+  for index in countdown(positions.high, 0):
+    if positions[index].byteOffset <= bounded:
+      return positions[index].byteOffset
+  0
+
 proc previousWordBoundary*(text: string, offset: int): int =
   let clusters = text.graphemeInfo
   if clusters.len == 0: return 0

@@ -1,6 +1,7 @@
 import std/unittest
 import std/unicode
 import nimnui/nimnui
+import nimculus/editor_view
 
 suite "M2 UI foundation":
   test "macOS modifier flags map to shortcut modifiers":
@@ -173,6 +174,13 @@ suite "M3 text foundation":
     let positions = textPositions(text)
     check positions.len == 5
     check positions[^1].byteOffset == text.len
+
+  test "external byte positions clamp to grapheme boundaries":
+    let text = "a\u0301🙂b"
+    let positions = textPositions(text)
+    check floorGraphemeBoundary(text, positions[1].byteOffset) == positions[1].byteOffset
+    check floorGraphemeBoundary(text, positions[1].byteOffset + 1) == positions[1].byteOffset
+    check floorGraphemeBoundary(text, text.len) == text.len
 
   test "glyph atlas reuses glyphs":
     var atlas = newGlyphAtlas(64, 64)

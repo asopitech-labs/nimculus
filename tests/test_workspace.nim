@@ -104,6 +104,27 @@ suite "M6 workspace":
     check workspace.changedPaths().len == 0
     removeFile(filePath); removeDir(root)
 
+  test "fuzzy search yields bounded batches and can be cancelled":
+    let root = getTempDir() / "nimculus-m6-fuzzy-job"
+    createDir(root)
+    for index in 0 ..< 5:
+      writeFile(root / ("needle-" & $index & ".txt"), "value")
+    let workspace = openWorkspace(root)
+    let job = workspace.startFuzzySearch("needle")
+    let first = job.pollFuzzySearch(maxEntries = 1, maxResults = 100)
+    check first.len == 1
+    check not job.isComplete
+    var rest = first
+    while not job.isComplete:
+      rest.add(job.pollFuzzySearch(maxEntries = 2, maxResults = 100))
+    check rest.len == 5
+    let cancelled = workspace.startFuzzySearch("needle")
+    cancelled.cancelFuzzySearch()
+    check cancelled.pollFuzzySearch().len == 0
+    check cancelled.isComplete
+    for index in 0 ..< 5: removeFile(root / ("needle-" & $index & ".txt"))
+    removeDir(root)
+
   test "supports roots, file operations, and fuzzy search":
     let root = getTempDir() / "nimculus-m6-ops"
     let second = getTempDir() / "nimculus-m6-ops-second"

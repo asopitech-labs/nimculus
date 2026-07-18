@@ -43,6 +43,14 @@ type
     activeLine: int
     hasActiveFile: bool
     complete*: bool
+  FuzzySearchJob* = ref object
+    workspace*: Workspace
+    query*: string
+    token*: CancelToken
+    pendingDirectories: seq[tuple[root: string, relative: string]]
+    pendingFiles: seq[WorkspaceEntry]
+    bufferedResults: seq[WorkspaceEntry]
+    complete*: bool
   Workspace* = ref object
     root*: string
     roots*: seq[string]
@@ -179,17 +187,11 @@ proc splitWorkspacePath*(workspace: Workspace, path: string): tuple[root, relati
       return (root: root, relative: candidate[(normalizedRoot.len + 1) .. ^1])
   raise newException(ValueError, "path is outside registered workspace roots")
 
-proc resolvePath(workspace: Workspace, relative: string): string =
-  workspace.resolvePathAt(workspace.root, relative)
-
 proc resolveEntryPathAt(workspace: Workspace, root, relative: string): string =
   let path = workspace.resolvePathAt(root, relative)
   if path == normalizedPath(root):
     raise newException(ValueError, "workspace root is not an entry")
   path
-
-proc resolveEntryPath(workspace: Workspace, relative: string): string =
-  workspace.resolveEntryPathAt(workspace.root, relative)
 
 proc createFileAt*(workspace: Workspace, root, relative: string, content = ""): string =
   let path = workspace.resolveEntryPathAt(root, relative)
@@ -240,7 +242,68 @@ proc fuzzyFileSearch*(workspace: Workspace, query: string, limit = 100): seq[Wor
     if cursor == needle.len:
       result.add(entry)
       if result.len >= limit: break
-  result.sort(proc(a, b: WorkspaceEntry): int = cmp(a.relativePath.len, b.relativePath.len))
+  result.sort(proc(a, b: WorkspaceEntry): int =
+    let lengthOrder = cmp(a.relativePath.len, b.relativePath.len)
+    if lengthOrder != 0: lengthOrder else: cmp(a.relativePath, b.relativePath))
+
+proc startFuzzySearch*(workspace: Workspace, query: string,
+                       token: CancelToken = nil): FuzzySearchJob =
+  result = FuzzySearchJob(workspace: workspace, query: query,
+    token: if token == nil: newCancelToken() else: token)
+  if workspace == nil or query.len == 0:
+    result.complete = true
+    return
+  for root in workspace.roots:
+    result.pendingDirectories.add((root: root, relative: ""))
+
+proc cancelFuzzySearch*(job: FuzzySearchJob) =
+  if job != nil and job.token != nil: job.token.cancel()
+
+proc isComplete*(job: FuzzySearchJob): bool = job == nil or job.complete
+
+proc fuzzyMatches(path, query: string): bool =
+  var cursor = 0
+  for character in path.toLowerAscii:
+    if cursor < query.len and character == query[cursor]: inc cursor
+  cursor == query.len
+
+proc pollFuzzySearch*(job: FuzzySearchJob, maxEntries = 256,
+                      maxResults = 100): seq[WorkspaceEntry] =
+  ## Yield path matching in bounded batches. Zed's file finders run from
+  ## background/project tasks; the macOS UI must not enumerate a 100k-file
+  ## workspace synchronously while opening Quick Open.
+  if job == nil or job.complete: return
+  if job.token != nil and job.token.cancelled:
+    job.complete = true
+    return
+  var processed = 0
+  let needle = job.query.toLowerAscii
+  while processed < max(1, maxEntries) and job.bufferedResults.len < max(1, maxResults):
+    if job.token != nil and job.token.cancelled:
+      job.complete = true
+      break
+    if job.pendingFiles.len == 0:
+      if job.pendingDirectories.len == 0:
+        job.complete = true
+        break
+      let directory = job.pendingDirectories.pop()
+      for entry in job.workspace.listChildrenAt(directory.root, directory.relative):
+        if entry.kind == WorkspaceFileKind.directory:
+          job.pendingDirectories.add((root: directory.root, relative: entry.relativePath))
+        else:
+          job.pendingFiles.add(entry)
+      continue
+    let entry = job.pendingFiles.pop()
+    inc processed
+    if fuzzyMatches(entry.relativePath, needle):
+      job.bufferedResults.add(entry)
+  if job.pendingFiles.len == 0 and job.pendingDirectories.len == 0:
+    job.complete = true
+  result = job.bufferedResults
+  job.bufferedResults.setLen(0)
+  result.sort(proc(a, b: WorkspaceEntry): int =
+    let lengthOrder = cmp(a.relativePath.len, b.relativePath.len)
+    if lengthOrder != 0: lengthOrder else: cmp(a.relativePath, b.relativePath))
 
 proc searchWorkspace*(workspace: Workspace, query: string,
                       token: CancelToken = nil): seq[SearchResult]
