@@ -339,9 +339,23 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     of 11'u32: keyUp
     of 22'u32: scroll
     else: command
-  var uiEvent = UiEvent(kind: kind, target: demoButton,
-    position: Point(x: px(float32(event.x)), y: px(float32(event.y))),
-    keyCode: event.keyCode)
+  let point = Point(x: px(float32(event.x)), y: px(float32(event.y)))
+  let hit = demoTree.hitTest(point)
+  let target = if kind == keyDown or kind == keyUp or kind == command:
+    if demoTree.focused != NodeId(0): demoTree.focused else: hit
+  else: hit
+  if kind == pointerMove:
+    for node in demoTree.nodes:
+      if node.state == hovered and node.id != hit: demoTree.setState(node.id, normal)
+    if hit != NodeId(0): demoTree.setState(hit, hovered)
+  elif kind == pointerDown and hit != NodeId(0):
+    if demoTree.node(hit).focusable: discard demoTree.focus(hit)
+    demoTree.setState(hit, active)
+  elif kind == pointerUp and hit != NodeId(0):
+    demoTree.setState(hit, if demoTree.focused == hit: focused else: normal)
+  var uiEvent = UiEvent(kind: kind, target: target,
+    position: point, keyCode: event.keyCode, modifiers: event.modifiers,
+    deltaX: float32(event.deltaX), deltaY: float32(event.deltaY))
   discard demoTree.dispatch(uiEvent)
 
 when isMainModule:

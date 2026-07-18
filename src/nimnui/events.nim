@@ -15,6 +15,8 @@ type
     target*: NodeId
     position*: Point
     keyCode*: uint32
+    modifiers*: uint32
+    deltaX*, deltaY*: float32
     command*: string
     handled*: bool
 

@@ -54,6 +54,13 @@ selection, and caret colors; other paint kinds remain explicit follow-up work.
 This preserves a direct path to batching without forcing Cocoa or Metal types
 into NimNUI's core model.
 
+## M2-002: Hit-test native pointer events before UI dispatch
+
+The macOS callback converts native pointer coordinates into a `UiTree` target
+before dispatch. Hover, active, and focus state transitions are applied at the
+application boundary; the event retains native modifier flags and scroll
+deltas so controls can consume them without another platform dependency.
+
 ## M3-001: Core Text for macOS shaping and atlas source
 
 Core Text is the macOS-native shaping and font discovery boundary. Its line

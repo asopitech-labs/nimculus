@@ -52,6 +52,13 @@ proc nodeIndex(tree: UiTree, id: NodeId): int =
     if node.id == id: return index
   -1
 
+proc hitTest*(tree: UiTree, point: Point): NodeId =
+  ## Return the deepest/topmost node containing a point. Nodes are traversed
+  ## in reverse insertion order so later painted siblings receive the event.
+  for index in countdown(tree.nodes.high, 0):
+    if tree.nodes[index].bounds.contains(point): return tree.nodes[index].id
+  NodeId(0)
+
 proc handle*(tree: UiTree, id: NodeId): NodeHandle =
   let index = tree.nodeIndex(id)
   if index >= 0: NodeHandle(id: id, generation: tree.nodes[index].generation)

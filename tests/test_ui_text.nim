@@ -35,6 +35,17 @@ suite "M2 UI foundation":
     check tree.isValid(handle)
     check not tree.isValid(NodeHandle(id: node, generation: handle.generation + 1))
 
+  test "hit testing selects the topmost node":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let back = tree.addNode(root)
+    let front = tree.addNode(root)
+    tree.node(root).bounds = Rect(size: Size(width: px(100), height: px(100)))
+    tree.node(back).bounds = Rect(size: Size(width: px(60), height: px(60)))
+    tree.node(front).bounds = Rect(size: Size(width: px(60), height: px(60)))
+    check tree.hitTest(Point(x: px(20), y: px(20))) == front
+    check tree.hitTest(Point(x: px(90), y: px(90))) == root
+
   test "focus traversal reaches the next focusable node":
     var tree = newUiTree()
     let first = tree.addNode(focusable = true)
