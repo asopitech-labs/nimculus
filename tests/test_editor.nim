@@ -78,6 +78,11 @@ suite "M4 editor buffer":
     check nextGraphemeBoundary(text, 0) == 3
     check previousGraphemeBoundary(text, 3) == 0
     check nextGraphemeBoundary(text, 3) == text.len
+
+  test "word movement recognizes Unicode whitespace":
+    let text = "alpha　beta\ngamma"
+    check previousWordBoundary(text, text.len) == 13
+    check nextWordBoundary(text, 0) == 5
     check previousWordBoundary("é project", 4) == 0
 
 suite "M5 editor services":

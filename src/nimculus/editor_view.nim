@@ -1,4 +1,5 @@
 import std/strutils
+import std/unicode
 import nimculus/editor_buffer
 import nimnui/text
 
@@ -34,7 +35,12 @@ proc byteOffsetAtLineColumn*(buffer: PieceTable, line, column: int): int =
   let targetColumn = max(0, min(column, positions.high))
   start + positions[targetColumn].byteOffset
 
-proc isWordSpace(value: char): bool = value in {' ', '\t', '\n', '\r'}
+proc isWordSpace(cluster: string): bool =
+  ## Zed's word movement classifies Unicode whitespace, not only ASCII bytes.
+  if cluster.len == 0: return false
+  for rune in cluster.runes:
+    if not rune.isWhiteSpace: return false
+  true
 
 proc previousGraphemeBoundary*(text: string, offset: int): int =
   let bounded = max(0, min(offset, text.len))
@@ -53,22 +59,24 @@ proc previousWordBoundary*(text: string, offset: int): int =
   var cursor = max(0, min(offset, text.len))
   while cursor > 0:
     let previous = previousGraphemeBoundary(text, cursor)
-    if not text[previous].isWordSpace: break
+    if not text[previous ..< cursor].isWordSpace: break
     cursor = previous
   while cursor > 0:
     let previous = previousGraphemeBoundary(text, cursor)
-    if text[previous].isWordSpace: break
+    if text[previous ..< cursor].isWordSpace: break
     cursor = previous
   cursor
 
 proc nextWordBoundary*(text: string, offset: int): int =
   var cursor = max(0, min(offset, text.len))
   while cursor < text.len:
-    if not text[cursor].isWordSpace: break
-    cursor = nextGraphemeBoundary(text, cursor)
+    let next = nextGraphemeBoundary(text, cursor)
+    if not text[cursor ..< next].isWordSpace: break
+    cursor = next
   while cursor < text.len:
-    if text[cursor].isWordSpace: break
-    cursor = nextGraphemeBoundary(text, cursor)
+    let next = nextGraphemeBoundary(text, cursor)
+    if text[cursor ..< next].isWordSpace: break
+    cursor = next
   cursor
 
 proc selectedRange*(view: EditorViewState): tuple[startByte, endByte: int] =
