@@ -45,3 +45,11 @@ suite "macOS platform contract":
     platformSetEditorText(nulText.cstring, uint32(nulText.len))
     check platformEditorTextUtf8Length() == uint32(nulText.len)
     platformSetEditorText("".cstring, 0)
+
+  test "editor cursor and selection refresh the native text overlay":
+    platformSetEditorText("A日本語🙂".cstring, uint32("A日本語🙂".len))
+    platformSetEditorCursor(24.0, 30.0)
+    platformSetEditorCursorByte(4, 0)
+    platformSetEditorSelection(1, 4)
+    platformSetEditorSelection(0, 0)
+    check true

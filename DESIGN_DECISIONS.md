@@ -540,6 +540,12 @@ editor text upload. The legacy NUL-terminated wrapper remains for callers
 whose input is guaranteed to be C-string text, while the editor-facing API
 uses `nimculus_measure_text_utf8` so measurement cannot truncate a document.
 
+Caret and selection changes rebuild only the Core Text overlay texture; text
+changes, scrolling, scale changes, and syntax highlight changes rebuild the
+glyph atlas as well. This keeps the Zed-style atlas cache out of high-frequency
+cursor movement while ensuring retained-scene redraws never reuse stale caret
+or selection pixels.
+
 Committed editor glyphs use the Metal atlas as the primary text path. The
 Core Text texture is kept as a transparent overlay for selection, marked IME
 composition, and caret; it renders the full line only when atlas generation

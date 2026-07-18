@@ -402,12 +402,13 @@ static CGPoint editorPointForUTF16Offset(NSUInteger documentOffset) {
 
 static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text);
 
-static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
+static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
+                                    BOOL updateAtlas) {
   if (!device) return;
   // The atlas is the primary committed-text renderer. The Core Text texture
   // remains an overlay for selection, marked composition, and caret, with a
   // complete-text fallback only when atlas generation is unavailable.
-  updateEditorGlyphAtlas(device, text);
+  if (updateAtlas) updateEditorGlyphAtlas(device, text);
   const BOOL drawFallbackText = !g_glyph_rendering_available;
   CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
   const size_t width = (size_t)ceil(MAX(1.0, g_editor_rect[2]) * scale);
@@ -855,7 +856,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
                                             self.bounds.size.height * scale);
   [self updateMetrics];
   if (g_queue && fabs(g_text_texture_scale - g_metrics.scale_factor) > 0.001) {
-    updateEditorTextTexture(g_queue.device, g_editor_text);
+    updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   }
   [self drawFrame];
 }
@@ -1695,7 +1696,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     glyphDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
     glyphDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
     g_glyph_pipeline = [device newRenderPipelineStateWithDescriptor:glyphDescriptor error:&error];
-    updateEditorTextTexture(device, g_editor_text);
+    updateEditorTextTexture(device, g_editor_text, YES);
   }
 
   NSRect frame = NSMakeRect(0, 0, 960, 640);
@@ -1812,6 +1813,7 @@ void nimculus_platform_set_command_callback(NimculusCommandCallback callback) { 
 void nimculus_platform_set_editor_cursor(double x, double y) {
   g_editor_cursor[0] = x;
   g_editor_cursor[1] = y;
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   markSceneFullyDirty();
 }
 void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t line) {
@@ -1830,6 +1832,7 @@ void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t lin
   g_editor_cursor[0] = 8.0 + editorTextOffset(lineText, utf16);
   NSUInteger visibleLine = lineIndex > g_editor_scroll_line ? lineIndex - g_editor_scroll_line : 0;
   g_editor_cursor[1] = 12.0 + visibleLine * 18.0;
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   markSceneFullyDirty();
 }
 void nimculus_platform_invalidate_ime_coordinates(void) {
@@ -1895,7 +1898,7 @@ uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y) {
 void nimculus_platform_set_editor_scroll_line(uint32_t line) {
   g_editor_scroll_line = line;
   markSceneFullyDirty();
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text);
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_rect(double x, double y, double width, double height) {
@@ -1903,7 +1906,7 @@ void nimculus_platform_set_editor_rect(double x, double y, double width, double 
   g_editor_rect[1] = MAX(0.0, y);
   g_editor_rect[2] = MAX(1.0, width);
   g_editor_rect[3] = MAX(1.0, height);
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text);
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
@@ -1986,6 +1989,7 @@ void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_by
     view.selectedTextRange = NSMakeRange(g_editor_selection_start,
       g_editor_selection_end - g_editor_selection_start);
   }
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
@@ -1995,7 +1999,7 @@ void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
     : @"";
   if (!g_editor_text) g_editor_text = @"";
   markSceneFullyDirty();
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text);
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   if (g_active_view) [g_active_view drawFrame];
 }
 uint32_t nimculus_platform_editor_text_utf8_length(void) {
@@ -2013,7 +2017,7 @@ void nimculus_platform_set_editor_composition(const char *utf8) {
     view.markedTextRange = NSMakeRange(NSNotFound, 0);
   }
   markSceneFullyDirty();
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text);
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   if (g_active_view) [g_active_view drawFrame];
 }
 void nimculus_platform_clear_editor_composition(void) {
@@ -2024,7 +2028,7 @@ void nimculus_platform_clear_editor_composition(void) {
     view.markedTextRange = NSMakeRange(NSNotFound, 0);
   }
   markSceneFullyDirty();
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text);
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   if (g_active_view) [g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans, uint32_t count) {
