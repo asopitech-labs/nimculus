@@ -230,6 +230,25 @@ suite "M5 editor services":
     check restored.tabs[0].document.buffer.isDirty
     removeFile(sessionPath)
 
+  test "session restores dirty named tab content after a crash":
+    let path = getTempDir() / "nimculus-m5-dirty-session.txt"
+    writeFile(path, "on disk")
+    var session: EditorSession
+    var document = openDocument(path)
+    document.buffer.edit(Edit(startByte: 0, endByte: document.buffer.toString().len,
+      text: "unsaved🙂"))
+    session.addTab(document)
+    let sessionPath = getTempDir() / "nimculus-m5-dirty-session.json"
+    session.saveSession(sessionPath)
+    let restored = loadSession(sessionPath)
+    check restored.tabs.len == 1
+    check restored.tabs[0].document.path == path
+    check restored.tabs[0].document.buffer.toString() == "unsaved🙂"
+    check restored.tabs[0].document.buffer.isDirty
+    check readFile(path) == "on disk"
+    removeFile(path)
+    removeFile(sessionPath)
+
   test "session loader tolerates partial metadata":
     let path = getTempDir() / "nimculus-m5-partial-session.json"
     writeFile(path, "{\"tabs\": []}")

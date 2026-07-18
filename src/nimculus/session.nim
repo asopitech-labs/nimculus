@@ -40,7 +40,7 @@ proc saveSession*(session: EditorSession, path: string) =
         "showIndentGuides": tab.view.showIndentGuides,
         "indentWidth": tab.view.indentWidth
       }}
-    if tab.document.path.len == 0:
+    if tab.document.path.len == 0 or tab.document.buffer.isDirty:
       serializedTab["content"] = %tab.document.buffer.toString()
       serializedTab["lineEnding"] = %($tab.document.lineEnding)
     tabs.add(serializedTab)
@@ -77,6 +77,11 @@ proc loadSession*(path: string): EditorSession =
     try:
       if filePath.len > 0 and fileExists(filePath):
         document = openDocument(filePath)
+        if jsonBool(item, "dirty", false) and item.hasKey("content") and
+           item["content"].kind == JString:
+          document.buffer = initPieceTable(item["content"].getStr)
+          document.lineEnding = if jsonString(item, "lineEnding", "lf") == "crlf": crlf else: lf
+          document.buffer.markDirty()
         canRestore = true
       elif filePath.len == 0 and item.hasKey("content") and
            item["content"].kind == JString:

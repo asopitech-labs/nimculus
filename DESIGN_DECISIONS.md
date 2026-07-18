@@ -515,6 +515,12 @@ successful save or an explicit Don't Save decision removes it. The recovery
 file intentionally contains only the active buffer; the session file remains
 the source of truth for tab paths, untitled content, and recent files.
 
+Dirty named tabs also serialize their current buffer content and line-ending
+mode. On restore, the file's current disk metadata is loaded first, then the
+serialized dirty content is layered back over it without modifying the file.
+This protects non-active dirty tabs if the process crashes before the normal
+close confirmation can run.
+
 `recoverDocument` marks the reconstructed buffer dirty even though its text is
 loaded as the original piece source. Recovery is therefore preserved until an
 explicit save or discard decision, rather than being deleted as soon as the
