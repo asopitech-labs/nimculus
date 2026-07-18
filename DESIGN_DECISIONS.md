@@ -393,3 +393,12 @@ active file with `readLine` instead of loading the complete file. Cancellation
 closes an active file immediately. The existing synchronous search functions
 remain as convenience APIs, while application UI code must use the yielding
 job for large workspaces.
+
+## M3-017: Use Core Text offsets for editor cursor geometry
+
+The native text surface converts editor UTF-8 byte offsets to UTF-16 indices,
+then asks Core Text for the glyph offset with
+`CTLineGetOffsetForStringIndex`. Selection rectangles use the same measured
+offsets. This keeps cursor, selection, and IME geometry aligned for Japanese,
+emoji, combining characters, and proportional fallback runs instead of
+assuming a fixed eight-pixel character width.

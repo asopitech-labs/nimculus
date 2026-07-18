@@ -298,9 +298,8 @@ proc syncEditorCursor() =
         editorViewState.scrollLine = location.line
       elif location.line >= editorViewState.scrollLine + 12:
         editorViewState.scrollLine = min(lastVisibleLine, location.line - 11)
-    let visibleLine = max(0, location.line - editorViewState.scrollLine)
     platformSetEditorScrollLine(uint32(max(0, editorViewState.scrollLine)))
-    platformSetEditorCursor(cdouble(8 + location.column * 8), cdouble(12 + visibleLine * 18))
+    platformSetEditorCursorByte(uint32(editorViewState.cursor), uint32(max(0, location.line)))
     let selection = if document == nil: (startByte: 0, endByte: 0) else:
       editorViewState.selectedRange()
     platformSetEditorSelection(uint32(selection.startByte), uint32(selection.endByte))

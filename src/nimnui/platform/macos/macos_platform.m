@@ -195,6 +195,19 @@ static NSUInteger utf16OffsetForUTF8Bytes(NSString *line, NSUInteger targetBytes
   return units;
 }
 
+static CGFloat editorTextOffset(NSString *line, NSUInteger utf16Index) {
+  CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), 14.0, NULL);
+  if (!font) return 0.0;
+  NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
+  NSString *value = line ?: @"";
+  NSAttributedString *attributed = [[NSAttributedString alloc] initWithString:value attributes:attributes];
+  CTLineRef ctLine = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
+  CGFloat offset = CTLineGetOffsetForStringIndex(ctLine, MIN(utf16Index, value.length), NULL);
+  CFRelease(ctLine);
+  CFRelease(font);
+  return offset;
+}
+
 static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
   if (!device) return;
   CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
@@ -231,9 +244,9 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
       NSUInteger startUnit = MAX(g_editor_selection_start, lineStartUnit) - lineStartUnit;
       NSUInteger endUnit = MIN(g_editor_selection_end, lineEndUnit) - lineStartUnit;
       CGContextSetRGBFillColor(context, 0.20, 0.40, 0.75, 0.45);
-      CGContextFillRect(context, CGRectMake(8.0 + startUnit * 8.0,
+      CGContextFillRect(context, CGRectMake(8.0 + editorTextOffset(lineText, startUnit),
         height - 24.0 * (displayIndex + 1) - 4.0,
-        MAX(1.0, (endUnit - startUnit) * 8.0), 20.0));
+        MAX(1.0, editorTextOffset(lineText, endUnit) - editorTextOffset(lineText, startUnit)), 20.0));
     }
     NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
       initWithString:lineText attributes:attributes];
@@ -1160,6 +1173,24 @@ void nimculus_platform_set_command_callback(NimculusCommandCallback callback) { 
 void nimculus_platform_set_editor_cursor(double x, double y) {
   g_editor_cursor[0] = x;
   g_editor_cursor[1] = y;
+  markSceneFullyDirty();
+}
+void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t line) {
+  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  if (lines.count == 0) return;
+  NSUInteger lineIndex = MIN((NSUInteger)line, lines.count - 1);
+  NSUInteger lineStartByte = 0;
+  for (NSUInteger index = 0; index < lineIndex; index++) {
+    lineStartByte += [[lines[index] dataUsingEncoding:NSUTF8StringEncoding] length] + 1;
+  }
+  NSString *lineText = lines[lineIndex];
+  NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
+  NSUInteger localByte = byte_offset > lineStartByte ? byte_offset - lineStartByte : 0;
+  localByte = MIN(localByte, lineLength);
+  NSUInteger utf16 = utf16OffsetForUTF8Bytes(lineText, localByte);
+  g_editor_cursor[0] = 8.0 + editorTextOffset(lineText, utf16);
+  NSUInteger visibleLine = lineIndex > g_editor_scroll_line ? lineIndex - g_editor_scroll_line : 0;
+  g_editor_cursor[1] = 12.0 + visibleLine * 18.0;
   markSceneFullyDirty();
 }
 void nimculus_platform_set_editor_scroll_line(uint32_t line) {
