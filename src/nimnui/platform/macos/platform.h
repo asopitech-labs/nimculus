@@ -24,6 +24,7 @@ typedef struct NimculusInputEvent {
 typedef void (*NimculusInputCallback)(const NimculusInputEvent *event);
 typedef void (*NimculusTextCallback)(const char *utf8, bool composing);
 typedef void (*NimculusFileCallback)(const char *path, bool saving);
+typedef void (*NimculusCommandCallback)(const char *command);
 
 bool nimculus_platform_run(void);
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics);
@@ -31,6 +32,7 @@ uint64_t nimculus_platform_input_count(void);
 void nimculus_platform_set_input_callback(NimculusInputCallback callback);
 void nimculus_platform_set_text_callback(NimculusTextCallback callback);
 void nimculus_platform_set_file_callback(NimculusFileCallback callback);
+void nimculus_platform_set_command_callback(NimculusCommandCallback callback);
 void nimculus_platform_set_ui_rectangle(double x, double y, double width, double height);
 void nimculus_clipboard_set(const char *utf8);
 const char *nimculus_clipboard_get(void);

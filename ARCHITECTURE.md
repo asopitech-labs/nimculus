@@ -53,7 +53,8 @@ persist tabs, recent files, and recovery data separately from rendering.
 ## M6 workspace layer
 
 `src/nimculus/workspace.nim` owns lazy directory enumeration, `.gitignore`
-filtering, cancellable file search, and change batching. The macOS-only
+filtering, multiple roots, path-confined file operations, fuzzy/ripgrep search,
+Git Worktree discovery, cancellable file search, and change batching. The macOS-only
 `workspace_macos.m` file is a narrow FSEvents bridge; CoreServices types do
 not leak into the application layer. File contents are loaded only when a
 search or editor open operation explicitly requests them.

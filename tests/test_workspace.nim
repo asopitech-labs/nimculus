@@ -1,6 +1,7 @@
 import std/unittest
 import std/os
 import std/sequtils
+import std/strutils
 import nimculus/workspace
 
 suite "M6 workspace":
@@ -32,3 +33,31 @@ suite "M6 workspace":
     token.cancel()
     check workspace.searchWorkspace("needle", token).len == 0
     removeFile(root / "a.txt"); removeDir(root)
+
+  test "supports roots, file operations, and fuzzy search":
+    let root = getTempDir() / "nimculus-m6-ops"
+    let second = getTempDir() / "nimculus-m6-ops-second"
+    createDir(root); createDir(second)
+    var workspace = openWorkspace(root)
+    workspace.addRoot(second)
+    discard workspace.createFile("src/main.nim", "proc main() = discard")
+    writeFile(second / "README.md", "nimculus")
+    check workspace.rootPaths.len == 2
+    check workspace.fuzzyFileSearch("main").len == 1
+    check workspace.renameEntry("src/main.nim", "src/app.nim").endsWith("src/app.nim")
+    check fileExists(root / "src/app.nim")
+    discard workspace.createDirectory("empty")
+    workspace.deleteEntry("empty")
+    workspace.deleteEntry("src/app.nim")
+    removeDir(root / "src")
+    removeDir(root); removeDir(second)
+
+  test "uses ripgrep-compatible search results when available":
+    let root = getTempDir() / "nimculus-m6-rg"
+    createDir(root)
+    writeFile(root / "main.nim", "needle here")
+    let workspace = openWorkspace(root)
+    let results = workspace.searchRipgrep("needle")
+    check results.len == 1
+    check results[0].line == 1
+    removeFile(root / "main.nim"); removeDir(root)

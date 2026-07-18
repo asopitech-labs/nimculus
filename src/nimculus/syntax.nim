@@ -67,3 +67,30 @@ proc outline*(tree: SyntaxTree): seq[OutlineItem] =
   for node in tree.nodes:
     if node.kind in ["function_definition", "function_item", "class_definition", "struct_item", "proc_decl", "type_declaration"]:
       result.add(OutlineItem(name: node.kind, kind: node.kind, startByte: node.startByte, endByte: node.endByte))
+
+proc indentationLevel*(source: string, byteOffset: int, indentWidth = 2): int =
+  if source.len == 0: return 0
+  let offset = max(0, min(byteOffset, source.len))
+  var lineStart = offset
+  while lineStart > 0 and source[lineStart - 1] != '\n': dec lineStart
+  var spaces = 0
+  while lineStart + spaces < source.len and source[lineStart + spaces] in {' ', '\t'}:
+    if source[lineStart + spaces] == '\t': spaces += indentWidth
+    else: inc spaces
+  spaces div max(1, indentWidth)
+
+proc expandSelection*(tree: SyntaxTree, startByte, endByte: uint32): tuple[startByte, endByte: uint32] =
+  result = (startByte: startByte, endByte: endByte)
+  var smallest = high(uint32)
+  for node in tree.nodes:
+    if node.startByte <= startByte and node.endByte >= endByte and
+        node.endByte - node.startByte < smallest:
+      smallest = node.endByte - node.startByte
+      result = (startByte: node.startByte, endByte: node.endByte)
+
+proc nextSyntaxNode*(tree: SyntaxTree, byteOffset: uint32): SyntaxNode =
+  var found = false
+  for node in tree.nodes:
+    if node.startByte >= byteOffset and (not found or node.startByte < result.startByte):
+      result = node
+      found = true

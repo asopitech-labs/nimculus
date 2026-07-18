@@ -13,6 +13,7 @@ static NimculusPlatformMetrics g_metrics = {1.0, 0, 0, 0, 0, 0.0, 0};
 static NimculusInputCallback g_input_callback = NULL;
 static NimculusTextCallback g_text_callback = NULL;
 static NimculusFileCallback g_file_callback = NULL;
+static NimculusCommandCallback g_command_callback = NULL;
 static double g_ui_rect[4] = {360.0, 260.0, 240.0, 120.0};
 static NSString *g_clipboard_text = @"";
 static char g_dialog_path[PATH_MAX] = {0};
@@ -204,7 +205,20 @@ static void logInput(NSString *kind, NSEvent *event) {
   if (g_text_callback) g_text_callback(committed.UTF8String, false);
   [self unmarkText];
 }
-- (void)doCommandBySelector:(SEL)selector { (void)selector; }
+- (void)doCommandBySelector:(SEL)selector {
+  NSString *name = NSStringFromSelector(selector);
+  if ([name isEqualToString:@"moveLeft:"]) { if (g_command_callback) g_command_callback("moveLeft"); }
+  else if ([name isEqualToString:@"moveRight:"]) { if (g_command_callback) g_command_callback("moveRight"); }
+  else if ([name isEqualToString:@"deleteBackward:"]) { if (g_command_callback) g_command_callback("deleteBackward"); }
+  else if ([name isEqualToString:@"deleteForward:"]) { if (g_command_callback) g_command_callback("deleteForward"); }
+  else if ([name isEqualToString:@"cancelOperation:"]) { if (g_command_callback) g_command_callback("cancel"); }
+}
+- (void)undo:(id)sender { if (g_command_callback) g_command_callback("undo"); }
+- (void)redo:(id)sender { if (g_command_callback) g_command_callback("redo"); }
+- (void)cut:(id)sender { if (g_command_callback) g_command_callback("cut"); }
+- (void)copy:(id)sender { if (g_command_callback) g_command_callback("copy"); }
+- (void)paste:(id)sender { if (g_command_callback) g_command_callback("paste"); }
+- (void)selectAll:(id)sender { if (g_command_callback) g_command_callback("selectAll"); }
 - (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
   if (actualRange) *actualRange = range;
   CGFloat cursorX = 8.0 + self.selectedTextRange.location * 8.0;
@@ -386,6 +400,7 @@ uint64_t nimculus_platform_input_count(void) { return g_input_count; }
 void nimculus_platform_set_input_callback(NimculusInputCallback callback) { g_input_callback = callback; }
 void nimculus_platform_set_text_callback(NimculusTextCallback callback) { g_text_callback = callback; }
 void nimculus_platform_set_file_callback(NimculusFileCallback callback) { g_file_callback = callback; }
+void nimculus_platform_set_command_callback(NimculusCommandCallback callback) { g_command_callback = callback; }
 void nimculus_platform_set_ui_rectangle(double x, double y, double width, double height) {
   g_ui_rect[0] = x; g_ui_rect[1] = y; g_ui_rect[2] = width; g_ui_rect[3] = height;
 }

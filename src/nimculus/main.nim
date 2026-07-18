@@ -57,6 +57,57 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
     except CatchableError:
       discard
 
+proc previousBoundary(text: string, offset: int): int =
+  var resultOffset = max(0, min(offset, text.len)) - 1
+  while resultOffset > 0 and (ord(text[resultOffset]) and 0xC0) == 0x80: dec resultOffset
+  max(0, resultOffset)
+
+proc nextBoundary(text: string, offset: int): int =
+  var resultOffset = max(0, min(offset, text.len))
+  if resultOffset < text.len:
+    inc resultOffset
+    while resultOffset < text.len and (ord(text[resultOffset]) and 0xC0) == 0x80: inc resultOffset
+  resultOffset
+
+proc receiveNativeCommand(command: cstring) {.cdecl.} =
+  if command == nil: return
+  let name = $command
+  let document = activeDocument()
+  if name == "cancel":
+    imeState.composition.setLen(0)
+  elif name == "moveLeft" and document != nil:
+    editorViewState.moveCursor(previousBoundary(document[].buffer.toString(), editorViewState.cursor))
+  elif name == "moveRight" and document != nil:
+    editorViewState.moveCursor(nextBoundary(document[].buffer.toString(), editorViewState.cursor))
+  elif name in ["deleteBackward", "deleteForward"] and document != nil:
+    let selected = editorViewState.selectedRange()
+    var start = selected.startByte
+    var finish = selected.endByte
+    if start == finish:
+      if name == "deleteBackward": start = previousBoundary(document[].buffer.toString(), start)
+      else: finish = nextBoundary(document[].buffer.toString(), finish)
+    if finish > start:
+      document[].buffer.edit(Edit(startByte: start, endByte: finish, text: ""))
+      editorViewState.moveCursor(start)
+  elif name == "undo" and document != nil:
+    discard document[].buffer.undo()
+  elif name == "redo" and document != nil:
+    discard document[].buffer.redo()
+  elif name == "copy" and document != nil:
+    let selected = editorViewState.selectedRange()
+    clipboardSet(document[].buffer.substring(selected.startByte, selected.endByte).cstring)
+  elif name == "cut" and document != nil:
+    let selected = editorViewState.selectedRange()
+    clipboardSet(document[].buffer.substring(selected.startByte, selected.endByte).cstring)
+    if selected.endByte > selected.startByte:
+      document[].buffer.edit(Edit(startByte: selected.startByte, endByte: selected.endByte, text: ""))
+      editorViewState.moveCursor(selected.startByte)
+  elif name == "paste":
+    receiveNativeText(clipboardGet(), false)
+  elif name == "selectAll" and document != nil:
+    editorViewState.selection.anchor = 0
+    editorViewState.selection.active = document[].buffer.toString().len
+
 proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   if event.isNil: return
   let kind = case event.kind
@@ -78,5 +129,6 @@ when isMainModule:
     platformSetTextCallback(receiveNativeText)
     platformSetInputCallback(receiveNativeInput)
     platformSetFileCallback(receiveNativeFile)
+    platformSetCommandCallback(receiveNativeCommand)
     platformSetUiRectangle(360, 260, 240, 120)
   discard platformRun()

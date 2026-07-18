@@ -92,3 +92,17 @@ compiled through a C ABI. Each generated parser is a separate translation
 unit because generated symbols are not namespace-safe when concatenated.
 This keeps grammar loading deterministic and avoids a runtime shared-library
 trust boundary.
+
+## M6-002: Workspace operations stay path-confined
+
+All create, delete, and rename operations resolve relative paths against the
+primary workspace root and reject traversal outside it. Additional roots are
+enumerated independently, while the primary root preserves relative paths for
+stable editor and search identities.
+
+## M5-003: Route native editing commands through the editor core
+
+AppKit command selectors are converted into a small string command ABI. The
+Nim application applies them to the active document, using UTF-8 codepoint
+boundaries for cursor movement and deletion. This prevents Cocoa responder
+objects from owning buffer mutation.

@@ -23,3 +23,4 @@ task benchmark, "Run platform benchmark smoke tests":
   exec "nim c --mm:arc -r --path:src tests/bench_platform.nim"
   exec "nim c --mm:arc -r --path:src tests/bench_editor.nim"
   exec "nim c --mm:arc -r --path:src tests/bench_large_editor.nim"
+  exec "nim c --mm:arc -r --path:src tests/bench_buffer_strategies.nim"

@@ -27,6 +27,14 @@ suite "M2 UI foundation":
     tree.markLayoutDirty(button)
     check tree.node(button).paintDirty
 
+  test "node handles carry a generation":
+    var tree = newUiTree()
+    let node = tree.addNode()
+    let handle = tree.handle(node)
+    check handle.generation > 0
+    check tree.isValid(handle)
+    check not tree.isValid(NodeHandle(id: node, generation: handle.generation + 1))
+
   test "focus traversal reaches the next focusable node":
     var tree = newUiTree()
     let first = tree.addNode(focusable = true)

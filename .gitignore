@@ -15,6 +15,7 @@ tests/test_tree_sitter
 tests/test_syntax
 tests/bench_editor
 tests/bench_large_editor
+tests/bench_buffer_strategies
 *.app
 *.dmg
 references/zed/
