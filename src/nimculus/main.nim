@@ -156,10 +156,15 @@ var workspacePreviewEntries: seq[WorkspaceEntry]
 var workspacePreviewMode = ""
 var externalAlertShown = false
 var editorPointerDragging = false
+var editorScrollRemainder = 0'f32
 var sessionFilePath = ""
 var recoveryFilePath = ""
 var persistenceTick = 0
 var suppressRecoveryWrite = false
+
+proc resetEditorViewState() =
+  editorViewState = newEditorView()
+  editorScrollRemainder = 0'f32
 
 proc resetImeState() =
   imeState = newImeState()
@@ -216,7 +221,7 @@ proc restoreSession() =
   if fileExists(recoveryFilePath):
     try:
       editorSession.addTab(recoverDocument(recoveryFilePath))
-      editorViewState = newEditorView()
+      resetEditorViewState()
       editorViewState.statusMessage = "Recovered unsaved document"
     except CatchableError:
       discard
@@ -502,6 +507,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       workspacePreviewMode = ""
       editorSession.addTab(openDocument(filePath))
       resetImeState()
+      resetEditorViewState()
       let document = activeDocument()
       if document != nil: editorViewState.moveCursor(0)
       editorSession.recordRecent(filePath)
@@ -579,7 +585,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     editorSession.addTab(newDocument())
     resetImeState()
     externalAlertShown = false
-    editorViewState = newEditorView()
+    resetEditorViewState()
     if syntaxState != nil:
       syntaxState.close()
       syntaxState = nil
@@ -646,7 +652,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     try:
       editorSession.tabs[editorSession.activeTab].document = openDocument(document[].path)
       resetImeState()
-      editorViewState = newEditorView()
+      resetEditorViewState()
       if syntaxState != nil:
         syntaxState.close()
         syntaxState = nil
@@ -851,7 +857,8 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     let inEditor = demoEditorBounds.contains(point)
     var splitPointerHandled = false
     if document != nil and kind == scroll and inEditor:
-      let delta = if event.deltaY > 0: -3 elif event.deltaY < 0: 3 else: 0
+      let delta = scrollLineDelta(editorScrollRemainder, float32(event.deltaY),
+        event.preciseScrolling)
       let maxScroll = max(0, document[].buffer.lineStarts.len - editorVisibleLineCount())
       editorViewState.scrollLine = max(0, min(maxScroll, editorViewState.scrollLine + delta))
       syncEditorCursor()

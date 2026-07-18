@@ -265,6 +265,14 @@ suite "M3 text foundation":
     split.endDrag()
     check abs(split.ratio - 0.8'f32) < 0.001'f32
 
+  test "precise scroll accumulates sub-line trackpad deltas":
+    var remainder = 0'f32
+    check scrollLineDelta(remainder, 9'f32, true) == 0
+    check remainder < 0'f32
+    check scrollLineDelta(remainder, 9'f32, true) == -1
+    check scrollLineDelta(remainder, -18'f32, true) == 1
+    check remainder == 0'f32
+
   test "IME state separates composition from committed text":
     var ime = newImeState()
     ime.receiveText("にほ", true)

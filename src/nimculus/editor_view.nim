@@ -1,5 +1,6 @@
 import std/strutils
 import std/unicode
+import std/math
 import nimculus/editor_buffer
 import nimnui/text
 
@@ -142,6 +143,16 @@ proc nextWordBoundary*(text: string, offset: int): int =
     firstIteration = false
     inc index
   text.len
+
+proc scrollLineDelta*(remainder: var float32, deltaY: float32,
+                      precise: bool, lineHeight = 18'f32): int =
+  ## Convert AppKit/Zed-style scroll deltas into whole logical lines while
+  ## retaining sub-line precise trackpad motion for the next event.
+  let units = if precise: -deltaY / max(1'f32, lineHeight) else: -deltaY
+  remainder += units
+  let whole = if remainder >= 0'f32: floor(remainder) else: ceil(remainder)
+  result = int(whole)
+  remainder -= float32(result)
 
 proc selectedRange*(view: EditorViewState): tuple[startByte, endByte: int] =
   (startByte: min(view.selection.anchor, view.selection.active),

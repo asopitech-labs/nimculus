@@ -20,6 +20,7 @@ typedef struct NimculusInputEvent {
   double y;
   double delta_x;
   double delta_y;
+  bool precise_scrolling;
 } NimculusInputEvent;
 
 typedef void (*NimculusInputCallback)(const NimculusInputEvent *event);

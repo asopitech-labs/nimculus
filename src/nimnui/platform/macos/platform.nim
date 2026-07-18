@@ -33,6 +33,7 @@ type
   NimculusInputEvent* {.bycopy.} = object
     kind*, keyCode*, modifiers*, button*: uint32
     x*, y*, deltaX*, deltaY*: cdouble
+    preciseScrolling*: bool
 
 proc platformSetInputCallback*(callback: InputCallback) {.importc: "nimculus_platform_set_input_callback", cdecl.}
 proc platformSetShortcutCallback*(callback: ShortcutCallback) {.importc: "nimculus_platform_set_shortcut_callback", cdecl.}

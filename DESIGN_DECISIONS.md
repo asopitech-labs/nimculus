@@ -333,6 +333,14 @@ rectangle until pointer-up. This mirrors GPUI's captured hitbox contract and
 prevents toolbar, sidebar, and empty-window clicks from changing document
 selection.
 
+## M1-004: Preserve precise macOS scroll deltas
+
+The native input ABI carries AppKit's `hasPreciseScrollingDeltas` distinction.
+Non-precise wheel events are interpreted as line units; precise trackpad events
+are converted from pixels using the editor line height and accumulated until a
+whole logical line is available. This follows Zed's `ScrollDelta::Pixels` /
+`ScrollDelta::Lines` split and avoids dropping small trackpad movements.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback

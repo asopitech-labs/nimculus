@@ -482,6 +482,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
       .button = mouseButtonForEvent(event),
       .x = location.x, .y = location.y,
       .delta_x = event.deltaX, .delta_y = event.deltaY,
+      .precise_scrolling = event.hasPreciseScrollingDeltas == YES,
     };
     if (event.type == NSEventTypeKeyDown && g_shortcut_callback &&
         g_shortcut_callback(&input)) {
