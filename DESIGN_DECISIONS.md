@@ -505,6 +505,26 @@ The atomic helper copies the existing target's Unix permission set to the
 temporary file before the rename. Replacing a file must not silently remove
 the executable bit or other user/group access modes.
 
+## Reference audit: Zed `858d317`
+
+Before changing text and macOS rendering contracts, the implementation was
+checked against the ignored local reference at `references/zed`:
+
+- `crates/text/src/text.rs`: rope storage keeps byte offsets and checks UTF-8
+  character boundaries when splitting or normalizing text.
+- `crates/editor/src/display_map.rs`: display traversal and text inspection use
+  Unicode grapheme segmentation rather than treating every byte or codepoint
+  as a visual cursor unit.
+- `crates/gpui_macos/src/shaders.metal`: device coordinates are derived from a
+  named viewport size, with the Y direction made explicit at the renderer
+  boundary.
+
+Nimculus therefore keeps PieceTable offsets byte-based, applies UTF-8
+character-boundary validation in the storage layer, applies grapheme
+boundaries in editor navigation/display, and converts AppKit coordinates once
+at the platform boundary. Zed is used as an implementation reference, not as
+an API compatibility target.
+
 Editor navigation and deletion use the same `textPositions` boundary list as
 layout and cursor conversion. UTF-8 codepoint boundaries are insufficient for
 combining sequences and emoji ZWJ sequences, so Backspace/Delete and word
@@ -518,6 +538,12 @@ The public editor line-column contract uses grapheme columns. Byte offsets are
 kept for storage and are converted explicitly through `byteOffsetAtLineColumn`
 or the private byte-column path used by UTF-16/LSP conversion. This prevents
 vertical movement from passing a byte count as a grapheme column.
+
+Following Zed's separation of rope byte offsets from Unicode segmentation,
+PieceTable validates edit endpoints before mutation at UTF-8 char boundaries.
+The UI cursor and deletion layer adds grapheme boundaries, while lower-level
+buffer edits may represent a valid codepoint-level protocol edit. Replacement
+text must always be valid UTF-8.
 
 Pointer hit-testing follows the same viewport contract as painting: a node is
 eligible only when the point is inside all of its ancestor bounds. This keeps

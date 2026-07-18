@@ -27,6 +27,8 @@ type
 proc rebuildIndex*(table: var PieceTable)
 
 proc initPieceTable*(text = ""): PieceTable =
+  if validateUtf8(text) >= 0:
+    raise newException(ValueError, "PieceTable requires valid UTF-8")
   result.original = text
   if text.len > 0: result.pieces.add(Piece(source: original, start: 0, length: text.len))
   result.lineStarts = @[0]
@@ -82,9 +84,23 @@ proc substring*(table: PieceTable, startByte, endByte: int): string =
   if finish <= start: return ""
   text.substr(start, finish - 1)
 
+proc isUtf8Boundary(text: string, offset: int): bool =
+  if offset < 0 or offset > text.len: return false
+  offset == 0 or offset == text.len or
+    (ord(text[offset]) and 0xC0) != 0x80
+
+proc validateEditRange(text: string, startByte, endByte: int, replacement: string) =
+  if validateUtf8(replacement) >= 0:
+    raise newException(ValueError, "edit replacement must be valid UTF-8")
+  if startByte < 0 or endByte < startByte or endByte > text.len or
+      not text.isUtf8Boundary(startByte) or not text.isUtf8Boundary(endByte):
+    raise newException(ValueError, "edit range must use UTF-8 boundaries")
+
 proc edit*(table: var PieceTable, edit: Edit, recordUndo = true) =
-  let start = max(0, min(edit.startByte, table.toString().len))
-  let finish = max(start, min(edit.endByte, table.toString().len))
+  let content = table.toString()
+  validateEditRange(content, edit.startByte, edit.endByte, edit.text)
+  let start = edit.startByte
+  let finish = edit.endByte
   let oldText = table.substring(start, finish)
   table.replaceInternal(start, finish, edit.text)
   if recordUndo:
@@ -94,11 +110,10 @@ proc edit*(table: var PieceTable, edit: Edit, recordUndo = true) =
 
 proc applyEdits*(table: var PieceTable, edits: seq[Edit]) =
   if edits.len == 0: return
-  let contentLength = table.toString().len
+  let content = table.toString()
   var ordered = edits
   for edit in ordered:
-    if edit.startByte < 0 or edit.endByte < edit.startByte or edit.endByte > contentLength:
-      raise newException(ValueError, "edit range is outside the buffer")
+    validateEditRange(content, edit.startByte, edit.endByte, edit.text)
   ordered.sort(proc(a, b: Edit): int = cmp(a.startByte, b.startByte))
   for index in 1 ..< ordered.len:
     if ordered[index - 1].endByte > ordered[index].startByte:

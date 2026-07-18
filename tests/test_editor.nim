@@ -37,6 +37,15 @@ suite "M4 editor buffer":
         Edit(startByte: 3, endByte: 5, text: "y")])
     check buffer.toString() == "abcdef"
 
+  test "edits reject invalid UTF-8 and partial codepoint ranges":
+    var buffer = initPieceTable("é🙂")
+    expect ValueError:
+      buffer.edit(Edit(startByte: 4, endByte: 4, text: "x"))
+    check buffer.toString() == "é🙂"
+    expect ValueError:
+      buffer.edit(Edit(startByte: 0, endByte: 0, text: "\xC3\x28"))
+    check buffer.toString() == "é🙂"
+
   test "line and UTF-16 positions handle Japanese and astral characters":
     var buffer = initPieceTable("A\n😀日本")
     check buffer.lineColumn(2) == (line: 1, column: 0)
