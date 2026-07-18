@@ -296,6 +296,14 @@ or an explicit Don't Save decision removes it. The recovery file intentionally
 contains only the active buffer; the session file remains the source of truth
 for tab paths and recent files.
 
+## M5-011: Keep command palette actions on the existing command ABI
+
+The initial macOS command palette is a native modal prompt rather than a new
+overlay widget. It dispatches only commands already owned by the application
+layer (new, save, find, workspace search, and cancellation), while Go to Line
+uses a dedicated numeric command. This gives the palette real execution
+semantics without duplicating editor behavior in AppKit.
+
 ## M6-008: Make the lazy workspace preview actionable
 
 The initial workspace tree is rendered as a bounded text preview. Its visible

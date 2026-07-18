@@ -302,8 +302,10 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       editorSession.addTab(openDocument(filePath))
       let document = activeDocument()
       if document != nil: editorViewState.moveCursor(0)
+      editorSession.recordRecent(filePath)
       syncEditorCursor()
       refreshEditorSyntax()
+      persistSession()
     except CatchableError:
       discard
 
@@ -361,6 +363,32 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     suppressRecoveryWrite = true
     if recoveryFilePath.len > 0 and fileExists(recoveryFilePath):
       removeFile(recoveryFilePath)
+  elif name.startsWith("goToLine:") and document != nil:
+    let value = name[9 .. ^1].strip
+    try:
+      let line = max(1, parseInt(value)) - 1
+      editorViewState.moveCursor(document[].buffer.byteOffsetAtLineColumn(line, 0))
+      syncEditorCursor()
+      refreshEditorSyntax()
+    except ValueError:
+      editorViewState.statusMessage = "Invalid line number"
+  elif name.startsWith("commandPalette:"):
+    let command = name[15 .. ^1].strip.toLowerAscii
+    editorViewState.closeCommandPalette()
+    case command
+    of "new": receiveNativeCommand("newDocument".cstring)
+    of "save":
+      when defined(macosx):
+        let path = chooseSaveFile()
+        if path != nil and ($path).len > 0: receiveNativeFile(path, true)
+    of "find":
+      when defined(macosx):
+        platformShowFindDocument()
+    of "workspace search":
+      when defined(macosx):
+        platformShowWorkspaceSearch()
+    of "cancel search": cancelWorkspaceSearch()
+    else: editorViewState.statusMessage = "Unknown command: " & command
   elif name == "saveAndClose":
     let document = activeDocument()
     if document == nil or not document[].buffer.isDirty:

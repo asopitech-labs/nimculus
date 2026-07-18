@@ -709,6 +709,14 @@ static void logInput(NSString *kind, NSEvent *event) {
   NSMenuItem *replaceDocument = [[NSMenuItem alloc] initWithTitle:@"Replace…"
     action:@selector(replaceInDocument:) keyEquivalent:@""];
   [editMenu addItem:replaceDocument];
+  NSMenuItem *goToLine = [[NSMenuItem alloc] initWithTitle:@"Go to Line…"
+    action:@selector(goToLine:) keyEquivalent:@"l"];
+  goToLine.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  [editMenu addItem:goToLine];
+  NSMenuItem *commandPalette = [[NSMenuItem alloc] initWithTitle:@"Command Palette…"
+    action:@selector(openCommandPalette:) keyEquivalent:@"p"];
+  commandPalette.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
+  [editMenu addItem:commandPalette];
   NSMenuItem *workspaceSearch = [[NSMenuItem alloc] initWithTitle:@"Find in Workspace…"
     action:@selector(findInWorkspace:) keyEquivalent:@"f"];
   workspaceSearch.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
@@ -794,6 +802,36 @@ static void logInput(NSString *kind, NSEvent *event) {
     // independent of colons/newlines in either field.
     NSString *command = [NSString stringWithFormat:@"replaceDocument:%@\x1f%@",
       query.stringValue, replacement.stringValue];
+    g_command_callback(command.UTF8String);
+  }
+}
+
+- (void)goToLine:(id)sender {
+  (void)sender;
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = @"Go to Line";
+  NSTextField *field = [self workspacePathField:@"Line number"];
+  field.stringValue = @"1";
+  alert.accessoryView = field;
+  [alert addButtonWithTitle:@"Go"];
+  [alert addButtonWithTitle:@"Cancel"];
+  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
+    NSString *command = [NSString stringWithFormat:@"goToLine:%@", field.stringValue];
+    g_command_callback(command.UTF8String);
+  }
+}
+
+- (void)openCommandPalette:(id)sender {
+  (void)sender;
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = @"Command Palette";
+  alert.informativeText = @"Available: new, save, find, workspace search, cancel search";
+  NSTextField *field = [self workspacePathField:@"Command"];
+  alert.accessoryView = field;
+  [alert addButtonWithTitle:@"Run"];
+  [alert addButtonWithTitle:@"Cancel"];
+  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
+    NSString *command = [NSString stringWithFormat:@"commandPalette:%@", field.stringValue];
     g_command_callback(command.UTF8String);
   }
 }
@@ -992,6 +1030,20 @@ void nimculus_platform_show_external_change(const char *path) {
     } else {
       if (g_command_callback) g_command_callback("keepExternal");
     }
+  }
+}
+
+void nimculus_platform_show_find_document(void) {
+  id delegate = [NSApp delegate];
+  if ([delegate respondsToSelector:@selector(findInDocument:)]) {
+    [delegate performSelector:@selector(findInDocument:) withObject:nil];
+  }
+}
+
+void nimculus_platform_show_workspace_search(void) {
+  id delegate = [NSApp delegate];
+  if ([delegate respondsToSelector:@selector(findInWorkspace:)]) {
+    [delegate performSelector:@selector(findInWorkspace:) withObject:nil];
   }
 }
 

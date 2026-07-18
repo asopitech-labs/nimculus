@@ -70,6 +70,8 @@ void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans,
 void nimculus_platform_set_paint_commands(const NimculusPaintCommand *commands, uint32_t count);
 void nimculus_platform_set_paint_dirty_regions(const NimculusPaintRegion *regions, uint32_t count);
 void nimculus_platform_show_external_change(const char *path);
+void nimculus_platform_show_find_document(void);
+void nimculus_platform_show_workspace_search(void);
 void nimculus_platform_set_ui_rectangle(double x, double y, double width, double height);
 void nimculus_clipboard_set(const char *utf8);
 const char *nimculus_clipboard_get(void);

@@ -47,6 +47,8 @@ proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32)
 proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}
 proc platformSetPaintDirtyRegions*(regions: ptr NativePaintRegion, count: uint32) {.importc: "nimculus_platform_set_paint_dirty_regions", cdecl.}
 proc platformShowExternalChange*(path: cstring) {.importc: "nimculus_platform_show_external_change", cdecl.}
+proc platformShowFindDocument*() {.importc: "nimculus_platform_show_find_document", cdecl.}
+proc platformShowWorkspaceSearch*() {.importc: "nimculus_platform_show_workspace_search", cdecl.}
 proc platformSetUiRectangle*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_ui_rectangle", cdecl.}
 proc clipboardSet*(text: cstring) {.importc: "nimculus_clipboard_set", cdecl.}
 proc clipboardGet*(): cstring {.importc: "nimculus_clipboard_get", cdecl.}
