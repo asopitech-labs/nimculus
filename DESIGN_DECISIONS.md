@@ -509,3 +509,7 @@ Editor navigation and deletion use the same `textPositions` boundary list as
 layout and cursor conversion. UTF-8 codepoint boundaries are insufficient for
 combining sequences and emoji ZWJ sequences, so Backspace/Delete and word
 movement must never introduce a boundary inside one grapheme cluster.
+
+Visible text ranges use that same boundary list. The renderer may still shape
+each visible run independently, but it never starts or ends a run halfway
+through a grapheme cluster.

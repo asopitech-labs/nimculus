@@ -85,13 +85,15 @@ proc layoutText*(text: string, advance = px(8)): TextLayout =
   for rune in text.runes:
     result.glyphs.add(Glyph(codepoint: rune, advance: advance))
 
-proc layoutVisibleText*(text: string, firstRune, lastRune: int,
+proc layoutVisibleText*(text: string, firstGrapheme, lastGrapheme: int,
                         advance = px(8)): TextLayout =
-  var index = 0
-  var visible = newStringOfCap(text.len)
-  for rune in text.runes:
-    if index >= firstRune and index < lastRune: visible.add($rune)
-    inc index
+  let positions = textPositions(text)
+  if positions.len == 0: return
+  let first = max(0, min(firstGrapheme, positions.high))
+  let last = max(first, min(lastGrapheme, positions.high))
+  let firstByte = positions[first].byteOffset
+  let lastByte = positions[last].byteOffset
+  let visible = if lastByte > firstByte: text[firstByte ..< lastByte] else: ""
   layoutText(visible, advance)
 
 proc newGlyphAtlas*(width = 1024, height = 1024): GlyphAtlas =

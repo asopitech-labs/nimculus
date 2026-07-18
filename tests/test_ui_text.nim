@@ -174,6 +174,10 @@ suite "M3 text foundation":
     let visible = layoutVisibleText("0123456789", 2, 5)
     check visible.glyphs.len == 3
 
+  test "visible text layout keeps grapheme clusters intact":
+    let visible = layoutVisibleText("é👩‍💻x", 1, 2)
+    check visible.glyphs.len == 3
+
 when defined(macosx):
   suite "M3 Core Text bridge":
     test "Core Text measures a system font":
