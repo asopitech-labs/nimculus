@@ -109,6 +109,12 @@ multi-cursor transactions share one atomic path. UTF-8 byte offsets remain the
 internal source of truth; grapheme and UTF-16 positions are derived at API
 boundaries.
 
+PieceTable validation and range extraction operate over piece descriptors.
+They do not flatten the complete buffer for every edit, split, substring, or
+line-index lookup. This preserves the intended 100MB-class editing path while
+keeping byte-boundary validation explicit, matching Zed's offset-oriented text
+storage contract.
+
 ## M5-001: Keep editor services independent of AppKit
 
 File documents, tabs, splits, search/replace, session persistence, and recovery

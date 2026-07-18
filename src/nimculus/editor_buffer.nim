@@ -38,6 +38,19 @@ proc sourceText(table: PieceTable, piece: Piece): string =
   let source = if piece.source == original: table.original else: table.additions
   source.substr(piece.start, piece.start + piece.length - 1)
 
+proc contentLength(table: PieceTable): int =
+  for piece in table.pieces:
+    result += piece.length
+
+proc byteAt(table: PieceTable, offset: int): char =
+  var cursor = 0
+  for piece in table.pieces:
+    if offset < cursor + piece.length:
+      let source = if piece.source == original: table.original else: table.additions
+      return source[piece.start + offset - cursor]
+    cursor += piece.length
+  '\x00'
+
 proc toString*(table: PieceTable): string =
   result = newStringOfCap(table.original.len + table.additions.len)
   for piece in table.pieces: result.add(table.sourceText(piece))
@@ -46,13 +59,14 @@ proc rebuildIndex*(table: var PieceTable) =
   table.lineStarts = @[0]
   var offset = 0
   for piece in table.pieces:
-    let text = table.sourceText(piece)
-    for index, character in text:
-      if character == '\n': table.lineStarts.add(offset + index + 1)
-    offset += text.len
+    let source = if piece.source == original: table.original else: table.additions
+    for index in 0 ..< piece.length:
+      if source[piece.start + index] == '\n':
+        table.lineStarts.add(offset + index + 1)
+    offset += piece.length
 
 proc splitAt(table: var PieceTable, offset: int): int =
-  let target = max(0, min(offset, table.toString().len))
+  let target = max(0, min(offset, table.contentLength))
   var cursor = 0
   for index in 0 ..< table.pieces.len:
     let piece = table.pieces[index]
@@ -78,27 +92,38 @@ proc replaceInternal(table: var PieceTable, startByte, endByte: int, replacement
   table.rebuildIndex()
 
 proc substring*(table: PieceTable, startByte, endByte: int): string =
-  let text = table.toString()
-  let start = max(0, min(startByte, text.len))
-  let finish = max(start, min(endByte, text.len))
+  let length = table.contentLength
+  let start = max(0, min(startByte, length))
+  let finish = max(start, min(endByte, length))
   if finish <= start: return ""
-  text.substr(start, finish - 1)
+  var cursor = 0
+  for piece in table.pieces:
+    let pieceEnd = cursor + piece.length
+    if pieceEnd <= start:
+      cursor = pieceEnd
+      continue
+    if cursor >= finish: break
+    let localStart = max(0, start - cursor)
+    let localEnd = min(piece.length, finish - cursor)
+    let source = if piece.source == original: table.original else: table.additions
+    result.add(source.substr(piece.start + localStart, piece.start + localEnd - 1))
+    cursor = pieceEnd
 
-proc isUtf8Boundary(text: string, offset: int): bool =
-  if offset < 0 or offset > text.len: return false
-  offset == 0 or offset == text.len or
-    (ord(text[offset]) and 0xC0) != 0x80
+proc isUtf8Boundary(table: PieceTable, offset: int): bool =
+  let length = table.contentLength
+  if offset < 0 or offset > length: return false
+  offset == 0 or offset == length or
+    (ord(table.byteAt(offset)) and 0xC0) != 0x80
 
-proc validateEditRange(text: string, startByte, endByte: int, replacement: string) =
+proc validateEditRange(table: PieceTable, startByte, endByte: int, replacement: string) =
   if validateUtf8(replacement) >= 0:
     raise newException(ValueError, "edit replacement must be valid UTF-8")
-  if startByte < 0 or endByte < startByte or endByte > text.len or
-      not text.isUtf8Boundary(startByte) or not text.isUtf8Boundary(endByte):
+  if startByte < 0 or endByte < startByte or endByte > table.contentLength or
+      not table.isUtf8Boundary(startByte) or not table.isUtf8Boundary(endByte):
     raise newException(ValueError, "edit range must use UTF-8 boundaries")
 
 proc edit*(table: var PieceTable, edit: Edit, recordUndo = true) =
-  let content = table.toString()
-  validateEditRange(content, edit.startByte, edit.endByte, edit.text)
+  table.validateEditRange(edit.startByte, edit.endByte, edit.text)
   let start = edit.startByte
   let finish = edit.endByte
   let oldText = table.substring(start, finish)
@@ -110,10 +135,9 @@ proc edit*(table: var PieceTable, edit: Edit, recordUndo = true) =
 
 proc applyEdits*(table: var PieceTable, edits: seq[Edit]) =
   if edits.len == 0: return
-  let content = table.toString()
   var ordered = edits
   for edit in ordered:
-    validateEditRange(content, edit.startByte, edit.endByte, edit.text)
+    table.validateEditRange(edit.startByte, edit.endByte, edit.text)
   ordered.sort(proc(a, b: Edit): int = cmp(a.startByte, b.startByte))
   for index in 1 ..< ordered.len:
     if ordered[index - 1].endByte > ordered[index].startByte:
@@ -161,11 +185,14 @@ proc markSaved*(table: var PieceTable) = table.savedVersion = table.version
 proc isDirty*(table: PieceTable): bool = table.version != table.savedVersion
 
 proc lineByteColumn(table: PieceTable, byteOffset: int): tuple[line, column: int] =
-  let offset = max(0, min(byteOffset, table.toString().len))
-  var line = 0
-  for index, start in table.lineStarts:
-    if start > offset: break
-    line = index
+  let offset = max(0, min(byteOffset, table.contentLength))
+  var low = 0
+  var high = table.lineStarts.len
+  while low + 1 < high:
+    let middle = (low + high) div 2
+    if table.lineStarts[middle] <= offset: low = middle
+    else: high = middle
+  let line = low
   (line: line, column: offset - table.lineStarts[line])
 
 proc lineColumn*(table: PieceTable, byteOffset: int): tuple[line, column: int] =
@@ -173,7 +200,7 @@ proc lineColumn*(table: PieceTable, byteOffset: int): tuple[line, column: int] =
   let location = table.lineByteColumn(byteOffset)
   let lineEnd = if location.line + 1 < table.lineStarts.len:
     table.lineStarts[location.line + 1]
-  else: table.toString().len
+  else: table.contentLength
   let positions = textPositions(table.substring(table.lineStarts[location.line], lineEnd))
   var column = 0
   for position in positions:
@@ -189,16 +216,15 @@ proc lineEndByteOffset*(table: PieceTable, line: int): int =
   let start = table.lineStarts[targetLine]
   let finish = if targetLine + 1 < table.lineStarts.len:
     table.lineStarts[targetLine + 1]
-  else: table.toString().len
+  else: table.contentLength
   if finish > start:
-    let content = table.toString()
-    if content[finish - 1] == '\n': return finish - 1
+    if table.byteAt(finish - 1) == '\n': return finish - 1
   finish
 
 proc utf16Position*(table: PieceTable, byteOffset: int): tuple[line, character: int] =
   let location = table.lineByteColumn(byteOffset)
   let lineText = table.substring(table.lineStarts[location.line],
-    if location.line + 1 < table.lineStarts.len: table.lineStarts[location.line + 1] else: table.toString().len)
+    if location.line + 1 < table.lineStarts.len: table.lineStarts[location.line + 1] else: table.contentLength)
   var units = 0
   let prefixLength = min(location.column, lineText.len)
   if prefixLength > 0:
@@ -209,7 +235,7 @@ proc utf16Position*(table: PieceTable, byteOffset: int): tuple[line, character: 
 proc graphemePosition*(table: PieceTable, byteOffset: int): TextPosition =
   let location = table.lineByteColumn(byteOffset)
   let start = table.lineStarts[location.line]
-  let lineEnd = if location.line + 1 < table.lineStarts.len: table.lineStarts[location.line + 1] else: table.toString().len
+  let lineEnd = if location.line + 1 < table.lineStarts.len: table.lineStarts[location.line + 1] else: table.contentLength
   let positions = textPositions(table.substring(start, lineEnd))
   for position in positions:
     if position.byteOffset <= location.column: result = position
