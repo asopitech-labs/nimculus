@@ -75,9 +75,20 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
   NSArray<NSString *> *lines = [(text ?: @"") componentsSeparatedByString:@"\n"];
   NSUInteger visibleLines = MIN(lines.count, (NSUInteger)12);
   NSUInteger lineStartByte = 0;
+  NSUInteger lineStartUnit = 0;
   for (NSUInteger index = 0; index < visibleLines; index++) {
     NSString *lineText = lines[index];
     NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
+    NSUInteger lineEndUnit = lineStartUnit + lineText.length;
+    if (g_editor_selection_end > g_editor_selection_start &&
+        g_editor_selection_end > lineStartUnit && g_editor_selection_start < lineEndUnit) {
+      NSUInteger startUnit = MAX(g_editor_selection_start, lineStartUnit) - lineStartUnit;
+      NSUInteger endUnit = MIN(g_editor_selection_end, lineEndUnit) - lineStartUnit;
+      CGContextSetRGBFillColor(context, 0.20, 0.40, 0.75, 0.45);
+      CGContextFillRect(context, CGRectMake(8.0 + startUnit * 8.0,
+        height - 24.0 * (index + 1) - 4.0,
+        MAX(1.0, (endUnit - startUnit) * 8.0), 20.0));
+    }
     NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
       initWithString:lineText attributes:attributes];
     for (uint32_t spanIndex = 0; spanIndex < g_highlight_count; spanIndex++) {
@@ -101,6 +112,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
     CTLineDraw(line, context);
     CFRelease(line);
     lineStartByte += lineLength + 1;
+    lineStartUnit = lineEndUnit + 1;
   }
   if (g_marked_text.length > 0) {
     NSDictionary *markedAttributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
@@ -114,6 +126,13 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
     CTLineDraw(markedLine, context);
     CFRelease(markedLine);
   }
+  CGContextSetStrokeColorWithColor(context, [NSColor colorWithCalibratedRed:0.85
+    green:0.90 blue:1.0 alpha:1.0].CGColor);
+  CGContextSetLineWidth(context, 1.0);
+  CGFloat caretY = height - g_editor_cursor[1] - 4.0;
+  CGContextMoveToPoint(context, g_editor_cursor[0], caretY);
+  CGContextAddLineToPoint(context, g_editor_cursor[0], caretY + 20.0);
+  CGContextStrokePath(context);
   CFRelease(font);
   CGContextRelease(context);
   MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
