@@ -341,6 +341,14 @@ are converted from pixels using the editor line height and accumulated until a
 whole logical line is available. This follows Zed's `ScrollDelta::Pixels` /
 `ScrollDelta::Lines` split and avoids dropping small trackpad movements.
 
+## M3-017: Reset the native text surface when showing workspace previews
+
+Workspace tree, search, and Quick Open reuse the editor's native text texture,
+but are not the active document input handler. Each preview therefore clears
+the native selection, caret position, scroll line, and marked composition before
+uploading its text. This prevents a previous document's IME or selection state
+from appearing in a different surface.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback

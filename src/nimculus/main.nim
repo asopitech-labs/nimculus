@@ -265,6 +265,9 @@ proc refreshWorkspacePreview() =
       lines.add("[G] " & state.branch & " " & shortHead)
     platformSetEditorHighlights(nil, 0)
     platformSetEditorComposition("".cstring)
+    platformSetEditorScrollLine(0)
+    platformSetEditorCursorByte(0, 0)
+    platformSetEditorSelection(0, 0)
     platformSetEditorText(lines.join("\n").cstring)
 
 proc refreshWorkspaceAfterMutation(message: string) =
@@ -295,6 +298,9 @@ proc renderWorkspaceSearch() =
       lines.add("No matches")
     platformSetEditorHighlights(nil, 0)
     platformSetEditorComposition("".cstring)
+    platformSetEditorScrollLine(0)
+    platformSetEditorCursorByte(0, 0)
+    platformSetEditorSelection(0, 0)
     platformSetEditorText(lines.join("\n").cstring)
 
 proc renderQuickOpen() =
@@ -310,6 +316,9 @@ proc renderQuickOpen() =
       lines.add("… searching workspace")
     platformSetEditorHighlights(nil, 0)
     platformSetEditorComposition("".cstring)
+    platformSetEditorScrollLine(0)
+    platformSetEditorCursorByte(0, 0)
+    platformSetEditorSelection(0, 0)
     platformSetEditorText(lines.join("\n").cstring)
 
 proc showWorkspaceSearch(query: string) =
