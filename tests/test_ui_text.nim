@@ -70,6 +70,17 @@ suite "M2 UI foundation":
     check float32(tree.node(first).bounds.size.width) == 30.0
     check float32(tree.node(second).bounds.size.width) == 60.0
 
+  test "stretch alignment fills the cross axis within constraints":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let child = tree.addNode(root)
+    tree.setSizeConstraints(child, Size(width: px(0), height: px(8)),
+      Size(width: px(0), height: px(4)), Size(width: px(1000), height: px(30)))
+    tree.layoutNode(root, Rect(size: Size(width: px(100), height: px(40))),
+      LayoutSpec(direction: row, alignment: alignStretch,
+        maxSize: Size(width: px(1000), height: px(1000))))
+    check tree.node(child).bounds.size.height == px(30)
+
   test "stack layout overlays children in the content rectangle":
     var tree = newUiTree()
     let root = tree.addNode()

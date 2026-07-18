@@ -74,8 +74,12 @@ proc layoutNode*(tree: var UiTree, id: NodeId, bounds: Rect, spec: LayoutSpec) =
     let crossMinimum = if spec.direction == row: childNode.minSize.height else: childNode.minSize.width
     let crossMaximum = if spec.direction == row: childNode.maxSize.height else: childNode.maxSize.width
     let crossAvailable = if spec.direction == row: content.size.height else: content.size.width
-    let crossExtent = if float32(crossPreferred) > 0: minPx(crossMaximum, maxPx(crossMinimum, crossPreferred))
-      else: minPx(crossMaximum, maxPx(crossMinimum, crossAvailable))
+    let crossExtent = if spec.alignment == alignStretch:
+      minPx(crossMaximum, maxPx(crossMinimum, crossAvailable))
+      elif float32(crossPreferred) > 0:
+        minPx(crossMaximum, maxPx(crossMinimum, crossPreferred))
+      else:
+        minPx(crossMaximum, maxPx(crossMinimum, crossAvailable))
     var childSize = if spec.direction == row:
       Size(width: extents[index], height: crossExtent)
     else:

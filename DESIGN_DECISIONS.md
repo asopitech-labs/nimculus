@@ -551,6 +551,10 @@ stream creation, and stream start must all succeed before the watcher is
 published. Failed starts release the stream and watcher immediately, matching
 the ownership boundary used by Zed's filesystem event service.
 
+Cross-axis `alignStretch` uses the available content extent before applying
+the child's min/max constraints. A preferred cross-size must not silently turn
+stretch into start alignment; this follows GPUI's flex layout contract.
+
 Committed editor glyphs use the Metal atlas as the primary text path. The
 Core Text texture is kept as a transparent overlay for selection, marked IME
 composition, and caret; it renders the full line only when atlas generation
