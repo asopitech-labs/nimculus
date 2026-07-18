@@ -277,6 +277,15 @@ This prevents callers from treating the workspace root as a deletable or
 movable entry while still allowing normalized descendants and rejecting paths
 that escape the root.
 
+## M6-008: Make the lazy workspace preview actionable
+
+The initial workspace tree is rendered as a bounded text preview. Its visible
+entries are retained separately from the rendered string and mapped from the
+native bottom-origin pointer coordinate to the text line. Clicking a file uses
+the existing document-open path; clicking a directory replaces the active
+Workspace. Search output clears this mapping so stale preview rows cannot open
+the wrong entry.
+
 ## M6-003: Search yields cooperatively and streams file contents
 
 The UI-facing `SearchJob` processes a bounded number of files and lines per

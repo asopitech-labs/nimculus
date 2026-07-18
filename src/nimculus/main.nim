@@ -72,6 +72,7 @@ var workspaceSearchJob: SearchJob
 var workspaceSearchQuery = ""
 var workspaceSearchResults: seq[SearchResult]
 var workspaceSearchCancelled = false
+var workspacePreviewEntries: seq[WorkspaceEntry]
 var externalAlertShown = false
 var editorPointerDragging = false
 
@@ -91,11 +92,13 @@ proc openActiveWorkspace(path: string) =
 proc refreshWorkspacePreview() =
   when defined(macosx):
     if activeWorkspace == nil: return
+    workspacePreviewEntries.setLen(0)
     var lines = @["Workspace: " & activeWorkspace.root]
     var children = activeWorkspace.listChildren()
     children.sort(proc(a, b: WorkspaceEntry): int = cmp(a.relativePath, b.relativePath))
     for entry in children:
       if lines.len >= 12: break
+      workspacePreviewEntries.add(entry)
       let marker = if entry.kind == WorkspaceFileKind.directory: "[D] " else: "    "
       lines.add(marker & entry.relativePath)
     let states = activeWorkspace.gitWorktreeStates()
@@ -121,6 +124,7 @@ proc workspaceRelativePayload(name, prefix: string): string =
 proc renderWorkspaceSearch() =
   when defined(macosx):
     if activeWorkspace == nil or workspaceSearchQuery.len == 0: return
+    workspacePreviewEntries.setLen(0)
     var lines = @["Search: " & workspaceSearchQuery]
     for result in workspaceSearchResults:
       if lines.len >= 12: break
@@ -251,6 +255,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       openActiveWorkspace(filePath)
       return
     try:
+      workspacePreviewEntries.setLen(0)
       editorSession.addTab(openDocument(filePath))
       let document = activeDocument()
       if document != nil: editorViewState.moveCursor(0)
@@ -258,6 +263,22 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       refreshEditorSyntax()
     except CatchableError:
       discard
+
+when defined(macosx):
+  proc openWorkspaceEntryAtPoint(y: cdouble) =
+    if activeWorkspace == nil or workspacePreviewEntries.len == 0: return
+    var metrics: PlatformMetrics
+    platformGetMetrics(addr metrics)
+    let viewHeight = if metrics.heightPoints > 0: metrics.heightPoints else: 640'u32
+    let top = float32(viewHeight) - float32(y)
+    let line = int(floor((top - 4.0'f32) / 18.0'f32))
+    let entryIndex = line - 1
+    if entryIndex < 0 or entryIndex >= workspacePreviewEntries.len: return
+    let entry = workspacePreviewEntries[entryIndex]
+    if entry.kind == WorkspaceFileKind.directory:
+      openActiveWorkspace(entry.path)
+    else:
+      receiveNativeFile(entry.path.cstring, false)
 
 proc previousBoundary(text: string, offset: int): int =
   var resultOffset = max(0, min(offset, text.len)) - 1
@@ -459,6 +480,8 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   else: hit
   when defined(macosx):
     let document = activeDocument()
+    if document == nil and kind == pointerDown:
+      openWorkspaceEntryAtPoint(event.y)
     if document != nil and kind in {pointerDown, pointerMove, pointerUp}:
       let offset = editorOffsetAtPoint(document, event.x, event.y)
       if kind == pointerDown:
