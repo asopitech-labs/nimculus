@@ -366,6 +366,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
   CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
   const size_t width = (size_t)ceil(MAX(1.0, g_editor_rect[2]) * scale);
   const size_t height = (size_t)ceil(MAX(1.0, g_editor_rect[3]) * scale);
+  const CGFloat logicalHeight = MAX(1.0, g_editor_rect[3]);
   NSMutableData *pixels = [NSMutableData dataWithLength:width * height * 4];
   CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
   CGContextRef context = CGBitmapContextCreate(pixels.mutableBytes, width, height, 8,
@@ -400,7 +401,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
       NSUInteger endUnit = MIN(g_editor_selection_end, lineEndUnit) - lineStartUnit;
       CGContextSetRGBFillColor(context, 0.20, 0.40, 0.75, 0.45);
       CGContextFillRect(context, CGRectMake(8.0 + editorTextOffset(lineText, startUnit),
-        height - lineHeight * (displayIndex + 1) - 4.0,
+        logicalHeight - lineHeight * (displayIndex + 1) - 4.0,
         MAX(1.0, editorTextOffset(lineText, endUnit) - editorTextOffset(lineText, startUnit)), 20.0));
     }
     NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
@@ -422,7 +423,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
       }
     }
     CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
-    CGContextSetTextPosition(context, 8.0, height - lineHeight * (displayIndex + 1));
+    CGContextSetTextPosition(context, 8.0, logicalHeight - lineHeight * (displayIndex + 1));
     CTLineDraw(line, context);
     CFRelease(line);
     lineStartByte += lineLength + 1;
@@ -435,7 +436,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
     NSAttributedString *marked = [[NSAttributedString alloc] initWithString:g_marked_text
       attributes:markedAttributes];
     CTLineRef markedLine = CTLineCreateWithAttributedString((CFAttributedStringRef)marked);
-    CGFloat baseline = height - g_editor_cursor[1] - 14.0;
+    CGFloat baseline = logicalHeight - g_editor_cursor[1] - 14.0;
     CGContextSetTextPosition(context, g_editor_cursor[0], MAX(0.0, baseline));
     CTLineDraw(markedLine, context);
     CFRelease(markedLine);
@@ -443,7 +444,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
   CGContextSetStrokeColorWithColor(context, [NSColor colorWithCalibratedRed:0.85
     green:0.90 blue:1.0 alpha:1.0].CGColor);
   CGContextSetLineWidth(context, 1.0);
-  CGFloat caretY = height - g_editor_cursor[1] - 4.0;
+  CGFloat caretY = logicalHeight - g_editor_cursor[1] - 4.0;
   CGContextMoveToPoint(context, g_editor_cursor[0], caretY);
   CGContextAddLineToPoint(context, g_editor_cursor[0], caretY + 20.0);
   CGContextStrokePath(context);

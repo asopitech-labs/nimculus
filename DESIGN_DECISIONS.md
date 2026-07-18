@@ -349,6 +349,15 @@ the native selection, caret position, scroll line, and marked composition before
 uploading its text. This prevents a previous document's IME or selection state
 from appearing in a different surface.
 
+## M3-018: Keep Core Graphics text coordinates logical after Retina scaling
+
+The editor texture allocates pixel dimensions (`logical size * scale`) and
+then scales the CGContext by the backing scale. All baselines, selection
+rectangles, marked text, and caret positions therefore use the logical editor
+height, not the pixel texture height. This follows Zed's separation of logical
+layout coordinates from scale-factor rasterization and keeps Retina text
+inside the texture.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback
