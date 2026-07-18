@@ -11,6 +11,7 @@ import nimculus/editor_view
 import nimculus/editor_syntax
 import nimculus/tree_sitter
 import nimculus/workspace
+import nimculus/session
 
 var demoTree = newUiTree()
 var demoButton = NodeId(0)
@@ -75,9 +76,47 @@ var workspaceSearchCancelled = false
 var workspacePreviewEntries: seq[WorkspaceEntry]
 var externalAlertShown = false
 var editorPointerDragging = false
+var sessionFilePath = ""
+var recoveryFilePath = ""
+var persistenceTick = 0
+var suppressRecoveryWrite = false
 
 proc activeDocument(): ptr FileDocument
 proc refreshWorkspacePreview()
+
+proc setupPersistencePaths() =
+  let directory = getHomeDir() / "Library" / "Application Support" / "Nimculus"
+  if not dirExists(directory): createDir(directory)
+  sessionFilePath = directory / "session.json"
+  recoveryFilePath = directory / "active.recovery"
+
+proc persistSession() =
+  if sessionFilePath.len == 0: return
+  try:
+    saveSession(editorSession, sessionFilePath)
+    let document = activeDocument()
+    if not suppressRecoveryWrite and document != nil and document[].buffer.isDirty:
+      writeRecovery(document[], recoveryFilePath)
+    elif fileExists(recoveryFilePath):
+      removeFile(recoveryFilePath)
+    suppressRecoveryWrite = false
+  except CatchableError:
+    discard
+
+proc restoreSession() =
+  if sessionFilePath.len == 0: return
+  if fileExists(sessionFilePath):
+    try:
+      editorSession = loadSession(sessionFilePath)
+    except CatchableError:
+      editorSession = EditorSession(activeTab: -1)
+  if fileExists(recoveryFilePath):
+    try:
+      editorSession.addTab(recoverDocument(recoveryFilePath))
+      editorViewState = newEditorView()
+      editorViewState.statusMessage = "Recovered unsaved document"
+    except CatchableError:
+      discard
 
 proc openActiveWorkspace(path: string) =
   when defined(macosx):
@@ -159,6 +198,8 @@ proc cancelWorkspaceSearch() =
 
 proc pollWorkspaceSearch() =
   when defined(macosx):
+    inc persistenceTick
+    if persistenceTick mod 20 == 0: persistSession()
     let changed = if activeWorkspace == nil: @[] else: activeWorkspace.changedPaths()
     let document = activeDocument()
     if document != nil and document[].path.len > 0 and document[].externallyChanged() and not externalAlertShown:
@@ -314,6 +355,12 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       platformSetEditorComposition("".cstring)
       platformSetEditorText("".cstring)
       syncEditorCursor()
+  elif name == "saveSession":
+    persistSession()
+  elif name == "discardSession":
+    suppressRecoveryWrite = true
+    if recoveryFilePath.len > 0 and fileExists(recoveryFilePath):
+      removeFile(recoveryFilePath)
   elif name == "saveAndClose":
     let document = activeDocument()
     if document == nil or not document[].buffer.isDirty:
@@ -527,6 +574,8 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
 
 when isMainModule:
   when defined(macosx):
+    setupPersistencePaths()
+    restoreSession()
     setupDemoUi()
     openActiveWorkspace(getCurrentDir())
     platformSetTextCallback(receiveNativeText)
@@ -534,4 +583,9 @@ when isMainModule:
     platformSetFileCallback(receiveNativeFile)
     platformSetCommandCallback(receiveNativeCommand)
     platformSetUiRectangle(360, 260, 240, 120)
+    if activeDocument() != nil:
+      syncEditorCursor()
+      refreshEditorSyntax()
+    else:
+      persistSession()
   discard platformRun()

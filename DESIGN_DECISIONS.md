@@ -286,6 +286,16 @@ An existing path is saved directly; an untitled document uses `NSSavePanel`.
 The bridge returns Cancel until the application layer explicitly reports a
 successful save, so a failed save cannot silently close the document.
 
+## M5-010: Persist session state in Application Support
+
+The macOS application stores session metadata under
+`~/Library/Application Support/Nimculus`. Startup restores existing tabs and
+then restores the active recovery buffer when present. A main-loop tick writes
+the active dirty document to a separate recovery file, while a successful save
+or an explicit Don't Save decision removes it. The recovery file intentionally
+contains only the active buffer; the session file remains the source of truth
+for tab paths and recent files.
+
 ## M6-008: Make the lazy workspace preview actionable
 
 The initial workspace tree is rendered as a bounded text preview. Its visible

@@ -640,6 +640,7 @@ static void logInput(NSString *kind, NSEvent *event) {
   NSInteger response = [alert runModal];
   if (response == NSAlertSecondButtonReturn) {
     g_close_decision = YES;
+    if (g_command_callback) g_command_callback("discardSession");
   } else if (response == NSAlertFirstButtonReturn && g_command_callback) {
     g_command_callback("saveAndClose");
   }
@@ -654,6 +655,11 @@ static void logInput(NSString *kind, NSEvent *event) {
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)application {
   (void)application;
   return [self confirmClose] ? NSTerminateNow : NSTerminateCancel;
+}
+
+- (void)applicationWillTerminate:(NSNotification *)notification {
+  (void)notification;
+  if (g_command_callback) g_command_callback("saveSession");
 }
 
 - (void)setupMainMenu {
