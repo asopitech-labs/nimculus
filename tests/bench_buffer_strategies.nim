@@ -9,6 +9,14 @@ type
   GapBuffer = object
     data: seq[char]
     gapStart, gapEnd: int
+  PieceTreeNode = ref object
+    text: string
+    left, right: PieceTreeNode
+  PieceTree = object
+    root: PieceTreeNode
+  HybridBuffer = object
+    chunks: seq[string]
+    lineStarts: seq[int]
 
 proc chunkText(text: string, chunkSize = 4096): seq[string] =
   var offset = 0
@@ -52,6 +60,40 @@ proc gapInsert(gap: var GapBuffer, offset: int, text: string) =
 
 proc gapLength(gap: GapBuffer): int = gap.data.len - (gap.gapEnd - gap.gapStart)
 
+proc treeBuild(chunks: seq[string], first, last: int): PieceTreeNode =
+  if first >= last: return nil
+  let middle = (first + last) div 2
+  PieceTreeNode(text: chunks[middle], left: treeBuild(chunks, first, middle),
+                right: treeBuild(chunks, middle + 1, last))
+
+proc treeAppend(node: PieceTreeNode, output: var string) =
+  if node == nil: return
+  node.left.treeAppend(output)
+  output.add(node.text)
+  node.right.treeAppend(output)
+
+proc treeText(tree: PieceTree): string = tree.root.treeAppend(result)
+proc initPieceTree(text: string): PieceTree =
+  let chunks = chunkText(text)
+  result.root = treeBuild(chunks, 0, chunks.len)
+proc treeInsert(tree: var PieceTree, offset: int, text: string) =
+  var flattened = tree.treeText()
+  flattened.insert(text, offset)
+  let chunks = chunkText(flattened)
+  tree.root = treeBuild(chunks, 0, chunks.len)
+
+proc initHybrid(text: string): HybridBuffer =
+  result.chunks = chunkText(text)
+  result.lineStarts = @[0]
+  for index, character in text:
+    if character == '\n': result.lineStarts.add(index + 1)
+proc hybridText(buffer: HybridBuffer): string =
+  for chunk in buffer.chunks: result.add(chunk)
+proc hybridInsert(buffer: var HybridBuffer, offset: int, text: string) =
+  var flattened = buffer.hybridText()
+  flattened.insert(text, offset)
+  buffer = initHybrid(flattened)
+
 proc elapsed(label: string, action: proc()): float =
   let start = cpuTime()
   action()
@@ -69,4 +111,10 @@ discard elapsed("ChunkedRope", proc() =
 var gap = initGapBuffer(source)
 discard elapsed("GapBuffer", proc() =
   for index in 0 ..< 100: gap.gapInsert(middle + index, "x"))
+var tree = initPieceTree(source)
+discard elapsed("PieceTree", proc() =
+  for index in 0 ..< 100: tree.treeInsert(middle + index, "x"))
+var hybrid = initHybrid(source)
+discard elapsed("Hybrid(line-indexed chunks)", proc() =
+  for index in 0 ..< 100: hybrid.hybridInsert(middle + index, "x"))
 echo &"source bytes: {source.len}, gap logical bytes: {gap.gapLength()}"
