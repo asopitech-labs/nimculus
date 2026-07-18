@@ -45,6 +45,18 @@ suite "M6 workspace":
     removeFile(root / ".gitignore"); removeFile(root / "keep.log"); removeFile(root / "drop.log")
     removeDir(root)
 
+  test "ignore stacks reload after ignore file changes":
+    let root = getTempDir() / "nimculus-m6-ignore-reload"
+    createDir(root)
+    writeFile(root / ".gitignore", "ignored\n")
+    writeFile(root / "ignored", "value")
+    var workspace = openWorkspace(root)
+    check workspace.enumerateFiles().len == 1
+    writeFile(root / ".gitignore", "")
+    workspace.reloadIgnoreRules()
+    check workspace.enumerateFiles().len == 2
+    removeFile(root / ".gitignore"); removeFile(root / "ignored"); removeDir(root)
+
   test "search can be cancelled":
     let root = getTempDir() / "nimculus-m6-search"
     createDir(root)

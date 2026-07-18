@@ -79,6 +79,24 @@ proc addRoot*(workspace: Workspace, root: string) =
 
 proc rootPaths*(workspace: Workspace): seq[string] = workspace.roots
 
+proc reloadIgnoreRules*(workspace: Workspace) =
+  ## Rebuild per-root IgnoreStacks after an ignore file changes. The stacks
+  ## contain lazy nested-file caches, so replacing the value is the cache
+  ## invalidation boundary rather than mutating a partially loaded stack.
+  if workspace == nil: return
+  for root in workspace.roots:
+    workspace.ignoreStacksByRoot[root] = newIgnoreStack(root)
+
+proc isIgnoreRulePath(workspace: Workspace, path: string): bool =
+  let candidate = normalizedPath(path).replace("\\", "/")
+  for root in workspace.roots:
+    let normalizedRoot = normalizedPath(root).replace("\\", "/")
+    if candidate == normalizedRoot & "/.gitignore" or
+        candidate == normalizedRoot & "/.git/info/exclude": return true
+    if candidate.startsWith(normalizedRoot & "/") and candidate.endsWith("/.gitignore"):
+      return true
+  false
+
 proc canonicalPath(path: string): string =
   when defined(posix):
     var buffer = newString(4096)
@@ -379,6 +397,10 @@ proc changedPaths*(workspace: Workspace): seq[string] =
     workspace.changes.setLen(0)
   finally:
     release(workspace.changesLock)
+  for path in result:
+    if workspace.isIgnoreRulePath(path):
+      workspace.reloadIgnoreRules()
+      break
 
 when defined(macosx):
   proc receiveWorkspaceChange(path: cstring, context: pointer) {.cdecl.} =

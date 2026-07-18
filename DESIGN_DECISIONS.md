@@ -558,6 +558,8 @@ Workspace ignore evaluation delegates Git-compatible pattern semantics to the
 `gitignore` package's `IgnoreStack`, mirroring Zed's `ignore` crate. Each root
 owns its own lazy stack so nested `.gitignore` files and negation precedence do
 not leak between workspace roots.
+Ignore-file FSEvents replace the affected stacks, matching Zed's update path
+instead of retaining stale parsed patterns until restart.
 
 Filesystem callbacks are treated as producer threads, not as UI state owners.
 The workspace watcher appends under a lock, and the UI polling boundary drains
