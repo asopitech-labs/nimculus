@@ -107,6 +107,17 @@ proc refreshWorkspacePreview() =
     platformSetEditorComposition("".cstring)
     platformSetEditorText(lines.join("\n").cstring)
 
+proc refreshWorkspaceAfterMutation(message: string) =
+  when defined(macosx):
+    if activeWorkspace != nil:
+      activeWorkspace.startWatching()
+      editorViewState.statusMessage = message
+      refreshWorkspacePreview()
+
+proc workspaceRelativePayload(name, prefix: string): string =
+  if not name.startsWith(prefix) or name.len <= prefix.len: return ""
+  name[prefix.len .. ^1].strip
+
 proc renderWorkspaceSearch() =
   when defined(macosx):
     if activeWorkspace == nil or workspaceSearchQuery.len == 0: return
@@ -300,6 +311,41 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     externalAlertShown = false
   elif name.startsWith("workspaceSearch:"):
     showWorkspaceSearch(name[16 .. ^1])
+  elif name.startsWith("workspaceCreateFile:") and activeWorkspace != nil:
+    let relative = workspaceRelativePayload(name, "workspaceCreateFile:")
+    if relative.len == 0: return
+    try:
+      discard activeWorkspace.createFile(relative)
+      refreshWorkspaceAfterMutation("Created " & relative)
+    except CatchableError as error:
+      editorViewState.statusMessage = "Create failed: " & error.msg
+  elif name.startsWith("workspaceCreateDirectory:") and activeWorkspace != nil:
+    let relative = workspaceRelativePayload(name, "workspaceCreateDirectory:")
+    if relative.len == 0: return
+    try:
+      discard activeWorkspace.createDirectory(relative)
+      refreshWorkspaceAfterMutation("Created " & relative)
+    except CatchableError as error:
+      editorViewState.statusMessage = "Create failed: " & error.msg
+  elif name.startsWith("workspaceDelete:") and activeWorkspace != nil:
+    let relative = workspaceRelativePayload(name, "workspaceDelete:")
+    if relative.len == 0: return
+    try:
+      activeWorkspace.deleteEntry(relative)
+      refreshWorkspaceAfterMutation("Deleted " & relative)
+    except CatchableError as error:
+      editorViewState.statusMessage = "Delete failed: " & error.msg
+  elif name.startsWith("workspaceRename:") and activeWorkspace != nil:
+    let payload = workspaceRelativePayload(name, "workspaceRename:")
+    let separator = payload.find('\x1f')
+    if separator <= 0 or separator + 1 >= payload.len: return
+    let oldRelative = payload[0 ..< separator].strip
+    let newRelative = payload[separator + 1 .. ^1].strip
+    try:
+      discard activeWorkspace.renameEntry(oldRelative, newRelative)
+      refreshWorkspaceAfterMutation("Renamed " & oldRelative & " to " & newRelative)
+    except CatchableError as error:
+      editorViewState.statusMessage = "Rename failed: " & error.msg
   elif name.startsWith("findDocument:") and document != nil:
     let prefix = "findDocument:"
     let query = if name.len > prefix.len: name[prefix.len .. ^1] else: ""

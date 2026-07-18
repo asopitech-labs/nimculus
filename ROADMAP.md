@@ -10,7 +10,7 @@
 | M3：macOS テキスト描画と IME | 🟡 実装済み・GUI実機検証待ち | Core Text、動的Metal文字テクスチャ、Tree-sitter構文色、marked text表示、IME、候補位置、clipboardを実装。日本語IME、カーソル/選択、Retina文字表示の実機確認が残る |
 | M4：エディタバッファと編集コア | ✅ 完了 | Piece Table、原子的編集、Undo/Redo、複数カーソル、位置変換、fuzz、候補構造比較を実装・検証済み |
 | M5：macOS 最小実用エディタ | 🟡 実装済み・GUI実機検証待ち | 編集サービス、動的文書表示、構文色、macOSメニュー/IME/Finder接続を実装。GUI実機確認が残る |
-| M6：macOS プロジェクト・ワークスペース | 🟡 部分UI統合・高度なGit UI待ち | フォルダ選択、ルート直下ツリー、Workspace検索入力/結果/継続更新/キャンセル、Worktree branch/HEAD表示をMetalテキストへ接続。複数ルート、ファイル操作、`.gitignore`、fuzzy/ripgrep API、協調型検索ジョブ、FSEvents、Worktree状態分離、10万ファイル計測を実装。Git diff/stage等が残る |
+| M6：macOS プロジェクト・ワークスペース | 🟡 部分UI統合・高度なGit UI待ち | フォルダ選択、ルート直下ツリー、Workspace検索入力/結果/継続更新/キャンセル、Worktree branch/HEAD表示、標準Fileメニューからのファイル作成・フォルダ作成・名前変更・削除を接続。複数ルート、`.gitignore`、fuzzy/ripgrep API、協調型検索ジョブ、FSEvents、Worktree状態分離、10万ファイル計測を実装。Git diff/stage等が残る |
 | M7：Tree-sitter | 🟡 実装済み・GUI実機検証待ち | Nim/Rust/TypeScript/Python/JSON/MarkdownのFFI、増分解析、構文状態、可視範囲ハイライト、RGBA Metalテクスチャ接続、大規模ファイル計測を実装。GUI実機確認が残る |
 
 チェック済み項目は、コード実装とローカル検証の両方を確認できたものを示す。CIの実行成功、実機での個別入力、未実装のAPIは未チェックのまま残す。

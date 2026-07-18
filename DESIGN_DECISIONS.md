@@ -262,6 +262,16 @@ Each additional root owns its own ignore patterns and FSEvents stream. A
 change in one root therefore cannot accidentally apply the primary root's
 ignore rules or stop another root's watcher.
 
+## M6-007: Route workspace mutations through relative-path commands
+
+The macOS File menu exposes create-file, create-folder, rename, and delete
+commands using workspace-relative paths. The application forwards these paths
+to the existing root-confined Workspace API, so the UI bridge does not
+duplicate path validation. Directory deletion intentionally uses the native
+filesystem behavior and therefore requires an empty directory. Successful
+mutations refresh the preview and restart the FSEvents watcher; failures are
+reported through the editor status message.
+
 ## M6-003: Search yields cooperatively and streams file contents
 
 The UI-facing `SearchJob` processes a bounded number of files and lines per

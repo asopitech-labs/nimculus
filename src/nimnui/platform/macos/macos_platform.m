@@ -645,6 +645,15 @@ static void logInput(NSString *kind, NSEvent *event) {
   save.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   close.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   [fileMenu addItem:newDocument]; [fileMenu addItem:open]; [fileMenu addItem:save]; [fileMenu addItem:close];
+  [fileMenu addItem:[NSMenuItem separatorItem]];
+  [fileMenu addItem:[[NSMenuItem alloc] initWithTitle:@"New File…"
+    action:@selector(createWorkspaceFile:) keyEquivalent:@""]];
+  [fileMenu addItem:[[NSMenuItem alloc] initWithTitle:@"New Folder…"
+    action:@selector(createWorkspaceDirectory:) keyEquivalent:@""]];
+  [fileMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Rename Workspace Entry…"
+    action:@selector(renameWorkspaceEntry:) keyEquivalent:@""]];
+  [fileMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Delete Workspace Entry…"
+    action:@selector(deleteWorkspaceEntry:) keyEquivalent:@""]];
   [fileItem setSubmenu:fileMenu];
   [mainMenu addItem:fileItem];
 
@@ -775,6 +784,77 @@ static void logInput(NSString *kind, NSEvent *event) {
 - (void)newDocument:(id)sender {
   (void)sender;
   if (g_command_callback) g_command_callback("newDocument");
+}
+
+- (NSTextField *)workspacePathField:(NSString *)placeholder {
+  NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
+  field.placeholderString = placeholder;
+  return field;
+}
+
+- (void)createWorkspaceFile:(id)sender {
+  (void)sender;
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = @"New File";
+  NSTextField *field = [self workspacePathField:@"Relative path, e.g. src/new_file.nim"];
+  alert.accessoryView = field;
+  [alert addButtonWithTitle:@"Create"];
+  [alert addButtonWithTitle:@"Cancel"];
+  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
+    NSString *command = [NSString stringWithFormat:@"workspaceCreateFile:%@", field.stringValue];
+    g_command_callback(command.UTF8String);
+  }
+}
+
+- (void)createWorkspaceDirectory:(id)sender {
+  (void)sender;
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = @"New Folder";
+  NSTextField *field = [self workspacePathField:@"Relative path, e.g. src/new_folder"];
+  alert.accessoryView = field;
+  [alert addButtonWithTitle:@"Create"];
+  [alert addButtonWithTitle:@"Cancel"];
+  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
+    NSString *command = [NSString stringWithFormat:@"workspaceCreateDirectory:%@", field.stringValue];
+    g_command_callback(command.UTF8String);
+  }
+}
+
+- (void)renameWorkspaceEntry:(id)sender {
+  (void)sender;
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = @"Rename Workspace Entry";
+  NSStackView *fields = [[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 320, 56)];
+  fields.orientation = NSUserInterfaceLayoutOrientationVertical;
+  fields.spacing = 8;
+  NSTextField *oldField = [self workspacePathField:@"Existing relative path"];
+  NSTextField *newField = [self workspacePathField:@"New relative path"];
+  [fields addArrangedSubview:oldField];
+  [fields addArrangedSubview:newField];
+  alert.accessoryView = fields;
+  [alert addButtonWithTitle:@"Rename"];
+  [alert addButtonWithTitle:@"Cancel"];
+  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
+    NSString *command = [NSString stringWithFormat:@"workspaceRename:%@\x1f%@",
+      oldField.stringValue, newField.stringValue];
+    g_command_callback(command.UTF8String);
+  }
+}
+
+- (void)deleteWorkspaceEntry:(id)sender {
+  (void)sender;
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = @"Delete Workspace Entry";
+  alert.informativeText = @"Deleting a directory requires it to be empty.";
+  NSTextField *field = [self workspacePathField:@"Relative path"];
+  alert.accessoryView = field;
+  [alert addButtonWithTitle:@"Delete"];
+  [alert addButtonWithTitle:@"Cancel"];
+  alert.alertStyle = NSAlertStyleWarning;
+  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
+    NSString *command = [NSString stringWithFormat:@"workspaceDelete:%@", field.stringValue];
+    g_command_callback(command.UTF8String);
+  }
 }
 
 - (void)saveDocument:(id)sender {
