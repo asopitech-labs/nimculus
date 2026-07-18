@@ -454,16 +454,10 @@ when defined(macosx):
       refreshEditorSyntax()
 
 proc previousBoundary(text: string, offset: int): int =
-  var resultOffset = max(0, min(offset, text.len)) - 1
-  while resultOffset > 0 and (ord(text[resultOffset]) and 0xC0) == 0x80: dec resultOffset
-  max(0, resultOffset)
+  previousGraphemeBoundary(text, offset)
 
 proc nextBoundary(text: string, offset: int): int =
-  var resultOffset = max(0, min(offset, text.len))
-  if resultOffset < text.len:
-    inc resultOffset
-    while resultOffset < text.len and (ord(text[resultOffset]) and 0xC0) == 0x80: inc resultOffset
-  resultOffset
+  nextGraphemeBoundary(text, offset)
 
 proc lineEndOffset(document: ptr FileDocument, line: int): int =
   if document == nil or document[].buffer.lineStarts.len == 0: return 0

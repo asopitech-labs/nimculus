@@ -36,26 +36,27 @@ proc byteOffsetAtLineColumn*(buffer: PieceTable, line, column: int): int =
 
 proc isWordSpace(value: char): bool = value in {' ', '\t', '\n', '\r'}
 
-proc previousTextBoundary(text: string, offset: int): int =
-  var resultOffset = max(0, min(offset, text.len)) - 1
-  while resultOffset > 0 and (ord(text[resultOffset]) and 0xC0) == 0x80: dec resultOffset
-  max(0, resultOffset)
+proc previousGraphemeBoundary*(text: string, offset: int): int =
+  let bounded = max(0, min(offset, text.len))
+  let positions = textPositions(text)
+  for index in countdown(positions.high, 0):
+    if positions[index].byteOffset < bounded: return positions[index].byteOffset
+  0
 
-proc nextTextBoundary(text: string, offset: int): int =
-  var resultOffset = max(0, min(offset, text.len))
-  if resultOffset < text.len:
-    inc resultOffset
-    while resultOffset < text.len and (ord(text[resultOffset]) and 0xC0) == 0x80: inc resultOffset
-  resultOffset
+proc nextGraphemeBoundary*(text: string, offset: int): int =
+  let bounded = max(0, min(offset, text.len))
+  for position in textPositions(text):
+    if position.byteOffset > bounded: return position.byteOffset
+  text.len
 
 proc previousWordBoundary*(text: string, offset: int): int =
   var cursor = max(0, min(offset, text.len))
   while cursor > 0:
-    let previous = previousTextBoundary(text, cursor)
+    let previous = previousGraphemeBoundary(text, cursor)
     if not text[previous].isWordSpace: break
     cursor = previous
   while cursor > 0:
-    let previous = previousTextBoundary(text, cursor)
+    let previous = previousGraphemeBoundary(text, cursor)
     if text[previous].isWordSpace: break
     cursor = previous
   cursor
@@ -64,10 +65,10 @@ proc nextWordBoundary*(text: string, offset: int): int =
   var cursor = max(0, min(offset, text.len))
   while cursor < text.len:
     if not text[cursor].isWordSpace: break
-    cursor = nextTextBoundary(text, cursor)
+    cursor = nextGraphemeBoundary(text, cursor)
   while cursor < text.len:
     if text[cursor].isWordSpace: break
-    cursor = nextTextBoundary(text, cursor)
+    cursor = nextGraphemeBoundary(text, cursor)
   cursor
 
 proc selectedRange*(view: EditorViewState): tuple[startByte, endByte: int] =

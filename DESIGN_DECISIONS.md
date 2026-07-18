@@ -504,3 +504,8 @@ close the window while the document is still dirty.
 The atomic helper copies the existing target's Unix permission set to the
 temporary file before the rename. Replacing a file must not silently remove
 the executable bit or other user/group access modes.
+
+Editor navigation and deletion use the same `textPositions` boundary list as
+layout and cursor conversion. UTF-8 codepoint boundaries are insufficient for
+combining sequences and emoji ZWJ sequences, so Backspace/Delete and word
+movement must never introduce a boundary inside one grapheme cluster.

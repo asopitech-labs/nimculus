@@ -55,6 +55,14 @@ suite "M4 editor buffer":
     buffer.markSaved()
     check not buffer.isDirty
 
+  test "cursor and deletion boundaries preserve grapheme clusters":
+    let text = "é🙂‍💻"
+    check previousGraphemeBoundary(text, text.len) == 3
+    check nextGraphemeBoundary(text, 0) == 3
+    check previousGraphemeBoundary(text, 3) == 0
+    check nextGraphemeBoundary(text, 3) == text.len
+    check previousWordBoundary("é project", 4) == 0
+
 suite "M5 editor services":
   test "open save search replace and external change":
     let path = getTempDir() / "nimculus-m5-test.txt"
