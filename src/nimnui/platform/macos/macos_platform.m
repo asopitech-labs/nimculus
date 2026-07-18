@@ -657,6 +657,10 @@ static void logInput(NSString *kind, NSEvent *event) {
   [editMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"]];
   [editMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Paste" action:@selector(paste:) keyEquivalent:@"v"]];
   [editMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Select All" action:@selector(selectAll:) keyEquivalent:@"a"]];
+  NSMenuItem *findDocument = [[NSMenuItem alloc] initWithTitle:@"Find…"
+    action:@selector(findInDocument:) keyEquivalent:@"f"];
+  findDocument.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  [editMenu addItem:findDocument];
   NSMenuItem *workspaceSearch = [[NSMenuItem alloc] initWithTitle:@"Find in Workspace…"
     action:@selector(findInWorkspace:) keyEquivalent:@"f"];
   workspaceSearch.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
@@ -702,6 +706,21 @@ static void logInput(NSString *kind, NSEvent *event) {
   [alert addButtonWithTitle:@"Cancel"];
   if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
     NSString *command = [NSString stringWithFormat:@"workspaceSearch:%@", field.stringValue];
+    g_command_callback(command.UTF8String);
+  }
+}
+
+- (void)findInDocument:(id)sender {
+  (void)sender;
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = @"Find in Document";
+  NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
+  field.placeholderString = @"Search text";
+  alert.accessoryView = field;
+  [alert addButtonWithTitle:@"Find"];
+  [alert addButtonWithTitle:@"Cancel"];
+  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
+    NSString *command = [NSString stringWithFormat:@"findDocument:%@", field.stringValue];
     g_command_callback(command.UTF8String);
   }
 }

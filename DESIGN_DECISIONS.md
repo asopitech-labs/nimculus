@@ -178,6 +178,13 @@ and word deletion selectors to the editor command ABI. This preserves macOS's
 keyboard-layout and modifier interpretation in AppKit while keeping UTF-8
 boundary decisions in the editor core.
 
+## M5-008: Keep document Find as a native prompt with a narrow command ABI
+
+The Edit menu owns the short-lived AppKit query prompt and sends only the query
+through `findDocument:`. Nim performs the search and selection against the
+active document, so search semantics and byte ranges remain testable without
+AppKit.
+
 ## M5-005: Resolve external changes at the application boundary
 
 The editor service remains responsible for comparing file stamps. The macOS

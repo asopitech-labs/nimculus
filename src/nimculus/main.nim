@@ -300,6 +300,21 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     externalAlertShown = false
   elif name.startsWith("workspaceSearch:"):
     showWorkspaceSearch(name[16 .. ^1])
+  elif name.startsWith("findDocument:") and document != nil:
+    let prefix = "findDocument:"
+    let query = if name.len > prefix.len: name[prefix.len .. ^1] else: ""
+    if query.len == 0:
+      editorViewState.statusMessage = "Find requires a query"
+      return
+    let matches = document[].search(query)
+    if matches.len > 0:
+      editorViewState.selection.anchor = matches[0].startByte
+      editorViewState.selection.active = matches[0].endByte
+      editorViewState.statusMessage = "Found " & query
+      syncEditorCursor()
+      refreshEditorSyntax()
+    else:
+      editorViewState.statusMessage = "No matches for " & query
   elif name == "cancel":
     imeState.composition.setLen(0)
     when defined(macosx): platformSetEditorComposition("".cstring)
