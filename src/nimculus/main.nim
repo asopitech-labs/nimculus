@@ -139,6 +139,11 @@ var recoveryFilePath = ""
 var persistenceTick = 0
 var suppressRecoveryWrite = false
 
+proc resetImeState() =
+  imeState = newImeState()
+  when defined(macosx):
+    platformSetEditorComposition("".cstring)
+
 proc activeDocument(): ptr FileDocument
 proc refreshWorkspacePreview()
 
@@ -473,6 +478,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       workspacePreviewEntries.setLen(0)
       workspacePreviewMode = ""
       editorSession.addTab(openDocument(filePath))
+      resetImeState()
       let document = activeDocument()
       if document != nil: editorViewState.moveCursor(0)
       editorSession.recordRecent(filePath)
@@ -548,6 +554,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     refreshWorkspacePreview()
   elif name == "newDocument":
     editorSession.addTab(newDocument())
+    resetImeState()
     externalAlertShown = false
     editorViewState = newEditorView()
     if syntaxState != nil:
@@ -615,6 +622,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "reloadExternal" and document != nil:
     try:
       editorSession.tabs[editorSession.activeTab].document = openDocument(document[].path)
+      resetImeState()
       editorViewState = newEditorView()
       if syntaxState != nil:
         syntaxState.close()

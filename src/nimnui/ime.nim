@@ -10,7 +10,10 @@ proc receiveText*(state: var ImeState, text: string, composing: bool) =
   if composing:
     state.composition = text
   else:
-    state.committed.add(text)
+    # Keep the latest commit as an event payload, not an unbounded history.
+    # The editor consumes committed text immediately; retaining every IME
+    # commit would grow for the lifetime of a session.
+    state.committed = text
     state.composition.setLen(0)
     state.cursor += text.len
 

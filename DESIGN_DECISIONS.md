@@ -585,6 +585,12 @@ texture there. This follows Zed's `view_did_change_backing_properties` path and
 keeps a window moved between displays from retaining the previous monitor's
 scale.
 
+IME commits are event payloads, not an application history. Nimculus retains
+only the latest committed string in `ImeState` and clears composition state on
+document open, reload, and new-document transitions. This mirrors Zed's
+InputHandler transaction boundary and prevents a long editing session from
+retaining every committed IME string.
+
 The AppKit tracking area also emits explicit enter/exit events. NimNUI keeps
 those distinct from pointer motion so hover state is cleared when the pointer
 leaves the view, matching Zed's separate mouse-exit platform event instead of

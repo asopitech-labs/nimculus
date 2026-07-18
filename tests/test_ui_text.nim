@@ -242,6 +242,8 @@ suite "M3 text foundation":
     ime.receiveText("日本", false)
     check ime.composition.len == 0
     check ime.committed == "日本"
+    ime.receiveText("語", false)
+    check ime.committed == "語"
 
   test "visible text layout limits work to the requested range":
     let visible = layoutVisibleText("0123456789", 2, 5)
