@@ -381,6 +381,14 @@ workspace view and the active buffer are separate state owners, matching Zed's
 worktree entry updates and preventing stale tree contents after a root or
 session transition.
 
+## M5-008: Switch tabs without sharing editor transient state
+
+The session owns tab buffers independently. Previous/next tab actions change
+only `activeTab`, then reset the active editor's IME composition, view state,
+syntax state, and native selection/caret synchronization. This follows Zed's
+pane tab ownership: buffers remain intact while the active editor view is
+rebound to the selected tab.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback

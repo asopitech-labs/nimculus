@@ -597,6 +597,19 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     if activeDocument() != nil: refreshEditorSyntax()
   elif name == "windowFocusLost":
     resetPointerInteractions()
+  elif name in ["previousTab", "nextTab"]:
+    let delta = if name == "previousTab": -1 else: 1
+    if editorSession.switchTab(delta):
+      resetImeState()
+      resetEditorViewState()
+      workspacePreviewMode = ""
+      externalAlertShown = false
+      if syntaxState != nil:
+        syntaxState.close()
+        syntaxState = nil
+      syncEditorCursor()
+      refreshEditorSyntax()
+      persistSession()
   elif name.startsWith("workspaceAddRoot:") and activeWorkspace != nil:
     let path = workspaceRelativePayload(name, "workspaceAddRoot:")
     if path.len == 0 or not dirExists(path): return

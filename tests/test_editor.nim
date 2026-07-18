@@ -140,6 +140,11 @@ suite "M5 editor services":
     var session: EditorSession
     session.addTab(newDocument())
     session.addTab(newDocument())
+    check session.activeTab == 1
+    check session.switchTab(-1)
+    check session.activeTab == 0
+    check session.switchTab(1)
+    check session.activeTab == 1
     session.splitEditor(splitVertical)
     check session.tabs.len == 2
     check session.split

@@ -1032,10 +1032,28 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   NSMenuItem *minimize = [[NSMenuItem alloc] initWithTitle:@"Minimize" action:@selector(performMiniaturize:) keyEquivalent:@"m"];
   minimize.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   [windowMenu addItem:minimize];
+  NSMenuItem *previousTab = [[NSMenuItem alloc] initWithTitle:@"Previous Tab"
+    action:@selector(previousTab:) keyEquivalent:@"["];
+  previousTab.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
+  [windowMenu addItem:previousTab];
+  NSMenuItem *nextTab = [[NSMenuItem alloc] initWithTitle:@"Next Tab"
+    action:@selector(nextTab:) keyEquivalent:@"]"];
+  nextTab.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
+  [windowMenu addItem:nextTab];
   [windowMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Zoom" action:@selector(performZoom:) keyEquivalent:@""]];
   [windowItem setSubmenu:windowMenu];
   [mainMenu addItem:windowItem];
   [NSApp setMainMenu:mainMenu];
+}
+
+- (void)previousTab:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("previousTab");
+}
+
+- (void)nextTab:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("nextTab");
 }
 
 - (void)findInWorkspace:(id)sender {

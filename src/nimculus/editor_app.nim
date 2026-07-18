@@ -87,6 +87,14 @@ proc addTab*(session: var EditorSession, document: FileDocument) =
   session.tabs.add(EditorTab(document: document, title: title))
   session.activeTab = session.tabs.high
 
+proc switchTab*(session: var EditorSession, delta: int): bool =
+  ## Move around the existing tabs without mutating their buffers.
+  if session.tabs.len < 2: return false
+  let current = max(0, min(session.activeTab, session.tabs.high))
+  let count = session.tabs.len
+  session.activeTab = ((current + delta) mod count + count) mod count
+  true
+
 proc closeActiveTab*(session: var EditorSession): bool =
   if session.tabs.len == 0: return false
   session.activeTab = max(0, min(session.activeTab, session.tabs.high))
