@@ -37,6 +37,24 @@ static void highlightColor(uint32_t kind, CGFloat *r, CGFloat *g, CGFloat *b) {
   else if (kind == 5) { *r = 0.65; *g = 0.70; *b = 0.78; }
 }
 
+static NSUInteger utf16OffsetForUTF8Bytes(NSString *line, NSUInteger targetBytes) {
+  NSUInteger bytes = 0;
+  NSUInteger units = 0;
+  NSUInteger index = 0;
+  while (index < line.length && bytes < targetBytes) {
+    NSUInteger width = 1;
+    unichar value = [line characterAtIndex:index];
+    if (value >= 0xD800 && value <= 0xDBFF && index + 1 < line.length) width = 2;
+    NSString *scalar = [line substringWithRange:NSMakeRange(index, width)];
+    NSUInteger scalarBytes = [[scalar dataUsingEncoding:NSUTF8StringEncoding] length];
+    if (bytes + scalarBytes > targetBytes) break;
+    bytes += scalarBytes;
+    units += width;
+    index += width;
+  }
+  return units;
+}
+
 static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
   if (!device) return;
   const size_t width = 1024, height = 256;
@@ -47,25 +65,34 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text) {
   CGColorSpaceRelease(colorSpace);
   if (!context) return;
   CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), 14.0, NULL);
-  NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
+  NSColor *baseColor = [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0];
+  NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
+    (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
   NSArray<NSString *> *lines = [(text ?: @"") componentsSeparatedByString:@"\n"];
   NSUInteger visibleLines = MIN(lines.count, (NSUInteger)12);
   NSUInteger lineStartByte = 0;
   for (NSUInteger index = 0; index < visibleLines; index++) {
-    NSUInteger lineLength = [[lines[index] dataUsingEncoding:NSUTF8StringEncoding] length];
-    uint32_t kind = 4;
+    NSString *lineText = lines[index];
+    NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
+    NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
+      initWithString:lineText attributes:attributes];
     for (uint32_t spanIndex = 0; spanIndex < g_highlight_count; spanIndex++) {
       NimculusHighlightSpan span = g_highlights[spanIndex];
       if (span.end_byte > lineStartByte && span.start_byte < lineStartByte + lineLength) {
-        kind = span.kind;
-        break;
+        NSUInteger startByte = MAX((NSUInteger)span.start_byte, lineStartByte) - lineStartByte;
+        NSUInteger endByte = MIN((NSUInteger)span.end_byte, lineStartByte + lineLength) - lineStartByte;
+        NSUInteger startUnit = utf16OffsetForUTF8Bytes(lineText, startByte);
+        NSUInteger endUnit = utf16OffsetForUTF8Bytes(lineText, endByte);
+        if (endUnit > startUnit) {
+          CGFloat red, green, blue;
+          highlightColor(span.kind, &red, &green, &blue);
+          NSColor *color = [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1.0];
+          [attributed addAttribute:(id)kCTForegroundColorAttributeName
+            value:(id)color.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
+        }
       }
     }
-    CGFloat red, green, blue;
-    highlightColor(kind, &red, &green, &blue);
-    CGContextSetRGBFillColor(context, red, green, blue, 1.0);
-    CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)[[NSAttributedString alloc]
-      initWithString:lines[index] attributes:attributes]);
+    CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
     CGContextSetTextPosition(context, 8.0, height - 24.0 * (index + 1));
     CTLineDraw(line, context);
     CFRelease(line);
