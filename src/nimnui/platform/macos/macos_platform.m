@@ -701,6 +701,8 @@ static void logInput(NSString *kind, NSEvent *event) {
   [fileMenu addItem:newDocument]; [fileMenu addItem:open]; [fileMenu addItem:save]; [fileMenu addItem:close];
   [fileMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Open Recent…"
     action:@selector(openRecent:) keyEquivalent:@""]];
+  [fileMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Add Workspace Folder…"
+    action:@selector(addWorkspaceFolder:) keyEquivalent:@""]];
   [fileMenu addItem:[NSMenuItem separatorItem]];
   [fileMenu addItem:[[NSMenuItem alloc] initWithTitle:@"New File…"
     action:@selector(createWorkspaceFile:) keyEquivalent:@""]];
@@ -894,6 +896,20 @@ static void logInput(NSString *kind, NSEvent *event) {
   if ([alert runModal] == NSAlertFirstButtonReturn && g_file_callback) {
     NSString *path = popup.selectedItem.title;
     if (path.length > 0) g_file_callback(path.UTF8String, false);
+  }
+}
+
+- (void)addWorkspaceFolder:(id)sender {
+  (void)sender;
+  NSOpenPanel *panel = [NSOpenPanel openPanel];
+  panel.canChooseFiles = NO;
+  panel.canChooseDirectories = YES;
+  panel.allowsMultipleSelection = YES;
+  if ([panel runModal] == NSModalResponseOK && g_command_callback) {
+    for (NSURL *url in panel.URLs) {
+      NSString *command = [NSString stringWithFormat:@"workspaceAddRoot:%@", url.path];
+      g_command_callback(command.UTF8String);
+    }
   }
 }
 

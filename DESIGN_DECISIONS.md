@@ -353,6 +353,14 @@ the existing document-open path; clicking a directory replaces the active
 Workspace. Search output clears this mapping so stale preview rows cannot open
 the wrong entry.
 
+## M6-013: Add workspace roots through NSOpenPanel
+
+Additional roots are selected with `NSOpenPanel` in directory-only,
+multi-selection mode. Each selected absolute path is sent through the command
+callback; Nim validates it as a directory, adds its own ignore configuration,
+restarts the watcher set, and rebuilds the bounded preview. Root labels are
+represented as actionable rows so the preview-to-path mapping remains exact.
+
 ## M6-003: Search yields cooperatively and streams file contents
 
 The UI-facing `SearchJob` processes a bounded number of files and lines per

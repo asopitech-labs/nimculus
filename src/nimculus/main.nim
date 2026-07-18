@@ -179,13 +179,18 @@ proc refreshWorkspacePreview() =
     if activeWorkspace == nil: return
     workspacePreviewEntries.setLen(0)
     var lines = @["Workspace: " & activeWorkspace.root]
-    var children = activeWorkspace.listChildren()
-    children.sort(proc(a, b: WorkspaceEntry): int = cmp(a.relativePath, b.relativePath))
-    for entry in children:
-      if lines.len >= 12: break
-      workspacePreviewEntries.add(entry)
-      let marker = if entry.kind == WorkspaceFileKind.directory: "[D] " else: "    "
-      lines.add(marker & entry.relativePath)
+    for rootIndex, root in activeWorkspace.rootPaths:
+      if rootIndex > 0:
+        if lines.len >= 12: break
+        lines.add("Root: " & root)
+        workspacePreviewEntries.add(WorkspaceEntry(path: root, kind: WorkspaceFileKind.directory))
+      var children = activeWorkspace.listChildrenAt(root)
+      children.sort(proc(a, b: WorkspaceEntry): int = cmp(a.relativePath, b.relativePath))
+      for entry in children:
+        if lines.len >= 12: break
+        workspacePreviewEntries.add(entry)
+        let marker = if entry.kind == WorkspaceFileKind.directory: "[D] " else: "    "
+        lines.add(marker & entry.relativePath)
     let states = activeWorkspace.gitWorktreeStates()
     for root, state in states:
       if lines.len >= 12: break
@@ -409,6 +414,12 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "windowResized":
     setupDemoUi()
     if activeDocument() != nil: refreshEditorSyntax()
+  elif name.startsWith("workspaceAddRoot:") and activeWorkspace != nil:
+    let path = workspaceRelativePayload(name, "workspaceAddRoot:")
+    if path.len == 0 or not dirExists(path): return
+    activeWorkspace.addRoot(path)
+    activeWorkspace.startWatching()
+    refreshWorkspacePreview()
   elif name == "newDocument":
     editorSession.addTab(newDocument())
     externalAlertShown = false
