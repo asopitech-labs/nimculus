@@ -525,6 +525,11 @@ boundaries in editor navigation/display, and converts AppKit coordinates once
 at the platform boundary. Zed is used as an implementation reference, not as
 an API compatibility target.
 
+Filesystem callbacks are treated as producer threads, not as UI state owners.
+The workspace watcher appends under a lock, and the UI polling boundary drains
+the queue under the same lock before applying a refresh. This prevents a
+background FSEvents callback from racing with workspace rendering.
+
 Editor navigation and deletion use the same `textPositions` boundary list as
 layout and cursor conversion. UTF-8 codepoint boundaries are insufficient for
 combining sequences and emoji ZWJ sequences, so Backspace/Delete and word

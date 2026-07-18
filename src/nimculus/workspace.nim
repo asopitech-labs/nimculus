@@ -3,6 +3,7 @@ import std/strutils
 import std/tables
 import std/algorithm
 import std/osproc
+import std/locks
 
 when defined(posix):
   import posix
@@ -45,6 +46,7 @@ type
     ignoredPatternsByRoot: Table[string, seq[string]]
     watchers: seq[pointer]
     changes*: seq[string]
+    changesLock: Lock
 
 when defined(macosx):
   type WorkspaceChangeCallback* = proc(path: cstring, context: pointer) {.cdecl.}
@@ -75,6 +77,7 @@ proc isIgnored(workspace: Workspace, root, relative: string): bool =
 
 proc openWorkspace*(root: string): Workspace =
   result = Workspace(root: absolutePath(root))
+  initLock(result.changesLock)
   result.roots = @[result.root]
   result.ignoredPatternsByRoot = initTable[string, seq[string]]()
   result.ignoredPatternsByRoot[result.root] = loadIgnoreFile(result.root)
@@ -335,13 +338,23 @@ proc searchWorkspace*(workspace: Workspace, query: string,
       discard
 
 proc changedPaths*(workspace: Workspace): seq[string] =
-  result = workspace.changes
-  workspace.changes.setLen(0)
+  if workspace == nil: return
+  acquire(workspace.changesLock)
+  try:
+    result = workspace.changes
+    workspace.changes.setLen(0)
+  finally:
+    release(workspace.changesLock)
 
 when defined(macosx):
   proc receiveWorkspaceChange(path: cstring, context: pointer) {.cdecl.} =
     let workspace = cast[Workspace](context)
-    if workspace != nil: workspace.changes.add($path)
+    if workspace != nil:
+      acquire(workspace.changesLock)
+      try:
+        workspace.changes.add($path)
+      finally:
+        release(workspace.changesLock)
 
 proc stopWatching*(workspace: Workspace)
 
