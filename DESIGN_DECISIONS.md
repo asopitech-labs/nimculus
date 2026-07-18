@@ -121,6 +121,13 @@ itself. It emits a narrow `newDocument` command; Nim creates a new
 `FileDocument`, resets the view/syntax state, and keeps the document eligible
 for the existing Save As path.
 
+## M5-005: Resolve external changes at the application boundary
+
+The editor service remains responsible for comparing file stamps. The macOS
+application polls that contract from its main-loop tick and presents a native
+Alert. Reload replaces the active document; Keep Editing advances the external
+baseline without mutating the unsaved buffer.
+
 ## M3-003: Synchronize the IME candidate rectangle from editor state
 
 The native view receives the current logical cursor coordinates from Nim after

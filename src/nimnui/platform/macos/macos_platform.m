@@ -568,6 +568,22 @@ static void logInput(NSString *kind, NSEvent *event) {
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender { return YES; }
 @end
 
+void nimculus_platform_show_external_change(const char *path) {
+  @autoreleasepool {
+    NSString *filePath = path ? [NSString stringWithUTF8String:path] : @"file";
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.messageText = @"File changed on disk";
+    alert.informativeText = [NSString stringWithFormat:@"%@ was changed by another application.", filePath];
+    [alert addButtonWithTitle:@"Reload"];
+    [alert addButtonWithTitle:@"Keep Editing"];
+    if ([alert runModal] == NSAlertFirstButtonReturn) {
+      if (g_command_callback) g_command_callback("reloadExternal");
+    } else {
+      if (g_command_callback) g_command_callback("keepExternal");
+    }
+  }
+}
+
 bool nimculus_platform_run(void) {
   @autoreleasepool {
     NSApplication *app = [NSApplication sharedApplication];

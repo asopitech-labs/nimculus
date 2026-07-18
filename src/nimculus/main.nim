@@ -39,6 +39,9 @@ var workspaceSearchJob: SearchJob
 var workspaceSearchQuery = ""
 var workspaceSearchResults: seq[SearchResult]
 var workspaceSearchCancelled = false
+var externalAlertShown = false
+
+proc activeDocument(): ptr FileDocument
 
 proc refreshWorkspacePreview() =
   when defined(macosx):
@@ -96,6 +99,10 @@ proc cancelWorkspaceSearch() =
 
 proc pollWorkspaceSearch() =
   when defined(macosx):
+    let document = activeDocument()
+    if document != nil and document[].path.len > 0 and document[].externallyChanged() and not externalAlertShown:
+      externalAlertShown = true
+      platformShowExternalChange(document[].path.cstring)
     if workspaceSearchJob == nil: return
     for result in workspaceSearchJob.pollSearch(maxFiles = 8, maxLines = 256):
       if workspaceSearchResults.len < 256: workspaceSearchResults.add(result)
@@ -166,7 +173,9 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
     workspaceSearchJob = nil
   if saving:
     let document = activeDocument()
-    if document != nil: document[].save(filePath)
+    if document != nil:
+      document[].save(filePath)
+      externalAlertShown = false
   else:
     if dirExists(filePath):
       activeWorkspace = openWorkspace(filePath)
@@ -203,6 +212,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     cancelWorkspaceSearch()
   elif name == "newDocument":
     editorSession.addTab(newDocument())
+    externalAlertShown = false
     editorViewState = newEditorView()
     if syntaxState != nil:
       syntaxState.close()
@@ -212,6 +222,24 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       platformSetEditorComposition("".cstring)
       platformSetEditorText("".cstring)
       syncEditorCursor()
+  elif name == "reloadExternal" and document != nil:
+    try:
+      editorSession.tabs[editorSession.activeTab].document = openDocument(document[].path)
+      editorViewState = newEditorView()
+      if syntaxState != nil:
+        syntaxState.close()
+        syntaxState = nil
+      externalAlertShown = false
+      syncEditorCursor()
+      refreshEditorSyntax()
+    except CatchableError:
+      externalAlertShown = false
+  elif name == "keepExternal" and document != nil:
+    if fileExists(document[].path):
+      let info = getFileInfo(document[].path)
+      document[].externalSize = info.size
+      document[].externalModified = info.lastWriteTime
+    externalAlertShown = false
   elif name.startsWith("workspaceSearch:"):
     showWorkspaceSearch(name[16 .. ^1])
   elif name == "cancel":
