@@ -527,6 +527,10 @@ original path and marked dirty. This is the local equivalent of Zed's
 `DiskState::Deleted`: the user's unsaved content remains available and a later
 Save can recreate the path once the disk state is repaired.
 
+External file presence is tracked independently from byte size. This preserves
+Zed's distinction between a present zero-byte file and a deleted file, so
+deletion alerts also work for empty documents.
+
 The explicit Don’t Save all-tabs exit path calls session persistence with
 `preserveDirty = false`: dirty named tabs are recorded only by path and reopen
 from disk, while dirty untitled tabs are omitted. This prevents a discard intent

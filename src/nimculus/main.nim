@@ -799,6 +799,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "keepExternal" and document != nil:
     if fileExists(document[].path):
       let info = getFileInfo(document[].path)
+      document[].externalExists = true
       document[].externalSize = info.size
       document[].externalModified = info.lastWriteTime
     externalAlertShown = false

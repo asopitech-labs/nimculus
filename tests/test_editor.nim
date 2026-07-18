@@ -136,6 +136,14 @@ suite "M5 editor services":
     removeFile(path)
     check document.externallyChanged
 
+  test "external deletion is detected for an empty file":
+    let path = getTempDir() / "nimculus-m5-empty-external.txt"
+    writeFile(path, "")
+    let document = openDocument(path)
+    check not document.externallyChanged
+    removeFile(path)
+    check document.externallyChanged
+
   test "tabs and split sessions":
     var session: EditorSession
     var view = newEditorView()

@@ -12,6 +12,9 @@ type
     path*: string
     buffer*: PieceTable
     lineEnding*: LineEnding
+    ## Presence is tracked separately from size because an empty file can be
+    ## deleted without changing its byte count.
+    externalExists*: bool
     externalSize*: int64
     externalModified*: Time
   SearchMatch* = object
@@ -41,6 +44,7 @@ proc openDocument*(path: string): FileDocument =
   result.lineEnding = if raw.contains("\r\n"): crlf else: lf
   result.buffer = initPieceTable(raw.replace("\r\n", "\n"))
   let stamp = fileStamp(path)
+  result.externalExists = true
   result.externalSize = stamp.size
   result.externalModified = stamp.modified
   result.buffer.markSaved()
@@ -57,13 +61,14 @@ proc save*(document: var FileDocument, path = "") =
   atomicWriteFile(targetPath, content)
   document.path = targetPath
   let stamp = fileStamp(targetPath)
+  document.externalExists = true
   document.externalSize = stamp.size
   document.externalModified = stamp.modified
   document.buffer.markSaved()
 
 proc externallyChanged*(document: FileDocument): bool =
   if document.path.len == 0: return false
-  if not fileExists(document.path): return document.externalSize > 0
+  if not fileExists(document.path): return document.externalExists
   let stamp = fileStamp(document.path)
   stamp.size != document.externalSize or stamp.modified != document.externalModified
 
