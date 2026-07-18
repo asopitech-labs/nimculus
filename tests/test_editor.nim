@@ -109,10 +109,12 @@ suite "M5 editor services":
     session.workspaceRoots = @[getTempDir()]
     let sessionPath = getTempDir() / "nimculus-m5-session.json"
     session.saveSession(sessionPath)
+    check not fileExists(sessionPath & ".tmp." & $getCurrentProcessId())
     let restored = loadSession(sessionPath)
     check restored.tabs.len == 1
     check restored.workspaceRoots == @[getTempDir()]
     restored.tabs[0].document.writeRecovery(recoveryPath)
+    check not fileExists(recoveryPath & ".tmp." & $getCurrentProcessId())
     check recoverDocument(recoveryPath).buffer.toString() == "session"
     removeFile(path); removeFile(sessionPath); removeFile(recoveryPath)
 

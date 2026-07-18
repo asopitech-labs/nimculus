@@ -3,6 +3,16 @@ import std/os
 import nimculus/editor_app
 import nimculus/editor_buffer
 
+proc atomicWriteFile(path, content: string) =
+  ## Keep the previous session/recovery file intact if writing is interrupted.
+  let temporary = path & ".tmp." & $getCurrentProcessId()
+  try:
+    writeFile(temporary, content)
+    moveFile(temporary, path)
+  except CatchableError:
+    if fileExists(temporary): removeFile(temporary)
+    raise
+
 proc saveSession*(session: EditorSession, path: string) =
   var root = %*{"activeTab": session.activeTab, "split": session.split,
                 "splitDirection": $session.splitDirection,
@@ -11,7 +21,7 @@ proc saveSession*(session: EditorSession, path: string) =
   var tabs = newJArray()
   for tab in session.tabs: tabs.add(%*{"path": tab.document.path, "title": tab.title})
   root["tabs"] = tabs
-  writeFile(path, $root)
+  atomicWriteFile(path, $root)
 
 proc loadSession*(path: string): EditorSession =
   if not fileExists(path): return
@@ -44,7 +54,7 @@ proc loadSession*(path: string): EditorSession =
   else: result.activeTab = max(0, min(result.activeTab, result.tabs.high))
 
 proc writeRecovery*(document: FileDocument, path: string) =
-  writeFile(path, document.buffer.toString())
+  atomicWriteFile(path, document.buffer.toString())
 
 proc recoverDocument*(path: string): FileDocument =
   result = newDocument()

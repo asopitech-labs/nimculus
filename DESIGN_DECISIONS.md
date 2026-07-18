@@ -483,3 +483,8 @@ the failure. No CatchableError is allowed to cross the Cocoa callback ABI.
 `FileDocument.save` also commits the requested path only after `writeFile`
 returns successfully. A failed Save As therefore cannot silently retarget the
 document to a path that was never written.
+
+Session and recovery files use a same-directory temporary file followed by
+rename. The temporary name includes the process id, and failures remove only
+that temporary file. This gives startup recovery a complete previous file or
+a complete new file, rather than a partially serialized JSON/text file.
