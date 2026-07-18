@@ -49,24 +49,36 @@ proc isGraphemeExtend(rune: Rune): bool =
   isCombiningMark(rune) or (value >= 0xFE00 and value <= 0xFE0F) or
     (value >= 0x1F3FB and value <= 0x1F3FF)
 
+proc isRegionalIndicator(rune: Rune): bool =
+  let value = int(rune)
+  value >= 0x1F1E6 and value <= 0x1F1FF
+
 proc textPositions*(text: string): seq[TextPosition] =
   result.add(TextPosition(byteOffset: 0, graphemeIndex: 0))
   var byteOffset = 0
   var grapheme = 0
   var clusterHasBase = false
   var previousWasJoiner = false
+  var regionalRun = 0
+  var previousWasCR = false
   for rune in text.runes:
     let width = rune.size
     byteOffset += width
     let extend = isGraphemeExtend(rune)
     let joiner = int(rune) == 0x200D
-    if not clusterHasBase or (not extend and not previousWasJoiner and not joiner):
+    let regionalPair = isRegionalIndicator(rune) and (regionalRun mod 2 == 1)
+    let crlfPair = int(rune) == 0x0A and previousWasCR
+    if not clusterHasBase or (not extend and not previousWasJoiner and not joiner and
+                              not regionalPair and not crlfPair):
       inc grapheme
       result.add(TextPosition(byteOffset: byteOffset, graphemeIndex: grapheme))
     else:
       result[^1].byteOffset = byteOffset
     clusterHasBase = clusterHasBase or not extend
     previousWasJoiner = joiner
+    if isRegionalIndicator(rune): inc regionalRun
+    else: regionalRun = 0
+    previousWasCR = int(rune) == 0x0D
 
 proc layoutText*(text: string, advance = px(8)): TextLayout =
   result.positions = textPositions(text)

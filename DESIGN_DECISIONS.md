@@ -156,6 +156,9 @@ before Core Text draws each line. The caret uses the editor's logical point
 and is rendered after text and marked composition, keeping editor state in Nim
 while leaving pixel composition in the native renderer.
 
+The grapheme boundary helper explicitly handles emoji regional-indicator
+pairs and CRLF, in addition to combining marks, modifiers, and ZWJ sequences.
+
 ## M6-004: Open folders through the existing file callback contract
 
 The macOS open panel accepts both files and directories. The existing callback

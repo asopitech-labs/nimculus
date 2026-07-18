@@ -62,6 +62,12 @@ suite "M3 text foundation":
     check positions.len == 3
     check positions[^1].graphemeIndex == 2
 
+  test "positions pair regional indicators and keep CRLF together":
+    let flagPositions = textPositions("🇯🇵🇺🇸")
+    check flagPositions[^1].graphemeIndex == 2
+    let newlinePositions = textPositions("a\r\nb")
+    check newlinePositions[^1].graphemeIndex == 3
+
   test "glyph atlas reuses glyphs":
     var atlas = newGlyphAtlas(64, 64)
     let first = atlas.insertGlyph(Rune(65), 8, 12)
