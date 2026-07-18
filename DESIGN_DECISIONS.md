@@ -114,6 +114,13 @@ Nim application applies them to the active document, using UTF-8 codepoint
 boundaries for cursor movement and deletion. This prevents Cocoa responder
 objects from owning buffer mutation.
 
+## M5-004: Keep New as an application command
+
+The Cocoa File menu exposes `Cmd+N` but does not construct editor state
+itself. It emits a narrow `newDocument` command; Nim creates a new
+`FileDocument`, resets the view/syntax state, and keeps the document eligible
+for the existing Save As path.
+
 ## M3-003: Synchronize the IME candidate rectangle from editor state
 
 The native view receives the current logical cursor coordinates from Nim after

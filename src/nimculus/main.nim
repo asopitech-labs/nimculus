@@ -198,6 +198,17 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     pollWorkspaceSearch()
   elif name == "cancelWorkspaceSearch":
     cancelWorkspaceSearch()
+  elif name == "newDocument":
+    editorSession.addTab(newDocument())
+    editorViewState = newEditorView()
+    if syntaxState != nil:
+      syntaxState.close()
+      syntaxState = nil
+    when defined(macosx):
+      platformSetEditorHighlights(nil, 0)
+      platformSetEditorComposition("".cstring)
+      platformSetEditorText("".cstring)
+      syncEditorCursor()
   elif name.startsWith("workspaceSearch:"):
     showWorkspaceSearch(name[16 .. ^1])
   elif name == "cancel":

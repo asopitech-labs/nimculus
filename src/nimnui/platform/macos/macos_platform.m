@@ -348,13 +348,15 @@ static void logInput(NSString *kind, NSEvent *event) {
 
   NSMenuItem *fileItem = [[NSMenuItem alloc] initWithTitle:@"File" action:NULL keyEquivalent:@""];
   NSMenu *fileMenu = [[NSMenu alloc] initWithTitle:@"File"];
+  NSMenuItem *newDocument = [[NSMenuItem alloc] initWithTitle:@"New" action:@selector(newDocument:) keyEquivalent:@"n"];
   NSMenuItem *open = [[NSMenuItem alloc] initWithTitle:@"Open…" action:@selector(openDocument:) keyEquivalent:@"o"];
   NSMenuItem *save = [[NSMenuItem alloc] initWithTitle:@"Save" action:@selector(saveDocument:) keyEquivalent:@"s"];
   NSMenuItem *close = [[NSMenuItem alloc] initWithTitle:@"Close Window" action:@selector(performClose:) keyEquivalent:@"w"];
+  newDocument.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   open.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   save.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   close.keyEquivalentModifierMask = NSEventModifierFlagCommand;
-  [fileMenu addItem:open]; [fileMenu addItem:save]; [fileMenu addItem:close];
+  [fileMenu addItem:newDocument]; [fileMenu addItem:open]; [fileMenu addItem:save]; [fileMenu addItem:close];
   [fileItem setSubmenu:fileMenu];
   [mainMenu addItem:fileItem];
 
@@ -433,6 +435,11 @@ static void logInput(NSString *kind, NSEvent *event) {
   if ([panel runModal] == NSModalResponseOK) {
     if (g_file_callback) g_file_callback(panel.URL.path.UTF8String, false);
   }
+}
+
+- (void)newDocument:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("newDocument");
 }
 
 - (void)saveDocument:(id)sender {
