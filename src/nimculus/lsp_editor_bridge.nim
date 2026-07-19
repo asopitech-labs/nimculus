@@ -28,6 +28,9 @@ type
     hoverDelayTicks*: int
     hoverText*: string
     hoverVisible*: bool
+    definitionRequestId*: int
+    definitionCursorByte*: int
+    definitionLocations*: seq[LspLocation]
 
 proc hexDigit(value: int): char =
   if value < 10: char(ord('0') + value)
@@ -46,6 +49,28 @@ proc fileUri*(path: string): string =
       result.add('%')
       result.add(hexDigit((code shr 4) and 0xF))
       result.add(hexDigit(code and 0xF))
+
+proc filePathFromUri*(uri: string): string =
+  if not uri.startsWith("file://"): return ""
+  let encoded = uri[7 .. ^1]
+  var index = 0
+  while index < encoded.len:
+    if encoded[index] == '%' and index + 2 < encoded.len:
+      let high = encoded[index + 1].toUpperAscii
+      let low = encoded[index + 2].toUpperAscii
+      proc nibble(value: char): int =
+        if value in {'0'..'9'}: ord(value) - ord('0')
+        elif value in {'A'..'F'}: ord(value) - ord('A') + 10
+        else: -1
+      let highValue = nibble(high)
+      let lowValue = nibble(low)
+      if highValue >= 0 and lowValue >= 0:
+        result.add(char((highValue shl 4) or lowValue))
+        index += 3
+        continue
+    result.add(encoded[index])
+    inc index
+  result = absolutePath(result)
 
 proc languageIdForPath*(path: string): string =
   case splitFile(path).ext.toLowerAscii
@@ -79,6 +104,35 @@ proc hideHover*(bridge: LspEditorBridge) =
   bridge.hoverRequestId = 0
   bridge.hoverText = ""
   bridge.hoverVisible = false
+
+proc hideDefinition*(bridge: LspEditorBridge) =
+  if bridge == nil: return
+  if bridge.definitionRequestId > 0 and bridge.session != nil:
+    discard bridge.session.takeResponse(bridge.definitionRequestId)
+    discard bridge.session.cancel(bridge.definitionRequestId)
+  bridge.definitionRequestId = 0
+  bridge.definitionLocations.setLen(0)
+
+proc requestDefinition*(bridge: LspEditorBridge, buffer: PieceTable,
+                        cursorByte: int): bool =
+  if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
+      bridge.uri.len == 0: return false
+  bridge.hideDefinition()
+  let position = buffer.utf16Position(cursorByte)
+  let request = definitionRequest(bridge.uri,
+    LspPosition(line: position.line, character: position.character))
+  try:
+    let pending = bridge.session.request(request.methodName, request.params)
+    bridge.definitionRequestId = pending.id
+    bridge.definitionCursorByte = max(0, min(cursorByte, buffer.toString().len))
+    result = true
+  except CatchableError:
+    bridge.lastError = getCurrentExceptionMsg()
+
+proc takeDefinitionLocations*(bridge: LspEditorBridge): seq[LspLocation] =
+  if bridge == nil: return
+  result = bridge.definitionLocations
+  bridge.definitionLocations.setLen(0)
 
 proc scheduleHover*(bridge: LspEditorBridge, cursorByte: int) =
   if bridge == nil: return
@@ -168,6 +222,7 @@ proc closeDocument*(bridge: LspEditorBridge) =
   bridge.lastText = ""
   bridge.version = 0
   bridge.hideHover()
+  bridge.hideDefinition()
 
 proc updateDocument*(bridge: LspEditorBridge, path, text: string) =
   if bridge == nil or bridge.command.len == 0 or path.len == 0: return
@@ -205,6 +260,7 @@ proc updateDocument*(bridge: LspEditorBridge, path, text: string) =
     elif bridge.lastText != text:
       bridge.hideCompletion()
       bridge.hideHover()
+      bridge.hideDefinition()
       inc bridge.version
       bridge.session.notify("textDocument/didChange",
         didChangeNotification(bridge.uri, text, bridge.version))
@@ -244,6 +300,12 @@ proc poll*(bridge: LspEditorBridge): bool =
       bridge.hoverText = hover.text
       bridge.hoverVisible = hover.text.len > 0 and bridge.hoverCursorByte == bridge.hoverTargetByte
       bridge.hoverRequestId = 0
+      result = true
+  if bridge.definitionRequestId > 0:
+    let response = bridge.session.takeResponse(bridge.definitionRequestId)
+    if response != nil:
+      bridge.definitionLocations = parseLocations(response)
+      bridge.definitionRequestId = 0
       result = true
   if bridge.session.state == lspSessionReady and not bridge.opened and
       bridge.path.len > 0:

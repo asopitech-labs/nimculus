@@ -135,6 +135,17 @@ failed checkout leaves the editor buffer untouched. Status reports conflict
 count separately so an unmerged worktree is not presented as an ordinary set
 of modified files.
 
+## M8-008: Navigate to LSP definitions through the editor bridge
+
+Zed keeps definition requests asynchronous and ties the returned locations to
+the request generation that initiated them. Nimculus stores the definition
+request ID in `LspEditorBridge`, cancels it on document changes or a newer
+request, and exposes locations only after the matching response is accepted.
+The macOS Command Palette then decodes the file URI, opens the target through
+the normal document path, and converts the LSP UTF-16 location with
+`byteOffsetAtUtf16Position`; it never treats an LSP UTF-16 character as a
+grapheme or byte column.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The

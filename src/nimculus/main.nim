@@ -141,6 +141,8 @@ proc setupDemoUi() =
                         float64(float32(editor.size.width)), float64(float32(editor.size.height)))
 
 proc receiveNativeCommand(command: cstring) {.cdecl.}
+when defined(macosx):
+  proc navigateToDefinition()
 
 proc dispatchNativeShortcut(event: ptr NimculusInputEvent): bool {.cdecl.} =
   if event == nil: return false
@@ -662,6 +664,7 @@ when defined(macosx):
       if document != nil: syncNativeDiagnostics(document)
       syncNativeCompletion()
       syncNativeHover()
+      navigateToDefinition()
 
   proc acceptCurrentCompletion() =
     let document = activeDocument()
@@ -776,6 +779,24 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       discard
 
 when defined(macosx):
+  proc navigateToDefinition() =
+    if lspBridge == nil: return
+    let locations = lspBridge.takeDefinitionLocations()
+    if locations.len == 0: return
+    let targetPath = filePathFromUri(locations[0].uri)
+    if targetPath.len == 0: return
+    let current = activeDocument()
+    if current == nil or absolutePath(current[].path) != absolutePath(targetPath):
+      receiveNativeFile(targetPath.cstring, false)
+    let document = activeDocument()
+    if document == nil: return
+    let location = locations[0].range.start
+    let byteOffset = document[].buffer.byteOffsetAtUtf16Position(location.line, location.character)
+    editorViewState.moveCursor(byteOffset)
+    editorViewState.statusMessage = "LSP: definition"
+    syncEditorCursor()
+    refreshEditorSyntax()
+
   proc openWorkspaceEntryAtPoint(y: cdouble) =
     if activeWorkspace == nil or workspacePreviewEntries.len == 0: return
     var metrics: PlatformMetrics
@@ -969,6 +990,14 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "find":
       when defined(macosx):
         platformShowFindDocument()
+    of "go to definition":
+      when defined(macosx):
+        if document == nil or lspBridge == nil:
+          editorViewState.statusMessage = "LSP definition unavailable"
+        elif lspBridge.requestDefinition(document[].buffer, editorViewState.cursor):
+          editorViewState.statusMessage = "LSP: finding definition"
+        else:
+          editorViewState.statusMessage = "LSP definition unavailable"
     of "workspace search":
       when defined(macosx):
         platformShowWorkspaceSearch()
