@@ -1,0 +1,19 @@
+name: macOS
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Nim
+        run: brew install nim
+      - name: Build
+        run: nimble build
+      - name: Lint
+        run: nimble lint
+      - name: Test
+        run: nimble test

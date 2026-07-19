@@ -1,0 +1,21 @@
+[submodule "references/tree-sitter"]
+	path = references/tree-sitter
+	url = https://github.com/tree-sitter/tree-sitter.git
+[submodule "references/tree-sitter-json"]
+	path = references/tree-sitter-json
+	url = https://github.com/tree-sitter/tree-sitter-json.git
+[submodule "references/tree-sitter-python"]
+	path = references/tree-sitter-python
+	url = https://github.com/tree-sitter/tree-sitter-python.git
+[submodule "references/tree-sitter-rust"]
+	path = references/tree-sitter-rust
+	url = https://github.com/tree-sitter/tree-sitter-rust.git
+[submodule "references/tree-sitter-typescript"]
+	path = references/tree-sitter-typescript
+	url = https://github.com/tree-sitter/tree-sitter-typescript.git
+[submodule "references/tree-sitter-markdown"]
+	path = references/tree-sitter-markdown
+	url = https://github.com/tree-sitter-grammars/tree-sitter-markdown.git
+[submodule "references/tree-sitter-nim"]
+	path = references/tree-sitter-nim
+	url = https://github.com/alaviss/tree-sitter-nim.git

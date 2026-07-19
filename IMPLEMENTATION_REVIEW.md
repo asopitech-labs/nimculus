@@ -1,0 +1,182 @@
+# Implementation review
+
+最終確認日: 2026-07-19
+
+この文書は、ロードマップのチェック済み表示をコード、テスト、Apple
+Silicon macOSビルドの証拠と突き合わせたレビュー記録である。コードが
+存在するだけでGUI実機確認済みとは扱わない。
+
+## 確認済み
+
+- M0: Nimble build、テストタスク、ベンチマークタスク、`nimpretty` formatter task、`nim check` lint task、macOS CI実行成功（run 29635552288）。
+- M1: Cocoa/Metal/Retina/入力のmacOSネイティブコードがコンパイルされる。GUI起動・入力・リサイズは未確認。
+- M1 uniform buffer: 基本rectangle/rounded rectangle描画でMetal shaderの`buffer(1)`へuniformを渡す契約を追加。
+- M1 input bridge: mouse tracking area、window mouse-move受信、left/right drag callbackを追加。個別デバイスの実機確認は未完了。
+- M1/M2 input event classification: AppKitのleft/right/other mouse down/up/drag、`flagsChanged`、`scrollWheel`をNSEvent typeごとに分類し、button番号とmodifier-changeをNimNUIへ保持。従来mouseDragged/type 6等がcommand扱いになる抜けを修正し、Zedのplatform event分類に合わせた回帰テストを追加。
+- M2: UIツリー、レイアウト、イベント、hit-test、hover/active/focus状態、PaintList filtering、世代付きIDのunit test。PaintListの矩形コマンドをmacOS native ABI経由でMetalへ転送し、保持用scene textureをdirty領域だけ更新してdrawableへblitする経路を追加。GUIギャラリー実機確認は未完了。
+- M2 layout: 子ノードごとのflex grow、preferred/min/maxサイズ制約をUIツリーへ追加し、Row/Columnの残余空間配分とテストを接続。
+- M2 split interaction: split markerのpointer down/move/upをsplit ratioへ接続し、ドラッグ中にレイアウト・PaintListを再構築。
+- M2 demo consistency: `setupDemoUi`のレイアウト結果をnative UI矩形へ直接渡し、main側の固定矩形上書きを除去。
+- M2 UI gallery: 起動時PaintListを単一矩形からpanel、toolbar、rounded/border/shadow、nested clip、selection、caret、scrollbar、split markerを含む構成へ拡張。
+- M1/M2 resize: AppKitの実測pointサイズを`windowResized`コマンドでNimへ戻し、レイアウト、PaintList、hit-test矩形を再計算する経路を追加。
+- M6 multi-root: FileメニューのAdd Workspace Folderから複数ルートを追加し、各ルートをFSEvents監視へ登録、ルート別のツリーを最小表示する経路を追加。
+- M6 multi-root mutation: Fileメニューの作成・削除・改名がprimary rootへ固定されていたため、絶対path payloadを登録済みrootへ解決し、secondary rootをroot指定APIで操作する経路とroot跨ぎrename拒否を追加。
+- M6 workspace persistence: Workspace root一覧をEditorSessionへ保存し、再起動時に主ルート・追加ルートを復元して監視を再開する経路とsession unit testを追加。
+- M6 Quick Open: FileメニューのQuick OpenからfuzzyFileSearchを実行し、候補をnative text surfaceへ表示、pointer clickを既存open経路へ接続。
+- M6 search navigation: Workspace検索結果のクリックをファイルオープンと検索行・列へのカーソル移動へ接続。
+- M6 path safety: mutation pathの実在部分をPOSIX `realpath`で検証し、シンボリックリンク経由でworkspace root外へ到達する操作を拒否。
+- M6 preview coordinates: Workspace tree、Quick Open、検索結果の行選択を共有editor bounds原点から計算するよう修正。
+- M2 renderer: rectangle、border、rounded rectangle、shadow、caret、selection、scrollbarの基本Metal描画をkind別に接続。GUIでの見た目確認は未完了。
+- M2 renderer coverage: text/imageのplaceholder描画をnative kindへ接続し、PaintListの累積affine行列と元geometryをnative ABIへ渡してMetal頂点へ適用。実文字 shapingはM3、画像texture handleは後続拡張。
+- M2 transform geometry: 変換後AABBだけをMetalへ渡して回転・反転が矩形化する漏れを修正。元rectangle・累積行列・保守的なdamage clipを分離し、translation/source geometryの回帰テストを追加。
+- M2 clipping: PaintListのclip stackと`popClip`を追加し、dirty領域との交差をnative scissorへ転送。
+- M2 commands: `CommandRegistry`に未登録を安全に判別する`tryResolve`と、解決したコマンドを一度だけ実行する`dispatchShortcut`を追加し、Command/Shift修飾子の回帰テストを追加。
+- M2 shortcut bridge: `CommandRegistry`をmacOS `keyDown`へ接続し、登録済みshortcutはboolean handled結果でIME/AppKitの通常入力を抑止、未登録キーは`interpretKeyEvents:`へフォールバックする経路を追加。Zedの`handle_key_event`を参照。
+- M2 macOS modifiers: Zedの`gpui_macos`と同じNSEventModifierFlagsのビット契約を`macOSModifiers`でplatform-neutralなCommand/Option/Control/Shiftへ変換し、全ビットと無関係ビットの回帰テストを追加。
+- M3: Core Text計測、UTF-8/grapheme、atlasモデル、IME状態のunit test。
+- M3 native IME: marked rangeを文書UTF-16位置として保持し、候補矩形をeditor座標からNSView座標へ変換する経路を補正。日本語IMEの実機確認は未完了。
+- M3 IME cancellation: AppKitの`unmarkText`がNim側compositionを取り残していたため、Zedの`InputHandler::unmark_text`相当として空のcomposing callbackを返し、ネイティブ表示と編集状態を同時に消去。
+- M3 selection contract: `platformSetEditorSelection`でUTF-8 byte範囲をUTF-16へ変換してから、Core Text描画と`NSTextInputClient`へ渡す契約を確認。
+- M3 text: Core Textのeditor textureをbacking scale factorで生成し、Retina scale変更時に再生成する経路を追加。Retina実機表示は未確認。
+- M3/M5 text placement: NimNUIが算出したエディタ矩形をnativeへ渡し、Core Text textureを矩形サイズ・Retina scaleで再生成し、Metal quadを同じ矩形へ配置。
+- M3 IME/hit-test origin: candidate rectangle、pointer hit-test、fraction問い合わせの全てでエディタ矩形原点を加減算し、window座標とtext-surface座標を混在させないよう修正。
+- M3 viewport: native text textureの固定12行描画を廃止し、エディタ矩形の高さから可視行数を算出。scrollLineを共有して可視範囲、カーソル、pointer hit-test、IME位置、Tree-sitter highlightを同期。
+- M3 glyph geometry: Core Textの`CTLineGetOffsetForStringIndex`を使い、UTF-8 byte cursorとUTF-16選択範囲を実際のglyph幅へ変換。固定幅8px依存をカーソル・選択描画から除去。実機表示は未確認。
+- M3 glyph hit-test: `CTLineGetStringIndexForPosition`でクリック位置をCore Textの実測位置から取得し、エディタはUTF-8 byte offset、`NSTextInputClient`はUTF-16 offsetへ変換。日本語・絵文字を固定幅8pxで分割しない経路へ変更し、端点契約をnative testで確認。実機操作は未確認。
+- M3 text ABI: 本文をNUL終端`cstring`で渡していたためU+0000を含むUTF-8文書が切れる漏れを修正。ポインタ＋byte lengthで`NSString initWithBytes:length:`へ渡し、native contractで長さ保持を検証。
+- M3 atlas status: native Metal側にもCore Text glyph runをglyph ID・font PostScript名・backing scaleでキャッシュするR8 monochrome atlas、可視glyph quad、容量超過時の全体eviction、atlas cache-hit contract testを接続済み。Zedの`MetalAtlas::get_or_insert_with`に相当する寿命境界を確認した。GUIでの実文字表示・Retina表示は未確認として残す。
+- M3 atlas fallback: atlas生成が利用できない環境ではCore Textの全文テクスチャへfallbackし、Metal atlasが空のまま本文が消える経路を修正。atlas利用時のCore Textテクスチャは選択・marked composition・caretのオーバーレイに限定する。
+- M3 IME replacement range: Zedの`replace_and_mark_text_in_range`に合わせ、`setMarkedText:selectedRange:replacementRange:`のreplacement rangeを無視せず、UTF-16 document rangeをUTF-8 byte selectionへ変換してNimへ通知するcallbackを追加。現在選択範囲と異なるIME置換範囲でも編集対象を失わないよう修正。
+- M3 IME committed replacement: Zedの`insert_text`契約に合わせ、`insertText:replacementRange:`にも置換範囲を適用。UTF-16サロゲートペア途中をUTF-8へ変換しないネイティブ境界処理と、外部選択位置をgrapheme境界へクランプする編集側経路を追加。
+- M5 asynchronous close-save: Untitled文書のSave Panel完了後、保存成功時だけCocoa window closeを再試行する経路を追加。保存失敗・キャンセル時はcloseを再発行しない。
+- M1 Retina monitor transition: Zedの`view_did_change_backing_properties`を参考に、AppKit bounds resizeを伴わないディスプレイ移動でも`contentsScale`、drawable、metrics、Core Text textureを再生成するcallbackを追加。
+- M2 hover lifecycle: Zedの独立したmouse-exit eventを参考に、AppKit tracking areaの`mouseEntered`/`mouseExited`をpointer enter/exitへ分類し、view外へ出た時にhover状態を必ず解除する経路を追加。
+- M3 IME state lifetime: committed IME文字列を履歴として蓄積せず最新イベントだけ保持し、文書open/reload/new時にcompositionをリセットする経路を追加。
+- M3 selection API audit: Zedの`InputHandler::set_selected_text_range`とmacOS native registrationを確認。AppKitの`NSTextInputClient`には`setSelectedRange:`がないため、Nim→nativeは`platformSetEditorSelection`、IME→Nimはreplacement callbackという一方向契約を維持し、未定義のsetterを追加しない。
+- M3 IME candidate refresh: Zedの`NSTextInputContext.invalidateCharacterCoordinates`呼び出しを反映し、カーソル・スクロール・選択同期後にAppKitの候補位置キャッシュを無効化。active input contextがない場合のnative回帰テストを追加。
+- M3 composition reset: 文書切替時にNim側だけでなく`NSTextInputClient`の`markedText`/`markedTextRange`も消去し、次の文書へ古いIME compositionを持ち越さないnative経路を追加。
+- M3 point-coordinate contract: AppKit/Zedの契約を確認し、`characterIndexForPoint:`と`fractionOfDistanceThroughGlyphForPoint:`のscreen座標をwindow/view座標へ変換してからhit-testするよう修正。
+- M3 candidate range contract: `firstRectForCharacterRange:`の引数rangeを無視せず、UTF-16 document offsetから対象行とCore Text glyph x位置を計算して候補矩形を返すよう修正。
+- M3 native range safety: AppKitのUTF-16 rangeを`NSMaxRange`前にbounded lengthへ正規化し、異常値や`NSNotFound`によるNSUInteger wraparoundを防止。
+- M3 optional text contract: AppKitの`attributedString`がmarked compositionを返していたため、確定済みdocument textを返すよう修正。Zedがoptional selectorを登録していない点も確認。
+- M3 font fallback: 編集テキストの全Core Text measurement/render/hit-test経路でMenlo取得失敗時にsystem fontへfallbackする共通生成関数を追加。
+- M3 font availability: `nativeFontAvailable`が未知フォントをsystem fallback生成成功だけでavailable扱いしていたため、Core TextのPostScript/family name databaseを直接照合するよう修正。fallbackと存在判定を分離し、未知名・不正サイズの回帰テストを追加。
+- M3 preview surface state: Workspace tree/search/Quick Openがeditor text surfaceを再利用する際、前文書のselection/caret/scroll/compositionが残る漏れを修正し、native surface状態を先にリセット。
+- M3 Retina coordinate audit: Core Graphicsをbacking scaleでscaleした後もtext baseline、selection、marked text、caretがpixel heightを参照していたため、logical editor heightへ統一。
+- M1 initial drawable: view接続時にmetricsだけ更新してdrawable scale/sizeの初期化がlayout callbackに依存していたため、`viewDidMoveToWindow`からbacking-scale更新を明示。
+- M2 focus loss: macOS application deactivationを`windowFocusLost`としてNimへ通知し、split/editor drag、active、hoverをまとめて解除。window状態をまたいでpointer captureが残る漏れを修正。
+- M6 workspace preview refresh: active documentが残るセッションでもtree preview表示中のFSEvents変更をrefreshするよう条件を修正し、staleなworkspace treeが残る漏れを解消。
+- M5 tab switching: `EditorSession.activeTab`にmacOS WindowメニューのPrevious/Next Tabを接続し、切替時にIME/view/syntax/native selectionをactive bufferへ再同期。
+- M5 tab view ownership: Zedのpane itemごとのselection/scroll保持に合わせ、`EditorTab`へ`EditorViewState`を持たせ、切替・session保存・復元でタブ単位に状態を分離。壊れたview metadataは既定値とgrapheme境界へclamp。
+- M5 Cmd-W: FileメニューのCloseをWindow closeからactive-tab closeへ変更し、Save / Don't Save / Cancel、UntitledのSave Panel、保存成功後の削除をタブ単位で接続。
+- M5 Cmd-Q: AppKit終了時にactive documentだけを確認していたため、全tabのdirty状態をNim側で集約し、Save All / Don't Save / Cancel後に全保存成功時だけ再終了する経路へ修正。
+- M5 window close: タイトルバーのwindowShouldCloseも同じquitRequestへ統一し、非active dirty tabを残したままwindowだけ閉じる経路を除去。
+- M2 interaction state: 単一enumでhoverがfocusを上書きしていたため、focus/hover/active/disabledを独立flagへ分離し、visual stateは優先順位から導出。pointer-upがhit target外でもactiveを解除。
+- M2 disabled routing: disabled nodeとdisabled ancestor配下をhit-testおよびfocus対象から除外し、無効UIがpointer activeを受け取らないよう修正。キーボードfocus traversalでもdisabled controlをスキップする回帰テストを追加。
+- M2 focus invalidation: フォーカス中のnodeまたは祖先をdisabledにした時、`UiTree.focused`とfocused flagを解放し、無効化後もキーボード入力先が残る漏れを修正。Zedの明示的なfocus-lossモデルを参照した回帰テストを追加。
+- M2 disabled focus path: `hitTest`だけでなく`focus()`と`focusNext()`も祖先のdisabled stateを検証し、無効panel配下へkeyboard focusが入る漏れを修正。focus path判定を共通化して回帰テストを追加。
+- M2 native damage: PaintListのdirty/clipをnative Metal側でも交差させ、保持sceneのdirty領域外へPaintListを再描画しない経路を追加。
+- M2 stack layout: Stackの子を線形cursor計算から分離し、padding後のcontent rectangleへ重ねて配置。隣接矩形のhit-test境界をhalf-openへ統一し、境界上の二重ヒットを防止する回帰テストを追加。
+- M4: Piece Table、Undo/Redo、原子的な複数編集、位置変換、fuzz、100MBベンチマーク、Chunked Rope/Gap Buffer/Piece Tree/Hybrid比較。
+- M5: ファイル、CRLF/LF、検索/置換、外部変更、タブ/分割、セッション、recoveryのunit test。
+- M5 command rendering: Undo/Redo後のbuffer・syntax・cursor同期と、selection変更時の即時native redrawを追加。
+- M5 pointer editing: macOSのクリック/ドラッグを編集Viewのgrapheme境界へ変換し、カーソル・選択範囲へ接続。
+- M5 pointer viewport: editor viewport内のpointer downだけでカーソル/選択を開始し、開始後のdragはviewport外でもpointer-upまで継続。toolbar等のクリックでカーソルが移動する漏れを修正。GPUIのcaptured hitboxを参照。
+- M5 cursor boundary sync: Undo/Redoや外部更新後にも`syncEditorCursor`で選択端点をgrapheme境界へクランプし、結合文字・絵文字の途中をAppKit/NSTextInputClientへ渡す漏れを修正。
+- M5 standard movement: Shift selection extension、Option word movement、word-backspace selectorをeditor coreへ接続。
+- M5 standard movement: macOSの上下移動、行頭/行末、文書先頭/末尾、改行、Tabの`doCommandBySelector:`を編集コアへ接続。
+- M5 word movement: Option移動をgrapheme単位のUnicode whitespace / word / punctuation分類へ拡張し、Zedの句読点スキップ規則（`foo.bar`、`.hello`）と全角空白・改行を回帰テスト。
+- M5 line movement: 行末計算がLFを含み次行先頭へ進む抜けを修正し、`lineEndByteOffset`で改行直前を返す回帰テストを追加。内部LF・保存時CRLFの境界を分離。
+- M5 save boundary: CocoaのSave callback内で保存例外を捕捉し、C callback境界へ例外を漏らさずステータスへ表示。
+- M5 save state: 書き込み成功前に`FileDocument.path`を変更しないよう保存先をローカル変数で扱い、失敗時の文書状態を保持。
+- M5 persistence safety: session JSONとactive recoveryを同一ディレクトリの一時ファイルからrenameするatomic writeへ変更し、途中書き込みで既存状態を壊さない経路を追加。
+- M5 deleted dirty session recovery: dirty named tabの元ファイルがsession保存後に削除された場合も、保存済み本文・元path・dirty状態を復元し、再保存できる経路と回帰テストを追加。Zedの`DiskState::Deleted`に対応する。
+- M5 dirty session disk failure: dirty named tabの元pathがディレクトリ化または読み取り不能でも、ディスクopen失敗をserialized本文へフォールバックする経路と回帰テストを追加。
+- M5 empty-file deletion: 外部ファイル状態をsizeだけで判定していたため空ファイル削除を見逃す漏れを修正し、存在フラグをsize/mtimeから分離して回帰テストを追加。ZedのPresent/Deleted状態に対応する。
+- M5 keep-after-delete: 外部削除後にKeep Editingを選んでも存在状態を更新していなかったため、同じAlertが毎tick再表示される漏れを修正。`acceptExternalState`でDeleted状態を確定し、Zedの`DiskState::Deleted`に合わせた回帰テストを追加。
+- M3 clipboard length contract: Copy/Cut/Pasteがcstring経路でU+0000を切断する漏れを修正し、macOS pasteboardをNSDataのlength付きUTF-8 ABIへ変更した。
+- M3 text measurement length contract: Core Text計測にもlength付きUTF-8 ABIを追加し、NUL終端計測が文書の途中で切れる漏れを回帰テストで固定した。
+- M3 overlay invalidation: cursor/selection変更時にsceneだけをdirtyにしてCore Text overlay textureを更新していなかったため、caret・selection表示が古いまま残る漏れを修正。atlas再生成とoverlay再生成を分離し、native contract testを追加した。
+- M6 FSEvents failure boundary: watcher allocation、path変換、`FSEventStreamCreate`、`FSEventStreamStart`の失敗をNULL streamの使用前に処理し、監視開始失敗時にpartial watcherを残さないよう修正した。
+- M2 stretch alignment: cross-axis `alignStretch`がpreferred child sizeを優先してstart相当になっていたため、available extentをmin/max制約へ通す実装と回帰テストを追加した。
+- M2 viewport clipping: viewportの有効判定がwidthだけを見ていたため、width 0 / heightありの矩形clipが無効になる漏れを修正し、両寸法を契約に含めた回帰テストを追加した。
+- M7 outline names: `OutlineItem.name`へnode kindだけを格納して実シンボル名が表示されない漏れを修正し、初期6言語の宣言キーワード後から識別子を抽出する回帰テストを追加した。Zedのgrammar outline query / LSP symbol name分離を参考に、kindとnameを別フィールドで保持する。
+- M5 document save safety: 通常の文書保存も同一ディレクトリの一時ファイルからrenameするatomic writeへ統一し、保存成功後にだけpath・外部変更stamp・dirty状態を更新。
+- M5 Cmd+S behavior: 既存pathの文書でもSave Panelを毎回開いていたため、native Save commandをNimへ渡し、既存ファイルは直接保存、UntitledだけNSSavePanelを開く標準macOS経路へ修正。
+- M5 close-save safety: Untitled文書の終了確認でSave Panel後に終了許可を無条件で立てていたため、保存成功時だけ`platformSetCloseDecision(true)`を呼ぶ契約へ修正。保存失敗時は終了を拒否する。
+- M5 document mode safety: atomic replacement前に既存ファイルのUnix permissionsを一時ファイルへ引き継ぎ、実行可能なスクリプト等のモードを保存後も維持。
+- M3/M5 grapheme editing: 左右移動、Backspace/Delete、word移動の境界をUTF-8 codepointから`textPositions`のgrapheme境界へ統一し、結合文字・絵文字ZWJ列を分割しない回帰テストを追加。
+- M3 Unicode segmentation: Zedの`unicode-segmentation`依存に対応して、手書きの限定的なgrapheme判定を`nim-graphemes`のUnicode TR29 DFAへ置換。prepend、Indic conjunct、Hangul、emoji modifier/ZWJを含む回帰テストを追加。
+- M3 visible text: `layoutVisibleText`の可視範囲をrune indexからgrapheme boundaryへ変更し、範囲端で結合文字・絵文字ZWJ列を分割しないテストを追加。
+- M4 position contract: `lineColumn`の公開結果をUTF-8 byte列からgrapheme列へ修正し、UTF-16変換だけが明示的なbyte列経路を使うよう分離。日本語・絵文字行の上下移動に渡す列単位を統一。
+- M4 edit boundary: PieceTableの低レベル`edit/applyEdits`でUTF-8 replacementとchar boundaryを事前検証し、partial codepoint編集が状態を壊さないよう回帰テストを追加。Zedのrope byte offsetとUnicode segmentationの責務分離を反映。
+- M4 piece performance: `splitAt`、substring、UTF-8 boundary検証、line index rebuild、line lookupがbuffer全体の`toString()` flattenに依存しないpiece単位処理へ変更。100MBベンチマーク（約0.48秒のload/index）とfuzz/M4回帰テストを再実行。
+- M4 dirty revision: 操作回数の`version`と内容状態のrevisionを分離し、Undo/Redoで保存済み内容へ戻った時にdirtyを解除。Redo履歴のrevision方向も回帰テストで検証。
+- Zed reference audit: `references/zed` commit `858d317`の`crates/text/src/text.rs`、`editor/src/display_map.rs`、`gpui_macos/src/shaders.metal`を確認し、byte offset / grapheme display / named viewportの責務分離をNimculusへ反映。
+- M6 watcher safety: FSEvents callbackとUI pollingが共有する変更キューを`Lock`で保護し、別スレッドからの変更通知でseqが競合しないよう修正。
+- M6 watcher coalescing: Zedの`UpdatedEntriesSet`境界を参考に、FSEventsの変更pathをUIへ渡す前に正規化・順序保持の重複排除を行い、同一イベントバーストによる重複再描画を防止。
+- M6 search invalidation: Workspace検索中または検索画面表示中にファイル変更を受けた場合、部分結果を破棄して同じqueryを再実行。Quick Openもqueryを保持して候補を再評価するよう修正。
+- M6 Quick Open responsiveness: Zedの非同期finder/task経路を参考に、UIのQuick Openを`FuzzySearchJob`のbounded pollingへ変更。大規模workspaceの全ファイル列挙をCocoa timer上で分割し、Workspace変更・文書open・新しいqueryでキャンセルするよう修正。
+- M6 search parsing: ripgrepの単純な`:`分割がコロンを含むmacOSパス・本文を壊していたため、NUL区切りの構造化レコードへ変更し、パス・行・列・本文を保持する回帰テストを追加。
+- M6 search parsing: `--null-data`が同一ファイルの複数一致を一つのpayloadへ結合する漏れを修正し、`--null`のpath NUL / result-line newlineを個別に解析。同一ファイル2一致とコロンを含むpath/本文を回帰テストした。
+- M6 search cancellation: ripgrepの`execCmdEx`による同期待ちを廃止し、POSIXでは一時出力・監視可能なProcess・`terminate`を使ってキャンセルを反映し、子プロセスを残さない`exec`起動に変更。
+- M6 gitignore: 手書きの単純suffix matcherを廃止し、Zedの`ignore::gitignore::Gitignore`相当の`IgnoreStack`で階層`.gitignore`、否定・anchored glob、親ディレクトリsticky ignore、lazy cacheをrootごとに適用。
+- M6 gitignore invalidation: FSEventsで`.gitignore`または`.git/info/exclude`が変更された時、rootごとのlazy IgnoreStackを置換して規則を即時再ロードする経路とテストを追加。
+- M2 input clipping: `UiTree.hitTest`で祖先のviewport境界を遡って検証し、スクロール領域外の子へpointer eventが届かない契約と回帰テストを追加。
+- M1/M2 coordinate boundary: AppKitの下原点view座標をNimNUIの上原点論理座標へUIイベント境界で一度だけ反転し、button/split/scrollのhit-testとevent routingを同じ座標系へ統一。
+- M1 trackpad scroll: Zedの`ScrollDelta::Pixels` / `ScrollDelta::Lines`契約を参考に、AppKitのprecise scrollingフラグをnative ABIへ保持し、pixel deltaを行高で変換・残差蓄積する経路を追加。
+- M5 find: Editメニューの`Cmd+F`からnative入力を受け、active documentの最初の一致を選択する経路を追加。
+- M5 replace: native Replace Allダイアログからquery/replacementを受け、編集コアの原子的置換と表示更新へ接続。
+- M5 Go to Line / Command Palette: native入力を編集コアの位置移動と既存コマンド（New、Save、Find、Workspace Search、検索キャンセル）へ接続し、開いたファイルをrecentFilesへ記録。
+- M5 Open Recent: recentFilesをmacOS Fileメニューのポップアップへ同期し、選択項目を既存のファイルオープン経路へ接続。
+- M6: 遅延列挙、複数ルート、ファイル操作、ignore、キャンセル可能検索、fuzzy/ripgrep検索、macOS FSEventsブリッジ、Worktree列挙APIの実装。
+- M6 multi-root ownership: Zedの`ProjectPath { worktree_id, path }`に合わせ、`WorkspaceEntry.rootPath`で所有rootを保持し、検索結果の絶対pathとroot相対relativePathを分離。root指定の作成・削除・改名APIを追加し、secondary rootへ誤ってprimary rootの操作を適用しない回帰テストを追加。
+- M7: 6文法の独立C翻訳単位、FFI、増分parse、構文ノード、highlight/folding/outline/indentation/selection/navigation基盤、エディタ可視範囲からRGBA Metalテクスチャまでのunit test/build確認。
+- M7 incremental editor path: `EditorSyntaxState.update`で旧ソースとの差分からUTF-8境界・行列を計算し、`SyntaxTree.edit`後に旧treeを渡して再parseする経路を追加。
+
+## 修正済みの問題
+
+- 複数編集の範囲検証前に変更を適用していたため、重複編集を事前拒否。
+- 外部ファイル削除を変更として扱っていなかったため、削除を検知。
+- 部分的・不正なセッションJSONで起動が失敗するため、復旧可能な既定値へフォールバック。
+- macOSメニューのOpen/Saveがログ出力だけだったため、EditorSessionへ接続。
+- IME確定文字列が編集バッファへ届かなかったため、選択範囲を置換。
+- Finderの`openFiles:`、標準Edit/View/Windowメニューをネイティブ層へ追加。
+- Workspaceの複数ルート、ファイル操作、fuzzy/ripgrep検索、Git Worktree列挙APIを追加。
+- 大規模検索がUIを占有しないよう、ファイル単位でyieldできる協調型`SearchJob`とキャンセルテストを追加。
+- フォルダ選択をWorkspaceオープンへ接続し、ルート直下の遅延ファイルツリーをMetalテキスト表示する最小縦切りを追加。
+- macOS標準検索入力、Workspace検索結果、Worktree branch/HEADの最小表示をMetalテキストへ接続。
+- Cocoa timerからSearchJobを継続pollし、検索結果を段階的にMetal表示する経路を追加。
+- Workspaceオープン時にFSEvents監視を開始し、変更時にルート直下ツリーを再列挙する経路を追加。
+- 複数Workspace rootごとに`.gitignore`とFSEvents watcherを分離。
+- Editメニューから検索ジョブをキャンセルし、部分結果をstale状態で残さない経路を追加。
+- IME marked textを編集バッファへ確定する前に、カーソル位置へ下線付きでMetalテキスト表示する経路を追加。
+- `NSTextInputClient`の提案文字列、UTF-16 selectedRange、characterIndex問い合わせを実装し、Nimのbyte範囲と同期。
+- UTF-16選択範囲を行内矩形へ変換し、RGBAテキスト面に選択背景とカーソルを描画。
+- grapheme位置計算に地域指示子ペアとCRLF境界のテストを追加。
+- macOS FileメニューのNew/`Cmd+N`を新規`FileDocument`へ接続。
+- 外部変更検知をメインループtickへ接続し、Reload / Keep Editingの標準Alertを追加。
+- 10,000ファイル生成ワークスペースの列挙ベンチマークを追加。
+- 100,000ファイル生成ワークスペースの列挙計測（約0.78秒）を実行。
+- 1MB級Tree-sitter入力のparse・可視範囲highlightベンチマークを追加。
+- Tree-sitterの構文状態をエディタ更新経路へ接続し、可視範囲ハイライトを取得可能にした。
+- アクティブ文書の内容をCore Text経由のMetalテクスチャへ更新し、編集後に再描画する経路を追加。
+- UTF-8 byte offsetからUTF-16描画範囲へ変換し、Tree-sitter spanごとのCore Text色付けを追加。
+- Metal device、CAMetalLayer、Retina drawable sizeを確認するネイティブスモークテストを追加。Metal deviceを公開しないヘッドレス/端末セッションでは、テストを失敗扱いにせずスキップする。
+- Worktree rootをキーにHEAD/branch状態を分離するAPIとテストを追加。
+- UI NodeHandleへgenerationを追加し、stale handleを検証可能にした。
+- PieceTree/Hybridを含むM4候補構造比較ベンチマークを追加。
+- 標準Undo/Redo/Cut/Copy/Paste、カーソル移動、UTF-8境界削除をmacOSコマンドコールバックへ接続し、編集後に表示・構文色を同期。
+- macOS FileメニューのNew File/New Folder/Rename/DeleteをWorkspace相対パスのAPIへ接続し、成功時にプレビューとFSEvents監視を更新。
+- Workspaceのファイル操作APIで空相対パスを拒否し、UI経由でなくてもルート自体を削除・移動できない回帰テストを追加。
+- Workspaceルート直下の表示項目をmacOSポインターの行位置へ対応付け、ファイルクリックで文書を開き、ディレクトリクリックでWorkspaceを切り替える経路を追加。
+- macOSのWindow close / application terminateをdirty状態へ接続し、Cmd+W / Cmd+QでSave・Don't Save・Cancelを選べる終了確認を追加。Untitled文書のSaveは標準NSSavePanelへ接続。
+- M5のSession/Recovery APIをmacOS起動・終了経路へ接続。`~/Library/Application Support/Nimculus/session.json`を保存・復元し、dirtyなアクティブ文書を`active.recovery`へ定期保存、起動時に復元する。
+
+## 未完了として明示した項目
+
+GUI実機での日本語IME、カーソル・選択・文字描画、実ファイル
+Open With、リサイズ・複数モニターの操作確認は、ヘッドレスunit testや
+コンパイルだけでは証明できないため完了扱いにしていない。M6の10万ファイル
+計測、Worktree状態分離、構文色のRGBA Metalテクスチャ接続、ネイティブスモークは
+完了したが、`Cmd+,`設定画面、Git diff/stage等の高度なUI、IMEの実機操作、カーソル/選択/文字表示のGUI確認は残っている。native glyph atlas接続は実装済みだが、GUIでの描画結果は未確認である。
