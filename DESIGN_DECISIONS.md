@@ -24,6 +24,17 @@ NimNUI owns a `CAMetalLayer` through its macOS view. Drawable size is derived
 from the backing scale factor during layout, so logical points and drawable
 pixels remain distinct for Retina displays.
 
+## M8-001: Make LSP framing byte-accurate and generation-aware
+
+The LSP foundation encodes `Content-Length` from the UTF-8 byte length of the
+JSON body and decodes frames incrementally, because one pipe read may contain
+partial headers, a partial multibyte body, or multiple messages. Requests are
+tracked by method and generation; only the newest non-cancelled request for a
+method may update editor state. This mirrors Zed's transport/store boundary
+and prevents a slow completion or hover response from overwriting newer
+document state. The process lifecycle and feature adapters remain outside the
+codec and will consume this contract.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The

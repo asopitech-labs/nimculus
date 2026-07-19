@@ -66,3 +66,13 @@ initial Nim, Rust, TypeScript, Python, JSON, and Markdown grammars. The core
 runtime and every generated grammar are compiled as separate C translation
 units because generated parsers reuse internal symbol names. `syntax.nim`
 converts syntax nodes into highlight spans and structural services.
+
+## M8 LSP boundary
+
+`src/nimculus/lsp.nim` owns protocol concerns independently from the editor
+and UI: UTF-8 byte-accurate `Content-Length` framing, incremental frame
+decoding, JSON-RPC request construction, cancellation state, and
+method-scoped stale-response rejection. This follows Zed's separation of
+transport/protocol handling from the project language-server store. Process
+lifecycle, stdio polling, document synchronization, and feature adapters
+must build on this boundary rather than parsing JSON directly in UI callbacks.
