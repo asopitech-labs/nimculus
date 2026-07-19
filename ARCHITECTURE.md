@@ -108,7 +108,9 @@ the UI. Status uses porcelain v1 with NUL delimiters so filenames containing
 spaces or colons remain lossless; rename/copy records retain both new and old
 paths, and conflict states are derived from the two index/worktree status
 columns. Diff, stage/unstage, commit, log, blame, branch, and HEAD operations
-return explicit results. Long-running commands can be represented by a
+return explicit results; unified diff headers are converted into old/new line
+ranges and hunk kinds for inline and gutter consumers, and checkout is kept as
+an explicit source-plus-path operation. Long-running commands can be represented by a
 `GitJob` and terminated without blocking the Metal or AppKit event loop. The
 application can later layer inline diff and gutter presentation on these
 stable repository contracts.

@@ -29,6 +29,15 @@ type
     line*: int
     text*: string
 
+  GitDiffHunkKind* = enum
+    gitHunkAdded, gitHunkDeleted, gitHunkModified
+
+  GitDiffHunk* = object
+    oldStart*, oldCount*: int
+    newStart*, newCount*: int
+    addedLines*, removedLines*: int
+    kind*: GitDiffHunkKind
+
   GitJob* = ref object
     process: Process
     done*: bool
@@ -122,6 +131,40 @@ proc diff*(repository: GitRepository, path = "", staged = false): GitResult =
     args.add(path)
   repository.runGit(args)
 
+proc parseDiffRange(value: string): tuple[start, count: int] =
+  var range = value
+  if range.len > 0 and range[0] in {'-', '+'}: range = range[1 .. ^1]
+  let comma = range.find(',')
+  try:
+    if comma < 0: (parseInt(range), 1)
+    else: (parseInt(range[0 ..< comma]), parseInt(range[comma + 1 .. ^1]))
+  except ValueError:
+    (0, 0)
+
+proc parseDiffHunks*(output: string): seq[GitDiffHunk] =
+  ## Convert unified diff headers into stable line ranges for inline/gutter UI.
+  ## Body lines are counted only after a header, so file metadata cannot alter
+  ## the current hunk's added/removed counts.
+  var current = -1
+  for line in output.splitLines:
+    if line.startsWith("@@ "):
+      let fields = line.splitWhitespace()
+      if fields.len < 3: continue
+      let oldRange = parseDiffRange(fields[1])
+      let newRange = parseDiffRange(fields[2])
+      result.add(GitDiffHunk(oldStart: oldRange.start, oldCount: oldRange.count,
+        newStart: newRange.start, newCount: newRange.count,
+        kind: if oldRange.count == 0: gitHunkAdded
+          elif newRange.count == 0: gitHunkDeleted else: gitHunkModified))
+      current = result.high
+    elif current >= 0 and line.len > 0:
+      if line[0] == '+': inc result[current].addedLines
+      elif line[0] == '-': inc result[current].removedLines
+
+proc diffHunks*(repository: GitRepository, path = "", staged = false): seq[GitDiffHunk] =
+  let output = repository.diff(path, staged)
+  if output.exitCode == 0: result = parseDiffHunks(output.output)
+
 proc stage*(repository: GitRepository, paths: openArray[string]): GitResult =
   var args = @["add", "--"]
   args.add(paths)
@@ -140,6 +183,13 @@ proc unstageAll*(repository: GitRepository): GitResult =
 
 proc commit*(repository: GitRepository, message: string): GitResult =
   repository.runGit(["commit", "-m", message])
+
+proc checkout*(repository: GitRepository, source: string,
+               paths: openArray[string]): GitResult =
+  if source.len == 0: return GitResult(exitCode: -1, output: "checkout source is empty")
+  var args = @["checkout", source, "--"]
+  args.add(paths)
+  repository.runGit(args)
 
 proc currentBranch*(repository: GitRepository): string =
   let output = repository.runGit(["symbolic-ref", "--quiet", "--short", "HEAD"])

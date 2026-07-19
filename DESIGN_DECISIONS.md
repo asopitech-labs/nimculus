@@ -111,6 +111,11 @@ started as `GitJob` instances and terminated by the owner. Inline diff and
 gutter rendering remain consumers of this service rather than being embedded
 in process management.
 
+Unified diff headers are parsed into old/new line ranges and added/removed
+counts before the UI sees them. This mirrors Zed's `DiffHunkStatus` boundary:
+gutter and inline rendering can remain incremental consumers, while staging
+and checkout continue to operate through explicit repository commands.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The

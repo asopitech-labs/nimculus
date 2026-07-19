@@ -13,6 +13,18 @@ proc git(repo: string, args: varargs[string]): string =
   output.output
 
 suite "M9 Git service":
+  test "parses unified diff hunk ranges for inline and gutter consumers":
+    let hunks = parseDiffHunks("diff --git a/a b/a\n@@ -2,2 +2,3 @@\n-old\n+new\n+added\n@@ -8 +9,0 @@\n-removed\n")
+    check hunks.len == 2
+    check hunks[0].oldStart == 2
+    check hunks[0].oldCount == 2
+    check hunks[0].newStart == 2
+    check hunks[0].newCount == 3
+    check hunks[0].kind == gitHunkModified
+    check hunks[0].addedLines == 2
+    check hunks[0].removedLines == 1
+    check hunks[1].kind == gitHunkDeleted
+
   test "parses porcelain status including conflicts and renames":
     let status = " M old.txt\0R  new.txt\0old.txt\0UU conflict.txt\0"
     let entries = parseStatus(status)
@@ -46,6 +58,8 @@ suite "M9 Git service":
     let blame = repository.blame("main.nim")
     check blame.len == 2
     check blame[1].text == "two"
+    check repository.checkout("HEAD", ["main.nim"]).exitCode == 0
+    check readFile(root / "main.nim") == "one\n"
     discard git(root, "mv", "main.nim", "renamed.nim")
     let renamed = repository.status().filterIt(it.path == "renamed.nim")
     check renamed.len == 1
