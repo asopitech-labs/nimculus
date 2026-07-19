@@ -191,8 +191,11 @@ explicit cancellation.
 
 The first UI slice exposes `run task <command>` and `cancel task` through the
 macOS Command Palette and reports the terminal line of the completed result in
-the status bar. The full terminal/output panel remains a separate integration
-step so process lifecycle code is not coupled to Metal text rendering.
+the status bar. The first terminal UI slice uses a non-editable AppKit overlay
+above the Metal editor surface; input remains on the existing Metal view and
+is forwarded to the PTY. This keeps process lifecycle and screen state
+independent from editor text/IME state while allowing the overlay to be
+replaced by a GPU-native terminal panel later.
 
 ## Reference: Zed GPUI Metal implementation
 

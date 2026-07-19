@@ -16,6 +16,7 @@ import nimculus/lsp_editor_bridge
 import nimculus/editor_diagnostics
 import nimculus/git_service
 import nimculus/task_service
+import nimculus/terminal
 
 var demoTree = newUiTree()
 var shortcutRegistry: CommandRegistry
@@ -193,6 +194,8 @@ when defined(macosx):
   var editorGitPath = ""
   var editorTaskJob: TaskJob
   var editorTaskCommand = ""
+  var editorTerminal: TerminalPty
+  var editorTerminalVisible = false
 
 proc resetEditorViewState() =
   editorViewState = newEditorView()
@@ -311,6 +314,37 @@ when defined(macosx):
       editorViewState.statusMessage = "Task cancelled: " & editorTaskCommand
     else: discard
     editorTaskJob = nil
+
+  proc syncNativeTerminal() =
+    if editorTerminal == nil: return
+    let lines = editorTerminal.screen.visibleText()
+    let text = lines.join("\n")
+    platformSetTerminalText(text.cstring, uint32(text.len))
+
+  proc toggleNativeTerminal() =
+    if editorTerminalVisible:
+      editorTerminalVisible = false
+      platformSetTerminalVisible(false)
+      return
+    let cwd = if activeWorkspace != nil and activeWorkspace.rootPaths.len > 0:
+      activeWorkspace.rootPaths[0]
+    elif activeDocument() != nil and activeDocument()[].path.len > 0:
+      splitFile(absolutePath(activeDocument()[].path)).dir
+    else: getCurrentDir()
+    try:
+      if editorTerminal == nil or editorTerminal.closed:
+        editorTerminal = newTerminalPty("/bin/zsh", cwd, 120, 8)
+      editorTerminalVisible = true
+      platformSetTerminalVisible(true)
+      syncNativeTerminal()
+      editorViewState.statusMessage = "Terminal opened"
+    except CatchableError as error:
+      editorViewState.statusMessage = "Terminal failed: " & error.msg
+
+  proc pollNativeTerminal() =
+    if editorTerminal == nil or editorTerminal.closed: return
+    let output = editorTerminal.pollOutput()
+    if output.len > 0 and editorTerminalVisible: syncNativeTerminal()
 
   proc scheduleNativeGitHunks(document: ptr FileDocument) =
     if editorGitDiffJob != nil:
@@ -730,6 +764,7 @@ when defined(macosx):
   proc receiveNativeIdle() {.cdecl.} =
     pollNativeGitHunks()
     pollNativeTask()
+    pollNativeTerminal()
     if lspBridge == nil: return
     let document = activeDocument()
     if document != nil:
@@ -776,6 +811,10 @@ when defined(macosx):
     else: false
 
 proc receiveNativeTextValue(value: string, composing: bool) =
+  when defined(macosx):
+    if editorTerminalVisible and editorTerminal != nil and not composing:
+      if value.len > 0: discard editorTerminal.writeInput(value)
+      return
   imeState.receiveText(value, composing)
   when defined(macosx):
     if composing:
@@ -943,6 +982,21 @@ proc lineEndOffset(document: ptr FileDocument, line: int): int =
 proc receiveNativeCommand(command: cstring) {.cdecl.} =
   if command == nil: return
   let name = $command
+  when defined(macosx):
+    if editorTerminalVisible and editorTerminal != nil:
+      case name
+      of "insertNewline": discard editorTerminal.writeInput("\r")
+      of "insertTab": discard editorTerminal.writeInput("\t")
+      of "deleteBackward": discard editorTerminal.writeInput("\x7f")
+      of "moveLeft": discard editorTerminal.writeInput("\x1b[D")
+      of "moveRight": discard editorTerminal.writeInput("\x1b[C")
+      of "moveUp": discard editorTerminal.writeInput("\x1b[A")
+      of "moveDown": discard editorTerminal.writeInput("\x1b[B")
+      of "cancel": discard editorTerminal.writeInput("\x03")
+      else: discard
+      if name in ["insertNewline", "insertTab", "deleteBackward", "moveLeft",
+                  "moveRight", "moveUp", "moveDown", "cancel"]:
+        return
   let document = activeDocument()
   if name == "workspaceSearchTick":
     pollWorkspaceSearch()
@@ -1070,6 +1124,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command.startsWith("git checkout "): "__git_checkout__"
       elif command == "git stage hunk": "__git_stage_hunk__"
       elif command == "git unstage hunk": "__git_unstage_hunk__"
+      elif command in ["toggle terminal", "new terminal"]: "__toggle_terminal__"
       elif command.startsWith("run task "): "__run_task__"
       elif command == "cancel task": "__cancel_task__"
       else: command
@@ -1117,6 +1172,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           startNativeTask(taskCommand)
     of "__cancel_task__":
       when defined(macosx): cancelNativeTask()
+    of "__toggle_terminal__":
+      when defined(macosx): toggleNativeTerminal()
     of "workspace search":
       when defined(macosx):
         platformShowWorkspaceSearch()

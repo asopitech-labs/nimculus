@@ -75,3 +75,8 @@ suite "macOS platform contract":
   test "Git hunk gutter contract can be cleared":
     platformSetEditorGitHunks(nil, 0)
     check true
+
+  test "terminal overlay contract can be cleared":
+    platformSetTerminalVisible(false)
+    platformSetTerminalText("".cstring, 0)
+    check true

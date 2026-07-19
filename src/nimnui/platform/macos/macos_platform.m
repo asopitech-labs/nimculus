@@ -30,6 +30,8 @@ static NSUInteger g_editor_scroll_line = 0;
 static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
 static NSString *g_editor_text = @"";
+static NSString *g_terminal_text = @"";
+static BOOL g_terminal_visible = NO;
 static NSString *g_marked_text = @"";
 static NSString *g_editor_completions = @"";
 static NSString *g_editor_hover = @"";
@@ -979,6 +981,15 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic) NSRange markedTextRange;
 @property(nonatomic) NSRange selectedTextRange;
 @property(nonatomic, strong) NSTrackingArea *trackingArea;
+- (void)updateTerminalFrame;
+@end
+
+@interface NimculusTerminalOverlay : NSTextView
+@end
+
+@implementation NimculusTerminalOverlay
+- (BOOL)acceptsFirstResponder { return NO; }
+- (NSView *)hitTest:(NSPoint)point { return nil; }
 @end
 
 @implementation NimculusMetalView
@@ -998,6 +1009,17 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     self.markedText = @"";
     self.markedTextRange = NSMakeRange(NSNotFound, 0);
     self.selectedTextRange = NSMakeRange(0, 0);
+    NimculusTerminalOverlay *terminal = [[NimculusTerminalOverlay alloc]
+      initWithFrame:NSZeroRect];
+    terminal.editable = NO;
+    terminal.selectable = NO;
+    terminal.drawsBackground = YES;
+    terminal.backgroundColor = [NSColor colorWithCalibratedRed:0.025 green:0.030 blue:0.045 alpha:0.98];
+    terminal.textColor = [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0];
+    terminal.font = [NSFont fontWithName:@"Menlo" size:12.0] ?: [NSFont monospacedSystemFontOfSize:12.0 weight:NSFontWeightRegular];
+    terminal.textContainerInset = NSMakeSize(8.0, 6.0);
+    terminal.hidden = YES;
+    [self addSubview:terminal];
     [self updateTrackingAreas];
   }
   return self;
@@ -1045,10 +1067,22 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   self.metalLayer.drawableSize = CGSizeMake(self.bounds.size.width * scale,
                                             self.bounds.size.height * scale);
   [self updateMetrics];
+  [self updateTerminalFrame];
   if (g_queue && fabs(g_text_texture_scale - g_metrics.scale_factor) > 0.001) {
     updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   }
   [self drawFrame];
+}
+
+- (void)updateTerminalFrame {
+  if (self.subviews.count == 0) return;
+  NSView *terminal = self.subviews.lastObject;
+  CGFloat height = g_terminal_visible ? MIN(180.0, MAX(72.0, g_editor_rect[3] * 0.42)) : 0.0;
+  terminal.hidden = !g_terminal_visible;
+  if (!g_terminal_visible) return;
+  CGFloat y = self.bounds.size.height - g_editor_rect[1] - height;
+  terminal.frame = NSMakeRect(g_editor_rect[0], y, g_editor_rect[2], height);
+  terminal.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
 }
 
 - (void)viewDidChangeBackingProperties {
@@ -2123,6 +2157,7 @@ void nimculus_platform_set_editor_rect(double x, double y, double width, double 
   g_editor_rect[1] = MAX(0.0, y);
   g_editor_rect[2] = MAX(1.0, width);
   g_editor_rect[3] = MAX(1.0, height);
+  if (g_active_view) [(NimculusMetalView *)g_active_view updateTerminalFrame];
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
@@ -2218,6 +2253,25 @@ void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   if (g_active_view) [g_active_view drawFrame];
+}
+void nimculus_platform_set_terminal_visible(bool visible) {
+  g_terminal_visible = visible ? YES : NO;
+  if (g_active_view) {
+    [(NimculusMetalView *)g_active_view updateTerminalFrame];
+    [g_active_view drawFrame];
+  }
+}
+void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length) {
+  g_terminal_text = (utf8 && length > 0)
+    ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
+    : @"";
+  if (!g_terminal_text) g_terminal_text = @"";
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (view && view.subviews.count > 0) {
+    NSTextView *terminal = (NSTextView *)view.subviews.lastObject;
+    terminal.string = g_terminal_text;
+    [terminal scrollRangeToVisible:NSMakeRange(terminal.string.length, 0)];
+  }
 }
 void nimculus_platform_set_editor_completions(const char *utf8, uint32_t length) {
   g_editor_completions = (utf8 && length > 0)
