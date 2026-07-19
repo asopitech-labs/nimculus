@@ -52,6 +52,34 @@ type
     message*: string
     source*: string
 
+  LspLocation* = object
+    uri*: string
+    range*: LspRange
+
+  LspTextEdit* = object
+    range*: LspRange
+    newText*: string
+
+  LspCompletionItem* = object
+    label*: string
+    detail*: string
+    insertText*: string
+    kind*: int
+
+  LspCompletionResult* = object
+    items*: seq[LspCompletionItem]
+    isIncomplete*: bool
+
+  LspHover* = object
+    text*: string
+    range*: LspRange
+    hasRange*: bool
+
+  LspSymbol* = object
+    name*: string
+    kind*: int
+    range*: LspRange
+
   LspSessionState* = enum
     lspSessionInitializing, lspSessionReady, lspSessionStopped, lspSessionFailed
 
@@ -66,6 +94,9 @@ type
 
 proc protocolError(message: string): ref LspProtocolError =
   newException(LspProtocolError, message)
+
+proc acceptsResponse*(tracker: LspRequestTracker, id: int): bool
+proc finishResponse*(tracker: var LspRequestTracker, id: int): bool
 
 proc nowMs(): int64 = int64(epochTime() * 1000.0)
 
@@ -233,6 +264,107 @@ proc parseDiagnostics*(message: JsonNode): tuple[uri: string, diagnostics: seq[L
         start: LspPosition(line: start["line"].getInt, character: start["character"].getInt),
         finish: LspPosition(line: finish["line"].getInt, character: finish["character"].getInt)),
       severity: severity, message: item["message"].getStr, source: source))
+
+proc parseRange(node: JsonNode): LspRange =
+  if node == nil or node.kind != JObject: return
+  let start = node["start"]
+  let finish = node["end"]
+  LspRange(start: LspPosition(line: start["line"].getInt,
+      character: start["character"].getInt),
+    finish: LspPosition(line: finish["line"].getInt,
+      character: finish["character"].getInt))
+
+proc responseId*(message: JsonNode): int =
+  if message != nil and message.kind == JObject and message.hasKey("id") and
+      message["id"].kind == JInt: message["id"].getInt
+  else: -1
+
+proc responseResult*(message: JsonNode): JsonNode =
+  if message != nil and message.kind == JObject and message.hasKey("result"):
+    result = message["result"]
+
+proc responseError*(message: JsonNode): string =
+  if message != nil and message.kind == JObject and message.hasKey("error"):
+    let error = message["error"]
+    if error.kind == JObject and error.hasKey("message"): return error["message"].getStr
+    return $error
+
+proc acceptResponse*(tracker: var LspRequestTracker, message: JsonNode): bool =
+  let id = responseId(message)
+  if id < 0: return false
+  result = tracker.acceptsResponse(id)
+  discard tracker.finishResponse(id)
+
+proc parseLocationNode(node: JsonNode): LspLocation =
+  if node == nil or node.kind != JObject: return
+  if node.hasKey("uri"): result.uri = node["uri"].getStr
+  if node.hasKey("range"): result.range = parseRange(node["range"])
+
+proc parseLocations*(message: JsonNode): seq[LspLocation] =
+  let value = responseResult(message)
+  if value == nil: return
+  if value.kind == JObject:
+    if value.hasKey("uri"): result.add(parseLocationNode(value))
+  elif value.kind == JArray:
+    for item in value:
+      if item.kind == JObject and item.hasKey("uri"): result.add(parseLocationNode(item))
+
+proc markedStringText(node: JsonNode): string =
+  if node == nil: return
+  case node.kind
+  of JString: result = node.getStr
+  of JObject:
+    if node.hasKey("value"): result = node["value"].getStr
+    elif node.hasKey("language") and node.hasKey("value"): result = node["value"].getStr
+  else: result = $node
+
+proc parseHover*(message: JsonNode): LspHover =
+  let value = responseResult(message)
+  if value == nil or value.kind != JObject or not value.hasKey("contents"): return
+  let contents = value["contents"]
+  if contents.kind == JArray:
+    for item in contents:
+      let text = markedStringText(item)
+      if result.text.len > 0 and text.len > 0: result.text.add("\n")
+      result.text.add(text)
+  else:
+    result.text = markedStringText(contents)
+  if value.hasKey("range"):
+    result.range = parseRange(value["range"])
+    result.hasRange = true
+
+proc parseCompletion*(message: JsonNode): LspCompletionResult =
+  let value = responseResult(message)
+  if value == nil: return
+  var items = value
+  if value.kind == JObject:
+    if value.hasKey("isIncomplete"): result.isIncomplete = value["isIncomplete"].getBool
+    if value.hasKey("items"): items = value["items"]
+  if items.kind != JArray: return
+  for item in items:
+    if item.kind != JObject or not item.hasKey("label"): continue
+    result.items.add(LspCompletionItem(
+      label: item["label"].getStr,
+      detail: if item.hasKey("detail"): item["detail"].getStr else: "",
+      insertText: if item.hasKey("insertText"): item["insertText"].getStr else: item["label"].getStr,
+      kind: if item.hasKey("kind"): item["kind"].getInt else: 0))
+
+proc parseTextEdits*(message: JsonNode): seq[LspTextEdit] =
+  let value = responseResult(message)
+  if value == nil or value.kind != JArray: return
+  for item in value:
+    if item.kind == JObject and item.hasKey("range") and item.hasKey("newText"):
+      result.add(LspTextEdit(range: parseRange(item["range"]), newText: item["newText"].getStr))
+
+proc parseSymbols*(message: JsonNode): seq[LspSymbol] =
+  let value = responseResult(message)
+  if value == nil or value.kind != JArray: return
+  for item in value:
+    if item.kind != JObject or not item.hasKey("name"): continue
+    let rangeNode = if item.hasKey("range"): item["range"] else: item["location"]["range"]
+    result.add(LspSymbol(name: item["name"].getStr,
+      kind: if item.hasKey("kind"): item["kind"].getInt else: 0,
+      range: parseRange(rangeNode)))
 
 proc cancelRequest*(tracker: var LspRequestTracker, id: int): bool =
   if id notin tracker.pending: return false

@@ -82,3 +82,6 @@ restart transitions, and is intended to be driven by a worker/event task;
 `LspSession` owns the initialize handshake, pending-response transitions, and
 per-document diagnostics cache, while feature consumers receive decoded JSON
 through the request generation they initiated.
+The protocol module also converts standard response shapes into locations,
+text edits, completion items, hover text, and symbols; these parsers reject
+stale responses before application state can consume them.

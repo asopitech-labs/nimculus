@@ -99,6 +99,34 @@ suite "M8 LSP protocol foundation":
     check parsed.diagnostics[0].range.start.line == 2
     check parsed.diagnostics[0].severity == 2
 
+  test "parses feature responses and rejects stale responses":
+    var tracker = initLspRequestTracker()
+    let oldRequest = tracker.beginRequest("textDocument/hover")
+    let newRequest = tracker.beginRequest("textDocument/hover")
+    let stale = %*{"jsonrpc": "2.0", "id": oldRequest.id,
+      "result": {"contents": [{"language": "nim", "value": "old"}]}}
+    let current = %*{"jsonrpc": "2.0", "id": newRequest.id,
+      "result": {"contents": [{"language": "nim", "value": "new"}],
+        "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 3}}}}
+    check not tracker.acceptResponse(stale)
+    let hover = parseHover(current)
+    check tracker.acceptResponse(current)
+    check hover.text == "new"
+    check hover.hasRange
+
+    let completion = parseCompletion(%*{"result": {"isIncomplete": true, "items": [
+      {"label": "echo", "detail": "keyword", "kind": 14}]}})
+    check completion.isIncomplete
+    check completion.items[0].insertText == "echo"
+    let locations = parseLocations(%*{"result": [{"uri": "file:///b.nim",
+      "range": {"start": {"line": 2, "character": 0}, "end": {"line": 2, "character": 4}}}]})
+    check locations.len == 1
+    check locations[0].uri == "file:///b.nim"
+    let edits = parseTextEdits(%*{"result": [{"range": {"start": {"line": 0, "character": 0},
+      "end": {"line": 0, "character": 1}}, "newText": "x"}]})
+    check edits.len == 1
+    check edits[0].newText == "x"
+
   test "session initializes and stores diagnostics from a language server":
     let server = "import sys,json,time\n" &
       "def frame(x):\n" &

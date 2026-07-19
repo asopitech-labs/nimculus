@@ -42,6 +42,16 @@ stores `publishDiagnostics` by URI, and tolerates a server that exits after a
 final response so shutdown races do not turn a valid response into a protocol
 error.
 
+## M8-002: Parse standard LSP response shapes at the protocol boundary
+
+Locations, hover marked strings, completion arrays/items, text edits, and
+document symbols are converted from JSON before feature code consumes them.
+The parser accepts the LSP alternatives that matter for these results (for
+example completion array versus completion-list object) while keeping raw
+JSON available for features that need additional fields. The request tracker
+must accept the response first; a stale response is therefore never turned
+into visible completion, hover, or navigation state.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The
