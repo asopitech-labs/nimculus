@@ -145,3 +145,38 @@ suite "LSP editor bridge":
     check locations.len == 1
     check locations[0].uri == "file:///tmp/target.nim"
     check locations[0].range.start.line == 3
+
+  test "requests formatting and returns edits for the current document version":
+    let server = "import sys,json,time\n" &
+      "def frame(x):\n" &
+      "    b=json.dumps(x,separators=(',',':')).encode()\n" &
+      "    return ('Content-Length: '+str(len(b))+'\\r\\n\\r\\n').encode()+b\n" &
+      "init={'jsonrpc':'2.0','id':1,'result':{'capabilities':{'documentFormattingProvider':True}}}\n" &
+      "formatted={'jsonrpc':'2.0','id':2,'result':[{'range':{'start':{'line':0,'character':0},'end':{'line':0,'character':5}},'newText':'world'}]}\n" &
+      "sys.stdout.buffer.write(frame(init)); sys.stdout.buffer.flush()\n" &
+      "data=b''\n" &
+      "while True:\n" &
+      "    chunk=sys.stdin.buffer.read(1)\n" &
+      "    if not chunk: break\n" &
+      "    data += chunk\n" &
+      "    if b'textDocument/formatting' in data:\n" &
+      "        sys.stdout.buffer.write(frame(formatted)); sys.stdout.buffer.flush(); break\n" &
+      "time.sleep(2)\n"
+    let bridge = newLspEditorBridge("python3", ["-u", "-c", server])
+    defer: bridge.stop()
+    bridge.updateDocument("/tmp/format.nim", "hello")
+    for _ in 0 ..< 30:
+      discard bridge.poll()
+      if bridge.opened: break
+      sleep(10)
+    check bridge.opened
+    check bridge.requestFormatting()
+    for _ in 0 ..< 30:
+      discard bridge.poll()
+      if bridge.formattingReady: break
+      sleep(10)
+    let edits = bridge.takeFormattingEdits()
+    check edits.len == 1
+    check edits[0].range.start.character == 0
+    check edits[0].range.finish.character == 5
+    check edits[0].newText == "world"

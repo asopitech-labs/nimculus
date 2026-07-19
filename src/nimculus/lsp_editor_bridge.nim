@@ -31,6 +31,10 @@ type
     definitionRequestId*: int
     definitionCursorByte*: int
     definitionLocations*: seq[LspLocation]
+    formattingRequestId*: int
+    formattingVersion*: int
+    formattingEdits*: seq[LspTextEdit]
+    formattingReady*: bool
 
 proc hexDigit(value: int): char =
   if value < 10: char(ord('0') + value)
@@ -112,6 +116,35 @@ proc hideDefinition*(bridge: LspEditorBridge) =
     discard bridge.session.cancel(bridge.definitionRequestId)
   bridge.definitionRequestId = 0
   bridge.definitionLocations.setLen(0)
+
+proc hideFormatting*(bridge: LspEditorBridge) =
+  if bridge == nil: return
+  if bridge.formattingRequestId > 0 and bridge.session != nil:
+    discard bridge.session.takeResponse(bridge.formattingRequestId)
+    discard bridge.session.cancel(bridge.formattingRequestId)
+  bridge.formattingRequestId = 0
+  bridge.formattingVersion = 0
+  bridge.formattingEdits.setLen(0)
+  bridge.formattingReady = false
+
+proc requestFormatting*(bridge: LspEditorBridge): bool =
+  if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
+      bridge.uri.len == 0: return false
+  bridge.hideFormatting()
+  let request = formattingRequest(bridge.uri)
+  try:
+    let pending = bridge.session.request(request.methodName, request.params)
+    bridge.formattingRequestId = pending.id
+    bridge.formattingVersion = bridge.version
+    result = true
+  except CatchableError:
+    bridge.lastError = getCurrentExceptionMsg()
+
+proc takeFormattingEdits*(bridge: LspEditorBridge): seq[LspTextEdit] =
+  if bridge == nil or not bridge.formattingReady: return
+  result = bridge.formattingEdits
+  bridge.formattingEdits.setLen(0)
+  bridge.formattingReady = false
 
 proc requestDefinition*(bridge: LspEditorBridge, buffer: PieceTable,
                         cursorByte: int): bool =
@@ -223,6 +256,7 @@ proc closeDocument*(bridge: LspEditorBridge) =
   bridge.version = 0
   bridge.hideHover()
   bridge.hideDefinition()
+  bridge.hideFormatting()
 
 proc updateDocument*(bridge: LspEditorBridge, path, text: string) =
   if bridge == nil or bridge.command.len == 0 or path.len == 0: return
@@ -261,6 +295,7 @@ proc updateDocument*(bridge: LspEditorBridge, path, text: string) =
       bridge.hideCompletion()
       bridge.hideHover()
       bridge.hideDefinition()
+      bridge.hideFormatting()
       inc bridge.version
       bridge.session.notify("textDocument/didChange",
         didChangeNotification(bridge.uri, text, bridge.version))
@@ -306,6 +341,14 @@ proc poll*(bridge: LspEditorBridge): bool =
     if response != nil:
       bridge.definitionLocations = parseLocations(response)
       bridge.definitionRequestId = 0
+      result = true
+  if bridge.formattingRequestId > 0:
+    let response = bridge.session.takeResponse(bridge.formattingRequestId)
+    if response != nil:
+      if bridge.formattingVersion == bridge.version:
+        bridge.formattingEdits = parseTextEdits(response)
+        bridge.formattingReady = true
+      bridge.formattingRequestId = 0
       result = true
   if bridge.session.state == lspSessionReady and not bridge.opened and
       bridge.path.len > 0:

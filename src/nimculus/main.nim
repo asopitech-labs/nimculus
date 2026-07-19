@@ -143,6 +143,7 @@ proc setupDemoUi() =
 proc receiveNativeCommand(command: cstring) {.cdecl.}
 when defined(macosx):
   proc navigateToDefinition()
+  proc applyPendingFormatting()
 
 proc dispatchNativeShortcut(event: ptr NimculusInputEvent): bool {.cdecl.} =
   if event == nil: return false
@@ -665,6 +666,7 @@ when defined(macosx):
       syncNativeCompletion()
       syncNativeHover()
       navigateToDefinition()
+      applyPendingFormatting()
 
   proc acceptCurrentCompletion() =
     let document = activeDocument()
@@ -796,6 +798,29 @@ when defined(macosx):
     editorViewState.statusMessage = "LSP: definition"
     syncEditorCursor()
     refreshEditorSyntax()
+
+  proc applyPendingFormatting() =
+    if lspBridge == nil: return
+    let edits = lspBridge.takeFormattingEdits()
+    if edits.len == 0: return
+    let document = activeDocument()
+    if document == nil: return
+    var bufferEdits: seq[Edit]
+    for edit in edits:
+      let startByte = document[].buffer.byteOffsetAtUtf16Position(
+        edit.range.start.line, edit.range.start.character)
+      let endByte = document[].buffer.byteOffsetAtUtf16Position(
+        edit.range.finish.line, edit.range.finish.character)
+      bufferEdits.add(Edit(startByte: startByte, endByte: endByte,
+        text: edit.newText))
+    try:
+      document[].buffer.applyEdits(bufferEdits)
+      editorViewState.clampSelectionToText(document[].buffer.toString())
+      editorViewState.statusMessage = "LSP: formatted"
+      syncEditorCursor()
+      refreshEditorSyntax()
+    except CatchableError as error:
+      editorViewState.statusMessage = "LSP formatting failed: " & error.msg
 
   proc openWorkspaceEntryAtPoint(y: cdouble) =
     if activeWorkspace == nil or workspacePreviewEntries.len == 0: return
@@ -998,6 +1023,14 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "LSP: finding definition"
         else:
           editorViewState.statusMessage = "LSP definition unavailable"
+    of "format document":
+      when defined(macosx):
+        if document == nil or lspBridge == nil:
+          editorViewState.statusMessage = "LSP formatting unavailable"
+        elif lspBridge.requestFormatting():
+          editorViewState.statusMessage = "LSP: formatting"
+        else:
+          editorViewState.statusMessage = "LSP formatting unavailable"
     of "workspace search":
       when defined(macosx):
         platformShowWorkspaceSearch()

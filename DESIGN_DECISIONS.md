@@ -146,6 +146,17 @@ the normal document path, and converts the LSP UTF-16 location with
 `byteOffsetAtUtf16Position`; it never treats an LSP UTF-16 character as a
 grapheme or byte column.
 
+## M8-009: Apply LSP document formatting only to the current document version
+
+Zed treats formatting as an asynchronous edit transaction and does not apply
+the result after the buffer has advanced. Nimculus records the editor version
+when it sends `textDocument/formatting`, cancels pending formatting on document
+updates or close, and accepts the response only when that version still
+matches. Each LSP UTF-16 range is converted against the current Piece Table,
+then passed as one `applyEdits` transaction so overlapping or invalid UTF-8
+boundaries fail atomically. The macOS Command Palette is the initial trigger;
+formatting is not run implicitly on every keystroke.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The
