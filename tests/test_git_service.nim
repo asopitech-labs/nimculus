@@ -24,6 +24,7 @@ suite "M9 Git service":
     check hunks[0].addedLines == 2
     check hunks[0].removedLines == 1
     check hunks[1].kind == gitHunkDeleted
+    check hunks[0].patchText.startsWith("@@ -2,2 +2,3 @@")
 
   test "parses porcelain status including conflicts and renames":
     let status = " M old.txt\0R  new.txt\0old.txt\0UU conflict.txt\0"
@@ -77,3 +78,31 @@ suite "M9 Git service":
     check job.done
     check job.cancelled
     check job.result.exitCode == -1
+
+  test "stages and unstages one hunk without affecting another":
+    let root = getTempDir() / "nimculus-m9-hunk"
+    if dirExists(root): removeDir(root)
+    createDir(root)
+    defer: removeDir(root)
+    discard git(root, "init", "-q")
+    discard git(root, "config", "user.name", "Nimculus Test")
+    discard git(root, "config", "user.email", "test@nimculus.invalid")
+    var lines: seq[string]
+    for index in 1 .. 14: lines.add("line" & $index)
+    writeFile(root / "main.txt", lines.join("\n") & "\n")
+    discard git(root, "add", "main.txt")
+    discard git(root, "commit", "-qm", "initial")
+    lines[1] = "changed-two"
+    lines[10] = "changed-eleven"
+    writeFile(root / "main.txt", lines.join("\n") & "\n")
+    let repository = newGitRepository(root)
+    let hunks = repository.diffHunks("main.txt")
+    check hunks.len == 2
+    check repository.stageHunk("main.txt", 0).exitCode == 0
+    let staged = repository.diff("main.txt", staged = true)
+    let unstaged = repository.diff("main.txt")
+    check staged.output.contains("changed-two")
+    check not staged.output.contains("changed-eleven")
+    check unstaged.output.contains("changed-eleven")
+    check repository.unstageHunk("main.txt", 0).exitCode == 0
+    check repository.diff("main.txt", staged = true).output.len == 0

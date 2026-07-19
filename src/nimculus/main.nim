@@ -210,6 +210,16 @@ proc activeDocument(): ptr FileDocument
 proc refreshWorkspacePreview()
 
 when defined(macosx):
+  proc gitRepositoryForDocument(document: ptr FileDocument): GitRepository =
+    if document == nil or document[].path.len == 0: return nil
+    if activeWorkspace != nil:
+      try:
+        let location = activeWorkspace.splitWorkspacePath(document[].path)
+        return newGitRepository(location.root)
+      except CatchableError:
+        return nil
+    newGitRepository(splitFile(absolutePath(document[].path)).dir)
+
   proc clearNativeGitHunks() =
     platformSetEditorGitHunks(nil, 0)
 
@@ -221,7 +231,6 @@ when defined(macosx):
     editorGitPath = ""
     clearNativeGitHunks()
     if document == nil or document[].path.len == 0: return
-    let containingDirectory = splitFile(absolutePath(document[].path)).dir
     var repository: GitRepository
     var relative = ""
     if activeWorkspace != nil:
@@ -232,7 +241,7 @@ when defined(macosx):
       except CatchableError:
         return
     else:
-      repository = newGitRepository(containingDirectory)
+      repository = gitRepositoryForDocument(document)
     if repository == nil: return
     if relative.len == 0:
       let absoluteDocumentPath = absolutePath(document[].path)
@@ -935,9 +944,11 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     except ValueError:
       editorViewState.statusMessage = "Invalid line number"
   elif name.startsWith("commandPalette:"):
-    let command = name[15 .. ^1].strip.toLowerAscii
+    let rawCommand = name[15 .. ^1].strip
+    let command = rawCommand.toLowerAscii
+    let dispatchCommand = if command.startsWith("git commit "): "__git_commit__" else: command
     editorViewState.closeCommandPalette()
-    case command
+    case dispatchCommand
     of "new": receiveNativeCommand("newDocument".cstring)
     of "save":
       when defined(macosx):
@@ -959,6 +970,47 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx):
         platformShowWorkspaceSearch()
     of "cancel search": cancelWorkspaceSearch()
+    of "git status":
+      when defined(macosx):
+        let repository = gitRepositoryForDocument(document)
+        if repository == nil:
+          editorViewState.statusMessage = "Git repository not found"
+        else:
+          let entries = repository.status()
+          editorViewState.statusMessage = "Git: " & $entries.len & " changed file(s)"
+    of "git stage all":
+      when defined(macosx):
+        let repository = gitRepositoryForDocument(document)
+        if repository == nil:
+          editorViewState.statusMessage = "Git repository not found"
+        else:
+          let outcome = repository.stageAll()
+          editorViewState.statusMessage = if outcome.exitCode == 0:
+            "Git: staged all changes" else: "Git stage failed: " & outcome.output.strip
+          refreshEditorSyntax()
+    of "git unstage all":
+      when defined(macosx):
+        let repository = gitRepositoryForDocument(document)
+        if repository == nil:
+          editorViewState.statusMessage = "Git repository not found"
+        else:
+          let outcome = repository.unstageAll()
+          editorViewState.statusMessage = if outcome.exitCode == 0:
+            "Git: unstaged all changes" else: "Git unstage failed: " & outcome.output.strip
+          refreshEditorSyntax()
+    of "__git_commit__":
+      when defined(macosx):
+        let repository = gitRepositoryForDocument(document)
+        let message = if rawCommand.len > 11: rawCommand[11 .. ^1].strip else: ""
+        if repository == nil:
+          editorViewState.statusMessage = "Git repository not found"
+        elif message.len == 0:
+          editorViewState.statusMessage = "Git commit requires a message"
+        else:
+          let outcome = repository.commit(message)
+          editorViewState.statusMessage = if outcome.exitCode == 0:
+            "Git: committed" else: "Git commit failed: " & outcome.output.strip
+          refreshEditorSyntax()
     else: editorViewState.statusMessage = "Unknown command: " & command
   elif name == "saveAndClose":
     let document = activeDocument()

@@ -37,6 +37,7 @@ type
     newStart*, newCount*: int
     addedLines*, removedLines*: int
     kind*: GitDiffHunkKind
+    patchText*: string
 
   GitJob* = ref object
     process: Process
@@ -66,6 +67,18 @@ proc runGit*(repository: GitRepository, args: openArray[string]): GitResult =
   commandArgs.add(args)
   let process = startProcess("git", "", commandArgs,
     options = {poUsePath, poStdErrToStdOut})
+  result.output = process.outputStream.readAll()
+  result.exitCode = process.waitForExit()
+  process.close()
+
+proc runGitInput(repository: GitRepository, args: openArray[string], input: string): GitResult =
+  if repository == nil: return GitResult(exitCode: -1, output: "not a git repository")
+  var commandArgs = @["-C", repository.root]
+  commandArgs.add(args)
+  let process = startProcess("git", "", commandArgs,
+    options = {poUsePath, poStdErrToStdOut})
+  process.inputStream.write(input)
+  process.inputStream.close()
   result.output = process.outputStream.readAll()
   result.exitCode = process.waitForExit()
   process.close()
@@ -146,8 +159,11 @@ proc parseDiffHunks*(output: string): seq[GitDiffHunk] =
   ## Body lines are counted only after a header, so file metadata cannot alter
   ## the current hunk's added/removed counts.
   var current = -1
+  var currentPatch: seq[string]
   for line in output.splitLines:
     if line.startsWith("@@ "):
+      if current >= 0:
+        result[current].patchText = currentPatch.join("\n") & "\n"
       let fields = line.splitWhitespace()
       if fields.len < 3: continue
       let oldRange = parseDiffRange(fields[1])
@@ -157,13 +173,39 @@ proc parseDiffHunks*(output: string): seq[GitDiffHunk] =
         kind: if oldRange.count == 0: gitHunkAdded
           elif newRange.count == 0: gitHunkDeleted else: gitHunkModified))
       current = result.high
+      currentPatch = @[line]
     elif current >= 0 and line.len > 0:
+      currentPatch.add(line)
       if line[0] == '+': inc result[current].addedLines
       elif line[0] == '-': inc result[current].removedLines
+  if current >= 0:
+    result[current].patchText = currentPatch.join("\n") & "\n"
 
 proc diffHunks*(repository: GitRepository, path = "", staged = false): seq[GitDiffHunk] =
   let output = repository.diff(path, staged)
   if output.exitCode == 0: result = parseDiffHunks(output.output)
+
+proc applyHunk*(repository: GitRepository, path: string, hunkIndex: int,
+                reverse = false): GitResult =
+  let diff = repository.diff(path, staged = reverse)
+  if diff.exitCode != 0: return diff
+  let hunks = parseDiffHunks(diff.output)
+  if hunkIndex < 0 or hunkIndex >= hunks.len:
+    return GitResult(exitCode: -1, output: "diff hunk index out of range")
+  let headerEnd = diff.output.find("@@ ")
+  if headerEnd < 0:
+    return GitResult(exitCode: -1, output: "diff contains no hunk")
+  let patch = diff.output[0 ..< headerEnd] & hunks[hunkIndex].patchText
+  var args = @["apply", "--cached", "--whitespace=nowarn"]
+  if reverse: args.add("--reverse")
+  args.add("-")
+  repository.runGitInput(args, patch)
+
+proc stageHunk*(repository: GitRepository, path: string, hunkIndex: int): GitResult =
+  repository.applyHunk(path, hunkIndex)
+
+proc unstageHunk*(repository: GitRepository, path: string, hunkIndex: int): GitResult =
+  repository.applyHunk(path, hunkIndex, reverse = true)
 
 proc stage*(repository: GitRepository, paths: openArray[string]): GitResult =
   var args = @["add", "--"]

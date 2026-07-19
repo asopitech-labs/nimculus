@@ -121,6 +121,14 @@ root before scheduling a diff job. A secondary root therefore cannot
 accidentally use the primary root's index, matching Zed's worktree/path
 ownership boundary.
 
+Hunk staging is implemented by extracting one unified hunk and sending it to
+`git apply --cached` through stdin; unstage uses the same patch with
+`--reverse`. This keeps the operation atomic at the hunk boundary used by
+Zed, avoids shell interpolation of paths, and leaves the remaining hunks in
+the working tree untouched. The macOS Command Palette exposes repository
+status, all-stage, all-unstage, and commit-message commands on top of the same
+service.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The
