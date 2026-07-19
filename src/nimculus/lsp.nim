@@ -102,6 +102,7 @@ type
     clientName*: string
     initializeId: int
     diagnostics: Table[string, seq[LspDiagnostic]]
+    responses: Table[int, JsonNode]
 
 proc protocolError(message: string): ref LspProtocolError =
   newException(LspProtocolError, message)
@@ -523,7 +524,8 @@ proc startLspSession*(command: string, args: openArray[string],
   result = LspSession(process: startLspProcess(command, args),
     tracker: initLspRequestTracker(), state: lspSessionInitializing,
     rootUri: rootUri, clientName: clientName,
-    diagnostics: initTable[string, seq[LspDiagnostic]]())
+    diagnostics: initTable[string, seq[LspDiagnostic]](),
+    responses: initTable[int, JsonNode]())
   let request = result.process.sendRequest(result.tracker, "initialize",
     initializeParams(rootUri, clientName))
   result.initializeId = request.id
@@ -546,6 +548,8 @@ proc poll*(session: LspSession): seq[JsonNode] =
       if session.process.isRunning:
         session.process.send(initializedNotification())
     else:
+      if session.tracker.acceptsResponse(id):
+        session.responses[id] = message
       discard session.tracker.finishResponse(id)
   if not session.process.isRunning:
     session.state = if session.process.state == lspStopped: lspSessionStopped else: lspSessionFailed
@@ -555,6 +559,20 @@ proc request*(session: LspSession, methodName: string,
   if session == nil or session.state != lspSessionReady:
     raise protocolError("LSP session is not initialized")
   session.process.sendRequest(session.tracker, methodName, params)
+
+proc cancel*(session: LspSession, id: int): bool =
+  if session == nil or id <= 0 or session.process == nil: return false
+  if not session.tracker.cancelRequest(id): return false
+  try:
+    session.process.send(cancelJson(id))
+    result = true
+  except CatchableError:
+    discard
+
+proc takeResponse*(session: LspSession, id: int): JsonNode =
+  if session == nil or id notin session.responses: return
+  result = session.responses[id]
+  session.responses.del(id)
 
 proc notify*(session: LspSession, methodName: string, params: JsonNode = nil) =
   if session == nil or session.state != lspSessionReady:
@@ -574,6 +592,7 @@ proc restart*(session: LspSession) =
   session.process.restart()
   session.tracker = initLspRequestTracker()
   session.diagnostics.clear()
+  session.responses.clear()
   session.state = lspSessionInitializing
   let request = session.process.sendRequest(session.tracker, "initialize",
     initializeParams(session.rootUri, session.clientName))

@@ -80,6 +80,16 @@ incremental frame decoder remains responsible for partial headers and bodies.
 The existing AppKit timer invokes the Nim idle callback so diagnostics arrive
 even when the user is not generating input events.
 
+## M8-006: Bind completion results to the cursor snapshot
+
+Completion requests store the UTF-16 position and byte cursor used to create
+the request. The session keeps accepted response payloads by request ID, and
+the editor bridge consumes only the current completion request. A document
+change cancels and hides the current menu before sending `didChange`; an old
+response therefore cannot replace the menu for a newer cursor. The native
+popup receives only display text, while acceptance computes a Unicode-aware
+word range in the Piece Table and applies one atomic edit.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The

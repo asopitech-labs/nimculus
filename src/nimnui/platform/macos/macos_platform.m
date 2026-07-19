@@ -31,6 +31,7 @@ static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
 static NSString *g_editor_text = @"";
 static NSString *g_marked_text = @"";
+static NSString *g_editor_completions = @"";
 static NSString *g_clipboard_text = @"";
 static NSData *g_clipboard_utf8_data = nil;
 static char g_dialog_path[PATH_MAX] = {0};
@@ -615,6 +616,27 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     CGContextSetTextPosition(context, g_editor_cursor[0], MAX(0.0, baseline));
     CTLineDraw(markedLine, context);
     CFRelease(markedLine);
+  }
+  if (g_editor_completions.length > 0) {
+    NSArray<NSString *> *completionLines = [g_editor_completions componentsSeparatedByString:@"\n"];
+    NSUInteger visibleCount = MIN((NSUInteger)6, completionLines.count);
+    CGFloat popupTop = logicalHeight - g_editor_cursor[1] - 4.0;
+    CGFloat popupHeight = visibleCount * 18.0 + 6.0;
+    CGContextSetRGBFillColor(context, 0.08, 0.10, 0.14, 0.96);
+    CGContextFillRect(context, CGRectMake(g_editor_cursor[0], popupTop - popupHeight,
+      360.0, popupHeight));
+    NSDictionary *completionAttributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
+      (id)kCTForegroundColorAttributeName: (id)[NSColor whiteColor].CGColor };
+    for (NSUInteger index = 0; index < visibleCount; index++) {
+      NSString *lineText = completionLines[index];
+      NSAttributedString *line = [[NSAttributedString alloc] initWithString:lineText
+        attributes:completionAttributes];
+      CTLineRef completionLine = CTLineCreateWithAttributedString((CFAttributedStringRef)line);
+      CGContextSetTextPosition(context, g_editor_cursor[0] + 6.0,
+        popupTop - 18.0 * (index + 1) + 3.0);
+      CTLineDraw(completionLine, context);
+      CFRelease(completionLine);
+    }
   }
   CGContextSetStrokeColorWithColor(context, [NSColor colorWithCalibratedRed:0.85
     green:0.90 blue:1.0 alpha:1.0].CGColor);
@@ -2152,6 +2174,15 @@ void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
   if (!g_editor_text) g_editor_text = @"";
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
+  if (g_active_view) [g_active_view drawFrame];
+}
+void nimculus_platform_set_editor_completions(const char *utf8, uint32_t length) {
+  g_editor_completions = (utf8 && length > 0)
+    ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
+    : @"";
+  if (!g_editor_completions) g_editor_completions = @"";
+  markSceneFullyDirty();
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   if (g_active_view) [g_active_view drawFrame];
 }
 uint32_t nimculus_platform_editor_text_utf8_length(void) {

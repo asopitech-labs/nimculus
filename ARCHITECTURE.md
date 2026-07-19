@@ -95,3 +95,8 @@ version. It sends `didOpen`/`didChange`/`didClose`, polls the non-blocking
 transport from the macOS idle callback, and converts cached diagnostics into a
 separate native span array. No language server is started when the setting is
 absent.
+
+Feature responses are retained by request ID until the owning editor bridge
+consumes them. Completion stores its cursor snapshot and cancels the previous
+request before issuing a new one; the macOS popup is only a rendering surface,
+and accepted candidates are applied through the Piece Table.

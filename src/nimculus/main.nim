@@ -26,6 +26,8 @@ var activePointerNode = NodeId(0)
 var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 
 proc resetPointerInteractions()
+when defined(macosx):
+  proc handleCompletionShortcut(event: ptr NimculusInputEvent): bool
 
 proc setupDemoUi() =
   demoTree = newUiTree()
@@ -141,6 +143,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.}
 
 proc dispatchNativeShortcut(event: ptr NimculusInputEvent): bool {.cdecl.} =
   if event == nil: return false
+  when defined(macosx):
+    if handleCompletionShortcut(event): return true
   shortcutRegistry.dispatchShortcut(Shortcut(
     keyCode: event.keyCode,
     modifiers: macOSModifiers(event.modifiers)))
@@ -499,6 +503,23 @@ when defined(macosx):
     else:
       platformSetEditorDiagnostics(nil, 0)
 
+  proc syncNativeCompletion() =
+    if lspBridge == nil or not lspBridge.completionVisible:
+      platformSetEditorCompletions("".cstring, 0)
+      return
+    let text = lspBridge.completionText()
+    platformSetEditorCompletions(text.cstring, uint32(text.len))
+
+  proc requestEditorCompletion() =
+    let document = activeDocument()
+    if document == nil or lspBridge == nil:
+      platformSetEditorCompletions("".cstring, 0)
+      return
+    if lspBridge.requestCompletion(document[].buffer, editorViewState.cursor):
+      platformSetEditorCompletions("".cstring, 0)
+    else:
+      platformSetEditorCompletions("".cstring, 0)
+
 proc refreshEditorSyntax() =
   let document = activeDocument()
   if document == nil:
@@ -543,6 +564,7 @@ proc refreshEditorSyntax() =
     if nativeHighlights.len > 0: highlightPtr = addr nativeHighlights[0]
     platformSetEditorHighlights(highlightPtr, uint32(nativeHighlights.len))
     let text = document[].buffer.toString()
+    platformSetEditorCompletions("".cstring, 0)
     platformSetEditorText(text.cstring, uint32(text.len))
     syncNativeDiagnostics(document)
 
@@ -556,6 +578,41 @@ when defined(macosx):
     if lspBridge.poll():
       let document = activeDocument()
       if document != nil: syncNativeDiagnostics(document)
+      syncNativeCompletion()
+
+  proc acceptCurrentCompletion() =
+    let document = activeDocument()
+    if document == nil or lspBridge == nil or not lspBridge.completionVisible: return
+    let edit = lspBridge.completionEdit(document[].buffer)
+    if edit.endByte <= edit.startByte and edit.text.len == 0: return
+    document[].buffer.edit(Edit(startByte: edit.startByte, endByte: edit.endByte,
+      text: edit.text))
+    editorViewState.moveCursor(edit.startByte + edit.text.len)
+    lspBridge.hideCompletion()
+    platformSetEditorCompletions("".cstring, 0)
+    syncEditorCursor()
+    refreshEditorSyntax()
+
+  proc handleCompletionShortcut(event: ptr NimculusInputEvent): bool =
+    if event == nil or lspBridge == nil or not lspBridge.completionVisible: return false
+    case event.keyCode
+    of 125'u32:
+      lspBridge.completionSelected = min(lspBridge.completionItems.high,
+        lspBridge.completionSelected + 1)
+      syncNativeCompletion()
+      true
+    of 126'u32:
+      lspBridge.completionSelected = max(0, lspBridge.completionSelected - 1)
+      syncNativeCompletion()
+      true
+    of 36'u32, 48'u32:
+      acceptCurrentCompletion()
+      true
+    of 53'u32:
+      lspBridge.hideCompletion()
+      syncNativeCompletion()
+      true
+    else: false
 
 proc receiveNativeTextValue(value: string, composing: bool) =
   imeState.receiveText(value, composing)
@@ -573,6 +630,7 @@ proc receiveNativeTextValue(value: string, composing: bool) =
       editorViewState.moveCursor(selected.startByte + value.len)
       syncEditorCursor()
       refreshEditorSyntax()
+      requestEditorCompletion()
 
 proc receiveNativeText(text: cstring, composing: bool) {.cdecl.} =
   receiveNativeTextValue(if text == nil: "" else: $text, composing)

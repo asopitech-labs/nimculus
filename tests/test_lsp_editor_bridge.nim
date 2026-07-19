@@ -36,3 +36,40 @@ suite "LSP editor bridge":
     check resolved[0].endByte == 7
     bridge.updateDocument("/tmp/a b.nim", "A日本語")
     check bridge.version == 2
+
+  test "requests completion at UTF-16 cursor and accepts a stale-safe edit":
+    let server = "import sys,json,time\n" &
+      "def frame(x):\n" &
+      "    b=json.dumps(x,separators=(',',':')).encode()\n" &
+      "    return ('Content-Length: '+str(len(b))+'\\r\\n\\r\\n').encode()+b\n" &
+      "init={'jsonrpc':'2.0','id':1,'result':{'capabilities':{'completionProvider':{}}}}\n" &
+      "completion={'jsonrpc':'2.0','id':2,'result':{'isIncomplete':False,'items':[{'label':'日本語','insertText':'日本語','detail':'word'}]}}\n" &
+      "sys.stdout.buffer.write(frame(init)); sys.stdout.buffer.flush()\n" &
+      "data=b''\n" &
+      "while True:\n" &
+      "    chunk=sys.stdin.buffer.read(1)\n" &
+      "    if not chunk: break\n" &
+      "    data += chunk\n" &
+      "    if b'textDocument/completion' in data:\n" &
+      "        sys.stdout.buffer.write(frame(completion)); sys.stdout.buffer.flush(); break\n" &
+      "time.sleep(2)\n"
+    let bridge = newLspEditorBridge("python3", ["-u", "-c", server])
+    defer: bridge.stop()
+    bridge.updateDocument("/tmp/completion.nim", "x日本")
+    for _ in 0 ..< 30:
+      discard bridge.poll()
+      if bridge.opened: break
+      sleep(10)
+    check bridge.opened
+    let buffer = initPieceTable("x日本")
+    check bridge.requestCompletion(buffer, buffer.toString().len)
+    for _ in 0 ..< 30:
+      discard bridge.poll()
+      if bridge.completionVisible: break
+      sleep(10)
+    check bridge.completionVisible
+    check bridge.completionItems[0].label == "日本語"
+    let edit = bridge.completionEdit(buffer)
+    check edit.startByte == 0
+    check edit.endByte == 7
+    check edit.text == "日本語"

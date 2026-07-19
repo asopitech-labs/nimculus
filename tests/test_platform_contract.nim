@@ -62,3 +62,7 @@ suite "macOS platform contract":
   test "idle callback contract can be cleared":
     platformSetIdleCallback(nil)
     check true
+
+  test "completion popup contract can be cleared":
+    platformSetEditorCompletions("".cstring, 0)
+    check true
