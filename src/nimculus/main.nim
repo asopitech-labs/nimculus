@@ -12,6 +12,8 @@ import nimculus/editor_syntax
 import nimculus/tree_sitter
 import nimculus/workspace
 import nimculus/session
+import nimculus/lsp_editor_bridge
+import nimculus/editor_diagnostics
 
 var demoTree = newUiTree()
 var shortcutRegistry: CommandRegistry
@@ -175,6 +177,8 @@ var recoveryFilePath = ""
 var persistenceTick = 0
 var suppressRecoveryWrite = false
 var discardDirtyOnExit = false
+when defined(macosx):
+  var lspBridge: LspEditorBridge
 
 proc resetEditorViewState() =
   editorViewState = newEditorView()
@@ -476,9 +480,30 @@ when defined(macosx):
     if document == nil: return 0
     int(platformEditorByteOffsetAtPoint(x, y))
 
+  proc syncNativeDiagnostics(document: ptr FileDocument) =
+    if lspBridge == nil or document == nil:
+      platformSetEditorDiagnostics(nil, 0)
+      return
+    let text = document[].buffer.toString()
+    lspBridge.updateDocument(document[].path, text)
+    discard lspBridge.poll()
+    let diagnostics = document[].buffer.resolveDiagnostics(lspBridge.diagnostics())
+    var nativeDiagnostics = newSeq[NativeDiagnosticSpan](diagnostics.len)
+    for index, diagnostic in diagnostics:
+      nativeDiagnostics[index] = NativeDiagnosticSpan(
+        startByte: uint32(max(0, diagnostic.startByte)),
+        endByte: uint32(max(0, diagnostic.endByte)),
+        severity: uint32(max(0, diagnostic.severity)))
+    if nativeDiagnostics.len > 0:
+      platformSetEditorDiagnostics(addr nativeDiagnostics[0], uint32(nativeDiagnostics.len))
+    else:
+      platformSetEditorDiagnostics(nil, 0)
+
 proc refreshEditorSyntax() =
   let document = activeDocument()
-  if document == nil: return
+  if document == nil:
+    when defined(macosx): platformSetEditorDiagnostics(nil, 0)
+    return
   var grammar: GrammarKind
   try:
     grammar = grammarForPath(document[].path)
@@ -493,6 +518,7 @@ proc refreshEditorSyntax() =
       platformSetEditorHighlights(nil, 0)
       let text = document[].buffer.toString()
       platformSetEditorText(text.cstring, uint32(text.len))
+      syncNativeDiagnostics(document)
     return
   if syntaxState == nil or syntaxState.grammar != grammar:
     if syntaxState != nil: syntaxState.close()
@@ -518,6 +544,18 @@ proc refreshEditorSyntax() =
     platformSetEditorHighlights(highlightPtr, uint32(nativeHighlights.len))
     let text = document[].buffer.toString()
     platformSetEditorText(text.cstring, uint32(text.len))
+    syncNativeDiagnostics(document)
+
+when defined(macosx):
+  proc pollLspAndRefreshDiagnostics() =
+    let document = activeDocument()
+    if document != nil: syncNativeDiagnostics(document)
+
+  proc receiveNativeIdle() {.cdecl.} =
+    if lspBridge == nil: return
+    if lspBridge.poll():
+      let document = activeDocument()
+      if document != nil: syncNativeDiagnostics(document)
 
 proc receiveNativeTextValue(value: string, composing: bool) =
   imeState.receiveText(value, composing)
@@ -992,6 +1030,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
 
 proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   if event.isNil: return
+  when defined(macosx): pollLspAndRefreshDiagnostics()
   let kind = nativeEventKind(event.kind)
   # AppKit view points use a bottom-left origin. NimNUI layout and hit-test
   # rectangles use a top-left origin, so normalize once at the boundary.
@@ -1091,12 +1130,18 @@ when isMainModule:
         if dirExists(root): activeWorkspace.addRoot(root)
       activeWorkspace.startWatching()
       refreshWorkspacePreview()
+    let lspCommand = getEnv("NIMCULUS_LSP_COMMAND", "")
+    if lspCommand.len > 0:
+      lspBridge = newLspEditorBridge(lspCommand,
+        getEnv("NIMCULUS_LSP_ARGS", "").splitWhitespace,
+        if dirExists(initialRoot): fileUri(initialRoot) else: "")
     platformSetTextCallback(receiveNativeText)
     platformSetSelectionCallback(receiveNativeSelection)
     platformSetInputCallback(receiveNativeInput)
     platformSetShortcutCallback(dispatchNativeShortcut)
     platformSetFileCallback(receiveNativeFile)
     platformSetCommandCallback(receiveNativeCommand)
+    platformSetIdleCallback(receiveNativeIdle)
     if activeDocument() != nil:
       syncEditorCursor()
       refreshEditorSyntax()

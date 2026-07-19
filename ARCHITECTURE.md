@@ -80,11 +80,18 @@ transport/protocol handling from the project language-server store. Process
 lifecycle, stdio reads, document synchronization, and feature adapters must
 build on this boundary rather than parsing JSON directly in UI callbacks.
 `LspProcess` keeps stdout as framed protocol data, exposes explicit stop and
-restart transitions, and is intended to be driven by a worker/event task;
-`readMessages` never belongs on the Metal or input callback path.
+restart transitions, and is driven by a non-blocking AppKit idle callback;
+`readMessages` never belongs on the Metal render callback path.
 `LspSession` owns the initialize handshake, pending-response transitions, and
 per-document diagnostics cache, while feature consumers receive decoded JSON
 through the request generation they initiated.
 The protocol module also converts standard response shapes into locations,
 text edits, completion items, hover text, and symbols; these parsers reject
 stale responses before application state can consume them.
+
+When `NIMCULUS_LSP_COMMAND` is configured, `lsp_editor_bridge` owns the
+active-document URI, language ID, and monotonically increasing full-sync
+version. It sends `didOpen`/`didChange`/`didClose`, polls the non-blocking
+transport from the macOS idle callback, and converts cached diagnostics into a
+separate native span array. No language server is started when the setting is
+absent.

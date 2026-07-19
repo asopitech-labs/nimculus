@@ -22,6 +22,7 @@ type
   SelectionCallback* = proc(startByte, endByte: uint32) {.cdecl.}
   FileCallback* = proc(path: cstring, saving: bool) {.cdecl.}
   CommandCallback* = proc(command: cstring) {.cdecl.}
+  IdleCallback* = proc() {.cdecl.}
   NativeHighlightSpan* {.bycopy.} = object
     startByte*, endByte*, kind*: uint32
   NativeDiagnosticSpan* {.bycopy.} = object
@@ -47,6 +48,7 @@ proc platformSetTextCallback*(callback: TextCallback) {.importc: "nimculus_platf
 proc platformSetSelectionCallback*(callback: SelectionCallback) {.importc: "nimculus_platform_set_selection_callback", cdecl.}
 proc platformSetFileCallback*(callback: FileCallback) {.importc: "nimculus_platform_set_file_callback", cdecl.}
 proc platformSetCommandCallback*(callback: CommandCallback) {.importc: "nimculus_platform_set_command_callback", cdecl.}
+proc platformSetIdleCallback*(callback: IdleCallback) {.importc: "nimculus_platform_set_idle_callback", cdecl.}
 proc platformSetEditorCursor*(x, y: cdouble) {.importc: "nimculus_platform_set_editor_cursor", cdecl.}
 proc platformSetEditorCursorByte*(byteOffset, line: uint32) {.importc: "nimculus_platform_set_editor_cursor_byte", cdecl.}
 proc platformInvalidateImeCoordinates*() {.importc: "nimculus_platform_invalidate_ime_coordinates", cdecl.}

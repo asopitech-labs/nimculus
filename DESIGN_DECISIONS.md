@@ -70,6 +70,16 @@ rebuilding the glyph atlas. The ABI carries UTF-8 byte ranges and LSP severity;
 the macOS surface converts each visible range to Core Text units and draws a
 severity-colored underline over the Metal editor surface.
 
+## M8-005: Poll LSP stdout without blocking the UI
+
+The macOS/POSIX transport obtains the child stdout file descriptor and reads
+it in non-blocking mode. A generic `readStr(4096)` can wait for the entire
+requested size after a short LSP response, which would stall AppKit input and
+rendering. Readiness is therefore handled at the fd boundary, while the
+incremental frame decoder remains responsible for partial headers and bodies.
+The existing AppKit timer invokes the Nim idle callback so diagnostics arrive
+even when the user is not generating input events.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The

@@ -18,6 +18,7 @@ static NimculusTextCallback g_text_callback = NULL;
 static NimculusSelectionCallback g_selection_callback = NULL;
 static NimculusFileCallback g_file_callback = NULL;
 static NimculusCommandCallback g_command_callback = NULL;
+static NimculusIdleCallback g_idle_callback = NULL;
 static double g_ui_rect[4] = {360.0, 260.0, 240.0, 120.0};
 static double g_editor_rect[4] = {48.0, 128.0, 828.0, 432.0};
 static NimculusPaintCommand *g_paint_commands = NULL;
@@ -1594,6 +1595,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 
 - (void)emitWorkspaceSearchTick:(NSTimer *)timer {
   (void)timer;
+  if (g_idle_callback) g_idle_callback();
   if (g_command_callback) g_command_callback("workspaceSearchTick");
 }
 
@@ -1959,6 +1961,7 @@ void nimculus_platform_set_text_callback(NimculusTextCallback callback) { g_text
 void nimculus_platform_set_selection_callback(NimculusSelectionCallback callback) { g_selection_callback = callback; }
 void nimculus_platform_set_file_callback(NimculusFileCallback callback) { g_file_callback = callback; }
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback) { g_command_callback = callback; }
+void nimculus_platform_set_idle_callback(NimculusIdleCallback callback) { g_idle_callback = callback; }
 void nimculus_platform_set_editor_cursor(double x, double y) {
   g_editor_cursor[0] = x;
   g_editor_cursor[1] = y;

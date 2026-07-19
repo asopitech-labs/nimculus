@@ -58,3 +58,7 @@ suite "macOS platform contract":
     platformSetEditorHighlights(nil, 0)
     platformSetEditorDiagnostics(nil, 0)
     check true
+
+  test "idle callback contract can be cleared":
+    platformSetIdleCallback(nil)
+    check true

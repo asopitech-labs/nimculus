@@ -5,6 +5,17 @@ import std/streams
 import std/strutils
 import std/tables
 import std/times
+when defined(posix):
+  import std/posix
+
+when defined(posix):
+  ## FileStream keeps its File field private. The process output stream is a
+  ## PipeOutStream<FileStream>; this layout-compatible view lets the macOS /
+  ## POSIX LSP transport perform a genuinely non-blocking read on its fd.
+  type
+    NimculusFileStreamObj = object of Stream
+      f: File
+    NimculusFileStream = ref NimculusFileStreamObj
 
 type
   LspProtocolError* = object of CatchableError
@@ -415,7 +426,7 @@ proc startLspProcess*(command: string, args: openArray[string] = [],
 
 proc isRunning*(client: LspProcess): bool =
   client != nil and client.state == lspRunning and client.process != nil and
-    client.process.running
+    client.process.peekExitCode() < 0
 
 proc send*(client: LspProcess, payload: JsonNode) =
   if client == nil or not client.isRunning: raise protocolError("LSP process is not running")
@@ -443,18 +454,50 @@ proc readMessages*(client: LspProcess): seq[JsonNode] =
   ## Read one blocking pipe chunk and decode all complete messages in it.
   ## Call this from the app's worker/event task, never from the rendering
   ## callback; the decoder itself remains incremental and non-lossy.
-  if client == nil or not client.isRunning: return
+  if client == nil or client.process == nil or client.state != lspRunning: return
   ## A pipe read is allowed to block until the requested buffer is filled on
   ## some platforms. Wait for readiness first so a short LSP response is not
   ## held hostage by the 4 KiB scratch buffer.
   if not client.process.hasData():
-    client.state = if client.process.peekExitCode() == 0: lspStopped else: lspFailed
+    # No readable bytes is the normal idle state for a non-blocking poll. Only
+    # transition the process when the child has actually exited; otherwise an
+    # editor with an idle language server would be marked failed between
+    # diagnostics notifications.
+    let exitCode = client.process.peekExitCode()
+    if exitCode >= 0:
+      client.state = if exitCode == 0: lspStopped else: lspFailed
     return
-  let chunk = client.output.readStr(4096)
-  if chunk.len == 0:
-    client.state = if client.process.peekExitCode() == 0: lspStopped else: lspFailed
-    return
-  client.decoder.feed(chunk)
+  when defined(posix):
+    let stream = cast[NimculusFileStream](client.output)
+    if stream == nil or stream.f == nil: return
+    let fd = cint(getOsFileHandle(stream.f))
+    let flags = fcntl(fd, F_GETFL)
+    if flags < 0 or fcntl(fd, F_SETFL, flags or O_NONBLOCK) < 0:
+      raise protocolError("cannot configure non-blocking LSP stdout")
+    var chunk = newStringOfCap(4096)
+    var bytes: array[4096, char]
+    while chunk.len < 65536:
+      let count = posix.read(fd, addr bytes[0], bytes.len)
+      if count > 0:
+        let oldLength = chunk.len
+        chunk.setLen(oldLength + count)
+        copyMem(addr chunk[oldLength], addr bytes[0], count)
+      elif count == 0:
+        let exitCode = client.process.peekExitCode()
+        client.state = if exitCode == 0: lspStopped else: lspFailed
+        break
+      elif errno == EAGAIN or errno == EWOULDBLOCK:
+        break
+      else:
+        client.state = lspFailed
+        break
+    if chunk.len > 0:
+      result.add(client.decoder.feed(chunk))
+  else:
+    # Non-POSIX builds retain the portable stream path. The macOS-first
+    # implementation above is the non-blocking path used by Nimculus today.
+    let chunk = client.output.readStr(1)
+    if chunk.len > 0: result.add(client.decoder.feed(chunk))
 
 proc stop*(client: LspProcess, terminate = true): int =
   if client == nil or client.process == nil: return -1
@@ -489,9 +532,6 @@ proc poll*(session: LspSession): seq[JsonNode] =
   ## Consume one worker-task read and apply protocol-level session updates.
   ## Feature-specific response decoding remains at the caller boundary.
   if session == nil or session.state in {lspSessionStopped, lspSessionFailed}: return
-  if not session.process.isRunning:
-    session.state = if session.process.state == lspStopped: lspSessionStopped else: lspSessionFailed
-    return
   for message in session.process.readMessages():
     result.add(message)
     if message.kind != JObject: continue
@@ -507,6 +547,8 @@ proc poll*(session: LspSession): seq[JsonNode] =
         session.process.send(initializedNotification())
     else:
       discard session.tracker.finishResponse(id)
+  if not session.process.isRunning:
+    session.state = if session.process.state == lspStopped: lspSessionStopped else: lspSessionFailed
 
 proc request*(session: LspSession, methodName: string,
               params: JsonNode = nil): LspPendingRequest =
