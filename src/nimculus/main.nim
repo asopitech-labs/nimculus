@@ -190,6 +190,13 @@ var discardDirtyOnExit = false
 when defined(macosx):
   var lspBridge: LspEditorBridge
   var editorGitDiffJob: GitJob
+  var editorGitActionJob: GitJob
+  var editorGitAction = ""
+  var editorGitActionPhase = ""
+  var editorGitActionDocumentPath = ""
+  var editorGitActionPath = ""
+  var editorGitActionSource = ""
+  var editorGitActionLine = -1
   var editorGitRepository: GitRepository
   var editorGitPath = ""
   var editorTaskJob: TaskJob
@@ -244,6 +251,129 @@ when defined(macosx):
     if absoluteDocumentPath.startsWith(prefix):
       result = absoluteDocumentPath[prefix.len .. ^1]
 
+  proc cancelNativeGitAction() =
+    if editorGitActionJob != nil and not editorGitActionJob.done:
+      editorGitActionJob.cancel()
+    editorGitActionJob = nil
+    editorGitAction = ""
+    editorGitActionPhase = ""
+
+  proc startNativeGitAction(repository: GitRepository, action, path: string,
+                            args: openArray[string], source = "",
+                            line = -1) =
+    cancelNativeGitAction()
+    if repository == nil:
+      editorViewState.statusMessage = "Git repository not found"
+      return
+    editorGitRepository = repository
+    editorGitAction = action
+    editorGitActionPhase = "run"
+    editorGitActionDocumentPath = if activeDocument() == nil: ""
+      else: activeDocument()[].path
+    editorGitActionPath = path
+    editorGitActionSource = source
+    editorGitActionLine = line
+    editorGitActionJob = repository.startGitJob(args)
+    editorViewState.statusMessage = "Git: " & action & "…"
+
+  proc startNativeGitHunkAction(repository: GitRepository, path, action: string,
+                                line: int) =
+    cancelNativeGitAction()
+    if repository == nil or path.len == 0:
+      editorViewState.statusMessage = "Git repository not found"
+      return
+    editorGitAction = action
+    editorGitActionPhase = "diff"
+    editorGitActionDocumentPath = if activeDocument() == nil: ""
+      else: activeDocument()[].path
+    editorGitActionPath = path
+    editorGitActionLine = line
+    editorGitRepository = repository
+    var diffArgs = @["diff", "--no-ext-diff", "--unified=3"]
+    if action == "unstage hunk": diffArgs.add("--cached")
+    diffArgs.add("--")
+    diffArgs.add(path)
+    editorGitActionJob = repository.startGitJob(diffArgs)
+    editorViewState.statusMessage = "Git: " & action & "…"
+
+  proc pollNativeGitAction() =
+    if editorGitActionJob == nil or not editorGitActionJob.poll(): return
+    let job = editorGitActionJob
+    let action = editorGitAction
+    let document = activeDocument()
+    let sameDocument = document != nil and
+      document[].path == editorGitActionDocumentPath
+    if action.endsWith("hunk") and not sameDocument:
+      cancelNativeGitAction()
+      return
+    if job.cancelled:
+      editorViewState.statusMessage = "Git: cancelled"
+      cancelNativeGitAction()
+      return
+    if action.endsWith("hunk") and editorGitActionPhase == "diff":
+      if job.result.exitCode != 0:
+        editorViewState.statusMessage = "Git hunk diff failed: " & job.result.output.strip
+        cancelNativeGitAction()
+        return
+      let hunks = parseDiffHunks(job.result.output)
+      var hunkIndex = -1
+      for index, hunk in hunks:
+        let firstLine = max(0, hunk.newStart - 1)
+        let lineCount = max(1, hunk.newCount)
+        if editorGitActionLine >= firstLine and
+            editorGitActionLine < firstLine + lineCount:
+          hunkIndex = index
+          break
+      if hunkIndex < 0:
+        editorViewState.statusMessage = "Git: no hunk at cursor"
+        cancelNativeGitAction()
+        return
+      let headerEnd = job.result.output.find("@@ ")
+      if headerEnd < 0:
+        editorViewState.statusMessage = "Git: hunk patch unavailable"
+        cancelNativeGitAction()
+        return
+      let patch = job.result.output[0 ..< headerEnd] & hunks[hunkIndex].patchText
+      var args = @["apply", "--cached", "--whitespace=nowarn"]
+      if action == "unstage hunk": args.add("--reverse")
+      args.add("-")
+      editorGitActionPhase = "apply"
+      editorGitActionJob = editorGitRepository.startGitJobInput(args, patch)
+      editorViewState.statusMessage = "Git: applying hunk…"
+      return
+    let output = job.result.output.strip
+    if job.result.exitCode != 0:
+      editorViewState.statusMessage = "Git " & action & " failed: " & output
+    elif action == "status":
+      let entries = parseStatus(job.result.output)
+      var conflicts = 0
+      for entry in entries:
+        if entry.conflict: inc conflicts
+      editorViewState.statusMessage = "Git: " & $entries.len &
+        " changed file(s), " & $conflicts & " conflict(s)"
+    elif action == "log":
+      let commits = parseLog(job.result.output, 5)
+      editorViewState.statusMessage = if commits.len == 0:
+        "Git log: no commits" else: "Git log: " & commits[0].subject
+    elif action == "blame":
+      let blameLines = parseBlame(job.result.output)
+      let location = if not sameDocument: -1
+        elif document == nil: -1
+        else: document[].buffer.lineColumn(editorViewState.cursor).line
+      editorViewState.statusMessage = if location >= 0 and location < blameLines.len:
+        "Blame: " & blameLines[location].author & " — " & blameLines[location].summary
+        else: "Git blame unavailable for this line"
+    elif action == "checkout":
+      if document != nil and document[].path == editorGitActionDocumentPath:
+        discard editorSession.reloadActiveDocument(editorViewState)
+        resetImeState()
+        refreshEditorSyntax()
+      editorViewState.statusMessage = "Git: checked out " & editorGitActionSource
+    else:
+      editorViewState.statusMessage = "Git: " & action
+      refreshEditorSyntax()
+    cancelNativeGitAction()
+
   proc handleGitGutterClick(document: ptr FileDocument, uiY: float32,
                             modifiers: uint32): bool =
     if document == nil or document[].path.len == 0: return false
@@ -255,21 +385,8 @@ when defined(macosx):
     # Option-click follows the standard staged-diff convention and reverses
     # the operation against the index; a normal click stages the worktree hunk.
     let unstage = (modifiers and (1'u32 shl 19)) != 0'u32
-    let hunks = repository.diffHunks(relative, staged = unstage)
-    var hunkIndex = -1
-    for index, hunk in hunks:
-      let firstLine = max(0, hunk.newStart - 1)
-      let lineCount = max(1, hunk.newCount)
-      if line >= firstLine and line < firstLine + lineCount:
-        hunkIndex = index
-        break
-    if hunkIndex < 0: return false
-    let outcome = if unstage: repository.unstageHunk(relative, hunkIndex)
-      else: repository.stageHunk(relative, hunkIndex)
-    editorViewState.statusMessage = if outcome.exitCode == 0:
-      (if unstage: "Git: unstaged hunk" else: "Git: staged hunk")
-      else: "Git hunk operation failed: " & outcome.output.strip
-    refreshEditorSyntax()
+    startNativeGitHunkAction(repository, relative,
+      if unstage: "unstage hunk" else: "stage hunk", line)
     true
 
   proc clearNativeGitHunks() =
@@ -763,6 +880,7 @@ when defined(macosx):
 
   proc receiveNativeIdle() {.cdecl.} =
     pollNativeGitHunks()
+    pollNativeGitAction()
     pollNativeTask()
     pollNativeTerminal()
     if lspBridge == nil: return
@@ -1127,6 +1245,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command in ["toggle terminal", "new terminal"]: "__toggle_terminal__"
       elif command.startsWith("run task "): "__run_task__"
       elif command == "cancel task": "__cancel_task__"
+      elif command == "cancel git": "__cancel_git__"
       else: command
     editorViewState.closeCommandPalette()
     case dispatchCommand
@@ -1172,6 +1291,13 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           startNativeTask(taskCommand)
     of "__cancel_task__":
       when defined(macosx): cancelNativeTask()
+    of "__cancel_git__":
+      when defined(macosx):
+        if editorGitActionJob == nil or editorGitActionJob.done:
+          editorViewState.statusMessage = "Git: no running operation"
+        else:
+          cancelNativeGitAction()
+          editorViewState.statusMessage = "Git: cancelled"
     of "__toggle_terminal__":
       when defined(macosx): toggleNativeTerminal()
     of "workspace search":
@@ -1184,32 +1310,22 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         if repository == nil:
           editorViewState.statusMessage = "Git repository not found"
         else:
-          let entries = repository.status()
-          var conflicts = 0
-          for entry in entries:
-            if entry.conflict: inc conflicts
-          editorViewState.statusMessage = "Git: " & $entries.len &
-            " changed file(s), " & $conflicts & " conflict(s)"
+          startNativeGitAction(repository, "status", "", [
+            "status", "--porcelain=v1", "--untracked-files=all", "-z"])
     of "git stage all":
       when defined(macosx):
         let repository = gitRepositoryForDocument(document)
         if repository == nil:
           editorViewState.statusMessage = "Git repository not found"
         else:
-          let outcome = repository.stageAll()
-          editorViewState.statusMessage = if outcome.exitCode == 0:
-            "Git: staged all changes" else: "Git stage failed: " & outcome.output.strip
-          refreshEditorSyntax()
+          startNativeGitAction(repository, "stage all", "", ["add", "-A"])
     of "git unstage all":
       when defined(macosx):
         let repository = gitRepositoryForDocument(document)
         if repository == nil:
           editorViewState.statusMessage = "Git repository not found"
         else:
-          let outcome = repository.unstageAll()
-          editorViewState.statusMessage = if outcome.exitCode == 0:
-            "Git: unstaged all changes" else: "Git unstage failed: " & outcome.output.strip
-          refreshEditorSyntax()
+          startNativeGitAction(repository, "unstage all", "", ["reset", "HEAD"])
     of "__git_stage_hunk__", "__git_unstage_hunk__":
       when defined(macosx):
         let repository = gitRepositoryForDocument(document)
@@ -1218,38 +1334,17 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "Git repository not found"
         else:
           let line = document[].buffer.lineColumn(editorViewState.cursor).line
-          let hunks = repository.diffHunks(relative,
-            staged = dispatchCommand == "__git_unstage_hunk__")
-          var hunkIndex = -1
-          for index, hunk in hunks:
-            let firstLine = max(0, hunk.newStart - 1)
-            let lineCount = max(1, hunk.newCount)
-            if line >= firstLine and line < firstLine + lineCount:
-              hunkIndex = index
-              break
-          if hunkIndex < 0:
-            editorViewState.statusMessage = "Git: no hunk at cursor"
-          else:
-            let outcome = if dispatchCommand == "__git_stage_hunk__":
-              repository.stageHunk(relative, hunkIndex)
-            else:
-              repository.unstageHunk(relative, hunkIndex)
-            editorViewState.statusMessage = if outcome.exitCode == 0:
-              (if dispatchCommand == "__git_stage_hunk__":
-                "Git: staged hunk" else: "Git: unstaged hunk")
-              else: "Git hunk operation failed: " & outcome.output.strip
-            refreshEditorSyntax()
+          startNativeGitHunkAction(repository, relative,
+            if dispatchCommand == "__git_stage_hunk__": "stage hunk" else: "unstage hunk",
+            line)
     of "git log":
       when defined(macosx):
         let repository = gitRepositoryForDocument(document)
         if repository == nil:
           editorViewState.statusMessage = "Git repository not found"
         else:
-          let commits = repository.log(5)
-          if commits.len == 0:
-            editorViewState.statusMessage = "Git log: no commits"
-          else:
-            editorViewState.statusMessage = "Git log: " & commits[0].subject
+          startNativeGitAction(repository, "log", "", [
+            "log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00", "-n", "5"])
     of "git blame":
       when defined(macosx):
         let repository = gitRepositoryForDocument(document)
@@ -1257,13 +1352,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         if repository == nil or relative.len == 0:
           editorViewState.statusMessage = "Git repository not found"
         else:
-          let location = document[].buffer.lineColumn(editorViewState.cursor)
-          let blameLines = repository.blame(relative)
-          if location.line < blameLines.len:
-            let entry = blameLines[location.line]
-            editorViewState.statusMessage = "Blame: " & entry.author & " — " & entry.summary
-          else:
-            editorViewState.statusMessage = "Git blame unavailable for this line"
+          startNativeGitAction(repository, "blame", relative, [
+            "blame", "--line-porcelain", "--", relative])
     of "__git_commit__":
       when defined(macosx):
         let repository = gitRepositoryForDocument(document)
@@ -1273,10 +1363,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         elif message.len == 0:
           editorViewState.statusMessage = "Git commit requires a message"
         else:
-          let outcome = repository.commit(message)
-          editorViewState.statusMessage = if outcome.exitCode == 0:
-            "Git: committed" else: "Git commit failed: " & outcome.output.strip
-          refreshEditorSyntax()
+          startNativeGitAction(repository, "commit", "", ["commit", "-m", message])
     of "__git_checkout__":
       when defined(macosx):
         let repository = gitRepositoryForDocument(document)
@@ -1287,14 +1374,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         elif source.len == 0:
           editorViewState.statusMessage = "Git checkout requires a revision"
         else:
-          let outcome = repository.checkout(source, [relative])
-          if outcome.exitCode == 0:
-            discard editorSession.reloadActiveDocument(editorViewState)
-            resetImeState()
-            refreshEditorSyntax()
-            editorViewState.statusMessage = "Git: checked out " & source
-          else:
-            editorViewState.statusMessage = "Git checkout failed: " & outcome.output.strip
+          startNativeGitAction(repository, "checkout", relative,
+            ["checkout", source, "--", relative], source = source)
     else: editorViewState.statusMessage = "Unknown command: " & command
   elif name == "saveAndClose":
     let document = activeDocument()

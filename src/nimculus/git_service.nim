@@ -48,6 +48,8 @@ type
   GitRepository* = ref object
     root*: string
 
+proc cancel*(job: GitJob)
+
 proc newGitRepository*(root: string): GitRepository =
   let absolute = absolutePath(root)
   if not dirExists(absolute): return nil
@@ -90,6 +92,19 @@ proc startGitJob*(repository: GitRepository, args: openArray[string]): GitJob =
   commandArgs.add(args)
   result = GitJob(process: startProcess("git", "", commandArgs,
     options = {poUsePath, poStdErrToStdOut}))
+
+proc startGitJobInput*(repository: GitRepository, args: openArray[string],
+                       input: string): GitJob =
+  ## Start a cancellable Git process with a bounded patch/input payload.
+  ## The caller must keep the payload small enough to write before polling;
+  ## this is intended for one diff hunk, not repository-sized stdin.
+  result = repository.startGitJob(args)
+  if result == nil or result.done: return
+  try:
+    result.process.inputStream.write(input)
+    result.process.inputStream.close()
+  except CatchableError:
+    result.cancel()
 
 proc cancel*(job: GitJob) =
   if job == nil or job.done: return
@@ -242,13 +257,10 @@ proc head*(repository: GitRepository): string =
   let output = repository.runGit(["rev-parse", "HEAD"])
   if output.exitCode == 0: result = output.output.strip()
 
-proc log*(repository: GitRepository, limit = 50): seq[GitCommit] =
-  let output = repository.runGit(["log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00",
-    "-n", $max(1, limit)])
-  if output.exitCode != 0: return
-  let fields = output.output.split('\0')
+proc parseLog*(output: string, limit = 50): seq[GitCommit] =
+  let fields = output.split('\0')
   var index = 0
-  while index + 4 < fields.len:
+  while index + 4 < fields.len and result.len < max(1, limit):
     if fields[index].len == 0: break
     try:
       result.add(GitCommit(hash: fields[index], author: fields[index + 1],
@@ -257,12 +269,15 @@ proc log*(repository: GitRepository, limit = 50): seq[GitCommit] =
     except ValueError: discard
     index += 5
 
-proc blame*(repository: GitRepository, path: string): seq[GitBlameLine] =
-  let output = repository.runGit(["blame", "--line-porcelain", "--", path])
-  if output.exitCode != 0: return
+proc log*(repository: GitRepository, limit = 50): seq[GitCommit] =
+  let output = repository.runGit(["log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00",
+    "-n", $max(1, limit)])
+  if output.exitCode == 0: result = parseLog(output.output, limit)
+
+proc parseBlame*(output: string): seq[GitBlameLine] =
   var current = GitBlameLine()
   var haveHeader = false
-  for line in output.output.splitLines:
+  for line in output.splitLines:
     let fields = line.splitWhitespace()
     if fields.len >= 4 and fields[0].len == 40 and fields[1].allCharsInSet({'0'..'9'}):
       current = GitBlameLine(hash: fields[0], line: parseInt(fields[2]))
@@ -275,6 +290,10 @@ proc blame*(repository: GitRepository, path: string): seq[GitBlameLine] =
       current.text = line[1 .. ^1]
       result.add(current)
       haveHeader = false
+
+proc blame*(repository: GitRepository, path: string): seq[GitBlameLine] =
+  let output = repository.runGit(["blame", "--line-porcelain", "--", path])
+  if output.exitCode == 0: result = parseBlame(output.output)
 
 proc conflictPaths*(repository: GitRepository): seq[string] =
   for entry in repository.status():

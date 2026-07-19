@@ -197,6 +197,17 @@ is forwarded to the PTY. This keeps process lifecycle and screen state
 independent from editor text/IME state while allowing the overlay to be
 replaced by a GPU-native terminal panel later.
 
+## M9-001: Schedule Git actions outside the UI event handler
+
+Git operations invoked by the Command Palette and gutter are scheduled through
+`GitJob` and polled from the native idle callback. This follows Zed's
+background task boundary: status, stage/unstage, commit, log, blame, checkout,
+and hunk operations do not synchronously wait on the UI event handler. Hunk
+actions first obtain the relevant diff, then submit only the selected patch;
+document-bound hunk/blame results are discarded when the active buffer changes.
+`startGitJobInput` is limited to small patch payloads and closes stdin before
+polling process completion.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The
