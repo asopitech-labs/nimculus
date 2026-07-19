@@ -88,7 +88,15 @@ the editor bridge consumes only the current completion request. A document
 change cancels and hides the current menu before sending `didChange`; an old
 response therefore cannot replace the menu for a newer cursor. The native
 popup receives only display text, while acceptance computes a Unicode-aware
-word range in the Piece Table and applies one atomic edit.
+ word range in the Piece Table and applies one atomic edit.
+
+## M8-007: Delay hover requests and invalidate by pointer position
+
+Hover is scheduled only after the pointer remains on a buffer position for
+five 50ms idle ticks. Moving the pointer cancels the pending request and hides
+the current tooltip. The bridge compares the response's cursor snapshot with
+the current target before exposing the text, matching Zed's hover state rather
+than allowing a late response to appear beside a different symbol.
 
 ## Reference: Zed GPUI Metal implementation
 

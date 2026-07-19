@@ -510,6 +510,13 @@ when defined(macosx):
     let text = lspBridge.completionText()
     platformSetEditorCompletions(text.cstring, uint32(text.len))
 
+  proc syncNativeHover() =
+    if lspBridge == nil or not lspBridge.hoverVisible:
+      platformSetEditorHover("".cstring, 0)
+      return
+    let text = lspBridge.hoverText()
+    platformSetEditorHover(text.cstring, uint32(text.len))
+
   proc requestEditorCompletion() =
     let document = activeDocument()
     if document == nil or lspBridge == nil:
@@ -575,10 +582,13 @@ when defined(macosx):
 
   proc receiveNativeIdle() {.cdecl.} =
     if lspBridge == nil: return
+    let document = activeDocument()
+    if document != nil:
+      discard lspBridge.tickHover(document[].buffer)
     if lspBridge.poll():
-      let document = activeDocument()
       if document != nil: syncNativeDiagnostics(document)
       syncNativeCompletion()
+      syncNativeHover()
 
   proc acceptCurrentCompletion() =
     let document = activeDocument()
@@ -1107,6 +1117,9 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     let document = activeDocument()
     let inEditor = demoEditorBounds.contains(point)
     var splitPointerHandled = false
+    if not inEditor and lspBridge != nil:
+      lspBridge.hideHover()
+      syncNativeHover()
     if document != nil and kind == scroll and inEditor:
       let delta = scrollLineDelta(editorScrollRemainder, float32(event.deltaY),
         event.preciseScrolling)
@@ -1141,9 +1154,18 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
         kind in {pointerDown, pointerMove, pointerUp}:
       let offset = editorOffsetAtPoint(document, event.x, event.y)
       if kind == pointerDown:
+        if lspBridge != nil:
+          lspBridge.hideHover()
+          syncNativeHover()
         editorPointerDragging = true
         editorViewState.moveCursor(offset)
         syncEditorCursor()
+      elif kind == pointerMove and not editorPointerDragging and lspBridge != nil:
+        lspBridge.scheduleHover(offset)
+        platformSetEditorHoverPosition(
+          float64(float32(event.x) - float32(demoEditorBounds.origin.x)),
+          float64(uiY - float32(demoEditorBounds.origin.y)))
+        syncNativeHover()
       elif kind == pointerMove and editorPointerDragging:
         editorViewState.moveCursor(offset, selecting = true)
         syncEditorCursor()
@@ -1159,6 +1181,10 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   elif kind == pointerExit:
     for node in demoTree.nodes:
       if node.hoveredState: demoTree.setHovered(node.id, false)
+    when defined(macosx):
+      if lspBridge != nil:
+        lspBridge.hideHover()
+        syncNativeHover()
   elif kind == pointerDown and hit != NodeId(0):
     if demoTree.node(hit).focusable: discard demoTree.focus(hit)
     demoTree.setActive(hit, true)

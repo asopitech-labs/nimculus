@@ -101,6 +101,8 @@ void nimculus_platform_show_save_panel_and_close(void);
 void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_byte);
 void nimculus_platform_set_editor_text(const char *utf8, uint32_t length);
 void nimculus_platform_set_editor_completions(const char *utf8, uint32_t length);
+void nimculus_platform_set_editor_hover(const char *utf8, uint32_t length);
+void nimculus_platform_set_editor_hover_position(double x, double y);
 uint32_t nimculus_platform_editor_text_utf8_length(void);
 void nimculus_platform_set_editor_composition(const char *utf8);
 void nimculus_platform_clear_editor_composition(void);

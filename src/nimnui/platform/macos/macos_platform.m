@@ -32,6 +32,8 @@ static NSUInteger g_editor_selection_end = 0;
 static NSString *g_editor_text = @"";
 static NSString *g_marked_text = @"";
 static NSString *g_editor_completions = @"";
+static NSString *g_editor_hover = @"";
+static double g_editor_hover_position[2] = {8.0, 12.0};
 static NSString *g_clipboard_text = @"";
 static NSData *g_clipboard_utf8_data = nil;
 static char g_dialog_path[PATH_MAX] = {0};
@@ -636,6 +638,28 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         popupTop - 18.0 * (index + 1) + 3.0);
       CTLineDraw(completionLine, context);
       CFRelease(completionLine);
+    }
+  }
+  if (g_editor_hover.length > 0) {
+    NSArray<NSString *> *hoverLines = [g_editor_hover componentsSeparatedByString:@"\n"];
+    NSUInteger visibleCount = MIN((NSUInteger)8, hoverLines.count);
+    CGFloat popupTop = logicalHeight - g_editor_hover_position[1] - 4.0;
+    CGFloat popupHeight = visibleCount * 18.0 + 8.0;
+    CGFloat popupX = MAX(8.0, g_editor_hover_position[0]);
+    CGContextSetRGBFillColor(context, 0.06, 0.07, 0.10, 0.96);
+    CGContextFillRect(context, CGRectMake(popupX, popupTop - popupHeight,
+      460.0, popupHeight));
+    NSDictionary *hoverAttributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
+      (id)kCTForegroundColorAttributeName: (id)[NSColor whiteColor].CGColor };
+    for (NSUInteger index = 0; index < visibleCount; index++) {
+      NSString *lineText = hoverLines[index];
+      NSAttributedString *line = [[NSAttributedString alloc] initWithString:lineText
+        attributes:hoverAttributes];
+      CTLineRef hoverLine = CTLineCreateWithAttributedString((CFAttributedStringRef)line);
+      CGContextSetTextPosition(context, popupX + 6.0,
+        popupTop - 18.0 * (index + 1) + 4.0);
+      CTLineDraw(hoverLine, context);
+      CFRelease(hoverLine);
     }
   }
   CGContextSetStrokeColorWithColor(context, [NSColor colorWithCalibratedRed:0.85
@@ -2181,6 +2205,22 @@ void nimculus_platform_set_editor_completions(const char *utf8, uint32_t length)
     ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
     : @"";
   if (!g_editor_completions) g_editor_completions = @"";
+  markSceneFullyDirty();
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  if (g_active_view) [g_active_view drawFrame];
+}
+void nimculus_platform_set_editor_hover(const char *utf8, uint32_t length) {
+  g_editor_hover = (utf8 && length > 0)
+    ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
+    : @"";
+  if (!g_editor_hover) g_editor_hover = @"";
+  markSceneFullyDirty();
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  if (g_active_view) [g_active_view drawFrame];
+}
+void nimculus_platform_set_editor_hover_position(double x, double y) {
+  g_editor_hover_position[0] = x;
+  g_editor_hover_position[1] = y;
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   if (g_active_view) [g_active_view drawFrame];

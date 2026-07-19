@@ -66,3 +66,8 @@ suite "macOS platform contract":
   test "completion popup contract can be cleared":
     platformSetEditorCompletions("".cstring, 0)
     check true
+
+  test "hover tooltip contract can be cleared":
+    platformSetEditorHover("".cstring, 0)
+    platformSetEditorHoverPosition(8.0, 12.0)
+    check true

@@ -73,3 +73,40 @@ suite "LSP editor bridge":
     check edit.startByte == 0
     check edit.endByte == 7
     check edit.text == "日本語"
+
+  test "delays hover and rejects a response for a moved cursor":
+    let server = "import sys,json,time\n" &
+      "def frame(x):\n" &
+      "    b=json.dumps(x,separators=(',',':')).encode()\n" &
+      "    return ('Content-Length: '+str(len(b))+'\\r\\n\\r\\n').encode()+b\n" &
+      "init={'jsonrpc':'2.0','id':1,'result':{'capabilities':{'hoverProvider':True}}}\n" &
+      "hover={'jsonrpc':'2.0','id':2,'result':{'contents':'symbol info'}}\n" &
+      "sys.stdout.buffer.write(frame(init)); sys.stdout.buffer.flush()\n" &
+      "data=b''\n" &
+      "while True:\n" &
+      "    chunk=sys.stdin.buffer.read(1)\n" &
+      "    if not chunk: break\n" &
+      "    data += chunk\n" &
+      "    if b'textDocument/hover' in data:\n" &
+      "        sys.stdout.buffer.write(frame(hover)); sys.stdout.buffer.flush(); break\n" &
+      "time.sleep(2)\n"
+    let bridge = newLspEditorBridge("python3", ["-u", "-c", server])
+    defer: bridge.stop()
+    bridge.updateDocument("/tmp/hover.nim", "symbol")
+    for _ in 0 ..< 30:
+      discard bridge.poll()
+      if bridge.opened: break
+      sleep(10)
+    let buffer = initPieceTable("symbol")
+    bridge.scheduleHover(2)
+    check not bridge.tickHover(buffer)
+    for _ in 0 ..< 3: check not bridge.tickHover(buffer)
+    check bridge.tickHover(buffer)
+    for _ in 0 ..< 30:
+      discard bridge.poll()
+      if bridge.hoverVisible: break
+      sleep(10)
+    check bridge.hoverVisible
+    check bridge.hoverText() == "symbol info"
+    bridge.scheduleHover(3)
+    check not bridge.hoverVisible
