@@ -189,6 +189,11 @@ consume `TaskResult` without changing process control. Environment overrides
 are merged with the parent environment, and nonzero exits remain distinct from
 explicit cancellation.
 
+The first UI slice exposes `run task <command>` and `cancel task` through the
+macOS Command Palette and reports the terminal line of the completed result in
+the status bar. The full terminal/output panel remains a separate integration
+step so process lifecycle code is not coupled to Metal text rendering.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The

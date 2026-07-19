@@ -15,6 +15,7 @@ import nimculus/session
 import nimculus/lsp_editor_bridge
 import nimculus/editor_diagnostics
 import nimculus/git_service
+import nimculus/task_service
 
 var demoTree = newUiTree()
 var shortcutRegistry: CommandRegistry
@@ -190,6 +191,8 @@ when defined(macosx):
   var editorGitDiffJob: GitJob
   var editorGitRepository: GitRepository
   var editorGitPath = ""
+  var editorTaskJob: TaskJob
+  var editorTaskCommand = ""
 
 proc resetEditorViewState() =
   editorViewState = newEditorView()
@@ -268,6 +271,46 @@ when defined(macosx):
 
   proc clearNativeGitHunks() =
     platformSetEditorGitHunks(nil, 0)
+
+  proc taskWorkingDirectory(document: ptr FileDocument): string =
+    if activeWorkspace != nil and activeWorkspace.rootPaths.len > 0:
+      return activeWorkspace.rootPaths[0]
+    if document != nil and document[].path.len > 0:
+      return splitFile(absolutePath(document[].path)).dir
+    getCurrentDir()
+
+  proc startNativeTask(command: string) =
+    if editorTaskJob != nil and not editorTaskJob.done:
+      editorTaskJob.cancel()
+    editorTaskCommand = command
+    editorTaskJob = startTask(TaskSpec(command: "/bin/zsh",
+      args: @["-lc", command], workingDirectory: taskWorkingDirectory(activeDocument())))
+    editorViewState.statusMessage = "Task: running " & command
+
+  proc cancelNativeTask() =
+    if editorTaskJob == nil or editorTaskJob.done:
+      editorViewState.statusMessage = "Task: no running task"
+      return
+    editorTaskJob.cancel()
+    editorViewState.statusMessage = "Task: cancelled"
+
+  proc pollNativeTask() =
+    if editorTaskJob == nil or not editorTaskJob.poll(): return
+    let taskResult = editorTaskJob.result
+    let output = taskResult.output.strip()
+    let summary = if output.len == 0: "" else:
+      let lines = output.splitLines
+      " — " & lines[lines.high]
+    case taskResult.status
+    of taskSucceeded:
+      editorViewState.statusMessage = "Task succeeded: " & editorTaskCommand & summary
+    of taskFailed:
+      editorViewState.statusMessage = "Task failed (" & $taskResult.exitCode & "): " &
+        editorTaskCommand & summary
+    of taskCancelled:
+      editorViewState.statusMessage = "Task cancelled: " & editorTaskCommand
+    else: discard
+    editorTaskJob = nil
 
   proc scheduleNativeGitHunks(document: ptr FileDocument) =
     if editorGitDiffJob != nil:
@@ -686,6 +729,7 @@ when defined(macosx):
 
   proc receiveNativeIdle() {.cdecl.} =
     pollNativeGitHunks()
+    pollNativeTask()
     if lspBridge == nil: return
     let document = activeDocument()
     if document != nil:
@@ -1026,6 +1070,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command.startsWith("git checkout "): "__git_checkout__"
       elif command == "git stage hunk": "__git_stage_hunk__"
       elif command == "git unstage hunk": "__git_unstage_hunk__"
+      elif command.startsWith("run task "): "__run_task__"
+      elif command == "cancel task": "__cancel_task__"
       else: command
     editorViewState.closeCommandPalette()
     case dispatchCommand
@@ -1062,6 +1108,15 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "LSP: formatting"
         else:
           editorViewState.statusMessage = "LSP formatting unavailable"
+    of "__run_task__":
+      when defined(macosx):
+        let taskCommand = if rawCommand.len > 9: rawCommand[9 .. ^1].strip else: ""
+        if taskCommand.len == 0:
+          editorViewState.statusMessage = "Task requires a command"
+        else:
+          startNativeTask(taskCommand)
+    of "__cancel_task__":
+      when defined(macosx): cancelNativeTask()
     of "workspace search":
       when defined(macosx):
         platformShowWorkspaceSearch()
