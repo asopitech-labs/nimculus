@@ -211,6 +211,7 @@ proc resetImeState() =
 
 proc activeDocument(): ptr FileDocument
 proc refreshWorkspacePreview()
+proc refreshEditorSyntax()
 
 when defined(macosx):
   proc gitRepositoryForDocument(document: ptr FileDocument): GitRepository =
@@ -236,6 +237,34 @@ when defined(macosx):
     let prefix = repository.root & DirSep
     if absoluteDocumentPath.startsWith(prefix):
       result = absoluteDocumentPath[prefix.len .. ^1]
+
+  proc handleGitGutterClick(document: ptr FileDocument, uiY: float32,
+                            modifiers: uint32): bool =
+    if document == nil or document[].path.len == 0: return false
+    let repository = gitRepositoryForDocument(document)
+    let relative = gitRelativePathForDocument(document, repository)
+    if repository == nil or relative.len == 0: return false
+    let line = max(0, int(floor((uiY - float32(demoEditorBounds.origin.y) - 4'f32) /
+      18'f32)) + editorViewState.scrollLine)
+    # Option-click follows the standard staged-diff convention and reverses
+    # the operation against the index; a normal click stages the worktree hunk.
+    let unstage = (modifiers and (1'u32 shl 19)) != 0'u32
+    let hunks = repository.diffHunks(relative, staged = unstage)
+    var hunkIndex = -1
+    for index, hunk in hunks:
+      let firstLine = max(0, hunk.newStart - 1)
+      let lineCount = max(1, hunk.newCount)
+      if line >= firstLine and line < firstLine + lineCount:
+        hunkIndex = index
+        break
+    if hunkIndex < 0: return false
+    let outcome = if unstage: repository.unstageHunk(relative, hunkIndex)
+      else: repository.stageHunk(relative, hunkIndex)
+    editorViewState.statusMessage = if outcome.exitCode == 0:
+      (if unstage: "Git: unstaged hunk" else: "Git: staged hunk")
+      else: "Git hunk operation failed: " & outcome.output.strip
+    refreshEditorSyntax()
+    true
 
   proc clearNativeGitHunks() =
     platformSetEditorGitHunks(nil, 0)
@@ -1386,6 +1415,10 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       editorViewState.scrollLine = max(0, min(maxScroll, editorViewState.scrollLine + delta))
       syncEditorCursor()
       refreshEditorSyntax()
+    if document != nil and kind == pointerDown and inEditor and
+        float32(event.x) - float32(demoEditorBounds.origin.x) < 8'f32 and
+        handleGitGutterClick(document, uiY, event.modifiers):
+      return
     if kind == pointerDown and hit == demoSplitNode:
       demoSplitDragging = true
       editorPointerDragging = false
