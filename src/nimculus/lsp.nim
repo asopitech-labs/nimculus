@@ -52,6 +52,18 @@ type
     message*: string
     source*: string
 
+  LspSessionState* = enum
+    lspSessionInitializing, lspSessionReady, lspSessionStopped, lspSessionFailed
+
+  LspSession* = ref object
+    process*: LspProcess
+    tracker*: LspRequestTracker
+    state*: LspSessionState
+    rootUri*: string
+    clientName*: string
+    initializeId: int
+    diagnostics: Table[string, seq[LspDiagnostic]]
+
 proc protocolError(message: string): ref LspProtocolError =
   newException(LspProtocolError, message)
 
@@ -330,3 +342,65 @@ proc restart*(client: LspProcess) =
   client.output = process.peekableOutputStream()
   client.decoder = LspFrameDecoder()
   client.state = lspRunning
+
+proc startLspSession*(command: string, args: openArray[string],
+                      rootUri, clientName: string): LspSession =
+  result = LspSession(process: startLspProcess(command, args),
+    tracker: initLspRequestTracker(), state: lspSessionInitializing,
+    rootUri: rootUri, clientName: clientName,
+    diagnostics: initTable[string, seq[LspDiagnostic]]())
+  let request = result.process.sendRequest(result.tracker, "initialize",
+    initializeParams(rootUri, clientName))
+  result.initializeId = request.id
+
+proc poll*(session: LspSession): seq[JsonNode] =
+  ## Consume one worker-task read and apply protocol-level session updates.
+  ## Feature-specific response decoding remains at the caller boundary.
+  if session == nil or session.state in {lspSessionStopped, lspSessionFailed}: return
+  if not session.process.isRunning:
+    session.state = if session.process.state == lspStopped: lspSessionStopped else: lspSessionFailed
+    return
+  for message in session.process.readMessages():
+    result.add(message)
+    if message.kind != JObject: continue
+    if message.hasKey("method") and message["method"].getStr == "textDocument/publishDiagnostics":
+      let parsed = parseDiagnostics(message)
+      session.diagnostics[parsed.uri] = parsed.diagnostics
+    if not message.hasKey("id") or message["id"].kind != JInt: continue
+    let id = message["id"].getInt
+    if id == session.initializeId and session.tracker.acceptsResponse(id):
+      discard session.tracker.finishResponse(id)
+      session.state = lspSessionReady
+      if session.process.isRunning:
+        session.process.send(initializedNotification())
+    else:
+      discard session.tracker.finishResponse(id)
+
+proc request*(session: LspSession, methodName: string,
+              params: JsonNode = nil): LspPendingRequest =
+  if session == nil or session.state != lspSessionReady:
+    raise protocolError("LSP session is not initialized")
+  session.process.sendRequest(session.tracker, methodName, params)
+
+proc notify*(session: LspSession, methodName: string, params: JsonNode = nil) =
+  if session == nil or session.state != lspSessionReady:
+    raise protocolError("LSP session is not initialized")
+  session.process.sendNotification(methodName, params)
+
+proc diagnosticsFor*(session: LspSession, uri: string): seq[LspDiagnostic] =
+  if session != nil and uri in session.diagnostics: result = session.diagnostics[uri]
+
+proc stop*(session: LspSession) =
+  if session == nil: return
+  discard session.process.stop()
+  session.state = lspSessionStopped
+
+proc restart*(session: LspSession) =
+  if session == nil: return
+  session.process.restart()
+  session.tracker = initLspRequestTracker()
+  session.diagnostics.clear()
+  session.state = lspSessionInitializing
+  let request = session.process.sendRequest(session.tracker, "initialize",
+    initializeParams(session.rootUri, session.clientName))
+  session.initializeId = request.id

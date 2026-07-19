@@ -79,3 +79,6 @@ build on this boundary rather than parsing JSON directly in UI callbacks.
 `LspProcess` keeps stdout as framed protocol data, exposes explicit stop and
 restart transitions, and is intended to be driven by a worker/event task;
 `readMessages` never belongs on the Metal or input callback path.
+`LspSession` owns the initialize handshake, pending-response transitions, and
+per-document diagnostics cache, while feature consumers receive decoded JSON
+through the request generation they initiated.

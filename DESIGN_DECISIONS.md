@@ -37,6 +37,10 @@ codec and consume this contract. `LspProcess` keeps stdout separate from
 stderr, writes through stdio with flushes, detects EOF/exit status, supports
 explicit stop/restart, and reads only after pipe readiness. Its blocking read
 is deliberately a worker-task API, never a UI or render callback API.
+`LspSession` consumes the initialize response before sending `initialized`,
+stores `publishDiagnostics` by URI, and tolerates a server that exits after a
+final response so shutdown races do not turn a valid response into a protocol
+error.
 
 ## Reference: Zed GPUI Metal implementation
 

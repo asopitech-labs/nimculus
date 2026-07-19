@@ -98,3 +98,19 @@ suite "M8 LSP protocol foundation":
     check parsed.diagnostics.len == 1
     check parsed.diagnostics[0].range.start.line == 2
     check parsed.diagnostics[0].severity == 2
+
+  test "session initializes and stores diagnostics from a language server":
+    let server = "import sys,json,time\n" &
+      "def frame(x):\n" &
+      "    b=json.dumps(x,separators=(',',':')).encode()\n" &
+      "    return ('Content-Length: '+str(len(b))+'\\r\\n\\r\\n').encode()+b\n" &
+      "init={'jsonrpc':'2.0','id':1,'result':{'capabilities':{}}}\n" &
+      "diag={'jsonrpc':'2.0','method':'textDocument/publishDiagnostics','params':{'uri':'file:///a.nim','diagnostics':[{'range':{'start':{'line':0,'character':0},'end':{'line':0,'character':1}},'severity':1,'message':'error'}]}}\n" &
+      "sys.stdout.buffer.write(frame(init)+frame(diag)); sys.stdout.buffer.flush(); time.sleep(2)\n"
+    let session = startLspSession("python3", ["-u", "-c", server], "", "Nimculus")
+    defer: session.stop()
+    var messages = session.poll()
+    check messages.len >= 1
+    check session.state == lspSessionReady
+    check session.diagnosticsFor("file:///a.nim").len == 1
+    check session.diagnosticsFor("file:///a.nim")[0].message == "error"
