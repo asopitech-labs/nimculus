@@ -995,6 +995,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     let dispatchCommand =
       if command.startsWith("git commit "): "__git_commit__"
       elif command.startsWith("git checkout "): "__git_checkout__"
+      elif command == "git stage hunk": "__git_stage_hunk__"
+      elif command == "git unstage hunk": "__git_unstage_hunk__"
       else: command
     editorViewState.closeCommandPalette()
     case dispatchCommand
@@ -1067,6 +1069,35 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = if outcome.exitCode == 0:
             "Git: unstaged all changes" else: "Git unstage failed: " & outcome.output.strip
           refreshEditorSyntax()
+    of "__git_stage_hunk__", "__git_unstage_hunk__":
+      when defined(macosx):
+        let repository = gitRepositoryForDocument(document)
+        let relative = gitRelativePathForDocument(document, repository)
+        if repository == nil or document == nil or relative.len == 0:
+          editorViewState.statusMessage = "Git repository not found"
+        else:
+          let line = document[].buffer.lineColumn(editorViewState.cursor).line
+          let hunks = repository.diffHunks(relative,
+            staged = dispatchCommand == "__git_unstage_hunk__")
+          var hunkIndex = -1
+          for index, hunk in hunks:
+            let firstLine = max(0, hunk.newStart - 1)
+            let lineCount = max(1, hunk.newCount)
+            if line >= firstLine and line < firstLine + lineCount:
+              hunkIndex = index
+              break
+          if hunkIndex < 0:
+            editorViewState.statusMessage = "Git: no hunk at cursor"
+          else:
+            let outcome = if dispatchCommand == "__git_stage_hunk__":
+              repository.stageHunk(relative, hunkIndex)
+            else:
+              repository.unstageHunk(relative, hunkIndex)
+            editorViewState.statusMessage = if outcome.exitCode == 0:
+              (if dispatchCommand == "__git_stage_hunk__":
+                "Git: staged hunk" else: "Git: unstaged hunk")
+              else: "Git hunk operation failed: " & outcome.output.strip
+            refreshEditorSyntax()
     of "git log":
       when defined(macosx):
         let repository = gitRepositoryForDocument(document)
