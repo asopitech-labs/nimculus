@@ -66,3 +66,35 @@ suite "M8 LSP protocol foundation":
     check messages.len == 1
     check messages[0]["method"].getStr == "initialized"
     check messages[0]["params"]["message"].getStr == "日本語"
+
+  test "builds initialize, synchronization, and feature requests":
+    let position = LspPosition(line: 3, character: 5)
+    let range = LspRange(start: LspPosition(line: 1, character: 2),
+      finish: LspPosition(line: 1, character: 8))
+    check initializeParams("", "Nimculus")["rootUri"].kind == JNull
+    check initializeParams("", "Nimculus")["processId"].getInt > 0
+    check didOpenNotification("file:///a.nim", "nim", "echo 1", 1)["method"].getStr == "textDocument/didOpen"
+    check didChangeNotification("file:///a.nim", "echo 2", 2)["params"]["contentChanges"].len == 1
+    check didCloseNotification("file:///a.nim")["method"].getStr == "textDocument/didClose"
+    check completionRequest("file:///a.nim", position).methodName == "textDocument/completion"
+    check hoverRequest("file:///a.nim", position).methodName == "textDocument/hover"
+    check definitionRequest("file:///a.nim", position).methodName == "textDocument/definition"
+    check referencesRequest("file:///a.nim", position).params["context"]["includeDeclaration"].getBool
+    check documentSymbolRequest("file:///a.nim").methodName == "textDocument/documentSymbol"
+    check renameRequest("file:///a.nim", position, "newName").params["newName"].getStr == "newName"
+    check formattingRequest("file:///a.nim").methodName == "textDocument/formatting"
+    check codeActionRequest("file:///a.nim", range).methodName == "textDocument/codeAction"
+    check signatureHelpRequest("file:///a.nim", position).methodName == "textDocument/signatureHelp"
+    check semanticTokensRequest("file:///a.nim").methodName == "textDocument/semanticTokens/full"
+    check inlayHintRequest("file:///a.nim", range).methodName == "textDocument/inlayHint"
+
+  test "parses diagnostics notification":
+    let message = %*{"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
+      "params": {"uri": "file:///a.nim", "diagnostics": [{
+        "range": {"start": {"line": 2, "character": 1}, "end": {"line": 2, "character": 4}},
+        "severity": 2, "source": "nim", "message": "warning"}]}}
+    let parsed = parseDiagnostics(message)
+    check parsed.uri == "file:///a.nim"
+    check parsed.diagnostics.len == 1
+    check parsed.diagnostics[0].range.start.line == 2
+    check parsed.diagnostics[0].severity == 2
