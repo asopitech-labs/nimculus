@@ -60,6 +60,16 @@ clamps a position that lands inside a surrogate pair to a safe rune boundary,
 and clamps beyond-line positions to the line end. Diagnostics are then stored
 as byte ranges, matching the editor's existing edit and selection contracts.
 
+## M8-004: Keep diagnostics separate from syntax spans
+
+Diagnostics use a separate native span array and overlay texture path rather
+than being merged into syntax highlight spans. This follows Zed's separation
+between syntax styling and diagnostic decorations: a diagnostic update cannot
+overwrite syntax colors, and a renderer can update underlines without
+rebuilding the glyph atlas. The ABI carries UTF-8 byte ranges and LSP severity;
+the macOS surface converts each visible range to Core Text units and draws a
+severity-colored underline over the Metal editor surface.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The

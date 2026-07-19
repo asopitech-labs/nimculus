@@ -53,3 +53,8 @@ suite "macOS platform contract":
     platformSetEditorSelection(1, 4)
     platformSetEditorSelection(0, 0)
     check true
+
+  test "syntax and diagnostic spans have separate native contracts":
+    platformSetEditorHighlights(nil, 0)
+    platformSetEditorDiagnostics(nil, 0)
+    check true

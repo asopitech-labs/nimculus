@@ -113,6 +113,8 @@ static BOOL g_scene_dirty = YES;
 static id g_active_view = nil;
 static NimculusHighlightSpan *g_highlights = NULL;
 static uint32_t g_highlight_count = 0;
+static NimculusDiagnosticSpan *g_diagnostics = NULL;
+static uint32_t g_diagnostic_count = 0;
 
 static void markSceneFullyDirty(void) {
   g_scene_dirty = YES;
@@ -570,6 +572,33 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         logicalHeight - lineHeight * (displayIndex + 1) + 1.0);
       CTLineDraw(line, context);
       CFRelease(line);
+    }
+    for (uint32_t diagnosticIndex = 0; diagnosticIndex < g_diagnostic_count; diagnosticIndex++) {
+      NimculusDiagnosticSpan diagnostic = g_diagnostics[diagnosticIndex];
+      if (diagnostic.end_byte <= lineStartByte ||
+          diagnostic.start_byte >= lineStartByte + lineLength) continue;
+      NSUInteger startByte = MAX((NSUInteger)diagnostic.start_byte, lineStartByte) - lineStartByte;
+      NSUInteger endByte = MIN((NSUInteger)diagnostic.end_byte, lineStartByte + lineLength) - lineStartByte;
+      NSUInteger startUnit = utf16OffsetForUTF8Bytes(lineText, startByte);
+      NSUInteger endUnit = utf16OffsetForUTF8Bytes(lineText, endByte);
+      if (endUnit <= startUnit) continue;
+      CGFloat red = 0.95, green = 0.25, blue = 0.25;
+      if (diagnostic.severity == 2) {
+        red = 0.98; green = 0.62; blue = 0.16;
+      } else if (diagnostic.severity == 3) {
+        red = 0.30; green = 0.60; blue = 0.98;
+      } else if (diagnostic.severity >= 4) {
+        red = 0.55; green = 0.60; blue = 0.68;
+      }
+      CGContextSetStrokeColorWithColor(context,
+        [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1.0].CGColor);
+      CGContextSetLineWidth(context, 1.0);
+      CGFloat x0 = 8.0 + editorTextOffset(lineText, startUnit);
+      CGFloat x1 = 8.0 + editorTextOffset(lineText, endUnit);
+      CGFloat y = logicalHeight - lineHeight * (displayIndex + 1) - 1.5;
+      CGContextMoveToPoint(context, x0, y);
+      CGContextAddLineToPoint(context, MAX(x0 + 2.0, x1), y);
+      CGContextStrokePath(context);
     }
     lineStartByte += lineLength + 1;
     lineStartUnit = lineEndUnit + 1;
@@ -2163,6 +2192,21 @@ void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans,
     }
   }
   markSceneFullyDirty();
+}
+void nimculus_platform_set_editor_diagnostics(const NimculusDiagnosticSpan *spans, uint32_t count) {
+  free(g_diagnostics);
+  g_diagnostics = NULL;
+  g_diagnostic_count = 0;
+  if (spans && count > 0) {
+    g_diagnostics = malloc(sizeof(NimculusDiagnosticSpan) * count);
+    if (g_diagnostics) {
+      memcpy(g_diagnostics, spans, sizeof(NimculusDiagnosticSpan) * count);
+      g_diagnostic_count = count;
+    }
+  }
+  markSceneFullyDirty();
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_recent_files(const char *const *paths, uint32_t count) {
   NSMutableArray<NSString *> *files = [NSMutableArray arrayWithCapacity:count];

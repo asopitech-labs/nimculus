@@ -24,6 +24,8 @@ type
   CommandCallback* = proc(command: cstring) {.cdecl.}
   NativeHighlightSpan* {.bycopy.} = object
     startByte*, endByte*, kind*: uint32
+  NativeDiagnosticSpan* {.bycopy.} = object
+    startByte*, endByte*, severity*: uint32
   NativePaintCommand* {.bycopy.} = object
     kind*: uint32
     x*, y*, width*, height*: cfloat
@@ -65,6 +67,7 @@ proc platformEditorTextUtf8Length*(): uint32 {.importc: "nimculus_platform_edito
 proc platformSetEditorComposition*(text: cstring) {.importc: "nimculus_platform_set_editor_composition", cdecl.}
 proc platformClearEditorComposition*() {.importc: "nimculus_platform_clear_editor_composition", cdecl.}
 proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32) {.importc: "nimculus_platform_set_editor_highlights", cdecl.}
+proc platformSetEditorDiagnostics*(spans: ptr NativeDiagnosticSpan, count: uint32) {.importc: "nimculus_platform_set_editor_diagnostics", cdecl.}
 proc platformSetRecentFiles*(paths: ptr cstring, count: uint32) {.importc: "nimculus_platform_set_recent_files", cdecl.}
 proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}
 proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer, length: uint32) {.importc: "nimculus_platform_set_image_rgba", cdecl.}
