@@ -49,6 +49,9 @@ NimNUI text, selection, cursor, status and native AppKit services
 The Piece Table is independent of the UI and is exercised by deterministic
 fuzz tests. M5 services preserve CRLF/LF style, detect external changes, and
 persist tabs, recent files, and recovery data separately from rendering.
+LSP diagnostics are resolved at this boundary from UTF-16 line/character
+positions to safe UTF-8 byte ranges before a renderer or editor command sees
+them; surrogate-pair and out-of-line positions are clamped.
 
 ## M6 workspace layer
 

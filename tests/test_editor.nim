@@ -4,6 +4,8 @@ when defined(posix):
   import std/files
 import std/strutils
 import nimculus/editor_buffer
+import nimculus/editor_diagnostics
+import nimculus/lsp
 import nimculus/editor_app
 import nimculus/editor_view
 import nimculus/session
@@ -52,11 +54,28 @@ suite "M4 editor buffer":
     check buffer.lineColumn(6) == (line: 1, column: 1)
     check buffer.lineColumn(12) == (line: 1, column: 3)
     check buffer.utf16Position(6) == (line: 1, character: 2)
+    check buffer.byteOffsetAtUtf16Position(1, 0) == 2
+    check buffer.byteOffsetAtUtf16Position(1, 1) == 2
+    check buffer.byteOffsetAtUtf16Position(1, 2) == 6
+    check buffer.byteOffsetAtUtf16Position(1, 3) == 9
+    check buffer.byteOffsetAtUtf16Position(1, 99) == 12
     check buffer.byteOffsetAtLineColumn(1, 0) == 2
     check buffer.byteOffsetAtLineColumn(1, 1) == 6
     check buffer.byteOffsetAtLineColumn(1, 2) == 9
     check previousWordBoundary("hello 世界", 12) == 6
     check nextWordBoundary("hello 世界", 0) == 5
+
+  test "resolves LSP diagnostics from UTF-16 positions to byte ranges":
+    let buffer = initPieceTable("A\n😀日本")
+    let diagnostic = LspDiagnostic(
+      range: LspRange(start: LspPosition(line: 1, character: 2),
+        finish: LspPosition(line: 1, character: 3)),
+      severity: 1, message: "bad name", source: "nim")
+    let resolved = buffer.resolveDiagnostics([diagnostic])
+    check resolved.len == 1
+    check resolved[0].startByte == 6
+    check resolved[0].endByte == 9
+    check resolved[0].message == "bad name"
 
   test "line end stops before the line terminator":
     let buffer = initPieceTable("one\ntwo\n")

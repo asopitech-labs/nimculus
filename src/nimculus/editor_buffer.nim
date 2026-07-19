@@ -263,6 +263,28 @@ proc utf16Position*(table: PieceTable, byteOffset: int): tuple[line, character: 
       units += (if int(rune) > 0xFFFF: 2 else: 1)
   (line: location.line, character: units)
 
+proc byteOffsetAtUtf16Position*(table: PieceTable, line, character: int): int =
+  ## Convert an LSP UTF-16 position to a UTF-8 byte boundary. Positions that
+  ## split a surrogate pair, or exceed the line, clamp to the preceding safe
+  ## rune boundary instead of creating an invalid editor range.
+  if table.lineStarts.len == 0: return 0
+  let targetLine = max(0, min(line, table.lineStarts.high))
+  let start = table.lineStarts[targetLine]
+  let finish = if targetLine + 1 < table.lineStarts.len:
+    table.lineStarts[targetLine + 1]
+  else: table.contentLength
+  let text = table.substring(start, finish)
+  let targetUnits = max(0, character)
+  var byte = 0
+  var units = 0
+  for rune in text.runes:
+    let runeBytes = rune.toUTF8.len
+    let runeUnits = if int(rune) > 0xFFFF: 2 else: 1
+    if units + runeUnits > targetUnits: break
+    units += runeUnits
+    byte += runeBytes
+  min(start + byte, finish)
+
 proc graphemePosition*(table: PieceTable, byteOffset: int): TextPosition =
   let location = table.lineByteColumn(byteOffset)
   let start = table.lineStarts[location.line]

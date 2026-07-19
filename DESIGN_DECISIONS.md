@@ -52,6 +52,14 @@ JSON available for features that need additional fields. The request tracker
 must accept the response first; a stale response is therefore never turned
 into visible completion, hover, or navigation state.
 
+## M8-003: Resolve diagnostics at the editor position boundary
+
+LSP diagnostics use UTF-16 code units while the Piece Table and renderer use
+UTF-8 byte offsets. `byteOffsetAtUtf16Position` walks Unicode scalar values,
+clamps a position that lands inside a surrogate pair to a safe rune boundary,
+and clamps beyond-line positions to the line end. Diagnostics are then stored
+as byte ranges, matching the editor's existing edit and selection contracts.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The
