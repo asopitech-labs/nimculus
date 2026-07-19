@@ -98,6 +98,19 @@ the current tooltip. The bridge compares the response's cursor snapshot with
 the current target before exposing the text, matching Zed's hover state rather
 than allowing a late response to appear beside a different symbol.
 
+## M9-001: Keep Git CLI behind a cancellable repository service
+
+Zed's Git integration separates repository operations and status parsing from
+editor rendering, and uses porcelain status records plus explicit stage
+operations. Nimculus follows that boundary in `git_service.nim`: the service
+passes argument arrays to `git` instead of interpolating paths into shell
+commands, parses `--porcelain=v1 -z` without losing rename/copy paths, and
+represents conflicts from the index/worktree status columns. Mutating and
+query operations return an explicit exit code, while longer commands can be
+started as `GitJob` instances and terminated by the owner. Inline diff and
+gutter rendering remain consumers of this service rather than being embedded
+in process management.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The

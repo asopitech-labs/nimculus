@@ -100,3 +100,15 @@ Feature responses are retained by request ID until the owning editor bridge
 consumes them. Completion stores its cursor snapshot and cancels the previous
 request before issuing a new one; the macOS popup is only a rendering surface,
 and accepted candidates are applied through the Piece Table.
+
+## M9 Git boundary
+
+`src/nimculus/git_service.nim` keeps Git CLI process management separate from
+the UI. Status uses porcelain v1 with NUL delimiters so filenames containing
+spaces or colons remain lossless; rename/copy records retain both new and old
+paths, and conflict states are derived from the two index/worktree status
+columns. Diff, stage/unstage, commit, log, blame, branch, and HEAD operations
+return explicit results. Long-running commands can be represented by a
+`GitJob` and terminated without blocking the Metal or AppKit event loop. The
+application can later layer inline diff and gutter presentation on these
+stable repository contracts.
