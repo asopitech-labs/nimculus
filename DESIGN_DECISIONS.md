@@ -129,6 +129,12 @@ the working tree untouched. The macOS Command Palette exposes repository
 status, all-stage, all-unstage, and commit-message commands on top of the same
 service.
 
+Log, current-line blame, and file checkout use the same Command Palette entry
+point. Checkout reloads the active document only after Git reports success;
+failed checkout leaves the editor buffer untouched. Status reports conflict
+count separately so an unmerged worktree is not presented as an ordinary set
+of modified files.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The

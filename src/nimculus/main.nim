@@ -220,6 +220,20 @@ when defined(macosx):
         return nil
     newGitRepository(splitFile(absolutePath(document[].path)).dir)
 
+  proc gitRelativePathForDocument(document: ptr FileDocument,
+                                  repository: GitRepository): string =
+    if document == nil or repository == nil or document[].path.len == 0: return ""
+    if activeWorkspace != nil:
+      try:
+        let location = activeWorkspace.splitWorkspacePath(document[].path)
+        return location.relative
+      except CatchableError:
+        return ""
+    let absoluteDocumentPath = absolutePath(document[].path)
+    let prefix = repository.root & DirSep
+    if absoluteDocumentPath.startsWith(prefix):
+      result = absoluteDocumentPath[prefix.len .. ^1]
+
   proc clearNativeGitHunks() =
     platformSetEditorGitHunks(nil, 0)
 
@@ -231,23 +245,9 @@ when defined(macosx):
     editorGitPath = ""
     clearNativeGitHunks()
     if document == nil or document[].path.len == 0: return
-    var repository: GitRepository
-    var relative = ""
-    if activeWorkspace != nil:
-      try:
-        let location = activeWorkspace.splitWorkspacePath(document[].path)
-        repository = newGitRepository(location.root)
-        relative = location.relative
-      except CatchableError:
-        return
-    else:
-      repository = gitRepositoryForDocument(document)
+    let repository = gitRepositoryForDocument(document)
     if repository == nil: return
-    if relative.len == 0:
-      let absoluteDocumentPath = absolutePath(document[].path)
-      let prefix = repository.root & DirSep
-      if not absoluteDocumentPath.startsWith(prefix): return
-      relative = absoluteDocumentPath[prefix.len .. ^1]
+    let relative = gitRelativePathForDocument(document, repository)
     if relative.len == 0: return
     editorGitRepository = repository
     editorGitPath = document[].path
@@ -946,7 +946,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name.startsWith("commandPalette:"):
     let rawCommand = name[15 .. ^1].strip
     let command = rawCommand.toLowerAscii
-    let dispatchCommand = if command.startsWith("git commit "): "__git_commit__" else: command
+    let dispatchCommand =
+      if command.startsWith("git commit "): "__git_commit__"
+      elif command.startsWith("git checkout "): "__git_checkout__"
+      else: command
     editorViewState.closeCommandPalette()
     case dispatchCommand
     of "new": receiveNativeCommand("newDocument".cstring)
@@ -977,7 +980,11 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "Git repository not found"
         else:
           let entries = repository.status()
-          editorViewState.statusMessage = "Git: " & $entries.len & " changed file(s)"
+          var conflicts = 0
+          for entry in entries:
+            if entry.conflict: inc conflicts
+          editorViewState.statusMessage = "Git: " & $entries.len &
+            " changed file(s), " & $conflicts & " conflict(s)"
     of "git stage all":
       when defined(macosx):
         let repository = gitRepositoryForDocument(document)
@@ -998,6 +1005,31 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = if outcome.exitCode == 0:
             "Git: unstaged all changes" else: "Git unstage failed: " & outcome.output.strip
           refreshEditorSyntax()
+    of "git log":
+      when defined(macosx):
+        let repository = gitRepositoryForDocument(document)
+        if repository == nil:
+          editorViewState.statusMessage = "Git repository not found"
+        else:
+          let commits = repository.log(5)
+          if commits.len == 0:
+            editorViewState.statusMessage = "Git log: no commits"
+          else:
+            editorViewState.statusMessage = "Git log: " & commits[0].subject
+    of "git blame":
+      when defined(macosx):
+        let repository = gitRepositoryForDocument(document)
+        let relative = gitRelativePathForDocument(document, repository)
+        if repository == nil or relative.len == 0:
+          editorViewState.statusMessage = "Git repository not found"
+        else:
+          let location = document[].buffer.lineColumn(editorViewState.cursor)
+          let blameLines = repository.blame(relative)
+          if location.line < blameLines.len:
+            let entry = blameLines[location.line]
+            editorViewState.statusMessage = "Blame: " & entry.author & " — " & entry.summary
+          else:
+            editorViewState.statusMessage = "Git blame unavailable for this line"
     of "__git_commit__":
       when defined(macosx):
         let repository = gitRepositoryForDocument(document)
@@ -1011,6 +1043,24 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = if outcome.exitCode == 0:
             "Git: committed" else: "Git commit failed: " & outcome.output.strip
           refreshEditorSyntax()
+    of "__git_checkout__":
+      when defined(macosx):
+        let repository = gitRepositoryForDocument(document)
+        let source = if rawCommand.len > 13: rawCommand[13 .. ^1].strip else: ""
+        let relative = gitRelativePathForDocument(document, repository)
+        if repository == nil or relative.len == 0:
+          editorViewState.statusMessage = "Git repository not found"
+        elif source.len == 0:
+          editorViewState.statusMessage = "Git checkout requires a revision"
+        else:
+          let outcome = repository.checkout(source, [relative])
+          if outcome.exitCode == 0:
+            discard editorSession.reloadActiveDocument(editorViewState)
+            resetImeState()
+            refreshEditorSyntax()
+            editorViewState.statusMessage = "Git: checked out " & source
+          else:
+            editorViewState.statusMessage = "Git checkout failed: " & outcome.output.strip
     else: editorViewState.statusMessage = "Unknown command: " & command
   elif name == "saveAndClose":
     let document = activeDocument()
