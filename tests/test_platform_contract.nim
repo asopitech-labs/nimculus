@@ -71,3 +71,7 @@ suite "macOS platform contract":
     platformSetEditorHover("".cstring, 0)
     platformSetEditorHoverPosition(8.0, 12.0)
     check true
+
+  test "Git hunk gutter contract can be cleared":
+    platformSetEditorGitHunks(nil, 0)
+    check true

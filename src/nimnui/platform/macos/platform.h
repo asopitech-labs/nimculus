@@ -40,6 +40,11 @@ typedef struct NimculusDiagnosticSpan {
   uint32_t end_byte;
   uint32_t severity;
 } NimculusDiagnosticSpan;
+typedef struct NimculusGitHunkSpan {
+  uint32_t start_line;
+  uint32_t line_count;
+  uint32_t kind;
+} NimculusGitHunkSpan;
 
 typedef struct NimculusPaintCommand {
   uint32_t kind;
@@ -108,6 +113,7 @@ void nimculus_platform_set_editor_composition(const char *utf8);
 void nimculus_platform_clear_editor_composition(void);
 void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans, uint32_t count);
 void nimculus_platform_set_editor_diagnostics(const NimculusDiagnosticSpan *spans, uint32_t count);
+void nimculus_platform_set_editor_git_hunks(const NimculusGitHunkSpan *spans, uint32_t count);
 void nimculus_platform_set_recent_files(const char *const *paths, uint32_t count);
 void nimculus_platform_set_paint_commands(const NimculusPaintCommand *commands, uint32_t count);
 void nimculus_platform_set_image_rgba(uint32_t image_id, uint32_t width, uint32_t height,

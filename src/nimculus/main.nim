@@ -14,6 +14,7 @@ import nimculus/workspace
 import nimculus/session
 import nimculus/lsp_editor_bridge
 import nimculus/editor_diagnostics
+import nimculus/git_service
 
 var demoTree = newUiTree()
 var shortcutRegistry: CommandRegistry
@@ -183,6 +184,9 @@ var suppressRecoveryWrite = false
 var discardDirtyOnExit = false
 when defined(macosx):
   var lspBridge: LspEditorBridge
+  var editorGitDiffJob: GitJob
+  var editorGitRepository: GitRepository
+  var editorGitPath = ""
 
 proc resetEditorViewState() =
   editorViewState = newEditorView()
@@ -206,6 +210,61 @@ proc activeDocument(): ptr FileDocument
 proc refreshWorkspacePreview()
 
 when defined(macosx):
+  proc clearNativeGitHunks() =
+    platformSetEditorGitHunks(nil, 0)
+
+  proc scheduleNativeGitHunks(document: ptr FileDocument) =
+    if editorGitDiffJob != nil:
+      editorGitDiffJob.cancel()
+      editorGitDiffJob = nil
+    editorGitRepository = nil
+    editorGitPath = ""
+    clearNativeGitHunks()
+    if document == nil or document[].path.len == 0: return
+    let containingDirectory = splitFile(absolutePath(document[].path)).dir
+    var repository: GitRepository
+    var relative = ""
+    if activeWorkspace != nil:
+      try:
+        let location = activeWorkspace.splitWorkspacePath(document[].path)
+        repository = newGitRepository(location.root)
+        relative = location.relative
+      except CatchableError:
+        return
+    else:
+      repository = newGitRepository(containingDirectory)
+    if repository == nil: return
+    if relative.len == 0:
+      let absoluteDocumentPath = absolutePath(document[].path)
+      let prefix = repository.root & DirSep
+      if not absoluteDocumentPath.startsWith(prefix): return
+      relative = absoluteDocumentPath[prefix.len .. ^1]
+    if relative.len == 0: return
+    editorGitRepository = repository
+    editorGitPath = document[].path
+    editorGitDiffJob = repository.startGitJob([
+      "diff", "--no-ext-diff", "--unified=3", "--", relative])
+
+  proc pollNativeGitHunks() =
+    if editorGitDiffJob == nil or not editorGitDiffJob.poll(): return
+    let completedJob = editorGitDiffJob
+    let output = completedJob.result
+    editorGitDiffJob = nil
+    let document = activeDocument()
+    if document == nil or document[].path != editorGitPath or output.exitCode != 0:
+      return
+    let hunks = parseDiffHunks(output.output)
+    var nativeHunks = newSeq[NativeGitHunkSpan](hunks.len)
+    for index, hunk in hunks:
+      nativeHunks[index] = NativeGitHunkSpan(
+        startLine: uint32(max(0, hunk.newStart - 1)),
+        lineCount: uint32(max(1, hunk.newCount)),
+        kind: uint32(ord(hunk.kind)))
+    if nativeHunks.len > 0:
+      platformSetEditorGitHunks(addr nativeHunks[0], uint32(nativeHunks.len))
+    else:
+      clearNativeGitHunks()
+
   proc editorVisibleLineCount(): int =
     ## Keep cursor reveal, syntax requests, and native text rendering on the
     ## same viewport contract. The old fixed 12-line value left taller windows
@@ -530,7 +589,9 @@ when defined(macosx):
 proc refreshEditorSyntax() =
   let document = activeDocument()
   if document == nil:
-    when defined(macosx): platformSetEditorDiagnostics(nil, 0)
+    when defined(macosx):
+      platformSetEditorDiagnostics(nil, 0)
+      clearNativeGitHunks()
     return
   var grammar: GrammarKind
   try:
@@ -547,6 +608,7 @@ proc refreshEditorSyntax() =
       let text = document[].buffer.toString()
       platformSetEditorText(text.cstring, uint32(text.len))
       syncNativeDiagnostics(document)
+      scheduleNativeGitHunks(document)
     return
   if syntaxState == nil or syntaxState.grammar != grammar:
     if syntaxState != nil: syntaxState.close()
@@ -574,6 +636,7 @@ proc refreshEditorSyntax() =
     platformSetEditorCompletions("".cstring, 0)
     platformSetEditorText(text.cstring, uint32(text.len))
     syncNativeDiagnostics(document)
+    scheduleNativeGitHunks(document)
 
 when defined(macosx):
   proc pollLspAndRefreshDiagnostics() =
@@ -581,6 +644,7 @@ when defined(macosx):
     if document != nil: syncNativeDiagnostics(document)
 
   proc receiveNativeIdle() {.cdecl.} =
+    pollNativeGitHunks()
     if lspBridge == nil: return
     let document = activeDocument()
     if document != nil:

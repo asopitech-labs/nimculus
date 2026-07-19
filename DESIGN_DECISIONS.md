@@ -116,6 +116,11 @@ counts before the UI sees them. This mirrors Zed's `DiffHunkStatus` boundary:
 gutter and inline rendering can remain incremental consumers, while staging
 and checkout continue to operate through explicit repository commands.
 
+The macOS editor resolves the Git repository from the file's owning workspace
+root before scheduling a diff job. A secondary root therefore cannot
+accidentally use the primary root's index, matching Zed's worktree/path
+ownership boundary.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The

@@ -119,6 +119,8 @@ static NimculusHighlightSpan *g_highlights = NULL;
 static uint32_t g_highlight_count = 0;
 static NimculusDiagnosticSpan *g_diagnostics = NULL;
 static uint32_t g_diagnostic_count = 0;
+static NimculusGitHunkSpan *g_git_hunks = NULL;
+static uint32_t g_git_hunk_count = 0;
 
 static void markSceneFullyDirty(void) {
   g_scene_dirty = YES;
@@ -551,6 +553,23 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       CGContextFillRect(context, CGRectMake(8.0 + editorTextOffset(lineText, startUnit),
         logicalHeight - lineHeight * (displayIndex + 1) - 4.0,
         MAX(1.0, editorTextOffset(lineText, endUnit) - editorTextOffset(lineText, startUnit)), 20.0));
+    }
+    NSUInteger documentLine = startLine + displayIndex;
+    for (uint32_t hunkIndex = 0; hunkIndex < g_git_hunk_count; hunkIndex++) {
+      NimculusGitHunkSpan hunk = g_git_hunks[hunkIndex];
+      NSUInteger hunkStart = hunk.start_line;
+      NSUInteger hunkEnd = hunkStart + MAX((uint32_t)1, hunk.line_count);
+      if (documentLine < hunkStart || documentLine >= hunkEnd) continue;
+      CGFloat red = 0.30, green = 0.75, blue = 0.42;
+      if (hunk.kind == 1) {
+        red = 0.92; green = 0.34; blue = 0.34;
+      } else if (hunk.kind >= 2) {
+        red = 0.35; green = 0.58; blue = 0.95;
+      }
+      CGContextSetRGBFillColor(context, red, green, blue, 0.95);
+      CGContextFillRect(context, CGRectMake(1.0,
+        logicalHeight - lineHeight * (displayIndex + 1) - 1.0, 3.0, 16.0));
+      break;
     }
     NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
       initWithString:lineText attributes:attributes];
@@ -2276,6 +2295,21 @@ void nimculus_platform_set_editor_diagnostics(const NimculusDiagnosticSpan *span
     if (g_diagnostics) {
       memcpy(g_diagnostics, spans, sizeof(NimculusDiagnosticSpan) * count);
       g_diagnostic_count = count;
+    }
+  }
+  markSceneFullyDirty();
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+void nimculus_platform_set_editor_git_hunks(const NimculusGitHunkSpan *spans, uint32_t count) {
+  free(g_git_hunks);
+  g_git_hunks = NULL;
+  g_git_hunk_count = 0;
+  if (spans && count > 0) {
+    g_git_hunks = malloc(sizeof(NimculusGitHunkSpan) * count);
+    if (g_git_hunks) {
+      memcpy(g_git_hunks, spans, sizeof(NimculusGitHunkSpan) * count);
+      g_git_hunk_count = count;
     }
   }
   markSceneFullyDirty();
