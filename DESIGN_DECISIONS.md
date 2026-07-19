@@ -157,6 +157,17 @@ then passed as one `applyEdits` transaction so overlapping or invalid UTF-8
 boundaries fail atomically. The macOS Command Palette is the initial trigger;
 formatting is not run implicitly on every keystroke.
 
+## M10-001: Keep the PTY transport separate from the terminal screen model
+
+Zed separates the PTY event loop from the terminal emulator state so process
+I/O, resize, scrollback, and rendering can evolve independently. Nimculus
+follows the same boundary: `TerminalPty` owns the macOS `forkpty` master,
+non-blocking reads/writes, child lifecycle, and window-size ioctl, while
+`TerminalScreen` owns ANSI/VT state, UTF-8 cells, cursor movement, visible
+rows, and scrollback. The initial implementation deliberately accepts only
+the basic CSI subset needed for the first vertical slice; unsupported control
+sequences are ignored rather than rendered into the screen.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The
