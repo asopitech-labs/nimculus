@@ -179,6 +179,16 @@ artifacts. Ad-hoc signing is available only with an explicit local-build
 flag. A notarized build requires an identity and Apple credentials, staples
 the app before rebuilding the containers, and validates both the app and DMG.
 
+## M10-002: Treat tasks as cancellable process jobs
+
+Zed keeps task specification (command, arguments, working directory, and
+environment) separate from terminal presentation. Nimculus follows that
+boundary in `task_service.nim`: a task owns its process, merged output, exit
+status, and cancellation state, while a future terminal/output panel can
+consume `TaskResult` without changing process control. Environment overrides
+are merged with the parent environment, and nonzero exits remain distinct from
+explicit cancellation.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The
