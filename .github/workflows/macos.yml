@@ -17,3 +17,9 @@ jobs:
         run: nimble lint
       - name: Test
         run: nimble test
+      - name: Package smoke test
+        run: |
+          NIMCULUS_ALLOW_ADHOC=1 \
+          NIMCULUS_OUT_DIR="$RUNNER_TEMP/nimculus-package" \
+          bash scripts/package_macos.sh
+          codesign --verify --deep --strict "$RUNNER_TEMP/nimculus-package/Nimculus.app"

@@ -168,6 +168,17 @@ rows, and scrollback. The initial implementation deliberately accepts only
 the basic CSI subset needed for the first vertical slice; unsupported control
 sequences are ignored rather than rendered into the screen.
 
+## M11-001: Make macOS packaging fail closed around signing and notarization
+
+Zed's release bundling treats the application bundle as the signed unit and
+creates distribution containers only after the bundle is valid. Nimculus uses
+the same order in `scripts/package_macos.sh`: compile the selected Apple
+Silicon or Intel binary, create the bundle, apply hardened-runtime signing,
+verify it with `codesign --verify --deep --strict`, and then create ZIP/DMG
+artifacts. Ad-hoc signing is available only with an explicit local-build
+flag. A notarized build requires an identity and Apple credentials, staples
+the app before rebuilding the containers, and validates both the app and DMG.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The

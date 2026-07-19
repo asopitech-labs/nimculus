@@ -39,3 +39,6 @@ task benchmark, "Run platform benchmark smoke tests":
   exec "nim c --mm:arc --nimcache:.nimcache/bench_buffer_strategies -r --path:src tests/bench_buffer_strategies.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/bench_syntax -r --path:src tests/bench_syntax.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/bench_workspace -r --path:src tests/bench_workspace.nim"
+
+task packageMacos, "Build, sign, and package the macOS application":
+  exec "bash scripts/package_macos.sh"
