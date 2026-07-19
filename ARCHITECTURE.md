@@ -74,5 +74,8 @@ and UI: UTF-8 byte-accurate `Content-Length` framing, incremental frame
 decoding, JSON-RPC request construction, cancellation state, and
 method-scoped stale-response rejection. This follows Zed's separation of
 transport/protocol handling from the project language-server store. Process
-lifecycle, stdio polling, document synchronization, and feature adapters
-must build on this boundary rather than parsing JSON directly in UI callbacks.
+lifecycle, stdio reads, document synchronization, and feature adapters must
+build on this boundary rather than parsing JSON directly in UI callbacks.
+`LspProcess` keeps stdout as framed protocol data, exposes explicit stop and
+restart transitions, and is intended to be driven by a worker/event task;
+`readMessages` never belongs on the Metal or input callback path.

@@ -33,7 +33,10 @@ tracked by method and generation; only the newest non-cancelled request for a
 method may update editor state. This mirrors Zed's transport/store boundary
 and prevents a slow completion or hover response from overwriting newer
 document state. The process lifecycle and feature adapters remain outside the
-codec and will consume this contract.
+codec and consume this contract. `LspProcess` keeps stdout separate from
+stderr, writes through stdio with flushes, detects EOF/exit status, supports
+explicit stop/restart, and reads only after pipe readiness. Its blocking read
+is deliberately a worker-task API, never a UI or render callback API.
 
 ## Reference: Zed GPUI Metal implementation
 
