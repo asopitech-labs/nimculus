@@ -17,6 +17,7 @@ import nimculus/editor_diagnostics
 import nimculus/git_service
 import nimculus/task_service
 import nimculus/terminal
+import nimculus/settings
 
 var demoTree = newUiTree()
 var shortcutRegistry: CommandRegistry
@@ -184,6 +185,8 @@ var editorPointerDragging = false
 var editorScrollRemainder = 0'f32
 var sessionFilePath = ""
 var recoveryFilePath = ""
+when defined(macosx):
+  var settingsFilePath = ""
 var persistenceTick = 0
 var suppressRecoveryWrite = false
 var discardDirtyOnExit = false
@@ -209,6 +212,7 @@ when defined(macosx):
   var editorTerminalVisible = false
   var editorTerminalSelection = TerminalSelection()
   var editorTerminalSelecting = false
+  var appSettings: SettingsStore
 
 proc resetEditorViewState() =
   editorViewState = newEditorView()
@@ -508,7 +512,10 @@ when defined(macosx):
       splitFile(absolutePath(activeDocument()[].path)).dir
     else: getCurrentDir()
     try:
-      let session = newTerminalPty("/bin/zsh", cwd, 120, 8)
+      let shell = if appSettings != nil:
+        appSettings.stringSetting("terminal.shell", "/bin/zsh")
+      else: "/bin/zsh"
+      let session = newTerminalPty(shell, cwd, 120, 8)
       editorTerminals.add(session)
       activateNativeTerminal(editorTerminals.high)
       editorTaskOutputVisible = false
@@ -687,6 +694,7 @@ proc setupPersistencePaths() =
   if not dirExists(directory): createDir(directory)
   sessionFilePath = directory / "session.json"
   recoveryFilePath = directory / "active.recovery"
+  settingsFilePath = directory / "settings.json"
 
 proc persistSession() =
   if sessionFilePath.len == 0: return
@@ -1055,6 +1063,8 @@ when defined(macosx):
     if document != nil: syncNativeDiagnostics(document)
 
   proc receiveNativeIdle() {.cdecl.} =
+    if appSettings != nil and appSettings.reload():
+      editorViewState.statusMessage = "Settings reloaded"
     pollNativeGitHunks()
     pollNativeGitAction()
     pollNativeTask()
@@ -1918,7 +1928,10 @@ when isMainModule:
         if dirExists(root): activeWorkspace.addRoot(root)
       activeWorkspace.startWatching()
       refreshWorkspacePreview()
-    let lspCommand = getEnv("NIMCULUS_LSP_COMMAND", "")
+    appSettings = newSettingsStore(settingsFilePath,
+      initialRoot / ".nimculus" / "settings.json")
+    let lspCommand = getEnv("NIMCULUS_LSP_COMMAND",
+      appSettings.stringSetting("lsp.command", ""))
     if lspCommand.len > 0:
       lspBridge = newLspEditorBridge(lspCommand,
         getEnv("NIMCULUS_LSP_ARGS", "").splitWhitespace,

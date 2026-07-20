@@ -168,6 +168,16 @@ response; document close cancels and clears every pending feature request.
 The decoded values are deliberately exposed as editor-domain data so later
 UI work cannot accidentally depend on server-specific JSON shapes.
 
+## M12-001: Layer settings before exposing them to platform code
+
+Zed separates settings loading and validation from the UI and applies global,
+workspace, and language overlays before consumers read a value. Nimculus uses
+the same boundary in `settings.nim`: JSON files are recursively merged,
+invalid values become diagnostics instead of crashing startup, and mtime-based
+reload replaces the complete validated snapshot atomically. The macOS layer
+currently consumes only terminal shell and LSP command values; keymap and
+theme consumers remain explicit follow-up integrations.
+
 ## M10-001: Keep the PTY transport separate from the terminal screen model
 
 Zed separates the PTY event loop from the terminal emulator state so process
