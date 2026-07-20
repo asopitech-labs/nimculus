@@ -619,6 +619,9 @@ when defined(macosx):
       for hint in hints:
         lines.add($(hint.position.line + 1) & ":" & $(hint.position.character + 1) & " " & hint.label)
       showNativeLspPanel("LSP Inlay Hints", lines)
+    let commandEdits = lspBridge.takeCommandEdits()
+    if commandEdits.len > 0:
+      discard applyLspWorkspaceEdits(commandEdits, "code action command")
 
   proc syncNativeTerminal() =
     if editorTerminal == nil: return
@@ -1730,8 +1733,15 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
                     pendingLspCodeActions[index].uri else: lspBridge.uri
                 edits.add(LspWorkspaceEdit(uri: uri,
                   edits: pendingLspCodeActions[index].edits))
-              if applyLspWorkspaceEdits(edits, "code action"):
+              if edits.len > 0 and applyLspWorkspaceEdits(edits, "code action"):
                 pendingLspCodeActions.setLen(0)
+              elif edits.len == 0 and pendingLspCodeActions[index].command.len > 0 and
+                  lspBridge.requestExecuteCommand(pendingLspCodeActions[index].command,
+                    pendingLspCodeActions[index].arguments):
+                pendingLspCodeActions.setLen(0)
+                editorViewState.statusMessage = "LSP: executing code action command"
+              elif edits.len == 0:
+                editorViewState.statusMessage = "Code action has no executable edit or command"
           except ValueError:
             editorViewState.statusMessage = "Invalid code action number"
     of "document symbols", "show symbols":

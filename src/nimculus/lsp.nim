@@ -98,6 +98,8 @@ type
   LspCodeAction* = object
     title*: string
     kind*: string
+    command*: string
+    arguments*: seq[JsonNode]
     uri*: string
     edits*: seq[LspTextEdit]
     workspaceEdits*: seq[LspWorkspaceEdit]
@@ -288,6 +290,14 @@ proc codeActionRequest*(uri: string, range: LspRange): tuple[methodName: string,
   ("textDocument/codeAction", %*{"textDocument": {"uri": uri},
     "range": rangeJson(range), "context": {"diagnostics": []}})
 
+proc executeCommandRequest*(command: string, arguments: seq[JsonNode]):
+    tuple[methodName: string, params: JsonNode] =
+  var params = %*{"command": command}
+  var values = newJArray()
+  for argument in arguments: values.add(argument)
+  params["arguments"] = values
+  ("workspace/executeCommand", params)
+
 proc signatureHelpRequest*(uri: string, position: LspPosition): tuple[methodName: string, params: JsonNode] =
   ("textDocument/signatureHelp", textDocumentPositionJson(uri, position))
 
@@ -421,26 +431,50 @@ proc parseSymbols*(message: JsonNode): seq[LspSymbol] =
       kind: if item.hasKey("kind"): item["kind"].getInt else: 0,
       range: parseRange(rangeNode)))
 
+proc parseWorkspaceEditValue(value: JsonNode): seq[LspWorkspaceEdit] =
+  if value == nil or value.kind != JObject: return
+  if value.hasKey("changes") and value["changes"].kind == JObject:
+    for uri, edits in value["changes"]:
+      if edits.kind != JArray: continue
+      var workspaceEdit = LspWorkspaceEdit(uri: uri)
+      for edit in edits:
+        if edit.kind == JObject and edit.hasKey("range") and edit.hasKey("newText"):
+          workspaceEdit.edits.add(LspTextEdit(range: parseRange(edit["range"]),
+            newText: edit["newText"].getStr))
+      if workspaceEdit.edits.len > 0: result.add(workspaceEdit)
+  ## LSP 3.16+ servers may return versioned document changes instead of the
+  ## legacy changes map. Resource operations are intentionally not applied by
+  ## this editor yet, but text document edits must not be dropped.
+  if value.hasKey("documentChanges") and value["documentChanges"].kind == JArray:
+    for change in value["documentChanges"]:
+      if change.kind != JObject or not change.hasKey("textDocument") or
+          not change.hasKey("edits"): continue
+      let textDocument = change["textDocument"]
+      if textDocument.kind != JObject or not textDocument.hasKey("uri") or
+          change["edits"].kind != JArray: continue
+      var workspaceEdit = LspWorkspaceEdit(uri: textDocument["uri"].getStr)
+      for edit in change["edits"]:
+        if edit.kind == JObject and edit.hasKey("range") and edit.hasKey("newText"):
+          workspaceEdit.edits.add(LspTextEdit(range: parseRange(edit["range"]),
+            newText: edit["newText"].getStr))
+      if workspaceEdit.edits.len > 0: result.add(workspaceEdit)
+
 proc parseCodeActions*(message: JsonNode): seq[LspCodeAction] =
   let value = responseResult(message)
   if value == nil or value.kind != JArray: return
   for item in value:
     if item.kind != JObject or not item.hasKey("title"): continue
     var action = LspCodeAction(title: item["title"].getStr,
-      kind: if item.hasKey("kind"): item["kind"].getStr else: "")
+      kind: if item.hasKey("kind"): item["kind"].getStr else: "",
+      command: if item.hasKey("command"): item["command"].getStr else: "")
+    if item.hasKey("arguments") and item["arguments"].kind == JArray:
+      for argument in item["arguments"]: action.arguments.add(argument)
     if item.hasKey("edit") and item["edit"].kind == JObject:
-      if item["edit"].hasKey("changes"):
-        for uri, edits in item["edit"]["changes"]:
-          if edits.kind != JArray: continue
-          var workspaceEdit = LspWorkspaceEdit(uri: uri)
-          for edit in edits:
-            if edit.kind == JObject and edit.hasKey("range") and edit.hasKey("newText"):
-              let textEdit = LspTextEdit(range: parseRange(edit["range"]),
-                newText: edit["newText"].getStr)
-              action.edits.add(textEdit)
-              workspaceEdit.edits.add(textEdit)
-          if workspaceEdit.edits.len > 0:
-            action.workspaceEdits.add(workspaceEdit)
+      action.workspaceEdits = parseWorkspaceEditValue(item["edit"])
+      for workspaceEdit in action.workspaceEdits:
+        for textEdit in workspaceEdit.edits:
+          action.edits.add(textEdit)
+        if action.uri.len == 0: action.uri = workspaceEdit.uri
     result.add(action)
 
 proc parseSignatureHelp*(message: JsonNode): LspSignatureHelp =
@@ -483,16 +517,7 @@ proc parseInlayHints*(message: JsonNode): seq[LspInlayHint] =
 
 proc parseWorkspaceEdit*(message: JsonNode): seq[LspWorkspaceEdit] =
   let value = responseResult(message)
-  if value == nil or value.kind != JObject: return
-  if value.hasKey("changes"):
-    for uri, edits in value["changes"]:
-      if edits.kind != JArray: continue
-      var workspaceEdit = LspWorkspaceEdit(uri: uri)
-      for edit in edits:
-        if edit.kind == JObject and edit.hasKey("range") and edit.hasKey("newText"):
-          workspaceEdit.edits.add(LspTextEdit(range: parseRange(edit["range"]),
-            newText: edit["newText"].getStr))
-      if workspaceEdit.edits.len > 0: result.add(workspaceEdit)
+  result = parseWorkspaceEditValue(value)
 
 proc cancelRequest*(tracker: var LspRequestTracker, id: int): bool =
   if id notin tracker.pending: return false

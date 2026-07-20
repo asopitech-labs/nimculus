@@ -87,6 +87,9 @@ suite "M8 LSP protocol foundation":
     check signatureHelpRequest("file:///a.nim", position).methodName == "textDocument/signatureHelp"
     check semanticTokensRequest("file:///a.nim").methodName == "textDocument/semanticTokens/full"
     check inlayHintRequest("file:///a.nim", range).methodName == "textDocument/inlayHint"
+    let commandRequest = executeCommandRequest("organizeImports", @[%*{"uri": "file:///a.nim"}])
+    check commandRequest.methodName == "workspace/executeCommand"
+    check commandRequest.params["arguments"][0]["uri"].getStr == "file:///a.nim"
 
   test "parses diagnostics notification":
     let message = %*{"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
@@ -155,6 +158,18 @@ suite "M8 LSP protocol foundation":
       "file:///b.nim": [{"range": {"start": {"line": 1, "character": 0},
         "end": {"line": 1, "character": 1}}, "newText": "b"}]}}})
     check multiFileEdit.len == 2
+    let documentChanges = parseWorkspaceEdit(%*{"result": {"documentChanges": [{
+      "textDocument": {"uri": "file:///c.nim", "version": 7},
+      "edits": [{"range": {"start": {"line": 0, "character": 0},
+        "end": {"line": 0, "character": 1}}, "newText": "c"}]}]}})
+    check documentChanges.len == 1
+    check documentChanges[0].uri == "file:///c.nim"
+    let commandAction = parseCodeActions(%*{"result": [{"title": "Organize imports",
+      "kind": "source.organizeImports", "command": "organizeImports",
+      "arguments": [{"uri": "file:///a.nim"}]}]})
+    check commandAction.len == 1
+    check commandAction[0].command == "organizeImports"
+    check commandAction[0].arguments.len == 1
 
   test "session initializes and stores diagnostics from a language server":
     let server = "import sys,json,time\n" &
