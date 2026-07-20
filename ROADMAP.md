@@ -378,6 +378,8 @@ Task stdout/stderrはPOSIX pipeをnon-blockingでpollし、プロセス終了前
 **実装済み基盤：** `packaging/macos/Info.plist`、file associationと`nimculus://` URL scheme、Finder/Open WithとURLイベントのAppDelegate受信、hardened runtime用entitlements、Apple Silicon/x86_64を選べる`scripts/package_macos.sh` による`.app`生成、codesign、`codesign --verify --deep --strict`、Developer ID署名時の`spctl --assess`、ZIP/DMG生成、`xcrun notarytool`提出、stapling、stapler validateを接続。署名IDなしではadhoc許可を明示しない限り失敗し、notarization指定時はApple ID・Team ID・app-specific passwordを必須化する。
 **crash report基盤：** AppKitの未捕捉Objective-C例外をUI本体へ再入せず、Application Supportの`crash-report.json`へ時刻・例外名・理由を書き込むネイティブハンドラを起動時に登録する。Nimのrecovery fileとは別経路で保持する。
 
+**update基盤：** Zedのrelease判定とインストール責務の分離を参考に、HTTPS artifactのみを受理するmanifest parser、semver比較、Command Paletteの`check for updates`（`NIMCULUS_UPDATE_MANIFEST`指定時）を実装する。署名/hash検証と終了時インストールは、manifest取得後の次段階として未完了のまま残す。
+
 **実装範囲：** `.app` bundle、アイコン、`Info.plist`、file association、URL scheme、code signing、hardened runtime、notarization、stapling、DMG、ZIP、自動更新基盤、crash report、session recovery。
 
 **完了条件：** 署名済み Apple Silicon アプリを生成でき、Gatekeeper 警告なしで起動し、notarization を通過し、DMG からインストールできる。

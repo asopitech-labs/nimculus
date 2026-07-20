@@ -18,6 +18,7 @@ import nimculus/lsp
 import nimculus/editor_diagnostics
 import nimculus/git_service
 import nimculus/task_service
+import nimculus/update_service
 import nimculus/terminal
 import nimculus/settings
 
@@ -1777,6 +1778,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command == "cancel task": "__cancel_task__"
       elif command == "cancel git": "__cancel_git__"
       elif command == "open settings": "openSettings"
+      elif command == "check for updates": "__check_updates__"
       elif command.startsWith("open symbol "): "__open_symbol__"
       elif command.startsWith("apply code action "): "__apply_code_action__"
       elif command == "apply rename": "__apply_rename__"
@@ -1890,6 +1892,19 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
                 editorViewState.statusMessage = "Code action has no executable edit or command"
           except ValueError:
             editorViewState.statusMessage = "Invalid code action number"
+    of "__check_updates__":
+      when defined(macosx):
+        let manifestPath = getEnv("NIMCULUS_UPDATE_MANIFEST", "")
+        if manifestPath.len == 0 or not fileExists(manifestPath):
+          editorViewState.statusMessage = "Update manifest unavailable"
+        else:
+          let release = parseUpdateManifest(readFile(manifestPath))
+          if release.version.len == 0 or release.url.len == 0:
+            editorViewState.statusMessage = "Update manifest invalid"
+          elif isUpdateAvailable(getEnv("NIMCULUS_VERSION", "0.1.0"), release):
+            editorViewState.statusMessage = "Update available: " & release.version
+          else:
+            editorViewState.statusMessage = "Nimculus is up to date"
     of "document symbols", "show symbols":
       when defined(macosx):
         if lspBridge == nil or not lspBridge.requestSymbols():
