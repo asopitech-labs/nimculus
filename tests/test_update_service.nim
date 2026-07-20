@@ -14,6 +14,11 @@ suite "M11 update service":
     writeFile(path, "hello")
     check verifySha256(path, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
     removeFile(path)
+    let invalidDestination = getTempDir() / "nimculus-update-invalid"
+    check not downloadAndVerify(UpdateRelease(url: "http://example.invalid/a",
+      sha256: "0000000000000000000000000000000000000000000000000000000000000000"),
+      invalidDestination)
+    check not fileExists(invalidDestination)
 
   test "rejects insecure artifacts and compares prereleases":
     let release = parseUpdateManifest("""{"version":"0.2.0","url":"http://example.invalid/Nimculus.dmg"}""")

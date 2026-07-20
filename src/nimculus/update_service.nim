@@ -1,4 +1,5 @@
 import std/json
+import std/os
 import std/osproc
 import std/streams
 import std/strutils
@@ -72,3 +73,27 @@ proc verifySha256*(path, expected: string): bool =
     let actual = output.strip.splitWhitespace
     actual.len > 0 and actual[0].toLowerAscii == digest
   except CatchableError: false
+
+proc downloadAndVerify*(release: UpdateRelease, destination: string): bool =
+  ## Download an HTTPS artifact without a shell, then verify it before the
+  ## caller can hand it to an installer. Failed or mismatched artifacts are
+  ## removed so a stale file cannot be mistaken for a verified update.
+  if release.url.len == 0 or release.sha256.len != 64 or
+      not release.sha256.allCharsInSet(HexDigits) or destination.len == 0:
+    return false
+  try:
+    let process = startProcess("curl", args = ["--fail", "--location", "--silent",
+      "--show-error", "--proto", "=https", "--tlsv1.2", "--output", destination,
+      release.url], options = {poUsePath, poStdErrToStdOut})
+    discard process.outputStream.readAll()
+    let exitCode = process.waitForExit()
+    process.close()
+    if exitCode != 0 or not verifySha256(destination, release.sha256):
+      if fileExists(destination): removeFile(destination)
+      return false
+    true
+  except CatchableError:
+    if fileExists(destination):
+      try: removeFile(destination)
+      except CatchableError: discard
+    false
