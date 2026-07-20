@@ -23,6 +23,17 @@
   <string>14.0</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>Nimculus URL</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>nimculus</string>
+      </array>
+    </dict>
+  </array>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
   <key>CFBundleDocumentTypes</key>

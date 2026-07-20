@@ -42,6 +42,12 @@ else
     --sign "$IDENTITY" "$APP"
 fi
 codesign --verify --deep --strict --verbose=2 "$APP"
+if [[ -n "$IDENTITY" ]]; then
+  # spctl is the Gatekeeper assessment that a signed distribution must pass.
+  # Ad-hoc CI smoke artifacts are intentionally excluded because Gatekeeper
+  # rejects them without a Developer ID certificate.
+  spctl --assess --type execute --verbose "$APP"
+fi
 
 ditto -c -k --keepParent "$APP" "$OUT_DIR/Nimculus-$VERSION-$ARCH.zip"
 hdiutil create -quiet -volname Nimculus -srcfolder "$APP" \
@@ -58,6 +64,7 @@ if [[ "${NIMCULUS_NOTARIZE:-0}" == "1" ]]; then
     --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
   xcrun stapler staple "$APP"
   xcrun stapler validate "$APP"
+  spctl --assess --type execute --verbose "$APP"
   # Rebuild containers so the stapled app is what users receive.
   ditto -c -k --keepParent "$APP" "$OUT_DIR/Nimculus-$VERSION-$ARCH.zip"
   hdiutil create -quiet -volname Nimculus -srcfolder "$APP" \
@@ -67,6 +74,8 @@ if [[ "${NIMCULUS_NOTARIZE:-0}" == "1" ]]; then
     --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
   xcrun stapler staple "$OUT_DIR/Nimculus-$VERSION-$ARCH.dmg"
   xcrun stapler validate "$OUT_DIR/Nimculus-$VERSION-$ARCH.dmg"
+  spctl --assess --type open --context context:primary-signature \
+    "$OUT_DIR/Nimculus-$VERSION-$ARCH.dmg"
 fi
 
 echo "Created $APP"
