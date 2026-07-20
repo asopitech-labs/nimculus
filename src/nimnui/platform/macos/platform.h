@@ -23,6 +23,22 @@ typedef struct NimculusInputEvent {
   bool precise_scrolling;
 } NimculusInputEvent;
 
+typedef struct NimculusTerminalRun {
+  uint32_t start_byte;
+  uint32_t end_byte;
+  uint32_t flags;
+  uint32_t foreground_kind;
+  uint32_t foreground_index;
+  uint32_t foreground_red;
+  uint32_t foreground_green;
+  uint32_t foreground_blue;
+  uint32_t background_kind;
+  uint32_t background_index;
+  uint32_t background_red;
+  uint32_t background_green;
+  uint32_t background_blue;
+} NimculusTerminalRun;
+
 typedef void (*NimculusInputCallback)(const NimculusInputEvent *event);
 typedef bool (*NimculusShortcutCallback)(const NimculusInputEvent *event);
 typedef void (*NimculusTextCallback)(const char *utf8, bool composing);
@@ -107,6 +123,8 @@ void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_by
 void nimculus_platform_set_editor_text(const char *utf8, uint32_t length);
 void nimculus_platform_set_terminal_visible(bool visible);
 void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length);
+void nimculus_platform_set_terminal_runs(const char *utf8, uint32_t length,
+                                         const NimculusTerminalRun *runs, uint32_t count);
 void nimculus_platform_set_terminal_selection(uint32_t start_row, uint32_t start_column,
                                               uint32_t end_row, uint32_t end_column);
 void nimculus_platform_set_task_output_visible(bool visible);

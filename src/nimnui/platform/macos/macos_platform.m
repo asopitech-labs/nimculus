@@ -31,6 +31,8 @@ static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
 static NSString *g_editor_text = @"";
 static NSString *g_terminal_text = @"";
+static NimculusTerminalRun *g_terminal_runs = NULL;
+static uint32_t g_terminal_run_count = 0;
 static BOOL g_terminal_visible = NO;
 static NSString *g_task_output_text = @"";
 static BOOL g_task_output_visible = NO;
@@ -1042,6 +1044,72 @@ static void applyTerminalSelection(NSTextView *terminal) {
   NSUInteger lower = MIN(start, end);
   NSUInteger upper = MAX(start, end);
   terminal.selectedRange = NSMakeRange(lower, upper - lower);
+}
+
+static void terminalIndexedColor(uint32_t index, CGFloat *red, CGFloat *green, CGFloat *blue) {
+  static const CGFloat ansi[16][3] = {
+    {0.08, 0.09, 0.12}, {0.85, 0.25, 0.28}, {0.30, 0.78, 0.42}, {0.82, 0.68, 0.25},
+    {0.30, 0.52, 0.92}, {0.72, 0.36, 0.80}, {0.28, 0.75, 0.78}, {0.78, 0.82, 0.88},
+    {0.35, 0.38, 0.45}, {1.00, 0.40, 0.43}, {0.42, 0.94, 0.52}, {1.00, 0.84, 0.38},
+    {0.45, 0.65, 1.00}, {0.88, 0.48, 0.96}, {0.42, 0.90, 0.92}, {0.96, 0.97, 1.00}
+  };
+  if (index < 16) {
+    *red = ansi[index][0]; *green = ansi[index][1]; *blue = ansi[index][2]; return;
+  }
+  if (index >= 232) {
+    CGFloat value = 8.0 + (CGFloat)(index - 232) * 10.0;
+    *red = *green = *blue = value / 255.0; return;
+  }
+  uint32_t cube = index - 16;
+  uint32_t r = cube / 36, g = (cube / 6) % 6, b = cube % 6;
+  *red = r == 0 ? 0.0 : (55.0 + r * 40.0) / 255.0;
+  *green = g == 0 ? 0.0 : (55.0 + g * 40.0) / 255.0;
+  *blue = b == 0 ? 0.0 : (55.0 + b * 40.0) / 255.0;
+}
+
+static NSColor *terminalColor(uint32_t kind, uint32_t index,
+                              uint32_t red, uint32_t green, uint32_t blue,
+                              BOOL foreground) {
+  CGFloat r = foreground ? 0.82 : 0.025;
+  CGFloat g = foreground ? 0.88 : 0.030;
+  CGFloat b = foreground ? 0.92 : 0.045;
+  if (kind == 1) terminalIndexedColor(index, &r, &g, &b);
+  else if (kind == 2) { r = red / 255.0; g = green / 255.0; b = blue / 255.0; }
+  return [NSColor colorWithCalibratedRed:r green:g blue:b alpha:1.0];
+}
+
+static void applyTerminalRuns(NSTextView *terminal) {
+  if (!terminal) return;
+  NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
+    initWithString:g_terminal_text ?: @"" attributes:@{
+      NSFontAttributeName: [NSFont fontWithName:@"Menlo" size:12.0] ?: [NSFont monospacedSystemFontOfSize:12.0 weight:NSFontWeightRegular],
+      NSForegroundColorAttributeName: terminalColor(0, 0, 0, 0, 0, YES),
+      NSBackgroundColorAttributeName: terminalColor(0, 0, 0, 0, 0, NO)
+    }];
+  for (uint32_t index = 0; index < g_terminal_run_count; index++) {
+    NimculusTerminalRun run = g_terminal_runs[index];
+    NSUInteger start = utf16OffsetForUTF8Bytes(g_terminal_text, run.start_byte);
+    NSUInteger end = utf16OffsetForUTF8Bytes(g_terminal_text, run.end_byte);
+    if (end <= start || start >= attributed.length) continue;
+    end = MIN(end, attributed.length);
+    NSColor *foreground = terminalColor(run.foreground_kind, run.foreground_index,
+      run.foreground_red, run.foreground_green, run.foreground_blue, YES);
+    NSColor *background = terminalColor(run.background_kind, run.background_index,
+      run.background_red, run.background_green, run.background_blue, NO);
+    if (run.flags & 16) { NSColor *swap = foreground; foreground = background; background = swap; }
+    NSFont *font = [NSFont fontWithName:@"Menlo" size:12.0] ?: [NSFont monospacedSystemFontOfSize:12.0 weight:NSFontWeightRegular];
+    if (run.flags & 1) font = [NSFont fontWithName:@"Menlo-Bold" size:12.0] ?: font;
+    if (run.flags & 4) font = [NSFont fontWithName:@"Menlo-Italic" size:12.0] ?: font;
+    NSRange range = NSMakeRange(start, end - start);
+    [attributed addAttribute:NSFontAttributeName value:font range:range];
+    [attributed addAttribute:NSForegroundColorAttributeName value:foreground range:range];
+    [attributed addAttribute:NSBackgroundColorAttributeName value:background range:range];
+    if (run.flags & 8) [attributed addAttribute:NSUnderlineStyleAttributeName value:@(NSUnderlineStyleSingle) range:range];
+    if (run.flags & 32) [attributed addAttribute:NSStrikethroughStyleAttributeName value:@(NSUnderlineStyleSingle) range:range];
+    if (run.flags & 2) [attributed addAttribute:NSForegroundColorAttributeName value:[foreground colorWithAlphaComponent:0.65] range:range];
+  }
+  [terminal.textStorage setAttributedString:attributed];
+  applyTerminalSelection(terminal);
 }
 
 @implementation NimculusMetalView
@@ -2353,6 +2421,33 @@ void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length) {
     terminal.string = g_terminal_text;
     applyTerminalSelection(terminal);
     [terminal scrollRangeToVisible:NSMakeRange(terminal.string.length, 0)];
+  }
+}
+void nimculus_platform_set_terminal_runs(const char *utf8, uint32_t length,
+                                         const NimculusTerminalRun *runs, uint32_t count) {
+  g_terminal_text = (utf8 && length > 0)
+    ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
+    : @"";
+  if (!g_terminal_text) g_terminal_text = @"";
+  free(g_terminal_runs);
+  g_terminal_runs = NULL;
+  g_terminal_run_count = 0;
+  if (runs && count > 0) {
+    g_terminal_runs = calloc(count, sizeof(NimculusTerminalRun));
+    if (g_terminal_runs) {
+      memcpy(g_terminal_runs, runs, count * sizeof(NimculusTerminalRun));
+      g_terminal_run_count = count;
+    }
+  }
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) {
+      NSTextView *terminal = (NSTextView *)subview;
+      applyTerminalRuns(terminal);
+      [terminal scrollRangeToVisible:NSMakeRange(terminal.string.length, 0)];
+      break;
+    }
   }
 }
 void nimculus_platform_set_terminal_selection(uint32_t start_row, uint32_t start_column,

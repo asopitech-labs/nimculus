@@ -520,6 +520,15 @@ proc lineText*(screen: TerminalScreen, row: int): string =
 proc visibleText*(screen: TerminalScreen): seq[string] =
   for row in 0 ..< screen.lines.len: result.add(screen.lineText(row))
 
+proc gridText*(screen: TerminalScreen): string =
+  ## Preserve every visible row and its cell-backed trailing spaces for native
+  ## overlays that need stable byte offsets for selection and styling.
+  for row in 0 ..< screen.lines.len:
+    if row > 0: result.add('\n')
+    for cell in screen.lines[row]:
+      if cell.width != 0:
+        result.add(if cell.text.len == 0: " " else: cell.text)
+
 proc lineCount*(screen: TerminalScreen): int =
   screen.scrollback.len + screen.lines.len
 

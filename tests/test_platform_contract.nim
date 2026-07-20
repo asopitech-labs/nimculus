@@ -79,6 +79,7 @@ suite "macOS platform contract":
   test "terminal overlay contract can be cleared":
     platformSetTerminalVisible(false)
     platformSetTerminalText("".cstring, 0)
+    platformSetTerminalRuns("".cstring, 0, nil, 0)
     platformSetTerminalSelection(0, 0, 0, 0)
     platformSetTaskOutputVisible(false)
     platformSetTaskOutputText("".cstring, 0)

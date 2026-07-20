@@ -39,6 +39,10 @@ type
     imageId*: uint32
   NativePaintRegion* {.bycopy.} = object
     x*, y*, width*, height*: cfloat
+  NativeTerminalRun* {.bycopy.} = object
+    startByte*, endByte*, flags*: uint32
+    foregroundKind*, foregroundIndex*, foregroundRed*, foregroundGreen*, foregroundBlue*: uint32
+    backgroundKind*, backgroundIndex*, backgroundRed*, backgroundGreen*, backgroundBlue*: uint32
   NimculusInputEvent* {.bycopy.} = object
     kind*, keyCode*, modifiers*, button*: uint32
     x*, y*, deltaX*, deltaY*: cdouble
@@ -69,6 +73,8 @@ proc platformSetEditorSelection*(startByte, endByte: uint32) {.importc: "nimculu
 proc platformSetEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_text", cdecl.}
 proc platformSetTerminalVisible*(visible: bool) {.importc: "nimculus_platform_set_terminal_visible", cdecl.}
 proc platformSetTerminalText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_terminal_text", cdecl.}
+proc platformSetTerminalRuns*(text: cstring, length: uint32, runs: ptr NativeTerminalRun,
+                             count: uint32) {.importc: "nimculus_platform_set_terminal_runs", cdecl.}
 proc platformSetTerminalSelection*(startRow, startColumn, endRow, endColumn: uint32) {.importc: "nimculus_platform_set_terminal_selection", cdecl.}
 proc platformSetTaskOutputVisible*(visible: bool) {.importc: "nimculus_platform_set_task_output_visible", cdecl.}
 proc platformSetTaskOutputText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_task_output_text", cdecl.}

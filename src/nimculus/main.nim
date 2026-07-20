@@ -460,9 +460,35 @@ when defined(macosx):
 
   proc syncNativeTerminal() =
     if editorTerminal == nil: return
-    let lines = editorTerminal.screen.visibleText()
-    let text = lines.join("\n")
-    platformSetTerminalText(text.cstring, uint32(text.len))
+    let screen = editorTerminal.screen
+    let text = screen.gridText()
+    var runs: seq[NativeTerminalRun]
+    var byteOffset = 0
+    for row in screen.lines:
+      for cell in row:
+        if cell.width == 0: continue
+        let cellText = if cell.text.len == 0: " " else: cell.text
+        let endByte = byteOffset + cellText.len
+        let flags = (if cell.bold: 1'u32 else: 0'u32) or
+          (if cell.dim: 2'u32 else: 0'u32) or
+          (if cell.italic: 4'u32 else: 0'u32) or
+          (if cell.underline: 8'u32 else: 0'u32) or
+          (if cell.inverse: 16'u32 else: 0'u32) or
+          (if cell.strikethrough: 32'u32 else: 0'u32)
+        runs.add(NativeTerminalRun(startByte: uint32(byteOffset), endByte: uint32(endByte),
+          flags: flags,
+          foregroundKind: uint32(ord(cell.foreground.kind)), foregroundIndex: uint32(max(0, cell.foreground.index)),
+          foregroundRed: uint32(cell.foreground.red), foregroundGreen: uint32(cell.foreground.green),
+          foregroundBlue: uint32(cell.foreground.blue),
+          backgroundKind: uint32(ord(cell.background.kind)), backgroundIndex: uint32(max(0, cell.background.index)),
+          backgroundRed: uint32(cell.background.red), backgroundGreen: uint32(cell.background.green),
+          backgroundBlue: uint32(cell.background.blue)))
+        byteOffset = endByte
+      byteOffset += 1
+    if runs.len > 0:
+      platformSetTerminalRuns(text.cstring, uint32(text.len), addr runs[0], uint32(runs.len))
+    else:
+      platformSetTerminalRuns(text.cstring, uint32(text.len), nil, 0)
 
   proc activateNativeTerminal(index: int) =
     if index < 0 or index >= editorTerminals.len: return

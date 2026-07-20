@@ -248,7 +248,8 @@ plain-text overlay path; retained cell attributes are the contract for the
 future GPU-native terminal renderer. Wide glyphs use explicit leading and
 continuation cells, while mouse modes produce DEC reports at the PTY boundary.
 Hyperlink/kitty extensions and attribute-aware GPU rendering remain separate
-follow-up work rather than being silently flattened into the current overlay.
+follow-up work rather than being silently flattened into the current overlay;
+the current AppKit overlay receives retained cell attributes as copied runs.
 
 ## Reference: Zed GPUI Metal implementation
 
