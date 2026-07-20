@@ -1,4 +1,6 @@
 import std/json
+import std/osproc
+import std/streams
 import std/strutils
 
 type
@@ -52,4 +54,21 @@ proc compareVersions*(left, right: string): int =
 
 proc isUpdateAvailable*(currentVersion: string, release: UpdateRelease): bool =
   release.version.len > 0 and release.url.len > 0 and
+    release.sha256.len == 64 and release.sha256.allCharsInSet(HexDigits) and
     compareVersions(currentVersion, release.version) < 0
+
+proc verifySha256*(path, expected: string): bool =
+  ## Verify a downloaded artifact without invoking a shell. `shasum` ships
+  ## with macOS and is also available in the POSIX development environments.
+  let digest = expected.toLowerAscii
+  if path.len == 0 or digest.len != 64 or not digest.allCharsInSet(HexDigits): return false
+  try:
+    let process = startProcess("shasum", args = ["-a", "256", path],
+      options = {poUsePath, poStdErrToStdOut})
+    let output = process.outputStream.readAll()
+    let exitCode = process.waitForExit()
+    process.close()
+    if exitCode != 0: return false
+    let actual = output.strip.splitWhitespace
+    actual.len > 0 and actual[0].toLowerAscii == digest
+  except CatchableError: false
