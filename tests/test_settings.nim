@@ -50,7 +50,6 @@ suite "M12 settings foundation":
     writeFile(path, """{"editor":{"tabSize":2}}""")
     let store = newSettingsStore(path, "", "")
     check not store.reload()
-    sleep(1100)
     writeFile(path, """{"editor":{"tabSize":8}}""")
     check store.reload()
     check store.intSetting("editor.tabSize", 0) == 8

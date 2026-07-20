@@ -1,7 +1,7 @@
 import std/json
+import std/hashes
 import std/os
 import std/strutils
-import std/times
 
 type
   SettingsDiagnostic* = object
@@ -135,7 +135,11 @@ proc settingsPaths*(home: string): tuple[globalPath, workspaceName: string] =
 
 proc fileStamp(path: string): int64 =
   if path.len == 0 or not fileExists(path): return 0
-  try: getLastModificationTime(path).toUnix
+  try:
+    # mtime is only second-resolution on some macOS filesystems. Hash the
+    # small configuration file content so same-second, same-length edits still
+    # trigger the live reload boundary.
+    int64(hash(readFile(path)))
   except CatchableError: 0
 
 proc loadSettings*(globalPath, workspacePath: string; languageId = ""): NimculusSettings =
