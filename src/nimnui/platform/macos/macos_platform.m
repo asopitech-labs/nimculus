@@ -36,6 +36,7 @@ static NSString *g_theme_foreground = @"#d7dae0";
 static NSString *g_theme_accent = @"#4daafc";
 static NimculusTerminalRun *g_terminal_runs = NULL;
 static uint32_t g_terminal_run_count = 0;
+static NSMutableArray<NSString *> *g_terminal_hyperlinks = nil;
 static BOOL g_terminal_visible = NO;
 static NSString *g_task_output_text = @"";
 static BOOL g_task_output_visible = NO;
@@ -1124,6 +1125,13 @@ static void applyTerminalRuns(NSTextView *terminal) {
     if (run.flags & 8) [attributed addAttribute:NSUnderlineStyleAttributeName value:@(NSUnderlineStyleSingle) range:range];
     if (run.flags & 32) [attributed addAttribute:NSStrikethroughStyleAttributeName value:@(NSUnderlineStyleSingle) range:range];
     if (run.flags & 2) [attributed addAttribute:NSForegroundColorAttributeName value:[foreground colorWithAlphaComponent:0.65] range:range];
+    if (g_terminal_hyperlinks && index < g_terminal_hyperlinks.count) {
+      NSString *hyperlink = g_terminal_hyperlinks[index];
+      if (hyperlink.length > 0) {
+        [attributed addAttribute:NSLinkAttributeName value:hyperlink range:range];
+        [attributed addAttribute:NSUnderlineStyleAttributeName value:@(NSUnderlineStyleSingle) range:range];
+      }
+    }
   }
   [terminal.textStorage setAttributedString:attributed];
   applyTerminalSelection(terminal);
@@ -2461,11 +2469,17 @@ void nimculus_platform_set_terminal_runs(const char *utf8, uint32_t length,
   free(g_terminal_runs);
   g_terminal_runs = NULL;
   g_terminal_run_count = 0;
+  g_terminal_hyperlinks = [NSMutableArray arrayWithCapacity:count];
   if (runs && count > 0) {
     g_terminal_runs = calloc(count, sizeof(NimculusTerminalRun));
     if (g_terminal_runs) {
       memcpy(g_terminal_runs, runs, count * sizeof(NimculusTerminalRun));
       g_terminal_run_count = count;
+      for (uint32_t index = 0; index < count; index++) {
+        const char *uri = runs[index].hyperlink_uri;
+        [g_terminal_hyperlinks addObject:uri ?
+          ([NSString stringWithUTF8String:uri] ?: @"") : @""];
+      }
     }
   }
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;

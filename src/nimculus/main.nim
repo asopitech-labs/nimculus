@@ -647,7 +647,8 @@ when defined(macosx):
           foregroundBlue: uint32(cell.foreground.blue),
           backgroundKind: uint32(ord(cell.background.kind)), backgroundIndex: uint32(max(0, cell.background.index)),
           backgroundRed: uint32(cell.background.red), backgroundGreen: uint32(cell.background.green),
-          backgroundBlue: uint32(cell.background.blue)))
+          backgroundBlue: uint32(cell.background.blue),
+          hyperlinkUri: if cell.hyperlinkUri.len > 0: cell.hyperlinkUri.cstring else: nil))
         byteOffset = endByte
       byteOffset += 1
     if runs.len > 0:

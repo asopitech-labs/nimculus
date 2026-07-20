@@ -23,6 +23,8 @@ type
     ## cell of a double-width glyph. This follows the cell model used by Zed.
     width*: int
     foreground*, background*: TerminalColor
+    ## OSC 8 URI active while this cell was written. Empty means no link.
+    hyperlinkUri*: string
     bold*, dim*, italic*, underline*, inverse*, strikethrough*: bool
 
   TerminalPoint* = object
@@ -52,6 +54,8 @@ type
     savedCursorRow*, savedCursorColumn*: int
     parserState*: char
     csiParams*: string
+    oscBuffer*: string
+    currentHyperlinkUri*: string
 
 proc blankRow(screen: TerminalScreen): seq[TerminalCell] =
   newSeq(result, max(1, screen.columns))
@@ -202,6 +206,16 @@ proc applyCurrentStyle(screen: TerminalScreen, cell: var TerminalCell) =
   cell.underline = screen.sgrUnderline
   cell.inverse = screen.sgrInverse
   cell.strikethrough = screen.sgrStrikethrough
+  cell.hyperlinkUri = screen.currentHyperlinkUri
+
+proc finishOsc(screen: var TerminalScreen) =
+  ## Parse the OSC 8 hyperlink form: OSC 8 ; params ; URI BEL/ST.
+  ## Other OSC metadata remains intentionally non-rendering.
+  let parts = screen.oscBuffer.split(';', maxsplit = 2)
+  if parts.len >= 3 and parts[0] == "8":
+    screen.currentHyperlinkUri = parts[2]
+  screen.oscBuffer.setLen(0)
+  screen.parserState = '\0'
 
 proc enterAlternateScreen(screen: var TerminalScreen) =
   if screen.alternateScreen: return
@@ -436,6 +450,7 @@ proc feed*(screen: var TerminalScreen, data: string) =
       elif byte == ']':
         # OSC titles and hyperlinks are metadata; do not leak their payload
         # into the terminal cell stream.
+        screen.oscBuffer.setLen(0)
         screen.parserState = 'o'
       elif byte == '7':
         screen.savedCursorRow = screen.cursorRow
@@ -455,11 +470,14 @@ proc feed*(screen: var TerminalScreen, data: string) =
       else:
         screen.parserState = '\0'
     of 'o':
-      if byte == '\x07': screen.parserState = '\0'
+      if byte == '\x07': screen.finishOsc()
       elif byte == '\x1B': screen.parserState = 'O'
+      else: screen.oscBuffer.add(byte)
     of 'O':
-      if byte == '\\': screen.parserState = '\0'
-      elif byte != '\x1B': screen.parserState = 'o'
+      if byte == '\\': screen.finishOsc()
+      elif byte != '\x1B':
+        screen.oscBuffer.add('\x1B')
+        screen.oscBuffer.add(byte)
     else: screen.parserState = '\0'
     inc index
 

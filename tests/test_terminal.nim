@@ -86,6 +86,13 @@ suite "M10 terminal core":
     screen.feed("\x1b]0;Nimculus title\x07ok")
     check screen.lineText(0) == "ok"
 
+  test "tracks OSC 8 hyperlinks on cells and closes them":
+    var screen = initTerminalScreen(16, 1)
+    screen.feed("\x1b]8;;https://example.com\x07link\x1b]8;;\x07 plain")
+    check screen.lines[0][0].hyperlinkUri == "https://example.com"
+    check screen.lines[0][3].hyperlinkUri == "https://example.com"
+    check screen.lines[0][5].hyperlinkUri.len == 0
+
   test "retains SGR attributes on cells and resets them":
     var screen = initTerminalScreen(8, 1)
     screen.feed("\x1b[1;31;48;2;1;2;3mA\x1b[0mB")

@@ -37,6 +37,7 @@ typedef struct NimculusTerminalRun {
   uint32_t background_red;
   uint32_t background_green;
   uint32_t background_blue;
+  const char *hyperlink_uri;
 } NimculusTerminalRun;
 
 typedef void (*NimculusInputCallback)(const NimculusInputEvent *event);

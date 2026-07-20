@@ -43,6 +43,7 @@ type
     startByte*, endByte*, flags*: uint32
     foregroundKind*, foregroundIndex*, foregroundRed*, foregroundGreen*, foregroundBlue*: uint32
     backgroundKind*, backgroundIndex*, backgroundRed*, backgroundGreen*, backgroundBlue*: uint32
+    hyperlinkUri*: cstring
   NimculusInputEvent* {.bycopy.} = object
     kind*, keyCode*, modifiers*, button*: uint32
     x*, y*, deltaX*, deltaY*: cdouble
