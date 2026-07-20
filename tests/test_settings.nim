@@ -55,3 +55,14 @@ suite "M12 settings foundation":
     check store.intSetting("editor.tabSize", 0) == 8
     removeFile(path)
     removeDir(root)
+
+  test "ignores malformed keymap entries without raising":
+    let root = getTempDir() / "nimculus-settings-keymap-types"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{"keymap":[{"key":12,"command":"save"},{"key":"cmd+s"},{"key":"cmd+p","command":"commandPalette","when":false},"bad"]}""")
+    let store = newSettingsStore(path, "", "")
+    check store.keyBindings().len == 0
+    check store.diagnostics.len == 4
+    removeFile(path)
+    removeDir(root)

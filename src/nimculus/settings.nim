@@ -102,6 +102,25 @@ proc validateSettings*(root: JsonNode): seq[SettingsDiagnostic] =
       let node = nodeAt(root, key)
       if node != nil:
         result.add(SettingsDiagnostic(path: key, message: "must be a string"))
+  let keymap = nodeAt(root, "keymap")
+  if keymap != nil:
+    if keymap.kind != JArray:
+      result.add(SettingsDiagnostic(path: "keymap", message: "must be an array"))
+    else:
+      for index in 0 ..< keymap.len:
+        let item = keymap[index]
+        let itemPath = "keymap[" & $index & "]"
+        if item.kind != JObject:
+          result.add(SettingsDiagnostic(path: itemPath, message: "must be an object"))
+          continue
+        for field in ["key", "command", "when"]:
+          if item.hasKey(field) and item[field].kind != JString:
+            result.add(SettingsDiagnostic(path: itemPath & "." & field,
+              message: "must be a string"))
+        for required in ["key", "command"]:
+          if not item.hasKey(required):
+            result.add(SettingsDiagnostic(path: itemPath,
+              message: "missing required field: " & required))
 
 proc settingsSchema*(): JsonNode =
   ## Stable schema consumed by editors and future settings UI completion.
@@ -191,7 +210,9 @@ proc keyBindings*(store: SettingsStore): seq[KeyBinding] =
   let value = nodeAt(store.values, "keymap")
   if value == nil or value.kind != JArray: return
   for item in value:
-    if item.kind != JObject or not item.hasKey("key") or not item.hasKey("command"): continue
+    if item.kind != JObject or not item.hasKey("key") or not item.hasKey("command") or
+        item["key"].kind != JString or item["command"].kind != JString: continue
+    if item.hasKey("when") and item["when"].kind != JString: continue
     result.add(KeyBinding(key: item["key"].getStr, command: item["command"].getStr,
       whenClause: if item.hasKey("when"): item["when"].getStr else: ""))
 
