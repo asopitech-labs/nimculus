@@ -31,6 +31,9 @@ var activePointerNode = NodeId(0)
 var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 when defined(macosx):
   var appSettings: SettingsStore
+  var editorLspSemanticTokens: seq[LspSemanticToken]
+  var editorLspSemanticTokenPath = ""
+  var editorLspSemanticTokenSource = ""
 
 proc resetPointerInteractions()
 when defined(macosx):
@@ -496,6 +499,7 @@ when defined(macosx):
 
   proc pollNativeLspFeatureResults() =
     if lspBridge == nil: return
+    let document = activeDocument()
     var references = lspBridge.takeReferenceLocations()
     if references.len > 0:
       var lines: seq[string]
@@ -509,6 +513,14 @@ when defined(macosx):
       for symbol in symbols:
         lines.add(symbol.name & "  " & $(symbol.range.start.line + 1))
       showNativeLspPanel("LSP Symbols", lines)
+    let semanticTokens = lspBridge.takeSemanticTokens()
+    if semanticTokens.len > 0:
+      editorLspSemanticTokens = semanticTokens
+      if document != nil:
+        editorLspSemanticTokenPath = document[].path
+        editorLspSemanticTokenSource = document[].buffer.toString()
+      refreshEditorSyntax()
+      editorViewState.statusMessage = "LSP: semantic tokens applied"
     let actions = lspBridge.takeCodeActions()
     if actions.len > 0:
       var lines: seq[string]
@@ -1084,6 +1096,13 @@ proc refreshEditorSyntax() =
       platformSetEditorDiagnostics(nil, 0)
       clearNativeGitHunks()
     return
+  when defined(macosx):
+    let currentText = document[].buffer.toString()
+    if editorLspSemanticTokenPath != document[].path or
+        (editorLspSemanticTokenSource.len > 0 and editorLspSemanticTokenSource != currentText):
+      editorLspSemanticTokens.setLen(0)
+      editorLspSemanticTokenPath = document[].path
+      editorLspSemanticTokenSource = ""
   var grammar: GrammarKind
   try:
     grammar = grammarForPath(document[].path)
@@ -1120,6 +1139,14 @@ proc refreshEditorSyntax() =
     for index, span in highlights:
       nativeHighlights[index] = NativeHighlightSpan(startByte: span.startByte,
         endByte: span.endByte, kind: uint32(ord(span.kind)))
+    for token in editorLspSemanticTokens:
+      let startByte = document[].buffer.byteOffsetAtUtf16Position(token.line,
+        token.startCharacter)
+      let endByte = document[].buffer.byteOffsetAtUtf16Position(token.line,
+        token.startCharacter + token.length)
+      if endByte > startByte:
+        nativeHighlights.add(NativeHighlightSpan(startByte: uint32(startByte),
+          endByte: uint32(endByte), kind: uint32(token.tokenType mod 6)))
     var highlightPtr: ptr NativeHighlightSpan = nil
     if nativeHighlights.len > 0: highlightPtr = addr nativeHighlights[0]
     platformSetEditorHighlights(highlightPtr, uint32(nativeHighlights.len))
@@ -1615,6 +1642,12 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "LSP inlay hints unavailable"
         else:
           editorViewState.statusMessage = "LSP: loading inlay hints"
+    of "semantic tokens":
+      when defined(macosx):
+        if lspBridge == nil or not lspBridge.requestSemanticTokens():
+          editorViewState.statusMessage = "LSP semantic tokens unavailable"
+        else:
+          editorViewState.statusMessage = "LSP: loading semantic tokens"
     of "format document":
       when defined(macosx):
         if document == nil or lspBridge == nil:
