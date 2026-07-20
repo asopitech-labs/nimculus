@@ -11,6 +11,9 @@ type
     sha256*: string
     notes*: string
 
+proc isHttpsUrl(url: string): bool =
+  url.startsWith("https://")
+
 proc parseUpdateManifest*(payload: string): UpdateRelease =
   ## Parse the release contract used by the future downloader. Non-HTTPS
   ## artifacts are rejected before a download or install step can see them.
@@ -23,7 +26,7 @@ proc parseUpdateManifest*(payload: string): UpdateRelease =
       result.version = value["version"].getStr
     if value.hasKey("url") and value["url"].kind == JString:
       let url = value["url"].getStr
-      if url.startsWith("https://"): result.url = url
+      if isHttpsUrl(url): result.url = url
     if value.hasKey("sha256") and value["sha256"].kind == JString:
       result.sha256 = value["sha256"].getStr.toLowerAscii
     if value.hasKey("notes") and value["notes"].kind == JString:
@@ -55,6 +58,7 @@ proc compareVersions*(left, right: string): int =
 
 proc isUpdateAvailable*(currentVersion: string, release: UpdateRelease): bool =
   release.version.len > 0 and release.url.len > 0 and
+    isHttpsUrl(release.url) and
     release.sha256.len == 64 and release.sha256.allCharsInSet(HexDigits) and
     compareVersions(currentVersion, release.version) < 0
 
@@ -78,7 +82,7 @@ proc downloadAndVerify*(release: UpdateRelease, destination: string): bool =
   ## Download an HTTPS artifact without a shell, then verify it before the
   ## caller can hand it to an installer. Failed or mismatched artifacts are
   ## removed so a stale file cannot be mistaken for a verified update.
-  if release.url.len == 0 or release.sha256.len != 64 or
+  if not isHttpsUrl(release.url) or release.sha256.len != 64 or
       not release.sha256.allCharsInSet(HexDigits) or destination.len == 0:
     return false
   try:
@@ -117,3 +121,41 @@ proc verifyMacosSignedApp*(path: string): bool =
   path.len > 0 and path.endsWith(".app") and dirExists(path) and
     runChecked("codesign", ["--verify", "--deep", "--strict", "--verbose=2", path]) and
     runChecked("spctl", ["--assess", "--type", "execute", "--verbose", path])
+
+proc installMacosDmgUpdate*(downloadedDmg, runningAppPath, temporaryDirectory: string): bool =
+  ## Install a verified DMG using the same mount/copy/unmount boundary as Zed.
+  ## The mounted app is verified before rsync can overwrite the running app.
+  if not downloadedDmg.endsWith(".dmg") or not fileExists(downloadedDmg) or
+      not runningAppPath.endsWith(".app") or not dirExists(runningAppPath) or
+      temporaryDirectory.len == 0:
+    return false
+  let mountRoot = temporaryDirectory / "NimculusUpdateMount"
+  let appName = splitFile(runningAppPath).name & splitFile(runningAppPath).ext
+  let mountedApp = mountRoot / appName
+  var mounted = false
+  try:
+    createDir(temporaryDirectory)
+    createDir(mountRoot)
+    let attach = startProcess("hdiutil", args = ["attach", "-nobrowse",
+      "-mountroot", temporaryDirectory, downloadedDmg],
+      options = {poUsePath, poStdErrToStdOut})
+    discard attach.outputStream.readAll()
+    mounted = attach.waitForExit() == 0
+    attach.close()
+    if not mounted or not verifyMacosSignedApp(mountedApp): return false
+    let copy = startProcess("rsync", args = ["-a", "--delete", "--exclude", "Icon?",
+      mountedApp & "/", runningAppPath & "/"],
+      options = {poUsePath, poStdErrToStdOut})
+    discard copy.outputStream.readAll()
+    copy.waitForExit() == 0
+  except CatchableError:
+    false
+  finally:
+    if mounted:
+      try:
+        let detach = startProcess("hdiutil", args = ["detach", "-force", mountRoot],
+          options = {poUsePath, poStdErrToStdOut})
+        discard detach.outputStream.readAll()
+        discard detach.waitForExit()
+        detach.close()
+      except CatchableError: discard

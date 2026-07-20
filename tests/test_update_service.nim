@@ -20,6 +20,8 @@ suite "M11 update service":
       invalidDestination)
     check not fileExists(invalidDestination)
     check not verifyMacosSignedApp(getTempDir() / "missing-nimculus.app")
+    check not installMacosDmgUpdate(getTempDir() / "missing-nimculus.dmg",
+      getTempDir() / "missing-nimculus.app", getTempDir() / "nimculus-update-test")
 
   test "rejects insecure artifacts and compares prereleases":
     let release = parseUpdateManifest("""{"version":"0.2.0","url":"http://example.invalid/Nimculus.dmg"}""")
