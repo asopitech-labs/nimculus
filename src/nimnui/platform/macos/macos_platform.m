@@ -1652,6 +1652,11 @@ static void applyTerminalRuns(NSTextView *terminal) {
   NSMenu *mainMenu = [[NSMenu alloc] initWithTitle:@"MainMenu"];
   NSMenuItem *appItem = [[NSMenuItem alloc] initWithTitle:@"Nimculus" action:NULL keyEquivalent:@""];
   NSMenu *appMenu = [[NSMenu alloc] initWithTitle:@"Nimculus"];
+  NSMenuItem *settings = [[NSMenuItem alloc] initWithTitle:@"Settings…"
+    action:@selector(openSettings:) keyEquivalent:@","];
+  settings.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  [appMenu addItem:settings];
+  [appMenu addItem:[NSMenuItem separatorItem]];
   [appMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Quit Nimculus" action:@selector(terminate:) keyEquivalent:@"q"]];
   [appItem setSubmenu:appMenu];
   [mainMenu addItem:appItem];
@@ -1750,6 +1755,11 @@ static void applyTerminalRuns(NSTextView *terminal) {
   [windowItem setSubmenu:windowMenu];
   [mainMenu addItem:windowItem];
   [NSApp setMainMenu:mainMenu];
+}
+
+- (void)openSettings:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("openSettings");
 }
 
 - (void)previousTab:(id)sender {

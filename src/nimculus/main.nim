@@ -1,4 +1,5 @@
 import std/algorithm
+import std/json
 import std/math
 import std/os
 import std/strutils
@@ -20,6 +21,9 @@ import nimculus/task_service
 import nimculus/terminal
 import nimculus/settings
 
+proc syncEditorCursor()
+proc persistSession()
+
 var demoTree = newUiTree()
 var shortcutRegistry: CommandRegistry
 var demoButton = NodeId(0)
@@ -34,6 +38,8 @@ when defined(macosx):
   var editorLspSemanticTokens: seq[LspSemanticToken]
   var editorLspSemanticTokenPath = ""
   var editorLspSemanticTokenSource = ""
+  var pendingLspRename: seq[LspWorkspaceEdit]
+  var pendingLspCodeActions: seq[LspCodeAction]
 
 proc resetPointerInteractions()
 when defined(macosx):
@@ -504,6 +510,61 @@ when defined(macosx):
     LspRange(start: LspPosition(line: start.line, character: start.character),
       finish: LspPosition(line: finish.line, character: finish.character))
 
+  proc applyLspWorkspaceEdits(edits: seq[LspWorkspaceEdit], label: string): bool =
+    ## Apply a complete workspace edit as one in-memory validation pass per
+    ## file. This follows Zed's workspace-edit boundary: ranges are converted
+    ## using the target buffer's UTF-16 mapping, and no partial range update is
+    ## allowed when edits overlap or use invalid UTF-8 boundaries.
+    if edits.len == 0: return false
+    var grouped: seq[LspWorkspaceEdit]
+    for item in edits:
+      if item.uri.len == 0 or item.edits.len == 0: continue
+      grouped.add(item)
+    if grouped.len == 0: return false
+    for item in grouped:
+      let path = filePathFromUri(item.uri)
+      if path.len == 0:
+        editorViewState.statusMessage = label & " skipped: unsupported URI"
+        return false
+      var target: FileDocument
+      var tabIndex = -1
+      for index, tab in editorSession.tabs:
+        if tab.document.path.len > 0 and absolutePath(tab.document.path) == absolutePath(path):
+          tabIndex = index
+          break
+      if tabIndex >= 0:
+        target = editorSession.tabs[tabIndex].document
+      else:
+        try: target = openDocument(path)
+        except CatchableError as error:
+          editorViewState.statusMessage = label & " failed: " & error.msg
+          return false
+      var bufferEdits: seq[Edit]
+      for textEdit in item.edits:
+        let startByte = target.buffer.byteOffsetAtUtf16Position(
+          textEdit.range.start.line, textEdit.range.start.character)
+        let endByte = target.buffer.byteOffsetAtUtf16Position(
+          textEdit.range.finish.line, textEdit.range.finish.character)
+        bufferEdits.add(Edit(startByte: startByte, endByte: endByte,
+          text: textEdit.newText))
+      try:
+        target.buffer.applyEdits(bufferEdits)
+      except CatchableError as error:
+        editorViewState.statusMessage = label & " rejected: " & error.msg
+        return false
+      if tabIndex >= 0:
+        editorSession.tabs[tabIndex].document = target
+      else:
+        try: target.save()
+        except CatchableError as error:
+          editorViewState.statusMessage = label & " failed: " & error.msg
+          return false
+    editorViewState.statusMessage = "LSP: " & label & " applied"
+    syncEditorCursor()
+    refreshEditorSyntax()
+    persistSession()
+    true
+
   proc pollNativeLspFeatureResults() =
     if lspBridge == nil: return
     let document = activeDocument()
@@ -530,15 +591,21 @@ when defined(macosx):
       editorViewState.statusMessage = "LSP: semantic tokens applied"
     let actions = lspBridge.takeCodeActions()
     if actions.len > 0:
+      pendingLspCodeActions = actions
       var lines: seq[string]
-      for action in actions:
-        lines.add(action.title)
+      for index, action in actions:
+        lines.add($(index + 1) & ". " & action.title)
+      lines.add("")
+      lines.add("Use `apply code action <number>` to apply")
       showNativeLspPanel("LSP Code Actions", lines)
     let renameEdits = lspBridge.takeRenameEdits()
     if renameEdits.len > 0:
+      pendingLspRename = renameEdits
       var lines: seq[string]
       for workspaceEdit in renameEdits:
         lines.add(filePathFromUri(workspaceEdit.uri) & " (" & $workspaceEdit.edits.len & " edits)")
+      lines.add("")
+      lines.add("Use `apply rename` to apply")
       showNativeLspPanel("LSP Rename Preview", lines)
     let signature = lspBridge.takeSignatureHelp()
     if signature.signatures.len > 0:
@@ -1547,6 +1614,18 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     suppressRecoveryWrite = true
     if recoveryFilePath.len > 0 and fileExists(recoveryFilePath):
       removeFile(recoveryFilePath)
+  elif name == "openSettings":
+    when defined(macosx):
+      if settingsFilePath.len == 0:
+        editorViewState.statusMessage = "Settings unavailable"
+      else:
+        try:
+          if not fileExists(settingsFilePath):
+            writeFile(settingsFilePath, pretty(settingsSchema()) & "\n")
+          receiveNativeFile(settingsFilePath.cstring, false)
+          editorViewState.statusMessage = "Editing Nimculus settings"
+        except CatchableError as error:
+          editorViewState.statusMessage = "Settings failed: " & error.msg
   elif name.startsWith("goToLine:") and document != nil:
     let value = name[9 .. ^1].strip
     try:
@@ -1572,6 +1651,9 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command.startsWith("run task "): "__run_task__"
       elif command == "cancel task": "__cancel_task__"
       elif command == "cancel git": "__cancel_git__"
+      elif command == "open settings": "openSettings"
+      elif command.startsWith("apply code action "): "__apply_code_action__"
+      elif command == "apply rename": "__apply_rename__"
       elif command.startsWith("rename "): "__rename__"
       else: command
     editorViewState.closeCommandPalette()
@@ -1593,6 +1675,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "find":
       when defined(macosx):
         platformShowFindDocument()
+    of "openSettings":
+      receiveNativeCommand("openSettings".cstring)
     of "go to definition":
       when defined(macosx):
         if document == nil or lspBridge == nil:
@@ -1623,6 +1707,33 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
             editorViewState.statusMessage = "LSP rename unavailable"
           else:
             editorViewState.statusMessage = "LSP: preparing rename"
+    of "__apply_rename__":
+      when defined(macosx):
+        if pendingLspRename.len == 0:
+          editorViewState.statusMessage = "No pending LSP rename"
+        elif applyLspWorkspaceEdits(pendingLspRename, "rename"):
+          pendingLspRename.setLen(0)
+    of "__apply_code_action__":
+      when defined(macosx):
+        if pendingLspCodeActions.len == 0:
+          editorViewState.statusMessage = "No pending LSP code action"
+        else:
+          let value = if rawCommand.len > 18: rawCommand[18 .. ^1].strip else: ""
+          try:
+            let index = parseInt(value) - 1
+            if index < 0 or index >= pendingLspCodeActions.len:
+              editorViewState.statusMessage = "Invalid code action number"
+            else:
+              var edits = pendingLspCodeActions[index].workspaceEdits
+              if edits.len == 0 and pendingLspCodeActions[index].edits.len > 0:
+                let uri = if pendingLspCodeActions[index].uri.len > 0:
+                    pendingLspCodeActions[index].uri else: lspBridge.uri
+                edits.add(LspWorkspaceEdit(uri: uri,
+                  edits: pendingLspCodeActions[index].edits))
+              if applyLspWorkspaceEdits(edits, "code action"):
+                pendingLspCodeActions.setLen(0)
+          except ValueError:
+            editorViewState.statusMessage = "Invalid code action number"
     of "document symbols", "show symbols":
       when defined(macosx):
         if lspBridge == nil or not lspBridge.requestSymbols():

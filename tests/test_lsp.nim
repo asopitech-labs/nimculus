@@ -131,6 +131,8 @@ suite "M8 LSP protocol foundation":
         "end": {"line": 0, "character": 1}}, "newText": "y"}]}}}]})
     check actions.len == 1
     check actions[0].edits[0].newText == "y"
+    check actions[0].workspaceEdits.len == 1
+    check actions[0].workspaceEdits[0].uri == "file:///a.nim"
     let signature = parseSignatureHelp(%*{"result": {"activeSignature": 1,
       "signatures": [{"label": "f(a)", "documentation": "docs"}, {"label": "f(a,b)"}]}})
     check signature.activeSignature == 1
@@ -147,6 +149,12 @@ suite "M8 LSP protocol foundation":
         "end": {"line": 0, "character": 1}}, "newText": "renamed"}]}}})
     check workspaceEdits.len == 1
     check workspaceEdits[0].edits[0].newText == "renamed"
+    let multiFileEdit = parseWorkspaceEdit(%*{"result": {"changes": {
+      "file:///a.nim": [{"range": {"start": {"line": 0, "character": 0},
+        "end": {"line": 0, "character": 1}}, "newText": "a"}],
+      "file:///b.nim": [{"range": {"start": {"line": 1, "character": 0},
+        "end": {"line": 1, "character": 1}}, "newText": "b"}]}}})
+    check multiFileEdit.len == 2
 
   test "session initializes and stores diagnostics from a language server":
     let server = "import sys,json,time\n" &
