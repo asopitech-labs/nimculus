@@ -38,11 +38,13 @@ when defined(macosx):
   var editorLspSemanticTokens: seq[LspSemanticToken]
   var editorLspSemanticTokenPath = ""
   var editorLspSemanticTokenSource = ""
+  var editorLspSignatureText = ""
   var pendingLspRename: seq[LspWorkspaceEdit]
   var pendingLspCodeActions: seq[LspCodeAction]
 
 proc resetPointerInteractions()
 when defined(macosx):
+  proc syncNativeHover()
   proc handleCompletionShortcut(event: ptr NimculusInputEvent): bool
 
 proc setupDemoUi() =
@@ -609,6 +611,19 @@ when defined(macosx):
       showNativeLspPanel("LSP Rename Preview", lines)
     let signature = lspBridge.takeSignatureHelp()
     if signature.signatures.len > 0:
+      let active = max(0, min(signature.activeSignature, signature.signatures.high))
+      let selected = signature.signatures[active]
+      editorLspSignatureText = selected.label
+      if signature.signatures.len > 1:
+        editorLspSignatureText = "[" & $(active + 1) & "/" &
+          $signature.signatures.len & "] " & editorLspSignatureText
+      if selected.documentation.len > 0:
+        editorLspSignatureText.add("\n" & selected.documentation)
+      if document != nil:
+        let location = document[].buffer.lineColumn(editorViewState.cursor)
+        platformSetEditorHoverPosition(float64(float32(location.column) * 7.2'f32),
+          float64(float32(location.line - editorViewState.scrollLine) * 18'f32))
+      syncNativeHover()
       var lines: seq[string]
       for item in signature.signatures:
         lines.add(item.label & (if item.documentation.len > 0: " — " & item.documentation else: ""))
@@ -1151,6 +1166,10 @@ when defined(macosx):
     platformSetEditorCompletions(text.cstring, uint32(text.len))
 
   proc syncNativeHover() =
+    if editorLspSignatureText.len > 0:
+      platformSetEditorHover(editorLspSignatureText.cstring,
+        uint32(editorLspSignatureText.len))
+      return
     if lspBridge == nil or not lspBridge.hoverVisible:
       platformSetEditorHover("".cstring, 0)
       return
@@ -1562,6 +1581,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     else:
       when defined(macosx): platformShowSavePanelAndCloseTab()
   elif name == "closeTabConfirmed":
+    when defined(macosx): editorLspSignatureText = ""
     if editorSession.closeActiveTab(forceDirty = true):
       resetImeState()
       resetEditorViewState()
@@ -1582,6 +1602,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name in ["previousTab", "nextTab"]:
     let delta = if name == "previousTab": -1 else: 1
     if editorSession.switchTab(editorViewState, delta):
+      when defined(macosx): editorLspSignatureText = ""
       resetImeState()
       resetEditorViewState()
       workspacePreviewMode = ""
@@ -1760,6 +1781,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "LSP: loading code actions"
     of "signature help":
       when defined(macosx):
+        editorLspSignatureText = ""
+        platformSetEditorHover("".cstring, 0)
         if document == nil or lspBridge == nil or
             not lspBridge.requestSignatureHelp(document[].buffer, editorViewState.cursor):
           editorViewState.statusMessage = "LSP signature help unavailable"
@@ -2157,6 +2180,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       if kind == pointerDown:
         if lspBridge != nil:
           lspBridge.hideHover()
+          editorLspSignatureText = ""
           syncNativeHover()
         editorPointerDragging = true
         editorViewState.moveCursor(offset)
@@ -2185,6 +2209,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     when defined(macosx):
       if lspBridge != nil:
         lspBridge.hideHover()
+        editorLspSignatureText = ""
         syncNativeHover()
   elif kind == pointerDown and hit != NodeId(0):
     if demoTree.node(hit).focusable: discard demoTree.focus(hit)
