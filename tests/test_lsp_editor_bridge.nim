@@ -2,6 +2,7 @@ import std/unittest
 import std/os
 import nimculus/editor_buffer
 import nimculus/editor_diagnostics
+import nimculus/lsp
 import nimculus/lsp_editor_bridge
 
 suite "LSP editor bridge":
@@ -180,3 +181,18 @@ suite "LSP editor bridge":
     check edits[0].range.start.character == 0
     check edits[0].range.finish.character == 5
     check edits[0].newText == "world"
+
+  test "drops document feature results when the text generation advances":
+    let bridge = newLspEditorBridge("python3", [])
+    bridge.lastText = "one"
+    bridge.uri = "file:///tmp/stale.nim"
+    bridge.path = "/tmp/stale.nim"
+    bridge.codeActions.add(LspCodeAction(title: "stale"))
+    bridge.referenceLocations.add(LspLocation(uri: bridge.uri))
+    bridge.symbols.add(LspSymbol(name: "stale"))
+    bridge.semanticTokens.add(LspSemanticToken(line: 0, startCharacter: 0, length: 1))
+    bridge.cancelDocumentFeatureRequests()
+    check bridge.codeActions.len == 0
+    check bridge.referenceLocations.len == 0
+    check bridge.symbols.len == 0
+    check bridge.semanticTokens.len == 0

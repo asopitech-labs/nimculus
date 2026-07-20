@@ -301,6 +301,29 @@ proc takeInlayHints*(bridge: LspEditorBridge): seq[LspInlayHint] =
   result = bridge.inlayHints
   bridge.inlayHints.setLen(0)
 
+proc cancelDocumentFeatureRequests*(bridge: LspEditorBridge) =
+  ## Results tied to a previous text snapshot must never reach the editor.
+  ## Zed cancels pending project requests when the buffer generation advances.
+  if bridge == nil: return
+  bridge.cancelRequest(bridge.referencesRequestId)
+  bridge.cancelRequest(bridge.symbolsRequestId)
+  bridge.cancelRequest(bridge.codeActionsRequestId)
+  bridge.cancelRequest(bridge.codeActionResolveRequestId)
+  bridge.cancelRequest(bridge.executeCommandRequestId)
+  bridge.cancelRequest(bridge.renameRequestId)
+  bridge.cancelRequest(bridge.signatureRequestId)
+  bridge.cancelRequest(bridge.semanticTokensRequestId)
+  bridge.cancelRequest(bridge.inlayHintsRequestId)
+  bridge.referenceLocations.setLen(0)
+  bridge.symbols.setLen(0)
+  bridge.codeActions.setLen(0)
+  bridge.resolvedCodeAction = LspCodeAction()
+  bridge.commandEdits.setLen(0)
+  bridge.renameEdits.setLen(0)
+  bridge.signatureHelp = LspSignatureHelp()
+  bridge.semanticTokens.setLen(0)
+  bridge.inlayHints.setLen(0)
+
 proc requestFormatting*(bridge: LspEditorBridge): bool =
   if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
       bridge.uri.len == 0: return false
@@ -488,6 +511,7 @@ proc updateDocument*(bridge: LspEditorBridge, path, text: string) =
       bridge.hideHover()
       bridge.hideDefinition()
       bridge.hideFormatting()
+      bridge.cancelDocumentFeatureRequests()
       inc bridge.version
       bridge.session.notify("textDocument/didChange",
         didChangeNotification(bridge.uri, text, bridge.version))
