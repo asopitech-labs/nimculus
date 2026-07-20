@@ -103,6 +103,28 @@ proc validateSettings*(root: JsonNode): seq[SettingsDiagnostic] =
       if node != nil:
         result.add(SettingsDiagnostic(path: key, message: "must be a string"))
 
+proc settingsSchema*(): JsonNode =
+  ## Stable schema consumed by editors and future settings UI completion.
+  %*{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "editor": {"type": "object", "properties": {
+        "fontSize": {"type": "integer", "minimum": 6, "maximum": 96},
+        "tabSize": {"type": "integer", "minimum": 1, "maximum": 16},
+        "insertSpaces": {"type": "boolean"}
+      }},
+      "theme": {"type": "string"},
+      "iconTheme": {"type": "string"},
+      "terminal": {"type": "object", "properties": {"shell": {"type": "string"}}},
+      "lsp": {"type": "object", "properties": {"command": {"type": "string"}}},
+      "keymap": {"type": "array", "items": {"type": "object",
+        "required": ["key", "command"], "properties": {
+          "key": {"type": "string"}, "command": {"type": "string"}, "when": {"type": "string"}
+        }}}
+    }
+  }
+
 proc settingsPaths*(home: string): tuple[globalPath, workspaceName: string] =
   (home / "Library" / "Application Support" / "Nimculus" / "settings.json", ".nimculus" / "settings.json")
 

@@ -1,4 +1,5 @@
 import std/os
+import std/json
 import std/unittest
 import nimculus/settings
 import nimnui/commands
@@ -18,6 +19,12 @@ suite "M12 settings foundation":
     removeFile(globalPath)
     removeFile(workspacePath)
     removeDir(root)
+
+  test "publishes a machine-readable settings schema":
+    let schema = settingsSchema()
+    check schema["$schema"].kind == JString
+    check schema["properties"]["editor"]["properties"]["fontSize"]["minimum"].getInt == 6
+    check schema["properties"]["keymap"]["items"]["required"].len == 2
 
   test "validates types and exposes layered keymap and theme":
     let root = getTempDir() / "nimculus-settings-validation"
