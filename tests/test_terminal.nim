@@ -30,6 +30,40 @@ suite "M10 terminal core":
     check screen.rows == 3
     check screen.columns == 4
 
+  test "copies a normalized selection across visible lines and scrollback":
+    var screen = initTerminalScreen(8, 2, 8)
+    screen.feed("first\r\nsecond\r\nthird")
+    let selection = TerminalSelection(
+      anchor: TerminalPoint(row: 0, column: 2),
+      active: TerminalPoint(row: 2, column: 3))
+    check screen.selectedText(selection) == "rst\nsecond\nthi"
+    let reversed = TerminalSelection(
+      anchor: TerminalPoint(row: 2, column: 3),
+      active: TerminalPoint(row: 0, column: 2))
+    check screen.selectedText(reversed) == "rst\nsecond\nthi"
+
+  test "preserves the normal screen around DEC alternate screen":
+    var screen = initTerminalScreen(8, 2)
+    screen.feed("main")
+    screen.feed("\x1b[?1049halt")
+    check screen.alternateScreen
+    check screen.lineText(0) == "alt"
+    screen.feed("\x1b[?1049l")
+    check not screen.alternateScreen
+    check screen.lineText(0) == "main"
+
+  test "tracks DEC cursor visibility mode":
+    var screen = initTerminalScreen(8, 2)
+    screen.feed("\x1b[?25l")
+    check not screen.cursorVisible
+    screen.feed("\x1b[?25h")
+    check screen.cursorVisible
+
+  test "consumes OSC metadata without painting its payload":
+    var screen = initTerminalScreen(16, 1)
+    screen.feed("\x1b]0;Nimculus title\x07ok")
+    check screen.lineText(0) == "ok"
+
   when defined(macosx):
     test "macOS PTY executes a shell and feeds the screen":
       let pty = newTerminalPty("/bin/sh", "/tmp", 40, 8)

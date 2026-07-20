@@ -32,6 +32,11 @@ static NSUInteger g_editor_selection_end = 0;
 static NSString *g_editor_text = @"";
 static NSString *g_terminal_text = @"";
 static BOOL g_terminal_visible = NO;
+static BOOL g_terminal_has_selection = NO;
+static uint32_t g_terminal_selection_start_row = 0;
+static uint32_t g_terminal_selection_start_column = 0;
+static uint32_t g_terminal_selection_end_row = 0;
+static uint32_t g_terminal_selection_end_column = 0;
 static NSString *g_marked_text = @"";
 static NSString *g_editor_completions = @"";
 static NSString *g_editor_hover = @"";
@@ -992,6 +997,43 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (NSView *)hitTest:(NSPoint)point { return nil; }
 @end
 
+static NSUInteger terminalUTF16OffsetForCell(uint32_t row, uint32_t column) {
+  NSArray<NSString *> *lines = [g_terminal_text componentsSeparatedByString:@"\n"];
+  if (lines.count == 0) return 0;
+  NSUInteger lineIndex = MIN((NSUInteger)row, lines.count - 1);
+  NSUInteger offset = 0;
+  for (NSUInteger index = 0; index < lineIndex; index++) {
+    offset += lines[index].length + 1;
+  }
+  NSString *line = lines[lineIndex];
+  __block NSUInteger cell = 0;
+  __block NSUInteger utf16 = 0;
+  [line enumerateSubstringsInRange:NSMakeRange(0, line.length)
+                           options:NSStringEnumerationByComposedCharacterSequences
+                        usingBlock:^(NSString *substring, NSRange substringRange,
+                                     NSRange enclosingRange, BOOL *stop) {
+    (void)substring; (void)enclosingRange;
+    if (cell >= column) { *stop = YES; return; }
+    utf16 = NSMaxRange(substringRange);
+    cell++;
+  }];
+  return offset + MIN(utf16, line.length);
+}
+
+static void applyTerminalSelection(NSTextView *terminal) {
+  if (!terminal || !g_terminal_has_selection) {
+    if (terminal) terminal.selectedRange = NSMakeRange(0, 0);
+    return;
+  }
+  NSUInteger start = terminalUTF16OffsetForCell(g_terminal_selection_start_row,
+                                                 g_terminal_selection_start_column);
+  NSUInteger end = terminalUTF16OffsetForCell(g_terminal_selection_end_row,
+                                               g_terminal_selection_end_column);
+  NSUInteger lower = MIN(start, end);
+  NSUInteger upper = MAX(start, end);
+  terminal.selectedRange = NSMakeRange(lower, upper - lower);
+}
+
 @implementation NimculusMetalView
 
 + (Class)layerClass { return [CAMetalLayer class]; }
@@ -1012,7 +1054,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     NimculusTerminalOverlay *terminal = [[NimculusTerminalOverlay alloc]
       initWithFrame:NSZeroRect];
     terminal.editable = NO;
-    terminal.selectable = NO;
+    // Allow programmatic selection highlighting while hitTest:/first-responder
+    // remain disabled so PTY keyboard input stays owned by the Metal view.
+    terminal.selectable = YES;
     terminal.drawsBackground = YES;
     terminal.backgroundColor = [NSColor colorWithCalibratedRed:0.025 green:0.030 blue:0.045 alpha:0.98];
     terminal.textColor = [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0];
@@ -2270,7 +2314,21 @@ void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length) {
   if (view && view.subviews.count > 0) {
     NSTextView *terminal = (NSTextView *)view.subviews.lastObject;
     terminal.string = g_terminal_text;
+    applyTerminalSelection(terminal);
     [terminal scrollRangeToVisible:NSMakeRange(terminal.string.length, 0)];
+  }
+}
+void nimculus_platform_set_terminal_selection(uint32_t start_row, uint32_t start_column,
+                                              uint32_t end_row, uint32_t end_column) {
+  g_terminal_has_selection = (start_row != end_row || start_column != end_column);
+  g_terminal_selection_start_row = start_row;
+  g_terminal_selection_start_column = start_column;
+  g_terminal_selection_end_row = end_row;
+  g_terminal_selection_end_column = end_column;
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (view && view.subviews.count > 0) {
+    applyTerminalSelection((NSTextView *)view.subviews.lastObject);
+    [view drawFrame];
   }
 }
 void nimculus_platform_set_editor_completions(const char *utf8, uint32_t length) {

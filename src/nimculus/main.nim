@@ -203,6 +203,8 @@ when defined(macosx):
   var editorTaskCommand = ""
   var editorTerminal: TerminalPty
   var editorTerminalVisible = false
+  var editorTerminalSelection = TerminalSelection()
+  var editorTerminalSelecting = false
 
 proc resetEditorViewState() =
   editorViewState = newEditorView()
@@ -437,6 +439,50 @@ when defined(macosx):
     let lines = editorTerminal.screen.visibleText()
     let text = lines.join("\n")
     platformSetTerminalText(text.cstring, uint32(text.len))
+
+  proc terminalOverlayBounds(): tuple[x, y, width, height: float32] =
+    let height = min(180'f32, max(72'f32, float32(demoEditorBounds.size.height) * 0.42'f32))
+    (x: float32(demoEditorBounds.origin.x),
+     y: float32(demoEditorBounds.origin.y) + float32(demoEditorBounds.size.height) - height,
+     width: float32(demoEditorBounds.size.width), height: height)
+
+  proc terminalPointAt(x, y: float32): TerminalPoint =
+    let bounds = terminalOverlayBounds()
+    TerminalPoint(
+      row: max(0, min(editorTerminal.screen.rows - 1,
+        int(floor((y - bounds.y) / 18'f32)))),
+      column: max(0, min(editorTerminal.screen.columns,
+        int(floor((x - bounds.x) / 7.2'f32)))))
+
+  proc terminalContains(x, y: float32): bool =
+    let bounds = terminalOverlayBounds()
+    x >= bounds.x and x < bounds.x + bounds.width and
+      y >= bounds.y and y < bounds.y + bounds.height
+
+  proc syncNativeTerminalSelection() =
+    if editorTerminal == nil: return
+    let selection = editorTerminal.screen.normalizedSelection(editorTerminalSelection)
+    platformSetTerminalSelection(uint32(selection.anchor.row),
+      uint32(selection.anchor.column), uint32(selection.active.row),
+      uint32(selection.active.column))
+
+  proc handleTerminalPointer(kind: UiEventKind, x, y: float32): bool =
+    if not editorTerminalVisible or editorTerminal == nil or
+        not terminalContains(x, y): return false
+    if kind == pointerDown:
+      editorTerminalSelection.anchor = terminalPointAt(x, y)
+      editorTerminalSelection.active = editorTerminalSelection.anchor
+      editorTerminalSelecting = true
+    elif kind == pointerMove and editorTerminalSelecting:
+      editorTerminalSelection.active = terminalPointAt(x, y)
+    elif kind == pointerUp:
+      if editorTerminalSelecting:
+        editorTerminalSelection.active = terminalPointAt(x, y)
+      editorTerminalSelecting = false
+    else:
+      return false
+    syncNativeTerminalSelection()
+    true
 
   proc toggleNativeTerminal() =
     if editorTerminalVisible:
@@ -1111,9 +1157,20 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       of "moveUp": discard editorTerminal.writeInput("\x1b[A")
       of "moveDown": discard editorTerminal.writeInput("\x1b[B")
       of "cancel": discard editorTerminal.writeInput("\x03")
+      of "copy":
+        let copied = editorTerminal.screen.selectedText(editorTerminalSelection)
+        if copied.len > 0: clipboardSet(copied.cstring, uint32(copied.len))
+      of "selectAll":
+        editorTerminalSelection = TerminalSelection(
+          anchor: TerminalPoint(row: 0, column: 0),
+          active: TerminalPoint(row: max(0, editorTerminal.screen.lineCount() - 1),
+            column: editorTerminal.screen.columns))
+        syncNativeTerminalSelection()
+      of "paste": discard
       else: discard
       if name in ["insertNewline", "insertTab", "deleteBackward", "moveLeft",
-                  "moveRight", "moveUp", "moveDown", "cancel"]:
+                  "moveRight", "moveUp", "moveDown", "cancel", "copy",
+                  "selectAll", "paste"]:
         return
   let document = activeDocument()
   if name == "workspaceSearchTick":
@@ -1598,6 +1655,9 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     let document = activeDocument()
     let inEditor = demoEditorBounds.contains(point)
     var splitPointerHandled = false
+    if editorTerminalVisible and kind in {pointerDown, pointerMove, pointerUp} and
+        handleTerminalPointer(kind, float32(event.x), uiY):
+      return
     if not inEditor and lspBridge != nil:
       lspBridge.hideHover()
       syncNativeHover()

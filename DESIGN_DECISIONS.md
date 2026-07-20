@@ -208,6 +208,17 @@ document-bound hunk/blame results are discarded when the active buffer changes.
 `startGitJobInput` is limited to small patch payloads and closes stdin before
 polling process completion.
 
+## M10-003: Keep terminal selection in cell coordinates
+
+Following Zed's terminal model, selection is represented as an anchor and
+active `TerminalPoint`, not as a byte range in the rendered string. The screen
+model resolves points against visible rows plus scrollback, normalizes reversed
+dragging, and produces clipboard text with terminal line boundaries. The macOS
+overlay remains non-editable so keyboard input continues to the PTY; pointer
+selection is captured by the existing Metal view and copied through the normal
+NimNUI clipboard contract. DEC alternate-screen state is saved separately so
+full-screen terminal applications do not destroy the normal shell history.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The

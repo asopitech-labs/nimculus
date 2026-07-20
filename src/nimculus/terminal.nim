@@ -6,12 +6,23 @@ type
   TerminalCell* = object
     text*: string
 
+  TerminalPoint* = object
+    row*, column*: int
+
+  TerminalSelection* = object
+    anchor*, active*: TerminalPoint
+
   TerminalScreen* = object
     columns*, rows*: int
     scrollbackLimit*: int
     lines*: seq[seq[TerminalCell]]
     scrollback*: seq[seq[TerminalCell]]
     cursorRow*, cursorColumn*: int
+    cursorVisible*: bool
+    alternateScreen*: bool
+    savedLines: seq[seq[TerminalCell]]
+    savedScrollback: seq[seq[TerminalCell]]
+    savedCursorRow*, savedCursorColumn*: int
     parserState*: char
     csiParams*: string
 
@@ -23,6 +34,7 @@ proc initTerminalScreen*(columns = 80, rows = 24,
   result.columns = max(1, columns)
   result.rows = max(1, rows)
   result.scrollbackLimit = max(0, scrollbackLimit)
+  result.cursorVisible = true
   result.lines = newSeq[seq[TerminalCell]](result.rows)
   for row in 0 ..< result.rows: result.lines[row] = result.blankRow()
 
@@ -66,6 +78,29 @@ proc csiNumbers(screen: TerminalScreen): seq[int] =
     result.add(if part.len == 0: 1 else:
       try: parseInt(part) except ValueError: 1)
 
+proc enterAlternateScreen(screen: var TerminalScreen) =
+  if screen.alternateScreen: return
+  screen.savedLines = screen.lines
+  screen.savedScrollback = screen.scrollback
+  screen.savedCursorRow = screen.cursorRow
+  screen.savedCursorColumn = screen.cursorColumn
+  screen.lines = newSeq[seq[TerminalCell]](screen.rows)
+  for row in 0 ..< screen.rows: screen.lines[row] = screen.blankRow()
+  screen.scrollback.setLen(0)
+  screen.cursorRow = 0
+  screen.cursorColumn = 0
+  screen.alternateScreen = true
+
+proc leaveAlternateScreen(screen: var TerminalScreen) =
+  if not screen.alternateScreen: return
+  screen.lines = screen.savedLines
+  screen.scrollback = screen.savedScrollback
+  screen.cursorRow = min(screen.savedCursorRow, screen.rows - 1)
+  screen.cursorColumn = min(screen.savedCursorColumn, screen.columns - 1)
+  screen.savedLines.setLen(0)
+  screen.savedScrollback.setLen(0)
+  screen.alternateScreen = false
+
 proc eraseDisplay(screen: var TerminalScreen, mode: int) =
   case mode
   of 2:
@@ -77,6 +112,16 @@ proc eraseDisplay(screen: var TerminalScreen, mode: int) =
 
 proc handleCsi*(screen: var TerminalScreen, finalByte: char) =
   let params = screen.csiNumbers()
+  if screen.csiParams.startsWith("?") and finalByte in {'h', 'l'}:
+    let enabled = finalByte == 'h'
+    if screen.csiParams.contains("1049"):
+      if enabled: screen.enterAlternateScreen()
+      else: screen.leaveAlternateScreen()
+    if screen.csiParams.contains("25"):
+      screen.cursorVisible = enabled
+    screen.csiParams.setLen(0)
+    screen.parserState = '\0'
+    return
   case finalByte
   of 'A': screen.cursorRow = max(0, screen.cursorRow - params[0])
   of 'B', 'e': screen.cursorRow = min(screen.rows - 1, screen.cursorRow + params[0])
@@ -94,6 +139,12 @@ proc handleCsi*(screen: var TerminalScreen, finalByte: char) =
     elif screen.cursorRow >= 0 and screen.cursorRow < screen.rows:
       for column in screen.cursorColumn ..< screen.columns:
         screen.lines[screen.cursorRow][column].text = " "
+  of 's':
+    screen.savedCursorRow = screen.cursorRow
+    screen.savedCursorColumn = screen.cursorColumn
+  of 'u':
+    screen.cursorRow = min(screen.rows - 1, max(0, screen.savedCursorRow))
+    screen.cursorColumn = min(screen.columns - 1, max(0, screen.savedCursorColumn))
   else: discard # SGR and unsupported private modes are harmless here.
   screen.csiParams.setLen(0)
   screen.parserState = '\0'
@@ -131,6 +182,18 @@ proc feed*(screen: var TerminalScreen, data: string) =
       if byte == '[':
         screen.parserState = 'c'
         screen.csiParams.setLen(0)
+      elif byte == ']':
+        # OSC titles and hyperlinks are metadata; do not leak their payload
+        # into the terminal cell stream.
+        screen.parserState = 'o'
+      elif byte == '7':
+        screen.savedCursorRow = screen.cursorRow
+        screen.savedCursorColumn = screen.cursorColumn
+        screen.parserState = '\0'
+      elif byte == '8':
+        screen.cursorRow = min(screen.rows - 1, max(0, screen.savedCursorRow))
+        screen.cursorColumn = min(screen.columns - 1, max(0, screen.savedCursorColumn))
+        screen.parserState = '\0'
       else:
         screen.parserState = '\0'
     of 'c':
@@ -140,6 +203,12 @@ proc feed*(screen: var TerminalScreen, data: string) =
         screen.handleCsi(byte)
       else:
         screen.parserState = '\0'
+    of 'o':
+      if byte == '\x07': screen.parserState = '\0'
+      elif byte == '\x1B': screen.parserState = 'O'
+    of 'O':
+      if byte == '\\': screen.parserState = '\0'
+      elif byte != '\x1B': screen.parserState = 'o'
     else: screen.parserState = '\0'
     inc index
 
@@ -151,6 +220,44 @@ proc lineText*(screen: TerminalScreen, row: int): string =
 
 proc visibleText*(screen: TerminalScreen): seq[string] =
   for row in 0 ..< screen.lines.len: result.add(screen.lineText(row))
+
+proc lineCount*(screen: TerminalScreen): int =
+  screen.scrollback.len + screen.lines.len
+
+proc lineAt(screen: TerminalScreen, absoluteRow: int): seq[TerminalCell] =
+  if absoluteRow < 0: return
+  if absoluteRow < screen.scrollback.len: return screen.scrollback[absoluteRow]
+  let row = absoluteRow - screen.scrollback.len
+  if row >= 0 and row < screen.lines.len: result = screen.lines[row]
+
+proc normalizedSelection*(screen: TerminalScreen,
+                          selection: TerminalSelection): TerminalSelection =
+  result = selection
+  result.anchor.row = max(0, min(screen.lineCount() - 1, result.anchor.row))
+  result.active.row = max(0, min(screen.lineCount() - 1, result.active.row))
+  result.anchor.column = max(0, min(screen.columns, result.anchor.column))
+  result.active.column = max(0, min(screen.columns, result.active.column))
+  if result.anchor.row > result.active.row or
+      (result.anchor.row == result.active.row and
+       result.anchor.column > result.active.column):
+    swap(result.anchor, result.active)
+
+proc selectedText*(screen: TerminalScreen,
+                   selection: TerminalSelection): string =
+  ## Convert a cell selection, including scrollback, into clipboard text.
+  ## Trailing blank cells are not copied, matching terminal copy behavior.
+  if screen.lineCount() == 0: return
+  let range = screen.normalizedSelection(selection)
+  if range.anchor == range.active: return
+  for row in range.anchor.row .. range.active.row:
+    let cells = screen.lineAt(row)
+    let first = if row == range.anchor.row: range.anchor.column else: 0
+    let last = if row == range.active.row: range.active.column else: cells.len
+    var line = ""
+    for column in first ..< min(last, cells.len):
+      line.add(if cells[column].text.len == 0: " " else: cells[column].text)
+    result.add(line.strip(leading = false, trailing = true))
+    if row < range.active.row: result.add("\n")
 
 when defined(macosx):
   import std/posix
