@@ -246,6 +246,7 @@ var editorPointerDragging = false
 var editorScrollRemainder = 0'f32
 var sessionFilePath = ""
 var recoveryFilePath = ""
+var crashReportPath = ""
 when defined(macosx):
   var settingsFilePath = ""
 var persistenceTick = 0
@@ -928,6 +929,7 @@ proc setupPersistencePaths() =
   if not dirExists(directory): createDir(directory)
   sessionFilePath = directory / "session.json"
   recoveryFilePath = directory / "active.recovery"
+  crashReportPath = directory / "crash-report.json"
   settingsFilePath = directory / "settings.json"
 
 proc persistSession() =
@@ -2349,6 +2351,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
 when isMainModule:
   when defined(macosx):
     setupPersistencePaths()
+    platformInstallCrashHandler(crashReportPath.cstring)
     setupShortcutRegistry()
     restoreSession()
     syncRecentFiles()

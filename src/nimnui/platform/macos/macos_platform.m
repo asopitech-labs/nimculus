@@ -34,6 +34,7 @@ static NSString *g_terminal_text = @"";
 static NSString *g_theme_background = @"#1f2329";
 static NSString *g_theme_foreground = @"#d7dae0";
 static NSString *g_theme_accent = @"#4daafc";
+static NSString *g_crash_report_path = nil;
 static NimculusTerminalRun *g_terminal_runs = NULL;
 static uint32_t g_terminal_run_count = 0;
 static NSMutableArray<NSString *> *g_terminal_hyperlinks = nil;
@@ -68,6 +69,19 @@ static NSColor *themeHexColor(NSString *value, NSColor *fallback) {
   red = (red >> 16) & 0xFF;
   return [NSColor colorWithCalibratedRed:red / 255.0 green:green / 255.0
                                    blue:blue / 255.0 alpha:1.0];
+}
+
+static void nimculus_uncaught_exception_handler(NSException *exception) {
+  if (!g_crash_report_path || g_crash_report_path.length == 0) return;
+  NSDictionary *report = @{
+    @"kind": @"uncaughtObjectiveCException",
+    @"name": exception.name ?: @"NSException",
+    @"reason": exception.reason ?: @"unknown",
+    @"timestamp": [[NSISO8601DateFormatter new] stringFromDate:[NSDate date]]
+  };
+  NSError *error = nil;
+  NSData *data = [NSJSONSerialization dataWithJSONObject:report options:0 error:&error];
+  if (data && !error) [data writeToFile:g_crash_report_path atomically:YES];
 }
 static BOOL g_terminate_decision = NO;
 static NSArray<NSString *> *g_recent_files = nil;
@@ -2602,6 +2616,11 @@ bool nimculus_platform_is_dark_appearance(void) {
   NSAppearance *match = [appearance bestMatchFromAppearancesWithNames:@[
     NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
   return [match.name isEqualToString:NSAppearanceNameDarkAqua];
+}
+
+void nimculus_platform_install_crash_handler(const char *path) {
+  g_crash_report_path = path ? [[NSString alloc] initWithUTF8String:path] : nil;
+  NSSetUncaughtExceptionHandler(nimculus_uncaught_exception_handler);
 }
 void nimculus_platform_set_task_output_visible(bool visible) {
   g_task_output_visible = visible ? YES : NO;
