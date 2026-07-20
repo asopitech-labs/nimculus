@@ -44,6 +44,7 @@ when defined(macosx):
   var editorLspInlayHintSource = ""
   var pendingLspRename: seq[LspWorkspaceEdit]
   var pendingLspCodeActions: seq[LspCodeAction]
+  var pendingLspSymbols: seq[LspSymbol]
 
 proc resetPointerInteractions()
 when defined(macosx):
@@ -583,9 +584,13 @@ when defined(macosx):
       showNativeLspPanel("LSP References", lines)
     let symbols = lspBridge.takeSymbols()
     if symbols.len > 0:
+      pendingLspSymbols = symbols
       var lines: seq[string]
-      for symbol in symbols:
-        lines.add(symbol.name & "  " & $(symbol.range.start.line + 1))
+      for index, symbol in symbols:
+        lines.add($(index + 1) & ". " & symbol.name & "  " &
+          $(symbol.range.start.line + 1))
+      lines.add("")
+      lines.add("Use `open symbol <number>` to navigate")
       showNativeLspPanel("LSP Symbols", lines)
     let semanticTokens = lspBridge.takeSemanticTokens()
     if semanticTokens.len > 0:
@@ -1708,6 +1713,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command == "cancel task": "__cancel_task__"
       elif command == "cancel git": "__cancel_git__"
       elif command == "open settings": "openSettings"
+      elif command.startsWith("open symbol "): "__open_symbol__"
       elif command.startsWith("apply code action "): "__apply_code_action__"
       elif command == "apply rename": "__apply_rename__"
       elif command.startsWith("rename "): "__rename__"
@@ -1769,6 +1775,26 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "No pending LSP rename"
         elif applyLspWorkspaceEdits(pendingLspRename, "rename"):
           pendingLspRename.setLen(0)
+    of "__open_symbol__":
+      when defined(macosx):
+        if document == nil or pendingLspSymbols.len == 0:
+          editorViewState.statusMessage = "No pending LSP symbols"
+        else:
+          let value = if rawCommand.len > 12: rawCommand[12 .. ^1].strip else: ""
+          try:
+            let index = parseInt(value) - 1
+            if index < 0 or index >= pendingLspSymbols.len:
+              editorViewState.statusMessage = "Invalid symbol number"
+            else:
+              let symbol = pendingLspSymbols[index]
+              let target = document[].buffer.byteOffsetAtUtf16Position(
+                symbol.range.start.line, symbol.range.start.character)
+              editorViewState.moveCursor(target)
+              syncEditorCursor()
+              refreshEditorSyntax()
+              editorViewState.statusMessage = "LSP: " & symbol.name
+          except ValueError:
+            editorViewState.statusMessage = "Invalid symbol number"
     of "__apply_code_action__":
       when defined(macosx):
         if pendingLspCodeActions.len == 0:

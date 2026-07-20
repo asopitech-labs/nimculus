@@ -421,15 +421,23 @@ proc parseTextEdits*(message: JsonNode): seq[LspTextEdit] =
     if item.kind == JObject and item.hasKey("range") and item.hasKey("newText"):
       result.add(LspTextEdit(range: parseRange(item["range"]), newText: item["newText"].getStr))
 
+proc parseSymbolNode(item: JsonNode, symbols: var seq[LspSymbol]) =
+  if item == nil or item.kind != JObject or not item.hasKey("name"): return
+  let rangeNode = if item.hasKey("range"): item["range"]
+    elif item.hasKey("location") and item["location"].kind == JObject and
+        item["location"].hasKey("range"): item["location"]["range"]
+    else: nil
+  if rangeNode != nil:
+    symbols.add(LspSymbol(name: item["name"].getStr,
+      kind: if item.hasKey("kind"): item["kind"].getInt else: 0,
+      range: parseRange(rangeNode)))
+  if item.hasKey("children") and item["children"].kind == JArray:
+    for child in item["children"]: parseSymbolNode(child, symbols)
+
 proc parseSymbols*(message: JsonNode): seq[LspSymbol] =
   let value = responseResult(message)
   if value == nil or value.kind != JArray: return
-  for item in value:
-    if item.kind != JObject or not item.hasKey("name"): continue
-    let rangeNode = if item.hasKey("range"): item["range"] else: item["location"]["range"]
-    result.add(LspSymbol(name: item["name"].getStr,
-      kind: if item.hasKey("kind"): item["kind"].getInt else: 0,
-      range: parseRange(rangeNode)))
+  for item in value: parseSymbolNode(item, result)
 
 proc parseWorkspaceEditValue(value: JsonNode): seq[LspWorkspaceEdit] =
   if value == nil or value.kind != JObject: return

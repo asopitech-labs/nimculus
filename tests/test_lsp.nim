@@ -125,6 +125,14 @@ suite "M8 LSP protocol foundation":
       "range": {"start": {"line": 2, "character": 0}, "end": {"line": 2, "character": 4}}}]})
     check locations.len == 1
     check locations[0].uri == "file:///b.nim"
+    let nestedSymbols = parseSymbols(%*{"result": [{"name": "Type", "kind": 5,
+      "range": {"start": {"line": 0, "character": 0},
+        "end": {"line": 4, "character": 0}},
+      "children": [{"name": "method", "kind": 6,
+        "range": {"start": {"line": 1, "character": 2},
+          "end": {"line": 2, "character": 0}}}]}]})
+    check nestedSymbols.len == 2
+    check nestedSymbols[1].name == "method"
     let edits = parseTextEdits(%*{"result": [{"range": {"start": {"line": 0, "character": 0},
       "end": {"line": 0, "character": 1}}, "newText": "x"}]})
     check edits.len == 1
