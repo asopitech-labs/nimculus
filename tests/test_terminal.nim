@@ -19,7 +19,20 @@ suite "M10 terminal core":
     var screen = initTerminalScreen(8, 1)
     screen.feed("日本語")
     check screen.lineText(0) == "日本語"
-    check screen.cursorColumn == 3
+    check screen.cursorColumn == 6
+    check screen.lines[0][0].width == 2
+    check screen.lines[0][1].width == 0
+
+  test "keeps wide glyphs as leading and continuation cells":
+    var screen = initTerminalScreen(6, 1)
+    screen.feed("A界B")
+    check screen.lineText(0) == "A界B"
+    check screen.lines[0][1].width == 2
+    check screen.lines[0][2].width == 0
+    check screen.cursorColumn == 4
+    let selection = TerminalSelection(anchor: TerminalPoint(row: 0, column: 1),
+      active: TerminalPoint(row: 0, column: 3))
+    check screen.selectedText(selection) == "界"
 
   test "resize preserves visible content and clamps cursor":
     var screen = initTerminalScreen(8, 2)
@@ -97,6 +110,20 @@ suite "M10 terminal core":
     check chars.lineText(0) == "XYabcd"
     chars.feed("\x1b[1;1H\x1b[1P")
     check chars.lineText(0) == "Yabcd"
+
+  test "encodes DEC mouse reports":
+    var screen = initTerminalScreen(20, 10)
+    screen.feed("\x1b[?1000h\x1b[?1006h")
+    check screen.mouseReporting
+    check screen.mouseReport(terminalMousePress, 0, 2, 3) == "\x1b[<0;3;4M"
+    check screen.mouseReport(terminalMouseRelease, 0, 2, 3) == "\x1b[<3;3;4m"
+    screen.feed("\x1b[?1002h")
+    check screen.mouseReport(terminalMouseMove, 0, 2, 3) == "\x1b[<32;3;4M"
+    check screen.mouseReport(terminalMouseScroll, 0, 2, 3, -1) == "\x1b[<65;3;4M"
+    screen.feed("\x1b[?1006l\x1b[?1005h")
+    check screen.mouseReport(terminalMousePress, 0, 300, 4).len > 3
+    screen.feed("\x1b[?1000l\x1b[?1002l")
+    check not screen.mouseReporting
 
   when defined(macosx):
     test "multiple PTYs keep independent screen state":

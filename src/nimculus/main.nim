@@ -528,9 +528,24 @@ when defined(macosx):
     else: input
     discard editorTerminal.writeInput(payload)
 
-  proc handleTerminalPointer(kind: UiEventKind, x, y: float32): bool =
+  proc handleTerminalPointer(kind: UiEventKind, x, y: float32,
+                             button: uint32, modifiers: uint32,
+                             deltaY: float32): bool =
     if not editorTerminalVisible or editorTerminal == nil or
         not terminalContains(x, y): return false
+    let point = terminalPointAt(x, y)
+    if editorTerminal.screen.mouseReporting:
+      let mouseKind = case kind
+        of pointerDown: terminalMousePress
+        of pointerUp: terminalMouseRelease
+        of pointerMove: terminalMouseMove
+        of scroll: terminalMouseScroll
+        else: terminalMouseMove
+      let report = editorTerminal.screen.mouseReport(mouseKind, int(button),
+        point.column, point.row, deltaY, modifiers)
+      if report.len > 0:
+        writeNativeTerminalInput(report)
+      return true
     if kind == pointerDown:
       editorTerminalSelection.anchor = terminalPointAt(x, y)
       editorTerminalSelection.active = editorTerminalSelection.anchor
@@ -1772,8 +1787,9 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     let document = activeDocument()
     let inEditor = demoEditorBounds.contains(point)
     var splitPointerHandled = false
-    if editorTerminalVisible and kind in {pointerDown, pointerMove, pointerUp} and
-        handleTerminalPointer(kind, float32(event.x), uiY):
+    if editorTerminalVisible and kind in {pointerDown, pointerMove, pointerUp, scroll} and
+        handleTerminalPointer(kind, float32(event.x), uiY, event.button,
+          event.modifiers, float32(event.deltaY)):
       return
     if not inEditor and lspBridge != nil:
       lspBridge.hideHover()

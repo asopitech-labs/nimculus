@@ -11,8 +11,17 @@ type
     index*: int
     red*, green*, blue*: uint8
 
+  TerminalMouseFormat* = enum
+    terminalMouseNormal, terminalMouseUtf8, terminalMouseSgr
+
+  TerminalMouseEventKind* = enum
+    terminalMousePress, terminalMouseRelease, terminalMouseMove, terminalMouseScroll
+
   TerminalCell* = object
     text*: string
+    ## 0 is a continuation cell, 1 is a normal cell, and 2 is the leading
+    ## cell of a double-width glyph. This follows the cell model used by Zed.
+    width*: int
     foreground*, background*: TerminalColor
     bold*, dim*, italic*, underline*, inverse*, strikethrough*: bool
 
@@ -33,6 +42,8 @@ type
     insertMode*, lineFeedNewLine*: bool
     applicationCursorKeys*, originMode*, bracketedPaste*: bool
     mouseReporting*: bool
+    mouseReportClicks*, mouseReportDrag*, mouseReportMotion*: bool
+    mouseFormat*: TerminalMouseFormat
     sgrForeground*, sgrBackground*: TerminalColor
     sgrBold*, sgrDim*, sgrItalic*, sgrUnderline*, sgrInverse*, sgrStrikethrough*: bool
     scrollTop*, scrollBottom*: int
@@ -44,6 +55,7 @@ type
 
 proc blankRow(screen: TerminalScreen): seq[TerminalCell] =
   newSeq(result, max(1, screen.columns))
+  for cell in result.mitems: cell.width = 1
 
 proc initTerminalScreen*(columns = 80, rows = 24,
                          scrollbackLimit = 10_000): TerminalScreen =
@@ -99,11 +111,17 @@ proc resize*(screen: var TerminalScreen, columns, rows: int) =
   let nextRows = max(1, rows)
   if nextColumns != screen.columns:
     for row in screen.lines.mitems:
+      let oldLength = row.len
       row.setLen(nextColumns)
-      for cell in row.mitems:
-        if cell.text.len == 0: cell.text = " "
+      if nextColumns > oldLength:
+        for column in oldLength ..< nextColumns:
+          row[column].width = 1
     for row in screen.scrollback.mitems:
+      let oldLength = row.len
       row.setLen(nextColumns)
+      if nextColumns > oldLength:
+        for column in oldLength ..< nextColumns:
+          row[column].width = 1
   if nextRows > screen.lines.len:
     for _ in screen.lines.len ..< nextRows: screen.lines.add(screen.blankRow())
   elif nextRows < screen.lines.len:
@@ -233,8 +251,21 @@ proc handleCsi*(screen: var TerminalScreen, finalByte: char) =
         of 1: screen.applicationCursorKeys = enabled
         of 6: screen.originMode = enabled
         of 2004: screen.bracketedPaste = enabled
-        of 1000, 1002, 1003: screen.mouseReporting = enabled
+        of 1000:
+          screen.mouseReportClicks = enabled
+        of 1002:
+          screen.mouseReportDrag = enabled
+        of 1003:
+          screen.mouseReportMotion = enabled
+        of 1005:
+          if enabled: screen.mouseFormat = terminalMouseUtf8
+          elif screen.mouseFormat == terminalMouseUtf8: screen.mouseFormat = terminalMouseNormal
+        of 1006:
+          if enabled: screen.mouseFormat = terminalMouseSgr
+          elif screen.mouseFormat == terminalMouseSgr: screen.mouseFormat = terminalMouseNormal
         else: discard
+    screen.mouseReporting = screen.mouseReportClicks or screen.mouseReportDrag or
+      screen.mouseReportMotion
     screen.csiParams.setLen(0)
     screen.parserState = '\0'
     return
@@ -290,18 +321,18 @@ proc handleCsi*(screen: var TerminalScreen, finalByte: char) =
       for column in countdown(screen.columns - 1, screen.cursorColumn + count):
         screen.lines[screen.cursorRow][column] = screen.lines[screen.cursorRow][column - count]
       for column in screen.cursorColumn ..< screen.cursorColumn + count:
-        screen.lines[screen.cursorRow][column] = TerminalCell(text: " ")
+        screen.lines[screen.cursorRow][column] = TerminalCell(text: " ", width: 1)
   of 'P':
     let count = min(params[0], screen.columns - screen.cursorColumn)
     if count > 0:
       for column in screen.cursorColumn ..< screen.columns - count:
         screen.lines[screen.cursorRow][column] = screen.lines[screen.cursorRow][column + count]
       for column in screen.columns - count ..< screen.columns:
-        screen.lines[screen.cursorRow][column] = TerminalCell(text: " ")
+        screen.lines[screen.cursorRow][column] = TerminalCell(text: " ", width: 1)
   of 'X':
     let count = min(params[0], screen.columns - screen.cursorColumn)
     for column in screen.cursorColumn ..< screen.cursorColumn + count:
-      screen.lines[screen.cursorRow][column] = TerminalCell(text: " ")
+      screen.lines[screen.cursorRow][column] = TerminalCell(text: " ", width: 1)
   of 'h':
     if rawParams == "4": screen.insertMode = true
     if rawParams == "20": screen.lineFeedNewLine = true
@@ -318,22 +349,62 @@ proc handleCsi*(screen: var TerminalScreen, finalByte: char) =
   screen.csiParams.setLen(0)
   screen.parserState = '\0'
 
+  screen.mouseReporting = screen.mouseReportClicks or screen.mouseReportDrag or
+    screen.mouseReportMotion
+
+proc runeDisplayWidth(rune: Rune): int =
+  let code = int(rune)
+  if code == 0 or code < 32 or (code >= 0x7f and code < 0xa0): return 0
+  # Combining marks and variation selectors occupy the preceding cell.
+  if (code >= 0x300 and code <= 0x36f) or
+      (code >= 0x1ab0 and code <= 0x1aff) or
+      (code >= 0x1dc0 and code <= 0x1dff) or
+      (code >= 0xfe00 and code <= 0xfe0f) or
+      (code >= 0x200b and code <= 0x200f): return 0
+  if (code >= 0x1100 and code <= 0x115f) or
+      (code >= 0x2329 and code <= 0x232a) or
+      (code >= 0x2e80 and code <= 0xa4cf) or
+      (code >= 0xac00 and code <= 0xd7a3) or
+      (code >= 0xf900 and code <= 0xfaff) or
+      (code >= 0xfe10 and code <= 0xfe19) or
+      (code >= 0xfe30 and code <= 0xfe6f) or
+      (code >= 0xff00 and code <= 0xff60) or
+      (code >= 0xffe0 and code <= 0xffe6) or
+      (code >= 0x1f000 and code <= 0x1faff): return 2
+  1
+
+proc clearCell(screen: var TerminalScreen, row, column: int) =
+  if row < 0 or row >= screen.lines.len or column < 0 or column >= screen.columns: return
+  screen.lines[row][column] = TerminalCell(text: " ", width: 1)
+
 proc putGlyph(screen: var TerminalScreen, glyph: string) =
   if screen.cursorRow > screen.scrollBottom:
     screen.scrollRegionUp()
     screen.cursorRow = screen.scrollBottom
-  if screen.cursorColumn >= screen.columns:
+  let width = runeDisplayWidth(runeAt(glyph, 0))
+  if width == 0:
+    if screen.cursorColumn > 0:
+      screen.lines[screen.cursorRow][screen.cursorColumn - 1].text.add(glyph)
+    return
+  if screen.cursorColumn >= screen.columns or (width == 2 and screen.cursorColumn == screen.columns - 1):
     screen.cursorColumn = 0
     inc screen.cursorRow
     if screen.cursorRow > screen.scrollBottom:
       screen.scrollRegionUp()
       screen.cursorRow = screen.scrollBottom
   if screen.insertMode:
-    for column in countdown(screen.columns - 1, screen.cursorColumn + 1):
-      screen.lines[screen.cursorRow][column] = screen.lines[screen.cursorRow][column - 1]
+    let count = min(width, screen.columns - screen.cursorColumn)
+    for column in countdown(screen.columns - 1, screen.cursorColumn + count):
+      screen.lines[screen.cursorRow][column] = screen.lines[screen.cursorRow][column - count]
+  if screen.cursorColumn > 0 and screen.lines[screen.cursorRow][screen.cursorColumn].width == 0:
+    screen.clearCell(screen.cursorRow, screen.cursorColumn - 1)
   screen.lines[screen.cursorRow][screen.cursorColumn].text = glyph
+  screen.lines[screen.cursorRow][screen.cursorColumn].width = width
   screen.applyCurrentStyle(screen.lines[screen.cursorRow][screen.cursorColumn])
-  inc screen.cursorColumn
+  if width == 2:
+    screen.lines[screen.cursorRow][screen.cursorColumn + 1] = TerminalCell(width: 0)
+    screen.applyCurrentStyle(screen.lines[screen.cursorRow][screen.cursorColumn + 1])
+  screen.cursorColumn += width
 
 proc feed*(screen: var TerminalScreen, data: string) =
   var index = 0
@@ -392,9 +463,57 @@ proc feed*(screen: var TerminalScreen, data: string) =
     else: screen.parserState = '\0'
     inc index
 
+proc appendMouseUtf8(output: var string, value: int) =
+  let codepoint = max(0, value)
+  if codepoint < 0x80:
+    output.add(char(codepoint))
+  elif codepoint < 0x800:
+    output.add(char(0xc0 or (codepoint shr 6)))
+    output.add(char(0x80 or (codepoint and 0x3f)))
+  else:
+    output.add(char(0xe0 or (codepoint shr 12)))
+    output.add(char(0x80 or ((codepoint shr 6) and 0x3f)))
+    output.add(char(0x80 or (codepoint and 0x3f)))
+
+proc mouseReport*(screen: TerminalScreen, kind: TerminalMouseEventKind,
+                  button, column, row: int, deltaY = 0.0,
+                  modifiers: uint32 = 0): string =
+  ## Encode a mouse event using the DEC modes selected by the application.
+  ## Coordinates are zero-based; terminal protocols are one-based.
+  if not screen.mouseReporting: return
+  if kind == terminalMouseMove and not screen.mouseReportDrag and
+      not screen.mouseReportMotion: return
+  var code = 0
+  if kind == terminalMouseScroll:
+    code = if deltaY > 0: 64 else: 65
+  else:
+    code = max(0, min(2, button))
+    if kind == terminalMouseRelease: code = 3
+    if kind == terminalMouseMove: code += 32
+  if (modifiers and (1'u32 shl 17)) != 0'u32: code += 4 # Shift
+  if (modifiers and (1'u32 shl 19)) != 0'u32: code += 8 # Option
+  if (modifiers and (1'u32 shl 18)) != 0'u32: code += 16 # Control
+  let x = max(1, column + 1)
+  let y = max(1, row + 1)
+  if screen.mouseFormat == terminalMouseSgr:
+    result = "\x1b[<" & $code & ";" & $x & ";" & $y
+    result.add(if kind == terminalMouseRelease: 'm' else: 'M')
+  elif screen.mouseFormat == terminalMouseUtf8:
+    result = "\x1b[M"
+    result.appendMouseUtf8(32 + code)
+    result.appendMouseUtf8(32 + x)
+    result.appendMouseUtf8(32 + y)
+  else:
+    # X10/UTF-8 reports use the legacy byte layout. Keep the safe range here;
+    # SGR mode is used automatically by modern applications for larger cells.
+    if x > 223 or y > 223: return
+    result = "\x1b[M" & char(32 + code) & char(32 + x) & char(32 + y)
+
 proc lineText*(screen: TerminalScreen, row: int): string =
   if row < 0 or row >= screen.lines.len: return
-  for cell in screen.lines[row]: result.add(if cell.text.len == 0: " " else: cell.text)
+  for cell in screen.lines[row]:
+    if cell.width != 0:
+      result.add(if cell.text.len == 0: " " else: cell.text)
   if result.strip.len == 0: result = ""
   else: result = result.strip(leading = false, trailing = true)
 
@@ -435,7 +554,8 @@ proc selectedText*(screen: TerminalScreen,
     let last = if row == range.active.row: range.active.column else: cells.len
     var line = ""
     for column in first ..< min(last, cells.len):
-      line.add(if cells[column].text.len == 0: " " else: cells[column].text)
+      if cells[column].width != 0:
+        line.add(if cells[column].text.len == 0: " " else: cells[column].text)
     result.add(line.strip(leading = false, trailing = true))
     if row < range.active.row: result.add("\n")
 

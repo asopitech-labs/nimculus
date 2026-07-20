@@ -234,8 +234,10 @@ movement, scroll-region, insert/delete, alternate-screen, application-cursor,
 and bracketed-paste modes on `TerminalScreen`. This mirrors Zed's separation
 between terminal content and mode state. Rendering currently exposes the
 plain-text overlay path; retained cell attributes are the contract for the
-future GPU-native terminal renderer, so unsupported wide-glyph and mouse-mode
-behavior remains explicitly tracked rather than silently flattened.
+future GPU-native terminal renderer. Wide glyphs use explicit leading and
+continuation cells, while mouse modes produce DEC reports at the PTY boundary.
+Hyperlink/kitty extensions and attribute-aware GPU rendering remain separate
+follow-up work rather than being silently flattened into the current overlay.
 
 ## Reference: Zed GPUI Metal implementation
 
