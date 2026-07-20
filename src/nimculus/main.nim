@@ -477,11 +477,15 @@ when defined(macosx):
     editorViewState.statusMessage = "Task: cancelled"
 
   proc pollNativeTask() =
-    if editorTaskJob == nil or not editorTaskJob.poll(): return
+    if editorTaskJob == nil: return
+    let completed = editorTaskJob.poll()
     let taskResult = editorTaskJob.result
-    editorTaskOutput = taskResult.output
+    if taskResult.output != editorTaskOutput:
+      editorTaskOutput = taskResult.output
+      editorTaskProblems = taskResult.problems
+      platformSetTaskOutputText(editorTaskOutput.cstring, uint32(editorTaskOutput.len))
+    if not completed: return
     editorTaskProblems = taskResult.problems
-    platformSetTaskOutputText(editorTaskOutput.cstring, uint32(editorTaskOutput.len))
     let output = taskResult.output.strip()
     let summary = if output.len == 0: "" else:
       let lines = output.splitLines

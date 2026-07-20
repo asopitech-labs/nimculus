@@ -1,4 +1,5 @@
 import std/os
+import std/strutils
 import std/unittest
 import nimculus/task_service
 
@@ -39,3 +40,16 @@ suite "M10 task service":
     job.cancel()
     check job.done
     check job.result.status == taskCancelled
+
+  test "makes task output available before process exit":
+    let job = startTask(TaskSpec(command: "/bin/sh", args: @["-c",
+      "printf first; sleep 1; printf second"]))
+    var sawFirst = false
+    for _ in 0 ..< 50:
+      discard job.poll()
+      if job.result.output.find("first") >= 0:
+        sawFirst = true
+        break
+      sleep(10)
+    check sawFirst
+    job.cancel()

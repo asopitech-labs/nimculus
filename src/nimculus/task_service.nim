@@ -3,6 +3,16 @@ import std/streams
 import std/strtabs
 import std/strutils
 import std/envvars
+when defined(posix):
+  import std/posix
+
+when defined(posix):
+  ## PipeOutStream wraps FileStream privately. Keep a layout-compatible view so
+  ## task polling can use the same non-blocking POSIX boundary as the LSP.
+  type
+    TaskFileStreamObj = object of Stream
+      f: File
+    TaskFileStream = ref TaskFileStreamObj
 
 type
   TaskStatus* = enum
@@ -28,8 +38,31 @@ type
 
   TaskJob* = ref object
     process: Process
+    output: Stream
     result*: TaskResult
     done*: bool
+
+proc readAvailable(job: TaskJob): string =
+  if job == nil or job.process == nil or job.output == nil: return
+  when defined(posix):
+    let stream = cast[TaskFileStream](job.output)
+    if stream == nil or stream.f == nil: return
+    let fd = cint(getOsFileHandle(stream.f))
+    let flags = fcntl(fd, F_GETFL)
+    if flags < 0 or fcntl(fd, F_SETFL, flags or O_NONBLOCK) < 0: return
+    var bytes: array[8192, char]
+    while true:
+      let count = posix.read(fd, addr bytes[0], bytes.len)
+      if count > 0:
+        let oldLength = result.len
+        result.setLen(oldLength + count)
+        copyMem(addr result[oldLength], addr bytes[0], count)
+      elif count < 0 and (errno == EAGAIN or errno == EWOULDBLOCK):
+        break
+      else:
+        break
+  else:
+    if job.process.hasData(): result = job.output.readStr(8192)
 
 proc parseTaskProblems*(output: string): seq[TaskProblem] =
   ## Parse common compiler formats without treating unrelated log lines as
@@ -69,7 +102,7 @@ proc startTask*(spec: TaskSpec): TaskJob =
   try:
     let process = startProcess(spec.command, spec.workingDirectory, spec.args,
       env = taskEnvironment(spec), options = {poUsePath, poStdErrToStdOut})
-    result = TaskJob(process: process,
+    result = TaskJob(process: process, output: process.peekableOutputStream(),
       result: TaskResult(status: taskRunning, exitCode: -1))
   except CatchableError as error:
     result = TaskJob(done: true,
@@ -87,10 +120,15 @@ proc poll*(job: TaskJob): bool =
   if job == nil: return true
   if job.done: return true
   let exitCode = job.process.peekExitCode()
+  let chunk = job.readAvailable()
+  if chunk.len > 0:
+    job.result.output.add(chunk)
+    job.result.problems = parseTaskProblems(job.result.output)
   if exitCode < 0: return false
   job.result.exitCode = exitCode
   job.result.status = if exitCode == 0: taskSucceeded else: taskFailed
-  job.result.output = job.process.outputStream.readAll()
+  let tail = job.readAvailable()
+  if tail.len > 0: job.result.output.add(tail)
   job.result.problems = parseTaskProblems(job.result.output)
   job.process.close()
   job.done = true
