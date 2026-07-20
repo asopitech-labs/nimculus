@@ -42,6 +42,8 @@ type
     symbols*: seq[LspSymbol]
     codeActionsRequestId*: int
     codeActions*: seq[LspCodeAction]
+    codeActionResolveRequestId*: int
+    resolvedCodeAction*: LspCodeAction
     executeCommandRequestId*: int
     commandEdits*: seq[LspWorkspaceEdit]
     renameRequestId*: int
@@ -197,6 +199,24 @@ proc takeCodeActions*(bridge: LspEditorBridge): seq[LspCodeAction] =
   if bridge == nil: return
   result = bridge.codeActions
   bridge.codeActions.setLen(0)
+
+proc requestCodeActionResolve*(bridge: LspEditorBridge,
+                               action: LspCodeAction): bool =
+  if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
+      action.raw == nil: return false
+  bridge.cancelRequest(bridge.codeActionResolveRequestId)
+  bridge.resolvedCodeAction = LspCodeAction()
+  let request = codeActionResolveRequest(action.raw)
+  try:
+    bridge.codeActionResolveRequestId = bridge.session.request(
+      request.methodName, request.params).id
+    result = true
+  except CatchableError: bridge.lastError = getCurrentExceptionMsg()
+
+proc takeResolvedCodeAction*(bridge: LspEditorBridge): LspCodeAction =
+  if bridge == nil: return
+  result = bridge.resolvedCodeAction
+  bridge.resolvedCodeAction = LspCodeAction()
 
 proc requestExecuteCommand*(bridge: LspEditorBridge, command: string,
                             arguments: seq[JsonNode]): bool =
@@ -414,6 +434,7 @@ proc closeDocument*(bridge: LspEditorBridge) =
   bridge.cancelRequest(bridge.referencesRequestId)
   bridge.cancelRequest(bridge.symbolsRequestId)
   bridge.cancelRequest(bridge.codeActionsRequestId)
+  bridge.cancelRequest(bridge.codeActionResolveRequestId)
   bridge.cancelRequest(bridge.executeCommandRequestId)
   bridge.cancelRequest(bridge.renameRequestId)
   bridge.cancelRequest(bridge.signatureRequestId)
@@ -422,6 +443,7 @@ proc closeDocument*(bridge: LspEditorBridge) =
   bridge.referenceLocations.setLen(0)
   bridge.symbols.setLen(0)
   bridge.codeActions.setLen(0)
+  bridge.resolvedCodeAction = LspCodeAction()
   bridge.commandEdits.setLen(0)
   bridge.renameEdits.setLen(0)
   bridge.signatureHelp = LspSignatureHelp()
@@ -537,6 +559,12 @@ proc poll*(bridge: LspEditorBridge): bool =
     if response != nil:
       bridge.codeActions = parseCodeActions(response)
       bridge.codeActionsRequestId = 0
+      result = true
+  if bridge.codeActionResolveRequestId > 0:
+    let response = bridge.session.takeResponse(bridge.codeActionResolveRequestId)
+    if response != nil:
+      bridge.resolvedCodeAction = parseCodeAction(response)
+      bridge.codeActionResolveRequestId = 0
       result = true
   if bridge.executeCommandRequestId > 0:
     let response = bridge.session.takeResponse(bridge.executeCommandRequestId)

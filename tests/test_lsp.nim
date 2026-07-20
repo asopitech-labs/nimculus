@@ -178,6 +178,25 @@ suite "M8 LSP protocol foundation":
     check commandAction.len == 1
     check commandAction[0].command == "organizeImports"
     check commandAction[0].arguments.len == 1
+    let deferredAction = parseCodeActions(%*{"result": [{"title": "Extract function",
+      "kind": "refactor.extract", "data": {"actionId": "extract-1"}}]})
+    check deferredAction.len == 1
+    check deferredAction[0].data != nil
+    let resolvedAction = parseCodeAction(%*{"result": {"title": "Extract function",
+      "edit": {"documentChanges": [{"textDocument": {"uri": "file:///a.nim"},
+        "edits": [{"range": {"start": {"line": 0, "character": 0},
+          "end": {"line": 0, "character": 1}}, "newText": "fn"}]}]}}})
+    check resolvedAction.workspaceEdits.len == 1
+    check resolvedAction.workspaceEdits[0].edits[0].newText == "fn"
+    let resolveRequest = codeActionResolveRequest(%*{"title": "Extract function",
+      "data": {"actionId": "extract-1"}})
+    check resolveRequest.methodName == "codeAction/resolve"
+    let objectCommandAction = parseCodeActions(%*{"result": [{"title": "Organize imports",
+      "command": {"title": "Organize imports", "command": "organizeImports",
+        "arguments": [{"uri": "file:///a.nim"}]}}]})
+    check objectCommandAction.len == 1
+    check objectCommandAction[0].command == "organizeImports"
+    check objectCommandAction[0].arguments.len == 1
 
   test "session initializes and stores diagnostics from a language server":
     let server = "import sys,json,time\n" &

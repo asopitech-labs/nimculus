@@ -609,6 +609,15 @@ when defined(macosx):
       lines.add("")
       lines.add("Use `apply code action <number>` to apply")
       showNativeLspPanel("LSP Code Actions", lines)
+    let resolvedAction = lspBridge.takeResolvedCodeAction()
+    if resolvedAction.title.len > 0:
+      var action = resolvedAction
+      # The resolve response is complete; do not issue codeAction/resolve again.
+      action.data = nil
+      pendingLspCodeActions = @[action]
+      editorViewState.statusMessage = "LSP: code action resolved; apply code action 1"
+      showNativeLspPanel("LSP Code Action Ready", @[
+        "1. " & action.title, "", "Use `apply code action 1` to apply"])
     let renameEdits = lspBridge.takeRenameEdits()
     if renameEdits.len > 0:
       pendingLspRename = renameEdits
@@ -1819,6 +1828,9 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
                     pendingLspCodeActions[index].arguments):
                 pendingLspCodeActions.setLen(0)
                 editorViewState.statusMessage = "LSP: executing code action command"
+              elif edits.len == 0 and pendingLspCodeActions[index].data != nil and
+                  lspBridge.requestCodeActionResolve(pendingLspCodeActions[index]):
+                editorViewState.statusMessage = "LSP: resolving code action"
               elif edits.len == 0:
                 editorViewState.statusMessage = "Code action has no executable edit or command"
           except ValueError:

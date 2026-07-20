@@ -100,6 +100,8 @@ type
     kind*: string
     command*: string
     arguments*: seq[JsonNode]
+    data*: JsonNode
+    raw*: JsonNode
     uri*: string
     edits*: seq[LspTextEdit]
     workspaceEdits*: seq[LspWorkspaceEdit]
@@ -290,6 +292,9 @@ proc codeActionRequest*(uri: string, range: LspRange): tuple[methodName: string,
   ("textDocument/codeAction", %*{"textDocument": {"uri": uri},
     "range": rangeJson(range), "context": {"diagnostics": []}})
 
+proc codeActionResolveRequest*(action: JsonNode): tuple[methodName: string, params: JsonNode] =
+  ("codeAction/resolve", action)
+
 proc executeCommandRequest*(command: string, arguments: seq[JsonNode]):
     tuple[methodName: string, params: JsonNode] =
   var params = %*{"command": command}
@@ -467,23 +472,40 @@ proc parseWorkspaceEditValue(value: JsonNode): seq[LspWorkspaceEdit] =
             newText: edit["newText"].getStr))
       if workspaceEdit.edits.len > 0: result.add(workspaceEdit)
 
+proc parseCodeActionValue(item: JsonNode): LspCodeAction =
+  if item == nil or item.kind != JObject or not item.hasKey("title"): return
+  result = LspCodeAction(title: item["title"].getStr,
+      kind: if item.hasKey("kind") and item["kind"].kind == JString:
+        item["kind"].getStr else: "", raw: item)
+  if item.hasKey("data"): result.data = item["data"]
+  if item.hasKey("arguments") and item["arguments"].kind == JArray:
+    for argument in item["arguments"]: result.arguments.add(argument)
+  if item.hasKey("command"):
+    if item["command"].kind == JString:
+      result.command = item["command"].getStr
+    elif item["command"].kind == JObject:
+      let command = item["command"]
+      if command.hasKey("command") and command["command"].kind == JString:
+        result.command = command["command"].getStr
+      if command.hasKey("arguments") and command["arguments"].kind == JArray:
+        result.arguments.setLen(0)
+        for argument in command["arguments"]: result.arguments.add(argument)
+  if item.hasKey("edit") and item["edit"].kind == JObject:
+    result.workspaceEdits = parseWorkspaceEditValue(item["edit"])
+    for workspaceEdit in result.workspaceEdits:
+      for textEdit in workspaceEdit.edits:
+        result.edits.add(textEdit)
+      if result.uri.len == 0: result.uri = workspaceEdit.uri
+
 proc parseCodeActions*(message: JsonNode): seq[LspCodeAction] =
   let value = responseResult(message)
   if value == nil or value.kind != JArray: return
   for item in value:
-    if item.kind != JObject or not item.hasKey("title"): continue
-    var action = LspCodeAction(title: item["title"].getStr,
-      kind: if item.hasKey("kind"): item["kind"].getStr else: "",
-      command: if item.hasKey("command"): item["command"].getStr else: "")
-    if item.hasKey("arguments") and item["arguments"].kind == JArray:
-      for argument in item["arguments"]: action.arguments.add(argument)
-    if item.hasKey("edit") and item["edit"].kind == JObject:
-      action.workspaceEdits = parseWorkspaceEditValue(item["edit"])
-      for workspaceEdit in action.workspaceEdits:
-        for textEdit in workspaceEdit.edits:
-          action.edits.add(textEdit)
-        if action.uri.len == 0: action.uri = workspaceEdit.uri
-    result.add(action)
+    let action = parseCodeActionValue(item)
+    if action.title.len > 0: result.add(action)
+
+proc parseCodeAction*(message: JsonNode): LspCodeAction =
+  result = parseCodeActionValue(responseResult(message))
 
 proc parseSignatureHelp*(message: JsonNode): LspSignatureHelp =
   let value = responseResult(message)
