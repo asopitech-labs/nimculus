@@ -91,6 +91,36 @@ type
     kind*: int
     range*: LspRange
 
+  LspCodeAction* = object
+    title*: string
+    kind*: string
+    edits*: seq[LspTextEdit]
+
+  LspSignatureInformation* = object
+    label*: string
+    documentation*: string
+
+  LspSignatureHelp* = object
+    signatures*: seq[LspSignatureInformation]
+    activeSignature*: int
+    activeParameter*: int
+
+  LspSemanticToken* = object
+    line*: int
+    startCharacter*: int
+    length*: int
+    tokenType*: int
+    tokenModifiers*: int
+
+  LspInlayHint* = object
+    position*: LspPosition
+    label*: string
+    kind*: int
+
+  LspWorkspaceEdit* = object
+    uri*: string
+    edits*: seq[LspTextEdit]
+
   LspSessionState* = enum
     lspSessionInitializing, lspSessionReady, lspSessionStopped, lspSessionFailed
 
@@ -192,9 +222,15 @@ proc initializeParams*(rootUri, clientName: string): JsonNode =
       "textDocument": {
         "completion": {"completionItem": {"snippetSupport": true}},
         "publishDiagnostics": {"relatedInformation": true},
-        "inlayHint": {"dynamicRegistration": false}
+        "inlayHint": {"dynamicRegistration": false},
+        "codeAction": {"codeActionLiteralSupport": {"codeActionKind":
+          {"valueSet": ["", "quickfix", "refactor", "source"]}}},
+        "semanticTokens": {"dynamicRegistration": false,
+          "requests": {"full": true}, "tokenTypes": [], "tokenModifiers": []},
+        "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}},
+        "documentSymbol": {"hierarchicalDocumentSymbolSupport": true}
       },
-      "workspace": {"workspaceFolders": true}
+      "workspace": {"workspaceFolders": true, "workspaceEdit": {"documentChanges": true}}
     }
   }
   if rootUri.len == 0: result["rootUri"] = newJNull()
@@ -285,6 +321,11 @@ proc parseRange(node: JsonNode): LspRange =
       character: start["character"].getInt),
     finish: LspPosition(line: finish["line"].getInt,
       character: finish["character"].getInt))
+
+proc parsePosition(node: JsonNode): LspPosition =
+  if node == nil or node.kind != JObject: return
+  LspPosition(line: if node.hasKey("line"): node["line"].getInt else: 0,
+    character: if node.hasKey("character"): node["character"].getInt else: 0)
 
 proc responseId*(message: JsonNode): int =
   if message != nil and message.kind == JObject and message.hasKey("id") and
@@ -377,6 +418,73 @@ proc parseSymbols*(message: JsonNode): seq[LspSymbol] =
     result.add(LspSymbol(name: item["name"].getStr,
       kind: if item.hasKey("kind"): item["kind"].getInt else: 0,
       range: parseRange(rangeNode)))
+
+proc parseCodeActions*(message: JsonNode): seq[LspCodeAction] =
+  let value = responseResult(message)
+  if value == nil or value.kind != JArray: return
+  for item in value:
+    if item.kind != JObject or not item.hasKey("title"): continue
+    var action = LspCodeAction(title: item["title"].getStr,
+      kind: if item.hasKey("kind"): item["kind"].getStr else: "")
+    if item.hasKey("edit") and item["edit"].kind == JObject:
+      if item["edit"].hasKey("changes"):
+        for uri, edits in item["edit"]["changes"]:
+          if edits.kind != JArray: continue
+          for edit in edits:
+            if edit.kind == JObject and edit.hasKey("range") and edit.hasKey("newText"):
+              action.edits.add(LspTextEdit(range: parseRange(edit["range"]),
+                newText: edit["newText"].getStr))
+    result.add(action)
+
+proc parseSignatureHelp*(message: JsonNode): LspSignatureHelp =
+  let value = responseResult(message)
+  if value == nil or value.kind != JObject: return
+  result.activeSignature = if value.hasKey("activeSignature"): value["activeSignature"].getInt else: 0
+  result.activeParameter = if value.hasKey("activeParameter"): value["activeParameter"].getInt else: 0
+  if not value.hasKey("signatures") or value["signatures"].kind != JArray: return
+  for signature in value["signatures"]:
+    if signature.kind != JObject or not signature.hasKey("label"): continue
+    result.signatures.add(LspSignatureInformation(label: signature["label"].getStr,
+      documentation: if signature.hasKey("documentation"): markedStringText(signature["documentation"]) else: ""))
+
+proc parseSemanticTokens*(message: JsonNode): seq[LspSemanticToken] =
+  let value = responseResult(message)
+  if value == nil or value.kind != JObject or not value.hasKey("data") or
+      value["data"].kind != JArray: return
+  var line = 0
+  var start = 0
+  let data = value["data"]
+  var index = 0
+  while index + 4 < data.len:
+    let deltaLine = data[index].getInt
+    let deltaStart = data[index + 1].getInt
+    line += deltaLine
+    start = if deltaLine == 0: start + deltaStart else: deltaStart
+    result.add(LspSemanticToken(line: line, startCharacter: start,
+      length: data[index + 2].getInt, tokenType: data[index + 3].getInt,
+      tokenModifiers: data[index + 4].getInt))
+    inc index, 5
+
+proc parseInlayHints*(message: JsonNode): seq[LspInlayHint] =
+  let value = responseResult(message)
+  if value == nil or value.kind != JArray: return
+  for item in value:
+    if item.kind != JObject or not item.hasKey("position") or not item.hasKey("label"): continue
+    let label = if item["label"].kind == JString: item["label"].getStr else: $item["label"]
+    result.add(LspInlayHint(position: parsePosition(item["position"]), label: label,
+      kind: if item.hasKey("kind"): item["kind"].getInt else: 0))
+
+proc parseWorkspaceEdit*(message: JsonNode): seq[LspWorkspaceEdit] =
+  let value = responseResult(message)
+  if value == nil or value.kind != JObject or not value.hasKey("changes"): return
+  for uri, edits in value["changes"]:
+    if edits.kind != JArray: continue
+    var workspaceEdit = LspWorkspaceEdit(uri: uri)
+    for edit in edits:
+      if edit.kind == JObject and edit.hasKey("range") and edit.hasKey("newText"):
+        workspaceEdit.edits.add(LspTextEdit(range: parseRange(edit["range"]),
+          newText: edit["newText"].getStr))
+    result.add(workspaceEdit)
 
 proc cancelRequest*(tracker: var LspRequestTracker, id: int): bool =
   if id notin tracker.pending: return false

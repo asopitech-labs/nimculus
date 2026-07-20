@@ -126,6 +126,27 @@ suite "M8 LSP protocol foundation":
       "end": {"line": 0, "character": 1}}, "newText": "x"}]})
     check edits.len == 1
     check edits[0].newText == "x"
+    let actions = parseCodeActions(%*{"result": [{"title": "Fix", "kind": "quickfix",
+      "edit": {"changes": {"file:///a.nim": [{"range": {"start": {"line": 0, "character": 0},
+        "end": {"line": 0, "character": 1}}, "newText": "y"}]}}}]})
+    check actions.len == 1
+    check actions[0].edits[0].newText == "y"
+    let signature = parseSignatureHelp(%*{"result": {"activeSignature": 1,
+      "signatures": [{"label": "f(a)", "documentation": "docs"}, {"label": "f(a,b)"}]}})
+    check signature.activeSignature == 1
+    check signature.signatures[0].documentation == "docs"
+    let tokens = parseSemanticTokens(%*{"result": {"data": [0, 2, 3, 1, 0, 0, 4, 2, 2, 1]}})
+    check tokens.len == 2
+    check tokens[1].startCharacter == 6
+    let hints = parseInlayHints(%*{"result": [{"position": {"line": 1, "character": 2},
+      "label": ": int", "kind": 1}]})
+    check hints.len == 1
+    check hints[0].position.line == 1
+    let workspaceEdits = parseWorkspaceEdit(%*{"result": {"changes": {
+      "file:///a.nim": [{"range": {"start": {"line": 0, "character": 0},
+        "end": {"line": 0, "character": 1}}, "newText": "renamed"}]}}})
+    check workspaceEdits.len == 1
+    check workspaceEdits[0].edits[0].newText == "renamed"
 
   test "session initializes and stores diagnostics from a language server":
     let server = "import sys,json,time\n" &

@@ -157,6 +157,17 @@ then passed as one `applyEdits` transaction so overlapping or invalid UTF-8
 boundaries fail atomically. The macOS Command Palette is the initial trigger;
 formatting is not run implicitly on every keystroke.
 
+## M8-010: Keep all LSP feature responses behind the bridge boundary
+
+Zed keeps request generation, cancellation, and response decoding in the LSP
+store instead of letting UI code inspect raw JSON. Nimculus now applies that
+boundary to references, document symbols, rename workspace edits, code
+actions, signature help, semantic tokens, and inlay hints. Each feature has a
+request ID and is decoded only after the session accepts the corresponding
+response; document close cancels and clears every pending feature request.
+The decoded values are deliberately exposed as editor-domain data so later
+UI work cannot accidentally depend on server-specific JSON shapes.
+
 ## M10-001: Keep the PTY transport separate from the terminal screen model
 
 Zed separates the PTY event loop from the terminal emulator state so process
