@@ -620,11 +620,15 @@ when defined(macosx):
       showNativeLspPanel("LSP References", lines)
     let symbols = lspBridge.takeSymbols()
     if symbols.len > 0:
-      pendingLspSymbols = symbols
+      pendingLspSymbols.setLen(0)
       var lines: seq[string]
-      for index, symbol in symbols:
-        lines.add($(index + 1) & ". " & symbol.name & "  " &
+      proc appendSymbol(symbol: LspSymbol, depth: int) =
+        pendingLspSymbols.add(symbol)
+        lines.add($(pendingLspSymbols.len) & ". " & "  ".repeat(depth) & symbol.name & "  " &
           $(symbol.range.start.line + 1))
+        for child in symbol.children:
+          appendSymbol(child, depth + 1)
+      for symbol in symbols: appendSymbol(symbol, 0)
       lines.add("")
       lines.add("Use `open symbol <number>` to navigate")
       showNativeLspPanel("LSP Symbols", lines)

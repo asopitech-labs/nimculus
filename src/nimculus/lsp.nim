@@ -90,6 +90,7 @@ type
     name*: string
     kind*: int
     range*: LspRange
+    children*: seq[LspSymbol]
 
   LspWorkspaceEdit* = object
     uri*: string
@@ -433,10 +434,15 @@ proc parseSymbolNode(item: JsonNode, symbols: var seq[LspSymbol]) =
         item["location"].hasKey("range"): item["location"]["range"]
     else: nil
   if rangeNode != nil:
-    symbols.add(LspSymbol(name: item["name"].getStr,
+    var symbol = LspSymbol(name: item["name"].getStr,
       kind: if item.hasKey("kind"): item["kind"].getInt else: 0,
-      range: parseRange(rangeNode)))
-  if item.hasKey("children") and item["children"].kind == JArray:
+      range: parseRange(rangeNode))
+    if item.hasKey("children") and item["children"].kind == JArray:
+      for child in item["children"]: parseSymbolNode(child, symbol.children)
+    symbols.add(symbol)
+  elif item.hasKey("children") and item["children"].kind == JArray:
+    ## A malformed parent without a range cannot be navigated, but retain
+    ## valid descendants instead of discarding the whole response.
     for child in item["children"]: parseSymbolNode(child, symbols)
 
 proc parseSymbols*(message: JsonNode): seq[LspSymbol] =
