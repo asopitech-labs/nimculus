@@ -59,6 +59,10 @@ suite "macOS platform contract":
     platformSetEditorDiagnostics(nil, 0)
     check true
 
+  test "editor annotation overlay contract can be cleared":
+    platformSetEditorAnnotations(nil, 0)
+    check true
+
   test "idle callback contract can be cleared":
     platformSetIdleCallback(nil)
     check true

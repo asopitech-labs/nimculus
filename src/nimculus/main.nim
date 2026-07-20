@@ -39,12 +39,16 @@ when defined(macosx):
   var editorLspSemanticTokenPath = ""
   var editorLspSemanticTokenSource = ""
   var editorLspSignatureText = ""
+  var editorLspInlayHints: seq[LspInlayHint]
+  var editorLspInlayHintPath = ""
+  var editorLspInlayHintSource = ""
   var pendingLspRename: seq[LspWorkspaceEdit]
   var pendingLspCodeActions: seq[LspCodeAction]
 
 proc resetPointerInteractions()
 when defined(macosx):
   proc syncNativeHover()
+  proc syncNativeInlayHints(document: ptr FileDocument)
   proc handleCompletionShortcut(event: ptr NimculusInputEvent): bool
 
 proc setupDemoUi() =
@@ -630,6 +634,11 @@ when defined(macosx):
       showNativeLspPanel("LSP Signature Help", lines)
     let hints = lspBridge.takeInlayHints()
     if hints.len > 0:
+      editorLspInlayHints = hints
+      if document != nil:
+        editorLspInlayHintPath = document[].path
+        editorLspInlayHintSource = document[].buffer.toString()
+      syncNativeInlayHints(document)
       var lines: seq[string]
       for hint in hints:
         lines.add($(hint.position.line + 1) & ":" & $(hint.position.character + 1) & " " & hint.label)
@@ -1176,6 +1185,18 @@ when defined(macosx):
     let text = lspBridge.hoverText()
     platformSetEditorHover(text.cstring, uint32(text.len))
 
+  proc syncNativeInlayHints(document: ptr FileDocument) =
+    if document == nil or editorLspInlayHints.len == 0:
+      platformSetEditorAnnotations(nil, 0)
+      return
+    var annotations = newSeq[NativeEditorAnnotation](editorLspInlayHints.len)
+    for index, hint in editorLspInlayHints:
+      annotations[index] = NativeEditorAnnotation(
+        line: uint32(max(0, hint.position.line)),
+        character: uint32(max(0, hint.position.character)),
+        kind: uint32(max(0, hint.kind)), text: hint.label.cstring)
+    platformSetEditorAnnotations(addr annotations[0], uint32(annotations.len))
+
   proc requestEditorCompletion() =
     let document = activeDocument()
     if document == nil or lspBridge == nil:
@@ -1191,6 +1212,8 @@ proc refreshEditorSyntax() =
   if document == nil:
     when defined(macosx):
       platformSetEditorDiagnostics(nil, 0)
+      editorLspInlayHints.setLen(0)
+      platformSetEditorAnnotations(nil, 0)
       clearNativeGitHunks()
     return
   when defined(macosx):
@@ -1200,6 +1223,12 @@ proc refreshEditorSyntax() =
       editorLspSemanticTokens.setLen(0)
       editorLspSemanticTokenPath = document[].path
       editorLspSemanticTokenSource = ""
+    if editorLspInlayHintPath != document[].path or
+        (editorLspInlayHintSource.len > 0 and editorLspInlayHintSource != currentText):
+      editorLspInlayHints.setLen(0)
+      editorLspInlayHintPath = document[].path
+      editorLspInlayHintSource = ""
+    syncNativeInlayHints(document)
   var grammar: GrammarKind
   try:
     grammar = grammarForPath(document[].path)
@@ -1214,6 +1243,7 @@ proc refreshEditorSyntax() =
       platformSetEditorHighlights(nil, 0)
       let text = document[].buffer.toString()
       platformSetEditorText(text.cstring, uint32(text.len))
+      syncNativeInlayHints(document)
       syncNativeDiagnostics(document)
       scheduleNativeGitHunks(document)
     return
@@ -1250,6 +1280,7 @@ proc refreshEditorSyntax() =
     let text = document[].buffer.toString()
     platformSetEditorCompletions("".cstring, 0)
     platformSetEditorText(text.cstring, uint32(text.len))
+    syncNativeInlayHints(document)
     syncNativeDiagnostics(document)
     scheduleNativeGitHunks(document)
 

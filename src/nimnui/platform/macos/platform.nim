@@ -39,6 +39,9 @@ type
     imageId*: uint32
   NativePaintRegion* {.bycopy.} = object
     x*, y*, width*, height*: cfloat
+  NativeEditorAnnotation* {.bycopy.} = object
+    line*, character*, kind*: uint32
+    text*: cstring
   NativeTerminalRun* {.bycopy.} = object
     startByte*, endByte*, flags*: uint32
     foregroundKind*, foregroundIndex*, foregroundRed*, foregroundGreen*, foregroundBlue*: uint32
@@ -88,6 +91,7 @@ proc platformSetEditorComposition*(text: cstring) {.importc: "nimculus_platform_
 proc platformClearEditorComposition*() {.importc: "nimculus_platform_clear_editor_composition", cdecl.}
 proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32) {.importc: "nimculus_platform_set_editor_highlights", cdecl.}
 proc platformSetEditorDiagnostics*(spans: ptr NativeDiagnosticSpan, count: uint32) {.importc: "nimculus_platform_set_editor_diagnostics", cdecl.}
+proc platformSetEditorAnnotations*(annotations: ptr NativeEditorAnnotation, count: uint32) {.importc: "nimculus_platform_set_editor_annotations", cdecl.}
 proc platformSetEditorGitHunks*(spans: ptr NativeGitHunkSpan, count: uint32) {.importc: "nimculus_platform_set_editor_git_hunks", cdecl.}
 proc platformSetRecentFiles*(paths: ptr cstring, count: uint32) {.importc: "nimculus_platform_set_recent_files", cdecl.}
 proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}

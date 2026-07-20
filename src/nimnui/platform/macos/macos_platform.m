@@ -49,6 +49,9 @@ static NSString *g_marked_text = @"";
 static NSString *g_editor_completions = @"";
 static NSString *g_editor_hover = @"";
 static double g_editor_hover_position[2] = {8.0, 12.0};
+static NimculusEditorAnnotation *g_editor_annotations = NULL;
+static uint32_t g_editor_annotation_count = 0;
+static NSMutableArray<NSString *> *g_editor_annotation_texts = nil;
 static NSString *g_clipboard_text = @"";
 static NSData *g_clipboard_utf8_data = nil;
 static char g_dialog_path[PATH_MAX] = {0};
@@ -1017,6 +1020,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusTaskOutputOverlay : NSTextView
 @end
 
+@interface NimculusEditorAnnotationOverlay : NSView
+@end
+
 @implementation NimculusTerminalOverlay
 - (BOOL)acceptsFirstResponder { return NO; }
 - (NSView *)hitTest:(NSPoint)point { return nil; }
@@ -1025,6 +1031,33 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @implementation NimculusTaskOutputOverlay
 - (BOOL)acceptsFirstResponder { return NO; }
 - (NSView *)hitTest:(NSPoint)point { return nil; }
+@end
+
+@implementation NimculusEditorAnnotationOverlay
+- (BOOL)isFlipped { return YES; }
+- (NSView *)hitTest:(NSPoint)point { return nil; }
+- (void)drawRect:(NSRect)dirtyRect {
+  (void)dirtyRect;
+  NSDictionary *attributes = @{
+    NSFontAttributeName: [NSFont fontWithName:@"Menlo-Italic" size:11.0] ?:
+      [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular],
+    NSForegroundColorAttributeName: [themeHexColor(g_theme_accent,
+      [NSColor colorWithCalibratedRed:0.35 green:0.65 blue:0.95 alpha:0.82])
+      colorWithAlphaComponent:0.78]
+  };
+  for (uint32_t index = 0; index < g_editor_annotation_count; index++) {
+    if (!g_editor_annotation_texts || index >= g_editor_annotation_texts.count) continue;
+    NSString *text = g_editor_annotation_texts[index];
+    if (text.length == 0) continue;
+    NimculusEditorAnnotation annotation = g_editor_annotations[index];
+    NSInteger relativeLine = (NSInteger)annotation.line - (NSInteger)g_editor_scroll_line;
+    if (relativeLine < 0) continue;
+    CGFloat x = (CGFloat)g_editor_rect[0] + 8.0 + (CGFloat)annotation.character * 7.2;
+    CGFloat y = (CGFloat)g_editor_rect[1] + (CGFloat)relativeLine * 18.0 + 2.0;
+    if (y > self.bounds.size.height || x > self.bounds.size.width) continue;
+    [text drawAtPoint:NSMakePoint(x, y) withAttributes:attributes];
+  }
+}
 @end
 
 static NSUInteger terminalUTF16OffsetForCell(uint32_t row, uint32_t column) {
@@ -1180,6 +1213,11 @@ static void applyTerminalRuns(NSTextView *terminal) {
     taskOutput.textContainerInset = NSMakeSize(8.0, 6.0);
     taskOutput.hidden = YES;
     [self addSubview:taskOutput];
+    NimculusEditorAnnotationOverlay *annotations =
+      [[NimculusEditorAnnotationOverlay alloc] initWithFrame:self.bounds];
+    annotations.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    annotations.hidden = YES;
+    [self addSubview:annotations];
     [self updateTrackingAreas];
   }
   return self;
@@ -1237,9 +1275,16 @@ static void applyTerminalRuns(NSTextView *terminal) {
 - (void)updateTerminalFrame {
   NimculusTerminalOverlay *terminal = nil;
   NimculusTaskOutputOverlay *taskOutput = nil;
+  NimculusEditorAnnotationOverlay *annotations = nil;
   for (NSView *subview in self.subviews) {
     if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) terminal = (NimculusTerminalOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) taskOutput = (NimculusTaskOutputOverlay *)subview;
+    if ([subview isKindOfClass:[NimculusEditorAnnotationOverlay class]]) annotations = (NimculusEditorAnnotationOverlay *)subview;
+  }
+  if (annotations) {
+    annotations.frame = self.bounds;
+    annotations.hidden = g_editor_annotation_count == 0;
+    [annotations setNeedsDisplay:YES];
   }
   if (!terminal || !taskOutput) return;
   BOOL panelVisible = g_terminal_visible || g_task_output_visible;
@@ -2634,6 +2679,28 @@ void nimculus_platform_set_editor_diagnostics(const NimculusDiagnosticSpan *span
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+void nimculus_platform_set_editor_annotations(const NimculusEditorAnnotation *annotations,
+                                              uint32_t count) {
+  free(g_editor_annotations);
+  g_editor_annotations = NULL;
+  g_editor_annotation_count = 0;
+  g_editor_annotation_texts = [NSMutableArray arrayWithCapacity:count];
+  if (annotations && count > 0) {
+    g_editor_annotations = calloc(count, sizeof(NimculusEditorAnnotation));
+    if (g_editor_annotations) {
+      for (uint32_t index = 0; index < count; index++) {
+        g_editor_annotations[index].line = annotations[index].line;
+        g_editor_annotations[index].character = annotations[index].character;
+        g_editor_annotations[index].kind = annotations[index].kind;
+        const char *text = annotations[index].text;
+        [g_editor_annotation_texts addObject:text ?
+          ([NSString stringWithUTF8String:text] ?: @"") : @""];
+      }
+      g_editor_annotation_count = count;
+    }
+  }
+  if (g_active_view) [(NimculusMetalView *)g_active_view updateTerminalFrame];
 }
 void nimculus_platform_set_editor_git_hunks(const NimculusGitHunkSpan *spans, uint32_t count) {
   free(g_git_hunks);
