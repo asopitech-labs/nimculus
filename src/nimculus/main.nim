@@ -521,6 +521,13 @@ when defined(macosx):
       uint32(selection.anchor.column), uint32(selection.active.row),
       uint32(selection.active.column))
 
+  proc writeNativeTerminalInput(input: string, paste = false) =
+    if editorTerminal == nil or editorTerminal.closed: return
+    let payload = if paste and editorTerminal.screen.bracketedPaste:
+      "\x1b[200~" & input & "\x1b[201~"
+    else: input
+    discard editorTerminal.writeInput(payload)
+
   proc handleTerminalPointer(kind: UiEventKind, x, y: float32): bool =
     if not editorTerminalVisible or editorTerminal == nil or
         not terminalContains(x, y): return false
@@ -1059,7 +1066,7 @@ when defined(macosx):
 proc receiveNativeTextValue(value: string, composing: bool) =
   when defined(macosx):
     if editorTerminalVisible and editorTerminal != nil and not composing:
-      if value.len > 0: discard editorTerminal.writeInput(value)
+      if value.len > 0: writeNativeTerminalInput(value)
       return
   imeState.receiveText(value, composing)
   when defined(macosx):
@@ -1231,14 +1238,24 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   when defined(macosx):
     if editorTerminalVisible and editorTerminal != nil:
       case name
-      of "insertNewline": discard editorTerminal.writeInput("\r")
-      of "insertTab": discard editorTerminal.writeInput("\t")
-      of "deleteBackward": discard editorTerminal.writeInput("\x7f")
-      of "moveLeft": discard editorTerminal.writeInput("\x1b[D")
-      of "moveRight": discard editorTerminal.writeInput("\x1b[C")
-      of "moveUp": discard editorTerminal.writeInput("\x1b[A")
-      of "moveDown": discard editorTerminal.writeInput("\x1b[B")
-      of "cancel": discard editorTerminal.writeInput("\x03")
+      of "insertNewline": writeNativeTerminalInput("\r")
+      of "insertTab": writeNativeTerminalInput("\t")
+      of "deleteBackward": writeNativeTerminalInput("\x7f")
+      of "moveLeft": writeNativeTerminalInput(
+        if editorTerminal.screen.applicationCursorKeys: "\x1bOD" else: "\x1b[D")
+      of "moveRight": writeNativeTerminalInput(
+        if editorTerminal.screen.applicationCursorKeys: "\x1bOC" else: "\x1b[C")
+      of "moveUp": writeNativeTerminalInput(
+        if editorTerminal.screen.applicationCursorKeys: "\x1bOA" else: "\x1b[A")
+      of "moveDown": writeNativeTerminalInput(
+        if editorTerminal.screen.applicationCursorKeys: "\x1bOB" else: "\x1b[B")
+      of "moveToBeginningOfLine": writeNativeTerminalInput(
+        if editorTerminal.screen.applicationCursorKeys: "\x1bOH" else: "\x1b[H")
+      of "moveToEndOfLine": writeNativeTerminalInput(
+        if editorTerminal.screen.applicationCursorKeys: "\x1bOF" else: "\x1b[F")
+      of "pageUp": writeNativeTerminalInput("\x1b[5~")
+      of "pageDown": writeNativeTerminalInput("\x1b[6~")
+      of "cancel": writeNativeTerminalInput("\x03")
       of "copy":
         let copied = editorTerminal.screen.selectedText(editorTerminalSelection)
         if copied.len > 0: clipboardSet(copied.cstring, uint32(copied.len))
@@ -1248,10 +1265,11 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           active: TerminalPoint(row: max(0, editorTerminal.screen.lineCount() - 1),
             column: editorTerminal.screen.columns))
         syncNativeTerminalSelection()
-      of "paste": discard
+      of "paste": writeNativeTerminalInput(clipboardGet(), paste = true)
       else: discard
       if name in ["insertNewline", "insertTab", "deleteBackward", "moveLeft",
-                  "moveRight", "moveUp", "moveDown", "cancel", "copy",
+                  "moveRight", "moveUp", "moveDown", "moveToBeginningOfLine",
+                  "moveToEndOfLine", "pageUp", "pageDown", "cancel", "copy",
                   "selectAll", "paste"]:
         return
   let document = activeDocument()

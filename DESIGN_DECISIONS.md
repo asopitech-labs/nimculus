@@ -229,6 +229,14 @@ and `toggle task output` presents it without taking keyboard focus from the
 Metal view. The two overlays share panel geometry but are mutually exclusive,
 so terminal input cannot accidentally be sent to a task log.
 
+The VT implementation stores SGR state on each `TerminalCell` and keeps cursor
+movement, scroll-region, insert/delete, alternate-screen, application-cursor,
+and bracketed-paste modes on `TerminalScreen`. This mirrors Zed's separation
+between terminal content and mode state. Rendering currently exposes the
+plain-text overlay path; retained cell attributes are the contract for the
+future GPU-native terminal renderer, so unsupported wide-glyph and mouse-mode
+behavior remains explicitly tracked rather than silently flattened.
+
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The

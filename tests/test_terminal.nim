@@ -59,10 +59,44 @@ suite "M10 terminal core":
     screen.feed("\x1b[?25h")
     check screen.cursorVisible
 
+  test "tracks application cursor and bracketed paste modes":
+    var screen = initTerminalScreen(8, 2)
+    screen.feed("\x1b[?1h\x1b[?2004h")
+    check screen.applicationCursorKeys
+    check screen.bracketedPaste
+    screen.feed("\x1b[?1l\x1b[?2004l")
+    check not screen.applicationCursorKeys
+    check not screen.bracketedPaste
+
   test "consumes OSC metadata without painting its payload":
     var screen = initTerminalScreen(16, 1)
     screen.feed("\x1b]0;Nimculus title\x07ok")
     check screen.lineText(0) == "ok"
+
+  test "retains SGR attributes on cells and resets them":
+    var screen = initTerminalScreen(8, 1)
+    screen.feed("\x1b[1;31;48;2;1;2;3mA\x1b[0mB")
+    check screen.lines[0][0].text == "A"
+    check screen.lines[0][0].bold
+    check screen.lines[0][0].foreground.kind == terminalIndexedColor
+    check screen.lines[0][0].foreground.index == 1
+    check screen.lines[0][0].background.kind == terminalRgbColor
+    check screen.lines[0][0].background.red == 1'u8
+    check not screen.lines[0][1].bold
+    check screen.lines[0][1].foreground.kind == terminalDefaultColor
+
+  test "supports scroll regions and insert/delete character CSI":
+    var screen = initTerminalScreen(6, 4)
+    screen.feed("one\r\ntwo\r\nthree\r\nfour")
+    screen.feed("\x1b[2;3r\x1b[2;1H\x1b[1LXX")
+    check screen.lineText(1).startsWith("XX")
+    screen.feed("\x1b[2;1H\x1b[1M")
+    check screen.lineText(1).startsWith("two")
+    var chars = initTerminalScreen(6, 1)
+    chars.feed("abcd\x1b[1;1H\x1b[2@XY")
+    check chars.lineText(0) == "XYabcd"
+    chars.feed("\x1b[1;1H\x1b[1P")
+    check chars.lineText(0) == "Yabcd"
 
   when defined(macosx):
     test "multiple PTYs keep independent screen state":
