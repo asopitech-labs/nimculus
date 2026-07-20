@@ -1,4 +1,5 @@
 import nimnui/ui_tree
+import std/strutils
 
 type
   Modifier* = enum
@@ -56,6 +57,45 @@ proc dispatchShortcut*(registry: CommandRegistry, shortcut: Shortcut): bool =
   if not registry.tryResolve(shortcut, command): return false
   if command.action != nil: command.action()
   true
+
+proc macOSKeyCode(key: string): uint32 =
+  const letters = [
+    ('a', 0'u32), ('b', 11'u32), ('c', 8'u32), ('d', 2'u32), ('e', 14'u32),
+    ('f', 3'u32), ('g', 5'u32), ('h', 4'u32), ('i', 34'u32), ('j', 38'u32),
+    ('k', 40'u32), ('l', 37'u32), ('m', 46'u32), ('n', 45'u32), ('o', 31'u32),
+    ('p', 35'u32), ('q', 12'u32), ('r', 15'u32), ('s', 1'u32), ('t', 17'u32),
+    ('u', 32'u32), ('v', 9'u32), ('w', 13'u32), ('x', 7'u32), ('y', 16'u32),
+    ('z', 6'u32)]
+  let normalized = key.toLowerAscii
+  if normalized.len == 1:
+    for item in letters:
+      if normalized[0] == item[0]: return item[1]
+  case normalized
+  of "return", "enter": 36
+  of "tab": 48
+  of "escape", "esc": 53
+  of "space": 49
+  of "backspace": 51
+  of "left": 123
+  of "right": 124
+  of "down": 125
+  of "up": 126
+  else: 0
+
+proc shortcutFromKeyBinding*(binding: string): Shortcut =
+  ## Parse the macOS keymap spelling used by settings.json, e.g.
+  ## `cmd+shift+p` or `ctrl+alt+f`. The platform boundary still owns the
+  ## NSEvent bitmask conversion; this function only creates a Shortcut value.
+  var key = ""
+  for part in binding.split('+'):
+    let value = part.strip.toLowerAscii
+    case value
+    of "cmd", "command": result.modifiers.incl(commandModifier)
+    of "ctrl", "control": result.modifiers.incl(controlModifier)
+    of "alt", "option": result.modifiers.incl(optionModifier)
+    of "shift": result.modifiers.incl(shiftModifier)
+    else: key = value
+  result.keyCode = macOSKeyCode(key)
 
 proc focusNext*(tree: var UiTree): NodeId =
   var focusables: seq[NodeId]

@@ -1,6 +1,7 @@
 import std/os
 import std/unittest
 import nimculus/settings
+import nimnui/commands
 
 suite "M12 settings foundation":
   test "merges global, workspace, and language settings recursively":
@@ -28,6 +29,10 @@ suite "M12 settings foundation":
     check store.keyBindings().len == 1
     check store.keyBindings()[0].command == "save"
     check store.theme().background == "#000000"
+    let shortcut = shortcutFromKeyBinding("cmd+shift+p")
+    check shortcut.keyCode == 35
+    check commandModifier in shortcut.modifiers
+    check shiftModifier in shortcut.modifiers
     removeFile(path)
     removeDir(root)
 

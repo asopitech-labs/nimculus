@@ -28,6 +28,8 @@ var demoSplitRatio = 0.5'f32
 var demoSplitDragging = false
 var activePointerNode = NodeId(0)
 var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
+when defined(macosx):
+  var appSettings: SettingsStore
 
 proc resetPointerInteractions()
 when defined(macosx):
@@ -167,6 +169,16 @@ proc setupShortcutRegistry() =
     shortcut: Shortcut(keyCode: 3, modifiers: {commandModifier, shiftModifier}),
     action: proc() = platformShowWorkspaceSearch()))
 
+proc applySettingsKeymap() =
+  when defined(macosx):
+    if appSettings == nil: return
+    for binding in appSettings.keyBindings():
+      let shortcut = shortcutFromKeyBinding(binding.key)
+      if shortcut.keyCode == 0: continue
+      for index in 0 ..< shortcutRegistry.commands.len:
+        if shortcutRegistry.commands[index].name == binding.command:
+          shortcutRegistry.commands[index].shortcut = shortcut
+
 var imeState = newImeState()
 var editorSession: EditorSession
 var editorViewState = newEditorView()
@@ -212,7 +224,6 @@ when defined(macosx):
   var editorTerminalVisible = false
   var editorTerminalSelection = TerminalSelection()
   var editorTerminalSelecting = false
-  var appSettings: SettingsStore
 
 proc resetEditorViewState() =
   editorViewState = newEditorView()
@@ -1064,6 +1075,7 @@ when defined(macosx):
 
   proc receiveNativeIdle() {.cdecl.} =
     if appSettings != nil and appSettings.reload():
+      applySettingsKeymap()
       editorViewState.statusMessage = "Settings reloaded"
     pollNativeGitHunks()
     pollNativeGitAction()
@@ -1930,6 +1942,7 @@ when isMainModule:
       refreshWorkspacePreview()
     appSettings = newSettingsStore(settingsFilePath,
       initialRoot / ".nimculus" / "settings.json")
+    applySettingsKeymap()
     let lspCommand = getEnv("NIMCULUS_LSP_COMMAND",
       appSettings.stringSetting("lsp.command", ""))
     if lspCommand.len > 0:

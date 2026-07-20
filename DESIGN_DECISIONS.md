@@ -176,7 +176,9 @@ the same boundary in `settings.nim`: JSON files are recursively merged,
 invalid values become diagnostics instead of crashing startup, and mtime-based
 reload replaces the complete validated snapshot atomically. The macOS layer
 currently consumes only terminal shell and LSP command values; keymap and
-theme consumers remain explicit follow-up integrations.
+theme consumers remain explicit follow-up integrations. Keymap strings are
+converted at the NimNUI command boundary rather than teaching the settings
+loader about AppKit key codes.
 
 ## M10-001: Keep the PTY transport separate from the terminal screen model
 
