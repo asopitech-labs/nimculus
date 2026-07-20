@@ -134,6 +134,7 @@ void nimculus_platform_set_terminal_runs(const char *utf8, uint32_t length,
                                          const NimculusTerminalRun *runs, uint32_t count);
 void nimculus_platform_set_theme_colors(const char *background, const char *foreground,
                                         const char *accent);
+bool nimculus_platform_is_dark_appearance(void);
 void nimculus_platform_set_terminal_selection(uint32_t start_row, uint32_t start_column,
                                               uint32_t end_row, uint32_t end_column);
 void nimculus_platform_set_task_output_visible(bool visible);

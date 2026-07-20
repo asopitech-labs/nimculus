@@ -2595,6 +2595,14 @@ void nimculus_platform_set_terminal_selection(uint32_t start_row, uint32_t start
     [view drawFrame];
   }
 }
+
+bool nimculus_platform_is_dark_appearance(void) {
+  NSApplication *app = [NSApplication sharedApplication];
+  NSAppearance *appearance = app.effectiveAppearance;
+  NSAppearance *match = [appearance bestMatchFromAppearancesWithNames:@[
+    NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
+  return [match.name isEqualToString:NSAppearanceNameDarkAqua];
+}
 void nimculus_platform_set_task_output_visible(bool visible) {
   g_task_output_visible = visible ? YES : NO;
   if (g_active_view) {

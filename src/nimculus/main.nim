@@ -199,7 +199,19 @@ proc applySettingsKeymap() =
 proc applySettingsTheme() =
   when defined(macosx):
     if appSettings == nil: return
-    let colors = appSettings.theme()
+    var colors = appSettings.theme()
+    let themeName = appSettings.stringSetting("theme", "dark").toLowerAscii
+    let customBackground = appSettings.stringSetting("themeColors.background", "")
+    if customBackground.len == 0 and themeName in ["light", "dark", "system"]:
+      let dark = if themeName == "system": platformIsDarkAppearance() else: themeName == "dark"
+      if dark:
+        colors.background = "#1f2329"
+        colors.foreground = "#d7dae0"
+        colors.accent = "#4daafc"
+      else:
+        colors.background = "#ffffff"
+        colors.foreground = "#1f2329"
+        colors.accent = "#007aff"
     platformSetThemeColors(colors.background.cstring, colors.foreground.cstring,
       colors.accent.cstring)
 
@@ -1306,8 +1318,8 @@ when defined(macosx):
   proc receiveNativeIdle() {.cdecl.} =
     if appSettings != nil and appSettings.reload():
       applySettingsKeymap()
-      applySettingsTheme()
       editorViewState.statusMessage = "Settings reloaded"
+    applySettingsTheme()
     pollNativeGitHunks()
     pollNativeGitAction()
     pollNativeTask()
