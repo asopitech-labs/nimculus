@@ -175,6 +175,9 @@ proc dispatchNativeShortcut(event: ptr NimculusInputEvent): bool {.cdecl.} =
     keyCode: event.keyCode,
     modifiers: macOSModifiers(event.modifiers)))
 
+proc nativeShortcutAction(name: string): proc() {.closure.} =
+  result = proc() = receiveNativeCommand(name.cstring)
+
 proc setupShortcutRegistry() =
   shortcutRegistry = CommandRegistry()
   shortcutRegistry.register(Command(
@@ -185,10 +188,20 @@ proc setupShortcutRegistry() =
     name: "workspaceSearch",
     shortcut: Shortcut(keyCode: 3, modifiers: {commandModifier, shiftModifier}),
     action: proc() = platformShowWorkspaceSearch()))
+  # Keep all commands addressable from settings keymaps. They have no default
+  # shortcut here when AppKit owns the standard menu equivalent; custom
+  # bindings are installed below and are resolved before interpretKeyEvents.
+  for name in ["save", "newDocument", "closeTabRequest", "openSettings", "undo",
+               "redo", "cut", "copy", "paste", "selectAll", "previousTab", "nextTab"]:
+    shortcutRegistry.register(Command(name: name,
+      action: nativeShortcutAction(name)))
 
 proc applySettingsKeymap() =
   when defined(macosx):
     if appSettings == nil: return
+    # Rebuild from defaults so removing a binding on disk also removes the
+    # previous live binding, matching Zed's keymap reload semantics.
+    setupShortcutRegistry()
     for binding in appSettings.keyBindings():
       let shortcut = shortcutFromKeyBinding(binding.key)
       if shortcut.keyCode == 0: continue
@@ -1699,6 +1712,25 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       platformSetEditorComposition("".cstring)
       platformSetEditorText("".cstring, 0)
       syncEditorCursor()
+  elif name == "save" and document != nil:
+    try:
+      if document[].path.len > 0:
+        document[].save()
+      else:
+        let path = chooseSaveFile()
+        if path == nil or ($path).len == 0:
+          editorViewState.statusMessage = "Save cancelled"
+          return
+        document[].save($path)
+        if editorSession.activeTab >= 0 and editorSession.activeTab < editorSession.tabs.len:
+          editorSession.tabs[editorSession.activeTab].title = splitFile(document[].path).name
+      editorSession.saveActiveView(editorViewState)
+      persistSession()
+      editorViewState.statusMessage = "Saved " &
+        (if document[].path.len > 0: splitFile(document[].path).name else: "document")
+      syncEditorCursor()
+    except CatchableError as error:
+      editorViewState.statusMessage = "Save failed: " & error.msg
   elif name == "saveSession":
     persistSession()
   elif name == "discardSession":
