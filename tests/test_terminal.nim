@@ -65,6 +65,25 @@ suite "M10 terminal core":
     check screen.lineText(0) == "ok"
 
   when defined(macosx):
+    test "multiple PTYs keep independent screen state":
+      let first = newTerminalPty("/bin/sh", "/tmp", 32, 4)
+      let second = newTerminalPty("/bin/sh", "/tmp", 32, 4)
+      defer:
+        first.close()
+        second.close()
+      check first.writeInput("printf 'first-session\\n'\n") > 0
+      check second.writeInput("printf 'second-session\\n'\n") > 0
+      var firstOutput = ""
+      var secondOutput = ""
+      for _ in 0 ..< 100:
+        firstOutput.add(first.pollOutput())
+        secondOutput.add(second.pollOutput())
+        if "first-session" in firstOutput and "second-session" in secondOutput: break
+        sleep(10)
+      check "first-session" in firstOutput
+      check "second-session" in secondOutput
+      check first.screen.visibleText() != second.screen.visibleText()
+
     test "macOS PTY executes a shell and feeds the screen":
       let pty = newTerminalPty("/bin/sh", "/tmp", 40, 8)
       defer: pty.close()

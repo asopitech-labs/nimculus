@@ -109,6 +109,8 @@ void nimculus_platform_set_terminal_visible(bool visible);
 void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length);
 void nimculus_platform_set_terminal_selection(uint32_t start_row, uint32_t start_column,
                                               uint32_t end_row, uint32_t end_column);
+void nimculus_platform_set_task_output_visible(bool visible);
+void nimculus_platform_set_task_output_text(const char *utf8, uint32_t length);
 void nimculus_platform_set_editor_completions(const char *utf8, uint32_t length);
 void nimculus_platform_set_editor_hover(const char *utf8, uint32_t length);
 void nimculus_platform_set_editor_hover_position(double x, double y);

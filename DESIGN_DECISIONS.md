@@ -218,6 +218,16 @@ overlay remains non-editable so keyboard input continues to the PTY; pointer
 selection is captured by the existing Metal view and copied through the normal
 NimNUI clipboard contract. DEC alternate-screen state is saved separately so
 full-screen terminal applications do not destroy the normal shell history.
+PTY instances are kept in an ordered session list with an active index. The
+idle callback polls every live session so an inactive shell cannot fill its
+master pipe, while only the active session updates the overlay. Creating and
+switching sessions changes presentation state without sharing screen buffers.
+
+Task output uses a separate non-editable AppKit overlay rather than replacing
+the PTY screen state. Completed `TaskResult.output` is retained in Nimculus,
+and `toggle task output` presents it without taking keyboard focus from the
+Metal view. The two overlays share panel geometry but are mutually exclusive,
+so terminal input cannot accidentally be sent to a task log.
 
 ## Reference: Zed GPUI Metal implementation
 

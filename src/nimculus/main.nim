@@ -201,7 +201,11 @@ when defined(macosx):
   var editorGitPath = ""
   var editorTaskJob: TaskJob
   var editorTaskCommand = ""
+  var editorTaskOutput = ""
+  var editorTaskOutputVisible = false
   var editorTerminal: TerminalPty
+  var editorTerminals: seq[TerminalPty]
+  var editorTerminalIndex = -1
   var editorTerminalVisible = false
   var editorTerminalSelection = TerminalSelection()
   var editorTerminalSelecting = false
@@ -405,6 +409,9 @@ when defined(macosx):
     if editorTaskJob != nil and not editorTaskJob.done:
       editorTaskJob.cancel()
     editorTaskCommand = command
+    editorTaskOutput = ""
+    editorTaskOutputVisible = false
+    platformSetTaskOutputVisible(false)
     editorTaskJob = startTask(TaskSpec(command: "/bin/zsh",
       args: @["-lc", command], workingDirectory: taskWorkingDirectory(activeDocument())))
     editorViewState.statusMessage = "Task: running " & command
@@ -419,6 +426,8 @@ when defined(macosx):
   proc pollNativeTask() =
     if editorTaskJob == nil or not editorTaskJob.poll(): return
     let taskResult = editorTaskJob.result
+    editorTaskOutput = taskResult.output
+    platformSetTaskOutputText(editorTaskOutput.cstring, uint32(editorTaskOutput.len))
     let output = taskResult.output.strip()
     let summary = if output.len == 0: "" else:
       let lines = output.splitLines
@@ -434,11 +443,57 @@ when defined(macosx):
     else: discard
     editorTaskJob = nil
 
+  proc toggleNativeTaskOutput() =
+    if editorTaskOutputVisible:
+      editorTaskOutputVisible = false
+      platformSetTaskOutputVisible(false)
+      return
+    if editorTaskOutput.len == 0:
+      editorViewState.statusMessage = "Task output is empty"
+      return
+    if editorTerminalVisible:
+      editorTerminalVisible = false
+      platformSetTerminalVisible(false)
+    editorTaskOutputVisible = true
+    platformSetTaskOutputVisible(true)
+    platformSetTaskOutputText(editorTaskOutput.cstring, uint32(editorTaskOutput.len))
+
   proc syncNativeTerminal() =
     if editorTerminal == nil: return
     let lines = editorTerminal.screen.visibleText()
     let text = lines.join("\n")
     platformSetTerminalText(text.cstring, uint32(text.len))
+
+  proc activateNativeTerminal(index: int) =
+    if index < 0 or index >= editorTerminals.len: return
+    editorTerminalIndex = index
+    editorTerminal = editorTerminals[index]
+    editorTerminalSelection = TerminalSelection()
+    if editorTerminalVisible:
+      platformSetTerminalSelection(0, 0, 0, 0)
+      syncNativeTerminal()
+    editorViewState.statusMessage = "Terminal " & $(index + 1) & "/" &
+      $editorTerminals.len
+
+  proc newNativeTerminal() =
+    let cwd = if activeWorkspace != nil and activeWorkspace.rootPaths.len > 0:
+      activeWorkspace.rootPaths[0]
+    elif activeDocument() != nil and activeDocument()[].path.len > 0:
+      splitFile(absolutePath(activeDocument()[].path)).dir
+    else: getCurrentDir()
+    try:
+      let session = newTerminalPty("/bin/zsh", cwd, 120, 8)
+      editorTerminals.add(session)
+      activateNativeTerminal(editorTerminals.high)
+      editorTaskOutputVisible = false
+      platformSetTaskOutputVisible(false)
+      editorTerminalVisible = true
+      platformSetTerminalVisible(true)
+      syncNativeTerminal()
+      editorViewState.statusMessage = "Terminal " &
+        $(editorTerminalIndex + 1) & "/" & $editorTerminals.len & " opened"
+    except CatchableError as error:
+      editorViewState.statusMessage = "Terminal failed: " & error.msg
 
   proc terminalOverlayBounds(): tuple[x, y, width, height: float32] =
     let height = min(180'f32, max(72'f32, float32(demoEditorBounds.size.height) * 0.42'f32))
@@ -489,25 +544,52 @@ when defined(macosx):
       editorTerminalVisible = false
       platformSetTerminalVisible(false)
       return
-    let cwd = if activeWorkspace != nil and activeWorkspace.rootPaths.len > 0:
-      activeWorkspace.rootPaths[0]
-    elif activeDocument() != nil and activeDocument()[].path.len > 0:
-      splitFile(absolutePath(activeDocument()[].path)).dir
-    else: getCurrentDir()
-    try:
-      if editorTerminal == nil or editorTerminal.closed:
-        editorTerminal = newTerminalPty("/bin/zsh", cwd, 120, 8)
+    if editorTerminal == nil or editorTerminal.closed:
+      newNativeTerminal()
+    else:
+      editorTaskOutputVisible = false
+      platformSetTaskOutputVisible(false)
       editorTerminalVisible = true
       platformSetTerminalVisible(true)
       syncNativeTerminal()
-      editorViewState.statusMessage = "Terminal opened"
-    except CatchableError as error:
-      editorViewState.statusMessage = "Terminal failed: " & error.msg
+      editorViewState.statusMessage = "Terminal " &
+        $(editorTerminalIndex + 1) & "/" & $editorTerminals.len
+
+  proc switchNativeTerminal(delta: int) =
+    if editorTerminals.len == 0:
+      newNativeTerminal()
+      return
+    editorTaskOutputVisible = false
+    platformSetTaskOutputVisible(false)
+    var index = (editorTerminalIndex + delta) mod editorTerminals.len
+    if index < 0: index += editorTerminals.len
+    activateNativeTerminal(index)
+    editorTerminalVisible = true
+    platformSetTerminalVisible(true)
+
+  proc closeNativeTerminals() =
+    for session in editorTerminals:
+      if session != nil: session.close()
+    editorTerminals.setLen(0)
+    editorTerminal = nil
+    editorTerminalIndex = -1
+
+  proc resizeNativeTerminals() =
+    if editorTerminals.len == 0: return
+    let bounds = terminalOverlayBounds()
+    let columns = max(1, int(floor(bounds.width / 7.2'f32)) - 2)
+    let rows = max(1, int(floor(bounds.height / 18'f32)) - 1)
+    for session in editorTerminals:
+      if session != nil and not session.closed: session.resize(columns, rows)
+    if editorTerminalVisible:
+      syncNativeTerminal()
 
   proc pollNativeTerminal() =
-    if editorTerminal == nil or editorTerminal.closed: return
-    let output = editorTerminal.pollOutput()
-    if output.len > 0 and editorTerminalVisible: syncNativeTerminal()
+    for index, session in editorTerminals:
+      if session == nil or session.closed: continue
+      let output = session.pollOutput()
+      if index == editorTerminalIndex and output.len > 0 and editorTerminalVisible:
+        syncNativeTerminal()
 
   proc scheduleNativeGitHunks(document: ptr FileDocument) =
     if editorGitDiffJob != nil:
@@ -1179,13 +1261,16 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     cancelWorkspaceSearch()
   elif name == "windowResized":
     setupDemoUi()
+    when defined(macosx): resizeNativeTerminals()
     if activeDocument() != nil: refreshEditorSyntax()
   elif name == "windowFocusLost":
     resetPointerInteractions()
   elif name == "quitRequest":
     when defined(macosx):
       if editorSession.hasDirtyTabs(): platformRequestQuit()
-      else: platformConfirmQuit()
+      else:
+        closeNativeTerminals()
+        platformConfirmQuit()
   elif name == "saveAllAndQuit":
     var success = true
     for tab in editorSession.tabs.mitems:
@@ -1204,12 +1289,14 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
             tab.title = splitFile(target).name
       except CatchableError:
         success = false
+    if success and not editorSession.hasDirtyTabs(): closeNativeTerminals()
     platformSetCloseDecision(success and not editorSession.hasDirtyTabs())
   elif name == "discardAllAndQuit":
     suppressRecoveryWrite = true
     discardDirtyOnExit = true
     if recoveryFilePath.len > 0 and fileExists(recoveryFilePath):
       removeFile(recoveryFilePath)
+    closeNativeTerminals()
     platformSetCloseDecision(true)
   elif name == "closeTabRequest":
     when defined(macosx): platformRequestCloseTab()
@@ -1299,7 +1386,11 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command.startsWith("git checkout "): "__git_checkout__"
       elif command == "git stage hunk": "__git_stage_hunk__"
       elif command == "git unstage hunk": "__git_unstage_hunk__"
-      elif command in ["toggle terminal", "new terminal"]: "__toggle_terminal__"
+      elif command == "toggle terminal": "__toggle_terminal__"
+      elif command == "new terminal": "__new_terminal__"
+      elif command == "next terminal": "__next_terminal__"
+      elif command == "previous terminal": "__previous_terminal__"
+      elif command in ["toggle task output", "show task output"]: "__task_output__"
       elif command.startsWith("run task "): "__run_task__"
       elif command == "cancel task": "__cancel_task__"
       elif command == "cancel git": "__cancel_git__"
@@ -1357,6 +1448,14 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "Git: cancelled"
     of "__toggle_terminal__":
       when defined(macosx): toggleNativeTerminal()
+    of "__new_terminal__":
+      when defined(macosx): newNativeTerminal()
+    of "__next_terminal__":
+      when defined(macosx): switchNativeTerminal(1)
+    of "__previous_terminal__":
+      when defined(macosx): switchNativeTerminal(-1)
+    of "__task_output__":
+      when defined(macosx): toggleNativeTaskOutput()
     of "workspace search":
       when defined(macosx):
         platformShowWorkspaceSearch()

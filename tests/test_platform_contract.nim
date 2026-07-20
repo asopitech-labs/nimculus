@@ -80,4 +80,6 @@ suite "macOS platform contract":
     platformSetTerminalVisible(false)
     platformSetTerminalText("".cstring, 0)
     platformSetTerminalSelection(0, 0, 0, 0)
+    platformSetTaskOutputVisible(false)
+    platformSetTaskOutputText("".cstring, 0)
     check true
