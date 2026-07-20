@@ -14,15 +14,46 @@ type
     workingDirectory*: string
     environment*: seq[tuple[key, value: string]]
 
+  TaskProblem* = object
+    path*: string
+    line*: int
+    column*: int
+    message*: string
+
   TaskResult* = object
     status*: TaskStatus
     exitCode*: int
     output*: string
+    problems*: seq[TaskProblem]
 
   TaskJob* = ref object
     process: Process
     result*: TaskResult
     done*: bool
+
+proc parseTaskProblems*(output: string): seq[TaskProblem] =
+  ## Parse common compiler formats without treating unrelated log lines as
+  ## diagnostics: path:line:column: message and path:line: message.
+  for rawLine in output.splitLines:
+    let fields = rawLine.strip.split(':')
+    if fields.len < 3: continue
+    for index in 0 .. fields.high - 2:
+      try:
+        let lineNumber = parseInt(fields[index + 1].strip)
+        var columnNumber = 1
+        var messageStart = index + 2
+        try:
+          columnNumber = parseInt(fields[index + 2].strip)
+          messageStart = index + 3
+        except ValueError: discard
+        if messageStart > fields.high: continue
+        let path = fields[0 .. index].join(":").strip
+        let message = fields[messageStart .. ^1].join(":").strip
+        if path.len == 0 or message.len == 0: continue
+        result.add(TaskProblem(path: path, line: max(1, lineNumber),
+          column: max(1, columnNumber), message: message))
+        break
+      except ValueError: discard
 
 proc taskEnvironment(spec: TaskSpec): StringTableRef =
   if spec.environment.len == 0: return nil
@@ -60,6 +91,7 @@ proc poll*(job: TaskJob): bool =
   job.result.exitCode = exitCode
   job.result.status = if exitCode == 0: taskSucceeded else: taskFailed
   job.result.output = job.process.outputStream.readAll()
+  job.result.problems = parseTaskProblems(job.result.output)
   job.process.close()
   job.done = true
   true

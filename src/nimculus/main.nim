@@ -254,6 +254,7 @@ when defined(macosx):
   var editorTaskCommand = ""
   var editorTaskOutput = ""
   var editorTaskOutputVisible = false
+  var editorTaskProblems: seq[TaskProblem]
   var editorTerminal: TerminalPty
   var editorTerminals: seq[TerminalPty]
   var editorTerminalIndex = -1
@@ -461,6 +462,7 @@ when defined(macosx):
       editorTaskJob.cancel()
     editorTaskCommand = command
     editorTaskOutput = ""
+    editorTaskProblems.setLen(0)
     editorTaskOutputVisible = false
     platformSetTaskOutputVisible(false)
     editorTaskJob = startTask(TaskSpec(command: "/bin/zsh",
@@ -478,17 +480,20 @@ when defined(macosx):
     if editorTaskJob == nil or not editorTaskJob.poll(): return
     let taskResult = editorTaskJob.result
     editorTaskOutput = taskResult.output
+    editorTaskProblems = taskResult.problems
     platformSetTaskOutputText(editorTaskOutput.cstring, uint32(editorTaskOutput.len))
     let output = taskResult.output.strip()
     let summary = if output.len == 0: "" else:
       let lines = output.splitLines
       " — " & lines[lines.high]
+    let problemSummary = if editorTaskProblems.len == 0: "" else:
+      " (" & $editorTaskProblems.len & " problems)"
     case taskResult.status
     of taskSucceeded:
       editorViewState.statusMessage = "Task succeeded: " & editorTaskCommand & summary
     of taskFailed:
       editorViewState.statusMessage = "Task failed (" & $taskResult.exitCode & "): " &
-        editorTaskCommand & summary
+        editorTaskCommand & problemSummary & summary
     of taskCancelled:
       editorViewState.statusMessage = "Task cancelled: " & editorTaskCommand
     else: discard

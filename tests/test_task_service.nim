@@ -3,6 +3,17 @@ import std/unittest
 import nimculus/task_service
 
 suite "M10 task service":
+  test "matches common compiler problem locations":
+    let problems = parseTaskProblems("src/main.nim:12:7: undeclared identifier\n" &
+      "src/other.nim:4: warning: unused import\n" &
+      "ordinary log line")
+    check problems.len == 2
+    check problems[0].path == "src/main.nim"
+    check problems[0].line == 12
+    check problems[0].column == 7
+    check problems[1].column == 1
+    check problems[1].message == "warning: unused import"
+
   test "runs a task with working directory and environment":
     let job = startTask(TaskSpec(command: "/bin/sh", args: @[
       "-c", "printf '%s:%s' \"$TASK_MARKER\" \"$(pwd)\""],
