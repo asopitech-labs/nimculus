@@ -2195,6 +2195,27 @@ static void applyTerminalRuns(NSTextView *terminal) {
     if (g_file_callback) g_file_callback(path.UTF8String, false);
   }
 }
+- (void)application:(NSApplication *)application openURLs:(NSArray<NSURL *> *)urls {
+  (void)application;
+  for (NSURL *url in urls) {
+    NSString *path = nil;
+    if (url.isFileURL) {
+      path = url.path;
+    } else if ([url.scheme.lowercaseString isEqualToString:@"nimculus"]) {
+      // `nimculus:///absolute/path` is the stable URL form. Query-based
+      // links are also accepted for callers that cannot emit a path URL.
+      path = url.path;
+      if (path.length == 0) {
+        NSURLComponents *components = [NSURLComponents componentsWithURL:url
+          resolvingAgainstBaseURL:NO];
+        for (NSURLQueryItem *item in components.queryItems) {
+          if ([item.name isEqualToString:@"path"]) { path = item.value; break; }
+        }
+      }
+    }
+    if (path.length > 0 && g_file_callback) g_file_callback(path.UTF8String, false);
+  }
+}
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender { return YES; }
 @end
 
