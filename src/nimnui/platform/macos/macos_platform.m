@@ -31,6 +31,9 @@ static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
 static NSString *g_editor_text = @"";
 static NSString *g_terminal_text = @"";
+static NSString *g_theme_background = @"#1f2329";
+static NSString *g_theme_foreground = @"#d7dae0";
+static NSString *g_theme_accent = @"#4daafc";
 static NimculusTerminalRun *g_terminal_runs = NULL;
 static uint32_t g_terminal_run_count = 0;
 static BOOL g_terminal_visible = NO;
@@ -50,6 +53,18 @@ static NSData *g_clipboard_utf8_data = nil;
 static char g_dialog_path[PATH_MAX] = {0};
 static BOOL g_editor_dirty = NO;
 static BOOL g_close_decision = NO;
+
+static NSColor *themeHexColor(NSString *value, NSColor *fallback) {
+  if (!value || value.length != 7 || [value characterAtIndex:0] != '#') return fallback;
+  unsigned int red = 0, green = 0, blue = 0;
+  NSScanner *scanner = [NSScanner scannerWithString:[value substringFromIndex:1]];
+  if (![scanner scanHexInt:&red] || red > 0xFFFFFF) return fallback;
+  green = (red >> 8) & 0xFF;
+  blue = red & 0xFF;
+  red = (red >> 16) & 0xFF;
+  return [NSColor colorWithCalibratedRed:red / 255.0 green:green / 255.0
+                                   blue:blue / 255.0 alpha:1.0];
+}
 static BOOL g_terminate_decision = NO;
 static NSArray<NSString *> *g_recent_files = nil;
 static uint32_t g_last_width_points = 0;
@@ -536,7 +551,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   if (!context) return;
   CGContextScaleCTM(context, scale, scale);
   CTFontRef font = editorFont();
-  NSColor *baseColor = [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0];
+  NSColor *baseColor = themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]);
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
     (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
   NSArray<NSString *> *lines = [(text ?: @"") componentsSeparatedByString:@"\n"];
@@ -874,7 +890,8 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
   resetGlyphVertices();
   CTFontRef baseFont = editorFont();
   if (!baseFont) return;
-  NSColor *baseColor = [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0];
+  NSColor *baseColor = themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]);
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)baseFont,
     (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
   NSArray<NSString *> *lines = [(text ?: @"") componentsSeparatedByString:@"\n"];
@@ -1136,8 +1153,10 @@ static void applyTerminalRuns(NSTextView *terminal) {
     // remain disabled so PTY keyboard input stays owned by the Metal view.
     terminal.selectable = YES;
     terminal.drawsBackground = YES;
-    terminal.backgroundColor = [NSColor colorWithCalibratedRed:0.025 green:0.030 blue:0.045 alpha:0.98];
-    terminal.textColor = [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0];
+    terminal.backgroundColor = [themeHexColor(g_theme_background,
+      [NSColor colorWithCalibratedRed:0.025 green:0.030 blue:0.045 alpha:1.0]) colorWithAlphaComponent:0.98];
+    terminal.textColor = themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]);
     terminal.font = [NSFont fontWithName:@"Menlo" size:12.0] ?: [NSFont monospacedSystemFontOfSize:12.0 weight:NSFontWeightRegular];
     terminal.textContainerInset = NSMakeSize(8.0, 6.0);
     terminal.hidden = YES;
@@ -2449,6 +2468,24 @@ void nimculus_platform_set_terminal_runs(const char *utf8, uint32_t length,
       break;
     }
   }
+}
+void nimculus_platform_set_theme_colors(const char *background, const char *foreground,
+                                        const char *accent) {
+  if (background) g_theme_background = [[NSString alloc] initWithUTF8String:background] ?: @"#1f2329";
+  if (foreground) g_theme_foreground = [[NSString alloc] initWithUTF8String:foreground] ?: @"#d7dae0";
+  if (accent) g_theme_accent = [[NSString alloc] initWithUTF8String:accent] ?: @"#4daafc";
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) {
+      NSTextView *terminal = (NSTextView *)subview;
+      terminal.backgroundColor = [themeHexColor(g_theme_background,
+        [NSColor colorWithCalibratedRed:0.025 green:0.030 blue:0.045 alpha:1.0]) colorWithAlphaComponent:0.98];
+      terminal.textColor = themeHexColor(g_theme_foreground,
+        [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]);
+    }
+  }
+  [view drawFrame];
 }
 void nimculus_platform_set_terminal_selection(uint32_t start_row, uint32_t start_column,
                                               uint32_t end_row, uint32_t end_column) {

@@ -183,6 +183,13 @@ proc applySettingsKeymap() =
         if shortcutRegistry.commands[index].name == binding.command:
           shortcutRegistry.commands[index].shortcut = shortcut
 
+proc applySettingsTheme() =
+  when defined(macosx):
+    if appSettings == nil: return
+    let colors = appSettings.theme()
+    platformSetThemeColors(colors.background.cstring, colors.foreground.cstring,
+      colors.accent.cstring)
+
 var imeState = newImeState()
 var editorSession: EditorSession
 var editorViewState = newEditorView()
@@ -1164,6 +1171,7 @@ when defined(macosx):
   proc receiveNativeIdle() {.cdecl.} =
     if appSettings != nil and appSettings.reload():
       applySettingsKeymap()
+      applySettingsTheme()
       editorViewState.statusMessage = "Settings reloaded"
     pollNativeGitHunks()
     pollNativeGitAction()
@@ -2088,6 +2096,7 @@ when isMainModule:
     appSettings = newSettingsStore(settingsFilePath,
       initialRoot / ".nimculus" / "settings.json")
     applySettingsKeymap()
+    applySettingsTheme()
     let lspCommand = getEnv("NIMCULUS_LSP_COMMAND",
       appSettings.stringSetting("lsp.command", ""))
     if lspCommand.len > 0:

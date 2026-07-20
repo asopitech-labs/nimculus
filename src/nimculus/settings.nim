@@ -116,6 +116,11 @@ proc settingsSchema*(): JsonNode =
       }},
       "theme": {"type": "string"},
       "iconTheme": {"type": "string"},
+      "themeColors": {"type": "object", "properties": {
+        "background": {"type": "string"}, "foreground": {"type": "string"},
+        "accent": {"type": "string"}, "selection": {"type": "string"},
+        "border": {"type": "string"}
+      }},
       "terminal": {"type": "object", "properties": {"shell": {"type": "string"}}},
       "lsp": {"type": "object", "properties": {"command": {"type": "string"}}},
       "keymap": {"type": "array", "items": {"type": "object",

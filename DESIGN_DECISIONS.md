@@ -176,9 +176,11 @@ the same boundary in `settings.nim`: JSON files are recursively merged,
 invalid values become diagnostics instead of crashing startup, and mtime-based
 reload replaces the complete validated snapshot atomically. The macOS layer
 currently consumes only terminal shell and LSP command values; keymap and
-theme consumers remain explicit follow-up integrations. Keymap strings are
-converted at the NimNUI command boundary rather than teaching the settings
-loader about AppKit key codes.
+theme registry consumers remain explicit follow-up integrations. The current
+background/foreground/accent values are converted at the macOS platform
+boundary and applied to editor glyphs and terminal overlays. Keymap strings
+are converted at the NimNUI command boundary rather than teaching the
+settings loader about AppKit key codes.
 
 ## M8-011: Reuse a bounded result surface for initial LSP feature UI
 
