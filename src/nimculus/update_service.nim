@@ -97,3 +97,23 @@ proc downloadAndVerify*(release: UpdateRelease, destination: string): bool =
       try: removeFile(destination)
       except CatchableError: discard
     false
+
+proc runChecked(command: string, args: openArray[string]): bool =
+  ## Run a platform verifier without a shell and discard its diagnostic output.
+  try:
+    let process = startProcess(command, args = @args,
+      options = {poUsePath, poStdErrToStdOut})
+    discard process.outputStream.readAll()
+    let exitCode = process.waitForExit()
+    process.close()
+    exitCode == 0
+  except CatchableError:
+    false
+
+proc verifyMacosSignedApp*(path: string): bool =
+  ## Verify the downloaded `.app` before an eventual install step.
+  ## `spctl` is intentionally kept separate from artifact hashing: a valid
+  ## download is not necessarily an executable accepted by Gatekeeper.
+  path.len > 0 and path.endsWith(".app") and dirExists(path) and
+    runChecked("codesign", ["--verify", "--deep", "--strict", "--verbose=2", path]) and
+    runChecked("spctl", ["--assess", "--type", "execute", "--verbose", path])
