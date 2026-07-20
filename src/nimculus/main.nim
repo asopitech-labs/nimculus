@@ -13,6 +13,7 @@ import nimculus/tree_sitter
 import nimculus/workspace
 import nimculus/session
 import nimculus/lsp_editor_bridge
+import nimculus/lsp
 import nimculus/editor_diagnostics
 import nimculus/git_service
 import nimculus/task_service
@@ -472,6 +473,66 @@ when defined(macosx):
     editorTaskOutputVisible = true
     platformSetTaskOutputVisible(true)
     platformSetTaskOutputText(editorTaskOutput.cstring, uint32(editorTaskOutput.len))
+
+  proc showNativeLspPanel(title: string, lines: seq[string]) =
+    if lines.len == 0:
+      editorViewState.statusMessage = title & ": none"
+      return
+    editorTaskOutput = title & "\n" & lines.join("\n")
+    platformSetTaskOutputText(editorTaskOutput.cstring, uint32(editorTaskOutput.len))
+    if editorTerminalVisible:
+      editorTerminalVisible = false
+      platformSetTerminalVisible(false)
+    editorTaskOutputVisible = true
+    platformSetTaskOutputVisible(true)
+
+  proc lspSelectionRange(document: ptr FileDocument): LspRange =
+    if document == nil: return
+    let selection = editorViewState.selectedRange()
+    let start = document[].buffer.utf16Position(selection.startByte)
+    let finish = document[].buffer.utf16Position(selection.endByte)
+    LspRange(start: LspPosition(line: start.line, character: start.character),
+      finish: LspPosition(line: finish.line, character: finish.character))
+
+  proc pollNativeLspFeatureResults() =
+    if lspBridge == nil: return
+    var references = lspBridge.takeReferenceLocations()
+    if references.len > 0:
+      var lines: seq[string]
+      for location in references:
+        lines.add(filePathFromUri(location.uri) & ":" &
+          $(location.range.start.line + 1) & ":" & $(location.range.start.character + 1))
+      showNativeLspPanel("LSP References", lines)
+    let symbols = lspBridge.takeSymbols()
+    if symbols.len > 0:
+      var lines: seq[string]
+      for symbol in symbols:
+        lines.add(symbol.name & "  " & $(symbol.range.start.line + 1))
+      showNativeLspPanel("LSP Symbols", lines)
+    let actions = lspBridge.takeCodeActions()
+    if actions.len > 0:
+      var lines: seq[string]
+      for action in actions:
+        lines.add(action.title)
+      showNativeLspPanel("LSP Code Actions", lines)
+    let renameEdits = lspBridge.takeRenameEdits()
+    if renameEdits.len > 0:
+      var lines: seq[string]
+      for workspaceEdit in renameEdits:
+        lines.add(filePathFromUri(workspaceEdit.uri) & " (" & $workspaceEdit.edits.len & " edits)")
+      showNativeLspPanel("LSP Rename Preview", lines)
+    let signature = lspBridge.takeSignatureHelp()
+    if signature.signatures.len > 0:
+      var lines: seq[string]
+      for item in signature.signatures:
+        lines.add(item.label & (if item.documentation.len > 0: " — " & item.documentation else: ""))
+      showNativeLspPanel("LSP Signature Help", lines)
+    let hints = lspBridge.takeInlayHints()
+    if hints.len > 0:
+      var lines: seq[string]
+      for hint in hints:
+        lines.add($(hint.position.line + 1) & ":" & $(hint.position.character + 1) & " " & hint.label)
+      showNativeLspPanel("LSP Inlay Hints", lines)
 
   proc syncNativeTerminal() =
     if editorTerminal == nil: return
@@ -1091,6 +1152,7 @@ when defined(macosx):
       syncNativeHover()
       navigateToDefinition()
       applyPendingFormatting()
+      pollNativeLspFeatureResults()
 
   proc acceptCurrentCompletion() =
     let document = activeDocument()
@@ -1475,6 +1537,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command.startsWith("run task "): "__run_task__"
       elif command == "cancel task": "__cancel_task__"
       elif command == "cancel git": "__cancel_git__"
+      elif command.startsWith("rename "): "__rename__"
       else: command
     editorViewState.closeCommandPalette()
     case dispatchCommand
@@ -1503,6 +1566,55 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "LSP: finding definition"
         else:
           editorViewState.statusMessage = "LSP definition unavailable"
+    of "find references":
+      when defined(macosx):
+        if document == nil or lspBridge == nil:
+          editorViewState.statusMessage = "LSP references unavailable"
+        elif lspBridge.requestReferences(document[].buffer, editorViewState.cursor):
+          editorViewState.statusMessage = "LSP: finding references"
+        else:
+          editorViewState.statusMessage = "LSP references unavailable"
+    of "rename":
+      when defined(macosx):
+        editorViewState.statusMessage = "Use `rename <new-name>` from the command palette"
+    of "__rename__":
+      when defined(macosx):
+        if document == nil or lspBridge == nil or rawCommand.len <= 7:
+          editorViewState.statusMessage = "LSP rename unavailable"
+        else:
+          let newName = rawCommand[7 .. ^1].strip
+          if newName.len == 0 or not lspBridge.requestRename(document[].buffer,
+              editorViewState.cursor, newName):
+            editorViewState.statusMessage = "LSP rename unavailable"
+          else:
+            editorViewState.statusMessage = "LSP: preparing rename"
+    of "document symbols", "show symbols":
+      when defined(macosx):
+        if lspBridge == nil or not lspBridge.requestSymbols():
+          editorViewState.statusMessage = "LSP symbols unavailable"
+        else:
+          editorViewState.statusMessage = "LSP: loading symbols"
+    of "code actions":
+      when defined(macosx):
+        if document == nil or lspBridge == nil or
+            not lspBridge.requestCodeActions(lspSelectionRange(document)):
+          editorViewState.statusMessage = "LSP code actions unavailable"
+        else:
+          editorViewState.statusMessage = "LSP: loading code actions"
+    of "signature help":
+      when defined(macosx):
+        if document == nil or lspBridge == nil or
+            not lspBridge.requestSignatureHelp(document[].buffer, editorViewState.cursor):
+          editorViewState.statusMessage = "LSP signature help unavailable"
+        else:
+          editorViewState.statusMessage = "LSP: loading signature help"
+    of "inlay hints":
+      when defined(macosx):
+        if document == nil or lspBridge == nil or
+            not lspBridge.requestInlayHints(lspSelectionRange(document)):
+          editorViewState.statusMessage = "LSP inlay hints unavailable"
+        else:
+          editorViewState.statusMessage = "LSP: loading inlay hints"
     of "format document":
       when defined(macosx):
         if document == nil or lspBridge == nil:

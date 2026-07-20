@@ -180,6 +180,15 @@ theme consumers remain explicit follow-up integrations. Keymap strings are
 converted at the NimNUI command boundary rather than teaching the settings
 loader about AppKit key codes.
 
+## M8-011: Reuse a bounded result surface for initial LSP feature UI
+
+Zed keeps asynchronous LSP results in feature-specific stores and renders
+them through dedicated editor surfaces. Nimculus first connects references,
+symbols, code actions, rename previews, signature help, and inlay hints to the
+existing bounded Task Output overlay. This keeps response lifetime and stale
+request handling in `LspEditorBridge` while leaving selection/apply UI as a
+separate step; raw server JSON never crosses into the native platform layer.
+
 ## M10-001: Keep the PTY transport separate from the terminal screen model
 
 Zed separates the PTY event loop from the terminal emulator state so process
