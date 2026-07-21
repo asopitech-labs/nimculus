@@ -257,6 +257,7 @@ v1.0 の必須対象は macOS、Windows、Linux、単一ファイル編集、ワ
 - [ ] Apple Silicon macOS で動作確認した
 - [ ] `ARCHITECTURE.md` または `DESIGN_DECISIONS.md` を更新した
 - [ ] ビルドcache、生成物、ディスク空き容量を確認し、不要なcacheを整理した
+- [ ] 配布工程は古い成果物を削除し、期待するartifact数・サイズを検証した
 - [ ] 次マイルストーンの機能を先行実装していない
 
 ## 13. 最終方針

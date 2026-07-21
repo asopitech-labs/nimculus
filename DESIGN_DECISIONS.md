@@ -42,6 +42,15 @@ backend applies the current DPI scale. The native backend keeps only a bounded
 default for startup before the first layout frame; it does not own editor
 layout state.
 
+## M13-052: Validate Windows package outputs before upload
+
+Zed's release flow treats artifact creation and artifact validation as separate
+boundaries. Nimculus now clears stale Inno Setup output before each Windows
+package, rejects empty executables and ZIPs, requires exactly one non-empty
+installer, and repeats the ZIP/installer checks in GitHub Actions before
+uploading the artifact. This prevents a previous build's installer from
+masking a failed current build.
+
 ## M2-020: Store layout specs per node and recurse through the UI tree
 
 Zed's GPUI layout path computes a hierarchical layout tree rather than only

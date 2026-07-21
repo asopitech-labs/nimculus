@@ -27,6 +27,15 @@ jobs:
       - name: Build and package Windows application
         shell: pwsh
         run: .\scripts\package_windows.ps1 -Version 0.1.0
+      - name: Verify Windows package outputs
+        shell: pwsh
+        run: |
+          $zip = Get-Item "dist/windows/Nimculus-0.1.0-windows-x64.zip" -ErrorAction Stop
+          $setups = @(Get-ChildItem "dist/windows/installer" -Filter "*.exe" -File)
+          if ($zip.Length -le 0) { throw "ZIP artifact is empty" }
+          if ($setups.Count -ne 1 -or $setups[0].Length -le 0) {
+            throw "Expected exactly one non-empty installer"
+          }
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
