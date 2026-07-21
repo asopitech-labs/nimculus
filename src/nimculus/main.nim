@@ -247,27 +247,33 @@ proc applySettingsKeymap() =
           shortcutRegistry.commands[index].shortcut = shortcut
 
 proc applySettingsTheme() =
-  when defined(macosx):
+  when defined(macosx) or defined(windows):
     if appSettings == nil: return
-    var colors = appSettings.theme()
-    let themeName = appSettings.stringSetting("theme", "dark").toLowerAscii
-    let customBackground = appSettings.stringSetting("themeColors.background", "")
-    platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize", 14)))
-    platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily", "Menlo").cstring)
-    platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize", 12)))
-    platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily", "Menlo").cstring)
-    if customBackground.len == 0 and themeName in ["light", "dark", "system"]:
-      let dark = if themeName == "system": platformIsDarkAppearance() else: themeName == "dark"
-      if dark:
-        colors.background = "#1f2329"
-        colors.foreground = "#d7dae0"
-        colors.accent = "#4daafc"
-      else:
-        colors.background = "#ffffff"
-        colors.foreground = "#1f2329"
-        colors.accent = "#007aff"
-    platformSetThemeColors(colors.background.cstring, colors.foreground.cstring,
-      colors.accent.cstring, colors.selection.cstring, colors.border.cstring)
+    when defined(windows):
+      platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize", 14)))
+      platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily", "Consolas").cstring)
+      platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize", 12)))
+      platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily", "Consolas").cstring)
+    elif defined(macosx):
+      var colors = appSettings.theme()
+      let themeName = appSettings.stringSetting("theme", "dark").toLowerAscii
+      let customBackground = appSettings.stringSetting("themeColors.background", "")
+      platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize", 14)))
+      platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily", "Menlo").cstring)
+      platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize", 12)))
+      platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily", "Menlo").cstring)
+      if customBackground.len == 0 and themeName in ["light", "dark", "system"]:
+        let dark = if themeName == "system": platformIsDarkAppearance() else: themeName == "dark"
+        if dark:
+          colors.background = "#1f2329"
+          colors.foreground = "#d7dae0"
+          colors.accent = "#4daafc"
+        else:
+          colors.background = "#ffffff"
+          colors.foreground = "#1f2329"
+          colors.accent = "#007aff"
+      platformSetThemeColors(colors.background.cstring, colors.foreground.cstring,
+        colors.accent.cstring, colors.selection.cstring, colors.border.cstring)
 
 var imeState = newImeState()
 var editorSession: EditorSession
@@ -1654,6 +1660,9 @@ when defined(windows):
       externalAlertShown = false
 
   proc receiveNativeIdle() {.cdecl.} =
+    if appSettings != nil and appSettings.reload():
+      applySettingsTheme()
+      editorViewState.statusMessage = "Settings reloaded"
     pollWindowsTerminal()
     pollWindowsWorkspace()
     inc persistenceTick
@@ -2118,7 +2127,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     root["terminal"]["shell"] = %fields[4]
     try:
       writeFile(settingsFilePath, pretty(root) & "\n")
-      when defined(macosx):
+      when defined(macosx) or defined(windows):
         if appSettings != nil: discard appSettings.reload()
       applySettingsKeymap()
       applySettingsTheme()
@@ -2839,6 +2848,7 @@ when isMainModule:
     platformSetShortcutCallback(dispatchNativeShortcut)
     appSettings = newSettingsStore(settingsFilePath,
       getCurrentDir() / ".nimculus" / "settings.json")
+    applySettingsTheme()
     setupDemoUi()
     let initialRoot = if editorSession.workspaceRoots.len > 0:
       editorSession.workspaceRoots[0] else: getCurrentDir()

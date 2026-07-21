@@ -90,8 +90,9 @@ proc platformSetTerminalRuns*(text: cstring, length: uint32,
                                   runs, count)
 proc platformSetThemeColors*(background, foreground, accent, selection, border: cstring) = discard (
   background, foreground, accent, selection, border)
-proc platformSetTerminalFontSize*(size: cdouble) = discard size
-proc platformSetTerminalFontName*(name: cstring) = discard name
+when not defined(windows):
+  proc platformSetTerminalFontSize*(size: cdouble) = discard size
+  proc platformSetTerminalFontName*(name: cstring) = discard name
 proc platformIsDarkAppearance*(): bool = false
 proc platformInstallCrashHandler*(path: cstring) = discard path
 proc platformSetTerminalSelection*(startRow, startColumn, endRow, endColumn: uint32) = discard (

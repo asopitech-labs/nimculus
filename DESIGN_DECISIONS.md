@@ -1588,3 +1588,11 @@ performs the authoritative grapheme-column to UTF-8 byte conversion. It must
 not be passed to a byte-oriented boundary helper: a multibyte character,
 emoji, or combining sequence would otherwise make clicks land before the
 intended visual column.
+
+## M13-030: Apply Windows font settings during startup and reload
+
+Native font setters are invoked from the Windows settings application path,
+startup initialization, and idle-time settings reload. Adding platform
+functions without these application call sites would leave the feature
+effectively unimplemented; keeping the call sites next to the macOS settings
+flow makes the live-reload contract explicit.
