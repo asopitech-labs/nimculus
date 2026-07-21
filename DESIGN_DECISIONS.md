@@ -1559,6 +1559,16 @@ derived state before presenting it again. The active document disk-stamp check
 remains separate because it reports a user-facing reload decision rather than
 a workspace tree update.
 
+## M13-035: Verify recursive Windows watcher mutations
+
+The Windows watcher integration tests cover the complete mutation path rather
+than only a single file creation: nested directory/file creation and writes,
+rename, delete, and repeated writes are observed through `changedPaths`. Each
+mutation phase drains the prior queue before making the next assertion, so a
+stale notification cannot satisfy a later check. The repeated-write case also
+asserts that the normalized queue exposes one path, matching the production
+deduplication contract.
+
 ## M13-029: Keep Windows font settings at the native platform boundary
 
 Windows font names are validated with `EnumFontFamiliesExW` before replacing
