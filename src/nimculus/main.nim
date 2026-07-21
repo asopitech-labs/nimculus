@@ -216,6 +216,7 @@ proc applySettingsTheme() =
     var colors = appSettings.theme()
     let themeName = appSettings.stringSetting("theme", "dark").toLowerAscii
     let customBackground = appSettings.stringSetting("themeColors.background", "")
+    platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize", 14)))
     if customBackground.len == 0 and themeName in ["light", "dark", "system"]:
       let dark = if themeName == "system": platformIsDarkAppearance() else: themeName == "dark"
       if dark:

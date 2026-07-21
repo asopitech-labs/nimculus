@@ -26,6 +26,8 @@ static uint32_t g_paint_count = 0;
 static NimculusPaintRegion *g_paint_dirty_regions = NULL;
 static uint32_t g_paint_dirty_count = 0;
 static double g_editor_cursor[2] = {8.0, 12.0};
+static CGFloat g_editor_font_size = 14.0;
+static CGFloat g_editor_line_height = 18.0;
 static NSUInteger g_editor_scroll_line = 0;
 static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
@@ -458,10 +460,12 @@ static void highlightColor(uint32_t kind, CGFloat *r, CGFloat *g, CGFloat *b) {
 }
 
 static CTFontRef editorFont(void) {
-  CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), 14.0, NULL);
-  if (!font) font = CTFontCreateUIFontForLanguage(kCTFontSystemFontType, 14.0, NULL);
+  CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), g_editor_font_size, NULL);
+  if (!font) font = CTFontCreateUIFontForLanguage(kCTFontSystemFontType, g_editor_font_size, NULL);
   return font;
 }
+
+static CGFloat editorLineHeight(void) { return g_editor_line_height; }
 
 static NSUInteger utf16OffsetForUTF8Bytes(NSString *line, NSUInteger targetBytes) {
   NSUInteger bytes = 0;
@@ -544,7 +548,7 @@ static CGPoint editorPointForUTF16Offset(NSUInteger documentOffset) {
   NSUInteger visibleLine = lineIndex > g_editor_scroll_line
     ? lineIndex - g_editor_scroll_line : 0;
   return CGPointMake(8.0 + editorTextOffset(lineText, remaining),
-                     12.0 + visibleLine * 18.0);
+                     12.0 + visibleLine * editorLineHeight());
 }
 
 static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text);
@@ -575,7 +579,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
   NSArray<NSString *> *lines = [(text ?: @"") componentsSeparatedByString:@"\n"];
   NSUInteger startLine = MIN(g_editor_scroll_line, lines.count);
-  const CGFloat lineHeight = 18.0;
+  const CGFloat lineHeight = editorLineHeight();
   NSUInteger visibleLines = MIN(lines.count - startLine,
     (NSUInteger)MAX(1.0, ceil(g_editor_rect[3] / lineHeight)));
   NSUInteger lineStartByte = 0;
@@ -687,7 +691,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     NSArray<NSString *> *completionLines = [g_editor_completions componentsSeparatedByString:@"\n"];
     NSUInteger visibleCount = MIN((NSUInteger)6, completionLines.count);
     CGFloat popupTop = logicalHeight - g_editor_cursor[1] - 4.0;
-    CGFloat popupHeight = visibleCount * 18.0 + 6.0;
+    CGFloat popupHeight = visibleCount * editorLineHeight() + 6.0;
     CGContextSetRGBFillColor(context, 0.08, 0.10, 0.14, 0.96);
     CGContextFillRect(context, CGRectMake(g_editor_cursor[0], popupTop - popupHeight,
       360.0, popupHeight));
@@ -699,7 +703,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         attributes:completionAttributes];
       CTLineRef completionLine = CTLineCreateWithAttributedString((CFAttributedStringRef)line);
       CGContextSetTextPosition(context, g_editor_cursor[0] + 6.0,
-        popupTop - 18.0 * (index + 1) + 3.0);
+        popupTop - editorLineHeight() * (index + 1) + 3.0);
       CTLineDraw(completionLine, context);
       CFRelease(completionLine);
     }
@@ -708,7 +712,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     NSArray<NSString *> *hoverLines = [g_editor_hover componentsSeparatedByString:@"\n"];
     NSUInteger visibleCount = MIN((NSUInteger)8, hoverLines.count);
     CGFloat popupTop = logicalHeight - g_editor_hover_position[1] - 4.0;
-    CGFloat popupHeight = visibleCount * 18.0 + 8.0;
+    CGFloat popupHeight = visibleCount * editorLineHeight() + 8.0;
     CGFloat popupX = MAX(8.0, g_editor_hover_position[0]);
     CGContextSetRGBFillColor(context, 0.06, 0.07, 0.10, 0.96);
     CGContextFillRect(context, CGRectMake(popupX, popupTop - popupHeight,
@@ -721,7 +725,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         attributes:hoverAttributes];
       CTLineRef hoverLine = CTLineCreateWithAttributedString((CFAttributedStringRef)line);
       CGContextSetTextPosition(context, popupX + 6.0,
-        popupTop - 18.0 * (index + 1) + 4.0);
+        popupTop - editorLineHeight() * (index + 1) + 4.0);
       CTLineDraw(hoverLine, context);
       CFRelease(hoverLine);
     }
@@ -914,7 +918,7 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
     (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
   NSArray<NSString *> *lines = [(text ?: @"") componentsSeparatedByString:@"\n"];
   NSUInteger startLine = MIN(g_editor_scroll_line, lines.count);
-  const CGFloat lineHeight = 18.0;
+  const CGFloat lineHeight = editorLineHeight();
   NSUInteger visibleLines = MIN(lines.count - startLine,
     (NSUInteger)MAX(1.0, ceil(g_editor_rect[3] / lineHeight)));
   NSUInteger lineStartByte = 0;
@@ -1067,7 +1071,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     NSInteger relativeLine = (NSInteger)annotation.line - (NSInteger)g_editor_scroll_line;
     if (relativeLine < 0) continue;
     CGFloat x = (CGFloat)g_editor_rect[0] + 8.0 + (CGFloat)annotation.character * 7.2;
-    CGFloat y = (CGFloat)g_editor_rect[1] + (CGFloat)relativeLine * 18.0 + 2.0;
+    CGFloat y = (CGFloat)g_editor_rect[1] + (CGFloat)relativeLine * editorLineHeight() + 2.0;
     if (y > self.bounds.size.height || x > self.bounds.size.width) continue;
     [text drawAtPoint:NSMakePoint(x, y) withAttributes:attributes];
   }
@@ -1608,7 +1612,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
   if (actualRange) *actualRange = NSMakeRange(start, length);
   // The editor keeps cursor Y in top-origin logical coordinates, while NSView
   // uses a bottom-origin coordinate system for this protocol callback.
-  CGFloat lineHeight = 18.0;
+  CGFloat lineHeight = editorLineHeight();
   CGPoint logical = editorPointForUTF16Offset(start);
   CGFloat viewY = self.bounds.size.height - g_editor_rect[1] - logical.y - lineHeight;
   NSRect cursor = NSMakeRect(g_editor_rect[0] + logical.x, MAX(0.0, viewY), 0, lineHeight);
@@ -1624,7 +1628,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
   NSPoint viewPoint = [self convertPoint:windowPoint fromView:nil];
   return nimculus_platform_editor_utf16_offset_at_point(viewPoint.x, viewPoint.y);
 }
-- (CGFloat)baselineDeltaForCharacterAtIndex:(NSUInteger)index { return 18.0; }
+- (CGFloat)baselineDeltaForCharacterAtIndex:(NSUInteger)index { return editorLineHeight(); }
 - (BOOL)drawsVerticallyForCharacterAtIndex:(NSUInteger)index { return NO; }
 - (CGFloat)fractionOfDistanceThroughGlyphForPoint:(NSPoint)point {
   NSPoint windowPoint = self.window ? [self.window convertScreenToBase:point] : point;
@@ -1632,7 +1636,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
   NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
   if (lines.count == 0) return 0.0;
   CGFloat fromTop = self.bounds.size.height - viewPoint.y - g_editor_rect[1];
-  NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / 18.0));
+  NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / editorLineHeight()));
   lineIndex = MIN(lineIndex + (NSInteger)g_editor_scroll_line, (NSInteger)lines.count - 1);
   NSString *lineText = lines[(NSUInteger)lineIndex];
   CTFontRef font = editorFont();
@@ -2341,10 +2345,18 @@ void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t lin
   NSUInteger utf16 = utf16OffsetForUTF8Bytes(lineText, localByte);
   g_editor_cursor[0] = 8.0 + editorTextOffset(lineText, utf16);
   NSUInteger visibleLine = lineIndex > g_editor_scroll_line ? lineIndex - g_editor_scroll_line : 0;
-  g_editor_cursor[1] = 12.0 + visibleLine * 18.0;
+  g_editor_cursor[1] = 12.0 + visibleLine * editorLineHeight();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   markSceneFullyDirty();
 }
+void nimculus_platform_set_editor_font_size(double size) {
+  g_editor_font_size = MIN(96.0, MAX(6.0, size > 0.0 ? size : 14.0));
+  g_editor_line_height = MAX(12.0, ceil(g_editor_font_size * 1.2857142857));
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
+  markSceneFullyDirty();
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+double nimculus_platform_editor_line_height(void) { return editorLineHeight(); }
 void nimculus_platform_invalidate_ime_coordinates(void) {
   // Zed invalidates NSTextInputContext's cached character coordinates whenever
   // the editor cursor moves. Without this, AppKit can keep placing the IME
@@ -2358,7 +2370,7 @@ uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y) {
   if (lines.count == 0) return 0;
   CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
   CGFloat fromTop = viewHeight - y - g_editor_rect[1];
-  NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / 18.0));
+  NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / editorLineHeight()));
   lineIndex = MIN(lineIndex + (NSInteger)g_editor_scroll_line, (NSInteger)lines.count - 1);
   NSString *lineText = lines[(NSUInteger)lineIndex];
   CTFontRef font = editorFont();
@@ -2384,7 +2396,7 @@ uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y) {
   if (lines.count == 0) return 0;
   CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
   CGFloat fromTop = viewHeight - y - g_editor_rect[1];
-  NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / 18.0));
+  NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / editorLineHeight()));
   lineIndex = MIN(lineIndex + (NSInteger)g_editor_scroll_line, (NSInteger)lines.count - 1);
   NSString *lineText = lines[(NSUInteger)lineIndex];
   NSUInteger lineStartByte = 0;

@@ -26,6 +26,12 @@ suite "macOS platform contract":
     else:
       echo "  [SKIP] native Metal layer contract (no Metal device in this session)"
 
+  test "editor font settings drive a valid native line height":
+    platformSetEditorFontSize(20.0)
+    check platformEditorLineHeight() >= 20.0
+    platformSetEditorFontSize(14.0)
+    check platformEditorLineHeight() > 0.0
+
   test "native glyph atlas uploads and reuses visible glyphs":
     if platformValidateGlyphAtlas():
       check true
