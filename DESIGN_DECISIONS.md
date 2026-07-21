@@ -1488,6 +1488,15 @@ before the text. This keeps the terminal parser and cell ownership in Nim while
 making the existing GDI bootstrap observe the same attribute contract. A
 DirectWrite/GPU terminal atlas remains separate follow-up work.
 
+## M13-041: Route Windows task output to the native output overlay
+
+Task execution already produces an accumulated output string and visibility
+state, but Windows previously inherited no-op task-output platform functions.
+Windows now stores the bounded UTF-8 output as UTF-16 and renders it in the
+same bottom output surface when the terminal is not visible. Terminal and task
+output remain separate application states, while both use the platform-owned
+overlay lifecycle and invalidation boundary.
+
 ## M13-012: Normalize Win32 keyboard events before shared shortcut routing
 
 Zed's Windows backend separates accelerator handling from character input and

@@ -99,8 +99,9 @@ proc platformInstallCrashHandler*(path: cstring) = discard path
 when not defined(windows):
   proc platformSetTerminalSelection*(startRow, startColumn, endRow, endColumn: uint32) = discard (
     startRow, startColumn, endRow, endColumn)
-proc platformSetTaskOutputVisible*(visible: bool) = discard visible
-proc platformSetTaskOutputText*(text: cstring, length: uint32) = discard (text, length)
+when not defined(windows):
+  proc platformSetTaskOutputVisible*(visible: bool) = discard visible
+  proc platformSetTaskOutputText*(text: cstring, length: uint32) = discard (text, length)
 proc platformSetEditorCompletions*(text: cstring, length: uint32) = discard (text, length)
 proc platformSetEditorHover*(text: cstring, length: uint32) = discard (text, length)
 proc platformSetEditorHoverPosition*(x, y: cdouble) = discard (x, y)

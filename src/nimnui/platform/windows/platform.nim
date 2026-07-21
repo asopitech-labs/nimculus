@@ -17,7 +17,9 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformSetCommandCallback*(callback: CommandCallback) {.importc: "nimculus_platform_set_command_callback", cdecl.}
   proc platformSetIdleCallback*(callback: IdleCallback) {.importc: "nimculus_platform_set_idle_callback", cdecl.}
   proc platformSetTerminalVisible*(visible: bool) {.importc: "nimculus_platform_set_terminal_visible", cdecl.}
+  proc platformSetTaskOutputVisible*(visible: bool) {.importc: "nimculus_platform_set_task_output_visible", cdecl.}
   proc platformSetTerminalText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_terminal_text", cdecl.}
+  proc platformSetTaskOutputText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_task_output_text", cdecl.}
   proc platformSetTerminalRuns*(text: cstring, length: uint32,
       runs: ptr NativeTerminalRun, count: uint32) {.importc: "nimculus_platform_set_terminal_runs", cdecl.}
   proc platformSetTerminalFontSize*(size: cdouble) {.importc: "nimculus_platform_set_terminal_font_size", cdecl.}
@@ -75,7 +77,9 @@ else:
   proc platformSetIdleCallback*(callback: IdleCallback) =
     if callback != nil: discard
   proc platformSetTerminalVisible*(visible: bool) = discard visible
+  proc platformSetTaskOutputVisible*(visible: bool) = discard visible
   proc platformSetTerminalText*(text: cstring, length: uint32) = discard (text, length)
+  proc platformSetTaskOutputText*(text: cstring, length: uint32) = discard (text, length)
   proc platformSetTerminalRuns*(text: cstring, length: uint32,
       runs: ptr NativeTerminalRun, count: uint32) = discard (text, length, runs, count)
   proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) = discard (commands, count)

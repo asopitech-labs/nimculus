@@ -54,6 +54,8 @@ static wchar_t g_terminal_text[262144];
 static char *g_terminal_utf8 = NULL;
 static uint32_t g_terminal_utf8_length = 0;
 static bool g_terminal_visible = false;
+static wchar_t g_task_output_text[262144];
+static bool g_task_output_visible = false;
 static NimculusTerminalRun *g_terminal_runs = NULL;
 static uint32_t g_terminal_run_count = 0;
 static uint32_t g_terminal_selection_start_row = 0;
@@ -1205,7 +1207,8 @@ static void render_frame(void) {
 }
 
 static void render_terminal_overlay(void) {
-  if (!g_window || !g_terminal_visible) return;
+  if (!g_window || (!g_terminal_visible && !g_task_output_visible)) return;
+  bool task_output = !g_terminal_visible && g_task_output_visible;
   HDC dc = GetDC(g_window);
   if (!dc) return;
   RECT rect;
@@ -1213,11 +1216,11 @@ static void render_terminal_overlay(void) {
   LONG height = min(280L, max(120L, (rect.bottom - rect.top) / 3));
   rect.top = rect.bottom - height;
   double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
-  HBRUSH background = CreateSolidBrush(RGB(15, 18, 24));
+  HBRUSH background = CreateSolidBrush(task_output ? RGB(22, 24, 30) : RGB(15, 18, 24));
   FillRect(dc, &rect, background);
   DeleteObject(background);
   SetBkMode(dc, TRANSPARENT);
-  SetTextColor(dc, RGB(220, 225, 235));
+  SetTextColor(dc, task_output ? RGB(232, 235, 242) : RGB(220, 225, 235));
   HFONT font = CreateFontW(font_height(g_terminal_font_size, scale), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
       FIXED_PITCH | FF_MODERN, g_terminal_font_name);
@@ -1225,7 +1228,10 @@ static void render_terminal_overlay(void) {
   rect.left += 8;
   rect.right -= 8;
   rect.top += 6;
-  if (g_terminal_run_count > 0 && g_terminal_utf8) {
+  if (task_output) {
+    DrawTextW(dc, g_task_output_text, -1, &rect,
+        DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+  } else if (g_terminal_run_count > 0 && g_terminal_utf8) {
     TEXTMETRICW metrics;
     GetTextMetricsW(dc, &metrics);
     LONG line_height = max(1L, metrics.tmHeight + (LONG)(2.0 * scale));
@@ -1958,6 +1964,11 @@ void nimculus_platform_set_terminal_visible(bool visible) {
   if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
 
+void nimculus_platform_set_task_output_visible(bool visible) {
+  g_task_output_visible = visible;
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
 void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length) {
   free(g_terminal_utf8);
   g_terminal_utf8 = NULL;
@@ -1973,6 +1984,18 @@ void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length) {
     }
     MultiByteToWideChar(CP_UTF8, 0, utf8, (int)bounded, g_terminal_text,
                         (int)(sizeof(g_terminal_text) / sizeof(wchar_t) - 1));
+  }
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_task_output_text(const char *utf8, uint32_t length) {
+  ZeroMemory(g_task_output_text, sizeof(g_task_output_text));
+  if (utf8 && length > 0) {
+    uint32_t bounded = min((uint32_t)(sizeof(g_task_output_text) /
+        sizeof(wchar_t) - 1), length);
+    MultiByteToWideChar(CP_UTF8, 0, utf8, (int)bounded,
+        g_task_output_text,
+        (int)(sizeof(g_task_output_text) / sizeof(wchar_t) - 1));
   }
   if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
