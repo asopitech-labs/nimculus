@@ -150,6 +150,8 @@ static NSUInteger g_glyph_atlas_row_height = 0;
 static uint64_t g_glyph_atlas_hit_count = 0;
 static uint64_t g_glyph_atlas_miss_count = 0;
 static uint64_t g_glyph_atlas_eviction_count = 0;
+#define NIMCULUS_SUBPIXEL_VARIANTS_X 4
+#define NIMCULUS_SUBPIXEL_VARIANTS_Y 4
 
 void nimculus_platform_set_image_rgba(uint32_t image_id, uint32_t width,
                                       uint32_t height, const uint8_t *rgba,
@@ -1073,11 +1075,13 @@ static void colorForGlyphRun(CTRunRef run, CGFloat *red, CGFloat *green,
 }
 
 static BOOL atlasEntryForGlyph(id<MTLDevice> device, CTFontRef font, CGGlyph glyph,
-                               CGFloat scale, NimculusGlyphAtlasEntry *entry) {
+                               CGFloat scale, uint8_t variantX, uint8_t variantY,
+                               NimculusGlyphAtlasEntry *entry) {
   if (!device || !font || !entry) return NO;
   NSString *fontName = (__bridge_transfer NSString *)CTFontCopyPostScriptName(font);
-  NSString *key = [NSString stringWithFormat:@"%@|%.3f|%u", fontName ?: @"system",
-    scale, (unsigned)glyph];
+  NSString *key = [NSString stringWithFormat:@"%@|%.3f|%.3f|%u|%u|%u",
+    fontName ?: @"system", CTFontGetSize(font), scale, (unsigned)glyph,
+    (unsigned)variantX, (unsigned)variantY];
   NSValue *cached = [g_glyph_atlas_entries objectForKey:key];
   if (cached) {
     [cached getValue:entry];
@@ -1128,8 +1132,10 @@ static BOOL atlasEntryForGlyph(id<MTLDevice> device, CTFontRef font, CGGlyph gly
   if (!context) return NO;
   CGContextSetGrayFillColor(context, 1.0, 1.0);
   CGContextScaleCTM(context, scale, scale);
-  CGPoint origin = CGPointMake((CGFloat)padding / scale - bounds.origin.x,
-    (CGFloat)padding / scale - bounds.origin.y);
+  CGPoint origin = CGPointMake((CGFloat)padding / scale - bounds.origin.x +
+      (CGFloat)variantX / (CGFloat)(NIMCULUS_SUBPIXEL_VARIANTS_X * scale),
+    (CGFloat)padding / scale - bounds.origin.y +
+      (CGFloat)variantY / (CGFloat)(NIMCULUS_SUBPIXEL_VARIANTS_Y * scale));
   CTFontDrawGlyphs(font, &glyph, &origin, 1, context);
   CGContextRelease(context);
   [g_glyph_atlas_texture replaceRegion:MTLRegionMake2D(x, y, width, height)
@@ -1248,9 +1254,24 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
       CTRunGetGlyphs(run, CFRangeMake(0, glyphCount), glyphs);
       CTRunGetPositions(run, CFRangeMake(0, glyphCount), positions);
       for (CFIndex glyphIndex = 0; glyphIndex < glyphCount; glyphIndex++) {
+        CGFloat scaledX = positions[glyphIndex].x * scale;
+        CGFloat scaledY = (baselineY + positions[glyphIndex].y) * scale;
+        CGFloat quantizedX = round(scaledX * NIMCULUS_SUBPIXEL_VARIANTS_X) /
+          (NIMCULUS_SUBPIXEL_VARIANTS_X * scale);
+        CGFloat quantizedY = round(scaledY * NIMCULUS_SUBPIXEL_VARIANTS_Y) /
+          (NIMCULUS_SUBPIXEL_VARIANTS_Y * scale);
+        CGFloat fractionalX = quantizedX * scale - floor(quantizedX * scale);
+        CGFloat fractionalY = quantizedY * scale - floor(quantizedY * scale);
+        uint8_t variantX = (uint8_t)MIN(NIMCULUS_SUBPIXEL_VARIANTS_X - 1,
+          MAX(0, (int)round(fractionalX * NIMCULUS_SUBPIXEL_VARIANTS_X)));
+        uint8_t variantY = (uint8_t)MIN(NIMCULUS_SUBPIXEL_VARIANTS_Y - 1,
+          MAX(0, (int)round(fractionalY * NIMCULUS_SUBPIXEL_VARIANTS_Y)));
+        CGPoint quantizedPosition = CGPointMake(quantizedX / scale,
+          quantizedY / scale - baselineY);
         NimculusGlyphAtlasEntry entry;
-        if (atlasEntryForGlyph(device, font, glyphs[glyphIndex], scale, &entry)) {
-          appendGlyphQuad(sceneSize, editorRect, scale, entry, positions[glyphIndex], baselineY,
+        if (atlasEntryForGlyph(device, font, glyphs[glyphIndex], scale,
+            variantX, variantY, &entry)) {
+          appendGlyphQuad(sceneSize, editorRect, scale, entry, quantizedPosition, baselineY,
             red, green, blue, alpha);
         }
       }

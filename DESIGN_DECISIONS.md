@@ -42,6 +42,17 @@ backend applies the current DPI scale. The native backend keeps only a bounded
 default for startup before the first layout frame; it does not own editor
 layout state.
 
+## M3-024: Include quantized subpixel variants in the macOS glyph atlas
+
+Zed's glyph cache keys include the quantized subpixel origin in addition to
+font, glyph, size, and scale. Nimculus now uses a 4x4 logical subpixel grid
+and includes the Core Text font size in its key:
+the shaped glyph origin is quantized before the quad is emitted, and the
+corresponding fractional offset is applied while Core Text rasterizes the
+atlas entry. This prevents a glyph raster generated at one fractional origin
+from being reused at another origin, while retaining atlas reuse for identical
+positions.
+
 ## M13-052: Match Windows tab primary and auxiliary clicks to Zed
 
 Zed activates a tab from its primary click handler and closes an unpinned tab
