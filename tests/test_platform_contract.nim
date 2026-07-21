@@ -10,6 +10,9 @@ suite "macOS platform contract":
     check metrics.lastFrameTimeMs >= 0.0
     check metrics.frameCount >= 0'u64
 
+  test "resident memory metric has a valid contract":
+    check platformResidentMemoryBytes() >= 0'u64
+
   test "native ABI sizes match Nim contracts":
     check uint32(sizeof(PlatformMetrics)) == platformMetricsSize()
     check uint32(sizeof(NimculusInputEvent)) == platformInputEventSize()

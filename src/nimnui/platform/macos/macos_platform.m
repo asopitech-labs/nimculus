@@ -4,6 +4,7 @@
 #import <CoreText/CoreText.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <mach/mach_time.h>
+#import <mach/task.h>
 #include <limits.h>
 #include <math.h>
 #include <stdlib.h>
@@ -2897,6 +2898,14 @@ bool nimculus_platform_validate_glyph_atlas(void) {
 
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics) {
   if (metrics) *metrics = g_metrics;
+}
+
+uint64_t nimculus_platform_resident_memory_bytes(void) {
+  mach_task_basic_info_data_t info;
+  mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+  kern_return_t result = task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
+    (task_info_t)&info, &count);
+  return result == KERN_SUCCESS ? (uint64_t)info.resident_size : 0;
 }
 
 uint64_t nimculus_platform_input_count(void) { return g_input_count; }

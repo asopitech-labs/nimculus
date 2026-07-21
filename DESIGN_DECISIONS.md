@@ -42,6 +42,14 @@ backend applies the current DPI scale. The native backend keeps only a bounded
 default for startup before the first layout frame; it does not own editor
 layout state.
 
+## M20-002: Measure resident memory at the platform boundary
+
+Zed's reliability loop observes resident memory rather than allocator-only
+counts, because native GPU and OS resources are outside Nim's heap. Nimculus
+now exposes a platform resident-memory query: macOS uses task_info, Windows
+uses GetProcessMemoryInfo, and the headless/portable backend returns zero.
+The M20 benchmark emits an idle_memory TSV sample through this contract.
+
 ## M20-001: Record Windows frame duration at successful Present
 
 Zed records frame duration around the render/present boundary and keeps the

@@ -17,6 +17,11 @@ let editorBytes = parseInt(getEnv("NIMCULUS_BENCH_EDITOR_BYTES", "1000000"))
 let workspaceFiles = parseInt(getEnv("NIMCULUS_BENCH_FILES", "1000"))
 let source = "0123456789abcdef\n".repeat(max(1, editorBytes div 17))
 
+block idleMemory:
+  let start = cpuTime()
+  let bytes = platformResidentMemoryBytes()
+  report("idle_memory", cpuTime() - start, "bytes=" & $bytes)
+
 block editorLoad:
   let start = cpuTime()
   var buffer = initPieceTable(source)

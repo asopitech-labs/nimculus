@@ -7,6 +7,7 @@
 #include <dxgi.h>
 #include <commdlg.h>
 #include <imm.h>
+#include <psapi.h>
 #include <shellapi.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -1894,6 +1895,14 @@ uint64_t nimculus_platform_input_count(void) { return g_input_count; }
 
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics) {
   if (metrics) *metrics = g_metrics;
+}
+
+uint64_t nimculus_platform_resident_memory_bytes(void) {
+  PROCESS_MEMORY_COUNTERS_EX counters;
+  memset(&counters, 0, sizeof(counters));
+  if (!GetProcessMemoryInfo(GetCurrentProcess(),
+      (PROCESS_MEMORY_COUNTERS *)&counters, sizeof(counters))) return 0;
+  return (uint64_t)counters.WorkingSetSize;
 }
 
 void nimculus_platform_set_input_callback(NimculusInputCallback callback) {
