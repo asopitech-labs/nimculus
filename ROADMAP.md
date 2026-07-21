@@ -390,9 +390,9 @@ Task stdout/stderrはPOSIX pipeをnon-blockingでpollし、プロセス終了前
 
 keymap reload時はregistryを初期状態から再構築し、削除された旧bindingを残さない。標準編集操作、保存、タブ切替、設定をカスタムkeymapの対象へ登録する。
 
-**進捗：** 🟡 設定コア・階層マージ・型検証・不正keymap項目の部分無視・live reload・基本keymap反映・editor font size/family反映・theme selection/border色反映・macOS設定ファイル導線を実装済み・専用設定UI/テーマ registry反映待ち
+**進捗：** 🟡 設定コア・階層マージ・型検証・不正keymap項目の部分無視・live reload・基本keymap反映・editor font size/family反映・theme registry/selection/border色反映・icon theme registry反映・macOS設定ファイル導線を実装済み・専用設定UI待ち
 
-**実装済み基盤：** ZedのSettingsStore/KeymapFileを参考に、global/workspace/language設定の再帰マージ、JSON型検証、診断保持、ファイル内容ハッシュによる再読み込み、machine-readable settings schema、theme color、icon/theme設定値、keymap配列、editor font size/family、terminal font size/family/shell、LSP commandの設定取得を`src/nimculus/settings.nim`へ実装。macOS起動時にApplication Supportのglobal settingsとworkspace `.nimculus/settings.json`を読み込み、idle時の変更検知とterminal shell/font、LSP command、theme color、editor fontへの反映を接続済み。エディタのフォントサイズは描画、行高、IME座標、hit-testで共有し、terminal font設定は既存SGR属性付きoverlayへ反映する。themeのselection/border色はGPU paint command、エディタ選択領域、ターミナル選択表示へ反映する。`Cmd+,`でglobal settingsを生成/表示し、`cmd+shift+p`等のkeymap表記をNimNUI Shortcutへ変換して既存command registryへ反映する。専用設定UI、標準Command/Optionキーマップ全体の設定ファイル反映、完全なテーマ registry、icon themeは残る。
+**実装済み基盤：** ZedのSettingsStore/KeymapFile/ThemeRegistryを参考に、global/workspace/language設定の再帰マージ、JSON型検証、診断保持、ファイル内容ハッシュによる再読み込み、machine-readable settings schema、組み込みLight/Darkと設定ファイル内`themes`のテーマregistry、`iconThemes`のアイコンregistry、theme color、keymap配列、editor font size/family、terminal font size/family/shell、LSP commandの設定取得を`src/nimculus/settings.nim`へ実装。選択テーマの色は設定の`themeColors`で個別上書きでき、icon themeはワークスペースツリーのディレクトリ/拡張子アイコンへ反映する。macOS起動時にApplication Supportのglobal settingsとworkspace `.nimculus/settings.json`を読み込み、idle時の変更検知とterminal shell/font、LSP command、theme color、editor fontへの反映を接続済み。エディタのフォントサイズは描画、行高、IME座標、hit-testで共有し、terminal font設定は既存SGR属性付きoverlayへ反映する。themeのselection/border色はGPU paint command、エディタ選択領域、ターミナル選択表示へ反映する。`Cmd+,`でglobal settingsを生成/表示し、`cmd+shift+p`等のkeymap表記をNimNUI Shortcutへ変換して既存command registryへ反映する。専用設定UI、標準Command/Optionキーマップ全体の設定ファイル反映は残る。
 
 **実装範囲：** global / workspace / language settings、schema validation、live reload、keymap、command registry、theme、icon theme、font / terminal / LSP settings。
 

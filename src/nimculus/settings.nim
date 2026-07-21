@@ -2,6 +2,8 @@ import std/json
 import std/hashes
 import std/os
 import std/strutils
+import std/tables
+import std/algorithm
 
 type
   SettingsDiagnostic* = object
@@ -21,6 +23,17 @@ type
     border*: string
     syntax*: JsonNode
 
+  ThemeDefinition* = object
+    name*: string
+    appearance*: string
+    colors*: ThemeColors
+
+  IconThemeDefinition* = object
+    name*: string
+    directoryIcon*: string
+    fileIcon*: string
+    fileIcons*: Table[string, string]
+
   NimculusSettings* = object
     values*: JsonNode
     diagnostics*: seq[SettingsDiagnostic]
@@ -32,6 +45,8 @@ type
     globalStamp*: int64
     workspaceStamp*: int64
     settings*: NimculusSettings
+    themeRegistry*: Table[string, ThemeDefinition]
+    iconThemeRegistry*: Table[string, IconThemeDefinition]
 
 proc objectNode(): JsonNode = newJObject()
 
@@ -141,6 +156,8 @@ proc settingsSchema*(): JsonNode =
       }},
       "theme": {"type": "string"},
       "iconTheme": {"type": "string"},
+      "themes": {"type": "object", "additionalProperties": {"type": "object"}},
+      "iconThemes": {"type": "object", "additionalProperties": {"type": "object"}},
       "themeColors": {"type": "object", "properties": {
         "background": {"type": "string"}, "foreground": {"type": "string"},
         "accent": {"type": "string"}, "selection": {"type": "string"},
@@ -160,6 +177,9 @@ proc settingsSchema*(): JsonNode =
 
 proc settingsPaths*(home: string): tuple[globalPath, workspaceName: string] =
   (home / "Library" / "Application Support" / "Nimculus" / "settings.json", ".nimculus" / "settings.json")
+
+proc registerBuiltinThemes*(store: SettingsStore)
+proc registerConfiguredThemes*(store: SettingsStore)
 
 proc fileStamp(path: string): int64 =
   if path.len == 0 or not fileExists(path): return 0
@@ -189,6 +209,65 @@ proc newSettingsStore*(globalPath, workspacePath: string; languageId = ""): Sett
   result.settings = loadSettings(globalPath, workspacePath, languageId)
   result.globalStamp = fileStamp(globalPath)
   result.workspaceStamp = fileStamp(workspacePath)
+  result.themeRegistry = initTable[string, ThemeDefinition]()
+  result.iconThemeRegistry = initTable[string, IconThemeDefinition]()
+  result.registerBuiltinThemes()
+  result.registerConfiguredThemes()
+
+proc themeWithColors(name, appearance: string; colors: ThemeColors): ThemeDefinition =
+  ThemeDefinition(name: name, appearance: appearance, colors: colors)
+
+proc registerBuiltinThemes*(store: SettingsStore) =
+  if store == nil: return
+  var dark = ThemeColors(background: "#1f2329", foreground: "#d7dae0",
+    accent: "#4daafc", selection: "#264f78", border: "#3b4048", syntax: objectNode())
+  var light = ThemeColors(background: "#ffffff", foreground: "#1f2329",
+    accent: "#007aff", selection: "#b9d7ff", border: "#c7cbd1", syntax: objectNode())
+  store.themeRegistry["dark"] = themeWithColors("dark", "dark", dark)
+  store.themeRegistry["light"] = themeWithColors("light", "light", light)
+  store.iconThemeRegistry["Nimculus Default"] = IconThemeDefinition(
+    name: "Nimculus Default", directoryIcon: "▸", fileIcon: "•",
+    fileIcons: initTable[string, string]())
+
+proc configuredThemeColors(node: JsonNode; fallback: ThemeColors): ThemeColors =
+  result = fallback
+  if node == nil or node.kind != JObject: return
+  let colors = if node.hasKey("colors") and node["colors"].kind == JObject:
+    node["colors"] else: node
+  for key in ["background", "foreground", "accent", "selection", "border"]:
+    if colors.hasKey(key) and colors[key].kind == JString:
+      case key
+      of "background": result.background = colors[key].getStr
+      of "foreground": result.foreground = colors[key].getStr
+      of "accent": result.accent = colors[key].getStr
+      of "selection": result.selection = colors[key].getStr
+      of "border": result.border = colors[key].getStr
+      else: discard
+  if colors.hasKey("syntax") and colors["syntax"].kind == JObject: result.syntax = colors["syntax"]
+
+proc registerConfiguredThemes*(store: SettingsStore) =
+  if store == nil: return
+  let themes = nodeAt(store.settings.values, "themes")
+  if themes != nil and themes.kind == JObject:
+    for name, node in themes:
+      let fallback = store.themeRegistry.getOrDefault("dark").colors
+      let colors = configuredThemeColors(node, fallback)
+      let appearance = if node.kind == JObject: jsonStringAt(node, "appearance", "dark") else: "dark"
+      store.themeRegistry[name] = themeWithColors(name, appearance, colors)
+  let iconThemes = nodeAt(store.settings.values, "iconThemes")
+  if iconThemes != nil and iconThemes.kind == JObject:
+    for name, node in iconThemes:
+      if node.kind != JObject: continue
+      var definition = IconThemeDefinition(name: name,
+        directoryIcon: jsonStringAt(node, "directory", "▸"),
+        fileIcon: jsonStringAt(node, "file", "•"),
+        fileIcons: initTable[string, string]())
+      let files = if node.hasKey("fileIcons") and node["fileIcons"].kind == JObject:
+        node["fileIcons"] else: nil
+      if files != nil:
+        for extension, icon in files:
+          if icon.kind == JString: definition.fileIcons[extension.toLowerAscii] = icon.getStr
+      store.iconThemeRegistry[name] = definition
 
 proc reload*(store: SettingsStore): bool =
   if store == nil: return false
@@ -196,6 +275,10 @@ proc reload*(store: SettingsStore): bool =
   let workspaceStamp = fileStamp(store.workspacePath)
   if globalStamp == store.globalStamp and workspaceStamp == store.workspaceStamp: return false
   store.settings = loadSettings(store.globalPath, store.workspacePath, store.languageId)
+  store.themeRegistry.clear()
+  store.iconThemeRegistry.clear()
+  store.registerBuiltinThemes()
+  store.registerConfiguredThemes()
   store.globalStamp = globalStamp
   store.workspaceStamp = workspaceStamp
   true
@@ -226,10 +309,28 @@ proc keyBindings*(store: SettingsStore): seq[KeyBinding] =
       whenClause: if item.hasKey("when"): item["when"].getStr else: ""))
 
 proc theme*(store: SettingsStore): ThemeColors =
-  result.background = store.stringSetting("themeColors.background", "#1f2329")
-  result.foreground = store.stringSetting("themeColors.foreground", "#d7dae0")
-  result.accent = store.stringSetting("themeColors.accent", "#4daafc")
-  result.selection = store.stringSetting("themeColors.selection", "#264f78")
-  result.border = store.stringSetting("themeColors.border", "#3b4048")
-  let syntax = nodeAt(store.values, "themeColors.syntax")
-  result.syntax = if syntax != nil and syntax.kind == JObject: syntax else: objectNode()
+  let requested = store.stringSetting("theme", "dark")
+  let selected = if store != nil and store.themeRegistry.hasKey(requested): requested
+    elif store != nil and store.themeRegistry.hasKey(requested.toLowerAscii): requested.toLowerAscii
+    else: "dark"
+  let definition = store.themeRegistry.getOrDefault(selected)
+  result = definition.colors
+  let overrides = nodeAt(store.values, "themeColors")
+  if overrides != nil and overrides.kind == JObject:
+    result = configuredThemeColors(overrides, result)
+
+proc themeNames*(store: SettingsStore): seq[string] =
+  if store == nil: return
+  for name in store.themeRegistry.keys: result.add(name)
+  result.sort()
+
+proc iconThemeName*(store: SettingsStore): string =
+  let requested = store.stringSetting("iconTheme", "Nimculus Default")
+  if store != nil and store.iconThemeRegistry.hasKey(requested): requested else: "Nimculus Default"
+
+proc iconForPath*(store: SettingsStore, path: string; directory = false): string =
+  if directory: return store.iconThemeRegistry[store.iconThemeName()].directoryIcon
+  let theme = store.iconThemeRegistry[store.iconThemeName()]
+  let extension = splitFile(path).ext.strip(chars = {'.'}).toLowerAscii
+  if extension.len > 0 and theme.fileIcons.hasKey(extension): return theme.fileIcons[extension]
+  theme.fileIcon

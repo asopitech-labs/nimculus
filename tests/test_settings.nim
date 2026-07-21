@@ -68,3 +68,23 @@ suite "M12 settings foundation":
     check store.diagnostics.len == 4
     removeFile(path)
     removeDir(root)
+
+  test "resolves configured theme and icon registries":
+    let root = getTempDir() / "nimculus-settings-registry"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{
+      "theme":"Ocean",
+      "themes":{"Ocean":{"appearance":"dark","colors":{"background":"#001122","foreground":"#eef8ff","selection":"#225577"}}},
+      "iconTheme":"Source Icons",
+      "iconThemes":{"Source Icons":{"directory":"DIR","file":"FILE","fileIcons":{"nim":"NIM"}}}
+    }""")
+    let store = newSettingsStore(path, "", "")
+    check "Ocean" in store.themeNames()
+    check store.theme().background == "#001122"
+    check store.theme().foreground == "#eef8ff"
+    check store.theme().border == "#3b4048"
+    check store.iconForPath("src/main.nim") == "NIM"
+    check store.iconForPath("src", true) == "DIR"
+    removeFile(path)
+    removeDir(root)

@@ -1018,8 +1018,9 @@ proc refreshWorkspacePreview() =
       for entry in children:
         if lines.len >= 12: break
         workspacePreviewEntries.add(entry)
-        let marker = if entry.kind == WorkspaceFileKind.directory: "[D] " else: "    "
-        lines.add(marker & entry.relativePath)
+        let icon = appSettings.iconForPath(entry.path,
+          entry.kind == WorkspaceFileKind.directory)
+        lines.add(icon & " " & entry.relativePath)
     let states = activeWorkspace.gitWorktreeStates()
     for root, state in states:
       if lines.len >= 12: break
