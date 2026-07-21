@@ -564,7 +564,93 @@ static CGFloat editorTextOffset(NSString *line, NSUInteger utf16Index) {
   return offset;
 }
 
+static CGFloat editorWrapWidth(void) {
+  return MAX(1.0, g_editor_rect[2] - 16.0);
+}
+
+static NSUInteger editorSoftWrapBreakLength(NSString *line, NSUInteger start) {
+  NSString *value = line ?: @"";
+  if (start >= value.length) return 0;
+  CTFontRef font = editorFont();
+  if (!font) return value.length - start;
+  NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
+  NSAttributedString *attributed = [[NSAttributedString alloc]
+    initWithString:value attributes:attributes];
+  CTTypesetterRef typesetter = CTTypesetterCreateWithAttributedString(
+    (CFAttributedStringRef)attributed);
+  CFIndex length = typesetter
+    ? CTTypesetterSuggestLineBreak(typesetter, (CFIndex)start, editorWrapWidth())
+    : (CFIndex)(value.length - start);
+  if (typesetter) CFRelease(typesetter);
+  CFRelease(font);
+  NSUInteger result = (NSUInteger)MAX(1, MIN(length, (CFIndex)(value.length - start)));
+  return result;
+}
+
+static NSUInteger editorSoftWrapRowCount(NSString *line) {
+  NSString *value = line ?: @"";
+  if (value.length == 0) return 1;
+  NSUInteger rows = 0;
+  NSUInteger start = 0;
+  while (start < value.length) {
+    start += editorSoftWrapBreakLength(value, start);
+    rows++;
+  }
+  return MAX(1, rows);
+}
+
+static NSUInteger editorSoftWrapRowsBeforeLine(NSArray<NSString *> *lines,
+                                                NSUInteger lineIndex) {
+  NSUInteger rows = 0;
+  NSUInteger limit = MIN(lineIndex, lines.count);
+  for (NSUInteger index = 0; index < limit; index++) {
+    rows += editorSoftWrapRowCount(lines[index]);
+  }
+  return rows;
+}
+
+static CGPoint editorSoftWrapPointForUTF16Offset(NSUInteger documentOffset) {
+  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  NSUInteger remaining = MIN(documentOffset, g_editor_text.length);
+  NSUInteger lineIndex = 0;
+  NSString *lineText = lines.count > 0 ? lines[0] : @"";
+  for (NSUInteger index = 0; index < lines.count; index++) {
+    lineText = lines[index];
+    if (remaining <= lineText.length || index + 1 == lines.count) {
+      lineIndex = index;
+      break;
+    }
+    remaining -= lineText.length + 1;
+  }
+
+  NSUInteger displayRow = editorSoftWrapRowsBeforeLine(lines, lineIndex);
+  NSUInteger scrollRow = editorSoftWrapRowsBeforeLine(lines, g_editor_scroll_line);
+  NSUInteger segmentStart = 0;
+  NSUInteger rowInLine = 0;
+  while (segmentStart < lineText.length) {
+    NSUInteger segmentLength = editorSoftWrapBreakLength(lineText, segmentStart);
+    if (remaining <= segmentStart + segmentLength ||
+        segmentStart + segmentLength >= lineText.length) {
+      NSString *segment = [lineText substringWithRange:NSMakeRange(
+        segmentStart, segmentLength)];
+      NSUInteger localOffset = remaining >= segmentStart
+        ? MIN(remaining - segmentStart, segment.length) : 0;
+      NSInteger visibleRow = displayRow + rowInLine >= scrollRow
+        ? (NSInteger)(displayRow + rowInLine - scrollRow) : 0;
+      return CGPointMake(8.0 + editorTextOffset(segment, localOffset),
+        12.0 + visibleRow * editorLineHeight());
+    }
+    segmentStart += segmentLength;
+    rowInLine++;
+  }
+  NSInteger visibleRow = displayRow + rowInLine >= scrollRow
+    ? (NSInteger)(displayRow + rowInLine - scrollRow) : 0;
+  return CGPointMake(8.0 + editorTextOffset(@"", 0),
+    12.0 + visibleRow * editorLineHeight());
+}
+
 static CGPoint editorPointForUTF16Offset(NSUInteger documentOffset) {
+  if (g_editor_soft_wrap) return editorSoftWrapPointForUTF16Offset(documentOffset);
   NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
   NSUInteger remaining = MIN(documentOffset, g_editor_text.length);
   NSUInteger lineIndex = 0;
@@ -581,6 +667,48 @@ static CGPoint editorPointForUTF16Offset(NSUInteger documentOffset) {
     ? lineIndex - g_editor_scroll_line : 0;
   return CGPointMake(8.0 + editorTextOffset(lineText, remaining),
                      12.0 + visibleLine * editorLineHeight());
+}
+
+static NSUInteger editorUTF16OffsetAtPoint(double x, double y) {
+  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  if (lines.count == 0) return 0;
+  CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
+  CGFloat fromTop = viewHeight - y - g_editor_rect[1];
+  NSInteger targetRow = MAX(0, (NSInteger)floor((fromTop - 4.0) / editorLineHeight()));
+  NSUInteger lineIndex = g_editor_scroll_line;
+  NSUInteger rowInLine = (NSUInteger)targetRow;
+  while (lineIndex < lines.count) {
+    NSUInteger rows = g_editor_soft_wrap ? editorSoftWrapRowCount(lines[lineIndex]) : 1;
+    if (rowInLine < rows) break;
+    rowInLine -= rows;
+    lineIndex++;
+  }
+  if (lineIndex >= lines.count) lineIndex = lines.count - 1;
+  NSString *lineText = lines[lineIndex];
+  NSUInteger segmentStart = 0;
+  for (NSUInteger row = 0; row < rowInLine && segmentStart < lineText.length; row++) {
+    segmentStart += editorSoftWrapBreakLength(lineText, segmentStart);
+  }
+  NSUInteger segmentLength = lineText.length > segmentStart
+    ? editorSoftWrapBreakLength(lineText, segmentStart) : 0;
+  NSString *segment = [lineText substringWithRange:NSMakeRange(segmentStart, segmentLength)];
+  CTFontRef font = editorFont();
+  NSUInteger localIndex = 0;
+  if (font) {
+    NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
+    NSAttributedString *attributed = [[NSAttributedString alloc]
+      initWithString:segment attributes:attributes];
+    CTLineRef ctLine = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
+    CFIndex index = CTLineGetStringIndexForPosition(ctLine,
+      CGPointMake(MAX(0.0, x - g_editor_rect[0] - 8.0), 0.0));
+    if (index != kCFNotFound) localIndex = MIN((NSUInteger)index, segment.length);
+    else localIndex = segment.length;
+    CFRelease(ctLine);
+    CFRelease(font);
+  }
+  NSUInteger documentIndex = 0;
+  for (NSUInteger index = 0; index < lineIndex; index++) documentIndex += lines[index].length + 1;
+  return MIN(documentIndex + segmentStart + localIndex, g_editor_text.length);
 }
 
 static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text);
@@ -2669,9 +2797,13 @@ void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t lin
   NSUInteger localByte = byte_offset > lineStartByte ? byte_offset - lineStartByte : 0;
   localByte = MIN(localByte, lineLength);
   NSUInteger utf16 = utf16OffsetForUTF8Bytes(lineText, localByte);
-  g_editor_cursor[0] = 8.0 + editorTextOffset(lineText, utf16);
-  NSUInteger visibleLine = lineIndex > g_editor_scroll_line ? lineIndex - g_editor_scroll_line : 0;
-  g_editor_cursor[1] = 12.0 + visibleLine * editorLineHeight();
+  NSUInteger documentOffset = 0;
+  for (NSUInteger index = 0; index < lineIndex; index++) {
+    documentOffset += lines[index].length + 1;
+  }
+  CGPoint point = editorPointForUTF16Offset(documentOffset + utf16);
+  g_editor_cursor[0] = point.x;
+  g_editor_cursor[1] = point.y;
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   markSceneFullyDirty();
 }
@@ -2709,6 +2841,7 @@ void nimculus_platform_invalidate_ime_coordinates(void) {
   if (inputContext) [inputContext invalidateCharacterCoordinates];
 }
 uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y) {
+  if (g_editor_soft_wrap) return (uint32_t)editorUTF16OffsetAtPoint(x, y);
   NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
   if (lines.count == 0) return 0;
   CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
@@ -2735,6 +2868,10 @@ uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y) {
   return (uint32_t)documentIndex;
 }
 uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y) {
+  if (g_editor_soft_wrap) {
+    NSUInteger utf16 = editorUTF16OffsetAtPoint(x, y);
+    return (uint32_t)utf8BytesForDocumentUTF16Offset(g_editor_text, utf16);
+  }
   NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
   if (lines.count == 0) return 0;
   CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
