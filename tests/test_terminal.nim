@@ -81,6 +81,17 @@ suite "M10 terminal core":
     check not screen.applicationCursorKeys
     check not screen.bracketedPaste
 
+  test "supports kitty keyboard enhancement push pop and query":
+    var screen = initTerminalScreen(8, 2)
+    screen.feed("\x1b[>15u\x1b[?u")
+    check screen.kittyKeyboardFlags == 15
+    check screen.takeResponses() == @["\x1b[?15u"]
+    screen.feed("\x1b[<u")
+    check screen.kittyKeyboardFlags == 0
+    screen.feed("\x1b[>1u\x1b[>2u\x1b[<2u")
+    check screen.kittyKeyboardFlags == 0
+    check screen.kittyKeyboardStack.len == 0
+
   test "consumes OSC metadata without painting its payload":
     var screen = initTerminalScreen(16, 1)
     screen.feed("\x1b]0;Nimculus title\x07ok")

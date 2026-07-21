@@ -46,12 +46,17 @@ type
     mouseReporting*: bool
     mouseReportClicks*, mouseReportDrag*, mouseReportMotion*: bool
     mouseFormat*: TerminalMouseFormat
+    kittyKeyboardFlags*: int
+    kittyKeyboardStack*: seq[int]
+    pendingResponses*: seq[string]
     sgrForeground*, sgrBackground*: TerminalColor
     sgrBold*, sgrDim*, sgrItalic*, sgrUnderline*, sgrInverse*, sgrStrikethrough*: bool
     scrollTop*, scrollBottom*: int
     savedLines: seq[seq[TerminalCell]]
     savedScrollback: seq[seq[TerminalCell]]
     savedCursorRow*, savedCursorColumn*: int
+    savedKittyKeyboardFlags: int
+    savedKittyKeyboardStack: seq[int]
     parserState*: char
     csiParams*: string
     oscBuffer*: string
@@ -223,12 +228,16 @@ proc enterAlternateScreen(screen: var TerminalScreen) =
   screen.savedScrollback = screen.scrollback
   screen.savedCursorRow = screen.cursorRow
   screen.savedCursorColumn = screen.cursorColumn
+  screen.savedKittyKeyboardFlags = screen.kittyKeyboardFlags
+  screen.savedKittyKeyboardStack = screen.kittyKeyboardStack
   screen.lines = newSeq[seq[TerminalCell]](screen.rows)
   for row in 0 ..< screen.rows: screen.lines[row] = screen.blankRow()
   screen.scrollback.setLen(0)
   screen.cursorRow = 0
   screen.cursorColumn = 0
   screen.alternateScreen = true
+  screen.kittyKeyboardFlags = 0
+  screen.kittyKeyboardStack.setLen(0)
 
 proc leaveAlternateScreen(screen: var TerminalScreen) =
   if not screen.alternateScreen: return
@@ -236,6 +245,8 @@ proc leaveAlternateScreen(screen: var TerminalScreen) =
   screen.scrollback = screen.savedScrollback
   screen.cursorRow = min(screen.savedCursorRow, screen.rows - 1)
   screen.cursorColumn = min(screen.savedCursorColumn, screen.columns - 1)
+  screen.kittyKeyboardFlags = screen.savedKittyKeyboardFlags
+  screen.kittyKeyboardStack = screen.savedKittyKeyboardStack
   screen.savedLines.setLen(0)
   screen.savedScrollback.setLen(0)
   screen.alternateScreen = false
@@ -252,6 +263,33 @@ proc eraseDisplay(screen: var TerminalScreen, mode: int) =
 proc handleCsi*(screen: var TerminalScreen, finalByte: char) =
   let rawParams = screen.csiParams
   let params = screen.csiNumbers()
+  if finalByte == 'u' and rawParams == "?":
+    screen.pendingResponses.add("\x1b[?" & $screen.kittyKeyboardFlags & "u")
+    screen.csiParams.setLen(0)
+    screen.parserState = '\0'
+    return
+  if finalByte == 'u' and rawParams.startsWith(">"):
+    let flags = if rawParams.len > 1:
+      try: parseInt(rawParams[1 .. ^1]) except ValueError: 0
+    else: 0
+    if screen.kittyKeyboardStack.len < 16:
+      screen.kittyKeyboardStack.add(screen.kittyKeyboardFlags)
+    screen.kittyKeyboardFlags = max(0, flags)
+    screen.csiParams.setLen(0)
+    screen.parserState = '\0'
+    return
+  if finalByte == 'u' and rawParams.startsWith("<"):
+    let count = if rawParams.len > 1:
+      try: max(1, parseInt(rawParams[1 .. ^1])) except ValueError: 1
+    else: 1
+    for _ in 0 ..< count:
+      if screen.kittyKeyboardStack.len == 0:
+        screen.kittyKeyboardFlags = 0
+      else:
+        screen.kittyKeyboardFlags = screen.kittyKeyboardStack.pop()
+    screen.csiParams.setLen(0)
+    screen.parserState = '\0'
+    return
   if rawParams.startsWith("?") and finalByte in {'h', 'l'}:
     let enabled = finalByte == 'h'
     if rawParams.len > 1:
@@ -366,6 +404,10 @@ proc handleCsi*(screen: var TerminalScreen, finalByte: char) =
   screen.mouseReporting = screen.mouseReportClicks or screen.mouseReportDrag or
     screen.mouseReportMotion
 
+proc takeResponses*(screen: var TerminalScreen): seq[string] =
+  result = screen.pendingResponses
+  screen.pendingResponses.setLen(0)
+
 proc runeDisplayWidth(rune: Rune): int =
   let code = int(rune)
   if code == 0 or code < 32 or (code >= 0x7f and code < 0xa0): return 0
@@ -463,7 +505,7 @@ proc feed*(screen: var TerminalScreen, data: string) =
       else:
         screen.parserState = '\0'
     of 'c':
-      if byte in {'0'..'9', ';', '?', '>', ':'}:
+      if byte in {'0'..'9', ';', '?', '>', '<', ':'}:
         screen.csiParams.add(byte)
       elif byte >= '@' and byte <= '~':
         screen.handleCsi(byte)
@@ -636,6 +678,8 @@ when defined(macosx):
     if count > 0:
       buffer.setLen(count)
       pty.screen.feed(buffer)
+      for response in pty.screen.takeResponses():
+        discard posix.write(pty.masterFd, response.cstring, response.len)
       result = buffer
 
   proc resize*(pty: TerminalPty, columns, rows: int) =
