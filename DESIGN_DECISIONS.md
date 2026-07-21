@@ -42,6 +42,15 @@ backend applies the current DPI scale. The native backend keeps only a bounded
 default for startup before the first layout frame; it does not own editor
 layout state.
 
+## M2-020: Store layout specs per node and recurse through the UI tree
+
+Zed's GPUI layout path computes a hierarchical layout tree rather than only
+assigning bounds to a root's immediate children. NimNUI now keeps a
+`LayoutSpec` on each `UiNode`; `layoutNode` uses the explicit spec for the
+root and recursively applies each descendant's spec. This preserves the
+existing root API while making nested Row/Column/Stack controls participate
+in layout, clipping, and dirty-state propagation.
+
 ## M20-003: Measure input latency through the next presented frame
 
 Zed's input-latency tracker records the first input received in a frame

@@ -2,27 +2,12 @@ import std/sequtils
 import nimnui/geometry
 import nimnui/ui_tree
 import nimnui/render
+import nimnui/layout_types
 
-type
-  LayoutDirection* = enum
-    row, column, stack
+export layout_types
 
-  Alignment* = enum
-    alignStart, alignCenter, alignEnd, alignStretch
-
-  LayoutSpec* = object
-    direction*: LayoutDirection
-    size*: Size
-    minSize*: Size
-    maxSize*: Size
-    padding*: EdgeInsets
-    gap*: Pixels
-    flexGrow*: float32
-    alignment*: Alignment
-    scrollOffset*: Pixels
-    viewport*: Rect
-
-proc layoutNode*(tree: var UiTree, id: NodeId, bounds: Rect, spec: LayoutSpec) =
+proc layoutNodeRecursive(tree: var UiTree, id: NodeId, bounds: Rect,
+                         spec: LayoutSpec) =
   let index = tree.nodes.mapIt(it.id).find(id)
   if index < 0: return
   tree.nodes[index].bounds = bounds
@@ -40,8 +25,8 @@ proc layoutNode*(tree: var UiTree, id: NodeId, bounds: Rect, spec: LayoutSpec) =
       var childBounds = content
       if hasViewport:
         childBounds = intersection(childBounds, spec.viewport)
-      tree.nodes[tree.nodeIndex(child)].bounds = childBounds
-      tree.nodes[tree.nodeIndex(child)].layoutDirty = false
+      layoutNodeRecursive(tree, child, childBounds,
+        tree.nodes[tree.nodeIndex(child)].layoutSpec)
     return
   var cursor = if spec.direction == row: content.origin.x - spec.scrollOffset else: content.origin.y - spec.scrollOffset
   let available = if spec.direction == row: content.size.width else: content.size.height
@@ -99,5 +84,15 @@ proc layoutNode*(tree: var UiTree, id: NodeId, bounds: Rect, spec: LayoutSpec) =
       finalBounds.size = Size(width: px(0), height: px(0))
     elif hasViewport:
       finalBounds = intersection(finalBounds, spec.viewport)
-    tree.nodes[tree.nodeIndex(child)].bounds = finalBounds
+    layoutNodeRecursive(tree, child, finalBounds,
+      tree.nodes[tree.nodeIndex(child)].layoutSpec)
     cursor = cursor + extents[index] + spec.gap
+
+proc layoutNode*(tree: var UiTree, id: NodeId, bounds: Rect, spec: LayoutSpec) =
+  ## Layout the requested node and every descendant using each node's own
+  ## LayoutSpec. The explicit spec is the root constraint; child specs are
+  ## retained on UiNode, matching Zed's hierarchical layout tree.
+  let index = tree.nodeIndex(id)
+  if index < 0: return
+  tree.nodes[index].layoutSpec = spec
+  layoutNodeRecursive(tree, id, bounds, spec)

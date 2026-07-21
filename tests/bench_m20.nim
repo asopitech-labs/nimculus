@@ -6,6 +6,9 @@ import nimculus/editor_syntax
 import nimculus/terminal
 import nimculus/workspace
 import nimnui/text
+import nimnui/geometry
+import nimnui/layout
+import nimnui/ui_tree
 import nimnui/platform/macos/platform
 
 proc report(name: string, elapsed: float, details: string) =
@@ -55,6 +58,21 @@ block terminalParser:
   let start = cpuTime()
   screen.feed(payload)
   report("terminal_parse", cpuTime() - start, "bytes=" & $payload.len)
+
+block layoutTime:
+  var tree = newUiTree()
+  let root = tree.addNode()
+  for index in 0 ..< 256:
+    let rowNode = tree.addNode(root)
+    tree.setLayoutSpec(rowNode, LayoutSpec(direction: row, gap: px(2)))
+    for _ in 0 ..< 4:
+      let child = tree.addNode(rowNode)
+      tree.setSizeConstraints(child, Size(width: px(24), height: px(18)),
+        Size(width: px(8), height: px(8)), Size(width: px(200), height: px(40)))
+  let start = cpuTime()
+  tree.layoutNode(root, Rect(size: Size(width: px(1024), height: px(4096))),
+    LayoutSpec(direction: column, gap: px(1)))
+  report("layout_time", cpuTime() - start, "nodes=" & $tree.nodes.len)
 
 block platformFrameMetrics:
   var metrics: PlatformMetrics

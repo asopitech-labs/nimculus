@@ -36,3 +36,4 @@ proc makeControl*(tree: var UiTree, parent: NodeId, kind: ControlKind,
   result.layout = LayoutSpec(direction: stack, size: Size(width: px(0), height: px(0)),
                              minSize: Size(width: px(0), height: px(0)),
                              maxSize: Size(width: px(100000), height: px(100000)))
+  tree.setLayoutSpec(result.node, result.layout)

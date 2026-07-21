@@ -116,6 +116,24 @@ suite "M2 UI foundation":
     check tree.node(first).bounds == expected
     check tree.node(second).bounds == expected
 
+  test "layout recursively applies each descendant's layout spec":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let panel = tree.addNode(root)
+    let first = tree.addNode(panel)
+    let second = tree.addNode(panel)
+    tree.setLayoutSpec(panel, LayoutSpec(direction: row, gap: px(4)))
+    tree.setSizeConstraints(first, Size(width: px(20), height: px(10)),
+      Size(width: px(20), height: px(10)), Size(width: px(20), height: px(10)))
+    tree.setSizeConstraints(second, Size(width: px(20), height: px(10)),
+      Size(width: px(20), height: px(10)), Size(width: px(20), height: px(10)))
+    tree.layoutNode(root, Rect(size: Size(width: px(100), height: px(30))),
+      LayoutSpec(direction: stack))
+    check tree.node(panel).bounds.size == Size(width: px(100), height: px(30))
+    check tree.node(first).bounds.origin.x == px(0)
+    check tree.node(second).bounds.origin.x == px(24)
+    check tree.node(second).bounds.size == Size(width: px(20), height: px(10))
+
   test "viewport clipping remains active when only height is nonzero":
     var tree = newUiTree()
     let root = tree.addNode()

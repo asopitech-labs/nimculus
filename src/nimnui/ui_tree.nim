@@ -1,4 +1,5 @@
 import nimnui/geometry
+import nimnui/layout_types
 
 type
   NodeId* = distinct uint64
@@ -22,6 +23,7 @@ type
     focusedState*, hoveredState*, activeState*, disabledState*: bool
     flexGrow*: float32
     preferredSize*, minSize*, maxSize*: Size
+    layoutSpec*: LayoutSpec
 
   UiTree* = object
     nodes*: seq[UiNode]
@@ -45,7 +47,9 @@ proc addNode*(tree: var UiTree, parent: NodeId = NodeId(0), focusable = false): 
   inc tree.nextGeneration
   tree.nodes.add(UiNode(id: id, parent: parent, state: normal,
                         layoutDirty: true, paintDirty: true, focusable: focusable,
-                        generation: generation, maxSize: Size(width: px(100000), height: px(100000))))
+                        generation: generation,
+                        maxSize: Size(width: px(100000), height: px(100000)),
+                        layoutSpec: defaultLayoutSpec()))
   if parent != NodeId(0):
     for node in tree.nodes.mitems:
       if node.id == parent:
@@ -81,6 +85,12 @@ proc setSizeConstraints*(tree: var UiTree, id: NodeId, preferred, minimum, maxim
     tree.nodes[index].preferredSize = preferred
     tree.nodes[index].minSize = minimum
     tree.nodes[index].maxSize = maximum
+    tree.markLayoutDirty(id)
+
+proc setLayoutSpec*(tree: var UiTree, id: NodeId, spec: LayoutSpec) =
+  let index = tree.nodeIndex(id)
+  if index >= 0:
+    tree.nodes[index].layoutSpec = spec
     tree.markLayoutDirty(id)
 
 proc hitTest*(tree: UiTree, point: Point): NodeId =
