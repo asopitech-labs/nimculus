@@ -1499,3 +1499,15 @@ at this boundary to map selection byte ranges to bootstrap codepoint columns;
 the editor's grapheme-aware byte range remains authoritative. This makes
 pointer selection and wheel scrolling observable without pretending that the
 bootstrap metrics are the final Windows text layout.
+
+## M13-022: Treat Win32 close as an application decision
+
+Zed's Windows event handler invokes a `should_close` callback for `WM_CLOSE`
+and destroys the window only when the application accepts the request. The
+previous Nimculus path called `DestroyWindow` directly, which could lose dirty
+documents and skip ConPTY cleanup. The Win32 backend now sends `quitRequest`
+to the application and waits for `platformSetCloseDecision`. Nimculus rejects
+the request while dirty tabs remain, closes the Windows terminal on an
+accepted clean/save/discard path, and only then destroys the HWND. This keeps
+the OS window lifecycle separate from document policy and makes the boundary
+testable without embedding save dialogs in the Win32 backend.

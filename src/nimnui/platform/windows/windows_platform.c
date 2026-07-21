@@ -62,6 +62,7 @@ static LONG_PTR g_saved_ex_style = 0;
 static RECT g_saved_window_rect;
 static bool g_suppress_translate = false;
 static bool g_tracking_mouse = false;
+static bool g_close_request_pending = false;
 
 static void editor_byte_position(uint32_t byte_offset, uint32_t *line,
                                  uint32_t *column) {
@@ -887,7 +888,10 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
       return 0;
     }
     case WM_CLOSE:
-      DestroyWindow(window);
+      if (g_command_callback) {
+        g_close_request_pending = true;
+        g_command_callback("quitRequest");
+      }
       return 0;
     case WM_DESTROY:
       PostQuitMessage(0);
@@ -977,6 +981,12 @@ void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_by
   g_editor_selection_start = start_byte;
   g_editor_selection_end = end_byte;
   if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_close_decision(bool allow) {
+  if (!g_close_request_pending) return;
+  g_close_request_pending = false;
+  if (allow && g_window) DestroyWindow(g_window);
 }
 
 void nimculus_platform_invalidate_ime_coordinates(void) {

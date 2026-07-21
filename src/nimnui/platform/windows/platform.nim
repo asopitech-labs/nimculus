@@ -23,6 +23,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformSetEditorCursorByte*(byteOffset, line: uint32) {.importc: "nimculus_platform_set_editor_cursor_byte", cdecl.}
   proc platformSetEditorScrollLine*(line: uint32) {.importc: "nimculus_platform_set_editor_scroll_line", cdecl.}
   proc platformSetEditorSelection*(startByte, endByte: uint32) {.importc: "nimculus_platform_set_editor_selection", cdecl.}
+  proc platformSetCloseDecision*(allow: bool) {.importc: "nimculus_platform_set_close_decision", cdecl.}
   proc platformToggleFullscreen*() {.importc: "nimculus_platform_toggle_fullscreen", cdecl.}
   proc platformMinimizeWindow*() {.importc: "nimculus_platform_minimize_window", cdecl.}
   proc platformMaximizeWindow*() {.importc: "nimculus_platform_maximize_window", cdecl.}
@@ -66,6 +67,7 @@ else:
   proc platformSetEditorCursorByte*(byteOffset, line: uint32) = discard (byteOffset, line)
   proc platformSetEditorScrollLine*(line: uint32) = discard line
   proc platformSetEditorSelection*(startByte, endByte: uint32) = discard (startByte, endByte)
+  proc platformSetCloseDecision*(allow: bool) = discard allow
   proc platformToggleFullscreen*() = discard
   proc platformMinimizeWindow*() = discard
   proc platformMaximizeWindow*() = discard

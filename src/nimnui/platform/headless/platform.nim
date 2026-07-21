@@ -69,7 +69,8 @@ proc platformSetEditorLineNumbers*(visible: bool) = discard visible
 proc platformSetEditorSoftWrap*(enabled: bool) = discard enabled
 proc platformSetEditorTabs*(titles: cstring, length, activeIndex: uint32) = discard (titles, length, activeIndex)
 proc platformSetEditorStatus*(text: cstring) = discard text
-proc platformSetCloseDecision*(allow: bool) = discard allow
+when not defined(windows):
+  proc platformSetCloseDecision*(allow: bool) = discard allow
 proc platformRequestCloseTab*() = discard
 proc platformShowSavePanelAndCloseTab*() = discard
 proc platformRequestQuit*() = discard

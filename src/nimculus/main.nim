@@ -1799,6 +1799,15 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "restoreWindow":
       platformRestoreWindow()
       return
+    of "__toggle_terminal__":
+      toggleWindowsTerminal()
+      return
+    of "__new_terminal__":
+      newWindowsTerminal()
+      return
+    of "__next_terminal__", "__previous_terminal__":
+      editorViewState.statusMessage = "Windows supports one terminal session in this milestone"
+      return
     else: discard
   when defined(macosx):
     if editorTerminalVisible and editorTerminal != nil:
@@ -1857,6 +1866,13 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         applyPendingUpdateAtQuit()
         closeNativeTerminals()
         platformConfirmQuit()
+    when defined(windows):
+      if editorSession.hasDirtyTabs():
+        editorViewState.statusMessage = "Unsaved changes: use save all or discard all before closing"
+        platformSetCloseDecision(false)
+      else:
+        closeWindowsTerminal()
+        platformSetCloseDecision(true)
   elif name == "saveAllAndQuit":
     var success = true
     for tab in editorSession.tabs.mitems:
@@ -1878,6 +1894,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     if success and not editorSession.hasDirtyTabs():
       when defined(macosx): applyPendingUpdateAtQuit()
       when defined(macosx): closeNativeTerminals()
+      when defined(windows): closeWindowsTerminal()
     platformSetCloseDecision(success and not editorSession.hasDirtyTabs())
   elif name == "discardAllAndQuit":
     suppressRecoveryWrite = true
@@ -1886,6 +1903,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       removeFile(recoveryFilePath)
     when defined(macosx): applyPendingUpdateAtQuit()
     when defined(macosx): closeNativeTerminals()
+    when defined(windows): closeWindowsTerminal()
     platformSetCloseDecision(true)
   elif name == "closeTabRequest":
     when defined(macosx): platformRequestCloseTab()

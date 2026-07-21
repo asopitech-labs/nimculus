@@ -38,7 +38,10 @@ rectangle primitives with scissor clipping. Editor text is copied through a
 UTF-8/UTF-16 GDI bootstrap overlay that renders visible lines without native
 word wrapping, follows the shared scroll-line/cursor/selection state, and
 draws a bootstrap caret and selection background. Terminal text uses its
-separate GDI overlay, while glyph/image GPU resources remain later refinements. Window
+separate GDI overlay, while glyph/image GPU resources remain later refinements. A
+Windows close request is delivered to the Nim application before destruction;
+the application explicitly accepts or rejects it so dirty buffers and ConPTY
+cleanup are not bypassed. Window
 state commands are also kept in the Win32 backend:
 fullscreen stores and restores the pre-fullscreen style, extended style, and
 monitor rectangle, while minimize, maximize, and restore delegate to native

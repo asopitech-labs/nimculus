@@ -38,6 +38,17 @@ when defined(windows):
     windowsTerminalVisible = false
     platformSetTerminalVisible(false)
 
+  proc toggleWindowsTerminal*() =
+    if windowsTerminalVisible:
+      windowsTerminalVisible = false
+      platformSetTerminalVisible(false)
+    else:
+      startWindowsTerminal()
+
+  proc newWindowsTerminal*() =
+    closeWindowsTerminal()
+    startWindowsTerminal()
+
   proc writeWindowsTerminalText*(text: string): bool =
     if not windowsTerminalVisible or windowsTerminal == nil or windowsTerminal.closed: return false
     discard windowsTerminal.writeInput(text)
@@ -63,5 +74,7 @@ else:
   proc startWindowsTerminal*() = discard
   proc pollWindowsTerminal*() = discard
   proc closeWindowsTerminal*() = discard
+  proc toggleWindowsTerminal*() = discard
+  proc newWindowsTerminal*() = discard
   proc writeWindowsTerminalText*(text: string): bool = false
   proc handleWindowsTerminalInput*(event: pointer): bool = false
