@@ -282,6 +282,8 @@ when defined(macosx):
   var editorTerminalVisible = false
   var editorTerminalSelection = TerminalSelection()
   var editorTerminalSelecting = false
+  var editorUpdateJob: UpdateDownloadJob
+  var editorUpdatePath = ""
 
 proc resetEditorViewState() =
   editorViewState = newEditorView()
@@ -526,6 +528,35 @@ when defined(macosx):
       editorViewState.statusMessage = "Task cancelled: " & editorTaskCommand
     else: discard
     editorTaskJob = nil
+
+  proc pollNativeUpdate() =
+    if editorUpdateJob == nil: return
+    if not editorUpdateJob.pollUpdateDownload(): return
+    if editorUpdateJob.success:
+      editorUpdatePath = editorUpdateJob.destination
+      editorViewState.statusMessage = "Update downloaded; it will install when Nimculus quits"
+    else:
+      editorViewState.statusMessage = "Update download or verification failed"
+    editorUpdateJob = nil
+
+  proc runningAppBundle(): string =
+    let executable = getAppFilename()
+    let candidate = parentDir(parentDir(parentDir(executable)))
+    if candidate.endsWith(".app") and dirExists(candidate): candidate else: ""
+
+  proc applyPendingUpdateAtQuit() =
+    if editorUpdatePath.len == 0: return
+    let appBundle = runningAppBundle()
+    if appBundle.len == 0:
+      editorViewState.statusMessage = "Update ready; launch from a signed .app to install"
+      return
+    if installMacosDmgUpdate(editorUpdatePath, appBundle, getTempDir()):
+      editorViewState.statusMessage = "Update installed"
+      try: removeFile(editorUpdatePath)
+      except CatchableError: discard
+      editorUpdatePath = ""
+    else:
+      editorViewState.statusMessage = "Update installation failed"
 
   proc toggleNativeTaskOutput() =
     if editorTaskOutputVisible:
@@ -1380,6 +1411,7 @@ when defined(macosx):
     pollNativeGitHunks()
     pollNativeGitAction()
     pollNativeTask()
+    pollNativeUpdate()
     pollNativeTerminal()
     if lspBridge == nil: return
     let document = activeDocument()
@@ -1649,8 +1681,11 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     resetPointerInteractions()
   elif name == "quitRequest":
     when defined(macosx):
-      if editorSession.hasDirtyTabs(): platformRequestQuit()
+      if editorUpdateJob != nil and not editorUpdateJob.done:
+        editorViewState.statusMessage = "Wait for the update download to finish"
+      elif editorSession.hasDirtyTabs(): platformRequestQuit()
       else:
+        applyPendingUpdateAtQuit()
         closeNativeTerminals()
         platformConfirmQuit()
   elif name == "saveAllAndQuit":
@@ -1671,13 +1706,16 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
             tab.title = splitFile(target).name
       except CatchableError:
         success = false
-    if success and not editorSession.hasDirtyTabs(): closeNativeTerminals()
+    if success and not editorSession.hasDirtyTabs():
+      when defined(macosx): applyPendingUpdateAtQuit()
+      closeNativeTerminals()
     platformSetCloseDecision(success and not editorSession.hasDirtyTabs())
   elif name == "discardAllAndQuit":
     suppressRecoveryWrite = true
     discardDirtyOnExit = true
     if recoveryFilePath.len > 0 and fileExists(recoveryFilePath):
       removeFile(recoveryFilePath)
+    when defined(macosx): applyPendingUpdateAtQuit()
     closeNativeTerminals()
     platformSetCloseDecision(true)
   elif name == "closeTabRequest":
@@ -1934,7 +1972,15 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           if release.version.len == 0 or release.url.len == 0:
             editorViewState.statusMessage = "Update manifest invalid"
           elif isUpdateAvailable(getEnv("NIMCULUS_VERSION", "0.1.0"), release):
-            editorViewState.statusMessage = "Update available: " & release.version
+            if editorUpdateJob != nil:
+              editorViewState.statusMessage = "Update download already in progress"
+            else:
+              let destination = getTempDir() / "Nimculus-update.dmg"
+              editorUpdateJob = startUpdateDownload(release, destination)
+              if editorUpdateJob.done:
+                editorViewState.statusMessage = "Update download could not start"
+              else:
+                editorViewState.statusMessage = "Downloading update: " & release.version
           else:
             editorViewState.statusMessage = "Nimculus is up to date"
     of "document symbols", "show symbols":

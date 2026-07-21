@@ -11,6 +11,13 @@ type
     sha256*: string
     notes*: string
 
+  UpdateDownloadJob* = ref object
+    process: Process
+    release*: UpdateRelease
+    destination*: string
+    done*: bool
+    success*: bool
+
 proc isHttpsUrl(url: string): bool =
   url.startsWith("https://")
 
@@ -101,6 +108,33 @@ proc downloadAndVerify*(release: UpdateRelease, destination: string): bool =
       try: removeFile(destination)
       except CatchableError: discard
     false
+
+proc startUpdateDownload*(release: UpdateRelease, destination: string): UpdateDownloadJob =
+  ## Start the HTTPS download without blocking the UI thread. Hash validation is
+  ## performed only after curl exits successfully.
+  result = UpdateDownloadJob(release: release, destination: destination, done: true)
+  if not isHttpsUrl(release.url) or release.sha256.len != 64 or
+      not release.sha256.allCharsInSet(HexDigits) or destination.len == 0:
+    return
+  try:
+    result.process = startProcess("curl", args = ["--fail", "--location", "--silent",
+      "--show-error", "--proto", "=https", "--tlsv1.2", "--output", destination,
+      release.url], options = {poUsePath, poStdErrToStdOut})
+    result.done = false
+  except CatchableError:
+    result.done = true
+
+proc pollUpdateDownload*(job: UpdateDownloadJob): bool =
+  if job == nil or job.done: return true
+  let exitCode = job.process.peekExitCode()
+  if exitCode < 0: return false
+  job.process.close()
+  job.done = true
+  job.success = exitCode == 0 and verifySha256(job.destination, job.release.sha256)
+  if not job.success and fileExists(job.destination):
+    try: removeFile(job.destination)
+    except CatchableError: discard
+  true
 
 proc runChecked(command: string, args: openArray[string]): bool =
   ## Run a platform verifier without a shell and discard its diagnostic output.

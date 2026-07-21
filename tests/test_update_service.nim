@@ -30,3 +30,8 @@ suite "M11 update service":
     check compareVersions("v1.0.0", "1.0.0") == 0
     check not isUpdateAvailable("1.0.0", UpdateRelease(version: "1.0.0", url: "https://example.invalid/a",
       sha256: "0000000000000000000000000000000000000000000000000000000000000000"))
+    let invalidJob = startUpdateDownload(UpdateRelease(url: "http://example.invalid/a",
+      sha256: "0000000000000000000000000000000000000000000000000000000000000000"),
+      getTempDir() / "nimculus-update-job-invalid")
+    check invalidJob.done
+    check not invalidJob.success
