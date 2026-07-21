@@ -266,18 +266,43 @@ typedef struct NimculusQuadVertex {
   float g;
   float b;
   float a;
+  float local_x;
+  float local_y;
+  float size_x;
+  float size_y;
+  float radius;
+  float kind;
 } NimculusQuadVertex;
 
 static const char g_quad_vertex_source[] =
-  "struct VSInput { float2 position : POSITION; float4 color : COLOR; };"
-  "struct VSOutput { float4 position : SV_POSITION; float4 color : COLOR; };"
+  "struct VSInput { float2 position : POSITION; float4 color : COLOR; "
+  "float2 local : LOCAL; float2 size : SIZE; float radius : RADIUS; float kind : KIND; };"
+  "struct VSOutput { float4 position : SV_POSITION; float4 color : COLOR; "
+  "float2 local : LOCAL; float2 size : SIZE; float radius : RADIUS; float kind : KIND; };"
   "VSOutput main(VSInput input) { VSOutput output;"
-  "output.position = float4(input.position, 0.0, 1.0);"
-  "output.color = input.color; return output; }";
+  "output.position = float4(input.position, 0.0, 1.0); output.color = input.color;"
+  "output.local = input.local; output.size = input.size; output.radius = input.radius;"
+  "output.kind = input.kind; return output; }";
 
 static const char g_quad_pixel_source[] =
-  "struct PSInput { float4 position : SV_POSITION; float4 color : COLOR; };"
-  "float4 main(PSInput input) : SV_TARGET { return input.color; }";
+  "struct PSInput { float4 position : SV_POSITION; float4 color : COLOR; "
+  "float2 local : LOCAL; float2 size : SIZE; float radius : RADIUS; float kind : KIND; };"
+  "float rounded_sdf(float2 point, float2 half_size, float radius) {"
+  "float2 q = abs(point) - (half_size - radius);"
+  "return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius; }"
+  "float4 main(PSInput input) : SV_TARGET {"
+  "float2 point = input.local * input.size - input.size * 0.5;"
+  "float alpha = 1.0;"
+  "if (input.kind > 1.5 && input.kind < 2.5) {"
+  "float radius = min(input.radius, min(input.size.x, input.size.y) * 0.5);"
+  "float distance = rounded_sdf(point, input.size * 0.5, radius);"
+  "alpha = 1.0 - smoothstep(-1.0, 1.0, distance);"
+  "} else if (input.kind > 0.5 && input.kind < 1.5) {"
+  "float2 edge = min(input.local * input.size, (1.0 - input.local) * input.size);"
+  "alpha = 1.0 - smoothstep(0.0, 1.5, min(edge.x, edge.y));"
+  "} else if (input.kind > 6.5 && input.kind < 7.5) {"
+  "alpha = 0.30; }"
+  "return float4(input.color.rgb, input.color.a * alpha); }";
 
 static void release_quad_pipeline(void) {
   if (g_quad_rasterizer) g_quad_rasterizer->lpVtbl->Release(g_quad_rasterizer);
@@ -313,12 +338,16 @@ static bool create_quad_pipeline(void) {
     hr = g_device->lpVtbl->CreatePixelShader(g_device, pixel_blob->lpVtbl->GetBufferPointer(pixel_blob),
         pixel_blob->lpVtbl->GetBufferSize(pixel_blob), NULL, &g_quad_pixel_shader);
   }
-  D3D11_INPUT_ELEMENT_DESC elements[2] = {
+  D3D11_INPUT_ELEMENT_DESC elements[6] = {
     {"POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
-    {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0}
+    {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    {"LOCAL", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    {"SIZE", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 32, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    {"RADIUS", 0, DXGI_FORMAT_R32_FLOAT, 0, 40, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    {"KIND", 0, DXGI_FORMAT_R32_FLOAT, 0, 44, D3D11_INPUT_PER_VERTEX_DATA, 0}
   };
   if (SUCCEEDED(hr)) {
-    hr = g_device->lpVtbl->CreateInputLayout(g_device, elements, 2,
+    hr = g_device->lpVtbl->CreateInputLayout(g_device, elements, 6,
         vertex_blob->lpVtbl->GetBufferPointer(vertex_blob),
         vertex_blob->lpVtbl->GetBufferSize(vertex_blob), &g_quad_input_layout);
   }
@@ -491,19 +520,27 @@ static void draw_paint_quads(void) {
     float bottom = (command->y + command->height) * scale;
     float color[4];
     paint_color(command->kind, color);
+    float local[6][2] = {{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f},
+                         {0.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}};
     NimculusQuadVertex vertices[6] = {
       {(left / width) * 2.0f - 1.0f, 1.0f - (top / height) * 2.0f,
-        color[0], color[1], color[2], color[3]},
+        color[0], color[1], color[2], color[3], local[0][0], local[0][1],
+        right - left, bottom - top, command->radius * scale, (float)command->kind},
       {(right / width) * 2.0f - 1.0f, 1.0f - (top / height) * 2.0f,
-        color[0], color[1], color[2], color[3]},
+        color[0], color[1], color[2], color[3], local[1][0], local[1][1],
+        right - left, bottom - top, command->radius * scale, (float)command->kind},
       {(right / width) * 2.0f - 1.0f, 1.0f - (bottom / height) * 2.0f,
-        color[0], color[1], color[2], color[3]},
+        color[0], color[1], color[2], color[3], local[2][0], local[2][1],
+        right - left, bottom - top, command->radius * scale, (float)command->kind},
       {(left / width) * 2.0f - 1.0f, 1.0f - (top / height) * 2.0f,
-        color[0], color[1], color[2], color[3]},
+        color[0], color[1], color[2], color[3], local[3][0], local[3][1],
+        right - left, bottom - top, command->radius * scale, (float)command->kind},
       {(right / width) * 2.0f - 1.0f, 1.0f - (bottom / height) * 2.0f,
-        color[0], color[1], color[2], color[3]},
+        color[0], color[1], color[2], color[3], local[4][0], local[4][1],
+        right - left, bottom - top, command->radius * scale, (float)command->kind},
       {(left / width) * 2.0f - 1.0f, 1.0f - (bottom / height) * 2.0f,
-        color[0], color[1], color[2], color[3]}
+        color[0], color[1], color[2], color[3], local[5][0], local[5][1],
+        right - left, bottom - top, command->radius * scale, (float)command->kind}
     };
     D3D11_MAPPED_SUBRESOURCE mapped;
     if (FAILED(g_context->lpVtbl->Map(g_context, (ID3D11Resource *)g_quad_vertex_buffer,

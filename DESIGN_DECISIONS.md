@@ -1559,6 +1559,17 @@ derived state before presenting it again. The active document disk-stamp check
 remains separate because it reports a user-facing reload decision rather than
 a workspace tree update.
 
+## M13-028: Render Windows opaque PaintList shapes in the D3D11 pixel shader
+
+The Windows backend keeps the existing `NativePaintCommand` ABI and uploads a
+per-command quad with local coordinates, pixel size, radius, and primitive
+kind. The shader applies a rounded-rectangle signed-distance boundary,
+one-pixel border edge, and shadow alpha before the existing per-command
+scissor. This follows Zed's Windows renderer boundary, where shape semantics
+are encoded in GPU primitives rather than approximated by a CPU overlay.
+Text and image resources remain deliberately separate follow-up work because
+they require DirectWrite/glyph atlas and texture lifetime contracts.
+
 ## M13-027: Convert Windows editor hit testing from grapheme columns
 
 The Windows GDI bootstrap uses a fixed cell width only to estimate a visual
