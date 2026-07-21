@@ -271,8 +271,7 @@ var editorScrollRemainder = 0'f32
 var sessionFilePath = ""
 var recoveryFilePath = ""
 var crashReportPath = ""
-when defined(macosx):
-  var settingsFilePath = ""
+var settingsFilePath = ""
 var persistenceTick = 0
 var suppressRecoveryWrite = false
 var discardDirtyOnExit = false
@@ -1034,7 +1033,10 @@ when defined(macosx):
     max(1, int(ceil(float32(demoEditorBounds.size.height) / 18'f32)))
 
 proc setupPersistencePaths() =
-  let directory = getHomeDir() / "Library" / "Application Support" / "Nimculus"
+  let directory = when defined(macosx):
+    getHomeDir() / "Library" / "Application Support" / "Nimculus"
+  else:
+    getHomeDir() / ".local" / "share" / "nimculus"
   if not dirExists(directory): createDir(directory)
   sessionFilePath = directory / "session.json"
   recoveryFilePath = directory / "active.recovery"
@@ -1556,7 +1558,8 @@ proc receiveNativeTextValue(value: string, composing: bool) =
       editorViewState.moveCursor(selected.startByte + value.len)
       syncEditorCursor()
       refreshEditorSyntax()
-      requestEditorCompletion()
+      when defined(macosx):
+        requestEditorCompletion()
 
 proc receiveNativeText(text: cstring, composing: bool) {.cdecl.} =
   receiveNativeTextValue(if text == nil: "" else: $text, composing)
@@ -1785,7 +1788,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         success = false
     if success and not editorSession.hasDirtyTabs():
       when defined(macosx): applyPendingUpdateAtQuit()
-      closeNativeTerminals()
+      when defined(macosx): closeNativeTerminals()
     platformSetCloseDecision(success and not editorSession.hasDirtyTabs())
   elif name == "discardAllAndQuit":
     suppressRecoveryWrite = true
@@ -1793,7 +1796,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     if recoveryFilePath.len > 0 and fileExists(recoveryFilePath):
       removeFile(recoveryFilePath)
     when defined(macosx): applyPendingUpdateAtQuit()
-    closeNativeTerminals()
+    when defined(macosx): closeNativeTerminals()
     platformSetCloseDecision(true)
   elif name == "closeTabRequest":
     when defined(macosx): platformRequestCloseTab()
@@ -1955,7 +1958,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     root["terminal"]["shell"] = %fields[4]
     try:
       writeFile(settingsFilePath, pretty(root) & "\n")
-      if appSettings != nil: discard appSettings.reload()
+      when defined(macosx):
+        if appSettings != nil: discard appSettings.reload()
       applySettingsKeymap()
       applySettingsTheme()
       editorViewState.statusMessage = "Settings applied"

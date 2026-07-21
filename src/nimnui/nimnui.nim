@@ -1,4 +1,7 @@
-import nimnui/platform/macos/platform
+when defined(macosx):
+  import nimnui/platform/macos/platform
+else:
+  import nimnui/platform/headless/platform
 import nimnui/mock_renderer
 import nimnui/geometry
 import nimnui/ui_tree

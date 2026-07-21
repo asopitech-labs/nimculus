@@ -19,6 +19,7 @@ task lint, "Run Nim's static checks":
   exec "nim check --mm:arc --nimcache:.nimcache/lint --path:src src/nimculus/main.nim"
 
 task test, "Run unit and integration tests":
+  exec "nim c --mm:arc --nimcache:.nimcache/test_platform_headless -r --path:src tests/test_platform_headless.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/test_platform_contract -r --path:src tests/test_platform_contract.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/test_ui_text -r --path:src tests/test_ui_text.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/test_editor -r --path:src tests/test_editor.nim"

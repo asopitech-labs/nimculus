@@ -1278,3 +1278,13 @@ importing Cocoa or forcing macOS concepts into the core.
 The C backend also exposes `sizeof` probes for every by-value contract, and
 the macOS contract test compares them with Nim's `sizeof` results. This keeps
 alignment and pointer-size changes visible before another backend is added.
+
+## M13-002: Select a portable fallback backend before adding native Windows code
+
+Zed selects a platform implementation at application startup while keeping
+the GPUI/application layer independent of Cocoa, Win32, and Linux APIs.
+Nimculus now selects the macOS backend only when compiling for macOS and uses
+an explicit contract-only headless backend otherwise. The fallback is not a
+Windows implementation; it is a build boundary that prevents non-macOS
+compilation from accidentally importing Cocoa and gives each future native
+backend a complete API surface to replace.
