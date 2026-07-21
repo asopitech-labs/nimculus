@@ -12,6 +12,17 @@
 | M5：macOS 最小実用エディタ | 🟡 実装済み・GUI実機検証待ち | 編集サービス、plain-text fallbackを含む動的文書表示、構文色、macOSメニュー/IME/Finder接続、Application Supportへのセッション復元・クラッシュリカバリー、`Cmd+,`の設定パネル導線を実装。GUI実機確認が残る |
 | M6：macOS プロジェクト・ワークスペース | 🟡 部分UI統合・高度なGit UI待ち | フォルダ選択、Fileメニューからの複数ルート追加、Quick Open fuzzy file search、表示件数を制限した遅延深さ優先ツリー、Workspace検索入力/結果/継続更新/キャンセル、Worktree branch/HEAD表示、標準Fileメニューからのファイル作成・フォルダ作成・名前変更・削除、Workspace rootのセッション復元を接続。複数ルート、`.gitignore`、fuzzy/ripgrep API、協調型検索ジョブ、FSEvents、Worktree状態分離、10万ファイル計測を実装。Git diff/stage等の高度なUIが残る |
 | M7：Tree-sitter | 🟡 実装済み・GUI実機検証待ち | Nim/Rust/TypeScript/Python/JSON/MarkdownのFFI、増分解析、構文状態、可視範囲ハイライト、RGBA Metalテクスチャ接続、大規模ファイル計測を実装。GUI実機確認が残る |
+| M8：LSPクライアント | 🟡 実装済み・GUI実機検証待ち | JSON-RPC、stdio、stale response破棄、restart、diagnostics、completion、hover、definition、references、symbols、rename、formatting、code action、signature help、semantic tokens、inlay hintsを実装。実Language Server接続のGUI確認が残る |
+| M9：macOS Git統合 | 🟡 実装済み・GUI実機検証待ち | 非同期status/diff、branch・変更数・conflict数、gutter、本文inline diff背景、hunk stage/unstage、commit/log/blame/checkoutを実装。実機表示確認が残る |
+| M10：macOSターミナル・タスク | 🟡 実装済み・GUI実機検証待ち | PTY、VT/ANSI、複数セッション、selection、kitty keyboard、task実行・cancel・problem matcher・output panelを実装。長時間実機確認が残る |
+| M11：macOS配布基盤 | 🟡 実装済み・資格情報/実機検証待ち | `.app`、署名、hardened runtime、ZIP/DMG、notarization/stapling、更新検証、crash reportを実装。Developer IDとApple資格情報による実行が残る |
+| M12：設定・テーマ・キーバインド | 🟡 実装済み・GUI実機検証待ち | 階層設定、schema、live reload、keymap、theme/icon theme、font・terminal・LSP設定、system appearance連動を実装。実機確認が残る |
+| M13：Windows対応 | ⚪ 未着手 | macOS実装完了後にWin32、GPU、DPI、IME、clipboard、ConPTY、installerを実装する |
+| M14：WSLリモート | ⚪ 未着手 | Windows版完了後にagent、remote file、LSP、Git、terminal、reconnectを実装する |
+| M15：Linux対応 | ⚪ 未着手 | WSL基盤の後にWayland優先、X11 fallback、IME、PTY、packagingを実装する |
+| M16：SSHリモート | ⚪ 未着手 | WSLプロトコルを一般化し、SSH agentとremote開発を実装する |
+| M17〜M19：拡張・AI・DAP | ⚪ 未着手 | 拡張API、CLIエージェント、DAPクライアントを順次実装する |
+| M20〜M21：安定化・v1.0 | ⚪ 未着手 | 全対応プラットフォームの性能計測、安定化、正式配布を行う |
 
 チェック済み項目は、コード実装とローカル検証の両方を確認できたものを示す。CIの実行成功、実機での個別入力、未実装のAPIは未チェックのまま残す。
 
