@@ -16,6 +16,7 @@
 #include "../contracts.h"
 
 static NimculusPlatformMetrics g_metrics = {1.0, 0, 0, 0, 0, 0.0, 0};
+static LARGE_INTEGER g_qpc_frequency = {0};
 static uint64_t g_input_count = 0;
 static NimculusInputCallback g_input_callback = NULL;
 static NimculusShortcutCallback g_shortcut_callback = NULL;
@@ -1295,6 +1296,8 @@ static void render_terminal_runs(HDC dc, const RECT *rect, HFONT font,
 }
 
 static void render_frame(void) {
+  LARGE_INTEGER frame_start;
+  QueryPerformanceCounter(&frame_start);
   g_directwrite_frame = false;
   if (!g_context || !g_render_target || !g_swap_chain) return;
   const FLOAT clear_color[4] = {0.10f, 0.12f, 0.16f, 1.0f};
@@ -1307,6 +1310,15 @@ static void render_frame(void) {
   g_directwrite_frame = render_editor_directwrite();
   HRESULT present = g_swap_chain->lpVtbl->Present(g_swap_chain, 1, 0);
   if (SUCCEEDED(present)) {
+    if (g_qpc_frequency.QuadPart == 0)
+      QueryPerformanceFrequency(&g_qpc_frequency);
+    LARGE_INTEGER frame_end;
+    QueryPerformanceCounter(&frame_end);
+    if (g_qpc_frequency.QuadPart > 0) {
+      g_metrics.last_frame_time_ms =
+          (double)(frame_end.QuadPart - frame_start.QuadPart) * 1000.0 /
+          (double)g_qpc_frequency.QuadPart;
+    }
     g_metrics.frame_count++;
   } else if (present == DXGI_ERROR_DEVICE_REMOVED ||
              present == DXGI_ERROR_DEVICE_RESET ||

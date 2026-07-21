@@ -42,6 +42,15 @@ backend applies the current DPI scale. The native backend keeps only a bounded
 default for startup before the first layout frame; it does not own editor
 layout state.
 
+## M20-001: Record Windows frame duration at successful Present
+
+Zed records frame duration around the render/present boundary and keeps the
+last presented value for diagnostics. The Windows backend now uses
+QueryPerformanceCounter from the beginning of render_frame through a
+successful DXGI Present, then stores the duration in the existing
+PlatformMetrics.last_frame_time_ms ABI. Device-loss frames are not reported as
+successful presents.
+
 ## M3-024: Include quantized subpixel variants in the macOS glyph atlas
 
 Zed's glyph cache keys include the quantized subpixel origin in addition to
