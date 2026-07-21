@@ -96,7 +96,7 @@ proc validateSettings*(root: JsonNode): seq[SettingsDiagnostic] =
   let insertSpaces = nodeAt(root, "editor.insertSpaces")
   if insertSpaces != nil and insertSpaces.kind != JBool:
     result.add(SettingsDiagnostic(path: "editor.insertSpaces", message: "must be a boolean"))
-  for key in ["theme", "iconTheme", "terminal.shell"]:
+  for key in ["theme", "iconTheme", "editor.fontFamily", "terminal.shell"]:
     let value = jsonStringAt(root, key, "")
     if value.len == 0:
       let node = nodeAt(root, key)
@@ -130,6 +130,7 @@ proc settingsSchema*(): JsonNode =
     "properties": {
       "editor": {"type": "object", "properties": {
         "fontSize": {"type": "integer", "minimum": 6, "maximum": 96},
+        "fontFamily": {"type": "string"},
         "tabSize": {"type": "integer", "minimum": 1, "maximum": 16},
         "insertSpaces": {"type": "boolean"}
       }},

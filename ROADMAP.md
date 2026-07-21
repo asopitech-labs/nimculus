@@ -390,7 +390,7 @@ Task stdout/stderrはPOSIX pipeをnon-blockingでpollし、プロセス終了前
 
 keymap reload時はregistryを初期状態から再構築し、削除された旧bindingを残さない。標準編集操作、保存、タブ切替、設定をカスタムkeymapの対象へ登録する。
 
-**進捗：** 🟡 設定コア・階層マージ・型検証・不正keymap項目の部分無視・live reload・基本keymap反映・macOS設定ファイル導線を実装済み・専用設定UI/テーマ registry反映待ち
+**進捗：** 🟡 設定コア・階層マージ・型検証・不正keymap項目の部分無視・live reload・基本keymap反映・editor font size/family反映・macOS設定ファイル導線を実装済み・専用設定UI/テーマ registry反映待ち
 
 **実装済み基盤：** ZedのSettingsStore/KeymapFileを参考に、global/workspace/language設定の再帰マージ、JSON型検証、診断保持、ファイル内容ハッシュによる再読み込み、machine-readable settings schema、theme color、icon/theme設定値、keymap配列、editor font size、terminal shell、LSP commandの設定取得を`src/nimculus/settings.nim`へ実装。macOS起動時にApplication Supportのglobal settingsとworkspace `.nimculus/settings.json`を読み込み、idle時の変更検知とterminal shell/LSP command/theme color/editor font sizeへの反映を接続済み。フォントサイズは描画、行高、IME座標、hit-testで共有する。`Cmd+,`でglobal settingsを生成/表示し、`cmd+shift+p`等のkeymap表記をNimNUI Shortcutへ変換して既存command registryへ反映する。専用設定UI、標準Command/Optionキーマップ全体の設定ファイル反映、完全なテーマ registry、icon themeは残る。
 

@@ -27,6 +27,7 @@ suite "macOS platform contract":
       echo "  [SKIP] native Metal layer contract (no Metal device in this session)"
 
   test "editor font settings drive a valid native line height":
+    platformSetEditorFontName("Menlo")
     platformSetEditorFontSize(20.0)
     check platformEditorLineHeight() >= 20.0
     platformSetEditorFontSize(14.0)

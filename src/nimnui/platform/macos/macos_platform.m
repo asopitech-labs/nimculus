@@ -28,6 +28,7 @@ static uint32_t g_paint_dirty_count = 0;
 static double g_editor_cursor[2] = {8.0, 12.0};
 static CGFloat g_editor_font_size = 14.0;
 static CGFloat g_editor_line_height = 18.0;
+static NSString *g_editor_font_name = @"Menlo";
 static NSUInteger g_editor_scroll_line = 0;
 static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
@@ -460,7 +461,8 @@ static void highlightColor(uint32_t kind, CGFloat *r, CGFloat *g, CGFloat *b) {
 }
 
 static CTFontRef editorFont(void) {
-  CTFontRef font = CTFontCreateWithName(CFSTR("Menlo"), g_editor_font_size, NULL);
+  CTFontRef font = CTFontCreateWithName((__bridge CFStringRef)g_editor_font_name,
+                                        g_editor_font_size, NULL);
   if (!font) font = CTFontCreateUIFontForLanguage(kCTFontSystemFontType, g_editor_font_size, NULL);
   return font;
 }
@@ -2352,6 +2354,13 @@ void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t lin
 void nimculus_platform_set_editor_font_size(double size) {
   g_editor_font_size = MIN(96.0, MAX(6.0, size > 0.0 ? size : 14.0));
   g_editor_line_height = MAX(12.0, ceil(g_editor_font_size * 1.2857142857));
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
+  markSceneFullyDirty();
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+void nimculus_platform_set_editor_font_name(const char *name) {
+  NSString *requested = name ? [NSString stringWithUTF8String:name] : nil;
+  g_editor_font_name = requested.length > 0 ? [requested copy] : @"Menlo";
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
