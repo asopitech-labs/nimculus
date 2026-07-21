@@ -1405,6 +1405,15 @@ with per-command scissor rectangles. Text and image commands are skipped until
 their glyph/sprite resources are implemented, so this slice does not claim a
 complete Windows renderer.
 
+## M13-017: Recreate the Windows D3D device after device removal
+
+Zed's DirectX renderer treats device removal as a recoverable lifecycle event:
+GPU resources are released, the device/swapchain is rebuilt, and the retained
+scene is uploaded again. Nimculus now checks `Present` for device-removed,
+device-reset, and driver-internal-error results, releases the D3D11 target and
+quad pipeline, recreates them, and keeps the copied PaintList commands intact.
+This prevents a transient GPU reset from permanently leaving the window blank.
+
 ## M13-012: Normalize Win32 keyboard events before shared shortcut routing
 
 Zed's Windows backend separates accelerator handling from character input and

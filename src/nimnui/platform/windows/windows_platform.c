@@ -202,6 +202,7 @@ static void update_metrics(void) {
 }
 
 static void resize_render_target(void);
+static bool create_device(void);
 
 typedef struct NimculusQuadVertex {
   float x;
@@ -379,6 +380,23 @@ static bool create_device(void) {
   return create_quad_pipeline();
 }
 
+static void release_device(void) {
+  if (g_context) g_context->lpVtbl->ClearState(g_context);
+  release_render_target();
+  release_quad_pipeline();
+  if (g_swap_chain) g_swap_chain->lpVtbl->Release(g_swap_chain);
+  if (g_context) g_context->lpVtbl->Release(g_context);
+  if (g_device) g_device->lpVtbl->Release(g_device);
+  g_swap_chain = NULL;
+  g_context = NULL;
+  g_device = NULL;
+}
+
+static bool recreate_device(void) {
+  release_device();
+  return create_device();
+}
+
 static void paint_color(uint32_t kind, float color[4]) {
   switch (kind) {
     case 1: color[0] = 0.32f; color[1] = 0.38f; color[2] = 0.48f; break; /* border */
@@ -461,8 +479,13 @@ static void render_frame(void) {
                              (FLOAT)g_metrics.height_pixels, 0.0f, 1.0f};
   g_context->lpVtbl->RSSetViewports(g_context, 1, &viewport);
   draw_paint_quads();
-  if (SUCCEEDED(g_swap_chain->lpVtbl->Present(g_swap_chain, 1, 0))) {
+  HRESULT present = g_swap_chain->lpVtbl->Present(g_swap_chain, 1, 0);
+  if (SUCCEEDED(present)) {
     g_metrics.frame_count++;
+  } else if (present == DXGI_ERROR_DEVICE_REMOVED ||
+             present == DXGI_ERROR_DEVICE_RESET ||
+             present == DXGI_ERROR_DRIVER_INTERNAL_ERROR) {
+    recreate_device();
   }
 }
 
@@ -737,14 +760,7 @@ bool nimculus_platform_run(void) {
       TranslateMessage(&message);
     }
   }
-  release_render_target();
-  release_quad_pipeline();
-  if (g_swap_chain) g_swap_chain->lpVtbl->Release(g_swap_chain);
-  if (g_context) g_context->lpVtbl->Release(g_context);
-  if (g_device) g_device->lpVtbl->Release(g_device);
-  g_swap_chain = NULL;
-  g_context = NULL;
-  g_device = NULL;
+  release_device();
   free(g_paint_commands);
   g_paint_commands = NULL;
   g_paint_count = 0;
