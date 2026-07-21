@@ -70,6 +70,7 @@ proc platformEditorUtf16OffsetAtPoint*(x, y: cdouble): uint32 {.importc: "nimcul
 proc platformSetEditorScrollLine*(line: uint32) {.importc: "nimculus_platform_set_editor_scroll_line", cdecl.}
 proc platformSetEditorRect*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_editor_rect", cdecl.}
 proc platformSetEditorDirty*(dirty: bool) {.importc: "nimculus_platform_set_editor_dirty", cdecl.}
+proc platformSetEditorStatus*(text: cstring) {.importc: "nimculus_platform_set_editor_status", cdecl.}
 proc platformSetCloseDecision*(allow: bool) {.importc: "nimculus_platform_set_close_decision", cdecl.}
 proc platformRequestCloseTab*() {.importc: "nimculus_platform_request_close_tab", cdecl.}
 proc platformShowSavePanelAndCloseTab*() {.importc: "nimculus_platform_show_save_panel_and_close_tab", cdecl.}

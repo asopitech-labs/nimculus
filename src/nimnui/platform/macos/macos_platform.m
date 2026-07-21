@@ -35,6 +35,7 @@ static NSUInteger g_editor_scroll_line = 0;
 static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
 static NSString *g_editor_text = @"";
+static NSString *g_editor_status = @"Ready";
 static NSString *g_terminal_text = @"";
 static NSString *g_editor_outline_text = @"Outline\n────────\nNo symbols";
 static uint32_t g_editor_outline_symbol_count = 0;
@@ -1069,6 +1070,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusOutlineOverlay : NSTextView
 @end
 
+@interface NimculusStatusOverlay : NSTextField
+@end
+
 @interface NimculusEditorAnnotationOverlay : NSView
 @end
 
@@ -1102,6 +1106,11 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     (unsigned long)symbolIndex + 1];
   g_command_callback(command.UTF8String);
 }
+@end
+
+@implementation NimculusStatusOverlay
+- (BOOL)acceptsFirstResponder { return NO; }
+- (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
 @end
 
 @implementation NimculusEditorAnnotationOverlay
@@ -1278,6 +1287,19 @@ static void applyTerminalRuns(NSTextView *terminal) {
     outline.textContainerInset = NSMakeSize(8.0, 8.0);
     outline.string = g_editor_outline_text;
     [self addSubview:outline];
+    NimculusStatusOverlay *status = [[NimculusStatusOverlay alloc]
+      initWithFrame:NSZeroRect];
+    status.editable = NO;
+    status.selectable = NO;
+    status.bezeled = NO;
+    status.drawsBackground = NO;
+    status.alignment = NSTextAlignmentLeft;
+    status.stringValue = g_editor_status;
+    status.font = [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular];
+    status.textColor = [themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0])
+      colorWithAlphaComponent:0.82];
+    [self addSubview:status];
     NimculusTerminalOverlay *terminal = [[NimculusTerminalOverlay alloc]
       initWithFrame:NSZeroRect];
     terminal.editable = NO;
@@ -1365,11 +1387,13 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
 - (void)updateTerminalFrame {
   NimculusOutlineOverlay *outline = nil;
+  NimculusStatusOverlay *status = nil;
   NimculusTerminalOverlay *terminal = nil;
   NimculusTaskOutputOverlay *taskOutput = nil;
   NimculusEditorAnnotationOverlay *annotations = nil;
   for (NSView *subview in self.subviews) {
     if ([subview isKindOfClass:[NimculusOutlineOverlay class]]) outline = (NimculusOutlineOverlay *)subview;
+    if ([subview isKindOfClass:[NimculusStatusOverlay class]]) status = (NimculusStatusOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) terminal = (NimculusTerminalOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) taskOutput = (NimculusTaskOutputOverlay *)subview;
     if ([subview isKindOfClass:[NimculusEditorAnnotationOverlay class]]) annotations = (NimculusEditorAnnotationOverlay *)subview;
@@ -1378,6 +1402,10 @@ static void applyTerminalRuns(NSTextView *terminal) {
     CGFloat width = MAX(180.0, g_editor_rect[0] - 12.0);
     outline.frame = NSMakeRect(8.0, g_editor_rect[1], width, g_editor_rect[3]);
     outline.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
+  }
+  if (status) {
+    status.frame = NSMakeRect(g_editor_rect[0], 2.0, g_editor_rect[2], 20.0);
+    status.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
   }
   if (annotations) {
     annotations.frame = self.bounds;
@@ -2586,6 +2614,19 @@ void nimculus_platform_set_editor_rect(double x, double y, double width, double 
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_dirty(bool dirty) { g_editor_dirty = dirty ? YES : NO; }
+void nimculus_platform_set_editor_status(const char *utf8) {
+  g_editor_status = (utf8 && strlen(utf8) > 0)
+    ? [[NSString alloc] initWithUTF8String:utf8] : @"Ready";
+  if (!g_editor_status) g_editor_status = @"Ready";
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusStatusOverlay class]]) {
+      ((NSTextField *)subview).stringValue = g_editor_status;
+      break;
+    }
+  }
+}
 void nimculus_platform_set_close_decision(bool allow) { g_close_decision = allow ? YES : NO; }
 void nimculus_platform_request_close_tab(void) {
   if (!g_editor_dirty) {
