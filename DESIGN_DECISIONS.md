@@ -1477,6 +1477,17 @@ document/preview reset. This follows Zed's marked-text boundary and prevents
 IME composition from mutating the PieceTable before `GCS_RESULTSTR` is
 delivered.
 
+## M13-040: Consume Windows terminal runs at the native overlay boundary
+
+The terminal screen already emits cell-derived `NimculusTerminalRun` records,
+but Windows previously rendered only the flattened text and silently discarded
+the run and selection APIs. Windows now retains the UTF-8 text and run records,
+maps indexed/RGB/default colors (including inverse and dim), paints run
+backgrounds, underline/strike-through, and paints the selected cell rectangle
+before the text. This keeps the terminal parser and cell ownership in Nim while
+making the existing GDI bootstrap observe the same attribute contract. A
+DirectWrite/GPU terminal atlas remains separate follow-up work.
+
 ## M13-012: Normalize Win32 keyboard events before shared shortcut routing
 
 Zed's Windows backend separates accelerator handling from character input and

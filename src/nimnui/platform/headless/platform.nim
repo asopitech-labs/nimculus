@@ -85,9 +85,10 @@ proc platformSetEditorOutline*(text: cstring, length, symbolCount: uint32) = dis
 when not defined(windows):
   proc platformSetTerminalVisible*(visible: bool) = discard visible
   proc platformSetTerminalText*(text: cstring, length: uint32) = discard (text, length)
-proc platformSetTerminalRuns*(text: cstring, length: uint32,
-                              runs: ptr NativeTerminalRun, count: uint32) = discard (text, length,
-                                  runs, count)
+when not defined(windows):
+  proc platformSetTerminalRuns*(text: cstring, length: uint32,
+                                runs: ptr NativeTerminalRun, count: uint32) = discard (text, length,
+                                    runs, count)
 proc platformSetThemeColors*(background, foreground, accent, selection, border: cstring) = discard (
   background, foreground, accent, selection, border)
 when not defined(windows):
@@ -95,8 +96,9 @@ when not defined(windows):
   proc platformSetTerminalFontName*(name: cstring) = discard name
 proc platformIsDarkAppearance*(): bool = false
 proc platformInstallCrashHandler*(path: cstring) = discard path
-proc platformSetTerminalSelection*(startRow, startColumn, endRow, endColumn: uint32) = discard (
-  startRow, startColumn, endRow, endColumn)
+when not defined(windows):
+  proc platformSetTerminalSelection*(startRow, startColumn, endRow, endColumn: uint32) = discard (
+    startRow, startColumn, endRow, endColumn)
 proc platformSetTaskOutputVisible*(visible: bool) = discard visible
 proc platformSetTaskOutputText*(text: cstring, length: uint32) = discard (text, length)
 proc platformSetEditorCompletions*(text: cstring, length: uint32) = discard (text, length)

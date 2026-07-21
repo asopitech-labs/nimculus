@@ -51,7 +51,15 @@ static char g_clipboard_utf8[4 * 1024 * 1024];
 static wchar_t g_dialog_path[32768];
 static char g_dialog_utf8[32768];
 static wchar_t g_terminal_text[262144];
+static char *g_terminal_utf8 = NULL;
+static uint32_t g_terminal_utf8_length = 0;
 static bool g_terminal_visible = false;
+static NimculusTerminalRun *g_terminal_runs = NULL;
+static uint32_t g_terminal_run_count = 0;
+static uint32_t g_terminal_selection_start_row = 0;
+static uint32_t g_terminal_selection_start_column = 0;
+static uint32_t g_terminal_selection_end_row = 0;
+static uint32_t g_terminal_selection_end_column = 0;
 static wchar_t *g_editor_text = NULL;
 static int g_editor_text_length = 0;
 static char *g_editor_utf8 = NULL;
@@ -1027,6 +1035,141 @@ static bool render_editor_directwrite(void) {
   return true;
 }
 
+static void terminal_byte_position(uint32_t byte_offset, uint32_t *row,
+                                   uint32_t *column) {
+  uint32_t current_row = 0;
+  uint32_t current_column = 0;
+  uint32_t limit = byte_offset < g_terminal_utf8_length
+      ? byte_offset : g_terminal_utf8_length;
+  for (uint32_t index = 0; index < limit; ++index) {
+    unsigned char value = (unsigned char)g_terminal_utf8[index];
+    if (value == '\n') {
+      current_row++;
+      current_column = 0;
+    } else if ((value & 0xc0) != 0x80) {
+      current_column++;
+    }
+  }
+  if (row) *row = current_row;
+  if (column) *column = current_column;
+}
+
+static COLORREF terminal_indexed_color(uint32_t index, bool background) {
+  static const BYTE palette[16][3] = {
+    {0, 0, 0}, {205, 49, 49}, {13, 188, 121}, {229, 229, 16},
+    {36, 114, 200}, {188, 63, 188}, {17, 168, 205}, {229, 229, 229},
+    {102, 102, 102}, {241, 76, 76}, {35, 209, 139}, {245, 245, 67},
+    {59, 142, 234}, {214, 112, 214}, {41, 184, 219}, {255, 255, 255}
+  };
+  if (index < 16) return RGB(palette[index][0], palette[index][1], palette[index][2]);
+  if (index >= 232) {
+    BYTE value = (BYTE)(8 + (index - 232) * 10);
+    return RGB(value, value, value);
+  }
+  index -= 16;
+  BYTE red = (BYTE)((index / 36) * 51);
+  BYTE green = (BYTE)(((index / 6) % 6) * 51);
+  BYTE blue = (BYTE)((index % 6) * 51);
+  return RGB(red, green, blue);
+}
+
+static COLORREF terminal_run_color(const NimculusTerminalRun *run, bool foreground) {
+  if (!run) return foreground ? RGB(220, 225, 235) : RGB(15, 18, 24);
+  bool source_foreground = foreground;
+  if ((run->flags & 16u) != 0) source_foreground = !source_foreground;
+  uint32_t kind = source_foreground ? run->foreground_kind : run->background_kind;
+  uint32_t index = source_foreground ? run->foreground_index : run->background_index;
+  COLORREF color;
+  if (kind == 2) {
+    color = RGB(source_foreground ? run->foreground_red : run->background_red,
+        source_foreground ? run->foreground_green : run->background_green,
+        source_foreground ? run->foreground_blue : run->background_blue);
+  } else if (kind == 1) {
+    color = terminal_indexed_color(index, !foreground);
+  } else {
+    color = source_foreground ? RGB(220, 225, 235) : RGB(15, 18, 24);
+  }
+  if (foreground && (run->flags & 2u) != 0) {
+    color = RGB(GetRValue(color) / 2, GetGValue(color) / 2, GetBValue(color) / 2);
+  }
+  return color;
+}
+
+static void render_terminal_runs(HDC dc, const RECT *rect, HFONT font,
+                                 LONG line_height, LONG cell_width) {
+  if (!dc || !rect || !font || !g_terminal_utf8 || g_terminal_run_count == 0) return;
+  uint32_t selected_start_row = g_terminal_selection_start_row;
+  uint32_t selected_end_row = g_terminal_selection_end_row;
+  uint32_t selected_start_column = g_terminal_selection_start_column;
+  uint32_t selected_end_column = g_terminal_selection_end_column;
+  if (selected_start_row > selected_end_row ||
+      (selected_start_row == selected_end_row &&
+       selected_start_column > selected_end_column)) {
+    uint32_t temporary = selected_start_row;
+    selected_start_row = selected_end_row;
+    selected_end_row = temporary;
+    temporary = selected_start_column;
+    selected_start_column = selected_end_column;
+    selected_end_column = temporary;
+  }
+  HBRUSH selection_brush = CreateSolidBrush(RGB(55, 76, 112));
+  SetBkMode(dc, TRANSPARENT);
+  for (uint32_t run_index = 0; run_index < g_terminal_run_count; ++run_index) {
+    NimculusTerminalRun *run = &g_terminal_runs[run_index];
+    if (run->start_byte >= g_terminal_utf8_length || run->end_byte <= run->start_byte) continue;
+    uint32_t start = run->start_byte;
+    uint32_t end = min(run->end_byte, g_terminal_utf8_length);
+    uint32_t row = 0, column = 0;
+    terminal_byte_position(start, &row, &column);
+    uint32_t byte_length = end - start;
+    wchar_t wide[2048];
+    int wide_length = MultiByteToWideChar(CP_UTF8, 0, g_terminal_utf8 + start,
+        (int)min(byte_length, (uint32_t)sizeof(wide) / sizeof(wide[0]) - 1),
+        wide, (int)(sizeof(wide) / sizeof(wide[0]) - 1));
+    if (wide_length <= 0) continue;
+    wide[wide_length] = L'\0';
+    LONG x = rect->left + (LONG)column * cell_width;
+    LONG y = rect->top + (LONG)row * line_height;
+    RECT text_rect = {x, y, rect->right - 8, y + line_height};
+    if (run->background_kind != 0 || (run->flags & 16u) != 0) {
+      HBRUSH background = CreateSolidBrush(terminal_run_color(run, false));
+      RECT background_rect = {x, y,
+          min(rect->right, x + max(cell_width, (LONG)wide_length * cell_width)),
+          y + line_height};
+      FillRect(dc, &background_rect, background);
+      DeleteObject(background);
+    }
+    if (row >= selected_start_row && row <= selected_end_row) {
+      uint32_t selection_left = row == selected_start_row ? selected_start_column : 0;
+      uint32_t selection_right = row == selected_end_row ? selected_end_column : 1000000;
+      if (selection_right > selection_left) {
+        RECT selected = {rect->left + (LONG)selection_left * cell_width, y,
+            rect->left + (LONG)selection_right * cell_width, y + line_height};
+        FillRect(dc, &selected, selection_brush);
+      }
+    }
+    SetTextColor(dc, terminal_run_color(run, true));
+    DrawTextW(dc, wide, wide_length, &text_rect,
+        DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX | DT_NOCLIP);
+    if ((run->flags & 8u) != 0 || (run->flags & 32u) != 0) {
+      HPEN pen = CreatePen(PS_SOLID, 1, terminal_run_color(run, true));
+      HGDIOBJ old_pen = SelectObject(dc, pen);
+      LONG extent = max(cell_width, (LONG)wide_length * cell_width);
+      if ((run->flags & 8u) != 0) {
+        MoveToEx(dc, x, y + line_height - 2, NULL);
+        LineTo(dc, min(rect->right - 8, x + extent), y + line_height - 2);
+      }
+      if ((run->flags & 32u) != 0) {
+        MoveToEx(dc, x, y + line_height / 2, NULL);
+        LineTo(dc, min(rect->right - 8, x + extent), y + line_height / 2);
+      }
+      SelectObject(dc, old_pen);
+      DeleteObject(pen);
+    }
+  }
+  DeleteObject(selection_brush);
+}
+
 static void render_frame(void) {
   g_directwrite_frame = false;
   if (!g_context || !g_render_target || !g_swap_chain) return;
@@ -1069,7 +1212,17 @@ static void render_terminal_overlay(void) {
   rect.left += 8;
   rect.right -= 8;
   rect.top += 6;
-  DrawTextW(dc, g_terminal_text, -1, &rect, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+  if (g_terminal_run_count > 0 && g_terminal_utf8) {
+    TEXTMETRICW metrics;
+    GetTextMetricsW(dc, &metrics);
+    LONG line_height = max(1L, metrics.tmHeight + (LONG)(2.0 * scale));
+    SIZE cell_size;
+    GetTextExtentPoint32W(dc, L"M", 1, &cell_size);
+    render_terminal_runs(dc, &rect, font, line_height, max(1L, cell_size.cx));
+  } else {
+    DrawTextW(dc, g_terminal_text, -1, &rect,
+        DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+  }
   SelectObject(dc, old_font);
   DeleteObject(font);
   ReleaseDC(g_window, dc);
@@ -1462,6 +1615,12 @@ bool nimculus_platform_run(void) {
   free(g_editor_highlights);
   g_editor_highlights = NULL;
   g_editor_highlight_count = 0;
+  free(g_terminal_utf8);
+  g_terminal_utf8 = NULL;
+  g_terminal_utf8_length = 0;
+  free(g_terminal_runs);
+  g_terminal_runs = NULL;
+  g_terminal_run_count = 0;
   g_window = NULL;
   return true;
 }
@@ -1787,12 +1946,51 @@ void nimculus_platform_set_terminal_visible(bool visible) {
 }
 
 void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length) {
+  free(g_terminal_utf8);
+  g_terminal_utf8 = NULL;
+  g_terminal_utf8_length = 0;
   ZeroMemory(g_terminal_text, sizeof(g_terminal_text));
   if (utf8 && length > 0) {
-    int bounded = (int)min((uint32_t)(sizeof(g_terminal_text) / sizeof(wchar_t) - 1), length);
-    MultiByteToWideChar(CP_UTF8, 0, utf8, bounded, g_terminal_text,
+    uint32_t bounded = min((uint32_t)(sizeof(g_terminal_text) / sizeof(wchar_t) - 1), length);
+    g_terminal_utf8 = (char *)malloc((size_t)bounded + 1);
+    if (g_terminal_utf8) {
+      memcpy(g_terminal_utf8, utf8, bounded);
+      g_terminal_utf8[bounded] = '\0';
+      g_terminal_utf8_length = bounded;
+    }
+    MultiByteToWideChar(CP_UTF8, 0, utf8, (int)bounded, g_terminal_text,
                         (int)(sizeof(g_terminal_text) / sizeof(wchar_t) - 1));
   }
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_terminal_runs(const char *utf8, uint32_t length,
+                                         const NimculusTerminalRun *runs,
+                                         uint32_t count) {
+  nimculus_platform_set_terminal_text(utf8, length);
+  free(g_terminal_runs);
+  g_terminal_runs = NULL;
+  g_terminal_run_count = 0;
+  if (runs && count > 0) {
+    g_terminal_runs = (NimculusTerminalRun *)malloc(
+        sizeof(NimculusTerminalRun) * (size_t)count);
+    if (g_terminal_runs) {
+      memcpy(g_terminal_runs, runs,
+          sizeof(NimculusTerminalRun) * (size_t)count);
+      g_terminal_run_count = count;
+    }
+  }
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_terminal_selection(uint32_t start_row,
+                                               uint32_t start_column,
+                                               uint32_t end_row,
+                                               uint32_t end_column) {
+  g_terminal_selection_start_row = start_row;
+  g_terminal_selection_start_column = start_column;
+  g_terminal_selection_end_row = end_row;
+  g_terminal_selection_end_column = end_column;
   if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
 
