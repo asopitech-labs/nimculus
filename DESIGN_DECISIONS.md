@@ -57,6 +57,9 @@ declared fixed/min/max size from becoming metadata that the layout engine
 ignores.
 Root layout uses the same resolution path, so its containing bounds remain the
 available space while an explicitly styled root size is still respected.
+Updating a node style replaces its size constraints instead of merging stale
+values from the previous style; an omitted maximum is normalized to the
+finite internal default.
 
 ## M20-003: Measure input latency through the next presented frame
 

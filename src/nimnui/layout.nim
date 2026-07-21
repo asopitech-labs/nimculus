@@ -104,5 +104,9 @@ proc layoutNode*(tree: var UiTree, id: NodeId, bounds: Rect, spec: LayoutSpec) =
   ## retained on UiNode, matching Zed's hierarchical layout tree.
   let index = tree.nodeIndex(id)
   if index < 0: return
-  tree.nodes[index].layoutSpec = spec
-  layoutNodeRecursive(tree, id, resolveBounds(bounds, spec), spec)
+  let normalized = normalizeLayoutSpec(spec)
+  tree.nodes[index].layoutSpec = normalized
+  tree.nodes[index].preferredSize = normalized.size
+  tree.nodes[index].minSize = normalized.minSize
+  tree.nodes[index].maxSize = normalized.maxSize
+  layoutNodeRecursive(tree, id, resolveBounds(bounds, normalized), normalized)

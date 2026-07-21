@@ -21,3 +21,10 @@ type
 
 proc defaultLayoutSpec*(): LayoutSpec =
   LayoutSpec(direction: stack)
+
+proc normalizeLayoutSpec*(spec: LayoutSpec): LayoutSpec =
+  ## A missing maximum means unbounded in the public style API. Keep the
+  ## internal node maximum finite so allocation arithmetic remains stable.
+  result = spec
+  if float32(result.maxSize.width) <= 0: result.maxSize.width = px(100000)
+  if float32(result.maxSize.height) <= 0: result.maxSize.height = px(100000)

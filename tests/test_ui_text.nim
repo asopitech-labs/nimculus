@@ -160,6 +160,17 @@ suite "M2 UI foundation":
         maxSize: Size(width: px(80), height: px(70))))
     check tree.node(root).bounds.size == Size(width: px(60), height: px(40))
 
+  test "replacing a layout spec clears prior size constraints":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let child = tree.addNode(root)
+    tree.setLayoutSpec(child, LayoutSpec(direction: stack,
+      size: Size(width: px(30), height: px(10))))
+    tree.setLayoutSpec(child, LayoutSpec(direction: stack))
+    tree.layoutNode(root, Rect(size: Size(width: px(100), height: px(20))),
+      LayoutSpec(direction: row))
+    check tree.node(child).bounds.size.width == px(100)
+
   test "viewport clipping remains active when only height is nonzero":
     var tree = newUiTree()
     let root = tree.addNode()
