@@ -2,6 +2,8 @@
 #include <windows.h>
 #include <d3d11.h>
 #include <d3dcompiler.h>
+#include <d2d1.h>
+#include <dwrite.h>
 #include <dxgi.h>
 #include <commdlg.h>
 #include <imm.h>
@@ -38,6 +40,10 @@ static ID3D11Buffer *g_quad_vertex_buffer = NULL;
 static ID3D11RasterizerState *g_quad_rasterizer = NULL;
 static ID3D11BlendState *g_quad_blend_state = NULL;
 static ID3D11SamplerState *g_image_sampler = NULL;
+static ID2D1Factory *g_d2d_factory = NULL;
+static ID2D1RenderTarget *g_d2d_target = NULL;
+static ID2D1SolidColorBrush *g_d2d_text_brush = NULL;
+static bool g_directwrite_frame = false;
 static NimculusPaintCommand *g_paint_commands = NULL;
 static uint32_t g_paint_count = 0;
 static char g_clipboard_utf8[4 * 1024 * 1024];
@@ -501,6 +507,54 @@ static void release_render_target(void) {
   }
 }
 
+static void release_directwrite_target(void) {
+  if (g_d2d_text_brush) {
+    g_d2d_text_brush->lpVtbl->Release(g_d2d_text_brush);
+    g_d2d_text_brush = NULL;
+  }
+  if (g_d2d_target) {
+    g_d2d_target->lpVtbl->Release(g_d2d_target);
+    g_d2d_target = NULL;
+  }
+}
+
+static bool create_directwrite_target(void) {
+  if (!g_swap_chain) return false;
+  if (!g_d2d_factory) {
+    D2D1_FACTORY_OPTIONS options;
+    ZeroMemory(&options, sizeof(options));
+    HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED,
+        &IID_ID2D1Factory, &options, (void **)&g_d2d_factory);
+    if (FAILED(hr)) return false;
+  }
+  IDXGISurface *surface = NULL;
+  HRESULT hr = g_swap_chain->lpVtbl->GetBuffer(g_swap_chain, 0,
+      &IID_IDXGISurface, (void **)&surface);
+  if (FAILED(hr)) return false;
+  D2D1_RENDER_TARGET_PROPERTIES properties;
+  ZeroMemory(&properties, sizeof(properties));
+  properties.type = D2D1_RENDER_TARGET_TYPE_DEFAULT;
+  properties.pixelFormat.format = DXGI_FORMAT_B8G8R8A8_UNORM;
+  properties.pixelFormat.alphaMode = D2D1_ALPHA_MODE_PREMULTIPLIED;
+  properties.dpiX = 96.0f;
+  properties.dpiY = 96.0f;
+  properties.usage = D2D1_RENDER_TARGET_USAGE_NONE;
+  properties.minLevel = D2D1_FEATURE_LEVEL_DEFAULT;
+  release_directwrite_target();
+  hr = g_d2d_factory->lpVtbl->CreateDxgiSurfaceRenderTarget(
+      g_d2d_factory, surface, &properties, &g_d2d_target);
+  surface->lpVtbl->Release(surface);
+  if (FAILED(hr)) return false;
+  D2D1_COLOR_F color = {0.84f, 0.86f, 0.90f, 1.0f};
+  hr = g_d2d_target->lpVtbl->CreateSolidColorBrush(g_d2d_target, &color,
+      NULL, &g_d2d_text_brush);
+  if (FAILED(hr)) {
+    release_directwrite_target();
+    return false;
+  }
+  return true;
+}
+
 static bool create_render_target(void) {
   if (!g_swap_chain || !g_device) return false;
   ID3D11Texture2D *back_buffer = NULL;
@@ -516,12 +570,14 @@ static bool create_render_target(void) {
 static void resize_render_target(void) {
   if (!g_swap_chain || !g_device) return;
   if (g_context) g_context->lpVtbl->OMSetRenderTargets(g_context, 0, NULL, NULL);
+  release_directwrite_target();
   release_render_target();
   if (g_metrics.width_pixels == 0 || g_metrics.height_pixels == 0) return;
   if (FAILED(g_swap_chain->lpVtbl->ResizeBuffers(
       g_swap_chain, 0, g_metrics.width_pixels, g_metrics.height_pixels,
       DXGI_FORMAT_UNKNOWN, 0))) return;
   create_render_target();
+  create_directwrite_target();
 }
 
 static NimculusImage *find_image(uint32_t image_id) {
@@ -605,6 +661,7 @@ static bool create_device(void) {
   if (FAILED(hr)) return false;
   update_metrics();
   if (!create_render_target()) return false;
+  create_directwrite_target();
   if (!create_quad_pipeline()) return false;
   for (size_t index = 0; index < NIMCULUS_MAX_IMAGES; ++index) {
     if (g_images[index].id != 0) upload_image_view(&g_images[index]);
@@ -614,6 +671,7 @@ static bool create_device(void) {
 
 static void release_device(void) {
   if (g_context) g_context->lpVtbl->ClearState(g_context);
+  release_directwrite_target();
   release_render_target();
   release_image_views();
   release_quad_pipeline();
@@ -733,6 +791,121 @@ static void draw_paint_quads(void) {
   }
 }
 
+static bool render_editor_directwrite(void) {
+  if (!g_d2d_target || !g_d2d_text_brush || !g_editor_text ||
+      g_editor_text_length <= 0) return false;
+  double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+  float left = (float)(268.0 * scale);
+  float top = (float)(128.0 * scale);
+  float right = (float)g_metrics.width_pixels - (float)(24.0 * scale);
+  float bottom = (float)g_metrics.height_pixels - (float)(48.0 * scale);
+  if (right <= left || bottom <= top) return false;
+  IDWriteFactory *factory = NULL;
+  HRESULT hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
+      &IID_IDWriteFactory, (IUnknown **)&factory);
+  if (FAILED(hr)) return false;
+  IDWriteTextFormat *format = NULL;
+  hr = factory->lpVtbl->CreateTextFormat(factory, g_editor_font_name, NULL,
+      DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+      DWRITE_FONT_STRETCH_NORMAL, (FLOAT)(g_editor_font_size * scale),
+      L"", &format);
+  if (FAILED(hr)) {
+    factory->lpVtbl->Release(factory);
+    return false;
+  }
+  factory->lpVtbl->Release(factory);
+  format->lpVtbl->SetWordWrapping(format, DWRITE_WORD_WRAPPING_NO_WRAP);
+  format->lpVtbl->SetTextAlignment(format, DWRITE_TEXT_ALIGNMENT_LEADING);
+  format->lpVtbl->SetParagraphAlignment(format, DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+  ID2D1SolidColorBrush *selection_brush = NULL;
+  D2D1_COLOR_F selection_color = {0.22f, 0.30f, 0.44f, 1.0f};
+  hr = g_d2d_target->lpVtbl->CreateSolidColorBrush(g_d2d_target,
+      &selection_color, NULL, &selection_brush);
+  if (FAILED(hr)) {
+    format->lpVtbl->Release(format);
+    return false;
+  }
+  g_d2d_target->lpVtbl->BeginDraw(g_d2d_target);
+  D2D1_RECT_F clip = {left, top, right, bottom};
+  g_d2d_target->lpVtbl->PushAxisAlignedClip(g_d2d_target, &clip,
+      D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+  uint32_t selection_start = g_editor_selection_start;
+  uint32_t selection_end = g_editor_selection_end;
+  if (selection_start > selection_end) {
+    uint32_t temporary = selection_start;
+    selection_start = selection_end;
+    selection_end = temporary;
+  }
+  uint32_t start_line = 0, start_column = 0, end_line = 0, end_column = 0;
+  editor_byte_position(selection_start, &start_line, &start_column);
+  editor_byte_position(selection_end, &end_line, &end_column);
+  float line_height = (float)((g_editor_font_size + 2.0) * scale);
+  if (selection_start < selection_end) {
+    for (uint32_t selected_line = start_line; selected_line <= end_line; ++selected_line) {
+      if (selected_line < g_editor_scroll_line) continue;
+      float line_top = top + (float)(selected_line - g_editor_scroll_line) * line_height;
+      if (line_top >= bottom) break;
+      uint32_t first_column = selected_line == start_line ? start_column : 0;
+      uint32_t last_column = selected_line == end_line
+          ? end_column : editor_line_length(selected_line);
+      if (last_column > first_column) {
+        D2D1_RECT_F selected = {
+          left + (float)(8 + first_column * 8) * (float)scale,
+          line_top,
+          left + (float)(8 + last_column * 8) * (float)scale,
+          line_top + line_height};
+        g_d2d_target->lpVtbl->FillRectangle(g_d2d_target, &selected,
+            (ID2D1Brush *)selection_brush);
+      }
+    }
+  }
+  uint32_t line = 0;
+  const wchar_t *line_start = g_editor_text;
+  const wchar_t *end = g_editor_text + g_editor_text_length;
+  while (line_start <= end &&
+      (line < g_editor_scroll_line ||
+       top + (float)(line - g_editor_scroll_line) * line_height < bottom)) {
+    const wchar_t *line_end = line_start;
+    while (line_end < end && *line_end != L'\n') line_end++;
+    if (line >= g_editor_scroll_line) {
+      float line_top = top + (float)(line - g_editor_scroll_line) * line_height;
+      if (line_top + line_height > top) {
+        D2D1_RECT_F text_rect = {left, line_top, right, line_top + line_height};
+        UINT32 length = (UINT32)(line_end - line_start);
+        if (length > 0 && line_start[length - 1] == L'\r') length--;
+        if (length > 0) {
+          g_d2d_target->lpVtbl->DrawText(g_d2d_target, line_start, length,
+              format, &text_rect, (ID2D1Brush *)g_d2d_text_brush,
+              D2D1_DRAW_TEXT_OPTIONS_NO_SNAP, DWRITE_MEASURING_MODE_NATURAL);
+        }
+      }
+    }
+    if (line_end >= end) break;
+    line_start = line_end + 1;
+    line++;
+  }
+  if (g_editor_cursor_line >= g_editor_scroll_line) {
+    float cursor_top = top + (float)(g_editor_cursor_line - g_editor_scroll_line) * line_height;
+    if (cursor_top < bottom && cursor_top + line_height > top) {
+      D2D1_RECT_F cursor = {(float)(g_editor_cursor_x * scale),
+          cursor_top + 2.0f * (float)scale,
+          (float)(g_editor_cursor_x * scale) + (float)scale,
+          cursor_top + line_height - 2.0f * (float)scale};
+      g_d2d_target->lpVtbl->FillRectangle(g_d2d_target, &cursor,
+          (ID2D1Brush *)g_d2d_text_brush);
+    }
+  }
+  g_d2d_target->lpVtbl->PopAxisAlignedClip(g_d2d_target);
+  hr = g_d2d_target->lpVtbl->EndDraw(g_d2d_target, NULL, NULL);
+  selection_brush->lpVtbl->Release(selection_brush);
+  format->lpVtbl->Release(format);
+  if (FAILED(hr)) {
+    release_directwrite_target();
+    return false;
+  }
+  return true;
+}
+
 static void render_frame(void) {
   if (!g_context || !g_render_target || !g_swap_chain) return;
   const FLOAT clear_color[4] = {0.10f, 0.12f, 0.16f, 1.0f};
@@ -742,6 +915,7 @@ static void render_frame(void) {
                              (FLOAT)g_metrics.height_pixels, 0.0f, 1.0f};
   g_context->lpVtbl->RSSetViewports(g_context, 1, &viewport);
   draw_paint_quads();
+  g_directwrite_frame = render_editor_directwrite();
   HRESULT present = g_swap_chain->lpVtbl->Present(g_swap_chain, 1, 0);
   if (SUCCEEDED(present)) {
     g_metrics.frame_count++;
@@ -947,7 +1121,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
       PAINTSTRUCT paint;
       BeginPaint(window, &paint);
       render_frame();
-      render_editor_overlay();
+      if (!g_directwrite_frame) render_editor_overlay();
       render_terminal_overlay();
       EndPaint(window, &paint);
       return 0;
@@ -1142,6 +1316,10 @@ bool nimculus_platform_run(void) {
     }
   }
   release_device();
+  if (g_d2d_factory) {
+    g_d2d_factory->lpVtbl->Release(g_d2d_factory);
+    g_d2d_factory = NULL;
+  }
   release_images();
   free(g_paint_commands);
   g_paint_commands = NULL;

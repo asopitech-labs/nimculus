@@ -1,6 +1,6 @@
 when defined(windows) and not defined(nimculusPortableOnly):
   {.compile: "windows_platform.c".}
-  {.passL: "-ld3d11 -ldxgi -ld3dcompiler -luser32 -lgdi32 -lcomdlg32 -limm32 -lshell32".}
+  {.passL: "-ld3d11 -ldxgi -ld3dcompiler -ld2d1 -ldwrite -luser32 -lgdi32 -lcomdlg32 -limm32 -lshell32".}
 
 import nimnui/platform/headless/platform as headless_platform
 export headless_platform

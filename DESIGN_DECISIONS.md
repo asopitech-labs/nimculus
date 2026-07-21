@@ -1439,11 +1439,23 @@ being silently dropped by the Windows editor input path.
 
 Zed separates the platform input handler from the renderer's text resources.
 Nimculus follows that sequencing on Windows: workspace preview and opened
-document text now reach a bounded UTF-8-to-UTF-16 GDI bootstrap surface, while
-the same callback updates the editor buffer and IME caret coordinates. This
-makes input/display behavior observable before the DirectWrite/glyph-atlas
-renderer is complete; the bootstrap is intentionally not reported as the
-final GPU text implementation.
+document text reach the platform text surface, while the same callback updates
+the editor buffer and IME caret coordinates. The initial surface was a bounded
+UTF-8-to-UTF-16 GDI bootstrap; it is now backed by DirectWrite text layout on
+the D3D11 swap-chain surface, with GDI retained only when the Direct2D target
+cannot be created.
+
+## M13-037: Draw Windows visible editor lines through DirectWrite
+
+Zed's Windows text system keeps DirectWrite shaping at the platform boundary
+and uploads its glyph resources alongside the DirectX renderer. Nimculus first
+uses the corresponding DirectWrite/D2D boundary for the visible editor lines:
+the swap-chain back buffer is exposed as a DXGI surface, Direct2D owns a
+DirectWrite text format, and only the visible UTF-16 lines are drawn before
+`Present`. Selection and caret are drawn in the same clipped target, and a
+device-loss or target failure releases the D2D resources so the existing GDI
+surface can remain a fallback. A persistent glyph atlas with per-run syntax
+color and subpixel positioning remains a later Windows renderer step.
 
 ## M13-012: Normalize Win32 keyboard events before shared shortcut routing
 
