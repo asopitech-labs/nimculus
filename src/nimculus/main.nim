@@ -1113,6 +1113,19 @@ proc restoreSession() =
       discard
   editorSession.loadActiveView(editorViewState)
 
+proc reloadWorkspaceSettings(root: string) =
+  when defined(macosx) or defined(windows):
+    if appSettings == nil: return
+    let workspacePath = absolutePath(root) / ".nimculus" / "settings.json"
+    if appSettings.workspacePath == workspacePath: return
+    appSettings.workspacePath = workspacePath
+    # Force SettingsStore.reload to observe the new workspace layer even when
+    # the previous and new files happen to have the same timestamp.
+    appSettings.workspaceStamp = -1
+    discard appSettings.reload()
+    applySettingsKeymap()
+    applySettingsTheme()
+
 proc openActiveWorkspace(path: string) =
   when defined(macosx) or defined(windows):
     if activeWorkspace != nil: activeWorkspace.stopWatching()
@@ -1124,6 +1137,7 @@ proc openActiveWorkspace(path: string) =
     if workspaceQuickOpenJob != nil: workspaceQuickOpenJob.cancelFuzzySearch()
     workspaceQuickOpenJob = nil
     activeWorkspace = openWorkspace(path)
+    reloadWorkspaceSettings(activeWorkspace.root)
     activeWorkspace.startWatching()
     workspaceSearchQuery = ""
     workspaceQuickOpenQuery = ""

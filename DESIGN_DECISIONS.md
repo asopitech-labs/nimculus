@@ -1604,3 +1604,11 @@ Windows startup resolves the restored session root before constructing the
 process current directory would silently ignore project settings whenever a
 session reopened a workspace elsewhere, leaving font and other workspace
 configuration inconsistent with the visible project.
+
+## M12-033: Switch workspace settings with the active workspace
+
+Changing the active workspace updates `SettingsStore.workspacePath`, forces a
+reload of the workspace layer, and reapplies platform settings. This keeps
+folder-open and session-restoration behavior consistent with the selected
+project instead of retaining configuration from the previous root. The
+global settings layer remains unchanged.

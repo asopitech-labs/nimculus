@@ -58,6 +58,26 @@ suite "M12 settings foundation":
     removeFile(path)
     removeDir(root)
 
+  test "reloads a newly selected workspace settings layer":
+    let root = getTempDir() / "nimculus-settings-switch"
+    createDir(root)
+    let globalPath = root / "global.json"
+    let firstPath = root / "first.json"
+    let secondPath = root / "second.json"
+    writeFile(globalPath, "{\"editor\":{\"fontSize\":14}}")
+    writeFile(firstPath, "{\"editor\":{\"fontSize\":16}}")
+    writeFile(secondPath, "{\"editor\":{\"fontSize\":20}}")
+    let store = newSettingsStore(globalPath, firstPath)
+    check store.intSetting("editor.fontSize", 0) == 16
+    store.workspacePath = secondPath
+    store.workspaceStamp = -1
+    check store.reload()
+    check store.intSetting("editor.fontSize", 0) == 20
+    removeFile(globalPath)
+    removeFile(firstPath)
+    removeFile(secondPath)
+    removeDir(root)
+
   test "ignores malformed keymap entries without raising":
     let root = getTempDir() / "nimculus-settings-keymap-types"
     createDir(root)
