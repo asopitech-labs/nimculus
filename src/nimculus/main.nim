@@ -1078,20 +1078,29 @@ proc refreshWorkspacePreview() =
     workspacePreviewMode = "tree"
     workspacePreviewEntries.setLen(0)
     var lines = @["Workspace: " & activeWorkspace.root]
-    for rootIndex, root in activeWorkspace.rootPaths:
-      if rootIndex > 0:
-        if lines.len >= 12: break
-        lines.add("Root: " & root)
-        workspacePreviewEntries.add(WorkspaceEntry(path: root, rootPath: root,
-          relativePath: root, kind: WorkspaceFileKind.directory))
-      var children = activeWorkspace.listChildrenAt(root)
+    # Keep the preview bounded, but walk beyond the root directory so the
+    # workspace surface is a real lazy tree rather than a flat root listing.
+    # The filesystem is still enumerated incrementally by the workspace API;
+    # this view only asks for enough entries to fill its visible preview.
+    var pending: seq[tuple[root, relative: string, depth: int]]
+    for rootIndex in countdown(activeWorkspace.rootPaths.high, 0):
+      let root = activeWorkspace.rootPaths[rootIndex]
+      pending.add((root: root, relative: "", depth: 0))
+    while pending.len > 0 and lines.len < 12:
+      let directory = pending.pop()
+      var children = activeWorkspace.listChildrenAt(directory.root, directory.relative)
       children.sort(proc(a, b: WorkspaceEntry): int = cmp(a.relativePath, b.relativePath))
-      for entry in children:
+      for childIndex in countdown(children.high, 0):
+        let entry = children[childIndex]
         if lines.len >= 12: break
         workspacePreviewEntries.add(entry)
         let icon = appSettings.iconForPath(entry.path,
           entry.kind == WorkspaceFileKind.directory)
-        lines.add(icon & " " & entry.relativePath)
+        let relativeName = entry.path.extractFilename
+        lines.add(repeat("  ", directory.depth) & icon & " " & relativeName)
+        if entry.kind == WorkspaceFileKind.directory:
+          pending.add((root: directory.root, relative: entry.relativePath,
+            depth: directory.depth + 1))
     let states = activeWorkspace.gitWorktreeStates()
     for root, state in states:
       if lines.len >= 12: break
