@@ -38,6 +38,7 @@ static NSString *g_editor_text = @"";
 static NSString *g_editor_status = @"Ready";
 static BOOL g_editor_indent_guides = YES;
 static NSUInteger g_editor_indent_width = 2;
+static BOOL g_editor_line_numbers = YES;
 static NSString *g_terminal_text = @"";
 static NSString *g_editor_outline_text = @"Outline\n────────\nNo symbols";
 static uint32_t g_editor_outline_symbol_count = 0;
@@ -1469,6 +1470,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
     outline.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
   }
   if (lineNumbers) {
+    lineNumbers.hidden = !g_editor_line_numbers;
     lineNumbers.frame = NSMakeRect(0.0, g_editor_rect[1],
       MAX(36.0, g_editor_rect[0] - 8.0), g_editor_rect[3]);
     lineNumbers.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
@@ -2714,6 +2716,17 @@ void nimculus_platform_set_editor_indent_guides(bool visible, uint32_t indent_wi
   for (NSView *subview in view.subviews) {
     if ([subview isKindOfClass:[NimculusIndentGuideOverlay class]]) {
       [subview setNeedsDisplay:YES];
+      break;
+    }
+  }
+}
+void nimculus_platform_set_editor_line_numbers(bool visible) {
+  g_editor_line_numbers = visible ? YES : NO;
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) {
+      subview.hidden = !g_editor_line_numbers;
       break;
     }
   }

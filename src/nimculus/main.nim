@@ -1273,6 +1273,7 @@ proc syncEditorCursor() =
     platformSetEditorSelection(uint32(selection.startByte), uint32(selection.endByte))
     platformInvalidateImeCoordinates()
     platformSetEditorDirty(document != nil and document[].buffer.isDirty)
+    platformSetEditorLineNumbers(editorViewState.showLineNumbers)
     platformSetEditorIndentGuides(editorViewState.showIndentGuides,
       uint32(max(1, editorViewState.indentWidth)))
     let status = if document != nil: editorViewState.statusBarText(document[].buffer)

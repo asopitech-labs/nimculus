@@ -124,6 +124,7 @@ void nimculus_platform_set_editor_scroll_line(uint32_t line);
 void nimculus_platform_set_editor_rect(double x, double y, double width, double height);
 void nimculus_platform_set_editor_dirty(bool dirty);
 void nimculus_platform_set_editor_indent_guides(bool visible, uint32_t indent_width);
+void nimculus_platform_set_editor_line_numbers(bool visible);
 void nimculus_platform_set_editor_status(const char *utf8);
 void nimculus_platform_set_close_decision(bool allow);
 void nimculus_platform_request_close_tab(void);
