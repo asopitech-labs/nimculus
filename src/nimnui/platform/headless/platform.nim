@@ -39,8 +39,9 @@ proc platformSetShortcutCallback*(callback: ShortcutCallback) =
   if callback != nil: discard
 proc platformSetSelectionCallback*(callback: SelectionCallback) =
   if callback != nil: discard
-proc platformSetFileCallback*(callback: FileCallback) =
-  if callback != nil: discard
+when not defined(windows):
+  proc platformSetFileCallback*(callback: FileCallback) =
+    if callback != nil: discard
 proc platformSetCommandCallback*(callback: CommandCallback) =
   if callback != nil: discard
 proc platformSetIdleCallback*(callback: IdleCallback) =

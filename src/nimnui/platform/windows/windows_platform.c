@@ -4,8 +4,10 @@
 #include <dxgi.h>
 #include <commdlg.h>
 #include <imm.h>
+#include <shellapi.h>
 #include <stdint.h>
 #include <string.h>
+#include <wchar.h>
 
 #include "../contracts.h"
 
@@ -13,6 +15,11 @@ static NimculusPlatformMetrics g_metrics = {1.0, 0, 0, 0, 0, 0.0, 0};
 static uint64_t g_input_count = 0;
 static NimculusInputCallback g_input_callback = NULL;
 static NimculusTextCallback g_text_callback = NULL;
+typedef void (*NimculusFontCallback)(const char *name);
+static NimculusFileCallback g_file_callback = NULL;
+static NimculusFontCallback g_font_callback = NULL;
+static const wchar_t *g_font_query = NULL;
+static bool g_font_found = false;
 static HWND g_window = NULL;
 static ID3D11Device *g_device = NULL;
 static ID3D11DeviceContext *g_context = NULL;
@@ -25,6 +32,60 @@ static wchar_t g_ime_wide[32768];
 static char g_ime_utf8[131072];
 static double g_editor_cursor_x = 8.0;
 static double g_editor_cursor_y = 20.0;
+
+static int CALLBACK enumerate_font_proc(const LOGFONTW *font, const TEXTMETRICW *metrics,
+                                       DWORD font_type, LPARAM data) {
+  (void)metrics;
+  (void)font_type;
+  (void)data;
+  if (!font) return 0;
+  if (g_font_callback) {
+    char name[LF_FACESIZE * 4] = {0};
+    int length = WideCharToMultiByte(CP_UTF8, 0, font->lfFaceName, -1,
+        name, (int)sizeof(name), NULL, NULL);
+    if (length > 0) g_font_callback(name);
+  }
+  if (g_font_query && _wcsicmp(font->lfFaceName, g_font_query) == 0) {
+    g_font_found = true;
+    return 0;
+  }
+  return 1;
+}
+
+bool nimculus_font_available(const char *name, double size) {
+  (void)size;
+  if (!name || name[0] == '\0') return false;
+  static wchar_t query[LF_FACESIZE];
+  int length = MultiByteToWideChar(CP_UTF8, 0, name, -1, query, LF_FACESIZE);
+  if (length <= 0) return false;
+  g_font_query = query;
+  g_font_found = false;
+  LOGFONTW logfont;
+  ZeroMemory(&logfont, sizeof(logfont));
+  logfont.lfCharSet = DEFAULT_CHARSET;
+  EnumFontFamiliesExW(NULL, &logfont, enumerate_font_proc, 0, 0);
+  g_font_query = NULL;
+  return g_font_found;
+}
+
+void nimculus_enumerate_fonts(NimculusFontCallback callback) {
+  g_font_callback = callback;
+  LOGFONTW logfont;
+  ZeroMemory(&logfont, sizeof(logfont));
+  logfont.lfCharSet = DEFAULT_CHARSET;
+  EnumFontFamiliesExW(NULL, &logfont, enumerate_font_proc, 0, 0);
+  g_font_callback = NULL;
+}
+
+static void emit_dropped_path(const wchar_t *path) {
+  if (!path || !g_file_callback) return;
+  int length = WideCharToMultiByte(CP_UTF8, 0, path, -1,
+      g_dialog_utf8, (int)sizeof(g_dialog_utf8), NULL, NULL);
+  if (length > 1) {
+    g_dialog_utf8[length - 1] = '\0';
+    g_file_callback(g_dialog_utf8, false);
+  }
+}
 
 static void update_ime_position(void) {
   if (!g_window) return;
@@ -194,6 +255,19 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
     case WM_MOUSEMOVE:
       send_input(4, 0, 0, lparam);
       return 0;
+    case WM_DROPFILES: {
+      HDROP drop = (HDROP)wparam;
+      UINT count = DragQueryFileW(drop, 0xFFFFFFFF, NULL, 0);
+      for (UINT index = 0; index < count; ++index) {
+        UINT length = DragQueryFileW(drop, index, NULL, 0);
+        if (length == 0 || length >= sizeof(g_dialog_path) / sizeof(g_dialog_path[0])) continue;
+        DragQueryFileW(drop, index, g_dialog_path,
+                       (UINT)(sizeof(g_dialog_path) / sizeof(g_dialog_path[0])));
+        emit_dropped_path(g_dialog_path);
+      }
+      DragFinish(drop);
+      return 0;
+    }
     case WM_IME_STARTCOMPOSITION:
       update_ime_position();
       return 0;
@@ -247,6 +321,7 @@ bool nimculus_platform_run(void) {
   if (!g_window) return false;
   ShowWindow(g_window, SW_SHOW);
   UpdateWindow(g_window);
+  DragAcceptFiles(g_window, TRUE);
   create_device();
   MSG message;
   while (GetMessageW(&message, NULL, 0, 0) > 0) {
@@ -370,6 +445,10 @@ const char *nimculus_choose_save_file(void) { return run_file_dialog(TRUE); }
 
 void nimculus_platform_set_text_callback(NimculusTextCallback callback) {
   g_text_callback = callback;
+}
+
+void nimculus_platform_set_file_callback(NimculusFileCallback callback) {
+  g_file_callback = callback;
 }
 
 void nimculus_platform_set_input_callback(NimculusInputCallback callback) {

@@ -1324,3 +1324,14 @@ position through a small platform hook; the Windows backend applies the current
 per-window DPI before calling `ImmSetCompositionWindow` and
 `ImmSetCandidateWindow`. This keeps IME state and text editing in the application
 layer while keeping HWND/HIMC lifetime and coordinate conversion native.
+
+## M13-006: Keep Windows font discovery and file drops at the platform boundary
+
+Zed's Windows platform owns OS font and drag/drop integration rather than
+exposing Win32 handles to GPUI. Nimculus follows the same boundary with
+`EnumFontFamiliesExW` and `WM_DROPFILES`: font names are converted to UTF-8 and
+sent through the existing font callback, while each dropped Unicode path is
+converted to UTF-8 and sent through `FileCallback`. The current application
+contract is path-based, so this is intentionally a small vertical slice; richer
+drag-over state and shell metadata can be added only when the contract requires
+them.

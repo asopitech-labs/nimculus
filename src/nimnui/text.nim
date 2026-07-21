@@ -30,10 +30,13 @@ type
     width*, ascent*, descent*: cdouble
     glyphCount*: uint32
 
-when defined(macosx):
+type FontCallback* = proc(name: cstring) {.cdecl.}
+
+when defined(macosx) or defined(windows):
   proc nativeFontAvailable*(name: cstring, size: cdouble): bool {.importc: "nimculus_font_available", cdecl.}
-  type FontCallback* = proc(name: cstring) {.cdecl.}
   proc nativeEnumerateFonts*(callback: FontCallback) {.importc: "nimculus_enumerate_fonts", cdecl.}
+
+when defined(macosx):
   proc nativeMeasureText*(text, fontName: cstring, size: cdouble,
                           metrics: ptr NativeTextMetrics) {.importc: "nimculus_measure_text", cdecl.}
   proc nativeMeasureTextUtf8*(text: cstring, length: uint32, fontName: cstring,

@@ -2665,4 +2665,5 @@ when isMainModule:
     setupPersistencePaths()
     platformSetTextCallback(receiveNativeText)
     platformSetInputCallback(receiveNativeInput)
+    platformSetFileCallback(receiveNativeFile)
   discard platformRun()
