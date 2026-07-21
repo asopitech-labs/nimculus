@@ -10,6 +10,7 @@ $output = Join-Path $repo $OutputDir
 $stage = Join-Path $output "stage"
 $installer = Join-Path $output "installer"
 $exe = Join-Path $stage "nimculus.exe"
+$nimcache = Join-Path $env:TEMP "nimculus-package-nimcache-$PID"
 
 New-Item -ItemType Directory -Force -Path $stage, $installer | Out-Null
 if (-not $SkipBuild) {
@@ -17,9 +18,10 @@ if (-not $SkipBuild) {
     Push-Location $repo
     try {
         nimble install -y
-        nim c --mm:arc -d:release --path:src --out:$exe src/nimculus/main.nim
+        nim c --mm:arc -d:release --nimcache:$nimcache --path:src --out:$exe src/nimculus/main.nim
     } finally {
         Pop-Location
+        Remove-Item $nimcache -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 if (-not (Test-Path $exe)) { throw "Build output not found: $exe" }

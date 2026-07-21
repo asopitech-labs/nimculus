@@ -7,6 +7,12 @@ ARCH="${NIMCULUS_ARCH:-arm64}"
 IDENTITY="${NIMCULUS_CODESIGN_IDENTITY:-}"
 OUT_DIR="${NIMCULUS_OUT_DIR:-$ROOT_DIR/build/macos}"
 APP="$OUT_DIR/Nimculus.app"
+NIMCACHE_DIR="${TMPDIR:-/tmp}/nimculus-package-nimcache-$$"
+
+cleanup() {
+  rm -rf "$NIMCACHE_DIR"
+}
+trap cleanup EXIT
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "macOS packaging must run on Darwin" >&2
@@ -26,10 +32,9 @@ iconutil --convert icns --output "$APP/Contents/Resources/Nimculus.icns" "$ICONS
 rm -rf "$ICONSET"
 
 nim c --mm:arc -d:release --cpu:"$ARCH" \
-  --nimcache:"$OUT_DIR/nimcache" \
+  --nimcache:"$NIMCACHE_DIR" \
   --path:"$ROOT_DIR/src" -o:"$APP/Contents/MacOS/Nimculus" \
   "$ROOT_DIR/src/nimculus/main.nim"
-rm -rf "$OUT_DIR/nimcache"
 cp "$ROOT_DIR/packaging/macos/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT_DIR/packaging/macos/entitlements.plist" "$APP/Contents/Resources/Nimculus.entitlements"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"

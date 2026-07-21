@@ -43,6 +43,7 @@ static ID3D11SamplerState *g_image_sampler = NULL;
 static ID2D1Factory *g_d2d_factory = NULL;
 static ID2D1RenderTarget *g_d2d_target = NULL;
 static ID2D1SolidColorBrush *g_d2d_text_brush = NULL;
+static IDWriteFactory *g_dwrite_factory = NULL;
 static bool g_directwrite_frame = false;
 static NimculusPaintCommand *g_paint_commands = NULL;
 static uint32_t g_paint_count = 0;
@@ -555,6 +556,13 @@ static bool create_directwrite_target(void) {
   return true;
 }
 
+static bool ensure_directwrite_factory(void) {
+  if (g_dwrite_factory) return true;
+  HRESULT hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
+      &IID_IDWriteFactory, (IUnknown **)&g_dwrite_factory);
+  return SUCCEEDED(hr);
+}
+
 static bool create_render_target(void) {
   if (!g_swap_chain || !g_device) return false;
   ID3D11Texture2D *back_buffer = NULL;
@@ -800,20 +808,17 @@ static bool render_editor_directwrite(void) {
   float right = (float)g_metrics.width_pixels - (float)(24.0 * scale);
   float bottom = (float)g_metrics.height_pixels - (float)(48.0 * scale);
   if (right <= left || bottom <= top) return false;
-  IDWriteFactory *factory = NULL;
-  HRESULT hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
-      &IID_IDWriteFactory, (IUnknown **)&factory);
-  if (FAILED(hr)) return false;
+  if (!ensure_directwrite_factory()) return false;
+  IDWriteFactory *factory = g_dwrite_factory;
+  HRESULT hr;
   IDWriteTextFormat *format = NULL;
   hr = factory->lpVtbl->CreateTextFormat(factory, g_editor_font_name, NULL,
       DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
       DWRITE_FONT_STRETCH_NORMAL, (FLOAT)(g_editor_font_size * scale),
       L"", &format);
   if (FAILED(hr)) {
-    factory->lpVtbl->Release(factory);
     return false;
   }
-  factory->lpVtbl->Release(factory);
   format->lpVtbl->SetWordWrapping(format, DWRITE_WORD_WRAPPING_NO_WRAP);
   format->lpVtbl->SetTextAlignment(format, DWRITE_TEXT_ALIGNMENT_LEADING);
   format->lpVtbl->SetParagraphAlignment(format, DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
@@ -907,6 +912,7 @@ static bool render_editor_directwrite(void) {
 }
 
 static void render_frame(void) {
+  g_directwrite_frame = false;
   if (!g_context || !g_render_target || !g_swap_chain) return;
   const FLOAT clear_color[4] = {0.10f, 0.12f, 0.16f, 1.0f};
   g_context->lpVtbl->OMSetRenderTargets(g_context, 1, &g_render_target, NULL);
@@ -1319,6 +1325,10 @@ bool nimculus_platform_run(void) {
   if (g_d2d_factory) {
     g_d2d_factory->lpVtbl->Release(g_d2d_factory);
     g_d2d_factory = NULL;
+  }
+  if (g_dwrite_factory) {
+    g_dwrite_factory->lpVtbl->Release(g_dwrite_factory);
+    g_dwrite_factory = NULL;
   }
   release_images();
   free(g_paint_commands);
