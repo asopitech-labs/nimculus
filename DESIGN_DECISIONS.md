@@ -1596,3 +1596,11 @@ startup initialization, and idle-time settings reload. Adding platform
 functions without these application call sites would leave the feature
 effectively unimplemented; keeping the call sites next to the macOS settings
 flow makes the live-reload contract explicit.
+
+## M13-031: Load Windows workspace settings from the restored root
+
+Windows startup resolves the restored session root before constructing the
+`SettingsStore`, then loads `<root>/.nimculus/settings.json`. Loading from the
+process current directory would silently ignore project settings whenever a
+session reopened a workspace elsewhere, leaving font and other workspace
+configuration inconsistent with the visible project.

@@ -2846,13 +2846,14 @@ when isMainModule:
     restoreSession()
     setupShortcutRegistry()
     platformSetShortcutCallback(dispatchNativeShortcut)
-    appSettings = newSettingsStore(settingsFilePath,
-      getCurrentDir() / ".nimculus" / "settings.json")
-    applySettingsTheme()
-    setupDemoUi()
     let initialRoot = if editorSession.workspaceRoots.len > 0:
       editorSession.workspaceRoots[0] else: getCurrentDir()
-    openActiveWorkspace(if dirExists(initialRoot): initialRoot else: getCurrentDir())
+    let workspaceRoot = if dirExists(initialRoot): initialRoot else: getCurrentDir()
+    appSettings = newSettingsStore(settingsFilePath,
+      workspaceRoot / ".nimculus" / "settings.json")
+    applySettingsTheme()
+    setupDemoUi()
+    openActiveWorkspace(workspaceRoot)
     platformSetTextCallback(receiveNativeText)
     platformSetInputCallback(receiveNativeInput)
     platformSetFileCallback(receiveNativeFile)
