@@ -42,6 +42,7 @@ static LONG_PTR g_saved_style = 0;
 static LONG_PTR g_saved_ex_style = 0;
 static RECT g_saved_window_rect;
 static bool g_suppress_translate = false;
+static bool g_tracking_mouse = false;
 
 /* NimNUI key bindings use the existing AppKit hardware-key code contract.
  * Win32 virtual-key values are semantic (and differ from those codes), so
@@ -351,6 +352,15 @@ static void send_scroll(WPARAM wparam, LPARAM lparam, bool horizontal) {
   g_input_callback(&event);
 }
 
+static void begin_mouse_tracking(HWND window) {
+  if (g_tracking_mouse) return;
+  TRACKMOUSEEVENT tracking = {0};
+  tracking.cbSize = sizeof(tracking);
+  tracking.dwFlags = TME_LEAVE;
+  tracking.hwndTrack = window;
+  if (TrackMouseEvent(&tracking)) g_tracking_mouse = true;
+}
+
 static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
   switch (message) {
     case WM_SIZE:
@@ -402,30 +412,62 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
         send_input(11, (UINT)wparam, 0, 0, false);
       return 0;
     case WM_LBUTTONDOWN:
+      SetCapture(window);
+      begin_mouse_tracking(window);
       send_input(1, 0, 0, lparam, false);
       return 0;
     case WM_LBUTTONUP:
       send_input(2, 0, 0, lparam, false);
+      if (!(GetKeyState(VK_LBUTTON) & 0x8000) &&
+          !(GetKeyState(VK_RBUTTON) & 0x8000) &&
+          !(GetKeyState(VK_MBUTTON) & 0x8000)) ReleaseCapture();
       return 0;
     case WM_RBUTTONDOWN:
+      SetCapture(window);
+      begin_mouse_tracking(window);
       send_input(3, 0, 1, lparam, false);
       return 0;
     case WM_RBUTTONUP:
       send_input(4, 0, 1, lparam, false);
+      if (!(GetKeyState(VK_LBUTTON) & 0x8000) &&
+          !(GetKeyState(VK_RBUTTON) & 0x8000) &&
+          !(GetKeyState(VK_MBUTTON) & 0x8000)) ReleaseCapture();
       return 0;
     case WM_MBUTTONDOWN:
+      SetCapture(window);
+      begin_mouse_tracking(window);
       send_input(25, 0, 2, lparam, false);
       return 0;
     case WM_MBUTTONUP:
       send_input(26, 0, 2, lparam, false);
+      if (!(GetKeyState(VK_LBUTTON) & 0x8000) &&
+          !(GetKeyState(VK_RBUTTON) & 0x8000) &&
+          !(GetKeyState(VK_MBUTTON) & 0x8000)) ReleaseCapture();
       return 0;
+    case WM_XBUTTONDOWN:
+      SetCapture(window);
+      begin_mouse_tracking(window);
+      send_input(25, 0, 2, lparam, false);
+      return TRUE;
+    case WM_XBUTTONUP:
+      send_input(26, 0, 2, lparam, false);
+      if (!(GetKeyState(VK_LBUTTON) & 0x8000) &&
+          !(GetKeyState(VK_RBUTTON) & 0x8000) &&
+          !(GetKeyState(VK_MBUTTON) & 0x8000)) ReleaseCapture();
+      return TRUE;
     case WM_MOUSEMOVE:
+      begin_mouse_tracking(window);
       if (GetKeyState(VK_LBUTTON) & 0x8000)
         send_input(6, 0, 0, lparam, false);
       else if (GetKeyState(VK_RBUTTON) & 0x8000 || GetKeyState(VK_MBUTTON) & 0x8000)
         send_input(27, 0, 1, lparam, false);
       else
         send_input(5, 0, 0, lparam, false);
+      return 0;
+    case WM_MOUSELEAVE:
+    case WM_NCMOUSELEAVE:
+      g_tracking_mouse = false;
+      send_input(9, 0, 0, 0, false);
       return 0;
     case WM_MOUSEWHEEL:
       send_scroll(wparam, lparam, false);

@@ -1414,3 +1414,12 @@ Nimculus now keeps those paths separate and divides physical coordinates by
 the current per-monitor scale factor before emitting the shared input event.
 This prevents window-origin offsets and DPI scaling from corrupting hit tests,
 dragging, and scroll anchoring.
+
+## M13-014: Preserve Win32 pointer capture across drags
+
+Zed captures the window on pointer down and tracks `WM_MOUSELEAVE`, so a drag
+continues to receive movement and release events even when the pointer crosses
+the client boundary. Nimculus now uses `SetCapture`/`ReleaseCapture`,
+`TrackMouseEvent`, and maps X buttons and leave into the shared pointer
+contract. This keeps split-pane/editor selection state from remaining stuck
+after an out-of-window drag.
