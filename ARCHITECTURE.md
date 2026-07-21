@@ -20,6 +20,12 @@ macOS selects Cocoa/Metal, Windows selects Win32/Direct3D11, and other hosts
 currently select the contract-only headless backend. Future backends consume
 the same value contract without importing another OS's APIs.
 
+Platform services such as clipboard and file dialogs follow the same rule:
+the application calls a narrow Nim contract, while each backend owns the OS
+conversion and lifetime rules. The current Windows slice supports Unicode
+text clipboard and Open/Save dialogs; IME and richer clipboard formats remain
+backend work rather than application logic.
+
 ## M1 boundary
 
 M1 provides a Cocoa window backed by `CAMetalLayer`, a Metal clear pass and

@@ -1,6 +1,6 @@
 when defined(windows) and not defined(nimculusPortableOnly):
   {.compile: "windows_platform.c".}
-  {.passL: "-ld3d11 -ldxgi -luser32 -lgdi32".}
+  {.passL: "-ld3d11 -ldxgi -luser32 -lgdi32 -lcomdlg32".}
 
 import nimnui/platform/headless/platform as headless_platform
 export headless_platform
@@ -12,6 +12,18 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformInputCount*(): uint64 {.importc: "nimculus_platform_input_count", cdecl.}
   proc platformSetInputCallback*(callback: InputCallback) {.importc: "nimculus_platform_set_input_callback", cdecl.}
   proc platformSetTextCallback*(callback: TextCallback) {.importc: "nimculus_platform_set_text_callback", cdecl.}
+  proc clipboardSet*(text: cstring, length: uint32) {.importc: "nimculus_clipboard_set", cdecl.}
+  proc clipboardUtf8Length*(): uint32 {.importc: "nimculus_clipboard_utf8_length", cdecl.}
+  proc clipboardUtf8Bytes*(): pointer {.importc: "nimculus_clipboard_utf8_bytes", cdecl.}
+  proc chooseOpenFile*(): cstring {.importc: "nimculus_choose_open_file", cdecl.}
+  proc chooseSaveFile*(): cstring {.importc: "nimculus_choose_save_file", cdecl.}
+  proc clipboardGet*(): string =
+    let length = int(clipboardUtf8Length())
+    if length <= 0: return ""
+    let bytes = clipboardUtf8Bytes()
+    if bytes == nil: return ""
+    result = newString(length)
+    copyMem(addr result[0], bytes, length)
 else:
   proc platformRun*(): bool = false
   proc platformValidateNative*(): bool = false
@@ -22,3 +34,7 @@ else:
     if callback != nil: discard
   proc platformSetTextCallback*(callback: TextCallback) =
     if callback != nil: discard
+  proc clipboardSet*(text: cstring, length: uint32) = discard (text, length)
+  proc clipboardGet*(): string = ""
+  proc chooseOpenFile*(): cstring = ""
+  proc chooseSaveFile*(): cstring = ""

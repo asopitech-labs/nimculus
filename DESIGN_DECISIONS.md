@@ -1301,3 +1301,13 @@ IME, clipboard, file dialogs, ConPTY, and the full PaintList renderer remain
 separate follow-up work. The DPI manifest/API choice follows Microsoft's
 per-monitor-v2 guidance; a future installer must embed the manifest rather
 than relying only on runtime fallback.
+
+## M13-004: Keep Windows text clipboard and dialogs at the platform boundary
+
+Following Zed's `gpui_windows` platform services, Nimculus keeps system
+clipboard and file-picker calls out of the application layer. The Windows
+backend converts the editor's UTF-8 bytes to `CF_UNICODETEXT` and back, and
+uses Unicode common dialogs with stable UTF-8 return buffers. The native
+Windows implementation remains independent from the macOS pasteboard and
+panel code; richer clipboard formats and modern COM file-dialog options are
+separate follow-up work.

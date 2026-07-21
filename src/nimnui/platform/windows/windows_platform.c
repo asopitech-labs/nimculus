@@ -2,7 +2,9 @@
 #include <windows.h>
 #include <d3d11.h>
 #include <dxgi.h>
+#include <commdlg.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "../contracts.h"
 
@@ -15,6 +17,9 @@ static ID3D11Device *g_device = NULL;
 static ID3D11DeviceContext *g_context = NULL;
 static IDXGISwapChain *g_swap_chain = NULL;
 static ID3D11RenderTargetView *g_render_target = NULL;
+static char g_clipboard_utf8[4 * 1024 * 1024];
+static wchar_t g_dialog_path[32768];
+static char g_dialog_utf8[32768];
 
 static void update_metrics(void) {
   if (!g_window) return;
@@ -205,6 +210,86 @@ void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics) {
 void nimculus_platform_set_input_callback(NimculusInputCallback callback) {
   g_input_callback = callback;
 }
+
+void nimculus_clipboard_set(const char *utf8, uint32_t length) {
+  if (!OpenClipboard(g_window)) return;
+  EmptyClipboard();
+  int wide_length = MultiByteToWideChar(CP_UTF8, 0, utf8, (int)length, NULL, 0);
+  if (wide_length <= 0) {
+    CloseClipboard();
+    return;
+  }
+  HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T)(wide_length + 1) * sizeof(wchar_t));
+  if (!memory) {
+    CloseClipboard();
+    return;
+  }
+  wchar_t *wide = (wchar_t *)GlobalLock(memory);
+  if (!wide || MultiByteToWideChar(CP_UTF8, 0, utf8, (int)length, wide, wide_length) <= 0) {
+    if (wide) GlobalUnlock(memory);
+    GlobalFree(memory);
+    CloseClipboard();
+    return;
+  }
+  wide[wide_length] = L'\0';
+  GlobalUnlock(memory);
+  if (!SetClipboardData(CF_UNICODETEXT, memory)) GlobalFree(memory);
+  CloseClipboard();
+}
+
+uint32_t nimculus_clipboard_utf8_length(void) {
+  g_clipboard_utf8[0] = '\0';
+  if (!OpenClipboard(g_window)) return 0;
+  HANDLE handle = GetClipboardData(CF_UNICODETEXT);
+  if (!handle) {
+    CloseClipboard();
+    return 0;
+  }
+  const wchar_t *wide = (const wchar_t *)GlobalLock(handle);
+  if (!wide) {
+    CloseClipboard();
+    return 0;
+  }
+  int length = WideCharToMultiByte(CP_UTF8, 0, wide, -1, g_clipboard_utf8,
+                                   (int)sizeof(g_clipboard_utf8), NULL, NULL);
+  GlobalUnlock(handle);
+  CloseClipboard();
+  if (length <= 0) {
+    g_clipboard_utf8[0] = '\0';
+    return 0;
+  }
+  g_clipboard_utf8[length - 1] = '\0';
+  return (uint32_t)(length - 1);
+}
+
+const uint8_t *nimculus_clipboard_utf8_bytes(void) {
+  return (const uint8_t *)g_clipboard_utf8;
+}
+
+static const char *run_file_dialog(BOOL save) {
+  ZeroMemory(g_dialog_path, sizeof(g_dialog_path));
+  OPENFILENAMEW dialog;
+  ZeroMemory(&dialog, sizeof(dialog));
+  dialog.lStructSize = sizeof(dialog);
+  dialog.hwndOwner = g_window;
+  dialog.lpstrFile = g_dialog_path;
+  dialog.nMaxFile = (DWORD)(sizeof(g_dialog_path) / sizeof(g_dialog_path[0]));
+  dialog.lpstrFilter = L"All files\0*.*\0\0";
+  dialog.Flags = OFN_EXPLORER | (save ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST);
+  BOOL accepted = save ? GetSaveFileNameW(&dialog) : GetOpenFileNameW(&dialog);
+  if (!accepted) {
+    g_dialog_utf8[0] = '\0';
+    return g_dialog_utf8;
+  }
+  int length = WideCharToMultiByte(CP_UTF8, 0, g_dialog_path, -1,
+                                   g_dialog_utf8, (int)sizeof(g_dialog_utf8), NULL, NULL);
+  if (length <= 0) g_dialog_utf8[0] = '\0';
+  else g_dialog_utf8[length - 1] = '\0';
+  return g_dialog_utf8;
+}
+
+const char *nimculus_choose_open_file(void) { return run_file_dialog(FALSE); }
+const char *nimculus_choose_save_file(void) { return run_file_dialog(TRUE); }
 
 void nimculus_platform_set_text_callback(NimculusTextCallback callback) {
   g_text_callback = callback;

@@ -17,7 +17,7 @@
 | M10：macOSターミナル・タスク | 🟡 実装済み・GUI実機検証待ち | PTY、VT/ANSI、複数セッション、selection、kitty keyboard、task実行・cancel・problem matcher・output panelを実装。長時間実機確認が残る |
 | M11：macOS配布基盤 | 🟡 実装済み・資格情報/実機検証待ち | `.app`、生成アイコン、署名、hardened runtime、ZIP/DMG、notarization/stapling、更新検証、crash reportを実装。adhoc署名による`.app`・icon・ZIP/DMGスモークは成功。Developer IDとApple資格情報による実行が残る |
 | M12：設定・テーマ・キーバインド | 🟡 実装済み・GUI実機検証待ち | 階層設定、schema、live reload、keymap、theme/icon theme、font・terminal・LSP設定、system appearance連動を実装。実機確認が残る |
-| M13：Windows対応 | 🟡 Win32/D3D11縦切り | OS非依存ABIをC/Nim双方のcontractsへ分離し、Win32 window/message loop、per-monitor v2 DPI、D3D11 device/swap chain/clear-present、基本入力callbackを`src/nimnui/platform/windows`へ追加。IME、clipboard、file dialog、font、ConPTY、installer、実Windows検証は未完了 |
+| M13：Windows対応 | 🟡 Win32/D3D11・clipboard/dialog縦切り | OS非依存ABIをC/Nim双方のcontractsへ分離し、Win32 window/message loop、per-monitor v2 DPI、D3D11 device/swap chain/clear-present、基本入力callback、Unicode clipboard、Open/Save file dialogを`src/nimnui/platform/windows`へ追加。IME、font、ConPTY、installer、実Windows検証は未完了 |
 | M14：WSLリモート | ⚪ 未着手 | Windows版完了後にagent、remote file、LSP、Git、terminal、reconnectを実装する |
 | M15：Linux対応 | ⚪ 未着手 | WSL基盤の後にWayland優先、X11 fallback、IME、PTY、packagingを実装する |
 | M16：SSHリモート | ⚪ 未着手 | WSLプロトコルを一般化し、SSH agentとremote開発を実装する |
@@ -417,7 +417,7 @@ Win32、GPU backend（Direct3D または `wgpu-native`）、DPI、keyboard、IME
 
 macOS 実装の API 契約は維持するが、macOS 固有概念を無理に共通化しない。共通化対象は OS API ではなく動作契約とする。
 
-**実装済み縦切り：** `nimnui/nimnui.nim`はOSごとにbackendを選択し、`platform/windows/windows_platform.c`がWin32 window/message loop、`WM_DPICHANGED`、`WM_SIZE`、D3D11 device/swap chain/render target、clear/present、keyboard/pointer/`WM_CHAR` callbackを実装する。`contracts.h`はmacOS header配下から分離した。macOS CIではLinux条件コンパイルとWindows portable条件コンパイルを行い、Windows runnerでは実Win32/D3D11 buildを行う。IME、clipboard、file dialog、font、ConPTY、installer、実Windows操作検証は未完了として残す。
+**実装済み縦切り：** `nimnui/nimnui.nim`はOSごとにbackendを選択し、`platform/windows/windows_platform.c`がWin32 window/message loop、`WM_DPICHANGED`、`WM_SIZE`、D3D11 device/swap chain/render target、clear/present、keyboard/pointer/`WM_CHAR` callback、`CF_UNICODETEXT` clipboard、Unicode Open/Save dialogを実装する。`contracts.h`はmacOS header配下から分離した。macOS CIではLinux条件コンパイルとWindows portable条件コンパイルを行い、Windows runnerでは実Win32/D3D11 buildを行う。IME、font、ConPTY、installer、実Windows操作検証は未完了として残す。
 
 **完了条件：** 主要機能、日本語 IME、ConPTY、Windows インストーラーが動作し、macOS 固有コードがコアへ漏れない。
 
