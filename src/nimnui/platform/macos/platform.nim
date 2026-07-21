@@ -10,6 +10,15 @@ proc platformValidateNative*(): bool {.importc: "nimculus_platform_validate_nati
 proc platformValidateGlyphAtlas*(): bool {.importc: "nimculus_platform_validate_glyph_atlas", cdecl.}
 proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
 proc platformInputCount*(): uint64 {.importc: "nimculus_platform_input_count", cdecl.}
+proc platformMetricsSize*(): uint32 {.importc: "nimculus_platform_metrics_size", cdecl.}
+proc platformInputEventSize*(): uint32 {.importc: "nimculus_platform_input_event_size", cdecl.}
+proc platformTerminalRunSize*(): uint32 {.importc: "nimculus_platform_terminal_run_size", cdecl.}
+proc platformHighlightSpanSize*(): uint32 {.importc: "nimculus_platform_highlight_span_size", cdecl.}
+proc platformDiagnosticSpanSize*(): uint32 {.importc: "nimculus_platform_diagnostic_span_size", cdecl.}
+proc platformEditorAnnotationSize*(): uint32 {.importc: "nimculus_platform_editor_annotation_size", cdecl.}
+proc platformGitHunkSpanSize*(): uint32 {.importc: "nimculus_platform_git_hunk_span_size", cdecl.}
+proc platformPaintCommandSize*(): uint32 {.importc: "nimculus_platform_paint_command_size", cdecl.}
+proc platformPaintRegionSize*(): uint32 {.importc: "nimculus_platform_paint_region_size", cdecl.}
 
 proc platformSetInputCallback*(callback: InputCallback) {.importc: "nimculus_platform_set_input_callback", cdecl.}
 proc platformSetShortcutCallback*(callback: ShortcutCallback) {.importc: "nimculus_platform_set_shortcut_callback", cdecl.}

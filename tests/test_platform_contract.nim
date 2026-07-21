@@ -10,6 +10,17 @@ suite "macOS platform contract":
     check metrics.lastFrameTimeMs >= 0.0
     check metrics.frameCount >= 0'u64
 
+  test "native ABI sizes match Nim contracts":
+    check uint32(sizeof(PlatformMetrics)) == platformMetricsSize()
+    check uint32(sizeof(NimculusInputEvent)) == platformInputEventSize()
+    check uint32(sizeof(NativeTerminalRun)) == platformTerminalRunSize()
+    check uint32(sizeof(NativeHighlightSpan)) == platformHighlightSpanSize()
+    check uint32(sizeof(NativeDiagnosticSpan)) == platformDiagnosticSpanSize()
+    check uint32(sizeof(NativeEditorAnnotation)) == platformEditorAnnotationSize()
+    check uint32(sizeof(NativeGitHunkSpan)) == platformGitHunkSpanSize()
+    check uint32(sizeof(NativePaintCommand)) == platformPaintCommandSize()
+    check uint32(sizeof(NativePaintRegion)) == platformPaintRegionSize()
+
   test "input counter is monotonic":
     let before = platformInputCount()
     let after = platformInputCount()

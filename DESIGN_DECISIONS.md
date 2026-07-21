@@ -1274,3 +1274,7 @@ diagnostics, terminal runs, and callbacks live in
 `src/nimnui/platform/contracts.nim`. The macOS wrapper re-exports these types,
 so a future Windows backend can implement the same behavior contract without
 importing Cocoa or forcing macOS concepts into the core.
+
+The C backend also exposes `sizeof` probes for every by-value contract, and
+the macOS contract test compares them with Nim's `sizeof` results. This keeps
+alignment and pointer-size changes visible before another backend is added.

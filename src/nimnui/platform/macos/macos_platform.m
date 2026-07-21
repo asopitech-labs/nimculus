@@ -2870,6 +2870,42 @@ void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics) {
 }
 
 uint64_t nimculus_platform_input_count(void) { return g_input_count; }
+
+uint32_t nimculus_platform_metrics_size(void) {
+  return (uint32_t)sizeof(NimculusPlatformMetrics);
+}
+
+uint32_t nimculus_platform_input_event_size(void) {
+  return (uint32_t)sizeof(NimculusInputEvent);
+}
+
+uint32_t nimculus_platform_terminal_run_size(void) {
+  return (uint32_t)sizeof(NimculusTerminalRun);
+}
+
+uint32_t nimculus_platform_highlight_span_size(void) {
+  return (uint32_t)sizeof(NimculusHighlightSpan);
+}
+
+uint32_t nimculus_platform_diagnostic_span_size(void) {
+  return (uint32_t)sizeof(NimculusDiagnosticSpan);
+}
+
+uint32_t nimculus_platform_editor_annotation_size(void) {
+  return (uint32_t)sizeof(NimculusEditorAnnotation);
+}
+
+uint32_t nimculus_platform_git_hunk_span_size(void) {
+  return (uint32_t)sizeof(NimculusGitHunkSpan);
+}
+
+uint32_t nimculus_platform_paint_command_size(void) {
+  return (uint32_t)sizeof(NimculusPaintCommand);
+}
+
+uint32_t nimculus_platform_paint_region_size(void) {
+  return (uint32_t)sizeof(NimculusPaintRegion);
+}
 void nimculus_platform_set_input_callback(NimculusInputCallback callback) { g_input_callback = callback; }
 void nimculus_platform_set_shortcut_callback(NimculusShortcutCallback callback) { g_shortcut_callback = callback; }
 void nimculus_platform_set_text_callback(NimculusTextCallback callback) { g_text_callback = callback; }
