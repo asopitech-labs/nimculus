@@ -24,6 +24,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
       runs: ptr NativeTerminalRun, count: uint32) {.importc: "nimculus_platform_set_terminal_runs", cdecl.}
   proc platformSetTerminalFontSize*(size: cdouble) {.importc: "nimculus_platform_set_terminal_font_size", cdecl.}
   proc platformSetTerminalFontName*(name: cstring) {.importc: "nimculus_platform_set_terminal_font_name", cdecl.}
+  proc platformGetTerminalCellMetrics*(cellWidth, lineHeight: ptr cdouble) {.importc: "nimculus_platform_get_terminal_cell_metrics", cdecl.}
   proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}
   proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
       length: uint32) {.importc: "nimculus_platform_set_image_rgba", cdecl.}
@@ -82,6 +83,9 @@ else:
   proc platformSetTaskOutputText*(text: cstring, length: uint32) = discard (text, length)
   proc platformSetTerminalRuns*(text: cstring, length: uint32,
       runs: ptr NativeTerminalRun, count: uint32) = discard (text, length, runs, count)
+  proc platformGetTerminalCellMetrics*(cellWidth, lineHeight: ptr cdouble) =
+    if cellWidth != nil: cellWidth[] = 7.2
+    if lineHeight != nil: lineHeight[] = 14.0
   proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) = discard (commands, count)
   proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
       length: uint32) = discard (imageId, width, height, rgba, length)

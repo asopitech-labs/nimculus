@@ -1508,6 +1508,28 @@ the explicit coordinates and width for glyph, background, and decoration
 placement. This prevents CJK/emoji glyphs from shifting subsequent runs and
 keeps selection geometry aligned with the terminal grid.
 
+## M13-043: Do not flatten Windows ConPTY cells before native rendering
+
+The Windows terminal manager previously sent only `gridText()` to the native
+backend, which made the run ABI implementation unreachable for the actual
+Windows terminal. Its synchronization now mirrors the macOS cell-to-run
+boundary: each visible non-continuation cell carries its byte range, row,
+column, display width, SGR flags, colors, and hyperlink pointer. The native
+Windows overlay therefore receives the same cell metadata that the parser
+owns, while the text remains a bounded UTF-8 snapshot.
+
+## M13-044: Keep Windows terminal pointer selection in the cell-grid owner
+
+Windows platform input already reports pointer coordinates in logical client
+space, but the Windows terminal manager previously handled only keyboard
+events. The manager now owns terminal overlay hit testing, cell-point mapping,
+mouse-report forwarding, drag selection, selection synchronization, copy, and
+select-all. The pointer mapper reads native terminal font metrics rather than
+assuming a fixed cell size, so settings changes keep hit testing aligned with
+the rendered overlay. This keeps terminal selection semantics with
+`TerminalScreen`, as in Zed, instead of teaching the Win32 renderer a second
+selection model.
+
 ## M13-012: Normalize Win32 keyboard events before shared shortcut routing
 
 Zed's Windows backend separates accelerator handling from character input and

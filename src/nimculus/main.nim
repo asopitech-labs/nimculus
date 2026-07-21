@@ -1914,6 +1914,17 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       editorViewState.statusMessage = "Windows supports one terminal session in this milestone"
       return
     else: discard
+  when defined(windows):
+    if windowsTerminalVisible:
+      case name
+      of "copy":
+        let copied = windowsTerminalSelectedText()
+        if copied.len > 0: clipboardSet(copied.cstring, uint32(copied.len))
+        return
+      of "selectAll":
+        selectAllWindowsTerminal()
+        return
+      else: discard
   when defined(macosx):
     if editorTerminalVisible and editorTerminal != nil:
       case name

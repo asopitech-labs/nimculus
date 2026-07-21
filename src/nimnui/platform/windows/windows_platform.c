@@ -2019,6 +2019,38 @@ void nimculus_platform_set_terminal_font_size(double size) {
   if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
 
+void nimculus_platform_get_terminal_cell_metrics(double *cell_width,
+                                                  double *line_height) {
+  double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+  double width = 7.2;
+  double height = 14.0;
+  if (g_window) {
+    HDC dc = GetDC(g_window);
+    if (dc) {
+      HFONT font = CreateFontW(font_height(g_terminal_font_size, scale), 0, 0, 0,
+          FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+          CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN,
+          g_terminal_font_name);
+      if (font) {
+        HGDIOBJ old_font = SelectObject(dc, font);
+        TEXTMETRICW metrics;
+        SIZE cell;
+        if (GetTextMetricsW(dc, &metrics)) {
+          height = ((double)metrics.tmHeight + 2.0 * scale) / scale;
+        }
+        if (GetTextExtentPoint32W(dc, L"M", 1, &cell) && cell.cx > 0) {
+          width = (double)cell.cx / scale;
+        }
+        SelectObject(dc, old_font);
+        DeleteObject(font);
+      }
+      ReleaseDC(g_window, dc);
+    }
+  }
+  if (cell_width) *cell_width = width;
+  if (line_height) *line_height = height;
+}
+
 void nimculus_platform_set_terminal_font_name(const char *name) {
   if (!name || name[0] == '\0') return;
   wchar_t wide[LF_FACESIZE];
