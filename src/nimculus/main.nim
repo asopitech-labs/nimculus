@@ -90,7 +90,8 @@ proc setupDemoUi() =
   let editor = Rect(origin: Point(x: px(margin * 2 + outlineWidth), y: px(128)),
     size: Size(width: px(editorWidth), height: px(editorHeight)))
   demoEditorBounds = editor
-  let splitBar = Rect(origin: Point(x: px(margin * 2 + outlineWidth + editorWidth * demoSplitRatio), y: px(128)),
+  let splitBar = Rect(origin: Point(x: px(margin * 2 + outlineWidth + editorWidth * demoSplitRatio),
+      y: px(128)),
     size: Size(width: px(2), height: px(editorHeight)))
   let scrollbar = Rect(origin: Point(x: px(margin * 2 + outlineWidth + editorWidth + 24), y: px(144)),
     size: Size(width: px(8), height: px(max(0'f32, editorHeight - 32'f32))))
@@ -199,8 +200,8 @@ proc setupShortcutRegistry() =
     "save", "newDocument", "closeTabRequest", "openSettings", "undo", "redo",
       "cut", "copy", "paste", "selectAll", "previousTab", "nextTab",
       # AppKit NSText movement/editing selectors. Keeping these names at the
-      # application boundary lets settings override Command/Option behavior
-      # without leaking Cocoa types into the editor core.
+        # application boundary lets settings override Command/Option behavior
+        # without leaking Cocoa types into the editor core.
       "moveLeft", "moveRight", "moveUp", "moveDown",
       "selectLeft", "selectRight", "selectUp", "selectDown",
       "moveToBeginningOfLine", "moveToEndOfLine",
@@ -761,7 +762,8 @@ when defined(macosx):
       syncNativeHover()
       var lines: seq[string]
       for item in signature.signatures:
-        lines.add(item.label & (if item.documentation.len > 0: " — " & item.documentation else: ""))
+        lines.add(item.label & (if item.documentation.len > 0: " — " &
+            item.documentation else: ""))
       showNativeLspPanel("LSP Signature Help", lines)
     let hints = lspBridge.takeInlayHints()
     if hints.len > 0:
@@ -797,11 +799,15 @@ when defined(macosx):
           (if cell.strikethrough: 32'u32 else: 0'u32)
         runs.add(NativeTerminalRun(startByte: uint32(byteOffset), endByte: uint32(endByte),
           flags: flags,
-          foregroundKind: uint32(ord(cell.foreground.kind)), foregroundIndex: uint32(max(0, cell.foreground.index)),
-          foregroundRed: uint32(cell.foreground.red), foregroundGreen: uint32(cell.foreground.green),
+          foregroundKind: uint32(ord(cell.foreground.kind)), foregroundIndex: uint32(max(0,
+              cell.foreground.index)),
+          foregroundRed: uint32(cell.foreground.red), foregroundGreen: uint32(
+              cell.foreground.green),
           foregroundBlue: uint32(cell.foreground.blue),
-          backgroundKind: uint32(ord(cell.background.kind)), backgroundIndex: uint32(max(0, cell.background.index)),
-          backgroundRed: uint32(cell.background.red), backgroundGreen: uint32(cell.background.green),
+          backgroundKind: uint32(ord(cell.background.kind)), backgroundIndex: uint32(max(0,
+              cell.background.index)),
+          backgroundRed: uint32(cell.background.red), backgroundGreen: uint32(
+              cell.background.green),
           backgroundBlue: uint32(cell.background.blue),
           hyperlinkUri: if cell.hyperlinkUri.len > 0: cell.hyperlinkUri.cstring else: nil))
         byteOffset = endByte
@@ -1169,7 +1175,8 @@ proc renderWorkspaceSearch() =
       lines.add("… search continues")
     elif workspaceSearchCancelled:
       lines.add("Search cancelled")
-    if workspaceSearchResults.len == 0 and workspaceSearchJob != nil and workspaceSearchJob.isComplete:
+    if workspaceSearchResults.len == 0 and workspaceSearchJob != nil and
+        workspaceSearchJob.isComplete:
       lines.add("No matches")
     platformSetEditorHighlights(nil, 0)
     platformSetEditorComposition("".cstring)
@@ -1246,7 +1253,8 @@ proc pollWorkspaceSearch() =
     if persistenceTick mod 20 == 0: persistSession()
     let changed = if activeWorkspace == nil: @[] else: activeWorkspace.changedPaths()
     let document = activeDocument()
-    if document != nil and document[].path.len > 0 and document[].externallyChanged() and not externalAlertShown:
+    if document != nil and document[].path.len > 0 and document[].externallyChanged() and
+        not externalAlertShown:
       externalAlertShown = true
       platformShowExternalChange(document[].path.cstring)
     if changed.len > 0:
@@ -1927,8 +1935,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       let theme = if appSettings != nil: appSettings.stringSetting("theme", "system") else: "system"
       let editorSize = if appSettings != nil: $appSettings.intSetting("editor.fontSize", 14) else: "14"
       let terminalSize = if appSettings != nil: $appSettings.intSetting("terminal.fontSize", 12) else: "12"
-      let font = if appSettings != nil: appSettings.stringSetting("editor.fontFamily", "Menlo") else: "Menlo"
-      let shell = if appSettings != nil: appSettings.stringSetting("terminal.shell", "/bin/zsh") else: "/bin/zsh"
+      let font = if appSettings != nil: appSettings.stringSetting("editor.fontFamily",
+          "Menlo") else: "Menlo"
+      let shell = if appSettings != nil: appSettings.stringSetting("terminal.shell",
+          "/bin/zsh") else: "/bin/zsh"
       platformShowSettingsPanel(theme.cstring, editorSize.cstring, terminalSize.cstring,
         font.cstring, shell.cstring)
   elif name.startsWith("settingsApply:"):
@@ -1950,7 +1960,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     var root = if fileExists(settingsFilePath): parseFile(settingsFilePath) else: newJObject()
     if root.kind != JObject: root = newJObject()
     if not root.hasKey("editor") or root["editor"].kind != JObject: root["editor"] = newJObject()
-    if not root.hasKey("terminal") or root["terminal"].kind != JObject: root["terminal"] = newJObject()
+    if not root.hasKey("terminal") or root["terminal"].kind != JObject: root[
+        "terminal"] = newJObject()
     root["theme"] = %fields[0]
     root["editor"]["fontSize"] = %editorSize
     root["editor"]["fontFamily"] = %fields[3]
@@ -2350,7 +2361,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       let newLocation = activeWorkspace.splitWorkspacePath(newPayload)
       if oldLocation.root != newLocation.root:
         raise newException(ValueError, "rename must stay within one workspace root")
-      discard activeWorkspace.renameEntryAt(oldLocation.root, oldLocation.relative, newLocation.relative)
+      discard activeWorkspace.renameEntryAt(oldLocation.root, oldLocation.relative,
+          newLocation.relative)
       refreshWorkspaceAfterMutation("Renamed " & oldPayload & " to " & newPayload)
     except CatchableError as error:
       editorViewState.statusMessage = "Rename failed: " & error.msg
@@ -2387,10 +2399,12 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     imeState.composition.setLen(0)
     when defined(macosx): platformSetEditorComposition("".cstring)
   elif name == "moveLeft" and document != nil:
-    editorViewState.moveCursor(previousBoundary(document[].buffer.toString(), editorViewState.cursor))
+    editorViewState.moveCursor(previousBoundary(document[].buffer.toString(),
+        editorViewState.cursor))
     syncEditorCursor()
   elif name == "selectLeft" and document != nil:
-    editorViewState.moveCursor(previousBoundary(document[].buffer.toString(), editorViewState.cursor), selecting = true)
+    editorViewState.moveCursor(previousBoundary(document[].buffer.toString(),
+        editorViewState.cursor), selecting = true)
     syncEditorCursor()
   elif name == "moveRight" and document != nil:
     editorViewState.moveCursor(nextBoundary(document[].buffer.toString(), editorViewState.cursor))
@@ -2423,19 +2437,24 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "insertTab" and document != nil:
     receiveNativeText("\t".cstring, false)
   elif name == "selectRight" and document != nil:
-    editorViewState.moveCursor(nextBoundary(document[].buffer.toString(), editorViewState.cursor), selecting = true)
+    editorViewState.moveCursor(nextBoundary(document[].buffer.toString(), editorViewState.cursor),
+        selecting = true)
     syncEditorCursor()
   elif name == "moveWordLeft" and document != nil:
-    editorViewState.moveCursor(previousWordBoundary(document[].buffer.toString(), editorViewState.cursor))
+    editorViewState.moveCursor(previousWordBoundary(document[].buffer.toString(),
+        editorViewState.cursor))
     syncEditorCursor()
   elif name == "selectWordLeft" and document != nil:
-    editorViewState.moveCursor(previousWordBoundary(document[].buffer.toString(), editorViewState.cursor), selecting = true)
+    editorViewState.moveCursor(previousWordBoundary(document[].buffer.toString(),
+        editorViewState.cursor), selecting = true)
     syncEditorCursor()
   elif name == "moveWordRight" and document != nil:
-    editorViewState.moveCursor(nextWordBoundary(document[].buffer.toString(), editorViewState.cursor))
+    editorViewState.moveCursor(nextWordBoundary(document[].buffer.toString(),
+        editorViewState.cursor))
     syncEditorCursor()
   elif name == "selectWordRight" and document != nil:
-    editorViewState.moveCursor(nextWordBoundary(document[].buffer.toString(), editorViewState.cursor), selecting = true)
+    editorViewState.moveCursor(nextWordBoundary(document[].buffer.toString(),
+        editorViewState.cursor), selecting = true)
     syncEditorCursor()
   elif name in ["deleteBackward", "deleteForward", "deleteWordBackward"] and document != nil:
     let selected = editorViewState.selectedRange()
@@ -2633,4 +2652,8 @@ when isMainModule:
       refreshEditorSyntax()
     else:
       persistSession()
+  elif defined(windows):
+    setupPersistencePaths()
+    platformSetTextCallback(receiveNativeText)
+    platformSetInputCallback(receiveNativeInput)
   discard platformRun()

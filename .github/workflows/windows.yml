@@ -1,0 +1,20 @@
+name: Windows
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Nim
+        shell: pwsh
+        run: choco install nim -y --no-progress
+      - name: Install Nim dependencies
+        shell: pwsh
+        run: nimble install -y
+      - name: Build Win32 and Direct3D11 backend
+        shell: pwsh
+        run: nim c --mm:arc -d:release --path:src src/nimculus/main.nim

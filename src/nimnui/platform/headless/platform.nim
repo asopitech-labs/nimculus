@@ -9,15 +9,16 @@ import nimnui/platform/contracts
 
 export contracts
 
-proc platformRun*(): bool = false
-proc platformValidateNative*(): bool = false
-proc platformValidateGlyphAtlas*(): bool = false
+when not defined(windows):
+  proc platformRun*(): bool = false
+  proc platformValidateNative*(): bool = false
+  proc platformValidateGlyphAtlas*(): bool = false
 
-proc platformGetMetrics*(metrics: ptr PlatformMetrics) =
-  if metrics != nil:
-    metrics[] = PlatformMetrics(scaleFactor: 1.0)
+  proc platformGetMetrics*(metrics: ptr PlatformMetrics) =
+    if metrics != nil:
+      metrics[] = PlatformMetrics(scaleFactor: 1.0)
 
-proc platformInputCount*(): uint64 = 0
+  proc platformInputCount*(): uint64 = 0
 proc platformMetricsSize*(): uint32 = uint32(sizeof(PlatformMetrics))
 proc platformInputEventSize*(): uint32 = uint32(sizeof(NimculusInputEvent))
 proc platformTerminalRunSize*(): uint32 = uint32(sizeof(NativeTerminalRun))
@@ -28,11 +29,13 @@ proc platformGitHunkSpanSize*(): uint32 = uint32(sizeof(NativeGitHunkSpan))
 proc platformPaintCommandSize*(): uint32 = uint32(sizeof(NativePaintCommand))
 proc platformPaintRegionSize*(): uint32 = uint32(sizeof(NativePaintRegion))
 
-proc platformSetInputCallback*(callback: InputCallback) =
-  if callback != nil: discard
+when not defined(windows):
+  proc platformSetInputCallback*(callback: InputCallback) =
+    if callback != nil: discard
+when not defined(windows):
+  proc platformSetTextCallback*(callback: TextCallback) =
+    if callback != nil: discard
 proc platformSetShortcutCallback*(callback: ShortcutCallback) =
-  if callback != nil: discard
-proc platformSetTextCallback*(callback: TextCallback) =
   if callback != nil: discard
 proc platformSetSelectionCallback*(callback: SelectionCallback) =
   if callback != nil: discard
@@ -70,13 +73,16 @@ proc platformSetEditorOutline*(text: cstring, length, symbolCount: uint32) = dis
 proc platformSetTerminalVisible*(visible: bool) = discard visible
 proc platformSetTerminalText*(text: cstring, length: uint32) = discard (text, length)
 proc platformSetTerminalRuns*(text: cstring, length: uint32,
-                              runs: ptr NativeTerminalRun, count: uint32) = discard (text, length, runs, count)
-proc platformSetThemeColors*(background, foreground, accent, selection, border: cstring) = discard (background, foreground, accent, selection, border)
+                              runs: ptr NativeTerminalRun, count: uint32) = discard (text, length,
+                                  runs, count)
+proc platformSetThemeColors*(background, foreground, accent, selection, border: cstring) = discard (
+  background, foreground, accent, selection, border)
 proc platformSetTerminalFontSize*(size: cdouble) = discard size
 proc platformSetTerminalFontName*(name: cstring) = discard name
 proc platformIsDarkAppearance*(): bool = false
 proc platformInstallCrashHandler*(path: cstring) = discard path
-proc platformSetTerminalSelection*(startRow, startColumn, endRow, endColumn: uint32) = discard (startRow, startColumn, endRow, endColumn)
+proc platformSetTerminalSelection*(startRow, startColumn, endRow, endColumn: uint32) = discard (
+  startRow, startColumn, endRow, endColumn)
 proc platformSetTaskOutputVisible*(visible: bool) = discard visible
 proc platformSetTaskOutputText*(text: cstring, length: uint32) = discard (text, length)
 proc platformSetEditorCompletions*(text: cstring, length: uint32) = discard (text, length)
@@ -87,18 +93,22 @@ proc platformSetEditorComposition*(text: cstring) = discard text
 proc platformClearEditorComposition*() = discard
 proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32) = discard (spans, count)
 proc platformSetEditorDiagnostics*(spans: ptr NativeDiagnosticSpan, count: uint32) = discard (spans, count)
-proc platformSetEditorAnnotations*(annotations: ptr NativeEditorAnnotation, count: uint32) = discard (annotations, count)
+proc platformSetEditorAnnotations*(annotations: ptr NativeEditorAnnotation,
+    count: uint32) = discard (annotations, count)
 proc platformSetEditorGitHunks*(spans: ptr NativeGitHunkSpan, count: uint32) = discard (spans, count)
 proc platformSetRecentFiles*(paths: ptr cstring, count: uint32) = discard (paths, count)
 proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) = discard (commands, count)
-proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer, length: uint32) = discard (imageId, width, height, rgba, length)
-proc platformSetPaintDirtyRegions*(regions: ptr NativePaintRegion, count: uint32) = discard (regions, count)
+proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
+    length: uint32) = discard (imageId, width, height, rgba, length)
+proc platformSetPaintDirtyRegions*(regions: ptr NativePaintRegion, count: uint32) = discard (
+  regions, count)
 proc platformShowExternalChange*(path: cstring) = discard path
 proc platformShowFindDocument*() = discard
 proc platformShowWorkspaceSearch*() = discard
 proc platformShowCommandPalette*() = discard
 proc platformShowSettingsPanel*(theme, editorFontSize, terminalFontSize,
-                                fontFamily, shell: cstring) = discard (theme, editorFontSize, terminalFontSize, fontFamily, shell)
+                                fontFamily, shell: cstring) = discard (theme, editorFontSize,
+                                    terminalFontSize, fontFamily, shell)
 proc platformSetUiRectangle*(x, y, width, height: cdouble) = discard (x, y, width, height)
 
 proc clipboardSet*(text: cstring, length: uint32) = discard (text, length)

@@ -1,5 +1,7 @@
 when defined(macosx):
   import nimnui/platform/macos/platform
+elif defined(windows):
+  import nimnui/platform/windows/platform
 else:
   import nimnui/platform/headless/platform
 import nimnui/mock_renderer

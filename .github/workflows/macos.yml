@@ -16,7 +16,7 @@ jobs:
       - name: Compile portable platform boundary
         run: |
           nim c --compileOnly --os:linux --mm:arc --nimcache="$RUNNER_TEMP/nimculus-linux-compile" --path:src src/nimculus/main.nim
-          nim c --compileOnly --os:windows --mm:arc --nimcache="$RUNNER_TEMP/nimculus-windows-compile" --path:src src/nimculus/main.nim
+          nim c --compileOnly --os:windows -d:nimculusPortableOnly --mm:arc --nimcache="$RUNNER_TEMP/nimculus-windows-compile" --path:src src/nimculus/main.nim
       - name: Lint
         run: nimble lint
       - name: Test

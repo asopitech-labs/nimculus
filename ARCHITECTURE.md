@@ -11,11 +11,14 @@ Nimculus application layer
 ```
 
 The OS-independent ABI value types are isolated in
-`src/nimnui/platform/contracts.nim`. The macOS Objective-C implementation is
-isolated under `src/nimnui/platform/macos`; Nim code communicates with it
-through the small C ABI declared in `platform.h` and wrapped by
-`platform.nim`. Future Windows/Linux backends consume the same value contract
-without importing Cocoa or Metal code.
+`src/nimnui/platform/contracts.nim`, with matching C layouts in
+`src/nimnui/platform/contracts.h`. The macOS Objective-C implementation is
+isolated under `src/nimnui/platform/macos`; the initial Windows implementation
+is isolated under `src/nimnui/platform/windows`. Nim code communicates with
+each backend through its small C ABI wrapper. Backend selection is explicit:
+macOS selects Cocoa/Metal, Windows selects Win32/Direct3D11, and other hosts
+currently select the contract-only headless backend. Future backends consume
+the same value contract without importing another OS's APIs.
 
 ## M1 boundary
 

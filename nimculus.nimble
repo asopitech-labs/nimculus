@@ -13,7 +13,7 @@ task build, "Build the Nimculus macOS application":
   exec "nim c --mm:arc -d:release src/nimculus/main.nim"
 
 task format, "Format Nim sources with nimpretty":
-  exec "nimpretty --maxLineLen:100 src/nimnui/*.nim src/nimnui/platform/macos/*.nim src/nimculus/*.nim tests/*.nim"
+  exec "nimpretty --maxLineLen:100 src/nimnui/*.nim src/nimnui/platform/macos/*.nim src/nimnui/platform/headless/*.nim src/nimnui/platform/windows/*.nim src/nimculus/*.nim tests/*.nim"
 
 task lint, "Run Nim's static checks":
   exec "nim check --mm:arc --nimcache:.nimcache/lint --path:src src/nimculus/main.nim"

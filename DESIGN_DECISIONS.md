@@ -1288,3 +1288,16 @@ an explicit contract-only headless backend otherwise. The fallback is not a
 Windows implementation; it is a build boundary that prevents non-macOS
 compilation from accidentally importing Cocoa and gives each future native
 backend a complete API surface to replace.
+
+## M13-003: Start Windows with Win32, per-monitor-v2 DPI, and Direct3D11
+
+Zed keeps its Windows window/message handling and Direct3D renderer in the
+Windows platform crate. Nimculus follows that boundary in
+`src/nimnui/platform/windows`: the first native slice registers a Unicode
+Win32 window, runs the Win32 message loop, handles `WM_DPICHANGED` and
+`WM_SIZE`, creates a D3D11 device/swap chain/render target, clears and presents
+frames, and forwards basic keyboard/pointer/text events through the shared ABI.
+IME, clipboard, file dialogs, ConPTY, and the full PaintList renderer remain
+separate follow-up work. The DPI manifest/API choice follows Microsoft's
+per-monitor-v2 guidance; a future installer must embed the manifest rather
+than relying only on runtime fallback.
