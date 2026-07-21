@@ -62,7 +62,8 @@ block platformFrameMetrics:
   for _ in 0 ..< 1000:
     platformGetMetrics(addr metrics)
   report("frame_metrics_read", cpuTime() - start,
-    "frames=" & $metrics.frameCount & ";last_frame_ms=" & $metrics.lastFrameTimeMs)
+    "frames=" & $metrics.frameCount & ";last_frame_ms=" & $metrics.lastFrameTimeMs &
+    ";last_input_ms=" & $metrics.lastInputLatencyMs)
 
 block workspaceLoad:
   let root = getTempDir() / ("nimculus-m20-" & $getCurrentProcessId())

@@ -8,6 +8,7 @@ suite "macOS platform contract":
     check metrics.scaleFactor >= 0.0
     check metrics.widthPixels >= 0'u32
     check metrics.lastFrameTimeMs >= 0.0
+    check metrics.lastInputLatencyMs >= 0.0
     check metrics.frameCount >= 0'u64
 
   test "resident memory metric has a valid contract":

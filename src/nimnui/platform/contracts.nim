@@ -13,6 +13,7 @@ type
     heightPixels*: uint32
     lastFrameTimeMs*: cdouble
     frameCount*: uint64
+    lastInputLatencyMs*: cdouble
 
   NativeHighlightSpan* {.bycopy.} = object
     startByte*, endByte*, kind*: uint32

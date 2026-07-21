@@ -12,6 +12,7 @@ typedef struct NimculusPlatformMetrics {
   uint32_t height_pixels;
   double last_frame_time_ms;
   uint64_t frame_count;
+  double last_input_latency_ms;
 } NimculusPlatformMetrics;
 
 typedef struct NimculusInputEvent {

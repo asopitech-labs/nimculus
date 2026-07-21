@@ -12,7 +12,8 @@
 #include "platform.h"
 
 static uint64_t g_input_count = 0;
-static NimculusPlatformMetrics g_metrics = {1.0, 0, 0, 0, 0, 0.0, 0};
+static uint64_t g_first_input_time = 0;
+static NimculusPlatformMetrics g_metrics = {1.0, 0, 0, 0, 0, 0.0, 0, 0.0};
 static NimculusInputCallback g_input_callback = NULL;
 static NimculusShortcutCallback g_shortcut_callback = NULL;
 static NimculusTextCallback g_text_callback = NULL;
@@ -1294,6 +1295,7 @@ static double millisecondsSince(uint64_t start) {
 }
 
 static BOOL logInput(NSString *kind, NSEvent *event) {
+  if (g_first_input_time == 0) g_first_input_time = mach_absolute_time();
   g_input_count++;
   NSPoint location = event.locationInWindow;
   if (g_active_view) {
@@ -1975,6 +1977,10 @@ static void applyTerminalRuns(NSTextView *terminal) {
   [command presentDrawable:drawable];
   [command commit];
   g_metrics.last_frame_time_ms = millisecondsSince(start);
+  if (g_first_input_time != 0) {
+    g_metrics.last_input_latency_ms = millisecondsSince(g_first_input_time);
+    g_first_input_time = 0;
+  }
   g_metrics.frame_count++;
 }
 

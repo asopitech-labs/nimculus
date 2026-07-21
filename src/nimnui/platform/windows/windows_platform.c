@@ -16,8 +16,9 @@
 
 #include "../contracts.h"
 
-static NimculusPlatformMetrics g_metrics = {1.0, 0, 0, 0, 0, 0.0, 0};
+static NimculusPlatformMetrics g_metrics = {1.0, 0, 0, 0, 0, 0.0, 0, 0.0};
 static LARGE_INTEGER g_qpc_frequency = {0};
+static LARGE_INTEGER g_first_input_qpc = {0};
 static uint64_t g_input_count = 0;
 static NimculusInputCallback g_input_callback = NULL;
 static NimculusShortcutCallback g_shortcut_callback = NULL;
@@ -1319,6 +1320,12 @@ static void render_frame(void) {
       g_metrics.last_frame_time_ms =
           (double)(frame_end.QuadPart - frame_start.QuadPart) * 1000.0 /
           (double)g_qpc_frequency.QuadPart;
+      if (g_first_input_qpc.QuadPart > 0) {
+        g_metrics.last_input_latency_ms =
+            (double)(frame_end.QuadPart - g_first_input_qpc.QuadPart) *
+            1000.0 / (double)g_qpc_frequency.QuadPart;
+        g_first_input_qpc.QuadPart = 0;
+      }
     }
     g_metrics.frame_count++;
   } else if (present == DXGI_ERROR_DEVICE_REMOVED ||
@@ -1594,6 +1601,8 @@ static void send_input(UINT type, UINT key_code, UINT button, LPARAM lparam,
   double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
   event.x = (double)point.x / scale;
   event.y = (double)point.y / scale;
+  if (g_first_input_qpc.QuadPart == 0)
+    QueryPerformanceCounter(&g_first_input_qpc);
   g_input_count++;
   if (type == 10 && g_shortcut_callback && g_shortcut_callback(&event)) return;
   g_input_callback(&event);
@@ -1616,6 +1625,8 @@ static void send_scroll(WPARAM wparam, LPARAM lparam, bool horizontal) {
   if (horizontal) event.delta_x = delta;
   else event.delta_y = delta;
   event.precise_scrolling = false;
+  if (g_first_input_qpc.QuadPart == 0)
+    QueryPerformanceCounter(&g_first_input_qpc);
   g_input_count++;
   g_input_callback(&event);
 }

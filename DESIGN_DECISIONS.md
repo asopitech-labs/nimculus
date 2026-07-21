@@ -42,6 +42,17 @@ backend applies the current DPI scale. The native backend keeps only a bounded
 default for startup before the first layout frame; it does not own editor
 layout state.
 
+## M20-003: Measure input latency through the next presented frame
+
+Zed's input-latency tracker records the first input received in a frame
+interval and measures from that input until the next frame is presented.
+Nimculus follows the same boundary: macOS records the first event with
+mach_absolute_time and Windows records the first event with QPC, then both
+backends publish the elapsed value after a successful frame submission and
+reset the pending timestamp. This avoids reporting the time of an input that
+arrived after the frame's input interval and keeps the metric tied to a
+presented frame.
+
 ## M20-002: Measure resident memory at the platform boundary
 
 Zed's reliability loop observes resident memory rather than allocator-only
