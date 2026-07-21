@@ -1311,3 +1311,16 @@ uses Unicode common dialogs with stable UTF-8 return buffers. The native
 Windows implementation remains independent from the macOS pasteboard and
 panel code; richer clipboard formats and modern COM file-dialog options are
 separate follow-up work.
+
+## M13-005: Route Windows IMM32 composition through the shared text callback
+
+Zed's `gpui_windows` handles `WM_IME_STARTCOMPOSITION` and
+`WM_IME_COMPOSITION`, positions both the composition and candidate windows, and
+reads `GCS_COMPSTR` / `GCS_RESULTSTR` from the IMM32 context. Nimculus follows
+that contract: `ImmGetCompositionStringW` is converted to UTF-8 at the Windows
+boundary and delivered through the existing `TextCallback`, with `composing`
+set only for marked composition text. The editor reports its logical caret
+position through a small platform hook; the Windows backend applies the current
+per-window DPI before calling `ImmSetCompositionWindow` and
+`ImmSetCandidateWindow`. This keeps IME state and text editing in the application
+layer while keeping HWND/HIMC lifetime and coordinate conversion native.

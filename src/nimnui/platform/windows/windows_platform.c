@@ -3,6 +3,7 @@
 #include <d3d11.h>
 #include <dxgi.h>
 #include <commdlg.h>
+#include <imm.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -20,6 +21,55 @@ static ID3D11RenderTargetView *g_render_target = NULL;
 static char g_clipboard_utf8[4 * 1024 * 1024];
 static wchar_t g_dialog_path[32768];
 static char g_dialog_utf8[32768];
+static wchar_t g_ime_wide[32768];
+static char g_ime_utf8[131072];
+static double g_editor_cursor_x = 8.0;
+static double g_editor_cursor_y = 20.0;
+
+static void update_ime_position(void) {
+  if (!g_window) return;
+  HIMC context = ImmGetContext(g_window);
+  if (!context) return;
+  UINT dpi = GetDpiForWindow(g_window);
+  if (dpi == 0) dpi = USER_DEFAULT_SCREEN_DPI;
+  POINT point;
+  point.x = (LONG)(g_editor_cursor_x * (double)dpi / (double)USER_DEFAULT_SCREEN_DPI);
+  point.y = (LONG)(g_editor_cursor_y * (double)dpi / (double)USER_DEFAULT_SCREEN_DPI);
+
+  COMPOSITIONFORM composition;
+  ZeroMemory(&composition, sizeof(composition));
+  composition.dwStyle = CFS_POINT;
+  composition.ptCurrentPos = point;
+  ImmSetCompositionWindow(context, &composition);
+
+  CANDIDATEFORM candidate;
+  ZeroMemory(&candidate, sizeof(candidate));
+  candidate.dwIndex = 0;
+  candidate.dwStyle = CFS_CANDIDATEPOS;
+  candidate.ptCurrentPos = point;
+  ImmSetCandidateWindow(context, &candidate);
+  ImmReleaseContext(g_window, context);
+}
+
+static void emit_ime_string(HIMC context, DWORD kind, bool composing) {
+  LONG bytes = ImmGetCompositionStringW(context, kind, NULL, 0);
+  if (bytes < 0) return;
+  if (bytes == 0) {
+    if (composing && g_text_callback) g_text_callback("", true);
+    return;
+  }
+  if (bytes > (LONG)(sizeof(g_ime_wide) - sizeof(wchar_t))) {
+    bytes = (LONG)(sizeof(g_ime_wide) - sizeof(wchar_t));
+  }
+  LONG copied = ImmGetCompositionStringW(context, kind, g_ime_wide, (DWORD)bytes);
+  if (copied <= 0) return;
+  int wide_chars = (int)(copied / (LONG)sizeof(wchar_t));
+  int utf8_length = WideCharToMultiByte(CP_UTF8, 0, g_ime_wide, wide_chars,
+      g_ime_utf8, (int)sizeof(g_ime_utf8) - 1, NULL, NULL);
+  if (utf8_length <= 0 || !g_text_callback) return;
+  g_ime_utf8[utf8_length] = '\0';
+  g_text_callback(g_ime_utf8, composing);
+}
 
 static void update_metrics(void) {
   if (!g_window) return;
@@ -144,6 +194,23 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
     case WM_MOUSEMOVE:
       send_input(4, 0, 0, lparam);
       return 0;
+    case WM_IME_STARTCOMPOSITION:
+      update_ime_position();
+      return 0;
+    case WM_IME_COMPOSITION: {
+      HIMC context = ImmGetContext(window);
+      if (context) {
+        LPARAM flags = lparam;
+        if (flags & GCS_RESULTSTR) emit_ime_string(context, GCS_RESULTSTR, false);
+        if (flags & GCS_COMPSTR) emit_ime_string(context, GCS_COMPSTR, true);
+        if (flags == 0 && g_text_callback) g_text_callback("", true);
+        ImmReleaseContext(window, context);
+      }
+      return 0;
+    }
+    case WM_IME_ENDCOMPOSITION:
+      if (g_text_callback) g_text_callback("", true);
+      return 0;
     case WM_CHAR: {
       wchar_t wide = (wchar_t)wparam;
       char utf8[8] = {0};
@@ -209,6 +276,16 @@ void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics) {
 
 void nimculus_platform_set_input_callback(NimculusInputCallback callback) {
   g_input_callback = callback;
+}
+
+void nimculus_platform_set_editor_cursor(double x, double y) {
+  g_editor_cursor_x = x;
+  g_editor_cursor_y = y;
+  update_ime_position();
+}
+
+void nimculus_platform_invalidate_ime_coordinates(void) {
+  update_ime_position();
 }
 
 void nimculus_clipboard_set(const char *utf8, uint32_t length) {

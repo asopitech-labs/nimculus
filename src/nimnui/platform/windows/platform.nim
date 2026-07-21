@@ -1,6 +1,6 @@
 when defined(windows) and not defined(nimculusPortableOnly):
   {.compile: "windows_platform.c".}
-  {.passL: "-ld3d11 -ldxgi -luser32 -lgdi32 -lcomdlg32".}
+  {.passL: "-ld3d11 -ldxgi -luser32 -lgdi32 -lcomdlg32 -limm32".}
 
 import nimnui/platform/headless/platform as headless_platform
 export headless_platform
@@ -12,6 +12,8 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformInputCount*(): uint64 {.importc: "nimculus_platform_input_count", cdecl.}
   proc platformSetInputCallback*(callback: InputCallback) {.importc: "nimculus_platform_set_input_callback", cdecl.}
   proc platformSetTextCallback*(callback: TextCallback) {.importc: "nimculus_platform_set_text_callback", cdecl.}
+  proc platformSetEditorCursor*(x, y: cdouble) {.importc: "nimculus_platform_set_editor_cursor", cdecl.}
+  proc platformInvalidateImeCoordinates*() {.importc: "nimculus_platform_invalidate_ime_coordinates", cdecl.}
   proc clipboardSet*(text: cstring, length: uint32) {.importc: "nimculus_clipboard_set", cdecl.}
   proc clipboardUtf8Length*(): uint32 {.importc: "nimculus_clipboard_utf8_length", cdecl.}
   proc clipboardUtf8Bytes*(): pointer {.importc: "nimculus_clipboard_utf8_bytes", cdecl.}
@@ -34,6 +36,8 @@ else:
     if callback != nil: discard
   proc platformSetTextCallback*(callback: TextCallback) =
     if callback != nil: discard
+  proc platformSetEditorCursor*(x, y: cdouble) = discard (x, y)
+  proc platformInvalidateImeCoordinates*() = discard
   proc clipboardSet*(text: cstring, length: uint32) = discard (text, length)
   proc clipboardGet*(): string = ""
   proc chooseOpenFile*(): cstring = ""

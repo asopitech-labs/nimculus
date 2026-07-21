@@ -1328,6 +1328,15 @@ proc syncEditorCursor() =
     let status = if document != nil: editorViewState.statusBarText(document[].buffer)
       else: editorViewState.statusMessage
     platformSetEditorStatus(status.cstring)
+  elif defined(windows):
+    let document = activeDocument()
+    let location = if document == nil: (line: 0, column: 0) else:
+      document[].buffer.lineColumn(editorViewState.cursor)
+    # The native backend consumes logical client coordinates and converts them
+    # to physical pixels for IMM32. Keep this small contract independent from
+    # Win32 while the full Windows text renderer is still being implemented.
+    platformSetEditorCursor(cdouble(8.0 + float(location.column) * 8.0),
+      cdouble(20.0 + float(location.line) * 18.0))
     var tabTitles: seq[string]
     for tab in editorSession.tabs:
       tabTitles.add(tab.title & (if tab.document.buffer.isDirty: " •" else: ""))

@@ -45,12 +45,14 @@ proc platformSetCommandCallback*(callback: CommandCallback) =
   if callback != nil: discard
 proc platformSetIdleCallback*(callback: IdleCallback) =
   if callback != nil: discard
-proc platformSetEditorCursor*(x, y: cdouble) = discard (x, y)
+when not defined(windows):
+  proc platformSetEditorCursor*(x, y: cdouble) = discard (x, y)
 proc platformSetEditorCursorByte*(byteOffset, line: uint32) = discard (byteOffset, line)
 proc platformSetEditorFontSize*(size: cdouble) = discard size
 proc platformSetEditorFontName*(name: cstring) = discard name
 proc platformEditorLineHeight*(): cdouble = 16.0
-proc platformInvalidateImeCoordinates*() = discard
+when not defined(windows):
+  proc platformInvalidateImeCoordinates*() = discard
 proc platformEditorByteOffsetAtPoint*(x, y: cdouble): uint32 = 0
 proc platformEditorUtf16OffsetAtPoint*(x, y: cdouble): uint32 = 0
 proc platformSetEditorScrollLine*(line: uint32) = discard line

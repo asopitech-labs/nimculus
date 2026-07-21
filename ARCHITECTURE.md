@@ -23,8 +23,10 @@ the same value contract without importing another OS's APIs.
 Platform services such as clipboard and file dialogs follow the same rule:
 the application calls a narrow Nim contract, while each backend owns the OS
 conversion and lifetime rules. The current Windows slice supports Unicode
-text clipboard and Open/Save dialogs; IME and richer clipboard formats remain
-backend work rather than application logic.
+text clipboard and Open/Save dialogs. Windows IMM32 composition/result text is
+also delivered through the same UTF-8 `TextCallback`, while candidate-window
+coordinates remain owned by the backend; font, ConPTY, and richer clipboard
+formats remain backend work rather than application logic.
 
 ## M1 boundary
 
