@@ -1497,6 +1497,17 @@ same bottom output surface when the terminal is not visible. Terminal and task
 output remain separate application states, while both use the platform-owned
 overlay lifecycle and invalidation boundary.
 
+## M13-042: Preserve terminal cell coordinates and display width across the native ABI
+
+Zed's terminal rendering consumes a cell grid with an explicit point and
+wide-character spacer state; it does not infer terminal columns from UTF-8
+codepoint counts. `TerminalCell.width` is therefore exported as `row`,
+`column`, and `cell_width` on `NimculusTerminalRun`. The macOS text view keeps
+using byte ranges for attributed text, while the Windows native overlay uses
+the explicit coordinates and width for glyph, background, and decoration
+placement. This prevents CJK/emoji glyphs from shifting subsequent runs and
+keeps selection geometry aligned with the terminal grid.
+
 ## M13-012: Normalize Win32 keyboard events before shared shortcut routing
 
 Zed's Windows backend separates accelerator handling from character input and

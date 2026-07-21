@@ -820,8 +820,8 @@ when defined(macosx):
     let text = screen.gridText()
     var runs: seq[NativeTerminalRun]
     var byteOffset = 0
-    for row in screen.lines:
-      for cell in row:
+    for rowIndex, row in screen.lines:
+      for columnIndex, cell in row:
         if cell.width == 0: continue
         let cellText = if cell.text.len == 0: " " else: cell.text
         let endByte = byteOffset + cellText.len
@@ -833,6 +833,8 @@ when defined(macosx):
           (if cell.strikethrough: 32'u32 else: 0'u32)
         runs.add(NativeTerminalRun(startByte: uint32(byteOffset), endByte: uint32(endByte),
           flags: flags,
+          row: uint32(rowIndex), column: uint32(columnIndex),
+          cellWidth: uint32(max(1, cell.width)),
           foregroundKind: uint32(ord(cell.foreground.kind)), foregroundIndex: uint32(max(0,
               cell.foreground.index)),
           foregroundRed: uint32(cell.foreground.red), foregroundGreen: uint32(

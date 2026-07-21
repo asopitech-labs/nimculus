@@ -1486,26 +1486,35 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @end
 
 static NSUInteger terminalUTF16OffsetForCell(uint32_t row, uint32_t column) {
-  NSArray<NSString *> *lines = [g_terminal_text componentsSeparatedByString:@"\n"];
-  if (lines.count == 0) return 0;
-  NSUInteger lineIndex = MIN((NSUInteger)row, lines.count - 1);
-  NSUInteger offset = 0;
-  for (NSUInteger index = 0; index < lineIndex; index++) {
-    offset += lines[index].length + 1;
+  NSData *utf8 = [g_terminal_text dataUsingEncoding:NSUTF8StringEncoding];
+  const uint8_t *bytes = utf8.bytes;
+  NSUInteger rowStart = 0;
+  uint32_t currentRow = 0;
+  if (bytes) {
+    for (NSUInteger index = 0; index < utf8.length && currentRow < row; index++) {
+      if (bytes[index] == '\n') {
+        currentRow++;
+        rowStart = index + 1;
+      }
+    }
   }
-  NSString *line = lines[lineIndex];
-  __block NSUInteger cell = 0;
-  __block NSUInteger utf16 = 0;
-  [line enumerateSubstringsInRange:NSMakeRange(0, line.length)
-                           options:NSStringEnumerationByComposedCharacterSequences
-                        usingBlock:^(NSString *substring, NSRange substringRange,
-                                     NSRange enclosingRange, BOOL *stop) {
-    (void)substring; (void)enclosingRange;
-    if (cell >= column) { *stop = YES; return; }
-    utf16 = NSMaxRange(substringRange);
-    cell++;
-  }];
-  return offset + MIN(utf16, line.length);
+  rowStart = MIN(rowStart, utf8.length);
+  NSUInteger target = rowStart;
+  for (uint32_t index = 0; index < g_terminal_run_count; index++) {
+    NimculusTerminalRun run = g_terminal_runs[index];
+    if (run.row != row) continue;
+    uint32_t width = run.cell_width > 0 ? run.cell_width : 1;
+    if (column <= run.column) {
+      target = run.start_byte;
+      break;
+    }
+    if (column < run.column + width) {
+      target = run.end_byte;
+      break;
+    }
+    target = run.end_byte;
+  }
+  return utf16OffsetForUTF8Bytes(g_terminal_text, target);
 }
 
 static void applyTerminalSelection(NSTextView *terminal) {

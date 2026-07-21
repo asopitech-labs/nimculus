@@ -30,6 +30,9 @@ typedef struct NimculusTerminalRun {
   uint32_t start_byte;
   uint32_t end_byte;
   uint32_t flags;
+  uint32_t row;
+  uint32_t column;
+  uint32_t cell_width;
   uint32_t foreground_kind;
   uint32_t foreground_index;
   uint32_t foreground_red;

@@ -1037,25 +1037,6 @@ static bool render_editor_directwrite(void) {
   return true;
 }
 
-static void terminal_byte_position(uint32_t byte_offset, uint32_t *row,
-                                   uint32_t *column) {
-  uint32_t current_row = 0;
-  uint32_t current_column = 0;
-  uint32_t limit = byte_offset < g_terminal_utf8_length
-      ? byte_offset : g_terminal_utf8_length;
-  for (uint32_t index = 0; index < limit; ++index) {
-    unsigned char value = (unsigned char)g_terminal_utf8[index];
-    if (value == '\n') {
-      current_row++;
-      current_column = 0;
-    } else if ((value & 0xc0) != 0x80) {
-      current_column++;
-    }
-  }
-  if (row) *row = current_row;
-  if (column) *column = current_column;
-}
-
 static COLORREF terminal_indexed_color(uint32_t index, bool background) {
   static const BYTE palette[16][3] = {
     {0, 0, 0}, {205, 49, 49}, {13, 188, 121}, {229, 229, 16},
@@ -1121,8 +1102,9 @@ static void render_terminal_runs(HDC dc, const RECT *rect, HFONT font,
     if (run->start_byte >= g_terminal_utf8_length || run->end_byte <= run->start_byte) continue;
     uint32_t start = run->start_byte;
     uint32_t end = min(run->end_byte, g_terminal_utf8_length);
-    uint32_t row = 0, column = 0;
-    terminal_byte_position(start, &row, &column);
+    uint32_t row = run->row;
+    uint32_t column = run->column;
+    LONG run_cell_width = (LONG)(run->cell_width > 0 ? run->cell_width : 1);
     uint32_t byte_length = end - start;
     wchar_t wide[2048];
     int wide_length = MultiByteToWideChar(CP_UTF8, 0, g_terminal_utf8 + start,
@@ -1136,7 +1118,7 @@ static void render_terminal_runs(HDC dc, const RECT *rect, HFONT font,
     if (run->background_kind != 0 || (run->flags & 16u) != 0) {
       HBRUSH background = CreateSolidBrush(terminal_run_color(run, false));
       RECT background_rect = {x, y,
-          min(rect->right, x + max(cell_width, (LONG)wide_length * cell_width)),
+          min(rect->right, x + max(cell_width, run_cell_width * cell_width)),
           y + line_height};
       FillRect(dc, &background_rect, background);
       DeleteObject(background);
@@ -1169,7 +1151,7 @@ static void render_terminal_runs(HDC dc, const RECT *rect, HFONT font,
     if ((run->flags & 8u) != 0 || (run->flags & 32u) != 0) {
       HPEN pen = CreatePen(PS_SOLID, 1, terminal_run_color(run, true));
       HGDIOBJ old_pen = SelectObject(dc, pen);
-      LONG extent = max(cell_width, (LONG)wide_length * cell_width);
+      LONG extent = max(cell_width, run_cell_width * cell_width);
       if ((run->flags & 8u) != 0) {
         MoveToEx(dc, x, y + line_height - 2, NULL);
         LineTo(dc, min(rect->right - 8, x + extent), y + line_height - 2);
