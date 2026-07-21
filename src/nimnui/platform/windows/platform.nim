@@ -24,6 +24,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
       length: uint32) {.importc: "nimculus_platform_set_image_rgba", cdecl.}
   proc platformSetEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_text", cdecl.}
+  proc platformSetEditorComposition*(text: cstring) {.importc: "nimculus_platform_set_editor_composition", cdecl.}
   proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan,
       count: uint32) {.importc: "nimculus_platform_set_editor_highlights", cdecl.}
   proc platformSetEditorFontSize*(size: cdouble) {.importc: "nimculus_platform_set_editor_font_size", cdecl.}
@@ -75,6 +76,7 @@ else:
   proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
       length: uint32) = discard (imageId, width, height, rgba, length)
   proc platformSetEditorText*(text: cstring, length: uint32) = discard (text, length)
+  proc platformSetEditorComposition*(text: cstring) = discard text
   proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan,
       count: uint32) = discard (spans, count)
   proc platformSetEditorCursorByte*(byteOffset, line: uint32) = discard (byteOffset, line)

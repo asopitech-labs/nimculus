@@ -1721,7 +1721,7 @@ proc receiveNativeTextValue(value: string, composing: bool) =
   when defined(windows):
     if not composing and writeWindowsTerminalText(value): return
   imeState.receiveText(value, composing)
-  when defined(macosx):
+  when defined(macosx) or defined(windows):
     if composing:
       platformSetEditorComposition(value.cstring)
       return
@@ -2599,7 +2599,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     refreshEditorSyntax()
   elif name == "cancel":
     imeState.composition.setLen(0)
-    when defined(macosx): platformSetEditorComposition("".cstring)
+    when defined(macosx) or defined(windows): platformSetEditorComposition("".cstring)
   elif name == "moveLeft" and document != nil:
     editorViewState.moveCursor(previousBoundary(document[].buffer.toString(),
         editorViewState.cursor))

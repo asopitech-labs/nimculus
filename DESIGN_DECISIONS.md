@@ -1468,6 +1468,15 @@ effect. This keeps syntax coloring out of the editor buffer and follows Zed's
 separation between text layout runs and document storage. Spans are clipped to
 the visible line and invalid ranges are ignored.
 
+## M13-039: Keep Windows IME composition separate from committed text
+
+IMM32 composition callbacks remain transient input: composing text is stored
+in a separate UTF-16 platform buffer and rendered at the editor caret through
+the DirectWrite layout with an underline. It is cleared on commit, cancel, or
+document/preview reset. This follows Zed's marked-text boundary and prevents
+IME composition from mutating the PieceTable before `GCS_RESULTSTR` is
+delivered.
+
 ## M13-012: Normalize Win32 keyboard events before shared shortcut routing
 
 Zed's Windows backend separates accelerator handling from character input and

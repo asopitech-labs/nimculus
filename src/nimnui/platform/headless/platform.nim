@@ -103,7 +103,8 @@ proc platformSetEditorCompletions*(text: cstring, length: uint32) = discard (tex
 proc platformSetEditorHover*(text: cstring, length: uint32) = discard (text, length)
 proc platformSetEditorHoverPosition*(x, y: cdouble) = discard (x, y)
 proc platformEditorTextUtf8Length*(): uint32 = 0
-proc platformSetEditorComposition*(text: cstring) = discard text
+when not defined(windows):
+  proc platformSetEditorComposition*(text: cstring) = discard text
 proc platformClearEditorComposition*() = discard
 when not defined(windows):
   proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32) = discard (spans, count)

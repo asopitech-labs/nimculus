@@ -56,6 +56,8 @@ static wchar_t *g_editor_text = NULL;
 static int g_editor_text_length = 0;
 static char *g_editor_utf8 = NULL;
 static uint32_t g_editor_utf8_length = 0;
+static wchar_t *g_editor_composition = NULL;
+static int g_editor_composition_length = 0;
 static NimculusHighlightSpan *g_editor_highlights = NULL;
 static uint32_t g_editor_highlight_count = 0;
 static wchar_t g_editor_font_name[LF_FACESIZE] = L"Consolas";
@@ -985,6 +987,25 @@ static bool render_editor_directwrite(void) {
   if (g_editor_cursor_line >= g_editor_scroll_line) {
     float cursor_top = top + (float)(g_editor_cursor_line - g_editor_scroll_line) * line_height;
     if (cursor_top < bottom && cursor_top + line_height > top) {
+      if (g_editor_composition && g_editor_composition_length > 0) {
+        IDWriteTextLayout *composition_layout = NULL;
+        float composition_x = (float)(g_editor_cursor_x * scale);
+        float composition_width = max(1.0f, right - composition_x);
+        hr = g_dwrite_factory->lpVtbl->CreateTextLayout(g_dwrite_factory,
+            g_editor_composition, (UINT32)g_editor_composition_length,
+            format, composition_width, line_height, &composition_layout);
+        if (SUCCEEDED(hr) && composition_layout) {
+          DWRITE_TEXT_RANGE composition_range = {0,
+              (UINT32)g_editor_composition_length};
+          composition_layout->lpVtbl->SetUnderline(composition_layout, TRUE,
+              composition_range);
+          D2D1_POINT_2F composition_origin = {composition_x, cursor_top};
+          g_d2d_target->lpVtbl->DrawTextLayout(g_d2d_target,
+              composition_origin, composition_layout,
+              (ID2D1Brush *)g_d2d_text_brush, D2D1_DRAW_TEXT_OPTIONS_NO_SNAP);
+          composition_layout->lpVtbl->Release(composition_layout);
+        }
+      }
       D2D1_RECT_F cursor = {(float)(g_editor_cursor_x * scale),
           cursor_top + 2.0f * (float)scale,
           (float)(g_editor_cursor_x * scale) + (float)scale,
@@ -1435,6 +1456,9 @@ bool nimculus_platform_run(void) {
   free(g_editor_utf8);
   g_editor_utf8 = NULL;
   g_editor_utf8_length = 0;
+  free(g_editor_composition);
+  g_editor_composition = NULL;
+  g_editor_composition_length = 0;
   free(g_editor_highlights);
   g_editor_highlights = NULL;
   g_editor_highlight_count = 0;
@@ -1708,6 +1732,30 @@ void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans,
       memcpy(g_editor_highlights, spans,
           sizeof(NimculusHighlightSpan) * (size_t)count);
       g_editor_highlight_count = count;
+    }
+  }
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_editor_composition(const char *utf8) {
+  free(g_editor_composition);
+  g_editor_composition = NULL;
+  g_editor_composition_length = 0;
+  if (utf8 && utf8[0] != '\0') {
+    int wide_length = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, NULL, 0);
+    if (wide_length > 1) {
+      g_editor_composition = (wchar_t *)malloc(
+          (size_t)wide_length * sizeof(wchar_t));
+      if (g_editor_composition) {
+        int converted = MultiByteToWideChar(CP_UTF8, 0, utf8, -1,
+            g_editor_composition, wide_length);
+        if (converted > 1) {
+          g_editor_composition_length = converted - 1;
+        } else {
+          free(g_editor_composition);
+          g_editor_composition = NULL;
+        }
+      }
     }
   }
   if (g_window) InvalidateRect(g_window, NULL, FALSE);
