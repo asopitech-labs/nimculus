@@ -31,6 +31,17 @@ geometry as the renderer and dispatches the existing `selectTab:<index>` command
 this keeps tab state mutation in the application layer, matching Zed's tab
 component click dispatch, rather than duplicating session state in C.
 
+## M13-051: Synchronize the Windows editor rectangle from NimNUI layout
+
+The Windows native renderer previously used fixed editor coordinates even
+though NimNUI recalculated the editor bounds after resize and split-pane
+changes. Following Zed's layout/paint boundary, the application now sends the
+logical editor rectangle to the native backend. DirectWrite, GDI fallback,
+line-number, and indent-guide rendering consume that same rectangle after the
+backend applies the current DPI scale. The native backend keeps only a bounded
+default for startup before the first layout frame; it does not own editor
+layout state.
+
 ## M13-047: Keep Windows command palette input at the native UI boundary
 
 The Windows command palette uses a small native `EDIT` control rather than

@@ -94,6 +94,9 @@ static char g_ime_utf8[131072];
 static wchar_t g_pending_high_surrogate = 0;
 static double g_editor_cursor_x = 8.0;
 static double g_editor_cursor_y = 20.0;
+/* Logical NimNUI editor bounds. The renderer converts them to device pixels
+ * at the same boundary as input coordinates and DPI metrics. */
+static double g_editor_rect[4] = {268.0, 128.0, 908.0, 624.0};
 static bool g_fullscreen = false;
 static LONG_PTR g_saved_style = 0;
 static LONG_PTR g_saved_ex_style = 0;
@@ -986,10 +989,10 @@ static bool render_editor_directwrite(void) {
   if (!g_d2d_target || !g_d2d_text_brush || !g_editor_text ||
       g_editor_text_length <= 0) return false;
   double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
-  float left = (float)(268.0 * scale);
-  float top = (float)(128.0 * scale);
-  float right = (float)g_metrics.width_pixels - (float)(24.0 * scale);
-  float bottom = (float)g_metrics.height_pixels - (float)(48.0 * scale);
+  float left = (float)(g_editor_rect[0] * scale);
+  float top = (float)(g_editor_rect[1] * scale);
+  float right = (float)((g_editor_rect[0] + g_editor_rect[2]) * scale);
+  float bottom = (float)((g_editor_rect[1] + g_editor_rect[3]) * scale);
   if (right <= left || bottom <= top) return false;
   if (!ensure_directwrite_factory()) return false;
   IDWriteFactory *factory = g_dwrite_factory;
@@ -1360,10 +1363,10 @@ static void render_editor_overlay(void) {
   RECT client;
   GetClientRect(g_window, &client);
   double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
-  LONG left = (LONG)(268.0 * scale);
-  LONG top = (LONG)(128.0 * scale);
-  LONG right = client.right - (LONG)(24.0 * scale);
-  LONG bottom = client.bottom - (LONG)(48.0 * scale);
+  LONG left = (LONG)(g_editor_rect[0] * scale);
+  LONG top = (LONG)(g_editor_rect[1] * scale);
+  LONG right = (LONG)((g_editor_rect[0] + g_editor_rect[2]) * scale);
+  LONG bottom = (LONG)((g_editor_rect[1] + g_editor_rect[3]) * scale);
   SetBkMode(dc, TRANSPARENT);
   SetTextColor(dc, RGB(215, 218, 224));
   HFONT font = CreateFontW(font_height(g_editor_font_size, scale), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
@@ -1465,10 +1468,10 @@ static void render_editor_chrome(void) {
   RECT client;
   GetClientRect(g_window, &client);
   double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
-  LONG editor_left = (LONG)(268.0 * scale);
-  LONG editor_top = (LONG)(128.0 * scale);
-  LONG editor_right = client.right - (LONG)(24.0 * scale);
-  LONG editor_bottom = client.bottom - (LONG)(48.0 * scale);
+  LONG editor_left = (LONG)(g_editor_rect[0] * scale);
+  LONG editor_top = (LONG)(g_editor_rect[1] * scale);
+  LONG editor_right = (LONG)((g_editor_rect[0] + g_editor_rect[2]) * scale);
+  LONG editor_bottom = (LONG)((g_editor_rect[1] + g_editor_rect[3]) * scale);
   SetBkMode(dc, TRANSPARENT);
   HFONT font = CreateFontW(font_height(g_editor_font_size, scale), 0, 0, 0,
       FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
@@ -1889,6 +1892,15 @@ void nimculus_platform_set_editor_cursor(double x, double y) {
   g_editor_cursor_x = x;
   g_editor_cursor_y = y;
   update_ime_position();
+}
+
+void nimculus_platform_set_editor_rect(double x, double y, double width,
+                                       double height) {
+  g_editor_rect[0] = x >= 0.0 ? x : 0.0;
+  g_editor_rect[1] = y >= 0.0 ? y : 0.0;
+  g_editor_rect[2] = width > 1.0 ? width : 1.0;
+  g_editor_rect[3] = height > 1.0 ? height : 1.0;
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
 
 void nimculus_platform_set_editor_font_size(double size) {

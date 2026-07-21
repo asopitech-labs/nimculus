@@ -63,7 +63,8 @@ proc platformEditorByteOffsetAtPoint*(x, y: cdouble): uint32 = 0
 proc platformEditorUtf16OffsetAtPoint*(x, y: cdouble): uint32 = 0
 when not defined(windows):
   proc platformSetEditorScrollLine*(line: uint32) = discard line
-proc platformSetEditorRect*(x, y, width, height: cdouble) = discard (x, y, width, height)
+when not defined(windows):
+  proc platformSetEditorRect*(x, y, width, height: cdouble) = discard (x, y, width, height)
 when not defined(windows):
   proc platformSetEditorDirty*(dirty: bool) = discard dirty
   proc platformSetEditorIndentGuides*(visible: bool, indentWidth: uint32) = discard (visible, indentWidth)

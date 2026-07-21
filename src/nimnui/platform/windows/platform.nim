@@ -30,6 +30,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
       length: uint32) {.importc: "nimculus_platform_set_image_rgba", cdecl.}
   proc platformSetEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_text", cdecl.}
+  proc platformSetEditorRect*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_editor_rect", cdecl.}
   proc platformSetEditorComposition*(text: cstring) {.importc: "nimculus_platform_set_editor_composition", cdecl.}
   proc platformSetEditorDirty*(dirty: bool) {.importc: "nimculus_platform_set_editor_dirty", cdecl.}
   proc platformSetEditorIndentGuides*(visible: bool, indentWidth: uint32) {.importc: "nimculus_platform_set_editor_indent_guides", cdecl.}
@@ -98,6 +99,7 @@ else:
   proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
       length: uint32) = discard (imageId, width, height, rgba, length)
   proc platformSetEditorText*(text: cstring, length: uint32) = discard (text, length)
+  proc platformSetEditorRect*(x, y, width, height: cdouble) = discard (x, y, width, height)
   proc platformSetEditorComposition*(text: cstring) = discard text
   proc platformSetEditorDirty*(dirty: bool) = discard dirty
   proc platformSetEditorIndentGuides*(visible: bool, indentWidth: uint32) = discard (visible, indentWidth)

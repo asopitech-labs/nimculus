@@ -4,7 +4,7 @@ import std/math
 import std/os
 import std/strutils
 import std/tables
-import std/unicode
+import std/unicode except splitWhitespace
 import nimnui/nimnui
 import nimnui/render
 import nimculus/editor_app
