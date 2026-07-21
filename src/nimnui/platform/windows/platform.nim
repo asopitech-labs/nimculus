@@ -1,6 +1,6 @@
 when defined(windows) and not defined(nimculusPortableOnly):
   {.compile: "windows_platform.c".}
-  {.passL: "-ld3d11 -ldxgi -luser32 -lgdi32 -lcomdlg32 -limm32 -lshell32".}
+  {.passL: "-ld3d11 -ldxgi -ld3dcompiler -luser32 -lgdi32 -lcomdlg32 -limm32 -lshell32".}
 
 import nimnui/platform/headless/platform as headless_platform
 export headless_platform
@@ -18,6 +18,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformSetIdleCallback*(callback: IdleCallback) {.importc: "nimculus_platform_set_idle_callback", cdecl.}
   proc platformSetTerminalVisible*(visible: bool) {.importc: "nimculus_platform_set_terminal_visible", cdecl.}
   proc platformSetTerminalText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_terminal_text", cdecl.}
+  proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}
   proc platformToggleFullscreen*() {.importc: "nimculus_platform_toggle_fullscreen", cdecl.}
   proc platformMinimizeWindow*() {.importc: "nimculus_platform_minimize_window", cdecl.}
   proc platformMaximizeWindow*() {.importc: "nimculus_platform_maximize_window", cdecl.}
@@ -56,6 +57,7 @@ else:
     if callback != nil: discard
   proc platformSetTerminalVisible*(visible: bool) = discard visible
   proc platformSetTerminalText*(text: cstring, length: uint32) = discard (text, length)
+  proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) = discard (commands, count)
   proc platformToggleFullscreen*() = discard
   proc platformMinimizeWindow*() = discard
   proc platformMaximizeWindow*() = discard

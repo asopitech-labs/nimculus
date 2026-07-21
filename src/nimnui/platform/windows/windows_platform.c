@@ -1,11 +1,13 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <d3d11.h>
+#include <d3dcompiler.h>
 #include <dxgi.h>
 #include <commdlg.h>
 #include <imm.h>
 #include <shellapi.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
 
@@ -28,6 +30,13 @@ static ID3D11Device *g_device = NULL;
 static ID3D11DeviceContext *g_context = NULL;
 static IDXGISwapChain *g_swap_chain = NULL;
 static ID3D11RenderTargetView *g_render_target = NULL;
+static ID3D11VertexShader *g_quad_vertex_shader = NULL;
+static ID3D11PixelShader *g_quad_pixel_shader = NULL;
+static ID3D11InputLayout *g_quad_input_layout = NULL;
+static ID3D11Buffer *g_quad_vertex_buffer = NULL;
+static ID3D11RasterizerState *g_quad_rasterizer = NULL;
+static NimculusPaintCommand *g_paint_commands = NULL;
+static uint32_t g_paint_count = 0;
 static char g_clipboard_utf8[4 * 1024 * 1024];
 static wchar_t g_dialog_path[32768];
 static char g_dialog_utf8[32768];
@@ -194,6 +203,100 @@ static void update_metrics(void) {
 
 static void resize_render_target(void);
 
+typedef struct NimculusQuadVertex {
+  float x;
+  float y;
+  float r;
+  float g;
+  float b;
+  float a;
+} NimculusQuadVertex;
+
+static const char g_quad_vertex_source[] =
+  "struct VSInput { float2 position : POSITION; float4 color : COLOR; };"
+  "struct VSOutput { float4 position : SV_POSITION; float4 color : COLOR; };"
+  "VSOutput main(VSInput input) { VSOutput output;"
+  "output.position = float4(input.position, 0.0, 1.0);"
+  "output.color = input.color; return output; }";
+
+static const char g_quad_pixel_source[] =
+  "struct PSInput { float4 position : SV_POSITION; float4 color : COLOR; };"
+  "float4 main(PSInput input) : SV_TARGET { return input.color; }";
+
+static void release_quad_pipeline(void) {
+  if (g_quad_rasterizer) g_quad_rasterizer->lpVtbl->Release(g_quad_rasterizer);
+  if (g_quad_vertex_buffer) g_quad_vertex_buffer->lpVtbl->Release(g_quad_vertex_buffer);
+  if (g_quad_input_layout) g_quad_input_layout->lpVtbl->Release(g_quad_input_layout);
+  if (g_quad_pixel_shader) g_quad_pixel_shader->lpVtbl->Release(g_quad_pixel_shader);
+  if (g_quad_vertex_shader) g_quad_vertex_shader->lpVtbl->Release(g_quad_vertex_shader);
+  g_quad_rasterizer = NULL;
+  g_quad_vertex_buffer = NULL;
+  g_quad_input_layout = NULL;
+  g_quad_pixel_shader = NULL;
+  g_quad_vertex_shader = NULL;
+}
+
+static bool create_quad_pipeline(void) {
+  ID3DBlob *vertex_blob = NULL;
+  ID3DBlob *pixel_blob = NULL;
+  ID3DBlob *errors = NULL;
+  HRESULT hr = D3DCompile(g_quad_vertex_source, sizeof(g_quad_vertex_source) - 1,
+      "nimculus_quad_vs", NULL, NULL, "main", "vs_4_0", 0, 0, &vertex_blob, &errors);
+  if (errors) errors->lpVtbl->Release(errors);
+  if (FAILED(hr)) return false;
+  hr = D3DCompile(g_quad_pixel_source, sizeof(g_quad_pixel_source) - 1,
+      "nimculus_quad_ps", NULL, NULL, "main", "ps_4_0", 0, 0, &pixel_blob, &errors);
+  if (errors) errors->lpVtbl->Release(errors);
+  if (FAILED(hr)) {
+    vertex_blob->lpVtbl->Release(vertex_blob);
+    return false;
+  }
+  hr = g_device->lpVtbl->CreateVertexShader(g_device, vertex_blob->lpVtbl->GetBufferPointer(vertex_blob),
+      vertex_blob->lpVtbl->GetBufferSize(vertex_blob), NULL, &g_quad_vertex_shader);
+  if (SUCCEEDED(hr)) {
+    hr = g_device->lpVtbl->CreatePixelShader(g_device, pixel_blob->lpVtbl->GetBufferPointer(pixel_blob),
+        pixel_blob->lpVtbl->GetBufferSize(pixel_blob), NULL, &g_quad_pixel_shader);
+  }
+  D3D11_INPUT_ELEMENT_DESC elements[2] = {
+    {"POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0}
+  };
+  if (SUCCEEDED(hr)) {
+    hr = g_device->lpVtbl->CreateInputLayout(g_device, elements, 2,
+        vertex_blob->lpVtbl->GetBufferPointer(vertex_blob),
+        vertex_blob->lpVtbl->GetBufferSize(vertex_blob), &g_quad_input_layout);
+  }
+  vertex_blob->lpVtbl->Release(vertex_blob);
+  pixel_blob->lpVtbl->Release(pixel_blob);
+  if (FAILED(hr)) {
+    release_quad_pipeline();
+    return false;
+  }
+
+  D3D11_BUFFER_DESC buffer_desc;
+  ZeroMemory(&buffer_desc, sizeof(buffer_desc));
+  buffer_desc.ByteWidth = sizeof(NimculusQuadVertex) * 6;
+  buffer_desc.Usage = D3D11_USAGE_DYNAMIC;
+  buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+  buffer_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+  hr = g_device->lpVtbl->CreateBuffer(g_device, &buffer_desc, NULL, &g_quad_vertex_buffer);
+
+  D3D11_RASTERIZER_DESC rasterizer_desc;
+  ZeroMemory(&rasterizer_desc, sizeof(rasterizer_desc));
+  rasterizer_desc.FillMode = D3D11_FILL_SOLID;
+  rasterizer_desc.CullMode = D3D11_CULL_NONE;
+  rasterizer_desc.ScissorEnable = TRUE;
+  if (SUCCEEDED(hr)) {
+    hr = g_device->lpVtbl->CreateRasterizerState(g_device, &rasterizer_desc,
+        &g_quad_rasterizer);
+  }
+  if (FAILED(hr)) {
+    release_quad_pipeline();
+    return false;
+  }
+  return true;
+}
+
 static void set_fullscreen(bool enabled) {
   if (!g_window || enabled == g_fullscreen) return;
   if (enabled) {
@@ -247,6 +350,7 @@ static bool create_render_target(void) {
 
 static void resize_render_target(void) {
   if (!g_swap_chain || !g_device) return;
+  if (g_context) g_context->lpVtbl->OMSetRenderTargets(g_context, 0, NULL, NULL);
   release_render_target();
   if (g_metrics.width_pixels == 0 || g_metrics.height_pixels == 0) return;
   if (FAILED(g_swap_chain->lpVtbl->ResizeBuffers(
@@ -271,7 +375,81 @@ static bool create_device(void) {
       D3D11_SDK_VERSION, &desc, &g_swap_chain, &g_device, &level, &g_context);
   if (FAILED(hr)) return false;
   update_metrics();
-  return create_render_target();
+  if (!create_render_target()) return false;
+  return create_quad_pipeline();
+}
+
+static void paint_color(uint32_t kind, float color[4]) {
+  switch (kind) {
+    case 1: color[0] = 0.32f; color[1] = 0.38f; color[2] = 0.48f; break; /* border */
+    case 2: color[0] = 0.18f; color[1] = 0.22f; color[2] = 0.29f; break; /* rounded */
+    case 7: color[0] = 0.05f; color[1] = 0.06f; color[2] = 0.08f; break; /* shadow */
+    case 8: color[0] = 0.35f; color[1] = 0.70f; color[2] = 1.0f; break; /* caret */
+    case 9: color[0] = 0.16f; color[1] = 0.36f; color[2] = 0.68f; break; /* selection */
+    case 10: color[0] = 0.42f; color[1] = 0.48f; color[2] = 0.58f; break; /* scrollbar */
+    default: color[0] = 0.14f; color[1] = 0.17f; color[2] = 0.22f; break;
+  }
+  color[3] = 1.0f;
+}
+
+static void draw_paint_quads(void) {
+  if (!g_context || !g_quad_vertex_buffer || !g_quad_input_layout ||
+      !g_quad_vertex_shader || !g_quad_pixel_shader || !g_quad_rasterizer ||
+      g_paint_count == 0 || g_metrics.width_pixels == 0 || g_metrics.height_pixels == 0) return;
+  UINT stride = sizeof(NimculusQuadVertex);
+  UINT offset = 0;
+  g_context->lpVtbl->IASetInputLayout(g_context, g_quad_input_layout);
+  g_context->lpVtbl->IASetVertexBuffers(g_context, 0, 1, &g_quad_vertex_buffer, &stride, &offset);
+  g_context->lpVtbl->IASetPrimitiveTopology(g_context, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  g_context->lpVtbl->VSSetShader(g_context, g_quad_vertex_shader, NULL, 0);
+  g_context->lpVtbl->PSSetShader(g_context, g_quad_pixel_shader, NULL, 0);
+  g_context->lpVtbl->RSSetState(g_context, g_quad_rasterizer);
+
+  float scale = (float)(g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0);
+  float width = (float)g_metrics.width_pixels;
+  float height = (float)g_metrics.height_pixels;
+  for (uint32_t index = 0; index < g_paint_count; ++index) {
+    const NimculusPaintCommand *command = &g_paint_commands[index];
+    if (command->kind == 3 || command->kind == 4 || command->kind == 5 ||
+        command->kind == 6 || command->width <= 0.0f || command->height <= 0.0f) continue;
+    float left = command->x * scale;
+    float top = command->y * scale;
+    float right = (command->x + command->width) * scale;
+    float bottom = (command->y + command->height) * scale;
+    float color[4];
+    paint_color(command->kind, color);
+    NimculusQuadVertex vertices[6] = {
+      {(left / width) * 2.0f - 1.0f, 1.0f - (top / height) * 2.0f,
+        color[0], color[1], color[2], color[3]},
+      {(right / width) * 2.0f - 1.0f, 1.0f - (top / height) * 2.0f,
+        color[0], color[1], color[2], color[3]},
+      {(right / width) * 2.0f - 1.0f, 1.0f - (bottom / height) * 2.0f,
+        color[0], color[1], color[2], color[3]},
+      {(left / width) * 2.0f - 1.0f, 1.0f - (top / height) * 2.0f,
+        color[0], color[1], color[2], color[3]},
+      {(right / width) * 2.0f - 1.0f, 1.0f - (bottom / height) * 2.0f,
+        color[0], color[1], color[2], color[3]},
+      {(left / width) * 2.0f - 1.0f, 1.0f - (bottom / height) * 2.0f,
+        color[0], color[1], color[2], color[3]}
+    };
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    if (FAILED(g_context->lpVtbl->Map(g_context, (ID3D11Resource *)g_quad_vertex_buffer,
+        0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) continue;
+    memcpy(mapped.pData, vertices, sizeof(vertices));
+    g_context->lpVtbl->Unmap(g_context, (ID3D11Resource *)g_quad_vertex_buffer, 0);
+    LONG clip_left = (LONG)(command->clip_x * scale);
+    LONG clip_top = (LONG)(command->clip_y * scale);
+    LONG clip_right = (LONG)((command->clip_x + command->clip_width) * scale);
+    LONG clip_bottom = (LONG)((command->clip_y + command->clip_height) * scale);
+    if (clip_left < 0) clip_left = 0;
+    if (clip_top < 0) clip_top = 0;
+    if (clip_right > (LONG)g_metrics.width_pixels) clip_right = (LONG)g_metrics.width_pixels;
+    if (clip_bottom > (LONG)g_metrics.height_pixels) clip_bottom = (LONG)g_metrics.height_pixels;
+    if (clip_right <= clip_left || clip_bottom <= clip_top) continue;
+    D3D11_RECT scissor = {clip_left, clip_top, clip_right, clip_bottom};
+    g_context->lpVtbl->RSSetScissorRects(g_context, 1, &scissor);
+    g_context->lpVtbl->Draw(g_context, 6, 0);
+  }
 }
 
 static void render_frame(void) {
@@ -279,6 +457,10 @@ static void render_frame(void) {
   const FLOAT clear_color[4] = {0.10f, 0.12f, 0.16f, 1.0f};
   g_context->lpVtbl->OMSetRenderTargets(g_context, 1, &g_render_target, NULL);
   g_context->lpVtbl->ClearRenderTargetView(g_context, g_render_target, clear_color);
+  D3D11_VIEWPORT viewport = {0.0f, 0.0f, (FLOAT)g_metrics.width_pixels,
+                             (FLOAT)g_metrics.height_pixels, 0.0f, 1.0f};
+  g_context->lpVtbl->RSSetViewports(g_context, 1, &viewport);
+  draw_paint_quads();
   if (SUCCEEDED(g_swap_chain->lpVtbl->Present(g_swap_chain, 1, 0))) {
     g_metrics.frame_count++;
   }
@@ -556,12 +738,16 @@ bool nimculus_platform_run(void) {
     }
   }
   release_render_target();
+  release_quad_pipeline();
   if (g_swap_chain) g_swap_chain->lpVtbl->Release(g_swap_chain);
   if (g_context) g_context->lpVtbl->Release(g_context);
   if (g_device) g_device->lpVtbl->Release(g_device);
   g_swap_chain = NULL;
   g_context = NULL;
   g_device = NULL;
+  free(g_paint_commands);
+  g_paint_commands = NULL;
+  g_paint_count = 0;
   g_window = NULL;
   return true;
 }
@@ -680,6 +866,23 @@ void nimculus_platform_set_idle_callback(NimculusIdleCallback callback) {
 
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback) {
   g_command_callback = callback;
+}
+
+void nimculus_platform_set_paint_commands(const NimculusPaintCommand *commands,
+                                          uint32_t count) {
+  free(g_paint_commands);
+  g_paint_commands = NULL;
+  g_paint_count = 0;
+  if (!commands || count == 0) {
+    if (g_window) InvalidateRect(g_window, NULL, FALSE);
+    return;
+  }
+  g_paint_commands = (NimculusPaintCommand *)malloc(sizeof(NimculusPaintCommand) * count);
+  if (g_paint_commands) {
+    memcpy(g_paint_commands, commands, sizeof(NimculusPaintCommand) * count);
+    g_paint_count = count;
+  }
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
 
 void nimculus_platform_set_shortcut_callback(NimculusShortcutCallback callback) {

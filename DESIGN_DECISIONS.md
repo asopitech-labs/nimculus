@@ -1394,6 +1394,17 @@ render-target refresh remain private to `windows_platform.c`. This avoids
 leaking Win32 state into Nimculus or NimNUI and preserves the existing
 platform-contract approach.
 
+## M13-016: Reuse the PaintList ABI for the first Direct3D primitive batch
+
+Zed's `directx_renderer` receives a retained scene, uploads primitive batches,
+and applies viewport/scissor state before drawing. Nimculus keeps the existing
+`NativePaintCommand` ABI and adds a Windows-only D3D11 path: commands are copied
+at the platform boundary, opaque rectangle-like primitives are converted to a
+dynamic six-vertex buffer, and a small runtime-compiled shader pair draws them
+with per-command scissor rectangles. Text and image commands are skipped until
+their glyph/sprite resources are implemented, so this slice does not claim a
+complete Windows renderer.
+
 ## M13-012: Normalize Win32 keyboard events before shared shortcut routing
 
 Zed's Windows backend separates accelerator handling from character input and

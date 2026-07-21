@@ -2696,6 +2696,7 @@ when isMainModule:
     setupShortcutRegistry()
     platformSetShortcutCallback(dispatchNativeShortcut)
     setupPersistencePaths()
+    setupDemoUi()
     platformSetTextCallback(receiveNativeText)
     platformSetInputCallback(receiveNativeInput)
     platformSetFileCallback(receiveNativeFile)
