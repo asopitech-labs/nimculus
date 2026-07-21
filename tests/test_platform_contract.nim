@@ -102,3 +102,8 @@ suite "macOS platform contract":
     platformSetTaskOutputVisible(false)
     platformSetTaskOutputText("".cstring, 0)
     check true
+
+  test "outline overlay contract accepts symbol text":
+    let outline = "Outline\n────────\nmain  1"
+    platformSetEditorOutline(outline.cstring, uint32(outline.len), 1)
+    check true

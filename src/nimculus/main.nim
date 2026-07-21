@@ -51,6 +51,7 @@ proc resetPointerInteractions()
 when defined(macosx):
   proc syncNativeHover()
   proc syncNativeInlayHints(document: ptr FileDocument)
+  proc syncNativeSymbolTree()
   proc handleCompletionShortcut(event: ptr NimculusInputEvent): bool
 
 proc setupDemoUi() =
@@ -83,14 +84,15 @@ proc setupDemoUi() =
                height: px(max(0'f32, viewportHeight - margin * 2))))
   let toolbar = Rect(origin: Point(x: px(margin * 2), y: px(margin * 2)),
     size: Size(width: px(max(0'f32, viewportWidth - margin * 4)), height: px(56)))
-  let editorWidth = max(0'f32, viewportWidth - margin * 4 - 84'f32)
+  let outlineWidth = 220'f32
+  let editorWidth = max(0'f32, viewportWidth - margin * 4 - outlineWidth - 84'f32)
   let editorHeight = max(0'f32, viewportHeight - 208'f32)
-  let editor = Rect(origin: Point(x: px(margin * 2), y: px(128)),
+  let editor = Rect(origin: Point(x: px(margin * 2 + outlineWidth), y: px(128)),
     size: Size(width: px(editorWidth), height: px(editorHeight)))
   demoEditorBounds = editor
-  let splitBar = Rect(origin: Point(x: px(margin * 2 + editorWidth * demoSplitRatio), y: px(128)),
+  let splitBar = Rect(origin: Point(x: px(margin * 2 + outlineWidth + editorWidth * demoSplitRatio), y: px(128)),
     size: Size(width: px(2), height: px(editorHeight)))
-  let scrollbar = Rect(origin: Point(x: px(margin * 2 + editorWidth + 24), y: px(144)),
+  let scrollbar = Rect(origin: Point(x: px(margin * 2 + outlineWidth + editorWidth + 24), y: px(144)),
     size: Size(width: px(8), height: px(max(0'f32, editorHeight - 32'f32))))
   demoTree.node(button.node).bounds = toolbar
   demoTree.node(split.node).bounds = splitBar
@@ -284,6 +286,9 @@ when defined(macosx):
 proc resetEditorViewState() =
   editorViewState = newEditorView()
   editorScrollRemainder = 0'f32
+  when defined(macosx):
+    pendingLspSymbols.setLen(0)
+    syncNativeSymbolTree()
 
 proc resetPointerInteractions() =
   demoSplitDragging = false
@@ -549,6 +554,23 @@ when defined(macosx):
     editorTaskOutputVisible = true
     platformSetTaskOutputVisible(true)
 
+  proc syncNativeSymbolTree() =
+    var lines = @[
+      "Outline",
+      "────────"
+    ]
+    if pendingLspSymbols.len == 0:
+      lines.add("No symbols")
+    else:
+      proc appendSymbol(symbol: LspSymbol, depth: int) =
+        lines.add("  ".repeat(depth) & symbol.name & "  " &
+          $(symbol.range.start.line + 1))
+        for child in symbol.children:
+          appendSymbol(child, depth + 1)
+      for symbol in pendingLspSymbols: appendSymbol(symbol, 0)
+    let text = lines.join("\n")
+    platformSetEditorOutline(text.cstring, uint32(text.len), uint32(pendingLspSymbols.len))
+
   proc lspSelectionRange(document: ptr FileDocument): LspRange =
     if document == nil: return
     let selection = editorViewState.selectedRange()
@@ -633,6 +655,7 @@ when defined(macosx):
         for child in symbol.children:
           appendSymbol(child, depth + 1)
       for symbol in symbols: appendSymbol(symbol, 0)
+      syncNativeSymbolTree()
       lines.add("")
       lines.add("Use `open symbol <number>` to navigate")
       showNativeLspPanel("LSP Symbols", lines)
@@ -2393,6 +2416,8 @@ when isMainModule:
       initialRoot / ".nimculus" / "settings.json")
     applySettingsKeymap()
     applySettingsTheme()
+    let outline = "Outline\n────────\nNo symbols"
+    platformSetEditorOutline(outline.cstring, uint32(outline.len), 0)
     let lspCommand = getEnv("NIMCULUS_LSP_COMMAND",
       appSettings.stringSetting("lsp.command", ""))
     if lspCommand.len > 0:

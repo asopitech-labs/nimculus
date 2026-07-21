@@ -36,6 +36,8 @@ static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
 static NSString *g_editor_text = @"";
 static NSString *g_terminal_text = @"";
+static NSString *g_editor_outline_text = @"Outline\n────────\nNo symbols";
+static uint32_t g_editor_outline_symbol_count = 0;
 static NSString *g_theme_background = @"#1f2329";
 static NSString *g_theme_foreground = @"#d7dae0";
 static NSString *g_theme_accent = @"#4daafc";
@@ -1064,6 +1066,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusTaskOutputOverlay : NSTextView
 @end
 
+@interface NimculusOutlineOverlay : NSTextView
+@end
+
 @interface NimculusEditorAnnotationOverlay : NSView
 @end
 
@@ -1075,6 +1080,28 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @implementation NimculusTaskOutputOverlay
 - (BOOL)acceptsFirstResponder { return NO; }
 - (NSView *)hitTest:(NSPoint)point { return nil; }
+@end
+
+@implementation NimculusOutlineOverlay
+- (BOOL)acceptsFirstResponder { return NO; }
+- (NSView *)hitTest:(NSPoint)point {
+  return NSPointInRect(point, self.bounds) ? self : nil;
+}
+- (void)mouseDown:(NSEvent *)event {
+  if (g_editor_outline_symbol_count == 0 || !g_command_callback) return;
+  NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+  NSUInteger index = [self characterIndexForInsertionAtPoint:point];
+  NSUInteger line = 0;
+  for (NSUInteger offset = 0; offset < MIN(index, self.string.length); offset++) {
+    if ([self.string characterAtIndex:offset] == '\n') line++;
+  }
+  if (line < 2) return;
+  NSUInteger symbolIndex = line - 2;
+  if (symbolIndex >= g_editor_outline_symbol_count) return;
+  NSString *command = [NSString stringWithFormat:@"commandPalette:open symbol %lu",
+    (unsigned long)symbolIndex + 1];
+  g_command_callback(command.UTF8String);
+}
 @end
 
 @implementation NimculusEditorAnnotationOverlay
@@ -1236,6 +1263,21 @@ static void applyTerminalRuns(NSTextView *terminal) {
     self.markedText = @"";
     self.markedTextRange = NSMakeRange(NSNotFound, 0);
     self.selectedTextRange = NSMakeRange(0, 0);
+    NimculusOutlineOverlay *outline = [[NimculusOutlineOverlay alloc]
+      initWithFrame:NSZeroRect];
+    outline.editable = NO;
+    outline.selectable = NO;
+    outline.drawsBackground = YES;
+    outline.backgroundColor = [themeHexColor(g_theme_background,
+      [NSColor colorWithCalibratedRed:0.045 green:0.055 blue:0.075 alpha:1.0])
+      colorWithAlphaComponent:0.96];
+    outline.textColor = themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]);
+    outline.font = [NSFont fontWithName:g_editor_font_name size:g_editor_font_size] ?:
+      [NSFont monospacedSystemFontOfSize:g_editor_font_size weight:NSFontWeightRegular];
+    outline.textContainerInset = NSMakeSize(8.0, 8.0);
+    outline.string = g_editor_outline_text;
+    [self addSubview:outline];
     NimculusTerminalOverlay *terminal = [[NimculusTerminalOverlay alloc]
       initWithFrame:NSZeroRect];
     terminal.editable = NO;
@@ -1322,13 +1364,20 @@ static void applyTerminalRuns(NSTextView *terminal) {
 }
 
 - (void)updateTerminalFrame {
+  NimculusOutlineOverlay *outline = nil;
   NimculusTerminalOverlay *terminal = nil;
   NimculusTaskOutputOverlay *taskOutput = nil;
   NimculusEditorAnnotationOverlay *annotations = nil;
   for (NSView *subview in self.subviews) {
+    if ([subview isKindOfClass:[NimculusOutlineOverlay class]]) outline = (NimculusOutlineOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) terminal = (NimculusTerminalOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) taskOutput = (NimculusTaskOutputOverlay *)subview;
     if ([subview isKindOfClass:[NimculusEditorAnnotationOverlay class]]) annotations = (NimculusEditorAnnotationOverlay *)subview;
+  }
+  if (outline) {
+    CGFloat width = MAX(180.0, g_editor_rect[0] - 12.0);
+    outline.frame = NSMakeRect(8.0, g_editor_rect[1], width, g_editor_rect[3]);
+    outline.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
   }
   if (annotations) {
     annotations.frame = self.bounds;
@@ -2563,6 +2612,23 @@ void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   if (g_active_view) [g_active_view drawFrame];
 }
+void nimculus_platform_set_editor_outline(const char *utf8, uint32_t length,
+                                          uint32_t symbol_count) {
+  g_editor_outline_text = (utf8 && length > 0)
+    ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
+    : @"Outline\n────────\nNo symbols";
+  if (!g_editor_outline_text) g_editor_outline_text = @"Outline\n────────\nNo symbols";
+  g_editor_outline_symbol_count = symbol_count;
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusOutlineOverlay class]]) {
+      ((NimculusOutlineOverlay *)subview).string = g_editor_outline_text;
+      break;
+    }
+  }
+  [view updateTerminalFrame];
+}
 void nimculus_platform_set_terminal_visible(bool visible) {
   g_terminal_visible = visible ? YES : NO;
   if (g_active_view) {
@@ -2645,6 +2711,13 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
           [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
           colorWithAlphaComponent:0.65]
       };
+    } else if ([subview isKindOfClass:[NimculusOutlineOverlay class]]) {
+      NSTextView *outline = (NSTextView *)subview;
+      outline.backgroundColor = [themeHexColor(g_theme_background,
+        [NSColor colorWithCalibratedRed:0.045 green:0.055 blue:0.075 alpha:1.0])
+        colorWithAlphaComponent:0.96];
+      outline.textColor = themeHexColor(g_theme_foreground,
+        [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]);
     }
   }
   [view drawFrame];
@@ -2661,6 +2734,9 @@ static void updateTerminalFonts(void) {
       if (g_terminal_run_count > 0) applyTerminalRuns(terminal);
     } else if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) {
       ((NSTextView *)subview).font = font;
+    } else if ([subview isKindOfClass:[NimculusOutlineOverlay class]]) {
+      ((NSTextView *)subview).font = [NSFont fontWithName:g_editor_font_name size:g_editor_font_size] ?:
+        [NSFont monospacedSystemFontOfSize:g_editor_font_size weight:NSFontWeightRegular];
     }
   }
 }
