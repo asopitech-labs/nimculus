@@ -85,12 +85,21 @@ proc setSizeConstraints*(tree: var UiTree, id: NodeId, preferred, minimum, maxim
     tree.nodes[index].preferredSize = preferred
     tree.nodes[index].minSize = minimum
     tree.nodes[index].maxSize = maximum
+    tree.nodes[index].layoutSpec.size = preferred
+    tree.nodes[index].layoutSpec.minSize = minimum
+    tree.nodes[index].layoutSpec.maxSize = maximum
     tree.markLayoutDirty(id)
 
 proc setLayoutSpec*(tree: var UiTree, id: NodeId, spec: LayoutSpec) =
   let index = tree.nodeIndex(id)
   if index >= 0:
     tree.nodes[index].layoutSpec = spec
+    if float32(spec.size.width) > 0: tree.nodes[index].preferredSize.width = spec.size.width
+    if float32(spec.size.height) > 0: tree.nodes[index].preferredSize.height = spec.size.height
+    if float32(spec.minSize.width) > 0: tree.nodes[index].minSize.width = spec.minSize.width
+    if float32(spec.minSize.height) > 0: tree.nodes[index].minSize.height = spec.minSize.height
+    if float32(spec.maxSize.width) > 0: tree.nodes[index].maxSize.width = spec.maxSize.width
+    if float32(spec.maxSize.height) > 0: tree.nodes[index].maxSize.height = spec.maxSize.height
     tree.markLayoutDirty(id)
 
 proc hitTest*(tree: UiTree, point: Point): NodeId =

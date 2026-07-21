@@ -51,6 +51,11 @@ root and recursively applies each descendant's spec. This preserves the
 existing root API while making nested Row/Column/Stack controls participate
 in layout, clipping, and dirty-state propagation.
 
+The same node-local spec is also synchronized with the existing preferred,
+minimum, and maximum size fields used by parent allocation. This prevents a
+declared fixed/min/max size from becoming metadata that the layout engine
+ignores.
+
 ## M20-003: Measure input latency through the next presented frame
 
 Zed's input-latency tracker records the first input received in a frame

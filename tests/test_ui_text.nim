@@ -134,6 +134,22 @@ suite "M2 UI foundation":
     check tree.node(second).bounds.origin.x == px(24)
     check tree.node(second).bounds.size == Size(width: px(20), height: px(10))
 
+  test "layout spec size constraints affect the parent allocation":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let fixed = tree.addNode(root)
+    let flexible = tree.addNode(root)
+    tree.setLayoutSpec(fixed, LayoutSpec(direction: stack,
+      size: Size(width: px(30), height: px(10)),
+      minSize: Size(width: px(20), height: px(8)),
+      maxSize: Size(width: px(40), height: px(20))))
+    tree.setFlexGrow(flexible, 1.0)
+    tree.layoutNode(root, Rect(size: Size(width: px(100), height: px(20))),
+      LayoutSpec(direction: row, gap: px(4)))
+    check tree.node(fixed).bounds.size.width == px(30)
+    check tree.node(flexible).bounds.origin.x == px(34)
+    check tree.node(flexible).bounds.size.width == px(66)
+
   test "viewport clipping remains active when only height is nonzero":
     var tree = newUiTree()
     let root = tree.addNode()

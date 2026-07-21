@@ -20,4 +20,4 @@ type
     viewport*: Rect
 
 proc defaultLayoutSpec*(): LayoutSpec =
-  LayoutSpec(direction: stack, maxSize: Size(width: px(100000), height: px(100000)))
+  LayoutSpec(direction: stack)
