@@ -35,6 +35,7 @@ static ID3D11PixelShader *g_quad_pixel_shader = NULL;
 static ID3D11InputLayout *g_quad_input_layout = NULL;
 static ID3D11Buffer *g_quad_vertex_buffer = NULL;
 static ID3D11RasterizerState *g_quad_rasterizer = NULL;
+static ID3D11BlendState *g_quad_blend_state = NULL;
 static NimculusPaintCommand *g_paint_commands = NULL;
 static uint32_t g_paint_count = 0;
 static char g_clipboard_utf8[4 * 1024 * 1024];
@@ -314,6 +315,7 @@ static const char g_quad_pixel_source[] =
   "return float4(input.color.rgb, input.color.a * alpha); }";
 
 static void release_quad_pipeline(void) {
+  if (g_quad_blend_state) g_quad_blend_state->lpVtbl->Release(g_quad_blend_state);
   if (g_quad_rasterizer) g_quad_rasterizer->lpVtbl->Release(g_quad_rasterizer);
   if (g_quad_vertex_buffer) g_quad_vertex_buffer->lpVtbl->Release(g_quad_vertex_buffer);
   if (g_quad_input_layout) g_quad_input_layout->lpVtbl->Release(g_quad_input_layout);
@@ -322,6 +324,7 @@ static void release_quad_pipeline(void) {
   g_quad_rasterizer = NULL;
   g_quad_vertex_buffer = NULL;
   g_quad_input_layout = NULL;
+  g_quad_blend_state = NULL;
   g_quad_pixel_shader = NULL;
   g_quad_vertex_shader = NULL;
 }
@@ -383,6 +386,20 @@ static bool create_quad_pipeline(void) {
   if (SUCCEEDED(hr)) {
     hr = g_device->lpVtbl->CreateRasterizerState(g_device, &rasterizer_desc,
         &g_quad_rasterizer);
+  }
+  D3D11_BLEND_DESC blend_desc;
+  ZeroMemory(&blend_desc, sizeof(blend_desc));
+  blend_desc.RenderTarget[0].BlendEnable = TRUE;
+  blend_desc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+  blend_desc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+  blend_desc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+  blend_desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+  blend_desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+  blend_desc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+  blend_desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+  if (SUCCEEDED(hr)) {
+    hr = g_device->lpVtbl->CreateBlendState(g_device, &blend_desc,
+        &g_quad_blend_state);
   }
   if (FAILED(hr)) {
     release_quad_pipeline();
@@ -506,6 +523,7 @@ static void paint_color(uint32_t kind, float color[4]) {
 static void draw_paint_quads(void) {
   if (!g_context || !g_quad_vertex_buffer || !g_quad_input_layout ||
       !g_quad_vertex_shader || !g_quad_pixel_shader || !g_quad_rasterizer ||
+      !g_quad_blend_state ||
       g_paint_count == 0 || g_metrics.width_pixels == 0 || g_metrics.height_pixels == 0) return;
   UINT stride = sizeof(NimculusQuadVertex);
   UINT offset = 0;
@@ -515,6 +533,8 @@ static void draw_paint_quads(void) {
   g_context->lpVtbl->VSSetShader(g_context, g_quad_vertex_shader, NULL, 0);
   g_context->lpVtbl->PSSetShader(g_context, g_quad_pixel_shader, NULL, 0);
   g_context->lpVtbl->RSSetState(g_context, g_quad_rasterizer);
+  const FLOAT blend_factor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  g_context->lpVtbl->OMSetBlendState(g_context, g_quad_blend_state, blend_factor, 0xffffffffu);
 
   float scale = (float)(g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0);
   float width = (float)g_metrics.width_pixels;

@@ -1580,6 +1580,14 @@ are encoded in GPU primitives rather than approximated by a CPU overlay.
 Text and image resources remain deliberately separate follow-up work because
 they require DirectWrite/glyph atlas and texture lifetime contracts.
 
+## M13-034: Enable alpha blending for Windows shape primitives
+
+Rounded and border shaders produce coverage alpha, and shadows intentionally
+use reduced alpha. The D3D11 shape pipeline therefore owns a standard
+source-alpha/inverse-source-alpha blend state and binds it for each PaintList
+frame. Without this state, shader coverage would not affect the RGB render
+target and the shapes would appear as opaque rectangles.
+
 ## M13-027: Convert Windows editor hit testing from grapheme columns
 
 The Windows GDI bootstrap uses a fixed cell width only to estimate a visual
