@@ -1279,6 +1279,12 @@ proc syncEditorCursor() =
     let status = if document != nil: editorViewState.statusBarText(document[].buffer)
       else: editorViewState.statusMessage
     platformSetEditorStatus(status.cstring)
+    var tabTitles: seq[string]
+    for tab in editorSession.tabs:
+      tabTitles.add(tab.title & (if tab.document.buffer.isDirty: " •" else: ""))
+    let tabsText = tabTitles.join("\n")
+    platformSetEditorTabs(tabsText.cstring, uint32(tabsText.len),
+      uint32(max(0, editorSession.activeTab)))
 
 when defined(macosx):
   proc editorOffsetAtPoint(document: ptr FileDocument, x, y: cdouble): int =
@@ -1796,6 +1802,26 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       syncEditorCursor()
       refreshEditorSyntax()
       persistSession()
+  elif name.startsWith("selectTab:"):
+    let payload = name["selectTab:".len .. ^1]
+    try:
+      let target = parseInt(payload)
+      if target >= 0 and target < editorSession.tabs.len and target != editorSession.activeTab:
+        editorSession.saveActiveView(editorViewState)
+        editorSession.activeTab = target
+        editorSession.loadActiveView(editorViewState)
+        resetImeState()
+        resetEditorViewState()
+        workspacePreviewMode = ""
+        externalAlertShown = false
+        if syntaxState != nil:
+          syntaxState.close()
+          syntaxState = nil
+        syncEditorCursor()
+        refreshEditorSyntax()
+        persistSession()
+    except ValueError:
+      discard
   elif name.startsWith("workspaceAddRoot:") and activeWorkspace != nil:
     let path = workspaceRelativePayload(name, "workspaceAddRoot:")
     if path.len == 0 or not dirExists(path): return
