@@ -1346,3 +1346,13 @@ ConPTY as a Windows-native dependency. Nimculus keeps these handles and process
 lifetime rules in `windows_pty.c`, exposing only create/write/read/resize/close
 operations to `terminal.nim`. This makes the protocol parser reusable while
 leaving the Windows native terminal surface as a separate integration step.
+
+## M13-008: Make Windows packaging a reproducible CI-owned pipeline
+
+Zed's Windows bundle script stages the executable and its runtime artifacts
+before producing archives and an Inno Setup installer. Nimculus follows that
+shape with a PowerShell script that builds into a clean stage directory,
+produces a versioned x64 ZIP, and invokes the checked-in Inno Setup definition.
+The GitHub Actions Windows runner installs both Nim and Inno Setup and uploads
+the complete `dist/windows` tree. The installer itself is intentionally not
+claimed as verified until the Windows runner produces and inspects the artifact.

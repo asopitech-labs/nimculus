@@ -22,5 +22,6 @@ tests/bench_syntax
 *.app
 *.dmg
 packaging/macos/*.icns
+dist/windows/
 references/zed/
 .nimcache/

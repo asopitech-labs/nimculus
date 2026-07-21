@@ -29,7 +29,9 @@ coordinates remain owned by the backend. Windows font enumeration and Unicode
 file drops also terminate at the existing font/file callbacks. Windows ConPTY
 creation, pipes, process attributes, resize, and close are isolated in
 `src/nimculus/windows_pty.c` behind the `TerminalPty` contract; the GUI terminal
-surface still needs to be connected on Windows.
+surface still needs to be connected on Windows. Windows packaging is isolated in
+`scripts/package_windows.ps1` and `packaging/windows/Nimculus.iss`; CI owns the
+Nim/ISCC invocation and artifact upload rather than the application layer.
 
 ## M1 boundary
 
