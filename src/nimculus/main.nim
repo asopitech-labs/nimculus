@@ -584,12 +584,14 @@ when defined(macosx):
       " — " & lines[lines.high]
     let problemSummary = if editorTaskProblems.len == 0: "" else:
       " (" & $editorTaskProblems.len & " problems)"
+    let truncationSummary = if taskResult.outputTruncated: " [output truncated]" else: ""
     case taskResult.status
     of taskSucceeded:
-      editorViewState.statusMessage = "Task succeeded: " & editorTaskCommand & summary
+      editorViewState.statusMessage = "Task succeeded: " & editorTaskCommand &
+        truncationSummary & summary
     of taskFailed:
       editorViewState.statusMessage = "Task failed (" & $taskResult.exitCode & "): " &
-        editorTaskCommand & problemSummary & summary
+        editorTaskCommand & problemSummary & truncationSummary & summary
     of taskCancelled:
       editorViewState.statusMessage = "Task cancelled: " & editorTaskCommand
     else: discard
@@ -1772,12 +1774,14 @@ when defined(windows):
       " — " & lines[lines.high]
     let problemSummary = if windowsTaskProblems.len == 0: "" else:
       " (" & $windowsTaskProblems.len & " problems)"
+    let truncationSummary = if taskResult.outputTruncated: " [output truncated]" else: ""
     case taskResult.status
     of taskSucceeded:
-      editorViewState.statusMessage = "Task succeeded: " & windowsTaskCommand & summary
+      editorViewState.statusMessage = "Task succeeded: " & windowsTaskCommand &
+        truncationSummary & summary
     of taskFailed:
       editorViewState.statusMessage = "Task failed (" & $taskResult.exitCode & "): " &
-        windowsTaskCommand & problemSummary & summary
+        windowsTaskCommand & problemSummary & truncationSummary & summary
     of taskCancelled:
       editorViewState.statusMessage = "Task cancelled: " & windowsTaskCommand
     else: discard

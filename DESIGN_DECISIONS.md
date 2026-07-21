@@ -1,5 +1,15 @@
 # Design Decisions
 
+## M10-004: Bound task output like terminal output
+
+Zed applies an explicit byte limit when exposing terminal output and preserves
+UTF-8 boundaries while avoiding a partial final line. Nimculus applies the
+same boundary to task polling: the in-memory task log keeps the newest output
+within `MaxTaskOutputBytes` (4 MiB), trims at a UTF-8-safe line boundary when
+possible, and records that truncation occurred. This prevents a long-running
+build or test process from growing the editor's memory without limit while
+keeping the existing task output and problem-matcher contract.
+
 ## M13-046: Keep Windows native editor state synchronized on tab lifecycle
 
 The Windows text backend owns a copy of the active document and its highlight,

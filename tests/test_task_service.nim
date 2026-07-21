@@ -53,3 +53,9 @@ suite "M10 task service":
       sleep(10)
     check sawFirst
     job.cancel()
+
+  test "bounds task output at a UTF-8 line boundary":
+    let bounded = appendBoundedTaskOutput("old line\n", "あいうえお\nnew line\n", 12)
+    check bounded.truncated
+    check bounded.output == "new line\n"
+    check bounded.output.len <= 12

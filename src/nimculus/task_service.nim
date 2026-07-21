@@ -34,6 +34,7 @@ type
     status*: TaskStatus
     exitCode*: int
     output*: string
+    outputTruncated*: bool
     problems*: seq[TaskProblem]
 
   TaskJob* = ref object
@@ -41,6 +42,31 @@ type
     output: Stream
     result*: TaskResult
     done*: bool
+
+const MaxTaskOutputBytes* = 4 * 1024 * 1024
+
+proc appendBoundedTaskOutput*(current, chunk: string;
+    limit: int = MaxTaskOutputBytes): tuple[output: string, truncated: bool] =
+  ## Keep task output bounded while retaining the newest complete lines.
+  ## The byte limit is applied only at UTF-8 boundaries.
+  if chunk.len == 0:
+    return (current, false)
+  let combined = current & chunk
+  if limit <= 0:
+    return ("", combined.len > 0)
+  if combined.len <= limit:
+    return (combined, false)
+
+  var start = combined.len - limit
+  while start < combined.len and
+      (ord(combined[start]) and 0xC0) == 0x80:
+    inc start
+  let lineBreak = combined.find('\n', start)
+  if lineBreak >= 0:
+    start = lineBreak + 1
+  if start >= combined.len:
+    return ("", true)
+  (combined[start .. ^1], true)
 
 proc readAvailable(job: TaskJob): string =
   if job == nil or job.process == nil or job.output == nil: return
@@ -122,13 +148,18 @@ proc poll*(job: TaskJob): bool =
   let exitCode = job.process.peekExitCode()
   let chunk = job.readAvailable()
   if chunk.len > 0:
-    job.result.output.add(chunk)
+    let bounded = appendBoundedTaskOutput(job.result.output, chunk)
+    job.result.output = bounded.output
+    job.result.outputTruncated = job.result.outputTruncated or bounded.truncated
     job.result.problems = parseTaskProblems(job.result.output)
   if exitCode < 0: return false
   job.result.exitCode = exitCode
   job.result.status = if exitCode == 0: taskSucceeded else: taskFailed
   let tail = job.readAvailable()
-  if tail.len > 0: job.result.output.add(tail)
+  if tail.len > 0:
+    let bounded = appendBoundedTaskOutput(job.result.output, tail)
+    job.result.output = bounded.output
+    job.result.outputTruncated = job.result.outputTruncated or bounded.truncated
   job.result.problems = parseTaskProblems(job.result.output)
   job.process.close()
   job.done = true
