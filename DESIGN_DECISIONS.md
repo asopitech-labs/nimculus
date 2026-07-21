@@ -1405,3 +1405,12 @@ control-key events suppress `TranslateMessage`. `WM_CHAR` and IMM32 remain the
 layout-aware text path, so shortcut routing does not replace Unicode text
 input. The Windows terminal receives canonical arrow/letter codes after this
 translation.
+
+## M13-013: Normalize Win32 pointer coordinates at the message boundary
+
+Zed treats button and motion `lParam` values as client coordinates, while wheel
+messages carry screen coordinates and must be converted with `ScreenToClient`.
+Nimculus now keeps those paths separate and divides physical coordinates by
+the current per-monitor scale factor before emitting the shared input event.
+This prevents window-origin offsets and DPI scaling from corrupting hit tests,
+dragging, and scroll anchoring.

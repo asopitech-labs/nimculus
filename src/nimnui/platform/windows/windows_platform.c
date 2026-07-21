@@ -309,7 +309,8 @@ static void render_terminal_overlay(void) {
   ReleaseDC(g_window, dc);
 }
 
-static void send_input(UINT type, UINT key_code, UINT button, LPARAM lparam) {
+static void send_input(UINT type, UINT key_code, UINT button, LPARAM lparam,
+                       bool screen_coordinates) {
   if (!g_input_callback) return;
   NimculusInputEvent event = {0};
   event.type = type;
@@ -320,9 +321,10 @@ static void send_input(UINT type, UINT key_code, UINT button, LPARAM lparam) {
   if (GetKeyState(VK_CONTROL) & 0x8000) event.modifiers |= 1u << 18;
   if (GetKeyState(VK_MENU) & 0x8000) event.modifiers |= 1u << 19;
   POINT point = {(LONG)(short)LOWORD(lparam), (LONG)(short)HIWORD(lparam)};
-  if (g_window) ScreenToClient(g_window, &point);
-  event.x = (double)point.x;
-  event.y = (double)point.y;
+  if (screen_coordinates && g_window) ScreenToClient(g_window, &point);
+  double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+  event.x = (double)point.x / scale;
+  event.y = (double)point.y / scale;
   g_input_count++;
   if (type == 10 && g_shortcut_callback && g_shortcut_callback(&event)) return;
   g_input_callback(&event);
@@ -338,8 +340,9 @@ static void send_scroll(WPARAM wparam, LPARAM lparam, bool horizontal) {
   if (GetKeyState(VK_MENU) & 0x8000) event.modifiers |= 1u << 19;
   POINT point = {(LONG)(short)LOWORD(lparam), (LONG)(short)HIWORD(lparam)};
   if (g_window) ScreenToClient(g_window, &point);
-  event.x = (double)point.x;
-  event.y = (double)point.y;
+  double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+  event.x = (double)point.x / scale;
+  event.y = (double)point.y / scale;
   double delta = (double)GET_WHEEL_DELTA_WPARAM(wparam) / (double)WHEEL_DELTA;
   if (horizontal) event.delta_x = delta;
   else event.delta_y = delta;
@@ -387,42 +390,42 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
       g_suppress_translate = (GetKeyState(VK_CONTROL) & 0x8000) != 0 ||
                              (GetKeyState(VK_MENU) & 0x8000) != 0;
       if (wparam == VK_SHIFT || wparam == VK_CONTROL || wparam == VK_MENU)
-        send_input(12, (UINT)wparam, 0, 0);
+        send_input(12, (UINT)wparam, 0, 0, false);
       else
-        send_input(10, (UINT)wparam, 0, 0);
+        send_input(10, (UINT)wparam, 0, 0, false);
       return 0;
     case WM_KEYUP:
     case WM_SYSKEYUP:
       if (wparam == VK_SHIFT || wparam == VK_CONTROL || wparam == VK_MENU)
-        send_input(12, (UINT)wparam, 0, 0);
+        send_input(12, (UINT)wparam, 0, 0, false);
       else
-        send_input(11, (UINT)wparam, 0, 0);
+        send_input(11, (UINT)wparam, 0, 0, false);
       return 0;
     case WM_LBUTTONDOWN:
-      send_input(1, 0, 0, lparam);
+      send_input(1, 0, 0, lparam, false);
       return 0;
     case WM_LBUTTONUP:
-      send_input(2, 0, 0, lparam);
+      send_input(2, 0, 0, lparam, false);
       return 0;
     case WM_RBUTTONDOWN:
-      send_input(3, 0, 1, lparam);
+      send_input(3, 0, 1, lparam, false);
       return 0;
     case WM_RBUTTONUP:
-      send_input(4, 0, 1, lparam);
+      send_input(4, 0, 1, lparam, false);
       return 0;
     case WM_MBUTTONDOWN:
-      send_input(25, 0, 2, lparam);
+      send_input(25, 0, 2, lparam, false);
       return 0;
     case WM_MBUTTONUP:
-      send_input(26, 0, 2, lparam);
+      send_input(26, 0, 2, lparam, false);
       return 0;
     case WM_MOUSEMOVE:
       if (GetKeyState(VK_LBUTTON) & 0x8000)
-        send_input(6, 0, 0, lparam);
+        send_input(6, 0, 0, lparam, false);
       else if (GetKeyState(VK_RBUTTON) & 0x8000 || GetKeyState(VK_MBUTTON) & 0x8000)
-        send_input(27, 0, 1, lparam);
+        send_input(27, 0, 1, lparam, false);
       else
-        send_input(5, 0, 0, lparam);
+        send_input(5, 0, 0, lparam, false);
       return 0;
     case WM_MOUSEWHEEL:
       send_scroll(wparam, lparam, false);
