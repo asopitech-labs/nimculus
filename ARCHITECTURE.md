@@ -45,7 +45,11 @@ cleanup are not bypassed. Window
 state commands are also kept in the Win32 backend:
 fullscreen stores and restores the pre-fullscreen style, extended style, and
 monitor rectangle, while minimize, maximize, and restore delegate to native
-window state transitions.
+window state transitions. Windows startup restores the same session/recovery
+files used by the application layer, initializes the active workspace, and
+sends the restored document/view state to the native surface before entering
+the message loop. The idle callback periodically persists the session and
+recovery state.
 
 ## M1 boundary
 

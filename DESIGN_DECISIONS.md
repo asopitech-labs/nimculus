@@ -1511,3 +1511,16 @@ the request while dirty tabs remain, closes the Windows terminal on an
 accepted clean/save/discard path, and only then destroys the HWND. This keeps
 the OS window lifecycle separate from document policy and makes the boundary
 testable without embedding save dialogs in the Win32 backend.
+
+## M13-023: Restore Windows session state before entering the message loop
+
+Zed restores workspace and buffer state as part of application startup rather
+than treating the first native window frame as an empty workspace. Nimculus's
+Windows branch previously opened the current directory directly and skipped
+session/recovery restore and initial editor synchronization. It now establishes
+the persistence paths, restores session/recovery, chooses the restored workspace
+root when it still exists, lays out the window, and synchronizes the active
+document before `platformRun`. The Windows idle callback also persists session
+and recovery state on the same bounded cadence used by the macOS path. This
+keeps the platform backend responsible for messages while session ownership
+remains in the application layer.

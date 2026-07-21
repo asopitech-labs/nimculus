@@ -1609,6 +1609,9 @@ when defined(macosx):
 when defined(windows):
   proc receiveNativeIdle() {.cdecl.} =
     pollWindowsTerminal()
+    inc persistenceTick
+    if persistenceTick mod 20 == 0:
+      persistSession()
 
 proc receiveNativeTextValue(value: string, composing: bool) =
   when defined(macosx):
@@ -2782,17 +2785,25 @@ when isMainModule:
     else:
       persistSession()
   elif defined(windows):
+    setupPersistencePaths()
+    restoreSession()
     setupShortcutRegistry()
     platformSetShortcutCallback(dispatchNativeShortcut)
-    setupPersistencePaths()
     appSettings = newSettingsStore(settingsFilePath,
       getCurrentDir() / ".nimculus" / "settings.json")
     setupDemoUi()
-    openActiveWorkspace(getCurrentDir())
+    let initialRoot = if editorSession.workspaceRoots.len > 0:
+      editorSession.workspaceRoots[0] else: getCurrentDir()
+    openActiveWorkspace(if dirExists(initialRoot): initialRoot else: getCurrentDir())
     platformSetTextCallback(receiveNativeText)
     platformSetInputCallback(receiveNativeInput)
     platformSetFileCallback(receiveNativeFile)
     platformSetCommandCallback(receiveNativeCommand)
     platformSetIdleCallback(receiveNativeIdle)
+    if activeDocument() != nil:
+      syncEditorCursor()
+      refreshEditorSyntax()
+    else:
+      persistSession()
     startWindowsTerminal()
   discard platformRun()
