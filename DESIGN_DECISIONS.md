@@ -1534,3 +1534,16 @@ any visible indication. The Windows idle callback now compares the document's
 recorded size/mtime stamp, reports a reload-or-keep-editing action for changes
 and deletion, and leaves the in-memory buffer untouched. The existing
 `reloadExternal` and `keepExternal` commands remain the mutation boundary.
+
+## M13-025: Use a joined ReadDirectoryChangesW worker for Windows workspaces
+
+Zed's worktree watcher reports filesystem changes into the project layer and
+lets that layer coalesce and invalidate search/tree state. Nimculus keeps the
+same application contract as macOS FSEvents: a Windows watcher owns one
+directory handle per workspace root, watches recursively for file/directory
+name, size, and last-write changes, converts relative UTF-16 names to UTF-8,
+and calls the existing callback. `Workspace.changedPaths` remains the only
+consumer-facing queue and performs deduplication and ignore-rule refresh.
+Stopping a workspace cancels the blocking read, joins the worker, closes the
+directory handle, and only then releases the watcher context. The Windows CI
+watcher integration test exercises the end-to-end event path.

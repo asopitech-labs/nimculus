@@ -53,6 +53,9 @@ recovery state.
 The Windows idle path also checks the active document's disk stamp and records
 an actionable reload/keep-editing status when the file changes or is deleted;
 it does not silently overwrite dirty content.
+On Windows, workspace roots additionally use a `ReadDirectoryChangesW` worker
+that feeds the same coalesced `changedPaths` queue as the macOS FSEvents
+bridge; the watcher is joined before a workspace is released.
 
 ## M1 boundary
 

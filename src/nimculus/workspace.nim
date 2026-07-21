@@ -13,6 +13,8 @@ when defined(posix):
 when defined(macosx):
   {.compile: "workspace_macos.m".}
   {.passL: "-framework Cocoa -framework CoreServices -framework CoreFoundation".}
+when defined(windows):
+  {.compile: "workspace_windows.c".}
 
 type
   WorkspaceFileKind* = enum file, directory
@@ -60,7 +62,7 @@ type
     changes*: seq[string]
     changesLock: Lock
 
-when defined(macosx):
+when defined(macosx) or defined(windows):
   type WorkspaceChangeCallback* = proc(path: cstring, context: pointer) {.cdecl.}
   proc startWorkspaceWatcher*(root: cstring, callback: WorkspaceChangeCallback,
                               context: pointer): pointer {.importc: "nimculus_start_workspace_watcher", cdecl.}
@@ -525,7 +527,7 @@ proc changedPaths*(workspace: Workspace): seq[string] =
       workspace.reloadIgnoreRules()
       break
 
-when defined(macosx):
+when defined(macosx) or defined(windows):
   proc receiveWorkspaceChange(path: cstring, context: pointer) {.cdecl.} =
     let workspace = cast[Workspace](context)
     if workspace != nil:
@@ -538,14 +540,14 @@ when defined(macosx):
 proc stopWatching*(workspace: Workspace)
 
 proc startWatching*(workspace: Workspace) =
-  when defined(macosx):
+  when defined(macosx) or defined(windows):
     workspace.stopWatching()
     for root in workspace.roots:
       let watcher = startWorkspaceWatcher(root.cstring, receiveWorkspaceChange, cast[pointer](workspace))
       if watcher != nil: workspace.watchers.add(watcher)
 
 proc stopWatching*(workspace: Workspace) =
-  when defined(macosx):
+  when defined(macosx) or defined(windows):
     for watcher in workspace.watchers:
       if watcher != nil: stopWorkspaceWatcher(watcher)
     workspace.watchers.setLen(0)
