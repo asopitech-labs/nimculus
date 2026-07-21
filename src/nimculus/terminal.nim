@@ -442,7 +442,8 @@ proc putGlyph(screen: var TerminalScreen, glyph: string) =
     if screen.cursorColumn > 0:
       screen.lines[screen.cursorRow][screen.cursorColumn - 1].text.add(glyph)
     return
-  if screen.cursorColumn >= screen.columns or (width == 2 and screen.cursorColumn == screen.columns - 1):
+  if screen.cursorColumn >= screen.columns or (width == 2 and screen.cursorColumn ==
+      screen.columns - 1):
     screen.cursorColumn = 0
     inc screen.cursorRow
     if screen.cursorRow > screen.scrollBottom:
@@ -628,7 +629,59 @@ proc selectedText*(screen: TerminalScreen,
     result.add(line.strip(leading = false, trailing = true))
     if row < range.active.row: result.add("\n")
 
-when defined(macosx):
+when defined(windows):
+  {.compile: "windows_pty.c".}
+
+  type
+    WindowsConPty* = pointer
+    TerminalPty* = ref object
+      native*: WindowsConPty
+      screen*: TerminalScreen
+      closed*: bool
+
+  proc nativeConPtyCreate(shell, workingDirectory: cstring, columns, rows: uint16): WindowsConPty
+      {.importc: "nimculus_conpty_create", cdecl.}
+  proc nativeConPtyWrite(pty: WindowsConPty, bytes: pointer, length: uint32): int32
+      {.importc: "nimculus_conpty_write", cdecl.}
+  proc nativeConPtyRead(pty: WindowsConPty, bytes: pointer, capacity: uint32): uint32
+      {.importc: "nimculus_conpty_read", cdecl.}
+  proc nativeConPtyResize(pty: WindowsConPty, columns, rows: uint16): bool
+      {.importc: "nimculus_conpty_resize", cdecl.}
+  proc nativeConPtyClose(pty: WindowsConPty) {.importc: "nimculus_conpty_close", cdecl.}
+
+  proc newTerminalPty*(shell = "cmd.exe", workingDirectory = "",
+                       columns = 80, rows = 24): TerminalPty =
+    new(result)
+    result.screen = initTerminalScreen(columns, rows)
+    result.native = nativeConPtyCreate(shell.cstring, workingDirectory.cstring,
+      uint16(max(1, columns)), uint16(max(1, rows)))
+    if result.native == nil: raiseOSError(osLastError())
+
+  proc writeInput*(pty: TerminalPty, input: string): int =
+    if pty == nil or pty.closed or input.len == 0: return 0
+    int(nativeConPtyWrite(pty.native, input.cstring, uint32(input.len)))
+
+  proc pollOutput*(pty: TerminalPty): string =
+    if pty == nil or pty.closed: return
+    var buffer = newString(8192)
+    let count = nativeConPtyRead(pty.native, addr buffer[0], uint32(buffer.len))
+    if count > 0:
+      buffer.setLen(int(count))
+      pty.screen.feed(buffer)
+      result = buffer
+
+  proc resize*(pty: TerminalPty, columns, rows: int) =
+    if pty == nil or pty.closed: return
+    discard nativeConPtyResize(pty.native, uint16(max(1, columns)), uint16(max(1, rows)))
+    pty.screen.resize(columns, rows)
+
+  proc close*(pty: TerminalPty) =
+    if pty == nil or pty.closed: return
+    nativeConPtyClose(pty.native)
+    pty.native = nil
+    pty.closed = true
+
+elif defined(macosx):
   import std/posix
   type
     TerminalWinSize {.bycopy.} = object

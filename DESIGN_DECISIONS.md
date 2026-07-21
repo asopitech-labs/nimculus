@@ -1335,3 +1335,14 @@ converted to UTF-8 and sent through `FileCallback`. The current application
 contract is path-based, so this is intentionally a small vertical slice; richer
 drag-over state and shell metadata can be added only when the contract requires
 them.
+
+## M13-007: Isolate ConPTY handles behind the existing TerminalPty contract
+
+Microsoft's pseudoconsole flow requires creating synchronous pipes before
+`CreatePseudoConsole`, attaching the `HPCON` through
+`PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE` during `CreateProcessW`, and using
+`ResizePseudoConsole` for later dimensions. Zed's Windows packaging also treats
+ConPTY as a Windows-native dependency. Nimculus keeps these handles and process
+lifetime rules in `windows_pty.c`, exposing only create/write/read/resize/close
+operations to `terminal.nim`. This makes the protocol parser reusable while
+leaving the Windows native terminal surface as a separate integration step.

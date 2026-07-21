@@ -26,8 +26,10 @@ conversion and lifetime rules. The current Windows slice supports Unicode
 text clipboard and Open/Save dialogs. Windows IMM32 composition/result text is
 also delivered through the same UTF-8 `TextCallback`, while candidate-window
 coordinates remain owned by the backend. Windows font enumeration and Unicode
-file drops also terminate at the existing font/file callbacks; ConPTY and
-richer clipboard formats remain backend work rather than application logic.
+file drops also terminate at the existing font/file callbacks. Windows ConPTY
+creation, pipes, process attributes, resize, and close are isolated in
+`src/nimculus/windows_pty.c` behind the `TerminalPty` contract; the GUI terminal
+surface still needs to be connected on Windows.
 
 ## M1 boundary
 
