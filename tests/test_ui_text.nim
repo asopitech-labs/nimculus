@@ -41,6 +41,25 @@ suite "M2 UI foundation":
     check not registry.dispatchShortcut(Shortcut(keyCode: 2,
       modifiers: {commandModifier}))
 
+  test "ordered key bindings use the later binding":
+    var registry: CommandRegistry
+    var invoked = ""
+    let shortcut = Shortcut(keyCode: 0, modifiers: {commandModifier})
+    registry.register(Command(name: "first", shortcut: shortcut,
+      action: proc() = invoked = "first"))
+    registry.register(Command(name: "second", shortcut: shortcut,
+      action: proc() = invoked = "second"))
+    check registry.dispatchShortcut(shortcut)
+    check invoked == "second"
+
+  test "settings keymap recognizes standard macOS keys":
+    check shortcutFromKeyBinding("cmd+left").keyCode == 123
+    check shortcutFromKeyBinding("option+right").keyCode == 124
+    check shortcutFromKeyBinding("cmd+shift+home").keyCode == 115
+    check shortcutFromKeyBinding("cmd+backspace").keyCode == 51
+    check shortcutFromKeyBinding("cmd+shift+f12").keyCode == 111
+    check shortcutFromKeyBinding("cmd+comma").keyCode == 43
+
   test "row layout distributes children and preserves parent":
     var tree = newUiTree()
     let root = tree.addNode()

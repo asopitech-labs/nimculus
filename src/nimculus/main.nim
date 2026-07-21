@@ -194,8 +194,21 @@ proc setupShortcutRegistry() =
   # Keep all commands addressable from settings keymaps. They have no default
   # shortcut here when AppKit owns the standard menu equivalent; custom
   # bindings are installed below and are resolved before interpretKeyEvents.
-  for name in ["save", "newDocument", "closeTabRequest", "openSettings", "undo",
-               "redo", "cut", "copy", "paste", "selectAll", "previousTab", "nextTab"]:
+  for name in [
+      # Application and menu commands.
+      "save", "newDocument", "closeTabRequest", "openSettings", "undo", "redo",
+      "cut", "copy", "paste", "selectAll", "previousTab", "nextTab",
+      # AppKit NSText movement/editing selectors. Keeping these names at the
+      # application boundary lets settings override Command/Option behavior
+      # without leaking Cocoa types into the editor core.
+      "moveLeft", "moveRight", "moveUp", "moveDown",
+      "selectLeft", "selectRight", "selectUp", "selectDown",
+      "moveToBeginningOfLine", "moveToEndOfLine",
+      "selectToBeginningOfLine", "selectToEndOfLine",
+      "moveToBeginningOfDocument", "moveToEndOfDocument",
+      "insertNewline", "insertTab", "moveWordLeft", "moveWordRight",
+      "selectWordLeft", "selectWordRight", "deleteBackward", "deleteForward",
+      "deleteWordBackward", "cancel"]:
     shortcutRegistry.register(Command(name: name,
       action: nativeShortcutAction(name)))
 

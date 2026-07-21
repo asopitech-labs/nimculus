@@ -44,7 +44,10 @@ proc resolve*(registry: CommandRegistry, shortcut: Shortcut): Command =
 proc tryResolve*(registry: CommandRegistry, shortcut: Shortcut,
                  command: var Command): bool =
   ## Resolve a shortcut without using an all-zero Command as a sentinel.
-  for candidate in registry.commands:
+  ## Keymap files are ordered; later bindings take precedence, matching Zed's
+  ## keymap loader and making layered settings deterministic.
+  for index in countdown(registry.commands.high, 0):
+    let candidate = registry.commands[index]
     if candidate.shortcut.keyCode == shortcut.keyCode and
         candidate.shortcut.modifiers == shortcut.modifiers:
       command = candidate
@@ -76,10 +79,38 @@ proc macOSKeyCode(key: string): uint32 =
   of "escape", "esc": 53
   of "space": 49
   of "backspace": 51
+  of "delete", "forwarddelete": 117
   of "left": 123
   of "right": 124
   of "down": 125
   of "up": 126
+  of "home": 115
+  of "end": 119
+  of "pageup": 116
+  of "pagedown": 121
+  of "comma": 43
+  of "period": 47
+  of "slash": 44
+  of "semicolon": 41
+  of "quote": 39
+  of "leftbracket": 33
+  of "rightbracket": 30
+  of "backslash": 42
+  of "minus": 27
+  of "equal", "equals": 24
+  of "grave", "backtick": 50
+  of "f1": 122
+  of "f2": 120
+  of "f3": 99
+  of "f4": 118
+  of "f5": 96
+  of "f6": 97
+  of "f7": 98
+  of "f8": 100
+  of "f9": 101
+  of "f10": 109
+  of "f11": 103
+  of "f12": 111
   else: 0
 
 proc shortcutFromKeyBinding*(binding: string): Shortcut =
