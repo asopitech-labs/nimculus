@@ -669,6 +669,16 @@ static CGPoint editorPointForUTF16Offset(NSUInteger documentOffset) {
                      12.0 + visibleLine * editorLineHeight());
 }
 
+static NSUInteger editorDocumentOffsetForLineCharacter(NSUInteger lineIndex,
+                                                       NSUInteger character) {
+  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  if (lines.count == 0) return 0;
+  NSUInteger line = MIN(lineIndex, lines.count - 1);
+  NSUInteger offset = 0;
+  for (NSUInteger index = 0; index < line; index++) offset += lines[index].length + 1;
+  return MIN(offset + MIN(character, lines[line].length), g_editor_text.length);
+}
+
 static NSUInteger editorUTF16OffsetAtPoint(double x, double y) {
   NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
   if (lines.count == 0) return 0;
@@ -752,10 +762,53 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   if (g_editor_soft_wrap) {
     NSArray<NSString *> *visible = [lines subarrayWithRange:NSMakeRange(startLine, lines.count - startLine)];
     NSString *wrappedText = [visible componentsJoinedByString:@"\n"];
-    NSAttributedString *attributed = [[NSAttributedString alloc]
+    NSUInteger wrappedByteLength = [[wrappedText dataUsingEncoding:NSUTF8StringEncoding] length];
+    NSMutableAttributedString *wrappedAttributed = [[NSMutableAttributedString alloc]
       initWithString:wrappedText attributes:attributes];
+    for (uint32_t spanIndex = 0; spanIndex < g_highlight_count; spanIndex++) {
+      NimculusHighlightSpan span = g_highlights[spanIndex];
+      if (span.end_byte <= lineStartByte || span.start_byte >= lineStartByte + wrappedByteLength) continue;
+      NSUInteger startByte = MAX((NSUInteger)span.start_byte, lineStartByte) - lineStartByte;
+      NSUInteger endByte = MIN((NSUInteger)span.end_byte, lineStartByte + wrappedByteLength) - lineStartByte;
+      NSUInteger startUnit = utf16OffsetForUTF8Bytes(wrappedText, startByte);
+      NSUInteger endUnit = utf16OffsetForUTF8Bytes(wrappedText, endByte);
+      if (endUnit <= startUnit) continue;
+      CGFloat red, green, blue;
+      highlightColor(span.kind, &red, &green, &blue);
+      NSColor *color = [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1.0];
+      [wrappedAttributed addAttribute:(id)kCTForegroundColorAttributeName
+        value:(id)color.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
+    }
+    if (g_editor_selection_end > g_editor_selection_start &&
+        g_editor_selection_end > lineStartByte &&
+        g_editor_selection_start < lineStartByte + wrappedByteLength) {
+      NSUInteger startByte = MAX(g_editor_selection_start, lineStartByte) - lineStartByte;
+      NSUInteger endByte = MIN(g_editor_selection_end, lineStartByte + wrappedByteLength) - lineStartByte;
+      NSUInteger startUnit = utf16OffsetForUTF8Bytes(wrappedText, startByte);
+      NSUInteger endUnit = utf16OffsetForUTF8Bytes(wrappedText, endByte);
+      if (endUnit > startUnit) {
+        NSColor *selectionColor = [themeHexColor(g_theme_selection,
+          [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
+          colorWithAlphaComponent:0.45];
+        [wrappedAttributed addAttribute:(id)kCTBackgroundColorAttributeName
+          value:(id)selectionColor.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
+      }
+    }
+    for (uint32_t diagnosticIndex = 0; diagnosticIndex < g_diagnostic_count; diagnosticIndex++) {
+      NimculusDiagnosticSpan diagnostic = g_diagnostics[diagnosticIndex];
+      if (diagnostic.end_byte <= lineStartByte ||
+          diagnostic.start_byte >= lineStartByte + wrappedByteLength) continue;
+      NSUInteger startByte = MAX((NSUInteger)diagnostic.start_byte, lineStartByte) - lineStartByte;
+      NSUInteger endByte = MIN((NSUInteger)diagnostic.end_byte,
+        lineStartByte + wrappedByteLength) - lineStartByte;
+      NSUInteger startUnit = utf16OffsetForUTF8Bytes(wrappedText, startByte);
+      NSUInteger endUnit = utf16OffsetForUTF8Bytes(wrappedText, endByte);
+      if (endUnit <= startUnit) continue;
+      [wrappedAttributed addAttribute:(id)kCTUnderlineStyleAttributeName
+        value:@(NSUnderlineStyleSingle) range:NSMakeRange(startUnit, endUnit - startUnit)];
+    }
     CTFramesetterRef framesetter = CTFramesetterCreateWithAttributedString(
-      (CFAttributedStringRef)attributed);
+      (CFAttributedStringRef)wrappedAttributed);
     CGMutablePathRef path = CGPathCreateMutable();
     CGPathAddRect(path, NULL, CGRectMake(8.0, 0.0,
       MAX(1.0, g_editor_rect[2] - 8.0), logicalHeight));
@@ -1278,20 +1331,21 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
   if (lines.count == 0) return;
   NSUInteger first = MIN(g_editor_scroll_line, lines.count - 1);
-  NSUInteger count = MIN(lines.count - first,
-    (NSUInteger)MAX(1.0, ceil(self.bounds.size.height / editorLineHeight())));
   NSDictionary *attributes = @{
     NSFontAttributeName: [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular],
     NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0])
       colorWithAlphaComponent:0.58]
   };
-  for (NSUInteger index = 0; index < count; index++) {
-    NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)first + index + 1];
+  NSUInteger visibleRows = 0;
+  NSUInteger maxRows = (NSUInteger)MAX(1.0, ceil(self.bounds.size.height / editorLineHeight()));
+  for (NSUInteger index = first; index < lines.count && visibleRows < maxRows; index++) {
+    NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)index + 1];
     NSSize size = [number sizeWithAttributes:attributes];
-    CGFloat y = index * editorLineHeight() + 1.0;
+    CGFloat y = visibleRows * editorLineHeight() + 1.0;
     [number drawAtPoint:NSMakePoint(MAX(2.0, self.bounds.size.width - size.width - 6.0), y)
       withAttributes:attributes];
+    visibleRows += g_editor_soft_wrap ? editorSoftWrapRowCount(lines[index]) : 1;
   }
 }
 @end
@@ -1376,10 +1430,13 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     NSString *text = g_editor_annotation_texts[index];
     if (text.length == 0) continue;
     NimculusEditorAnnotation annotation = g_editor_annotations[index];
-    NSInteger relativeLine = (NSInteger)annotation.line - (NSInteger)g_editor_scroll_line;
-    if (relativeLine < 0) continue;
-    CGFloat x = (CGFloat)g_editor_rect[0] + 8.0 + (CGFloat)annotation.character * 7.2;
-    CGFloat y = (CGFloat)g_editor_rect[1] + (CGFloat)relativeLine * editorLineHeight() + 2.0;
+    if ((NSUInteger)annotation.line < g_editor_scroll_line) continue;
+    NSUInteger documentOffset = editorDocumentOffsetForLineCharacter(
+      annotation.line, annotation.character);
+    CGPoint point = editorPointForUTF16Offset(documentOffset);
+    CGFloat x = (CGFloat)g_editor_rect[0] + point.x;
+    CGFloat y = (CGFloat)g_editor_rect[1] + point.y + 2.0;
+    if (y < g_editor_rect[1]) continue;
     if (y > self.bounds.size.height || x > self.bounds.size.width) continue;
     [text drawAtPoint:NSMakePoint(x, y) withAttributes:attributes];
   }
@@ -2944,6 +3001,15 @@ void nimculus_platform_set_editor_line_numbers(bool visible) {
 }
 void nimculus_platform_set_editor_soft_wrap(bool enabled) {
   g_editor_soft_wrap = enabled ? YES : NO;
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (view) {
+    for (NSView *subview in view.subviews) {
+      if ([subview isKindOfClass:[NimculusLineNumberOverlay class]] ||
+          [subview isKindOfClass:[NimculusEditorAnnotationOverlay class]]) {
+        [subview setNeedsDisplay:YES];
+      }
+    }
+  }
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
