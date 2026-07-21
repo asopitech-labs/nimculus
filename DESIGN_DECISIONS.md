@@ -1423,3 +1423,10 @@ the client boundary. Nimculus now uses `SetCapture`/`ReleaseCapture`,
 `TrackMouseEvent`, and maps X buttons and leave into the shared pointer
 contract. This keeps split-pane/editor selection state from remaining stuck
 after an out-of-window drag.
+
+## M13-015: Do not resize the D3D11 target while minimized
+
+Zed ignores `WM_SIZE` with `SIZE_MINIMIZED` and recreates the drawable when
+the window receives its restore size. Nimculus now follows that lifecycle:
+metrics are recorded, but `resize_render_target` is skipped for a zero-sized
+minimized window. The normal restore `WM_SIZE` path then recreates the target.

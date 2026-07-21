@@ -365,6 +365,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
   switch (message) {
     case WM_SIZE:
       update_metrics();
+      if (wparam == SIZE_MINIMIZED) return 0;
       resize_render_target();
       InvalidateRect(window, NULL, FALSE);
       return 0;
