@@ -1447,11 +1447,11 @@ when defined(windows):
     let firstLine = max(0, editorViewState.scrollLine)
     let row = max(0, int(floor((y - editorY) / lineHeight)))
     let line = min(document[].buffer.lineStarts.high, firstLine + row)
-    let start = document[].buffer.lineStarts[line]
-    let finish = document[].buffer.lineEndByteOffset(line)
-    let lineText = document[].buffer.substring(start, finish)
-    let estimatedBytes = max(0, int(floor((x - editorX - 8'f32) / cellWidth)))
-    start + floorGraphemeBoundary(lineText, estimatedBytes)
+    let graphemeColumn = max(0, int(floor((x - editorX - 8'f32) / cellWidth)))
+    # Screen columns are logical grapheme columns, not UTF-8 byte offsets.
+    # Keep conversion in the editor buffer so Japanese, emoji, and combining
+    # sequences land on the same safe boundaries as keyboard movement.
+    document[].buffer.byteOffsetAtLineColumn(line, graphemeColumn)
 
 proc refreshEditorSyntax() =
   let document = activeDocument()

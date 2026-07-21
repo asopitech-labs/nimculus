@@ -424,6 +424,8 @@ macOS 実装の API 契約は維持するが、macOS 固有概念を無理に共
 
 **GPU描画追加：** 既存の`NativePaintCommand` ABIをWindows backendへ接続し、D3D11 dynamic vertex buffer・runtime shader・per-command scissorでopaque rectangle-like primitiveを描画する。`Present`のdevice removal/reset時はdevice、swapchain、pipelineを再生成して保持中PaintListを再利用する。Windows text boundaryは`WM_CHAR` surrogate pairと`WM_UNICHAR`をUTF-8へ変換し、workspace preview・opened document textをUTF-16 GDI bootstrap overlayへ接続する。固定幅GDI bootstrapは`DrawTextW`の自動折返しに依存せず、可視行だけを描画し、Nim側のscroll line・cursor byte/line・selectionをnativeへ同期してcaretとselection背景を表示する。固定幅GDI bootstrapの入力経路として、エディタ領域の論理座標を行・grapheme境界へ変換するクリック、ドラッグ選択、ホイールスクロールも接続済みとする。文字/image primitiveのGPU描画と実Windows GUI操作検証は残課題とする。
 
+Windowsの固定幅エディタ入力では、画面上の列をUTF-8 byte offsetとして扱わず、`PieceTable.byteOffsetAtLineColumn`で論理grapheme列から安全な編集境界へ変換する。日本語、絵文字、結合文字のクリック位置が、キーボードカーソル移動と同じ境界規則になる。
+
 **完了条件：** 主要機能、日本語 IME、ConPTY、Windows インストーラーが動作し、macOS 固有コードがコアへ漏れない。
 
 ### M14：WSL リモート — `v0.8.0-beta`

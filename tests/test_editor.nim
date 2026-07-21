@@ -62,6 +62,11 @@ suite "M4 editor buffer":
     check buffer.byteOffsetAtLineColumn(1, 0) == 2
     check buffer.byteOffsetAtLineColumn(1, 1) == 6
     check buffer.byteOffsetAtLineColumn(1, 2) == 9
+    let graphemeBuffer = initPieceTable("é😀日本")
+    check graphemeBuffer.byteOffsetAtLineColumn(0, 0) == 0
+    check graphemeBuffer.byteOffsetAtLineColumn(0, 1) == 3
+    check graphemeBuffer.byteOffsetAtLineColumn(0, 2) == 7
+    check graphemeBuffer.byteOffsetAtLineColumn(0, 4) == 13
     check previousWordBoundary("hello 世界", 12) == 6
     check nextWordBoundary("hello 世界", 0) == 5
 

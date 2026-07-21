@@ -1558,3 +1558,12 @@ boundary: reaching a queue is not completion; the consumer must invalidate
 derived state before presenting it again. The active document disk-stamp check
 remains separate because it reports a user-facing reload decision rather than
 a workspace tree update.
+
+## M13-027: Convert Windows editor hit testing from grapheme columns
+
+The Windows GDI bootstrap uses a fixed cell width only to estimate a visual
+column. That estimate is passed to `PieceTable.byteOffsetAtLineColumn`, which
+performs the authoritative grapheme-column to UTF-8 byte conversion. It must
+not be passed to a byte-oriented boundary helper: a multibyte character,
+emoji, or combining sequence would otherwise make clicks land before the
+intended visual column.
