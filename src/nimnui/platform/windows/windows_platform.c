@@ -42,6 +42,8 @@ static wchar_t g_dialog_path[32768];
 static char g_dialog_utf8[32768];
 static wchar_t g_terminal_text[262144];
 static bool g_terminal_visible = false;
+static wchar_t *g_editor_text = NULL;
+static int g_editor_text_length = 0;
 static wchar_t g_ime_wide[32768];
 static char g_ime_utf8[131072];
 static wchar_t g_pending_high_surrogate = 0;
@@ -525,6 +527,26 @@ static void render_terminal_overlay(void) {
   ReleaseDC(g_window, dc);
 }
 
+static void render_editor_overlay(void) {
+  if (!g_window || !g_editor_text || g_editor_text_length <= 0) return;
+  HDC dc = GetDC(g_window);
+  if (!dc) return;
+  RECT client;
+  GetClientRect(g_window, &client);
+  RECT rect = {268, 128, client.right - 24, client.bottom - 48};
+  SetBkMode(dc, TRANSPARENT);
+  SetTextColor(dc, RGB(215, 218, 224));
+  HFONT font = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+      DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+      FIXED_PITCH | FF_MODERN, L"Consolas");
+  HGDIOBJ old_font = SelectObject(dc, font);
+  DrawTextW(dc, g_editor_text, g_editor_text_length, &rect,
+      DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_NOCLIP);
+  SelectObject(dc, old_font);
+  DeleteObject(font);
+  ReleaseDC(g_window, dc);
+}
+
 static void send_input(UINT type, UINT key_code, UINT button, LPARAM lparam,
                        bool screen_coordinates) {
   if (!g_input_callback) return;
@@ -604,6 +626,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
       PAINTSTRUCT paint;
       BeginPaint(window, &paint);
       render_frame();
+      render_editor_overlay();
       render_terminal_overlay();
       EndPaint(window, &paint);
       return 0;
@@ -798,6 +821,9 @@ bool nimculus_platform_run(void) {
   free(g_paint_commands);
   g_paint_commands = NULL;
   g_paint_count = 0;
+  free(g_editor_text);
+  g_editor_text = NULL;
+  g_editor_text_length = 0;
   g_window = NULL;
   return true;
 }
@@ -932,6 +958,32 @@ void nimculus_platform_set_paint_commands(const NimculusPaintCommand *commands,
     memcpy(g_paint_commands, commands, sizeof(NimculusPaintCommand) * count);
     g_paint_count = count;
   }
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
+  free(g_editor_text);
+  g_editor_text = NULL;
+  g_editor_text_length = 0;
+  if (!utf8 || length == 0) {
+    if (g_window) InvalidateRect(g_window, NULL, FALSE);
+    return;
+  }
+  uint32_t bounded_length = min(length, 16u * 1024u * 1024u);
+  int wide_length = MultiByteToWideChar(CP_UTF8, 0, utf8, (int)bounded_length,
+                                        NULL, 0);
+  if (wide_length <= 0) return;
+  g_editor_text = (wchar_t *)malloc((size_t)(wide_length + 1) * sizeof(wchar_t));
+  if (!g_editor_text) return;
+  int converted = MultiByteToWideChar(CP_UTF8, 0, utf8, (int)bounded_length,
+                                      g_editor_text, wide_length);
+  if (converted <= 0) {
+    free(g_editor_text);
+    g_editor_text = NULL;
+    return;
+  }
+  g_editor_text[converted] = L'\0';
+  g_editor_text_length = converted;
   if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
 

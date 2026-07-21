@@ -421,7 +421,7 @@ macOS 実装の API 契約は維持するが、macOS 固有概念を無理に共
 
 **実装済み追加項目：** Win32 virtual-keyを既存のAppKit key code契約へ変換し、Ctrl系標準ショートカットをCommand相当へ正規化して`shortcut callback`へ接続した。Zedのaccelerator境界を参考に、shortcut/control-keyを消費した場合は`WM_CHAR`を生成しない。Win32 mouse messageのclient座標とwheel messageのscreen座標を分け、両者をDPI logical pointへ変換する。Zedと同様にbutton down時のcapture、mouse leave、X buttonを共通pointerイベントへ接続し、最小化中はD3D11 drawable更新を抑制して復元時に再生成する。
 
-**GPU描画追加：** 既存の`NativePaintCommand` ABIをWindows backendへ接続し、D3D11 dynamic vertex buffer・runtime shader・per-command scissorでopaque rectangle-like primitiveを描画する。`Present`のdevice removal/reset時はdevice、swapchain、pipelineを再生成して保持中PaintListを再利用する。Windows text boundaryは`WM_CHAR` surrogate pairと`WM_UNICHAR`をUTF-8へ変換する。文字/image primitiveのGPU描画はglyph/sprite resource実装後の残課題とする。
+**GPU描画追加：** 既存の`NativePaintCommand` ABIをWindows backendへ接続し、D3D11 dynamic vertex buffer・runtime shader・per-command scissorでopaque rectangle-like primitiveを描画する。`Present`のdevice removal/reset時はdevice、swapchain、pipelineを再生成して保持中PaintListを再利用する。Windows text boundaryは`WM_CHAR` surrogate pairと`WM_UNICHAR`をUTF-8へ変換し、workspace preview・opened document textをUTF-16 GDI bootstrap overlayへ接続する。文字/image primitiveのGPU描画はglyph/sprite resource実装後の残課題とする。
 
 **完了条件：** 主要機能、日本語 IME、ConPTY、Windows インストーラーが動作し、macOS 固有コードがコアへ漏れない。
 

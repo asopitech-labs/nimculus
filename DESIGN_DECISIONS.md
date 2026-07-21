@@ -1424,6 +1424,16 @@ pair as one UTF-8 callback value; `WM_UNICHAR` is accepted for direct Unicode
 code-point delivery as well. This prevents emoji and other non-BMP text from
 being silently dropped by the Windows editor input path.
 
+## M13-019: Connect Windows editor text before the GPU glyph renderer
+
+Zed separates the platform input handler from the renderer's text resources.
+Nimculus follows that sequencing on Windows: workspace preview and opened
+document text now reach a bounded UTF-8-to-UTF-16 GDI bootstrap surface, while
+the same callback updates the editor buffer and IME caret coordinates. This
+makes input/display behavior observable before the DirectWrite/glyph-atlas
+renderer is complete; the bootstrap is intentionally not reported as the
+final GPU text implementation.
+
 ## M13-012: Normalize Win32 keyboard events before shared shortcut routing
 
 Zed's Windows backend separates accelerator handling from character input and

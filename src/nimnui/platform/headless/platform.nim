@@ -74,7 +74,8 @@ proc platformRequestQuit*() = discard
 proc platformConfirmQuit*() = discard
 proc platformShowSavePanelAndClose*() = discard
 proc platformSetEditorSelection*(startByte, endByte: uint32) = discard (startByte, endByte)
-proc platformSetEditorText*(text: cstring, length: uint32) = discard (text, length)
+when not defined(windows):
+  proc platformSetEditorText*(text: cstring, length: uint32) = discard (text, length)
 proc platformSetEditorOutline*(text: cstring, length, symbolCount: uint32) = discard (text, length, symbolCount)
 when not defined(windows):
   proc platformSetTerminalVisible*(visible: bool) = discard visible

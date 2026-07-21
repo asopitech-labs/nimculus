@@ -36,7 +36,7 @@ var demoSplitRatio = 0.5'f32
 var demoSplitDragging = false
 var activePointerNode = NodeId(0)
 var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
-when defined(macosx):
+when defined(macosx) or defined(windows):
   var appSettings: SettingsStore
   var editorLspSemanticTokens: seq[LspSemanticToken]
   var editorLspSemanticTokenPath = ""
@@ -1100,7 +1100,7 @@ proc restoreSession() =
   editorSession.loadActiveView(editorViewState)
 
 proc openActiveWorkspace(path: string) =
-  when defined(macosx):
+  when defined(macosx) or defined(windows):
     if activeWorkspace != nil: activeWorkspace.stopWatching()
     # A search job owns the workspace snapshot it is traversing.  Drop it
     # before replacing activeWorkspace so results from the previous root
@@ -1118,7 +1118,7 @@ proc openActiveWorkspace(path: string) =
     refreshWorkspacePreview()
 
 proc refreshWorkspacePreview() =
-  when defined(macosx):
+  when defined(macosx) or defined(windows):
     if activeWorkspace == nil: return
     workspacePreviewMode = "tree"
     workspacePreviewEntries.setLen(0)
@@ -1455,6 +1455,9 @@ proc refreshEditorSyntax() =
       syncNativeInlayHints(document)
       syncNativeDiagnostics(document)
       scheduleNativeGitHunks(document)
+    when defined(windows):
+      let text = document[].buffer.toString()
+      platformSetEditorText(text.cstring, uint32(text.len))
     return
   if syntaxState == nil or syntaxState.grammar != grammar:
     if syntaxState != nil: syntaxState.close()
@@ -1492,6 +1495,9 @@ proc refreshEditorSyntax() =
     syncNativeInlayHints(document)
     syncNativeDiagnostics(document)
     scheduleNativeGitHunks(document)
+  when defined(windows):
+    let text = document[].buffer.toString()
+    platformSetEditorText(text.cstring, uint32(text.len))
 
 when defined(macosx):
   proc pollLspAndRefreshDiagnostics() =
@@ -2696,7 +2702,10 @@ when isMainModule:
     setupShortcutRegistry()
     platformSetShortcutCallback(dispatchNativeShortcut)
     setupPersistencePaths()
+    appSettings = newSettingsStore(settingsFilePath,
+      getCurrentDir() / ".nimculus" / "settings.json")
     setupDemoUi()
+    openActiveWorkspace(getCurrentDir())
     platformSetTextCallback(receiveNativeText)
     platformSetInputCallback(receiveNativeInput)
     platformSetFileCallback(receiveNativeFile)
