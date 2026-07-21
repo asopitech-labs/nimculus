@@ -36,6 +36,8 @@ static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
 static NSString *g_editor_text = @"";
 static NSString *g_editor_status = @"Ready";
+static BOOL g_editor_indent_guides = YES;
+static NSUInteger g_editor_indent_width = 2;
 static NSString *g_terminal_text = @"";
 static NSString *g_editor_outline_text = @"Outline\n────────\nNo symbols";
 static uint32_t g_editor_outline_symbol_count = 0;
@@ -1073,6 +1075,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusLineNumberOverlay : NSView
 @end
 
+@interface NimculusIndentGuideOverlay : NSView
+@end
+
 @interface NimculusStatusOverlay : NSTextField
 @end
 
@@ -1134,6 +1139,26 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     CGFloat y = index * editorLineHeight() + 1.0;
     [number drawAtPoint:NSMakePoint(MAX(2.0, self.bounds.size.width - size.width - 6.0), y)
       withAttributes:attributes];
+  }
+}
+@end
+
+@implementation NimculusIndentGuideOverlay
+- (BOOL)isFlipped { return YES; }
+- (BOOL)acceptsFirstResponder { return NO; }
+- (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
+- (void)drawRect:(NSRect)dirtyRect {
+  (void)dirtyRect;
+  if (!g_editor_indent_guides) return;
+  CGFloat characterWidth = 7.2;
+  CGFloat startX = 8.0 + characterWidth * (CGFloat)MAX(1, g_editor_indent_width);
+  NSColor *color = [themeHexColor(g_theme_border,
+    [NSColor colorWithCalibratedRed:0.30 green:0.34 blue:0.40 alpha:1.0])
+    colorWithAlphaComponent:0.52];
+  [color setFill];
+  for (CGFloat x = startX; x < self.bounds.size.width; x += characterWidth * MAX(1, g_editor_indent_width)) {
+    NSRect line = NSMakeRect(x, 0.0, 1.0, self.bounds.size.height);
+    NSRectFill(line);
   }
 }
 @end
@@ -1320,6 +1345,9 @@ static void applyTerminalRuns(NSTextView *terminal) {
     NimculusLineNumberOverlay *lineNumbers = [[NimculusLineNumberOverlay alloc]
       initWithFrame:NSZeroRect];
     [self addSubview:lineNumbers];
+    NimculusIndentGuideOverlay *indentGuides = [[NimculusIndentGuideOverlay alloc]
+      initWithFrame:NSZeroRect];
+    [self addSubview:indentGuides];
     NimculusStatusOverlay *status = [[NimculusStatusOverlay alloc]
       initWithFrame:NSZeroRect];
     status.editable = NO;
@@ -1421,6 +1449,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
 - (void)updateTerminalFrame {
   NimculusOutlineOverlay *outline = nil;
   NimculusLineNumberOverlay *lineNumbers = nil;
+  NimculusIndentGuideOverlay *indentGuides = nil;
   NimculusStatusOverlay *status = nil;
   NimculusTerminalOverlay *terminal = nil;
   NimculusTaskOutputOverlay *taskOutput = nil;
@@ -1428,6 +1457,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
   for (NSView *subview in self.subviews) {
     if ([subview isKindOfClass:[NimculusOutlineOverlay class]]) outline = (NimculusOutlineOverlay *)subview;
     if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) lineNumbers = (NimculusLineNumberOverlay *)subview;
+    if ([subview isKindOfClass:[NimculusIndentGuideOverlay class]]) indentGuides = (NimculusIndentGuideOverlay *)subview;
     if ([subview isKindOfClass:[NimculusStatusOverlay class]]) status = (NimculusStatusOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) terminal = (NimculusTerminalOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) taskOutput = (NimculusTaskOutputOverlay *)subview;
@@ -1443,6 +1473,12 @@ static void applyTerminalRuns(NSTextView *terminal) {
       MAX(36.0, g_editor_rect[0] - 8.0), g_editor_rect[3]);
     lineNumbers.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
     [lineNumbers setNeedsDisplay:YES];
+  }
+  if (indentGuides) {
+    indentGuides.frame = NSMakeRect(g_editor_rect[0], g_editor_rect[1],
+      g_editor_rect[2], g_editor_rect[3]);
+    indentGuides.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    [indentGuides setNeedsDisplay:YES];
   }
   if (status) {
     status.frame = NSMakeRect(g_editor_rect[0], 2.0, g_editor_rect[2], 20.0);
@@ -2670,6 +2706,18 @@ void nimculus_platform_set_editor_rect(double x, double y, double width, double 
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_dirty(bool dirty) { g_editor_dirty = dirty ? YES : NO; }
+void nimculus_platform_set_editor_indent_guides(bool visible, uint32_t indent_width) {
+  g_editor_indent_guides = visible ? YES : NO;
+  g_editor_indent_width = MAX((NSUInteger)1, (NSUInteger)indent_width);
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusIndentGuideOverlay class]]) {
+      [subview setNeedsDisplay:YES];
+      break;
+    }
+  }
+}
 void nimculus_platform_set_editor_status(const char *utf8) {
   g_editor_status = (utf8 && strlen(utf8) > 0)
     ? [[NSString alloc] initWithUTF8String:utf8] : @"Ready";
