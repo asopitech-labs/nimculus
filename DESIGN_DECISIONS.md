@@ -1470,3 +1470,17 @@ Zed ignores `WM_SIZE` with `SIZE_MINIMIZED` and recreates the drawable when
 the window receives its restore size. Nimculus now follows that lifecycle:
 metrics are recorded, but `resize_render_target` is skipped for a zero-sized
 minimized window. The normal restore `WM_SIZE` path then recreates the target.
+
+## M13-020: Convert Windows editor pointer input through logical text boundaries
+
+Zed keeps hit testing inside the text layout: a logical mouse position is
+converted to a valid text index before selection state changes, and scrolling
+is handled by the editor viewport rather than by the native window backend.
+Nimculus applies the same boundary to the Windows GDI text bootstrap. Win32
+already emits logical client coordinates, so the application maps them to the
+editor viewport, clamps the visible line, estimates a fixed-width column, and
+then floors to a grapheme boundary before moving the cursor. Pointer capture
+continues the selection outside the editor rectangle, and wheel input changes
+the editor line scroll with a bounded viewport range. The constants are
+bootstrap renderer parameters; they must be replaced by measured DirectWrite
+or GPU text-layout metrics when the final Windows text renderer is added.

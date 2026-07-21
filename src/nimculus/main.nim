@@ -1416,6 +1416,25 @@ when defined(macosx):
     else:
       platformSetEditorCompletions("".cstring, 0)
 
+when defined(windows):
+  proc editorOffsetAtWindowsPoint(document: ptr FileDocument, x, y: float32): int =
+    ## The Windows text surface is currently a fixed-width GDI bootstrap. Keep
+    ## its hit testing in the editor layer, just as Zed converts a logical
+    ## mouse position through its text layout before producing an anchor.
+    if document == nil or document[].buffer.lineStarts.len == 0: return 0
+    let editorX = float32(demoEditorBounds.origin.x)
+    let editorY = float32(demoEditorBounds.origin.y)
+    let lineHeight = 18'f32
+    let cellWidth = 8'f32
+    let firstLine = max(0, editorViewState.scrollLine)
+    let row = max(0, int(floor((y - editorY) / lineHeight)))
+    let line = min(document[].buffer.lineStarts.high, firstLine + row)
+    let start = document[].buffer.lineStarts[line]
+    let finish = document[].buffer.lineEndByteOffset(line)
+    let lineText = document[].buffer.substring(start, finish)
+    let estimatedBytes = max(0, int(floor((x - editorX - 8'f32) / cellWidth)))
+    start + floorGraphemeBoundary(lineText, estimatedBytes)
+
 proc refreshEditorSyntax() =
   let document = activeDocument()
   if document == nil:
@@ -2632,6 +2651,34 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           editorViewState.moveCursor(offset, selecting = true)
           syncEditorCursor()
         editorPointerDragging = false
+  when defined(windows):
+    let document = activeDocument()
+    let inEditor = demoEditorBounds.contains(point)
+    if document != nil and kind == scroll and inEditor:
+      let wheelLines = if event.deltaY > 0'f64: -1 else: 1
+      let visibleLines = max(1, int(floor(float32(demoEditorBounds.size.height) / 18'f32)))
+      let maxScroll = max(0, document[].buffer.lineStarts.len - visibleLines)
+      editorViewState.scrollLine = max(0, min(maxScroll,
+        editorViewState.scrollLine + wheelLines))
+      syncEditorCursor()
+      refreshEditorSyntax()
+      return
+    if document != nil and (inEditor or editorPointerDragging) and
+        kind in {pointerDown, pointerMove, pointerUp}:
+      let offset = editorOffsetAtWindowsPoint(document, float32(event.x), uiY)
+      if kind == pointerDown:
+        editorPointerDragging = true
+        editorViewState.moveCursor(offset)
+        syncEditorCursor()
+      elif kind == pointerMove and editorPointerDragging:
+        editorViewState.moveCursor(offset, selecting = true)
+        syncEditorCursor()
+      elif kind == pointerUp:
+        if editorPointerDragging:
+          editorViewState.moveCursor(offset, selecting = true)
+          syncEditorCursor()
+        editorPointerDragging = false
+      return
   if kind in {pointerMove, pointerEnter}:
     for node in demoTree.nodes:
       if node.hoveredState and node.id != hit: demoTree.setHovered(node.id, false)
