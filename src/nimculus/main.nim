@@ -1536,6 +1536,7 @@ proc refreshEditorSyntax() =
       syncNativeDiagnostics(document)
       scheduleNativeGitHunks(document)
     when defined(windows):
+      platformSetEditorHighlights(nil, 0)
       let text = document[].buffer.toString()
       platformSetEditorText(text.cstring, uint32(text.len))
     return
@@ -1576,6 +1577,23 @@ proc refreshEditorSyntax() =
     syncNativeDiagnostics(document)
     scheduleNativeGitHunks(document)
   when defined(windows):
+    let highlights = if syntaxState == nil: @[] else:
+      let visibleLines = max(1, int(float32(demoEditorBounds.size.height) /
+        windowsEditorLineHeight()) + 2)
+      let firstLine = min(editorViewState.scrollLine, document[].buffer.lineStarts.high)
+      let firstByte = document[].buffer.lineStarts[firstLine]
+      let requestedLastLine = firstLine + visibleLines
+      let lastByte = if requestedLastLine < document[].buffer.lineStarts.len:
+        document[].buffer.lineStarts[requestedLastLine]
+      else: document[].buffer.toString().len
+      syntaxState.visibleHighlights(uint32(firstByte), uint32(lastByte))
+    var nativeHighlights = newSeq[NativeHighlightSpan](highlights.len)
+    for index, span in highlights:
+      nativeHighlights[index] = NativeHighlightSpan(startByte: span.startByte,
+        endByte: span.endByte, kind: uint32(ord(span.kind)))
+    var highlightPtr: ptr NativeHighlightSpan = nil
+    if nativeHighlights.len > 0: highlightPtr = addr nativeHighlights[0]
+    platformSetEditorHighlights(highlightPtr, uint32(nativeHighlights.len))
     let text = document[].buffer.toString()
     platformSetEditorText(text.cstring, uint32(text.len))
 

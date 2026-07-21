@@ -1455,7 +1455,18 @@ DirectWrite text format, and only the visible UTF-16 lines are drawn before
 `Present`. Selection and caret are drawn in the same clipped target, and a
 device-loss or target failure releases the D2D resources so the existing GDI
 surface can remain a fallback. A persistent glyph atlas with per-run syntax
-color and subpixel positioning remains a later Windows renderer step.
+color and subpixel positioning remain later Windows renderer steps. Per-run
+syntax colors are applied from the UTF-8 highlight spans below.
+
+## M13-038: Preserve Windows syntax spans at the DirectWrite boundary
+
+The application produces UTF-8 byte-based `NativeHighlightSpan` values from
+Tree-sitter and semantic tokens. Windows retains those spans at the platform
+boundary, converts each visible span's UTF-8 range to a UTF-16
+`DWRITE_TEXT_RANGE`, and applies a Direct2D brush as the text-layout drawing
+effect. This keeps syntax coloring out of the editor buffer and follows Zed's
+separation between text layout runs and document storage. Spans are clipped to
+the visible line and invalid ranges are ignored.
 
 ## M13-012: Normalize Win32 keyboard events before shared shortcut routing
 

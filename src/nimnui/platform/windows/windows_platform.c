@@ -56,6 +56,8 @@ static wchar_t *g_editor_text = NULL;
 static int g_editor_text_length = 0;
 static char *g_editor_utf8 = NULL;
 static uint32_t g_editor_utf8_length = 0;
+static NimculusHighlightSpan *g_editor_highlights = NULL;
+static uint32_t g_editor_highlight_count = 0;
 static wchar_t g_editor_font_name[LF_FACESIZE] = L"Consolas";
 static double g_editor_font_size = 16.0;
 static wchar_t g_terminal_font_name[LF_FACESIZE] = L"Consolas";
@@ -799,6 +801,52 @@ static void draw_paint_quads(void) {
   }
 }
 
+static void editor_line_byte_range(uint32_t target_line, uint32_t *start,
+                                   uint32_t *end) {
+  uint32_t line = 0;
+  uint32_t line_start = 0;
+  for (uint32_t index = 0; index < g_editor_utf8_length; ++index) {
+    if (g_editor_utf8[index] == '\n') {
+      if (line == target_line) {
+        if (start) *start = line_start;
+        if (end) *end = index;
+        return;
+      }
+      line++;
+      line_start = index + 1;
+    }
+  }
+  if (line == target_line) {
+    if (start) *start = line_start;
+    if (end) *end = g_editor_utf8_length;
+  } else {
+    if (start) *start = g_editor_utf8_length;
+    if (end) *end = g_editor_utf8_length;
+  }
+}
+
+static uint32_t utf16_units_for_utf8(const char *text, uint32_t length) {
+  if (!text || length == 0) return 0;
+  int units = MultiByteToWideChar(CP_UTF8, 0, text, (int)length, NULL, 0);
+  return units > 0 ? (uint32_t)units : 0;
+}
+
+static void highlight_color(uint32_t kind, D2D1_COLOR_F *color) {
+  if (!color) return;
+  color->r = 0.85f;
+  color->g = 0.90f;
+  color->b = 1.0f;
+  color->a = 1.0f;
+  switch (kind % 6) {
+    case 0: color->r = 0.35f; color->g = 0.70f; color->b = 1.0f; break;
+    case 1: color->r = 0.95f; color->g = 0.65f; color->b = 0.35f; break;
+    case 2: color->r = 0.80f; color->g = 0.55f; color->b = 1.0f; break;
+    case 3: color->r = 0.45f; color->g = 0.75f; color->b = 0.50f; break;
+    case 5: color->r = 0.65f; color->g = 0.70f; color->b = 0.78f; break;
+    default: break;
+  }
+}
+
 static bool render_editor_directwrite(void) {
   if (!g_d2d_target || !g_d2d_text_brush || !g_editor_text ||
       g_editor_text_length <= 0) return false;
@@ -829,6 +877,20 @@ static bool render_editor_directwrite(void) {
   if (FAILED(hr)) {
     format->lpVtbl->Release(format);
     return false;
+  }
+  ID2D1SolidColorBrush *highlight_brushes[6] = {NULL, NULL, NULL, NULL, NULL, NULL};
+  for (uint32_t kind = 0; kind < 6; ++kind) {
+    D2D1_COLOR_F color;
+    highlight_color(kind, &color);
+    hr = g_d2d_target->lpVtbl->CreateSolidColorBrush(g_d2d_target, &color,
+        NULL, &highlight_brushes[kind]);
+    if (FAILED(hr)) {
+      for (uint32_t index = 0; index < kind; ++index)
+        highlight_brushes[index]->lpVtbl->Release(highlight_brushes[index]);
+      selection_brush->lpVtbl->Release(selection_brush);
+      format->lpVtbl->Release(format);
+      return false;
+    }
   }
   g_d2d_target->lpVtbl->BeginDraw(g_d2d_target);
   D2D1_RECT_F clip = {left, top, right, bottom};
@@ -879,9 +941,40 @@ static bool render_editor_directwrite(void) {
         UINT32 length = (UINT32)(line_end - line_start);
         if (length > 0 && line_start[length - 1] == L'\r') length--;
         if (length > 0) {
-          g_d2d_target->lpVtbl->DrawText(g_d2d_target, line_start, length,
-              format, &text_rect, (ID2D1Brush *)g_d2d_text_brush,
-              D2D1_DRAW_TEXT_OPTIONS_NO_SNAP, DWRITE_MEASURING_MODE_NATURAL);
+          IDWriteTextLayout *layout = NULL;
+          hr = g_dwrite_factory->lpVtbl->CreateTextLayout(g_dwrite_factory,
+              line_start, length, format, text_rect.right - text_rect.left,
+              text_rect.bottom - text_rect.top, &layout);
+          if (SUCCEEDED(hr) && layout) {
+            uint32_t line_start_byte = 0, line_end_byte = 0;
+            editor_line_byte_range(line, &line_start_byte, &line_end_byte);
+            for (uint32_t span_index = 0; span_index < g_editor_highlight_count;
+                 ++span_index) {
+              NimculusHighlightSpan span = g_editor_highlights[span_index];
+              if (span.end_byte <= line_start_byte ||
+                  span.start_byte >= line_end_byte) continue;
+              uint32_t start_byte = span.start_byte > line_start_byte
+                  ? span.start_byte - line_start_byte : 0;
+              uint32_t end_byte = span.end_byte < line_end_byte
+                  ? span.end_byte - line_start_byte : line_end_byte - line_start_byte;
+              if (end_byte <= start_byte || start_byte > UINT32_MAX) continue;
+              if (end_byte > line_end_byte - line_start_byte)
+                end_byte = line_end_byte - line_start_byte;
+              const char *line_utf8 = g_editor_utf8 + line_start_byte;
+              uint32_t start_units = utf16_units_for_utf8(line_utf8, start_byte);
+              uint32_t span_units = utf16_units_for_utf8(line_utf8 + start_byte,
+                  end_byte - start_byte);
+              if (span_units == 0 || start_units >= length) continue;
+              if (start_units + span_units > length) span_units = length - start_units;
+              DWRITE_TEXT_RANGE range = {start_units, span_units};
+              layout->lpVtbl->SetDrawingEffect(layout,
+                  (IUnknown *)highlight_brushes[span.kind % 6], range);
+            }
+            D2D1_POINT_2F origin = {text_rect.left, text_rect.top};
+            g_d2d_target->lpVtbl->DrawTextLayout(g_d2d_target, origin, layout,
+                (ID2D1Brush *)g_d2d_text_brush, D2D1_DRAW_TEXT_OPTIONS_NO_SNAP);
+            layout->lpVtbl->Release(layout);
+          }
         }
       }
     }
@@ -902,6 +995,8 @@ static bool render_editor_directwrite(void) {
   }
   g_d2d_target->lpVtbl->PopAxisAlignedClip(g_d2d_target);
   hr = g_d2d_target->lpVtbl->EndDraw(g_d2d_target, NULL, NULL);
+  for (uint32_t kind = 0; kind < 6; ++kind)
+    highlight_brushes[kind]->lpVtbl->Release(highlight_brushes[kind]);
   selection_brush->lpVtbl->Release(selection_brush);
   format->lpVtbl->Release(format);
   if (FAILED(hr)) {
@@ -1340,6 +1435,9 @@ bool nimculus_platform_run(void) {
   free(g_editor_utf8);
   g_editor_utf8 = NULL;
   g_editor_utf8_length = 0;
+  free(g_editor_highlights);
+  g_editor_highlights = NULL;
+  g_editor_highlight_count = 0;
   g_window = NULL;
   return true;
 }
@@ -1595,6 +1693,23 @@ void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
   }
   g_editor_text[converted] = L'\0';
   g_editor_text_length = converted;
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans,
+                                             uint32_t count) {
+  free(g_editor_highlights);
+  g_editor_highlights = NULL;
+  g_editor_highlight_count = 0;
+  if (spans && count > 0) {
+    g_editor_highlights = (NimculusHighlightSpan *)malloc(
+        sizeof(NimculusHighlightSpan) * (size_t)count);
+    if (g_editor_highlights) {
+      memcpy(g_editor_highlights, spans,
+          sizeof(NimculusHighlightSpan) * (size_t)count);
+      g_editor_highlight_count = count;
+    }
+  }
   if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
 
