@@ -765,6 +765,29 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     NSUInteger wrappedByteLength = [[wrappedText dataUsingEncoding:NSUTF8StringEncoding] length];
     NSMutableAttributedString *wrappedAttributed = [[NSMutableAttributedString alloc]
       initWithString:wrappedText attributes:attributes];
+    NSUInteger wrappedLineUnit = 0;
+    for (NSUInteger visibleIndex = 0; visibleIndex < visible.count; visibleIndex++) {
+      NSString *visibleLine = visible[visibleIndex];
+      NSUInteger documentLine = startLine + visibleIndex;
+      for (uint32_t hunkIndex = 0; hunkIndex < g_git_hunk_count; hunkIndex++) {
+        NimculusGitHunkSpan hunk = g_git_hunks[hunkIndex];
+        NSUInteger hunkStart = hunk.start_line;
+        NSUInteger hunkEnd = hunkStart + MAX((uint32_t)1, hunk.line_count);
+        if (documentLine < hunkStart || documentLine >= hunkEnd || visibleLine.length == 0) continue;
+        CGFloat red = 0.30, green = 0.75, blue = 0.42;
+        if (hunk.kind == 1) {
+          red = 0.92; green = 0.34; blue = 0.34;
+        } else if (hunk.kind >= 2) {
+          red = 0.35; green = 0.58; blue = 0.95;
+        }
+        NSColor *diffColor = [NSColor colorWithCalibratedRed:red green:green
+          blue:blue alpha:0.10];
+        [wrappedAttributed addAttribute:(id)kCTBackgroundColorAttributeName
+          value:(id)diffColor.CGColor range:NSMakeRange(wrappedLineUnit, visibleLine.length)];
+        break;
+      }
+      wrappedLineUnit += visibleLine.length + 1;
+    }
     for (uint32_t spanIndex = 0; spanIndex < g_highlight_count; spanIndex++) {
       NimculusHighlightSpan span = g_highlights[spanIndex];
       if (span.end_byte <= lineStartByte || span.start_byte >= lineStartByte + wrappedByteLength) continue;
@@ -825,6 +848,26 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     NSString *lineText = lines[index];
     NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
     NSUInteger lineEndUnit = lineStartUnit + lineText.length;
+    NSUInteger documentLine = startLine + displayIndex;
+    for (uint32_t hunkIndex = 0; hunkIndex < g_git_hunk_count; hunkIndex++) {
+      NimculusGitHunkSpan hunk = g_git_hunks[hunkIndex];
+      NSUInteger hunkStart = hunk.start_line;
+      NSUInteger hunkEnd = hunkStart + MAX((uint32_t)1, hunk.line_count);
+      if (documentLine < hunkStart || documentLine >= hunkEnd) continue;
+      CGFloat red = 0.30, green = 0.75, blue = 0.42;
+      if (hunk.kind == 1) {
+        red = 0.92; green = 0.34; blue = 0.34;
+      } else if (hunk.kind >= 2) {
+        red = 0.35; green = 0.58; blue = 0.95;
+      }
+      // Keep the gutter marker and the document highlight separate, like
+      // Zed's diff map: the low-alpha body fill remains readable below text.
+      CGContextSetRGBFillColor(context, red, green, blue, 0.10);
+      CGContextFillRect(context, CGRectMake(8.0,
+        logicalHeight - lineHeight * (displayIndex + 1) - 4.0,
+        MAX(1.0, g_editor_rect[2] - 8.0), 20.0));
+      break;
+    }
     if (g_editor_selection_end > g_editor_selection_start &&
         g_editor_selection_end > lineStartUnit && g_editor_selection_start < lineEndUnit) {
       NSUInteger startUnit = MAX(g_editor_selection_start, lineStartUnit) - lineStartUnit;
@@ -837,7 +880,6 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         logicalHeight - lineHeight * (displayIndex + 1) - 4.0,
         MAX(1.0, editorTextOffset(lineText, endUnit) - editorTextOffset(lineText, startUnit)), 20.0));
     }
-    NSUInteger documentLine = startLine + displayIndex;
     for (uint32_t hunkIndex = 0; hunkIndex < g_git_hunk_count; hunkIndex++) {
       NimculusGitHunkSpan hunk = g_git_hunks[hunkIndex];
       NSUInteger hunkStart = hunk.start_line;
