@@ -17,7 +17,7 @@
 | M10：macOSターミナル・タスク | 🟡 実装済み・GUI実機検証待ち | PTY、VT/ANSI、複数セッション、selection、kitty keyboard、task実行・cancel・problem matcher・output panelを実装。長時間実機確認が残る |
 | M11：macOS配布基盤 | 🟡 実装済み・資格情報/実機検証待ち | `.app`、生成アイコン、署名、hardened runtime、ZIP/DMG、notarization/stapling、更新検証、crash reportを実装。adhoc署名による`.app`・icon・ZIP/DMGスモークは成功。Developer IDとApple資格情報による実行が残る |
 | M12：設定・テーマ・キーバインド | 🟡 実装済み・GUI実機検証待ち | 階層設定、schema、live reload、keymap、theme/icon theme、font・terminal・LSP設定、system appearance連動を実装。実機確認が残る |
-| M13：Windows対応 | ⚪ 未着手 | macOS実装完了後にWin32、GPU、DPI、IME、clipboard、ConPTY、installerを実装する |
+| M13：Windows対応 | 🟡 契約分離に着手 | OS非依存のmetrics/input/paint/annotation ABIを`src/nimnui/platform/contracts.nim`へ分離。Win32、GPU、DPI、IME、clipboard、ConPTY、installer本体は未着手 |
 | M14：WSLリモート | ⚪ 未着手 | Windows版完了後にagent、remote file、LSP、Git、terminal、reconnectを実装する |
 | M15：Linux対応 | ⚪ 未着手 | WSL基盤の後にWayland優先、X11 fallback、IME、PTY、packagingを実装する |
 | M16：SSHリモート | ⚪ 未着手 | WSLプロトコルを一般化し、SSH agentとremote開発を実装する |

@@ -10,9 +10,12 @@ NimNUI platform contract and renderer
 Nimculus application layer
 ```
 
-The macOS Objective-C implementation is isolated under
-`src/nimnui/platform/macos`. Nim code communicates with it through the small
-C ABI declared in `platform.h` and wrapped by `platform.nim`.
+The OS-independent ABI value types are isolated in
+`src/nimnui/platform/contracts.nim`. The macOS Objective-C implementation is
+isolated under `src/nimnui/platform/macos`; Nim code communicates with it
+through the small C ABI declared in `platform.h` and wrapped by
+`platform.nim`. Future Windows/Linux backends consume the same value contract
+without importing Cocoa or Metal code.
 
 ## M1 boundary
 

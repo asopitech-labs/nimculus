@@ -1264,3 +1264,13 @@ previous `--null-data` invocation changed ripgrep's line model and could merge
 multiple matches from one file into one payload. Nimculus now uses `--null`
 only, parses the path NUL and result-line newline separately, and keeps the
 path/text colon-safe. A same-file multi-match test protects this contract.
+
+## M13-001: Keep platform value contracts separate from OS backends
+
+Zed exposes a platform trait boundary while keeping Cocoa, Win32, and Linux
+implementations in separate backend crates. Nimculus now follows the same
+direction for its by-value ABI records: metrics, input events, paint commands,
+diagnostics, terminal runs, and callbacks live in
+`src/nimnui/platform/contracts.nim`. The macOS wrapper re-exports these types,
+so a future Windows backend can implement the same behavior contract without
+importing Cocoa or forcing macOS concepts into the core.
