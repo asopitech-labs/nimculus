@@ -1524,3 +1524,13 @@ document before `platformRun`. The Windows idle callback also persists session
 and recovery state on the same bounded cadence used by the macOS path. This
 keeps the platform backend responsible for messages while session ownership
 remains in the application layer.
+
+## M13-024: Detect Windows external edits without silent reload
+
+Zed keeps disk-state observation separate from buffer mutation and requires an
+explicit reload decision when an on-disk file changes. Windows did not have the
+macOS FSEvents/alert path, so the active document could change on disk without
+any visible indication. The Windows idle callback now compares the document's
+recorded size/mtime stamp, reports a reload-or-keep-editing action for changes
+and deletion, and leaves the in-memory buffer untouched. The existing
+`reloadExternal` and `keepExternal` commands remain the mutation boundary.

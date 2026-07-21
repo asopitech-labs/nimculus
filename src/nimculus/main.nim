@@ -1607,8 +1607,24 @@ when defined(macosx):
     else: false
 
 when defined(windows):
+  proc pollWindowsWorkspace() =
+    let document = activeDocument()
+    if document == nil or document[].path.len == 0:
+      externalAlertShown = false
+      return
+    if document[].externallyChanged():
+      if not externalAlertShown:
+        externalAlertShown = true
+        editorViewState.statusMessage = if fileExists(document[].path):
+          "File changed on disk: run reloadExternal or keepExternal"
+        else:
+          "File deleted on disk: run reloadExternal or keepExternal"
+    else:
+      externalAlertShown = false
+
   proc receiveNativeIdle() {.cdecl.} =
     pollWindowsTerminal()
+    pollWindowsWorkspace()
     inc persistenceTick
     if persistenceTick mod 20 == 0:
       persistSession()

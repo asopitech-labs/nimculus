@@ -50,6 +50,9 @@ files used by the application layer, initializes the active workspace, and
 sends the restored document/view state to the native surface before entering
 the message loop. The idle callback periodically persists the session and
 recovery state.
+The Windows idle path also checks the active document's disk stamp and records
+an actionable reload/keep-editing status when the file changes or is deleted;
+it does not silently overwrite dirty content.
 
 ## M1 boundary
 
