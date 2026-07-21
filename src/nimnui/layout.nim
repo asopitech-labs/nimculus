@@ -6,6 +6,16 @@ import nimnui/layout_types
 
 export layout_types
 
+proc resolveBounds(bounds: Rect, spec: LayoutSpec): Rect =
+  var size = bounds.size
+  if float32(spec.size.width) > 0: size.width = spec.size.width
+  if float32(spec.size.height) > 0: size.height = spec.size.height
+  if float32(spec.minSize.width) > 0: size.width = maxPx(size.width, spec.minSize.width)
+  if float32(spec.minSize.height) > 0: size.height = maxPx(size.height, spec.minSize.height)
+  if float32(spec.maxSize.width) > 0: size.width = minPx(size.width, spec.maxSize.width)
+  if float32(spec.maxSize.height) > 0: size.height = minPx(size.height, spec.maxSize.height)
+  Rect(origin: bounds.origin, size: size)
+
 proc layoutNodeRecursive(tree: var UiTree, id: NodeId, bounds: Rect,
                          spec: LayoutSpec) =
   let index = tree.nodes.mapIt(it.id).find(id)
@@ -95,4 +105,4 @@ proc layoutNode*(tree: var UiTree, id: NodeId, bounds: Rect, spec: LayoutSpec) =
   let index = tree.nodeIndex(id)
   if index < 0: return
   tree.nodes[index].layoutSpec = spec
-  layoutNodeRecursive(tree, id, bounds, spec)
+  layoutNodeRecursive(tree, id, resolveBounds(bounds, spec), spec)

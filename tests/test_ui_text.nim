@@ -150,6 +150,16 @@ suite "M2 UI foundation":
     check tree.node(flexible).bounds.origin.x == px(34)
     check tree.node(flexible).bounds.size.width == px(66)
 
+  test "root layout spec resolves its containing bounds":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    tree.layoutNode(root, Rect(size: Size(width: px(100), height: px(100))),
+      LayoutSpec(direction: stack,
+        size: Size(width: px(60), height: px(40)),
+        minSize: Size(width: px(50), height: px(30)),
+        maxSize: Size(width: px(80), height: px(70))))
+    check tree.node(root).bounds.size == Size(width: px(60), height: px(40))
+
   test "viewport clipping remains active when only height is nonzero":
     var tree = newUiTree()
     let root = tree.addNode()

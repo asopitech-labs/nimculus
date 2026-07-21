@@ -55,6 +55,8 @@ The same node-local spec is also synchronized with the existing preferred,
 minimum, and maximum size fields used by parent allocation. This prevents a
 declared fixed/min/max size from becoming metadata that the layout engine
 ignores.
+Root layout uses the same resolution path, so its containing bounds remain the
+available space while an explicitly styled root size is still respected.
 
 ## M20-003: Measure input latency through the next presented frame
 
