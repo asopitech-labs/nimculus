@@ -116,6 +116,11 @@ proc platformShowSettingsPanel*(theme, editorFontSize, terminalFontSize,
                                 fontFamily, shell: cstring) = discard (theme, editorFontSize,
                                     terminalFontSize, fontFamily, shell)
 proc platformSetUiRectangle*(x, y, width, height: cdouble) = discard (x, y, width, height)
+when not defined(windows):
+  proc platformToggleFullscreen*() = discard
+  proc platformMinimizeWindow*() = discard
+  proc platformMaximizeWindow*() = discard
+  proc platformRestoreWindow*() = discard
 
 when not defined(windows):
   proc clipboardSet*(text: cstring, length: uint32) = discard (text, length)

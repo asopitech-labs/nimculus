@@ -1736,6 +1736,21 @@ proc lineEndOffset(document: ptr FileDocument, line: int): int =
 proc receiveNativeCommand(command: cstring) {.cdecl.} =
   if command == nil: return
   let name = $command
+  when defined(windows):
+    case name
+    of "toggleFullscreen":
+      platformToggleFullscreen()
+      return
+    of "minimizeWindow":
+      platformMinimizeWindow()
+      return
+    of "maximizeWindow":
+      platformMaximizeWindow()
+      return
+    of "restoreWindow":
+      platformRestoreWindow()
+      return
+    else: discard
   when defined(macosx):
     if editorTerminalVisible and editorTerminal != nil:
       case name

@@ -28,13 +28,16 @@ also delivered through the same UTF-8 `TextCallback`, while candidate-window
 coordinates remain owned by the backend. Windows font enumeration and Unicode
 file drops also terminate at the existing font/file callbacks. Windows ConPTY
 creation, pipes, process attributes, resize, and close are isolated in
-`src/nimculus/windows_pty.c` behind the `TerminalPty` contract; the GUI terminal
-surface still needs to be connected on Windows. Windows packaging is isolated in
+`src/nimculus/windows_pty.c` behind the `TerminalPty` contract; the current GUI
+terminal surface is connected through a bootstrap GDI overlay. Windows packaging is isolated in
 `scripts/package_windows.ps1` and `packaging/windows/Nimculus.iss`; CI owns the
 Nim/ISCC invocation and artifact upload rather than the application layer. The
 current Windows terminal surface is a bootstrap GDI overlay fed by
 `windows_terminal.nim`; the eventual GPU PaintList terminal renderer remains a
-separate refinement.
+separate refinement. Window state commands are also kept in the Win32 backend:
+fullscreen stores and restores the pre-fullscreen style, extended style, and
+monitor rectangle, while minimize, maximize, and restore delegate to native
+window state transitions.
 
 ## M1 boundary
 

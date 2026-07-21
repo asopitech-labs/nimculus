@@ -1383,3 +1383,13 @@ produces a versioned x64 ZIP, and invokes the checked-in Inno Setup definition.
 The GitHub Actions Windows runner installs both Nim and Inno Setup and uploads
 the complete `dist/windows` tree. The installer itself is intentionally not
 claimed as verified until the Windows runner produces and inspects the artifact.
+
+## M13-011: Keep Win32 window-state restoration in the native backend
+
+Zed's `gpui_windows` keeps fullscreen restore bounds and window style state
+inside its Windows window implementation. Nimculus follows the same boundary:
+fullscreen, minimize, maximize, and restore are exposed as small platform
+commands, while style flags, extended style flags, monitor bounds, and D3D11
+render-target refresh remain private to `windows_platform.c`. This avoids
+leaking Win32 state into Nimculus or NimNUI and preserves the existing
+platform-contract approach.

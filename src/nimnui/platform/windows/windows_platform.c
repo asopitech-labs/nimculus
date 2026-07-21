@@ -36,6 +36,10 @@ static wchar_t g_ime_wide[32768];
 static char g_ime_utf8[131072];
 static double g_editor_cursor_x = 8.0;
 static double g_editor_cursor_y = 20.0;
+static bool g_fullscreen = false;
+static LONG_PTR g_saved_style = 0;
+static LONG_PTR g_saved_ex_style = 0;
+static RECT g_saved_window_rect;
 
 static int CALLBACK enumerate_font_proc(const LOGFONTW *font, const TEXTMETRICW *metrics,
                                        DWORD font_type, LPARAM data) {
@@ -147,6 +151,40 @@ static void update_metrics(void) {
   g_metrics.scale_factor = (double)dpi / (double)USER_DEFAULT_SCREEN_DPI;
   g_metrics.width_points = (uint32_t)((double)g_metrics.width_pixels / g_metrics.scale_factor);
   g_metrics.height_points = (uint32_t)((double)g_metrics.height_pixels / g_metrics.scale_factor);
+}
+
+static void resize_render_target(void);
+
+static void set_fullscreen(bool enabled) {
+  if (!g_window || enabled == g_fullscreen) return;
+  if (enabled) {
+    g_saved_style = GetWindowLongPtrW(g_window, GWL_STYLE);
+    g_saved_ex_style = GetWindowLongPtrW(g_window, GWL_EXSTYLE);
+    GetWindowRect(g_window, &g_saved_window_rect);
+    MONITORINFO monitor = {0};
+    monitor.cbSize = sizeof(monitor);
+    HMONITOR display = MonitorFromWindow(g_window, MONITOR_DEFAULTTONEAREST);
+    if (!GetMonitorInfoW(display, &monitor)) return;
+    SetWindowLongPtrW(g_window, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+    SetWindowLongPtrW(g_window, GWL_EXSTYLE, g_saved_ex_style);
+    SetWindowPos(g_window, HWND_TOP, monitor.rcMonitor.left, monitor.rcMonitor.top,
+                 monitor.rcMonitor.right - monitor.rcMonitor.left,
+                 monitor.rcMonitor.bottom - monitor.rcMonitor.top,
+                 SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
+    g_fullscreen = true;
+  } else {
+    SetWindowLongPtrW(g_window, GWL_STYLE, g_saved_style);
+    SetWindowLongPtrW(g_window, GWL_EXSTYLE, g_saved_ex_style);
+    SetWindowPos(g_window, HWND_NOTOPMOST, g_saved_window_rect.left,
+                 g_saved_window_rect.top,
+                 g_saved_window_rect.right - g_saved_window_rect.left,
+                 g_saved_window_rect.bottom - g_saved_window_rect.top,
+                 SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
+    g_fullscreen = false;
+  }
+  update_metrics();
+  resize_render_target();
+  InvalidateRect(g_window, NULL, FALSE);
 }
 
 static void release_render_target(void) {
@@ -548,6 +586,22 @@ void nimculus_platform_set_idle_callback(NimculusIdleCallback callback) {
 
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback) {
   g_command_callback = callback;
+}
+
+void nimculus_platform_toggle_fullscreen(void) {
+  set_fullscreen(!g_fullscreen);
+}
+
+void nimculus_platform_minimize_window(void) {
+  if (g_window) ShowWindow(g_window, SW_MINIMIZE);
+}
+
+void nimculus_platform_maximize_window(void) {
+  if (g_window) ShowWindow(g_window, SW_MAXIMIZE);
+}
+
+void nimculus_platform_restore_window(void) {
+  if (g_window) ShowWindow(g_window, SW_RESTORE);
 }
 
 void nimculus_platform_set_terminal_visible(bool visible) {
