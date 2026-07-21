@@ -10,6 +10,18 @@ document even though the editor model has changed. Settings keymap reload is
 also enabled on Windows so the registry and platform shortcut normalization
 observe the same live configuration contract.
 
+## M13-049: Implement the Windows editor chrome contract
+
+The Windows editor already receives cursor and text state through the native
+boundary, but its line-number, tab, dirty, status, indent-guide, and soft-wrap
+calls were still inherited from the headless backend. These calls now have
+native storage and are rendered in a separate GDI editor-chrome pass, while
+DirectWrite remains responsible for text and syntax runs. This preserves the
+Zed-style separation between editor state and platform presentation without
+making the application layer depend on Win32 drawing types. The
+`nimculusPortableOnly` Windows build keeps the same API as safe no-ops so the
+platform-selection boundary remains buildable without the Windows SDK.
+
 ## M13-047: Keep Windows command palette input at the native UI boundary
 
 The Windows command palette uses a small native `EDIT` control rather than

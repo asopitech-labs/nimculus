@@ -31,6 +31,12 @@ when defined(windows) and not defined(nimculusPortableOnly):
       length: uint32) {.importc: "nimculus_platform_set_image_rgba", cdecl.}
   proc platformSetEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_text", cdecl.}
   proc platformSetEditorComposition*(text: cstring) {.importc: "nimculus_platform_set_editor_composition", cdecl.}
+  proc platformSetEditorDirty*(dirty: bool) {.importc: "nimculus_platform_set_editor_dirty", cdecl.}
+  proc platformSetEditorIndentGuides*(visible: bool, indentWidth: uint32) {.importc: "nimculus_platform_set_editor_indent_guides", cdecl.}
+  proc platformSetEditorLineNumbers*(visible: bool) {.importc: "nimculus_platform_set_editor_line_numbers", cdecl.}
+  proc platformSetEditorSoftWrap*(enabled: bool) {.importc: "nimculus_platform_set_editor_soft_wrap", cdecl.}
+  proc platformSetEditorTabs*(titles: cstring, length, activeIndex: uint32) {.importc: "nimculus_platform_set_editor_tabs", cdecl.}
+  proc platformSetEditorStatus*(text: cstring) {.importc: "nimculus_platform_set_editor_status", cdecl.}
   proc platformSetTerminalSelection*(startRow, startColumn, endRow,
       endColumn: uint32) {.importc: "nimculus_platform_set_terminal_selection", cdecl.}
   proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan,
@@ -78,6 +84,7 @@ else:
     if callback != nil: discard
   proc platformSetIdleCallback*(callback: IdleCallback) =
     if callback != nil: discard
+  proc platformShowCommandPalette*() = discard
   proc platformSetTerminalVisible*(visible: bool) = discard visible
   proc platformSetTaskOutputVisible*(visible: bool) = discard visible
   proc platformSetTerminalText*(text: cstring, length: uint32) = discard (text, length)
@@ -92,6 +99,12 @@ else:
       length: uint32) = discard (imageId, width, height, rgba, length)
   proc platformSetEditorText*(text: cstring, length: uint32) = discard (text, length)
   proc platformSetEditorComposition*(text: cstring) = discard text
+  proc platformSetEditorDirty*(dirty: bool) = discard dirty
+  proc platformSetEditorIndentGuides*(visible: bool, indentWidth: uint32) = discard (visible, indentWidth)
+  proc platformSetEditorLineNumbers*(visible: bool) = discard visible
+  proc platformSetEditorSoftWrap*(enabled: bool) = discard enabled
+  proc platformSetEditorTabs*(titles: cstring, length, activeIndex: uint32) = discard (titles, length, activeIndex)
+  proc platformSetEditorStatus*(text: cstring) = discard text
   proc platformSetTerminalSelection*(startRow, startColumn, endRow,
       endColumn: uint32) = discard (startRow, startColumn, endRow, endColumn)
   proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan,
@@ -105,6 +118,11 @@ else:
   proc platformMaximizeWindow*() = discard
   proc platformRestoreWindow*() = discard
   proc platformSetEditorCursor*(x, y: cdouble) = discard (x, y)
+  proc platformSetEditorFontSize*(size: cdouble) = discard size
+  proc platformSetEditorFontName*(name: cstring) = discard name
+  proc platformSetTerminalFontSize*(size: cdouble) = discard size
+  proc platformSetTerminalFontName*(name: cstring) = discard name
+  proc platformEditorLineHeight*(): cdouble = 16.0
   proc platformInvalidateImeCoordinates*() = discard
   proc clipboardSet*(text: cstring, length: uint32) = discard (text, length)
   proc clipboardGet*(): string = ""

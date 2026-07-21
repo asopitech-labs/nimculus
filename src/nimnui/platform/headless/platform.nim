@@ -64,12 +64,13 @@ proc platformEditorUtf16OffsetAtPoint*(x, y: cdouble): uint32 = 0
 when not defined(windows):
   proc platformSetEditorScrollLine*(line: uint32) = discard line
 proc platformSetEditorRect*(x, y, width, height: cdouble) = discard (x, y, width, height)
-proc platformSetEditorDirty*(dirty: bool) = discard dirty
-proc platformSetEditorIndentGuides*(visible: bool, indentWidth: uint32) = discard (visible, indentWidth)
-proc platformSetEditorLineNumbers*(visible: bool) = discard visible
-proc platformSetEditorSoftWrap*(enabled: bool) = discard enabled
-proc platformSetEditorTabs*(titles: cstring, length, activeIndex: uint32) = discard (titles, length, activeIndex)
-proc platformSetEditorStatus*(text: cstring) = discard text
+when not defined(windows):
+  proc platformSetEditorDirty*(dirty: bool) = discard dirty
+  proc platformSetEditorIndentGuides*(visible: bool, indentWidth: uint32) = discard (visible, indentWidth)
+  proc platformSetEditorLineNumbers*(visible: bool) = discard visible
+  proc platformSetEditorSoftWrap*(enabled: bool) = discard enabled
+  proc platformSetEditorTabs*(titles: cstring, length, activeIndex: uint32) = discard (titles, length, activeIndex)
+  proc platformSetEditorStatus*(text: cstring) = discard text
 when not defined(windows):
   proc platformSetCloseDecision*(allow: bool) = discard allow
 proc platformRequestCloseTab*() = discard

@@ -79,6 +79,16 @@ static uint32_t g_editor_cursor_byte = 0;
 static uint32_t g_editor_cursor_line = 0;
 static uint32_t g_editor_selection_start = 0;
 static uint32_t g_editor_selection_end = 0;
+static bool g_editor_dirty = false;
+static bool g_editor_indent_guides = true;
+static uint32_t g_editor_indent_width = 2;
+static bool g_editor_line_numbers = true;
+static bool g_editor_soft_wrap = false;
+static wchar_t g_editor_tabs[32768];
+static int g_editor_tabs_length = 0;
+static uint32_t g_editor_active_tab = 0;
+static wchar_t g_editor_status[4096];
+static int g_editor_status_length = 0;
 static wchar_t g_ime_wide[32768];
 static char g_ime_utf8[131072];
 static wchar_t g_pending_high_surrogate = 0;
@@ -992,7 +1002,8 @@ static bool render_editor_directwrite(void) {
   if (FAILED(hr)) {
     return false;
   }
-  format->lpVtbl->SetWordWrapping(format, DWRITE_WORD_WRAPPING_NO_WRAP);
+  format->lpVtbl->SetWordWrapping(format, g_editor_soft_wrap
+      ? DWRITE_WORD_WRAPPING_WRAP : DWRITE_WORD_WRAPPING_NO_WRAP);
   format->lpVtbl->SetTextAlignment(format, DWRITE_TEXT_ALIGNMENT_LEADING);
   format->lpVtbl->SetParagraphAlignment(format, DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
   ID2D1SolidColorBrush *selection_brush = NULL;
@@ -1431,6 +1442,126 @@ static void render_editor_overlay(void) {
   ReleaseDC(g_window, dc);
 }
 
+static int set_editor_wide_text(wchar_t *destination, int capacity,
+                                const char *utf8, uint32_t length) {
+  if (!destination || capacity <= 0) return 0;
+  destination[0] = L'\0';
+  if (!utf8 || length == 0) return 0;
+  uint32_t bounded = min(length, (uint32_t)(capacity - 1));
+  int converted = MultiByteToWideChar(CP_UTF8, 0, utf8, (int)bounded,
+                                      destination, capacity - 1);
+  if (converted <= 0) {
+    destination[0] = L'\0';
+    return 0;
+  }
+  destination[converted] = L'\0';
+  return converted;
+}
+
+static void render_editor_chrome(void) {
+  if (!g_window) return;
+  HDC dc = GetDC(g_window);
+  if (!dc) return;
+  RECT client;
+  GetClientRect(g_window, &client);
+  double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+  LONG editor_left = (LONG)(268.0 * scale);
+  LONG editor_top = (LONG)(128.0 * scale);
+  LONG editor_right = client.right - (LONG)(24.0 * scale);
+  LONG editor_bottom = client.bottom - (LONG)(48.0 * scale);
+  SetBkMode(dc, TRANSPARENT);
+  HFONT font = CreateFontW(font_height(g_editor_font_size, scale), 0, 0, 0,
+      FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+      CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN,
+      g_editor_font_name);
+  HGDIOBJ old_font = font ? SelectObject(dc, font) : NULL;
+
+  if (g_editor_tabs_length > 0) {
+    LONG tab_top = (LONG)(88.0 * scale);
+    LONG tab_height = (LONG)(32.0 * scale);
+    LONG tab_left = (LONG)(24.0 * scale);
+    LONG tab_right = client.right - (LONG)(24.0 * scale);
+    const wchar_t *start = g_editor_tabs;
+    const wchar_t *end = g_editor_tabs + g_editor_tabs_length;
+    uint32_t tab_index = 0;
+    while (start <= end) {
+      const wchar_t *line_end = start;
+      while (line_end < end && *line_end != L'\n') line_end++;
+      LONG width = max((LONG)(92.0 * scale),
+          (LONG)((line_end - start) * 8.0 * scale + 28.0 * scale));
+      if (tab_left + width > tab_right) break;
+      RECT tab_rect = {tab_left, tab_top, tab_left + width, tab_top + tab_height};
+      HBRUSH brush = CreateSolidBrush(tab_index == g_editor_active_tab
+          ? RGB(45, 51, 62) : RGB(31, 35, 41));
+      FillRect(dc, &tab_rect, brush);
+      DeleteObject(brush);
+      SetTextColor(dc, tab_index == g_editor_active_tab
+          ? RGB(235, 238, 245) : RGB(155, 162, 175));
+      RECT text_rect = {tab_left + (LONG)(10.0 * scale), tab_top,
+          tab_left + width - (LONG)(8.0 * scale), tab_top + tab_height};
+      DrawTextW(dc, start, (int)(line_end - start), &text_rect,
+          DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+      tab_left += width + (LONG)(1.0 * scale);
+      if (line_end >= end) break;
+      start = line_end + 1;
+      tab_index++;
+    }
+  }
+
+  if (g_editor_line_numbers && g_editor_text && g_editor_text_length > 0) {
+    SetTextColor(dc, RGB(125, 132, 145));
+    const wchar_t *line_start = g_editor_text;
+    const wchar_t *end = g_editor_text + g_editor_text_length;
+    uint32_t line = 0;
+    LONG line_height = max(1L, (LONG)((g_editor_font_size + 2.0) * scale));
+    while (line_start <= end &&
+        (line < g_editor_scroll_line ||
+         editor_top + (LONG)(line - g_editor_scroll_line) * line_height < editor_bottom)) {
+      const wchar_t *line_end = line_start;
+      while (line_end < end && *line_end != L'\n') line_end++;
+      if (line >= g_editor_scroll_line) {
+        LONG line_top = editor_top + (LONG)(line - g_editor_scroll_line) * line_height;
+        RECT rect = {editor_left - (LONG)(52.0 * scale), line_top,
+            editor_left - (LONG)(10.0 * scale), line_top + line_height};
+        wchar_t number[32];
+        swprintf(number, sizeof(number) / sizeof(number[0]), L"%u", line + 1);
+        DrawTextW(dc, number, -1, &rect,
+            DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+      }
+      if (line_end >= end) break;
+      line_start = line_end + 1;
+      line++;
+    }
+  }
+
+  if (g_editor_indent_guides && editor_right > editor_left) {
+    HPEN pen = CreatePen(PS_DOT, 1, RGB(62, 68, 80));
+    HGDIOBJ old_pen = SelectObject(dc, pen);
+    LONG cell = max(1L, (LONG)(8.0 * scale));
+    LONG indent = max(1L, (LONG)g_editor_indent_width);
+    for (LONG x = editor_left + cell * indent; x < editor_right; x += cell * indent) {
+      MoveToEx(dc, x, editor_top, NULL);
+      LineTo(dc, x, editor_bottom);
+    }
+    SelectObject(dc, old_pen);
+    DeleteObject(pen);
+  }
+
+  LONG status_top = client.bottom - (LONG)(40.0 * scale);
+  RECT status_rect = {(LONG)(24.0 * scale), status_top,
+      client.right - (LONG)(24.0 * scale), client.bottom};
+  HBRUSH status_brush = CreateSolidBrush(g_editor_dirty
+      ? RGB(55, 47, 35) : RGB(31, 35, 41));
+  FillRect(dc, &status_rect, status_brush);
+  DeleteObject(status_brush);
+  SetTextColor(dc, RGB(190, 197, 210));
+  DrawTextW(dc, g_editor_status_length > 0 ? g_editor_status : L"Ready", -1,
+      &status_rect, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+  if (font) SelectObject(dc, old_font);
+  if (font) DeleteObject(font);
+  ReleaseDC(g_window, dc);
+}
+
 static void send_input(UINT type, UINT key_code, UINT button, LPARAM lparam,
                        bool screen_coordinates) {
   if (!g_input_callback) return;
@@ -1511,6 +1642,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
       BeginPaint(window, &paint);
       render_frame();
       if (!g_directwrite_frame) render_editor_overlay();
+      render_editor_chrome();
       render_terminal_overlay();
       EndPaint(window, &paint);
       return 0;
@@ -1795,6 +1927,42 @@ void nimculus_platform_set_editor_scroll_line(uint32_t line) {
 void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_byte) {
   g_editor_selection_start = start_byte;
   g_editor_selection_end = end_byte;
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_editor_dirty(bool dirty) {
+  g_editor_dirty = dirty;
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_editor_indent_guides(bool visible, uint32_t indent_width) {
+  g_editor_indent_guides = visible;
+  g_editor_indent_width = max(1u, indent_width);
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_editor_line_numbers(bool visible) {
+  g_editor_line_numbers = visible;
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_editor_soft_wrap(bool enabled) {
+  g_editor_soft_wrap = enabled;
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_editor_tabs(const char *titles, uint32_t length,
+                                       uint32_t active_index) {
+  g_editor_tabs_length = set_editor_wide_text(g_editor_tabs,
+      (int)(sizeof(g_editor_tabs) / sizeof(g_editor_tabs[0])), titles, length);
+  g_editor_active_tab = active_index;
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_editor_status(const char *text) {
+  g_editor_status_length = set_editor_wide_text(g_editor_status,
+      (int)(sizeof(g_editor_status) / sizeof(g_editor_status[0])), text,
+      text ? (uint32_t)strlen(text) : 0);
   if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
 
