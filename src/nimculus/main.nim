@@ -196,7 +196,7 @@ proc setupShortcutRegistry() =
   # bindings are installed below and are resolved before interpretKeyEvents.
   for name in [
       # Application and menu commands.
-      "save", "newDocument", "closeTabRequest", "openSettings", "undo", "redo",
+    "save", "newDocument", "closeTabRequest", "openSettings", "undo", "redo",
       "cut", "copy", "paste", "selectAll", "previousTab", "nextTab",
       # AppKit NSText movement/editing selectors. Keeping these names at the
       # application boundary lets settings override Command/Option behavior
@@ -208,7 +208,7 @@ proc setupShortcutRegistry() =
       "moveToBeginningOfDocument", "moveToEndOfDocument",
       "insertNewline", "insertTab", "moveWordLeft", "moveWordRight",
       "selectWordLeft", "selectWordRight", "deleteBackward", "deleteForward",
-      "deleteWordBackward", "cancel"]:
+      "deleteWordBackward", "cancel", "toggleSoftWrap"]:
     var action: proc() {.closure.}
     if name == "openSettings":
       action = proc() = receiveNativeCommand("openSettingsUI".cstring)
@@ -1274,6 +1274,7 @@ proc syncEditorCursor() =
     platformInvalidateImeCoordinates()
     platformSetEditorDirty(document != nil and document[].buffer.isDirty)
     platformSetEditorLineNumbers(editorViewState.showLineNumbers)
+    platformSetEditorSoftWrap(editorViewState.softWrap)
     platformSetEditorIndentGuides(editorViewState.showIndentGuides,
       uint32(max(1, editorViewState.indentWidth)))
     let status = if document != nil: editorViewState.statusBarText(document[].buffer)
@@ -1930,6 +1931,13 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       refreshEditorSyntax()
     except ValueError:
       editorViewState.statusMessage = "Invalid line number"
+  elif name == "toggleSoftWrap":
+    editorViewState.softWrap = not editorViewState.softWrap
+    editorViewState.statusMessage = if editorViewState.softWrap:
+      "Soft wrap enabled" else: "Soft wrap disabled"
+    syncEditorCursor()
+    refreshEditorSyntax()
+    persistSession()
   elif name.startsWith("commandPalette:"):
     let rawCommand = name[15 .. ^1].strip
     let command = rawCommand.toLowerAscii
@@ -1947,6 +1955,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command == "cancel task": "__cancel_task__"
       elif command == "cancel git": "__cancel_git__"
       elif command == "open settings": "openSettings"
+      elif command in ["toggle soft wrap", "toggle word wrap"]: "toggleSoftWrap"
       elif command == "check for updates": "__check_updates__"
       elif command.startsWith("open symbol "): "__open_symbol__"
       elif command.startsWith("apply code action "): "__apply_code_action__"

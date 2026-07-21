@@ -41,6 +41,7 @@ static NSUInteger g_editor_active_tab = 0;
 static BOOL g_editor_indent_guides = YES;
 static NSUInteger g_editor_indent_width = 2;
 static BOOL g_editor_line_numbers = YES;
+static BOOL g_editor_soft_wrap = NO;
 static NSString *g_terminal_text = @"";
 static NSString *g_editor_outline_text = @"Outline\n────────\nNo symbols";
 static uint32_t g_editor_outline_symbol_count = 0;
@@ -591,7 +592,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   // remains an overlay for selection, marked composition, and caret, with a
   // complete-text fallback only when atlas generation is unavailable.
   if (updateAtlas) updateEditorGlyphAtlas(device, text);
-  const BOOL drawFallbackText = !g_glyph_rendering_available;
+  const BOOL drawFallbackText = !g_glyph_rendering_available || g_editor_soft_wrap;
   CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
   const size_t width = (size_t)ceil(MAX(1.0, g_editor_rect[2]) * scale);
   const size_t height = (size_t)ceil(MAX(1.0, g_editor_rect[3]) * scale);
@@ -620,7 +621,25 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     lineStartByte += [[skippedLine dataUsingEncoding:NSUTF8StringEncoding] length] + 1;
     lineStartUnit += skippedLine.length + 1;
   }
-  for (NSUInteger displayIndex = 0; displayIndex < visibleLines; displayIndex++) {
+  if (g_editor_soft_wrap) {
+    NSArray<NSString *> *visible = [lines subarrayWithRange:NSMakeRange(startLine, lines.count - startLine)];
+    NSString *wrappedText = [visible componentsJoinedByString:@"\n"];
+    NSAttributedString *attributed = [[NSAttributedString alloc]
+      initWithString:wrappedText attributes:attributes];
+    CTFramesetterRef framesetter = CTFramesetterCreateWithAttributedString(
+      (CFAttributedStringRef)attributed);
+    CGMutablePathRef path = CGPathCreateMutable();
+    CGPathAddRect(path, NULL, CGRectMake(8.0, 0.0,
+      MAX(1.0, g_editor_rect[2] - 8.0), logicalHeight));
+    CTFrameRef frame = CTFramesetterCreateFrame(framesetter,
+      CFRangeMake(0, wrappedText.length), path, NULL);
+    if (frame) {
+      CTFrameDraw(frame, context);
+      CFRelease(frame);
+    }
+    CGPathRelease(path);
+    CFRelease(framesetter);
+  } else for (NSUInteger displayIndex = 0; displayIndex < visibleLines; displayIndex++) {
     NSUInteger index = startLine + displayIndex;
     NSString *lineText = lines[index];
     NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
@@ -2785,6 +2804,12 @@ void nimculus_platform_set_editor_line_numbers(bool visible) {
       break;
     }
   }
+}
+void nimculus_platform_set_editor_soft_wrap(bool enabled) {
+  g_editor_soft_wrap = enabled ? YES : NO;
+  markSceneFullyDirty();
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_tabs(const char *utf8, uint32_t length, uint32_t active_index) {
   NSString *value = (utf8 && length > 0)
