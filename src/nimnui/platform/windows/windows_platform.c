@@ -46,6 +46,10 @@ static wchar_t *g_editor_text = NULL;
 static int g_editor_text_length = 0;
 static char *g_editor_utf8 = NULL;
 static uint32_t g_editor_utf8_length = 0;
+static wchar_t g_editor_font_name[LF_FACESIZE] = L"Consolas";
+static double g_editor_font_size = 16.0;
+static wchar_t g_terminal_font_name[LF_FACESIZE] = L"Consolas";
+static double g_terminal_font_size = 16.0;
 static uint32_t g_editor_scroll_line = 0;
 static uint32_t g_editor_cursor_byte = 0;
 static uint32_t g_editor_cursor_line = 0;
@@ -63,6 +67,11 @@ static RECT g_saved_window_rect;
 static bool g_suppress_translate = false;
 static bool g_tracking_mouse = false;
 static bool g_close_request_pending = false;
+
+static LONG font_height(double size, double scale) {
+  double points = size > 0.0 ? size : 16.0;
+  return -(LONG)(points * (scale > 0.0 ? scale : 1.0));
+}
 
 static void editor_byte_position(uint32_t byte_offset, uint32_t *line,
                                  uint32_t *column) {
@@ -589,14 +598,15 @@ static void render_terminal_overlay(void) {
   GetClientRect(g_window, &rect);
   LONG height = min(280L, max(120L, (rect.bottom - rect.top) / 3));
   rect.top = rect.bottom - height;
+  double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
   HBRUSH background = CreateSolidBrush(RGB(15, 18, 24));
   FillRect(dc, &rect, background);
   DeleteObject(background);
   SetBkMode(dc, TRANSPARENT);
   SetTextColor(dc, RGB(220, 225, 235));
-  HFONT font = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+  HFONT font = CreateFontW(font_height(g_terminal_font_size, scale), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-      FIXED_PITCH | FF_MODERN, L"Consolas");
+      FIXED_PITCH | FF_MODERN, g_terminal_font_name);
   HGDIOBJ old_font = SelectObject(dc, font);
   rect.left += 8;
   rect.right -= 8;
@@ -620,9 +630,9 @@ static void render_editor_overlay(void) {
   LONG bottom = client.bottom - (LONG)(48.0 * scale);
   SetBkMode(dc, TRANSPARENT);
   SetTextColor(dc, RGB(215, 218, 224));
-  HFONT font = CreateFontW(-(LONG)(16.0 * scale), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+  HFONT font = CreateFontW(font_height(g_editor_font_size, scale), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-      FIXED_PITCH | FF_MODERN, L"Consolas");
+      FIXED_PITCH | FF_MODERN, g_editor_font_name);
   HGDIOBJ old_font = SelectObject(dc, font);
   TEXTMETRICW metrics;
   GetTextMetricsW(dc, &metrics);
@@ -1003,6 +1013,28 @@ void nimculus_platform_set_editor_cursor(double x, double y) {
   update_ime_position();
 }
 
+void nimculus_platform_set_editor_font_size(double size) {
+  if (size < 6.0) size = 6.0;
+  if (size > 48.0) size = 48.0;
+  g_editor_font_size = size;
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_editor_font_name(const char *name) {
+  if (!name || name[0] == '\0') return;
+  wchar_t wide[LF_FACESIZE];
+  int length = MultiByteToWideChar(CP_UTF8, 0, name, -1, wide, LF_FACESIZE);
+  if (length <= 1 || !nimculus_font_available(name, g_editor_font_size)) return;
+  wide[LF_FACESIZE - 1] = L'\0';
+  wcsncpy(g_editor_font_name, wide, LF_FACESIZE - 1);
+  g_editor_font_name[LF_FACESIZE - 1] = L'\0';
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+double nimculus_platform_editor_line_height(void) {
+  return g_editor_font_size + 2.0;
+}
+
 void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t line) {
   g_editor_cursor_byte = byte_offset;
   g_editor_cursor_line = line;
@@ -1218,6 +1250,24 @@ void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length) {
     MultiByteToWideChar(CP_UTF8, 0, utf8, bounded, g_terminal_text,
                         (int)(sizeof(g_terminal_text) / sizeof(wchar_t) - 1));
   }
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_terminal_font_size(double size) {
+  if (size < 6.0) size = 6.0;
+  if (size > 48.0) size = 48.0;
+  g_terminal_font_size = size;
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_terminal_font_name(const char *name) {
+  if (!name || name[0] == '\0') return;
+  wchar_t wide[LF_FACESIZE];
+  int length = MultiByteToWideChar(CP_UTF8, 0, name, -1, wide, LF_FACESIZE);
+  if (length <= 1 || !nimculus_font_available(name, g_terminal_font_size)) return;
+  wide[LF_FACESIZE - 1] = L'\0';
+  wcsncpy(g_terminal_font_name, wide, LF_FACESIZE - 1);
+  g_terminal_font_name[LF_FACESIZE - 1] = L'\0';
   if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
 

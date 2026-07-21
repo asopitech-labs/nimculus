@@ -53,9 +53,10 @@ when not defined(windows):
   proc platformSetEditorCursor*(x, y: cdouble) = discard (x, y)
 when not defined(windows):
   proc platformSetEditorCursorByte*(byteOffset, line: uint32) = discard (byteOffset, line)
-proc platformSetEditorFontSize*(size: cdouble) = discard size
-proc platformSetEditorFontName*(name: cstring) = discard name
-proc platformEditorLineHeight*(): cdouble = 16.0
+when not defined(windows):
+  proc platformSetEditorFontSize*(size: cdouble) = discard size
+  proc platformSetEditorFontName*(name: cstring) = discard name
+  proc platformEditorLineHeight*(): cdouble = 16.0
 when not defined(windows):
   proc platformInvalidateImeCoordinates*() = discard
 proc platformEditorByteOffsetAtPoint*(x, y: cdouble): uint32 = 0

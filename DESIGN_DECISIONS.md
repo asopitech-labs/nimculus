@@ -1559,6 +1559,16 @@ derived state before presenting it again. The active document disk-stamp check
 remains separate because it reports a user-facing reload decision rather than
 a workspace tree update.
 
+## M13-029: Keep Windows font settings at the native platform boundary
+
+Windows font names are validated with `EnumFontFamiliesExW` before replacing
+the native editor or terminal font. Font size is clamped to the supported
+bootstrap range and used by the Win32 text surface; the editor line-height
+query is also used by Nim-side visible-line, hit-test, cursor, and IME
+coordinate calculations. This preserves Zed's separation between application
+font settings and platform text layout while avoiding a Windows-only no-op
+settings path.
+
 ## M13-028: Render Windows opaque PaintList shapes in the D3D11 pixel shader
 
 The Windows backend keeps the existing `NativePaintCommand` ABI and uploads a

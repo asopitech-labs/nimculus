@@ -56,6 +56,14 @@ when defined(macosx):
   proc syncNativeSymbolTree()
   proc handleCompletionShortcut(event: ptr NimculusInputEvent): bool
 
+when defined(windows):
+  proc windowsEditorLineHeight(): float32 =
+    float32(max(1.0, platformEditorLineHeight()))
+
+  proc windowsEditorCellWidth(): float32 =
+    let size = if appSettings != nil: appSettings.intSetting("editor.fontSize", 14) else: 14
+    max(4'f32, float32(size) * 0.5'f32)
+
 proc setupDemoUi() =
   demoTree = newUiTree()
   resetPointerInteractions()
@@ -1340,7 +1348,8 @@ proc syncEditorCursor() =
     let document = activeDocument()
     if document != nil:
       editorViewState.clampSelectionToText(document[].buffer.toString())
-    let visibleLines = max(1, int(floor(float32(demoEditorBounds.size.height) / 18'f32)))
+    let visibleLines = max(1, int(floor(float32(demoEditorBounds.size.height) /
+      windowsEditorLineHeight())))
     let location = if document == nil: (line: 0, column: 0) else:
       document[].buffer.lineColumn(editorViewState.cursor)
     if document != nil:
@@ -1360,9 +1369,11 @@ proc syncEditorCursor() =
     # bootstrap renderer uses the same fixed-width cell metrics and scroll
     # origin, while the final DirectWrite layout will replace these constants.
     let visibleLine = max(0, location.line - editorViewState.scrollLine)
+    let cellWidth = windowsEditorCellWidth()
+    let lineHeight = windowsEditorLineHeight()
     platformSetEditorCursor(
-      cdouble(float32(demoEditorBounds.origin.x) + 8.0'f32 + float(location.column) * 8.0),
-      cdouble(float32(demoEditorBounds.origin.y) + 6.0'f32 + float(visibleLine) * 18.0))
+      cdouble(float32(demoEditorBounds.origin.x) + 8.0'f32 + float(location.column) * cellWidth),
+      cdouble(float32(demoEditorBounds.origin.y) + 6.0'f32 + float(visibleLine) * lineHeight))
     var tabTitles: seq[string]
     for tab in editorSession.tabs:
       tabTitles.add(tab.title & (if tab.document.buffer.isDirty: " •" else: ""))
@@ -1442,8 +1453,8 @@ when defined(windows):
     if document == nil or document[].buffer.lineStarts.len == 0: return 0
     let editorX = float32(demoEditorBounds.origin.x)
     let editorY = float32(demoEditorBounds.origin.y)
-    let lineHeight = 18'f32
-    let cellWidth = 8'f32
+    let lineHeight = windowsEditorLineHeight()
+    let cellWidth = windowsEditorCellWidth()
     let firstLine = max(0, editorViewState.scrollLine)
     let row = max(0, int(floor((y - editorY) / lineHeight)))
     let line = min(document[].buffer.lineStarts.high, firstLine + row)
@@ -2731,7 +2742,8 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     let inEditor = demoEditorBounds.contains(point)
     if document != nil and kind == scroll and inEditor:
       let wheelLines = if event.deltaY > 0'f64: -1 else: 1
-      let visibleLines = max(1, int(floor(float32(demoEditorBounds.size.height) / 18'f32)))
+      let visibleLines = max(1, int(floor(float32(demoEditorBounds.size.height) /
+        windowsEditorLineHeight())))
       let maxScroll = max(0, document[].buffer.lineStarts.len - visibleLines)
       editorViewState.scrollLine = max(0, min(maxScroll,
         editorViewState.scrollLine + wheelLines))

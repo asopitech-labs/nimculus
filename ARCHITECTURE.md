@@ -58,6 +58,9 @@ that feeds the same coalesced `changedPaths` queue as the macOS FSEvents
 bridge; the Windows idle consumer invalidates active search and Quick Open
 jobs or rebuilds the bounded tree preview, and the watcher is joined before a
 workspace is released.
+The Windows GDI bootstrap also receives validated editor and terminal font
+family/size settings through the platform boundary; its line-height contract
+is reused by cursor positioning, hit testing, and IMM32 candidate placement.
 
 ## M1 boundary
 
