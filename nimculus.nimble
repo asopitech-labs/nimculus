@@ -36,6 +36,7 @@ task test, "Run unit and integration tests":
   exec "nim c --mm:arc --nimcache:.nimcache/test_update_service -r --path:src tests/test_update_service.nim"
 
 task benchmark, "Run platform benchmark smoke tests":
+  exec "nim c --mm:arc --nimcache:.nimcache/bench_m20 -r --path:src tests/bench_m20.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/bench_platform -r --path:src tests/bench_platform.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/bench_editor -r --path:src tests/bench_editor.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/bench_large_editor -r --path:src tests/bench_large_editor.nim"
