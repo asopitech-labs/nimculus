@@ -427,7 +427,7 @@ Windows terminal managerはConPTY screen cellをflattenせず、native terminal 
 
 Windowsの固定幅エディタ入力では、画面上の列をUTF-8 byte offsetとして扱わず、`PieceTable.byteOffsetAtLineColumn`で論理grapheme列から安全な編集境界へ変換する。日本語、絵文字、結合文字のクリック位置が、キーボードカーソル移動と同じ境界規則になる。
 
-**実装済み追加項目：** Windowsのcommand paletteから`run task <command>`を実行できる。実行は共有`TaskService`で`cmd.exe /C`として開始し、workspace rootまたはactive documentのディレクトリを作業ディレクトリに使用する。idle callbackで出力、problem matcher、終了状態を更新し、native task overlayへの表示、cancel、window close時のプロセス停止まで接続した。Ctrl+Shift+PはZedのpicker境界を参考にしたWindows native EDIT入力pickerを開き、IME入力・Enter確定・Escape取消を`commandPalette:<query>`へ渡す。新規文書・タブ閉鎖時はWindows native editorのtext、highlight、composition、selection、cursor stateを消去・再同期し、settings keymapのlive reloadもWindowsで有効化した。
+**実装済み追加項目：** Windowsのcommand paletteから`run task <command>`を実行できる。実行は共有`TaskService`で`cmd.exe /C`として開始し、workspace rootまたはactive documentのディレクトリを作業ディレクトリに使用する。idle callbackで出力、problem matcher、終了状態を更新し、native task overlayへの表示、cancel、window close時のプロセス停止まで接続した。Ctrl+Shift+PはZedのpicker境界を参考にしたWindows native EDIT入力pickerを開き、IME入力・Enter確定・Escape取消を`commandPalette:<query>`へ渡す。`workspace search <query>`と`quick open <query>`は同じ入力境界から起動し、Windows idleでbounded batchをpollしてnative editor previewへ描画し、行クリックをファイル／検索位置へ接続した。新規文書・タブ閉鎖時はWindows native editorのtext、highlight、composition、selection、cursor stateを消去・再同期し、settings keymapのlive reloadもWindowsで有効化した。
 
 **完了条件：** 主要機能、日本語 IME、ConPTY、Windows インストーラーが動作し、macOS 固有コードがコアへ漏れない。
 

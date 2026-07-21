@@ -19,6 +19,15 @@ IME text entry, Enter confirmation, and Escape dismissal, then emits one
 resolution and task execution remain in the application layer, so this native
 surface does not duplicate command definitions or process logic.
 
+## M13-048: Reuse workspace search jobs on Windows
+
+Workspace search and Quick Open are application-layer jobs, not macOS APIs.
+Their previous rendering and polling guards accidentally made the Windows
+search surface inert after the workspace preview was added. The Windows idle
+boundary now consumes the same bounded search batches, rerenders the native
+editor preview, and maps preview rows back to file or search-result locations.
+Only the native input/presentation boundary remains platform-specific.
+
 ## M0-001: Use Nim standard tooling for the first quality gate
 
 `nimpretty` is exposed through `nimble format` and `nim check` through

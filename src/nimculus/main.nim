@@ -196,6 +196,7 @@ proc setupDemoUi() =
                         float64(float32(editor.size.width)), float64(float32(editor.size.height)))
 
 proc receiveNativeCommand(command: cstring) {.cdecl.}
+proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.}
 when defined(macosx):
   proc navigateToDefinition()
   proc applyPendingFormatting()
@@ -1212,7 +1213,7 @@ proc refreshWorkspacePreview() =
     platformSetEditorText(text.cstring, uint32(text.len))
 
 proc refreshWorkspaceAfterMutation(message: string) =
-  when defined(macosx):
+  when defined(macosx) or defined(windows):
     if activeWorkspace != nil:
       activeWorkspace.startWatching()
       editorViewState.statusMessage = message
@@ -1223,7 +1224,7 @@ proc workspaceRelativePayload(name, prefix: string): string =
   name[prefix.len .. ^1].strip
 
 proc renderWorkspaceSearch() =
-  when defined(macosx):
+  when defined(macosx) or defined(windows):
     if activeWorkspace == nil or workspaceSearchQuery.len == 0: return
     workspacePreviewMode = "search"
     workspacePreviewEntries.setLen(0)
@@ -1247,7 +1248,7 @@ proc renderWorkspaceSearch() =
     platformSetEditorText(text.cstring, uint32(text.len))
 
 proc renderQuickOpen() =
-  when defined(macosx):
+  when defined(macosx) or defined(windows):
     if activeWorkspace == nil or workspaceQuickOpenQuery.len == 0: return
     workspacePreviewMode = "quickOpen"
     workspaceSearchQuery = ""
@@ -1266,7 +1267,7 @@ proc renderQuickOpen() =
     platformSetEditorText(text.cstring, uint32(text.len))
 
 proc showWorkspaceSearch(query: string) =
-  when defined(macosx):
+  when defined(macosx) or defined(windows):
     if workspaceSearchJob != nil: workspaceSearchJob.cancelSearch()
     workspaceSearchJob = nil
     if workspaceQuickOpenJob != nil: workspaceQuickOpenJob.cancelFuzzySearch()
@@ -1282,7 +1283,7 @@ proc showWorkspaceSearch(query: string) =
     renderWorkspaceSearch()
 
 proc showQuickOpen(query: string) =
-  when defined(macosx):
+  when defined(macosx) or defined(windows):
     if workspaceSearchJob != nil: workspaceSearchJob.cancelSearch()
     workspaceSearchJob = nil
     if workspaceQuickOpenJob != nil: workspaceQuickOpenJob.cancelFuzzySearch()
@@ -1300,7 +1301,7 @@ proc showQuickOpen(query: string) =
     renderQuickOpen()
 
 proc cancelWorkspaceSearch() =
-  when defined(macosx):
+  when defined(macosx) or defined(windows):
     if workspaceSearchJob == nil: return
     workspaceSearchJob.cancelSearch()
     workspaceSearchJob = nil
@@ -1507,6 +1508,41 @@ when defined(windows):
     # Keep conversion in the editor buffer so Japanese, emoji, and combining
     # sequences land on the same safe boundaries as keyboard movement.
     document[].buffer.byteOffsetAtLineColumn(line, graphemeColumn)
+
+  proc openWindowsWorkspaceEntryAtPoint(y: cdouble) =
+    if activeWorkspace == nil or workspacePreviewEntries.len == 0: return
+    var metrics: PlatformMetrics
+    platformGetMetrics(addr metrics)
+    let viewHeight = if metrics.heightPoints > 0: metrics.heightPoints else: 640'u32
+    let top = float32(viewHeight) - float32(y) - float32(demoEditorBounds.origin.y)
+    let line = int(floor((top - 4.0'f32) / 18.0'f32))
+    let entryIndex = line - 1
+    if entryIndex < 0 or entryIndex >= workspacePreviewEntries.len: return
+    let entry = workspacePreviewEntries[entryIndex]
+    if entry.kind == WorkspaceFileKind.directory:
+      openActiveWorkspace(entry.path)
+    else:
+      receiveNativeFile(entry.path.cstring, false)
+
+  proc openWindowsWorkspaceSearchResultAtPoint(y: cdouble) =
+    if activeWorkspace == nil or workspaceSearchResults.len == 0: return
+    var metrics: PlatformMetrics
+    platformGetMetrics(addr metrics)
+    let viewHeight = if metrics.heightPoints > 0: metrics.heightPoints else: 640'u32
+    let top = float32(viewHeight) - float32(y) - float32(demoEditorBounds.origin.y)
+    let line = int(floor((top - 4.0'f32) / 18.0'f32))
+    let resultIndex = line - 1
+    if resultIndex < 0 or resultIndex >= workspaceSearchResults.len: return
+    let match = workspaceSearchResults[resultIndex]
+    receiveNativeFile(match.path.cstring, false)
+    let document = activeDocument()
+    if document != nil:
+      let lineIndex = max(0, match.line - 1)
+      let lineStart = document[].buffer.byteOffsetAtLineColumn(lineIndex, 0)
+      editorViewState.moveCursor(min(document[].buffer.toString().len,
+        lineStart + max(0, match.column - 1)))
+      syncEditorCursor()
+      refreshEditorSyntax()
 
 proc refreshEditorSyntax() =
   let document = activeDocument()
@@ -1753,19 +1789,32 @@ when defined(windows):
     ## Filesystem events are incomplete until derived views invalidate them.
     if activeWorkspace == nil: return
     let changed = activeWorkspace.changedPaths()
-    if changed.len == 0: return
+    if changed.len > 0:
+      if workspaceSearchJob != nil:
+        workspaceSearchJob.cancelSearch()
+        workspaceSearchResults.setLen(0)
+        workspaceSearchCancelled = false
+        workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery)
+      elif workspaceQuickOpenJob != nil:
+        workspaceQuickOpenJob.cancelFuzzySearch()
+        workspacePreviewEntries.setLen(0)
+        workspaceQuickOpenJob = activeWorkspace.startFuzzySearch(workspaceQuickOpenQuery)
+      elif workspacePreviewMode == "tree":
+        refreshWorkspacePreview()
+      editorViewState.statusMessage = "Workspace updated"
+    if workspaceQuickOpenJob != nil:
+      for entry in workspaceQuickOpenJob.pollFuzzySearch(maxEntries = 256, maxResults = 100):
+        if workspacePreviewEntries.len < 100: workspacePreviewEntries.add(entry)
+      workspacePreviewEntries.sort(proc(a, b: WorkspaceEntry): int =
+        let lengthOrder = cmp(a.relativePath.len, b.relativePath.len)
+        if lengthOrder != 0: lengthOrder else: cmp(a.relativePath, b.relativePath))
+      renderQuickOpen()
+      if workspaceQuickOpenJob.isComplete: workspaceQuickOpenJob = nil
     if workspaceSearchJob != nil:
-      workspaceSearchJob.cancelSearch()
-      workspaceSearchResults.setLen(0)
-      workspaceSearchCancelled = false
-      workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery)
-    elif workspaceQuickOpenJob != nil:
-      workspaceQuickOpenJob.cancelFuzzySearch()
-      workspacePreviewEntries.setLen(0)
-      workspaceQuickOpenJob = activeWorkspace.startFuzzySearch(workspaceQuickOpenQuery)
-    elif workspacePreviewMode == "tree":
-      refreshWorkspacePreview()
-    editorViewState.statusMessage = "Workspace updated"
+      for result in workspaceSearchJob.pollSearch(maxFiles = 8, maxLines = 256):
+        if workspaceSearchResults.len < 256: workspaceSearchResults.add(result)
+      renderWorkspaceSearch()
+      if workspaceSearchJob.isComplete: workspaceSearchJob = nil
 
   proc pollWindowsWorkspace() =
     pollWindowsWorkspaceChanges()
@@ -2312,6 +2361,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command.startsWith("run task "): "__run_task__"
       elif command == "cancel task": "__cancel_task__"
       elif command == "cancel git": "__cancel_git__"
+      elif command.startsWith("workspace search "): "__workspace_search__"
+      elif command.startsWith("quick open "): "__quick_open__"
       elif command == "open settings": "openSettings"
       elif command in ["toggle soft wrap", "toggle word wrap"]: "toggleSoftWrap"
       elif command == "check for updates": "__check_updates__"
@@ -2526,6 +2577,18 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "__task_output__":
       when defined(macosx): toggleNativeTaskOutput()
       when defined(windows): toggleWindowsTaskOutput()
+    of "__workspace_search__":
+      let query = if rawCommand.len > 17: rawCommand[17 .. ^1].strip else: ""
+      if query.len == 0:
+        editorViewState.statusMessage = "Workspace search requires a query"
+      else:
+        showWorkspaceSearch(query)
+    of "__quick_open__":
+      let query = if rawCommand.len > 10: rawCommand[10 .. ^1].strip else: ""
+      if query.len == 0:
+        editorViewState.statusMessage = "Quick Open requires a query"
+      else:
+        showQuickOpen(query)
     of "workspace search":
       when defined(macosx):
         platformShowWorkspaceSearch()
@@ -2903,6 +2966,17 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   when defined(windows):
     let document = activeDocument()
     let inEditor = demoEditorBounds.contains(point)
+    if kind == pointerDown and workspacePreviewMode == "quickOpen" and
+        workspacePreviewEntries.len > 0:
+      openWindowsWorkspaceEntryAtPoint(event.y)
+      return
+    if kind == pointerDown and workspacePreviewMode == "search" and
+        workspaceSearchResults.len > 0:
+      openWindowsWorkspaceSearchResultAtPoint(event.y)
+      return
+    if document == nil and kind == pointerDown:
+      openWindowsWorkspaceEntryAtPoint(event.y)
+      return
     if document != nil and kind == scroll and inEditor:
       let wheelLines = if event.deltaY > 0'f64: -1 else: 1
       let visibleLines = max(1, int(floor(float32(demoEditorBounds.size.height) /
