@@ -15,7 +15,7 @@
 | M8：LSPクライアント | 🟡 実装済み・GUI実機検証待ち | JSON-RPC、stdio、stale response破棄、restart、diagnostics、completion、hover、definition、references、symbols、rename、formatting、code action、signature help、semantic tokens、inlay hintsを実装。実Language Server接続のGUI確認が残る |
 | M9：macOS Git統合 | 🟡 実装済み・GUI実機検証待ち | 非同期status/diff、branch・変更数・conflict数、gutter、本文inline diff背景、hunk stage/unstage、commit/log/blame/checkoutを実装。実機表示確認が残る |
 | M10：macOSターミナル・タスク | 🟡 実装済み・GUI実機検証待ち | PTY、VT/ANSI、複数セッション、selection、kitty keyboard、task実行・cancel・problem matcher・output panelを実装。長時間実機確認が残る |
-| M11：macOS配布基盤 | 🟡 実装済み・資格情報/実機検証待ち | `.app`、署名、hardened runtime、ZIP/DMG、notarization/stapling、更新検証、crash reportを実装。Developer IDとApple資格情報による実行が残る |
+| M11：macOS配布基盤 | 🟡 実装済み・資格情報/実機検証待ち | `.app`、生成アイコン、署名、hardened runtime、ZIP/DMG、notarization/stapling、更新検証、crash reportを実装。adhoc署名による`.app`・icon・ZIP/DMGスモークは成功。Developer IDとApple資格情報による実行が残る |
 | M12：設定・テーマ・キーバインド | 🟡 実装済み・GUI実機検証待ち | 階層設定、schema、live reload、keymap、theme/icon theme、font・terminal・LSP設定、system appearance連動を実装。実機確認が残る |
 | M13：Windows対応 | ⚪ 未着手 | macOS実装完了後にWin32、GPU、DPI、IME、clipboard、ConPTY、installerを実装する |
 | M14：WSLリモート | ⚪ 未着手 | Windows版完了後にagent、remote file、LSP、Git、terminal、reconnectを実装する |
