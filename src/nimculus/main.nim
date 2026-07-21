@@ -2174,6 +2174,12 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     platformSetCloseDecision(true)
   elif name == "closeTabRequest":
     when defined(macosx): platformRequestCloseTab()
+    when defined(windows):
+      if document == nil: return
+      if document[].buffer.isDirty:
+        platformSetEditorStatus("Unsaved changes: save before closing".cstring)
+      else:
+        receiveNativeCommand("closeTabConfirmed".cstring)
   elif name == "saveAndCloseTab":
     if document == nil or not document[].buffer.isDirty:
       platformSetCloseDecision(true)
@@ -2982,7 +2988,11 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     if kind == pointerDown:
       let tabIndex = windowsTabIndexAtPoint(float32(event.x), uiY)
       if tabIndex >= 0:
-        receiveNativeCommand(("selectTab:" & $tabIndex).cstring)
+        if event.button == 0:
+          receiveNativeCommand(("selectTab:" & $tabIndex).cstring)
+        elif event.button == 2:
+          receiveNativeCommand(("selectTab:" & $tabIndex).cstring)
+          receiveNativeCommand("closeTabRequest".cstring)
         return
     if kind == pointerDown and workspacePreviewMode == "quickOpen" and
         workspacePreviewEntries.len > 0:

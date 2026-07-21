@@ -42,6 +42,15 @@ backend applies the current DPI scale. The native backend keeps only a bounded
 default for startup before the first layout frame; it does not own editor
 layout state.
 
+## M13-052: Match Windows tab primary and auxiliary clicks to Zed
+
+Zed activates a tab from its primary click handler and closes an unpinned tab
+from a separate middle-click handler. Windows now preserves that distinction:
+button 0 activates the hit-tested tab, while button 2 first activates the tab
+and then enters the existing application close-request path. Dirty tabs are
+reported as unsaved and remain open; they are never force-closed by the native
+tab bar.
+
 ## M13-047: Keep Windows command palette input at the native UI boundary
 
 The Windows command palette uses a small native `EDIT` control rather than
