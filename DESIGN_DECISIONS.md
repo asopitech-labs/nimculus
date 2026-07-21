@@ -1414,6 +1414,16 @@ device-reset, and driver-internal-error results, releases the D3D11 target and
 quad pipeline, recreates them, and keeps the copied PaintList commands intact.
 This prevents a transient GPU reset from permanently leaving the window blank.
 
+## M13-018: Preserve surrogate pairs at the Win32 text boundary
+
+Windows may deliver supplementary-plane input as two `WM_CHAR` UTF-16 code
+units. Zed keeps character input separate from key events and decodes the
+platform text stream before handing it to the input handler. Nimculus now
+buffers a high surrogate, joins a following low surrogate, and converts the
+pair as one UTF-8 callback value; `WM_UNICHAR` is accepted for direct Unicode
+code-point delivery as well. This prevents emoji and other non-BMP text from
+being silently dropped by the Windows editor input path.
+
 ## M13-012: Normalize Win32 keyboard events before shared shortcut routing
 
 Zed's Windows backend separates accelerator handling from character input and

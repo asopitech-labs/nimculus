@@ -44,6 +44,7 @@ static wchar_t g_terminal_text[262144];
 static bool g_terminal_visible = false;
 static wchar_t g_ime_wide[32768];
 static char g_ime_utf8[131072];
+static wchar_t g_pending_high_surrogate = 0;
 static double g_editor_cursor_x = 8.0;
 static double g_editor_cursor_y = 20.0;
 static bool g_fullscreen = false;
@@ -186,6 +187,15 @@ static void emit_ime_string(HIMC context, DWORD kind, bool composing) {
   if (utf8_length <= 0 || !g_text_callback) return;
   g_ime_utf8[utf8_length] = '\0';
   g_text_callback(g_ime_utf8, composing);
+}
+
+static void emit_utf16_text(const wchar_t *wide, int wide_chars) {
+  if (!wide || wide_chars <= 0 || !g_text_callback) return;
+  int utf8_length = WideCharToMultiByte(CP_UTF8, 0, wide, wide_chars,
+      g_ime_utf8, (int)sizeof(g_ime_utf8) - 1, NULL, NULL);
+  if (utf8_length <= 0) return;
+  g_ime_utf8[utf8_length] = '\0';
+  g_text_callback(g_ime_utf8, false);
 }
 
 static void update_metrics(void) {
@@ -713,9 +723,33 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
       return 0;
     case WM_CHAR: {
       wchar_t wide = (wchar_t)wparam;
-      char utf8[8] = {0};
-      int length = WideCharToMultiByte(CP_UTF8, 0, &wide, 1, utf8, 7, NULL, NULL);
-      if (length > 0 && g_text_callback) g_text_callback(utf8, false);
+      if (wide >= 0xD800 && wide <= 0xDBFF) {
+        g_pending_high_surrogate = wide;
+        return 0;
+      }
+      if (wide >= 0xDC00 && wide <= 0xDFFF && g_pending_high_surrogate != 0) {
+        wchar_t pair[2] = {g_pending_high_surrogate, wide};
+        g_pending_high_surrogate = 0;
+        emit_utf16_text(pair, 2);
+        return 0;
+      }
+      g_pending_high_surrogate = 0;
+      emit_utf16_text(&wide, 1);
+      return 0;
+    }
+    case WM_UNICHAR: {
+      if (wparam == UNICODE_NOCHAR) return TRUE;
+      uint32_t codepoint = (uint32_t)wparam;
+      if (codepoint <= 0xFFFF) {
+        wchar_t wide = (wchar_t)codepoint;
+        emit_utf16_text(&wide, 1);
+      } else if (codepoint <= 0x10FFFF) {
+        wchar_t pair[2] = {
+          (wchar_t)(0xD800 + ((codepoint - 0x10000) >> 10)),
+          (wchar_t)(0xDC00 + ((codepoint - 0x10000) & 0x3FF))
+        };
+        emit_utf16_text(pair, 2);
+      }
       return 0;
     }
     case WM_CLOSE:
