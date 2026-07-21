@@ -55,7 +55,9 @@ an actionable reload/keep-editing status when the file changes or is deleted;
 it does not silently overwrite dirty content.
 On Windows, workspace roots additionally use a `ReadDirectoryChangesW` worker
 that feeds the same coalesced `changedPaths` queue as the macOS FSEvents
-bridge; the watcher is joined before a workspace is released.
+bridge; the Windows idle consumer invalidates active search and Quick Open
+jobs or rebuilds the bounded tree preview, and the watcher is joined before a
+workspace is released.
 
 ## M1 boundary
 

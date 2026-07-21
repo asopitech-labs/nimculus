@@ -1607,7 +1607,27 @@ when defined(macosx):
     else: false
 
 when defined(windows):
+  proc pollWindowsWorkspaceChanges() =
+    ## Consume ReadDirectoryChangesW notifications at the UI boundary.
+    ## Filesystem events are incomplete until derived views invalidate them.
+    if activeWorkspace == nil: return
+    let changed = activeWorkspace.changedPaths()
+    if changed.len == 0: return
+    if workspaceSearchJob != nil:
+      workspaceSearchJob.cancelSearch()
+      workspaceSearchResults.setLen(0)
+      workspaceSearchCancelled = false
+      workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery)
+    elif workspaceQuickOpenJob != nil:
+      workspaceQuickOpenJob.cancelFuzzySearch()
+      workspacePreviewEntries.setLen(0)
+      workspaceQuickOpenJob = activeWorkspace.startFuzzySearch(workspaceQuickOpenQuery)
+    elif workspacePreviewMode == "tree":
+      refreshWorkspacePreview()
+    editorViewState.statusMessage = "Workspace updated"
+
   proc pollWindowsWorkspace() =
+    pollWindowsWorkspaceChanges()
     let document = activeDocument()
     if document == nil or document[].path.len == 0:
       externalAlertShown = false

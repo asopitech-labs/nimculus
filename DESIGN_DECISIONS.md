@@ -1547,3 +1547,14 @@ consumer-facing queue and performs deduplication and ignore-rule refresh.
 Stopping a workspace cancels the blocking read, joins the worker, closes the
 directory handle, and only then releases the watcher context. The Windows CI
 watcher integration test exercises the end-to-end event path.
+
+## M13-026: Consume Windows workspace changes at the idle/UI boundary
+
+`ReadDirectoryChangesW` notifications are consumed from the Windows native
+idle callback through `Workspace.changedPaths()`. A changed workspace
+invalidates active search and Quick Open jobs, or rebuilds the bounded tree
+preview when it is visible. This follows Zed's watcher-to-worktree event
+boundary: reaching a queue is not completion; the consumer must invalidate
+derived state before presenting it again. The active document disk-stamp check
+remains separate because it reports a user-facing reload decision rather than
+a workspace tree update.
