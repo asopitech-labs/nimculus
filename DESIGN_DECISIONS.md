@@ -1,5 +1,15 @@
 # Design Decisions
 
+## M13-046: Keep Windows native editor state synchronized on tab lifecycle
+
+The Windows text backend owns a copy of the active document and its highlight,
+composition, selection, and cursor state. Creating a document or closing the
+last tab must clear or refresh that native copy at the same application-boundary
+point as macOS; otherwise the renderer continues to display the previous
+document even though the editor model has changed. Settings keymap reload is
+also enabled on Windows so the registry and platform shortcut normalization
+observe the same live configuration contract.
+
 ## M0-001: Use Nim standard tooling for the first quality gate
 
 `nimpretty` is exposed through `nimble format` and `nim check` through

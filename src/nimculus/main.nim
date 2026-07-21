@@ -247,13 +247,16 @@ proc setupShortcutRegistry() =
       "deleteWordBackward", "cancel", "toggleSoftWrap"]:
     var action: proc() {.closure.}
     if name == "openSettings":
-      action = proc() = receiveNativeCommand("openSettingsUI".cstring)
+      when defined(macosx):
+        action = proc() = receiveNativeCommand("openSettingsUI".cstring)
+      else:
+        action = nativeShortcutAction(name)
     else:
       action = nativeShortcutAction(name)
     shortcutRegistry.register(Command(name: name, action: action))
 
 proc applySettingsKeymap() =
-  when defined(macosx):
+  when defined(macosx) or defined(windows):
     if appSettings == nil: return
     # Rebuild from defaults so removing a binding on disk also removes the
     # previous live binding, matching Zed's keymap reload semantics.
@@ -2131,14 +2134,14 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         syntaxState.close()
         syntaxState = nil
       workspacePreviewMode = ""
-      when defined(macosx):
+      when defined(macosx) or defined(windows):
         platformSetEditorHighlights(nil, 0)
-        syncEditorCursor()
         let current = activeDocument()
         if current == nil:
           platformSetEditorText("".cstring, 0)
         else:
           refreshEditorSyntax()
+        syncEditorCursor()
       persistSession()
   elif name in ["previousTab", "nextTab"]:
     let delta = if name == "previousTab": -1 else: 1
@@ -2189,7 +2192,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     if syntaxState != nil:
       syntaxState.close()
       syntaxState = nil
-    when defined(macosx):
+    when defined(macosx) or defined(windows):
       platformSetEditorHighlights(nil, 0)
       platformSetEditorComposition("".cstring)
       platformSetEditorText("".cstring, 0)
@@ -2220,7 +2223,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     if recoveryFilePath.len > 0 and fileExists(recoveryFilePath):
       removeFile(recoveryFilePath)
   elif name == "openSettings":
-    when defined(macosx):
+    when defined(macosx) or defined(windows):
       if settingsFilePath.len == 0:
         editorViewState.statusMessage = "Settings unavailable"
       else:
