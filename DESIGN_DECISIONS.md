@@ -1399,11 +1399,22 @@ platform-contract approach.
 Zed's `directx_renderer` receives a retained scene, uploads primitive batches,
 and applies viewport/scissor state before drawing. Nimculus keeps the existing
 `NativePaintCommand` ABI and adds a Windows-only D3D11 path: commands are copied
-at the platform boundary, opaque rectangle-like primitives are converted to a
-dynamic six-vertex buffer, and a small runtime-compiled shader pair draws them
-with per-command scissor rectangles. Text and image commands are skipped until
-their glyph/sprite resources are implemented, so this slice does not claim a
-complete Windows renderer.
+at the platform boundary, opaque rectangle-like primitives and registered RGBA8
+images are converted to dynamic six-vertex batches, and runtime-compiled
+shaders draw them with per-command scissor rectangles. Image bytes are retained
+on the CPU and re-uploaded after device recreation, matching Zed's resource
+rebuild boundary. Text commands remain deferred until the DirectWrite/glyph
+atlas path is implemented, so this slice does not claim a complete Windows
+renderer.
+
+## M13-036: Register Windows image resources as D3D11 shader views
+
+The Windows image API mirrors macOS `platformSetImageRgba`: it validates the
+RGBA8 byte length, retains a bounded set of image records, creates a
+`ID3D11Texture2D` and shader-resource view, and draws image PaintCommands with
+a linear clamp sampler. CPU copies survive device loss, while the views are
+released and rebuilt with the D3D11 device. Missing image IDs remain omitted
+instead of displaying a misleading placeholder.
 
 ## M13-017: Recreate the Windows D3D device after device removal
 

@@ -32,10 +32,12 @@ static IDXGISwapChain *g_swap_chain = NULL;
 static ID3D11RenderTargetView *g_render_target = NULL;
 static ID3D11VertexShader *g_quad_vertex_shader = NULL;
 static ID3D11PixelShader *g_quad_pixel_shader = NULL;
+static ID3D11PixelShader *g_image_pixel_shader = NULL;
 static ID3D11InputLayout *g_quad_input_layout = NULL;
 static ID3D11Buffer *g_quad_vertex_buffer = NULL;
 static ID3D11RasterizerState *g_quad_rasterizer = NULL;
 static ID3D11BlendState *g_quad_blend_state = NULL;
+static ID3D11SamplerState *g_image_sampler = NULL;
 static NimculusPaintCommand *g_paint_commands = NULL;
 static uint32_t g_paint_count = 0;
 static char g_clipboard_utf8[4 * 1024 * 1024];
@@ -68,6 +70,17 @@ static RECT g_saved_window_rect;
 static bool g_suppress_translate = false;
 static bool g_tracking_mouse = false;
 static bool g_close_request_pending = false;
+
+typedef struct NimculusImage {
+  uint32_t id;
+  uint32_t width;
+  uint32_t height;
+  uint8_t *rgba;
+  ID3D11ShaderResourceView *view;
+} NimculusImage;
+
+#define NIMCULUS_MAX_IMAGES 64
+static NimculusImage g_images[NIMCULUS_MAX_IMAGES];
 
 static LONG font_height(double size, double scale) {
   double points = size > 0.0 ? size : 16.0;
@@ -314,24 +327,37 @@ static const char g_quad_pixel_source[] =
   "alpha = 0.30; }"
   "return float4(input.color.rgb, input.color.a * alpha); }";
 
+static const char g_image_pixel_source[] =
+  "struct PSInput { float4 position : SV_POSITION; float4 color : COLOR; "
+  "float2 local : LOCAL; float2 size : SIZE; float radius : RADIUS; float kind : KIND; };"
+  "Texture2D imageTexture : register(t0);"
+  "SamplerState imageSampler : register(s0);"
+  "float4 main(PSInput input) : SV_TARGET {"
+  "return imageTexture.Sample(imageSampler, input.local) * input.color; }";
+
 static void release_quad_pipeline(void) {
   if (g_quad_blend_state) g_quad_blend_state->lpVtbl->Release(g_quad_blend_state);
   if (g_quad_rasterizer) g_quad_rasterizer->lpVtbl->Release(g_quad_rasterizer);
   if (g_quad_vertex_buffer) g_quad_vertex_buffer->lpVtbl->Release(g_quad_vertex_buffer);
   if (g_quad_input_layout) g_quad_input_layout->lpVtbl->Release(g_quad_input_layout);
   if (g_quad_pixel_shader) g_quad_pixel_shader->lpVtbl->Release(g_quad_pixel_shader);
+  if (g_image_pixel_shader) g_image_pixel_shader->lpVtbl->Release(g_image_pixel_shader);
   if (g_quad_vertex_shader) g_quad_vertex_shader->lpVtbl->Release(g_quad_vertex_shader);
+  if (g_image_sampler) g_image_sampler->lpVtbl->Release(g_image_sampler);
   g_quad_rasterizer = NULL;
   g_quad_vertex_buffer = NULL;
   g_quad_input_layout = NULL;
   g_quad_blend_state = NULL;
   g_quad_pixel_shader = NULL;
+  g_image_pixel_shader = NULL;
+  g_image_sampler = NULL;
   g_quad_vertex_shader = NULL;
 }
 
 static bool create_quad_pipeline(void) {
   ID3DBlob *vertex_blob = NULL;
   ID3DBlob *pixel_blob = NULL;
+  ID3DBlob *image_pixel_blob = NULL;
   ID3DBlob *errors = NULL;
   HRESULT hr = D3DCompile(g_quad_vertex_source, sizeof(g_quad_vertex_source) - 1,
       "nimculus_quad_vs", NULL, NULL, "main", "vs_4_0", 0, 0, &vertex_blob, &errors);
@@ -344,11 +370,26 @@ static bool create_quad_pipeline(void) {
     vertex_blob->lpVtbl->Release(vertex_blob);
     return false;
   }
+  hr = D3DCompile(g_image_pixel_source, sizeof(g_image_pixel_source) - 1,
+      "nimculus_image_ps", NULL, NULL, "main", "ps_4_0", 0, 0,
+      &image_pixel_blob, &errors);
+  if (errors) errors->lpVtbl->Release(errors);
+  if (FAILED(hr)) {
+    vertex_blob->lpVtbl->Release(vertex_blob);
+    pixel_blob->lpVtbl->Release(pixel_blob);
+    return false;
+  }
   hr = g_device->lpVtbl->CreateVertexShader(g_device, vertex_blob->lpVtbl->GetBufferPointer(vertex_blob),
       vertex_blob->lpVtbl->GetBufferSize(vertex_blob), NULL, &g_quad_vertex_shader);
   if (SUCCEEDED(hr)) {
     hr = g_device->lpVtbl->CreatePixelShader(g_device, pixel_blob->lpVtbl->GetBufferPointer(pixel_blob),
         pixel_blob->lpVtbl->GetBufferSize(pixel_blob), NULL, &g_quad_pixel_shader);
+  }
+  if (SUCCEEDED(hr)) {
+    hr = g_device->lpVtbl->CreatePixelShader(g_device,
+        image_pixel_blob->lpVtbl->GetBufferPointer(image_pixel_blob),
+        image_pixel_blob->lpVtbl->GetBufferSize(image_pixel_blob), NULL,
+        &g_image_pixel_shader);
   }
   D3D11_INPUT_ELEMENT_DESC elements[6] = {
     {"POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
@@ -365,6 +406,7 @@ static bool create_quad_pipeline(void) {
   }
   vertex_blob->lpVtbl->Release(vertex_blob);
   pixel_blob->lpVtbl->Release(pixel_blob);
+  image_pixel_blob->lpVtbl->Release(image_pixel_blob);
   if (FAILED(hr)) {
     release_quad_pipeline();
     return false;
@@ -400,6 +442,18 @@ static bool create_quad_pipeline(void) {
   if (SUCCEEDED(hr)) {
     hr = g_device->lpVtbl->CreateBlendState(g_device, &blend_desc,
         &g_quad_blend_state);
+  }
+  D3D11_SAMPLER_DESC sampler_desc;
+  ZeroMemory(&sampler_desc, sizeof(sampler_desc));
+  sampler_desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+  sampler_desc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+  sampler_desc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+  sampler_desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+  sampler_desc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
+  sampler_desc.MaxLOD = D3D11_FLOAT32_MAX;
+  if (SUCCEEDED(hr)) {
+    hr = g_device->lpVtbl->CreateSamplerState(g_device, &sampler_desc,
+        &g_image_sampler);
   }
   if (FAILED(hr)) {
     release_quad_pipeline();
@@ -470,6 +524,70 @@ static void resize_render_target(void) {
   create_render_target();
 }
 
+static NimculusImage *find_image(uint32_t image_id) {
+  if (image_id == 0) return NULL;
+  for (size_t index = 0; index < NIMCULUS_MAX_IMAGES; ++index) {
+    if (g_images[index].id == image_id) return &g_images[index];
+  }
+  return NULL;
+}
+
+static NimculusImage *get_image_slot(uint32_t image_id) {
+  NimculusImage *free_slot = NULL;
+  for (size_t index = 0; index < NIMCULUS_MAX_IMAGES; ++index) {
+    if (g_images[index].id == image_id) return &g_images[index];
+    if (!free_slot && g_images[index].id == 0) free_slot = &g_images[index];
+  }
+  return free_slot;
+}
+
+static void release_image_views(void) {
+  for (size_t index = 0; index < NIMCULUS_MAX_IMAGES; ++index) {
+    if (g_images[index].view) {
+      g_images[index].view->lpVtbl->Release(g_images[index].view);
+      g_images[index].view = NULL;
+    }
+  }
+}
+
+static bool upload_image_view(NimculusImage *image) {
+  if (!image || !image->rgba || image->width == 0 || image->height == 0) return false;
+  if (image->view) {
+    image->view->lpVtbl->Release(image->view);
+    image->view = NULL;
+  }
+  if (!g_device) return true;
+  D3D11_TEXTURE2D_DESC description;
+  ZeroMemory(&description, sizeof(description));
+  description.Width = image->width;
+  description.Height = image->height;
+  description.MipLevels = 1;
+  description.ArraySize = 1;
+  description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+  description.SampleDesc.Count = 1;
+  description.Usage = D3D11_USAGE_DEFAULT;
+  description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+  D3D11_SUBRESOURCE_DATA data;
+  ZeroMemory(&data, sizeof(data));
+  data.pSysMem = image->rgba;
+  data.SysMemPitch = image->width * 4;
+  ID3D11Texture2D *texture = NULL;
+  HRESULT hr = g_device->lpVtbl->CreateTexture2D(g_device, &description, &data, &texture);
+  if (FAILED(hr)) return false;
+  hr = g_device->lpVtbl->CreateShaderResourceView(g_device,
+      (ID3D11Resource *)texture, NULL, &image->view);
+  texture->lpVtbl->Release(texture);
+  return SUCCEEDED(hr);
+}
+
+static void release_images(void) {
+  release_image_views();
+  for (size_t index = 0; index < NIMCULUS_MAX_IMAGES; ++index) {
+    free(g_images[index].rgba);
+    ZeroMemory(&g_images[index], sizeof(g_images[index]));
+  }
+}
+
 static bool create_device(void) {
   DXGI_SWAP_CHAIN_DESC desc;
   ZeroMemory(&desc, sizeof(desc));
@@ -487,12 +605,17 @@ static bool create_device(void) {
   if (FAILED(hr)) return false;
   update_metrics();
   if (!create_render_target()) return false;
-  return create_quad_pipeline();
+  if (!create_quad_pipeline()) return false;
+  for (size_t index = 0; index < NIMCULUS_MAX_IMAGES; ++index) {
+    if (g_images[index].id != 0) upload_image_view(&g_images[index]);
+  }
+  return true;
 }
 
 static void release_device(void) {
   if (g_context) g_context->lpVtbl->ClearState(g_context);
   release_render_target();
+  release_image_views();
   release_quad_pipeline();
   if (g_swap_chain) g_swap_chain->lpVtbl->Release(g_swap_chain);
   if (g_context) g_context->lpVtbl->Release(g_context);
@@ -541,14 +664,22 @@ static void draw_paint_quads(void) {
   float height = (float)g_metrics.height_pixels;
   for (uint32_t index = 0; index < g_paint_count; ++index) {
     const NimculusPaintCommand *command = &g_paint_commands[index];
-    if (command->kind == 3 || command->kind == 4 || command->kind == 5 ||
-        command->kind == 6 || command->width <= 0.0f || command->height <= 0.0f) continue;
+    NimculusImage *image = command->kind == 4 ? find_image(command->image_id) : NULL;
+    if (command->kind == 3 || command->kind == 5 || command->kind == 6 ||
+        (command->kind == 4 && (!image || !image->view)) ||
+        command->width <= 0.0f || command->height <= 0.0f) continue;
     float left = command->x * scale;
     float top = command->y * scale;
     float right = (command->x + command->width) * scale;
     float bottom = (command->y + command->height) * scale;
     float color[4];
     paint_color(command->kind, color);
+    if (image) {
+      color[0] = 1.0f;
+      color[1] = 1.0f;
+      color[2] = 1.0f;
+      color[3] = 1.0f;
+    }
     float local[6][2] = {{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f},
                          {0.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}};
     NimculusQuadVertex vertices[6] = {
@@ -587,7 +718,18 @@ static void draw_paint_quads(void) {
     if (clip_right <= clip_left || clip_bottom <= clip_top) continue;
     D3D11_RECT scissor = {clip_left, clip_top, clip_right, clip_bottom};
     g_context->lpVtbl->RSSetScissorRects(g_context, 1, &scissor);
+    if (image) {
+      g_context->lpVtbl->PSSetShader(g_context, g_image_pixel_shader, NULL, 0);
+      g_context->lpVtbl->PSSetShaderResources(g_context, 0, 1, &image->view);
+      g_context->lpVtbl->PSSetSamplers(g_context, 0, 1, &g_image_sampler);
+    } else {
+      g_context->lpVtbl->PSSetShader(g_context, g_quad_pixel_shader, NULL, 0);
+    }
     g_context->lpVtbl->Draw(g_context, 6, 0);
+    if (image) {
+      ID3D11ShaderResourceView *none = NULL;
+      g_context->lpVtbl->PSSetShaderResources(g_context, 0, 1, &none);
+    }
   }
 }
 
@@ -1000,6 +1142,7 @@ bool nimculus_platform_run(void) {
     }
   }
   release_device();
+  release_images();
   free(g_paint_commands);
   g_paint_commands = NULL;
   g_paint_count = 0;
@@ -1172,6 +1315,35 @@ void nimculus_platform_set_idle_callback(NimculusIdleCallback callback) {
 
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback) {
   g_command_callback = callback;
+}
+
+void nimculus_platform_set_image_rgba(uint32_t image_id, uint32_t width,
+                                      uint32_t height, const uint8_t *rgba,
+                                      uint32_t length) {
+  NimculusImage *image = get_image_slot(image_id);
+  uint64_t required = (uint64_t)width * (uint64_t)height * 4u;
+  if (!image || image_id == 0 || width == 0 || height == 0 ||
+      required > UINT32_MAX || length < required || !rgba) {
+    if (image) {
+      if (image->view) image->view->lpVtbl->Release(image->view);
+      free(image->rgba);
+      ZeroMemory(image, sizeof(*image));
+    }
+    if (g_window) InvalidateRect(g_window, NULL, FALSE);
+    return;
+  }
+  uint8_t *copy = (uint8_t *)malloc((size_t)required);
+  if (!copy) return;
+  memcpy(copy, rgba, (size_t)required);
+  if (image->view) image->view->lpVtbl->Release(image->view);
+  free(image->rgba);
+  image->id = image_id;
+  image->width = width;
+  image->height = height;
+  image->rgba = copy;
+  image->view = NULL;
+  upload_image_view(image);
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
 
 void nimculus_platform_set_paint_commands(const NimculusPaintCommand *commands,

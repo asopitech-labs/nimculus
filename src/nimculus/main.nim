@@ -64,6 +64,18 @@ when defined(windows):
     let size = if appSettings != nil: appSettings.intSetting("editor.fontSize", 14) else: 14
     max(4'f32, float32(size) * 0.5'f32)
 
+  proc registerWindowsDemoImage() =
+    var pixels = newSeq[uint8](16 * 16 * 4)
+    for y in 0 ..< 16:
+      for x in 0 ..< 16:
+        let alternate = ((x div 4) + (y div 4)) mod 2 == 0
+        let offset = (y * 16 + x) * 4
+        pixels[offset] = if alternate: 80'u8 else: 30'u8
+        pixels[offset + 1] = if alternate: 180'u8 else: 90'u8
+        pixels[offset + 2] = if alternate: 240'u8 else: 150'u8
+        pixels[offset + 3] = 255'u8
+    platformSetImageRgba(1, 16, 16, addr pixels[0], uint32(pixels.len))
+
 proc setupDemoUi() =
   demoTree = newUiTree()
   resetPointerInteractions()
@@ -2866,6 +2878,7 @@ when isMainModule:
     appSettings = newSettingsStore(settingsFilePath,
       workspaceRoot / ".nimculus" / "settings.json")
     applySettingsTheme()
+    registerWindowsDemoImage()
     setupDemoUi()
     openActiveWorkspace(workspaceRoot)
     platformSetTextCallback(receiveNativeText)

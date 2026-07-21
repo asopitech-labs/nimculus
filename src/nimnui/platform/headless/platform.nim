@@ -113,8 +113,9 @@ proc platformSetEditorGitHunks*(spans: ptr NativeGitHunkSpan, count: uint32) = d
 proc platformSetRecentFiles*(paths: ptr cstring, count: uint32) = discard (paths, count)
 when not defined(windows):
   proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) = discard (commands, count)
-proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
-    length: uint32) = discard (imageId, width, height, rgba, length)
+when not defined(windows):
+  proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
+      length: uint32) = discard (imageId, width, height, rgba, length)
 proc platformSetPaintDirtyRegions*(regions: ptr NativePaintRegion, count: uint32) = discard (
   regions, count)
 proc platformShowExternalChange*(path: cstring) = discard path

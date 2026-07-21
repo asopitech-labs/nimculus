@@ -21,6 +21,8 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformSetTerminalFontSize*(size: cdouble) {.importc: "nimculus_platform_set_terminal_font_size", cdecl.}
   proc platformSetTerminalFontName*(name: cstring) {.importc: "nimculus_platform_set_terminal_font_name", cdecl.}
   proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}
+  proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
+      length: uint32) {.importc: "nimculus_platform_set_image_rgba", cdecl.}
   proc platformSetEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_text", cdecl.}
   proc platformSetEditorFontSize*(size: cdouble) {.importc: "nimculus_platform_set_editor_font_size", cdecl.}
   proc platformSetEditorFontName*(name: cstring) {.importc: "nimculus_platform_set_editor_font_name", cdecl.}
@@ -68,6 +70,8 @@ else:
   proc platformSetTerminalVisible*(visible: bool) = discard visible
   proc platformSetTerminalText*(text: cstring, length: uint32) = discard (text, length)
   proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) = discard (commands, count)
+  proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
+      length: uint32) = discard (imageId, width, height, rgba, length)
   proc platformSetEditorText*(text: cstring, length: uint32) = discard (text, length)
   proc platformSetEditorCursorByte*(byteOffset, line: uint32) = discard (byteOffset, line)
   proc platformSetEditorScrollLine*(line: uint32) = discard line
