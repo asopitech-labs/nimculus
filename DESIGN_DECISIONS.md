@@ -1347,6 +1347,17 @@ lifetime rules in `windows_pty.c`, exposing only create/write/read/resize/close
 operations to `terminal.nim`. This makes the protocol parser reusable while
 leaving the Windows native terminal surface as a separate integration step.
 
+## M13-010: Preserve the shared event-number contract on Win32
+
+The application-side `nativeEventKind` intentionally consumes AppKit-compatible
+event numbers for the shared input ABI. The initial Win32 slice used private
+numbers for key and pointer messages, which would classify keyboard input as a
+pointer event. The backend now maps Win32 messages to the same numbers used by
+the common contract (`10/11` keyboard, `1/2/3/4/25/26` buttons, `5/6/27`
+motion/drag, `22` wheel, `12` modifier changes), and emits focus changes through
+the existing command callback. This keeps platform translation at the backend
+boundary and adds regression assertions in `test_ui_text.nim`.
+
 The Windows runner also executes `tests/test_windows_terminal.nim` against
 `cmd.exe`, checking output delivery through the screen parser, resize state, and
 close cleanup. The macOS test run only compiles the portable skip path because

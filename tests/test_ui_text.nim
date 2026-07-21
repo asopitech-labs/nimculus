@@ -19,6 +19,8 @@ suite "M2 UI foundation":
     check nativeEventKind(6) == pointerMove
     check nativeEventKind(8) == pointerEnter
     check nativeEventKind(9) == pointerExit
+    check nativeEventKind(10) == keyDown
+    check nativeEventKind(11) == keyUp
     check nativeEventKind(12) == modifiersChanged
     check nativeEventKind(22) == scroll
     check nativeEventButton(1) == 0

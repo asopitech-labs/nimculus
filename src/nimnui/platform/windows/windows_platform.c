@@ -16,6 +16,7 @@ static uint64_t g_input_count = 0;
 static NimculusInputCallback g_input_callback = NULL;
 static NimculusTextCallback g_text_callback = NULL;
 static NimculusIdleCallback g_idle_callback = NULL;
+static NimculusCommandCallback g_command_callback = NULL;
 typedef void (*NimculusFontCallback)(const char *name);
 static NimculusFileCallback g_file_callback = NULL;
 static NimculusFontCallback g_font_callback = NULL;
@@ -242,8 +243,30 @@ static void send_input(UINT type, UINT key_code, UINT button, LPARAM lparam) {
   if (GetKeyState(VK_SHIFT) & 0x8000) event.modifiers |= 1u << 17;
   if (GetKeyState(VK_CONTROL) & 0x8000) event.modifiers |= 1u << 18;
   if (GetKeyState(VK_MENU) & 0x8000) event.modifiers |= 1u << 19;
-  event.x = (double)(short)LOWORD(lparam);
-  event.y = (double)(short)HIWORD(lparam);
+  POINT point = {(LONG)(short)LOWORD(lparam), (LONG)(short)HIWORD(lparam)};
+  if (g_window) ScreenToClient(g_window, &point);
+  event.x = (double)point.x;
+  event.y = (double)point.y;
+  g_input_count++;
+  g_input_callback(&event);
+}
+
+static void send_scroll(WPARAM wparam, LPARAM lparam, bool horizontal) {
+  if (!g_input_callback) return;
+  NimculusInputEvent event = {0};
+  event.type = 22; /* NSEventTypeScrollWheel, shared by the NimNUI contract. */
+  event.modifiers = 0;
+  if (GetKeyState(VK_SHIFT) & 0x8000) event.modifiers |= 1u << 17;
+  if (GetKeyState(VK_CONTROL) & 0x8000) event.modifiers |= 1u << 18;
+  if (GetKeyState(VK_MENU) & 0x8000) event.modifiers |= 1u << 19;
+  POINT point = {(LONG)(short)LOWORD(lparam), (LONG)(short)HIWORD(lparam)};
+  if (g_window) ScreenToClient(g_window, &point);
+  event.x = (double)point.x;
+  event.y = (double)point.y;
+  double delta = (double)GET_WHEEL_DELTA_WPARAM(wparam) / (double)WHEEL_DELTA;
+  if (horizontal) event.delta_x = delta;
+  else event.delta_y = delta;
+  event.precise_scrolling = false;
   g_input_count++;
   g_input_callback(&event);
 }
@@ -254,6 +277,12 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
       update_metrics();
       resize_render_target();
       InvalidateRect(window, NULL, FALSE);
+      return 0;
+    case WM_SETFOCUS:
+      if (g_command_callback) g_command_callback("windowFocusGained");
+      return 0;
+    case WM_KILLFOCUS:
+      if (g_command_callback) g_command_callback("windowFocusLost");
       return 0;
     case WM_DPICHANGED: {
       g_metrics.scale_factor = (double)HIWORD(wparam) / (double)USER_DEFAULT_SCREEN_DPI;
@@ -277,16 +306,48 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
       if (g_idle_callback) g_idle_callback();
       return 0;
     case WM_KEYDOWN:
-      send_input(1, (UINT)wparam, 0, 0);
+      if (wparam == VK_SHIFT || wparam == VK_CONTROL || wparam == VK_MENU)
+        send_input(12, (UINT)wparam, 0, 0);
+      else
+        send_input(10, (UINT)wparam, 0, 0);
+      return 0;
+    case WM_KEYUP:
+      if (wparam == VK_SHIFT || wparam == VK_CONTROL || wparam == VK_MENU)
+        send_input(12, (UINT)wparam, 0, 0);
+      else
+        send_input(11, (UINT)wparam, 0, 0);
       return 0;
     case WM_LBUTTONDOWN:
-      send_input(2, 0, 1, lparam);
+      send_input(1, 0, 0, lparam);
       return 0;
     case WM_LBUTTONUP:
+      send_input(2, 0, 0, lparam);
+      return 0;
+    case WM_RBUTTONDOWN:
       send_input(3, 0, 1, lparam);
       return 0;
+    case WM_RBUTTONUP:
+      send_input(4, 0, 1, lparam);
+      return 0;
+    case WM_MBUTTONDOWN:
+      send_input(25, 0, 2, lparam);
+      return 0;
+    case WM_MBUTTONUP:
+      send_input(26, 0, 2, lparam);
+      return 0;
     case WM_MOUSEMOVE:
-      send_input(4, 0, 0, lparam);
+      if (GetKeyState(VK_LBUTTON) & 0x8000)
+        send_input(6, 0, 0, lparam);
+      else if (GetKeyState(VK_RBUTTON) & 0x8000 || GetKeyState(VK_MBUTTON) & 0x8000)
+        send_input(27, 0, 1, lparam);
+      else
+        send_input(5, 0, 0, lparam);
+      return 0;
+    case WM_MOUSEWHEEL:
+      send_scroll(wparam, lparam, false);
+      return 0;
+    case WM_MOUSEHWHEEL:
+      send_scroll(wparam, lparam, true);
       return 0;
     case WM_DROPFILES: {
       HDROP drop = (HDROP)wparam;
@@ -483,6 +544,10 @@ void nimculus_platform_set_text_callback(NimculusTextCallback callback) {
 
 void nimculus_platform_set_idle_callback(NimculusIdleCallback callback) {
   g_idle_callback = callback;
+}
+
+void nimculus_platform_set_command_callback(NimculusCommandCallback callback) {
+  g_command_callback = callback;
 }
 
 void nimculus_platform_set_terminal_visible(bool visible) {

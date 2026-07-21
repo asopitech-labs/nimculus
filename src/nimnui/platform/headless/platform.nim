@@ -42,8 +42,9 @@ proc platformSetSelectionCallback*(callback: SelectionCallback) =
 when not defined(windows):
   proc platformSetFileCallback*(callback: FileCallback) =
     if callback != nil: discard
-proc platformSetCommandCallback*(callback: CommandCallback) =
-  if callback != nil: discard
+when not defined(windows):
+  proc platformSetCommandCallback*(callback: CommandCallback) =
+    if callback != nil: discard
 when not defined(windows):
   proc platformSetIdleCallback*(callback: IdleCallback) =
     if callback != nil: discard

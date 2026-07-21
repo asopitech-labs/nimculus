@@ -13,6 +13,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformSetInputCallback*(callback: InputCallback) {.importc: "nimculus_platform_set_input_callback", cdecl.}
   proc platformSetTextCallback*(callback: TextCallback) {.importc: "nimculus_platform_set_text_callback", cdecl.}
   proc platformSetFileCallback*(callback: FileCallback) {.importc: "nimculus_platform_set_file_callback", cdecl.}
+  proc platformSetCommandCallback*(callback: CommandCallback) {.importc: "nimculus_platform_set_command_callback", cdecl.}
   proc platformSetIdleCallback*(callback: IdleCallback) {.importc: "nimculus_platform_set_idle_callback", cdecl.}
   proc platformSetTerminalVisible*(visible: bool) {.importc: "nimculus_platform_set_terminal_visible", cdecl.}
   proc platformSetTerminalText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_terminal_text", cdecl.}
@@ -41,6 +42,8 @@ else:
   proc platformSetTextCallback*(callback: TextCallback) =
     if callback != nil: discard
   proc platformSetFileCallback*(callback: FileCallback) =
+    if callback != nil: discard
+  proc platformSetCommandCallback*(callback: CommandCallback) =
     if callback != nil: discard
   proc platformSetIdleCallback*(callback: IdleCallback) =
     if callback != nil: discard

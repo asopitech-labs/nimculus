@@ -2676,6 +2676,7 @@ when isMainModule:
     platformSetTextCallback(receiveNativeText)
     platformSetInputCallback(receiveNativeInput)
     platformSetFileCallback(receiveNativeFile)
+    platformSetCommandCallback(receiveNativeCommand)
     platformSetIdleCallback(receiveNativeIdle)
     startWindowsTerminal()
   discard platformRun()

@@ -45,7 +45,7 @@ when defined(windows):
 
   proc handleWindowsTerminalInput*(event: ptr NimculusInputEvent): bool =
     if not windowsTerminalVisible or windowsTerminal == nil or windowsTerminal.closed or
-        event == nil or event.kind != 1'u32: return false
+        event == nil or event.kind != 10'u32: return false
     let control = (event.modifiers and (1'u32 shl 18)) != 0
     let input = case event.keyCode
       of 37'u32: "\x1b[D"
