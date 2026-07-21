@@ -91,6 +91,119 @@ static RECT g_saved_window_rect;
 static bool g_suppress_translate = false;
 static bool g_tracking_mouse = false;
 static bool g_close_request_pending = false;
+static HWND g_palette_window = NULL;
+static HWND g_palette_edit = NULL;
+static WNDPROC g_palette_edit_original = NULL;
+static char g_palette_command[131072];
+
+static LRESULT CALLBACK palette_edit_proc(HWND window, UINT message,
+                                          WPARAM wparam, LPARAM lparam);
+
+static void close_command_palette(void) {
+  if (g_palette_window) DestroyWindow(g_palette_window);
+}
+
+static void submit_command_palette(void) {
+  if (!g_palette_edit || !g_command_callback) return;
+  wchar_t value[32768];
+  int wide_length = GetWindowTextW(g_palette_edit, value,
+                                   (int)(sizeof(value) / sizeof(value[0])));
+  if (wide_length <= 0) {
+    close_command_palette();
+    return;
+  }
+  const char prefix[] = "commandPalette:";
+  size_t prefix_length = sizeof(prefix) - 1;
+  if (prefix_length >= sizeof(g_palette_command)) return;
+  int utf8_length = WideCharToMultiByte(CP_UTF8, 0, value, wide_length,
+      g_palette_command + prefix_length,
+      (int)(sizeof(g_palette_command) - prefix_length - 1), NULL, NULL);
+  if (utf8_length <= 0) return;
+  if ((size_t)utf8_length + prefix_length >= sizeof(g_palette_command)) return;
+  memcpy(g_palette_command, prefix, prefix_length);
+  g_palette_command[prefix_length + (size_t)utf8_length] = '\0';
+  close_command_palette();
+  g_command_callback(g_palette_command);
+}
+
+static LRESULT CALLBACK palette_edit_proc(HWND window, UINT message,
+                                          WPARAM wparam, LPARAM lparam) {
+  if (message == WM_KEYDOWN) {
+    if (wparam == VK_RETURN) {
+      submit_command_palette();
+      return 0;
+    }
+    if (wparam == VK_ESCAPE) {
+      close_command_palette();
+      return 0;
+    }
+  }
+  return g_palette_edit_original
+      ? CallWindowProcW(g_palette_edit_original, window, message, wparam, lparam)
+      : DefWindowProcW(window, message, wparam, lparam);
+}
+
+static LRESULT CALLBACK palette_window_proc(HWND window, UINT message,
+                                            WPARAM wparam, LPARAM lparam) {
+  switch (message) {
+    case WM_CREATE: {
+      HFONT font = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+      CreateWindowExW(0, L"STATIC", L"Command palette — type a command and press Enter",
+          WS_CHILD | WS_VISIBLE, 12, 10, 450, 22, window, NULL,
+          GetModuleHandleW(NULL), NULL);
+      g_palette_edit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
+          WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+          12, 36, 450, 28, window, (HMENU)1, GetModuleHandleW(NULL), NULL);
+      if (g_palette_edit) {
+        SendMessageW(g_palette_edit, WM_SETFONT, (WPARAM)font, TRUE);
+        g_palette_edit_original = (WNDPROC)SetWindowLongPtrW(g_palette_edit,
+            GWLP_WNDPROC, (LONG_PTR)palette_edit_proc);
+        SetFocus(g_palette_edit);
+      }
+      return 0;
+    }
+    case WM_CLOSE:
+      DestroyWindow(window);
+      return 0;
+    case WM_DESTROY:
+      g_palette_edit = NULL;
+      g_palette_edit_original = NULL;
+      g_palette_window = NULL;
+      return 0;
+    default:
+      return DefWindowProcW(window, message, wparam, lparam);
+  }
+}
+
+void nimculus_platform_show_command_palette(void) {
+  if (!g_window || g_palette_window) {
+    if (g_palette_window) SetFocus(g_palette_edit);
+    return;
+  }
+  HINSTANCE instance = GetModuleHandleW(NULL);
+  const wchar_t class_name[] = L"NimculusCommandPalette";
+  WNDCLASSEXW klass;
+  ZeroMemory(&klass, sizeof(klass));
+  klass.cbSize = sizeof(klass);
+  klass.hInstance = instance;
+  klass.lpfnWndProc = palette_window_proc;
+  klass.hCursor = LoadCursor(NULL, IDC_ARROW);
+  klass.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+  klass.lpszClassName = class_name;
+  if (!RegisterClassExW(&klass) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return;
+  RECT owner;
+  GetWindowRect(g_window, &owner);
+  const int width = 476;
+  const int height = 82;
+  int x = owner.left + ((owner.right - owner.left) - width) / 2;
+  int y = owner.top + ((owner.bottom - owner.top) - height) / 3;
+  g_palette_window = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+      class_name, L"Nimculus Command Palette", WS_POPUP | WS_CAPTION | WS_SYSMENU,
+      x, y, width, height, g_window, NULL, instance, NULL);
+  if (!g_palette_window) return;
+  ShowWindow(g_palette_window, SW_SHOW);
+  UpdateWindow(g_palette_window);
+}
 
 typedef struct NimculusImage {
   uint32_t id;

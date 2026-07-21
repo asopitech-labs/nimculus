@@ -10,6 +10,15 @@ document even though the editor model has changed. Settings keymap reload is
 also enabled on Windows so the registry and platform shortcut normalization
 observe the same live configuration contract.
 
+## M13-047: Keep Windows command palette input at the native UI boundary
+
+The Windows command palette uses a small native `EDIT` control rather than
+making Win32 window types visible to NimNUI. Like Zed's picker, it owns focus,
+IME text entry, Enter confirmation, and Escape dismissal, then emits one
+`commandPalette:<query>` command through the existing callback. Command
+resolution and task execution remain in the application layer, so this native
+surface does not duplicate command definitions or process logic.
+
 ## M0-001: Use Nim standard tooling for the first quality gate
 
 `nimpretty` is exposed through `nimble format` and `nim check` through

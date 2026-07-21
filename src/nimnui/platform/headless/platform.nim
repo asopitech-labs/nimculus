@@ -126,7 +126,8 @@ proc platformSetPaintDirtyRegions*(regions: ptr NativePaintRegion, count: uint32
 proc platformShowExternalChange*(path: cstring) = discard path
 proc platformShowFindDocument*() = discard
 proc platformShowWorkspaceSearch*() = discard
-proc platformShowCommandPalette*() = discard
+when not defined(windows):
+  proc platformShowCommandPalette*() = discard
 proc platformShowSettingsPanel*(theme, editorFontSize, terminalFontSize,
                                 fontFamily, shell: cstring) = discard (theme, editorFontSize,
                                     terminalFontSize, fontFamily, shell)
