@@ -48,11 +48,11 @@ when defined(windows):
         event == nil or event.kind != 10'u32: return false
     let control = (event.modifiers and (1'u32 shl 18)) != 0
     let input = case event.keyCode
-      of 37'u32: "\x1b[D"
-      of 38'u32: "\x1b[A"
-      of 39'u32: "\x1b[C"
-      of 40'u32: "\x1b[B"
-      of 67'u32:
+      of 123'u32: "\x1b[D"
+      of 126'u32: "\x1b[A"
+      of 124'u32: "\x1b[C"
+      of 125'u32: "\x1b[B"
+      of 8'u32:
         if control: "\x03" else: ""
       else: ""
     if input.len == 0: return false

@@ -177,9 +177,15 @@ proc dispatchNativeShortcut(event: ptr NimculusInputEvent): bool {.cdecl.} =
   if event == nil: return false
   when defined(macosx):
     if handleCompletionShortcut(event): return true
+  var modifiers = event.modifiers
+  when defined(windows):
+    # Windows standard editing shortcuts use Ctrl where macOS uses Command.
+    # Keep the registry's platform-neutral command bindings usable on Win32.
+    if (modifiers and (1'u32 shl 18)) != 0:
+      modifiers = (modifiers or (1'u32 shl 20)) and not (1'u32 shl 18)
   shortcutRegistry.dispatchShortcut(Shortcut(
     keyCode: event.keyCode,
-    modifiers: macOSModifiers(event.modifiers)))
+    modifiers: macOSModifiers(modifiers)))
 
 proc nativeShortcutAction(name: string): proc() {.closure.} =
   result = proc() = receiveNativeCommand(name.cstring)
@@ -2687,6 +2693,8 @@ when isMainModule:
     else:
       persistSession()
   elif defined(windows):
+    setupShortcutRegistry()
+    platformSetShortcutCallback(dispatchNativeShortcut)
     setupPersistencePaths()
     platformSetTextCallback(receiveNativeText)
     platformSetInputCallback(receiveNativeInput)

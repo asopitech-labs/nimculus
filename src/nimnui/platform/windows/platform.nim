@@ -11,6 +11,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
   proc platformInputCount*(): uint64 {.importc: "nimculus_platform_input_count", cdecl.}
   proc platformSetInputCallback*(callback: InputCallback) {.importc: "nimculus_platform_set_input_callback", cdecl.}
+  proc platformSetShortcutCallback*(callback: ShortcutCallback) {.importc: "nimculus_platform_set_shortcut_callback", cdecl.}
   proc platformSetTextCallback*(callback: TextCallback) {.importc: "nimculus_platform_set_text_callback", cdecl.}
   proc platformSetFileCallback*(callback: FileCallback) {.importc: "nimculus_platform_set_file_callback", cdecl.}
   proc platformSetCommandCallback*(callback: CommandCallback) {.importc: "nimculus_platform_set_command_callback", cdecl.}
@@ -42,6 +43,8 @@ else:
     if metrics != nil: metrics[] = PlatformMetrics(scaleFactor: 1.0)
   proc platformInputCount*(): uint64 = 0
   proc platformSetInputCallback*(callback: InputCallback) =
+    if callback != nil: discard
+  proc platformSetShortcutCallback*(callback: ShortcutCallback) =
     if callback != nil: discard
   proc platformSetTextCallback*(callback: TextCallback) =
     if callback != nil: discard

@@ -1393,3 +1393,15 @@ commands, while style flags, extended style flags, monitor bounds, and D3D11
 render-target refresh remain private to `windows_platform.c`. This avoids
 leaking Win32 state into Nimculus or NimNUI and preserves the existing
 platform-contract approach.
+
+## M13-012: Normalize Win32 keyboard events before shared shortcut routing
+
+Zed's Windows backend separates accelerator handling from character input and
+does not let a consumed shortcut fall through as text. Nimculus now applies
+the same boundary: Win32 virtual-key values are converted to the existing
+AppKit-compatible key-code contract, the Windows Ctrl modifier is normalized
+to the command modifier for standard application shortcuts, and consumed
+control-key events suppress `TranslateMessage`. `WM_CHAR` and IMM32 remain the
+layout-aware text path, so shortcut routing does not replace Unicode text
+input. The Windows terminal receives canonical arrow/letter codes after this
+translation.

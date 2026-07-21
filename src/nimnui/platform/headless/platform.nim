@@ -35,8 +35,9 @@ when not defined(windows):
 when not defined(windows):
   proc platformSetTextCallback*(callback: TextCallback) =
     if callback != nil: discard
-proc platformSetShortcutCallback*(callback: ShortcutCallback) =
-  if callback != nil: discard
+when not defined(windows):
+  proc platformSetShortcutCallback*(callback: ShortcutCallback) =
+    if callback != nil: discard
 proc platformSetSelectionCallback*(callback: SelectionCallback) =
   if callback != nil: discard
 when not defined(windows):

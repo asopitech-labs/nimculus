@@ -14,6 +14,7 @@
 static NimculusPlatformMetrics g_metrics = {1.0, 0, 0, 0, 0, 0.0, 0};
 static uint64_t g_input_count = 0;
 static NimculusInputCallback g_input_callback = NULL;
+static NimculusShortcutCallback g_shortcut_callback = NULL;
 static NimculusTextCallback g_text_callback = NULL;
 static NimculusIdleCallback g_idle_callback = NULL;
 static NimculusCommandCallback g_command_callback = NULL;
@@ -40,6 +41,43 @@ static bool g_fullscreen = false;
 static LONG_PTR g_saved_style = 0;
 static LONG_PTR g_saved_ex_style = 0;
 static RECT g_saved_window_rect;
+static bool g_suppress_translate = false;
+
+/* NimNUI key bindings use the existing AppKit hardware-key code contract.
+ * Win32 virtual-key values are semantic (and differ from those codes), so
+ * translate the stable US keyboard positions at the platform boundary. Text
+ * input still comes from WM_CHAR/IMM32 and therefore remains layout-aware. */
+static UINT canonical_key_code(UINT key_code) {
+  static const UINT letters[26] = {
+    0, 11, 8, 2, 14, 3, 5, 4, 34, 38, 40, 37, 46,
+    45, 31, 35, 12, 15, 1, 17, 32, 9, 13, 7, 16, 6
+  };
+  if (key_code >= 'A' && key_code <= 'Z') return letters[key_code - 'A'];
+  switch (key_code) {
+    case '0': return 29; case '1': return 18; case '2': return 19;
+    case '3': return 20; case '4': return 21; case '5': return 23;
+    case '6': return 22; case '7': return 26; case '8': return 28;
+    case '9': return 25;
+    case VK_RETURN: return 36; case VK_TAB: return 48;
+    case VK_ESCAPE: return 53; case VK_SPACE: return 49;
+    case VK_BACK: return 51; case VK_DELETE: return 117;
+    case VK_LEFT: return 123; case VK_RIGHT: return 124;
+    case VK_DOWN: return 125; case VK_UP: return 126;
+    case VK_HOME: return 115; case VK_END: return 119;
+    case VK_PRIOR: return 116; case VK_NEXT: return 121;
+    case VK_F1: return 122; case VK_F2: return 120; case VK_F3: return 99;
+    case VK_F4: return 118; case VK_F5: return 96; case VK_F6: return 97;
+    case VK_F7: return 98; case VK_F8: return 100; case VK_F9: return 101;
+    case VK_F10: return 109; case VK_F11: return 103; case VK_F12: return 111;
+    case VK_OEM_COMMA: return 43; case VK_OEM_PERIOD: return 47;
+    case VK_OEM_2: return 44; case VK_OEM_1: return 41;
+    case VK_OEM_7: return 39; case VK_OEM_4: return 33;
+    case VK_OEM_6: return 30; case VK_OEM_5: return 42;
+    case VK_OEM_MINUS: return 27; case VK_OEM_PLUS: return 24;
+    case VK_OEM_3: return 50;
+    default: return key_code;
+  }
+}
 
 static int CALLBACK enumerate_font_proc(const LOGFONTW *font, const TEXTMETRICW *metrics,
                                        DWORD font_type, LPARAM data) {
@@ -275,7 +313,7 @@ static void send_input(UINT type, UINT key_code, UINT button, LPARAM lparam) {
   if (!g_input_callback) return;
   NimculusInputEvent event = {0};
   event.type = type;
-  event.key_code = key_code;
+  event.key_code = canonical_key_code(key_code);
   event.button = button;
   event.modifiers = 0;
   if (GetKeyState(VK_SHIFT) & 0x8000) event.modifiers |= 1u << 17;
@@ -286,6 +324,7 @@ static void send_input(UINT type, UINT key_code, UINT button, LPARAM lparam) {
   event.x = (double)point.x;
   event.y = (double)point.y;
   g_input_count++;
+  if (type == 10 && g_shortcut_callback && g_shortcut_callback(&event)) return;
   g_input_callback(&event);
 }
 
@@ -344,12 +383,16 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
       if (g_idle_callback) g_idle_callback();
       return 0;
     case WM_KEYDOWN:
+    case WM_SYSKEYDOWN:
+      g_suppress_translate = (GetKeyState(VK_CONTROL) & 0x8000) != 0 ||
+                             (GetKeyState(VK_MENU) & 0x8000) != 0;
       if (wparam == VK_SHIFT || wparam == VK_CONTROL || wparam == VK_MENU)
         send_input(12, (UINT)wparam, 0, 0);
       else
         send_input(10, (UINT)wparam, 0, 0);
       return 0;
     case WM_KEYUP:
+    case WM_SYSKEYUP:
       if (wparam == VK_SHIFT || wparam == VK_CONTROL || wparam == VK_MENU)
         send_input(12, (UINT)wparam, 0, 0);
       else
@@ -458,8 +501,13 @@ bool nimculus_platform_run(void) {
   create_device();
   MSG message;
   while (GetMessageW(&message, NULL, 0, 0) > 0) {
-    TranslateMessage(&message);
     DispatchMessageW(&message);
+    /* Dispatch first so the shortcut callback can suppress WM_CHAR for
+       commands and control-key terminal input. */
+    if ((message.message == WM_KEYDOWN || message.message == WM_SYSKEYDOWN) &&
+        !g_suppress_translate) {
+      TranslateMessage(&message);
+    }
   }
   release_render_target();
   if (g_swap_chain) g_swap_chain->lpVtbl->Release(g_swap_chain);
@@ -586,6 +634,10 @@ void nimculus_platform_set_idle_callback(NimculusIdleCallback callback) {
 
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback) {
   g_command_callback = callback;
+}
+
+void nimculus_platform_set_shortcut_callback(NimculusShortcutCallback callback) {
+  g_shortcut_callback = callback;
 }
 
 void nimculus_platform_toggle_fullscreen(void) {
