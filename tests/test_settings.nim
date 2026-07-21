@@ -25,6 +25,7 @@ suite "M12 settings foundation":
     check schema["$schema"].kind == JString
     check schema["properties"]["editor"]["properties"]["fontSize"]["minimum"].getInt == 6
     check schema["properties"]["editor"]["properties"]["fontFamily"]["type"].getStr == "string"
+    check schema["properties"]["terminal"]["properties"]["fontSize"]["maximum"].getInt == 48
     check schema["properties"]["keymap"]["items"]["required"].len == 2
 
   test "validates types and exposes layered keymap and theme":

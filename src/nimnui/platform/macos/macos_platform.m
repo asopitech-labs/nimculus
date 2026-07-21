@@ -29,6 +29,8 @@ static double g_editor_cursor[2] = {8.0, 12.0};
 static CGFloat g_editor_font_size = 14.0;
 static CGFloat g_editor_line_height = 18.0;
 static NSString *g_editor_font_name = @"Menlo";
+static CGFloat g_terminal_font_size = 12.0;
+static NSString *g_terminal_font_name = @"Menlo";
 static NSUInteger g_editor_scroll_line = 0;
 static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
@@ -1153,7 +1155,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
   if (!terminal) return;
   NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
     initWithString:g_terminal_text ?: @"" attributes:@{
-      NSFontAttributeName: [NSFont fontWithName:@"Menlo" size:12.0] ?: [NSFont monospacedSystemFontOfSize:12.0 weight:NSFontWeightRegular],
+      NSFontAttributeName: [NSFont fontWithName:g_terminal_font_name size:g_terminal_font_size] ?: [NSFont monospacedSystemFontOfSize:g_terminal_font_size weight:NSFontWeightRegular],
       NSForegroundColorAttributeName: terminalColor(0, 0, 0, 0, 0, YES),
       NSBackgroundColorAttributeName: terminalColor(0, 0, 0, 0, 0, NO)
     }];
@@ -1168,9 +1170,9 @@ static void applyTerminalRuns(NSTextView *terminal) {
     NSColor *background = terminalColor(run.background_kind, run.background_index,
       run.background_red, run.background_green, run.background_blue, NO);
     if (run.flags & 16) { NSColor *swap = foreground; foreground = background; background = swap; }
-    NSFont *font = [NSFont fontWithName:@"Menlo" size:12.0] ?: [NSFont monospacedSystemFontOfSize:12.0 weight:NSFontWeightRegular];
-    if (run.flags & 1) font = [NSFont fontWithName:@"Menlo-Bold" size:12.0] ?: font;
-    if (run.flags & 4) font = [NSFont fontWithName:@"Menlo-Italic" size:12.0] ?: font;
+    NSFont *font = [NSFont fontWithName:g_terminal_font_name size:g_terminal_font_size] ?: [NSFont monospacedSystemFontOfSize:g_terminal_font_size weight:NSFontWeightRegular];
+    if (run.flags & 1) font = [[NSFontManager sharedFontManager] convertFont:font toHaveTrait:NSBoldFontMask] ?: font;
+    if (run.flags & 4) font = [[NSFontManager sharedFontManager] convertFont:font toHaveTrait:NSItalicFontMask] ?: font;
     NSRange range = NSMakeRange(start, end - start);
     [attributed addAttribute:NSFontAttributeName value:font range:range];
     [attributed addAttribute:NSForegroundColorAttributeName value:foreground range:range];
@@ -1218,7 +1220,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
       [NSColor colorWithCalibratedRed:0.025 green:0.030 blue:0.045 alpha:1.0]) colorWithAlphaComponent:0.98];
     terminal.textColor = themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]);
-    terminal.font = [NSFont fontWithName:@"Menlo" size:12.0] ?: [NSFont monospacedSystemFontOfSize:12.0 weight:NSFontWeightRegular];
+    terminal.font = [NSFont fontWithName:g_terminal_font_name size:g_terminal_font_size] ?: [NSFont monospacedSystemFontOfSize:g_terminal_font_size weight:NSFontWeightRegular];
     terminal.textContainerInset = NSMakeSize(8.0, 6.0);
     terminal.hidden = YES;
     [self addSubview:terminal];
@@ -1229,7 +1231,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
     taskOutput.drawsBackground = YES;
     taskOutput.backgroundColor = [NSColor colorWithCalibratedRed:0.045 green:0.040 blue:0.030 alpha:0.98];
     taskOutput.textColor = [NSColor colorWithCalibratedRed:0.92 green:0.88 blue:0.76 alpha:1.0];
-    taskOutput.font = [NSFont fontWithName:@"Menlo" size:12.0] ?: [NSFont monospacedSystemFontOfSize:12.0 weight:NSFontWeightRegular];
+    taskOutput.font = [NSFont fontWithName:g_terminal_font_name size:g_terminal_font_size] ?: [NSFont monospacedSystemFontOfSize:g_terminal_font_size weight:NSFontWeightRegular];
     taskOutput.textContainerInset = NSMakeSize(8.0, 6.0);
     taskOutput.hidden = YES;
     [self addSubview:taskOutput];
@@ -2611,6 +2613,30 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
     }
   }
   [view drawFrame];
+}
+static void updateTerminalFonts(void) {
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  NSFont *font = [NSFont fontWithName:g_terminal_font_name size:g_terminal_font_size] ?:
+    [NSFont monospacedSystemFontOfSize:g_terminal_font_size weight:NSFontWeightRegular];
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) {
+      NSTextView *terminal = (NSTextView *)subview;
+      terminal.font = font;
+      if (g_terminal_run_count > 0) applyTerminalRuns(terminal);
+    } else if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) {
+      ((NSTextView *)subview).font = font;
+    }
+  }
+}
+void nimculus_platform_set_terminal_font_size(double size) {
+  g_terminal_font_size = MIN(48.0, MAX(6.0, size > 0.0 ? size : 12.0));
+  updateTerminalFonts();
+}
+void nimculus_platform_set_terminal_font_name(const char *name) {
+  NSString *requested = name ? [NSString stringWithUTF8String:name] : nil;
+  g_terminal_font_name = requested.length > 0 ? [requested copy] : @"Menlo";
+  updateTerminalFonts();
 }
 void nimculus_platform_set_terminal_selection(uint32_t start_row, uint32_t start_column,
                                               uint32_t end_row, uint32_t end_column) {

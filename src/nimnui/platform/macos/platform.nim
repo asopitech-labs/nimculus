@@ -83,6 +83,8 @@ proc platformSetTerminalText*(text: cstring, length: uint32) {.importc: "nimculu
 proc platformSetTerminalRuns*(text: cstring, length: uint32, runs: ptr NativeTerminalRun,
                              count: uint32) {.importc: "nimculus_platform_set_terminal_runs", cdecl.}
 proc platformSetThemeColors*(background, foreground, accent: cstring) {.importc: "nimculus_platform_set_theme_colors", cdecl.}
+proc platformSetTerminalFontSize*(size: cdouble) {.importc: "nimculus_platform_set_terminal_font_size", cdecl.}
+proc platformSetTerminalFontName*(name: cstring) {.importc: "nimculus_platform_set_terminal_font_name", cdecl.}
 proc platformIsDarkAppearance*(): bool {.importc: "nimculus_platform_is_dark_appearance", cdecl.}
 proc platformInstallCrashHandler*(path: cstring) {.importc: "nimculus_platform_install_crash_handler", cdecl.}
 proc platformSetTerminalSelection*(startRow, startColumn, endRow, endColumn: uint32) {.importc: "nimculus_platform_set_terminal_selection", cdecl.}

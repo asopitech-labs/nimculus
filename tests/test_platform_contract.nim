@@ -33,6 +33,11 @@ suite "macOS platform contract":
     platformSetEditorFontSize(14.0)
     check platformEditorLineHeight() > 0.0
 
+  test "terminal font settings are accepted by the native overlay contract":
+    platformSetTerminalFontName("Menlo")
+    platformSetTerminalFontSize(13.0)
+    check true
+
   test "native glyph atlas uploads and reuses visible glyphs":
     if platformValidateGlyphAtlas():
       check true

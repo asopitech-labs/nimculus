@@ -93,10 +93,15 @@ proc validateSettings*(root: JsonNode): seq[SettingsDiagnostic] =
     result.add(SettingsDiagnostic(path: "editor.tabSize", message: "must be an integer"))
   elif tabSize != nil and (tabSize.getInt < 1 or tabSize.getInt > 16):
     result.add(SettingsDiagnostic(path: "editor.tabSize", message: "must be between 1 and 16"))
+  let terminalFontSize = nodeAt(root, "terminal.fontSize")
+  if terminalFontSize != nil and terminalFontSize.kind != JInt:
+    result.add(SettingsDiagnostic(path: "terminal.fontSize", message: "must be an integer"))
+  elif terminalFontSize != nil and (terminalFontSize.getInt < 6 or terminalFontSize.getInt > 48):
+    result.add(SettingsDiagnostic(path: "terminal.fontSize", message: "must be between 6 and 48"))
   let insertSpaces = nodeAt(root, "editor.insertSpaces")
   if insertSpaces != nil and insertSpaces.kind != JBool:
     result.add(SettingsDiagnostic(path: "editor.insertSpaces", message: "must be a boolean"))
-  for key in ["theme", "iconTheme", "editor.fontFamily", "terminal.shell"]:
+  for key in ["theme", "iconTheme", "editor.fontFamily", "terminal.shell", "terminal.fontFamily"]:
     let value = jsonStringAt(root, key, "")
     if value.len == 0:
       let node = nodeAt(root, key)
@@ -141,7 +146,10 @@ proc settingsSchema*(): JsonNode =
         "accent": {"type": "string"}, "selection": {"type": "string"},
         "border": {"type": "string"}
       }},
-      "terminal": {"type": "object", "properties": {"shell": {"type": "string"}}},
+      "terminal": {"type": "object", "properties": {
+        "shell": {"type": "string"}, "fontFamily": {"type": "string"},
+        "fontSize": {"type": "integer", "minimum": 6, "maximum": 48}
+      }},
       "lsp": {"type": "object", "properties": {"command": {"type": "string"}}},
       "keymap": {"type": "array", "items": {"type": "object",
         "required": ["key", "command"], "properties": {
