@@ -358,6 +358,18 @@ suite "M3 text foundation":
     paint.drawRectangle(Rect(origin: Point(x: px(20), y: px(20)), size: Size(width: px(4), height: px(4))))
     check paint.commands.len == 1
 
+  test "paint damage merges overlapping regions":
+    var paint: PaintList
+    paint.invalidate(Rect(origin: Point(x: px(0), y: px(0)),
+      size: Size(width: px(10), height: px(10))))
+    paint.invalidate(Rect(origin: Point(x: px(5), y: px(5)),
+      size: Size(width: px(10), height: px(10))))
+    check paint.dirty.len == 1
+    check paint.dirty[0] == Rect(size: Size(width: px(15), height: px(15)))
+    paint.drawRectangle(Rect(origin: Point(x: px(2), y: px(2)),
+      size: Size(width: px(4), height: px(4))))
+    check paint.commands.len == 1
+
   test "paint list applies nested clip regions":
     var paint: PaintList
     paint.invalidate(Rect(size: Size(width: px(100), height: px(100))))

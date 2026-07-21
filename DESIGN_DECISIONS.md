@@ -42,6 +42,14 @@ backend applies the current DPI scale. The native backend keeps only a bounded
 default for startup before the first layout frame; it does not own editor
 layout state.
 
+## M2-021: Coalesce overlapping paint damage regions
+
+Zed's renderer treats damage as a set of regions rather than replaying the
+same paint command once per overlapping invalidation. NimNUI now coalesces
+overlapping `PaintList.dirty` rectangles before command generation, while
+discarding zero-area damage. The native backends therefore receive a smaller,
+non-duplicated damage list without changing command clipping semantics.
+
 ## M13-052: Validate Windows package outputs before upload
 
 Zed's release flow treats artifact creation and artifact validation as separate

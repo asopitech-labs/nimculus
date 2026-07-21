@@ -35,7 +35,28 @@ proc intersection*(a, b: Rect): Rect =
   Rect(origin: Point(x: px(left), y: px(top)), size: Size(width: px(max(0'f32, right - left)),
     height: px(max(0'f32, bottom - top))))
 
-proc invalidate*(paint: var PaintList, rect: Rect) = paint.dirty.add(rect)
+proc unionRect(a, b: Rect): Rect =
+  let left = min(float32(a.origin.x), float32(b.origin.x))
+  let top = min(float32(a.origin.y), float32(b.origin.y))
+  let right = max(float32(a.origin.x + a.size.width),
+    float32(b.origin.x + b.size.width))
+  let bottom = max(float32(a.origin.y + a.size.height),
+    float32(b.origin.y + b.size.height))
+  Rect(origin: Point(x: px(left), y: px(top)),
+    size: Size(width: px(right - left), height: px(bottom - top)))
+
+proc invalidate*(paint: var PaintList, rect: Rect) =
+  if float32(rect.size.width) <= 0 or float32(rect.size.height) <= 0: return
+  var merged = rect
+  var index = 0
+  while index < paint.dirty.len:
+    if intersects(merged, paint.dirty[index]):
+      merged = unionRect(merged, paint.dirty[index])
+      paint.dirty.delete(index)
+      index = 0
+    else:
+      inc index
+  paint.dirty.add(merged)
 
 proc add*(paint: var PaintList, command: PaintCommand) =
   let transform = if paint.transformStack.len > 0: paint.transformStack[^1] else: identityTransform()
