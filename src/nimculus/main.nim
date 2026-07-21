@@ -279,6 +279,9 @@ var discardDirtyOnExit = false
 when defined(macosx):
   var lspBridge: LspEditorBridge
   var editorGitDiffJob: GitJob
+  var editorGitStatusJob: GitJob
+  var editorGitStatusRepository: GitRepository
+  var editorGitStatusDocumentPath = ""
   var editorGitActionJob: GitJob
   var editorGitAction = ""
   var editorGitActionPhase = ""
@@ -965,6 +968,11 @@ when defined(macosx):
     if editorGitDiffJob != nil:
       editorGitDiffJob.cancel()
       editorGitDiffJob = nil
+    if editorGitStatusJob != nil:
+      editorGitStatusJob.cancel()
+      editorGitStatusJob = nil
+    editorGitStatusRepository = nil
+    editorGitStatusDocumentPath = ""
     editorGitRepository = nil
     editorGitPath = ""
     clearNativeGitHunks()
@@ -975,8 +983,12 @@ when defined(macosx):
     if relative.len == 0: return
     editorGitRepository = repository
     editorGitPath = document[].path
+    editorGitStatusRepository = repository
+    editorGitStatusDocumentPath = document[].path
     editorGitDiffJob = repository.startGitJob([
       "diff", "--no-ext-diff", "--unified=3", "--", relative])
+    editorGitStatusJob = repository.startGitJob([
+      "status", "--porcelain=v1", "--untracked-files=all", "-z"])
 
   proc pollNativeGitHunks() =
     if editorGitDiffJob == nil or not editorGitDiffJob.poll(): return
@@ -997,6 +1009,23 @@ when defined(macosx):
       platformSetEditorGitHunks(addr nativeHunks[0], uint32(nativeHunks.len))
     else:
       clearNativeGitHunks()
+
+  proc pollNativeGitStatus() =
+    if editorGitStatusJob == nil or not editorGitStatusJob.poll(): return
+    let completedJob = editorGitStatusJob
+    editorGitStatusJob = nil
+    let document = activeDocument()
+    if document == nil or document[].path != editorGitStatusDocumentPath or
+        completedJob.result.exitCode != 0:
+      return
+    let entries = parseStatus(completedJob.result.output)
+    var conflicts = 0
+    for entry in entries:
+      if entry.conflict: inc conflicts
+    let branch = editorGitStatusRepository.currentBranch()
+    let branchLabel = if branch.len > 0: branch else: "detached"
+    editorViewState.statusMessage = "Git " & branchLabel & ": " & $entries.len &
+      " changed, " & $conflicts & " conflict(s)"
 
   proc editorVisibleLineCount(): int =
     ## Keep cursor reveal, syntax requests, and native text rendering on the
@@ -1448,6 +1477,7 @@ when defined(macosx):
       editorViewState.statusMessage = "Settings reloaded"
     applySettingsTheme()
     pollNativeGitHunks()
+    pollNativeGitStatus()
     pollNativeGitAction()
     pollNativeTask()
     pollNativeUpdate()
