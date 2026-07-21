@@ -1148,9 +1148,22 @@ static void render_terminal_runs(HDC dc, const RECT *rect, HFONT font,
         FillRect(dc, &selected, selection_brush);
       }
     }
+    HFONT run_font = font;
+    if ((run->flags & 1u) != 0 || (run->flags & 4u) != 0) {
+      double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+      HFONT styled_font = CreateFontW(font_height(g_terminal_font_size, scale), 0, 0, 0,
+          (run->flags & 1u) != 0 ? FW_BOLD : FW_NORMAL,
+          (run->flags & 4u) != 0, FALSE, FALSE, DEFAULT_CHARSET,
+          OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+          FIXED_PITCH | FF_MODERN, g_terminal_font_name);
+      if (styled_font) run_font = styled_font;
+    }
+    HGDIOBJ old_run_font = SelectObject(dc, run_font);
     SetTextColor(dc, terminal_run_color(run, true));
     DrawTextW(dc, wide, wide_length, &text_rect,
         DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX | DT_NOCLIP);
+    SelectObject(dc, old_run_font);
+    if (run_font != font) DeleteObject(run_font);
     if ((run->flags & 8u) != 0 || (run->flags & 32u) != 0) {
       HPEN pen = CreatePen(PS_SOLID, 1, terminal_run_color(run, true));
       HGDIOBJ old_pen = SelectObject(dc, pen);

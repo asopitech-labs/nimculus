@@ -1482,8 +1482,8 @@ delivered.
 The terminal screen already emits cell-derived `NimculusTerminalRun` records,
 but Windows previously rendered only the flattened text and silently discarded
 the run and selection APIs. Windows now retains the UTF-8 text and run records,
-maps indexed/RGB/default colors (including inverse and dim), paints run
-backgrounds, underline/strike-through, and paints the selected cell rectangle
+maps indexed/RGB/default colors (including inverse and dim), selects bold/italic
+run fonts, paints run backgrounds, underline/strike-through, and paints the selected cell rectangle
 before the text. This keeps the terminal parser and cell ownership in Nim while
 making the existing GDI bootstrap observe the same attribute contract. A
 DirectWrite/GPU terminal atlas remains separate follow-up work.
