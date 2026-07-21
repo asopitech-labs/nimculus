@@ -21,7 +21,8 @@ import nimculus/task_service
 import nimculus/update_service
 import nimculus/terminal
 import nimculus/settings
-import nimculus/windows_terminal
+when defined(windows):
+  import nimculus/windows_terminal
 
 proc syncEditorCursor()
 proc persistSession()

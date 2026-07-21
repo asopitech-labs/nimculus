@@ -1347,6 +1347,11 @@ lifetime rules in `windows_pty.c`, exposing only create/write/read/resize/close
 operations to `terminal.nim`. This makes the protocol parser reusable while
 leaving the Windows native terminal surface as a separate integration step.
 
+The Windows runner also executes `tests/test_windows_terminal.nim` against
+`cmd.exe`, checking output delivery through the screen parser, resize state, and
+close cleanup. The macOS test run only compiles the portable skip path because
+ConPTY is inherently Windows-native.
+
 ## M13-009: Keep Windows terminal manager separate from macOS AppKit state
 
 The existing macOS terminal manager also owns AppKit overlay layout, Git, task,
