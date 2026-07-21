@@ -1273,7 +1273,9 @@ proc syncEditorCursor() =
     platformSetEditorSelection(uint32(selection.startByte), uint32(selection.endByte))
     platformInvalidateImeCoordinates()
     platformSetEditorDirty(document != nil and document[].buffer.isDirty)
-    platformSetEditorStatus(editorViewState.statusMessage.cstring)
+    let status = if document != nil: editorViewState.statusBarText(document[].buffer)
+      else: editorViewState.statusMessage
+    platformSetEditorStatus(status.cstring)
 
 when defined(macosx):
   proc editorOffsetAtPoint(document: ptr FileDocument, x, y: cdouble): int =
@@ -1431,7 +1433,10 @@ when defined(macosx):
     pollNativeTask()
     pollNativeUpdate()
     pollNativeTerminal()
-    platformSetEditorStatus(editorViewState.statusMessage.cstring)
+    let idleDocument = activeDocument()
+    let idleStatus = if idleDocument != nil: editorViewState.statusBarText(idleDocument[].buffer)
+      else: editorViewState.statusMessage
+    platformSetEditorStatus(idleStatus.cstring)
     if lspBridge == nil: return
     let document = activeDocument()
     if document != nil:
@@ -1443,7 +1448,10 @@ when defined(macosx):
       navigateToDefinition()
       applyPendingFormatting()
       pollNativeLspFeatureResults()
-    platformSetEditorStatus(editorViewState.statusMessage.cstring)
+    let finalDocument = activeDocument()
+    let finalStatus = if finalDocument != nil: editorViewState.statusBarText(finalDocument[].buffer)
+      else: editorViewState.statusMessage
+    platformSetEditorStatus(finalStatus.cstring)
 
   proc acceptCurrentCompletion() =
     let document = activeDocument()
