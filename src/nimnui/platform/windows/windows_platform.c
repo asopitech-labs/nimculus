@@ -44,6 +44,13 @@ static wchar_t g_terminal_text[262144];
 static bool g_terminal_visible = false;
 static wchar_t *g_editor_text = NULL;
 static int g_editor_text_length = 0;
+static char *g_editor_utf8 = NULL;
+static uint32_t g_editor_utf8_length = 0;
+static uint32_t g_editor_scroll_line = 0;
+static uint32_t g_editor_cursor_byte = 0;
+static uint32_t g_editor_cursor_line = 0;
+static uint32_t g_editor_selection_start = 0;
+static uint32_t g_editor_selection_end = 0;
 static wchar_t g_ime_wide[32768];
 static char g_ime_utf8[131072];
 static wchar_t g_pending_high_surrogate = 0;
@@ -55,6 +62,41 @@ static LONG_PTR g_saved_ex_style = 0;
 static RECT g_saved_window_rect;
 static bool g_suppress_translate = false;
 static bool g_tracking_mouse = false;
+
+static void editor_byte_position(uint32_t byte_offset, uint32_t *line,
+                                 uint32_t *column) {
+  uint32_t current_line = 0;
+  uint32_t current_column = 0;
+  uint32_t limit = byte_offset < g_editor_utf8_length
+      ? byte_offset : g_editor_utf8_length;
+  for (uint32_t index = 0; index < limit; ++index) {
+    unsigned char value = (unsigned char)g_editor_utf8[index];
+    if (value == '\n') {
+      current_line++;
+      current_column = 0;
+    } else if ((value & 0xc0) != 0x80) {
+      current_column++;
+    }
+  }
+  if (line) *line = current_line;
+  if (column) *column = current_column;
+}
+
+static uint32_t editor_line_length(uint32_t target_line) {
+  uint32_t line = 0;
+  uint32_t length = 0;
+  for (uint32_t index = 0; index < g_editor_utf8_length; ++index) {
+    unsigned char value = (unsigned char)g_editor_utf8[index];
+    if (value == '\n') {
+      if (line == target_line) return length;
+      line++;
+      length = 0;
+    } else if ((value & 0xc0) != 0x80) {
+      length++;
+    }
+  }
+  return line == target_line ? length : 0;
+}
 
 /* NimNUI key bindings use the existing AppKit hardware-key code contract.
  * Win32 virtual-key values are semantic (and differ from those codes), so
@@ -533,15 +575,84 @@ static void render_editor_overlay(void) {
   if (!dc) return;
   RECT client;
   GetClientRect(g_window, &client);
-  RECT rect = {268, 128, client.right - 24, client.bottom - 48};
+  double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+  LONG left = (LONG)(268.0 * scale);
+  LONG top = (LONG)(128.0 * scale);
+  LONG right = client.right - (LONG)(24.0 * scale);
+  LONG bottom = client.bottom - (LONG)(48.0 * scale);
   SetBkMode(dc, TRANSPARENT);
   SetTextColor(dc, RGB(215, 218, 224));
-  HFONT font = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+  HFONT font = CreateFontW(-(LONG)(16.0 * scale), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
       DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
       FIXED_PITCH | FF_MODERN, L"Consolas");
   HGDIOBJ old_font = SelectObject(dc, font);
-  DrawTextW(dc, g_editor_text, g_editor_text_length, &rect,
-      DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK | DT_NOCLIP);
+  TEXTMETRICW metrics;
+  GetTextMetricsW(dc, &metrics);
+  LONG line_height = max(1L, metrics.tmHeight + (LONG)(2.0 * scale));
+  uint32_t selection_start = g_editor_selection_start;
+  uint32_t selection_end = g_editor_selection_end;
+  if (selection_start > selection_end) {
+    uint32_t temporary = selection_start;
+    selection_start = selection_end;
+    selection_end = temporary;
+  }
+  if (selection_start < selection_end && g_editor_utf8) {
+    uint32_t start_line = 0, start_column = 0, end_line = 0, end_column = 0;
+    editor_byte_position(selection_start, &start_line, &start_column);
+    editor_byte_position(selection_end, &end_line, &end_column);
+    HBRUSH selection_brush = CreateSolidBrush(RGB(55, 76, 112));
+    for (uint32_t selected_line = start_line; selected_line <= end_line; ++selected_line) {
+      if (selected_line < g_editor_scroll_line) continue;
+      LONG line_top = top + (LONG)(selected_line - g_editor_scroll_line) * line_height;
+      if (line_top >= bottom) break;
+      uint32_t first_column = selected_line == start_line ? start_column : 0;
+      uint32_t last_column = selected_line == end_line
+          ? end_column : editor_line_length(selected_line);
+      if (last_column > first_column) {
+        RECT selection_rect = {
+          left + (LONG)((8 + first_column * 8) * scale),
+          line_top,
+          left + (LONG)((8 + last_column * 8) * scale),
+          line_top + line_height};
+        FillRect(dc, &selection_rect, selection_brush);
+      }
+    }
+    DeleteObject(selection_brush);
+  }
+  uint32_t line = 0;
+  const wchar_t *line_start = g_editor_text;
+  const wchar_t *end = g_editor_text + g_editor_text_length;
+  while (line_start <= end &&
+      (line < g_editor_scroll_line ||
+       top + (LONG)(line - g_editor_scroll_line) * line_height < bottom)) {
+    const wchar_t *line_end = line_start;
+    while (line_end < end && *line_end != L'\n') line_end++;
+    if (line >= g_editor_scroll_line) {
+      LONG line_top = top + (LONG)(line - g_editor_scroll_line) * line_height;
+      if (line_top + line_height > top) {
+        RECT rect = {left, line_top, right, line_top + line_height};
+        int length = (int)(line_end - line_start);
+        if (length > 0 && line_start[length - 1] == L'\r') length--;
+        DrawTextW(dc, line_start, length, &rect,
+            DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX | DT_NOCLIP);
+      }
+    }
+    if (line_end >= end) break;
+    line_start = line_end + 1;
+    line++;
+  }
+  if (g_editor_cursor_line >= g_editor_scroll_line) {
+    LONG cursor_top = top + (LONG)(g_editor_cursor_line - g_editor_scroll_line) * line_height;
+    if (cursor_top < bottom && cursor_top + line_height > top) {
+      HPEN pen = CreatePen(PS_SOLID, max(1, (int)scale), RGB(230, 235, 245));
+      HGDIOBJ old_pen = SelectObject(dc, pen);
+      LONG cursor_x = (LONG)(g_editor_cursor_x * scale);
+      MoveToEx(dc, cursor_x, cursor_top + (LONG)(2.0 * scale), NULL);
+      LineTo(dc, cursor_x, cursor_top + line_height - (LONG)(2.0 * scale));
+      SelectObject(dc, old_pen);
+      DeleteObject(pen);
+    }
+  }
   SelectObject(dc, old_font);
   DeleteObject(font);
   ReleaseDC(g_window, dc);
@@ -824,6 +935,9 @@ bool nimculus_platform_run(void) {
   free(g_editor_text);
   g_editor_text = NULL;
   g_editor_text_length = 0;
+  free(g_editor_utf8);
+  g_editor_utf8 = NULL;
+  g_editor_utf8_length = 0;
   g_window = NULL;
   return true;
 }
@@ -846,6 +960,23 @@ void nimculus_platform_set_editor_cursor(double x, double y) {
   g_editor_cursor_x = x;
   g_editor_cursor_y = y;
   update_ime_position();
+}
+
+void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t line) {
+  g_editor_cursor_byte = byte_offset;
+  g_editor_cursor_line = line;
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_editor_scroll_line(uint32_t line) {
+  g_editor_scroll_line = line;
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_byte) {
+  g_editor_selection_start = start_byte;
+  g_editor_selection_end = end_byte;
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
 
 void nimculus_platform_invalidate_ime_coordinates(void) {
@@ -965,21 +1096,42 @@ void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
   free(g_editor_text);
   g_editor_text = NULL;
   g_editor_text_length = 0;
+  free(g_editor_utf8);
+  g_editor_utf8 = NULL;
+  g_editor_utf8_length = 0;
   if (!utf8 || length == 0) {
     if (g_window) InvalidateRect(g_window, NULL, FALSE);
     return;
   }
   uint32_t bounded_length = min(length, 16u * 1024u * 1024u);
+  g_editor_utf8 = (char *)malloc((size_t)bounded_length + 1);
+  if (!g_editor_utf8) return;
+  memcpy(g_editor_utf8, utf8, bounded_length);
+  g_editor_utf8[bounded_length] = '\0';
+  g_editor_utf8_length = bounded_length;
   int wide_length = MultiByteToWideChar(CP_UTF8, 0, utf8, (int)bounded_length,
                                         NULL, 0);
-  if (wide_length <= 0) return;
+  if (wide_length <= 0) {
+    free(g_editor_utf8);
+    g_editor_utf8 = NULL;
+    g_editor_utf8_length = 0;
+    return;
+  }
   g_editor_text = (wchar_t *)malloc((size_t)(wide_length + 1) * sizeof(wchar_t));
-  if (!g_editor_text) return;
+  if (!g_editor_text) {
+    free(g_editor_utf8);
+    g_editor_utf8 = NULL;
+    g_editor_utf8_length = 0;
+    return;
+  }
   int converted = MultiByteToWideChar(CP_UTF8, 0, utf8, (int)bounded_length,
                                       g_editor_text, wide_length);
   if (converted <= 0) {
     free(g_editor_text);
     g_editor_text = NULL;
+    free(g_editor_utf8);
+    g_editor_utf8 = NULL;
+    g_editor_utf8_length = 0;
     return;
   }
   g_editor_text[converted] = L'\0';

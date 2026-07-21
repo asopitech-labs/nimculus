@@ -1484,3 +1484,18 @@ continues the selection outside the editor rectangle, and wheel input changes
 the editor line scroll with a bounded viewport range. The constants are
 bootstrap renderer parameters; they must be replaced by measured DirectWrite
 or GPU text-layout metrics when the final Windows text renderer is added.
+
+## M13-021: Keep the Windows bootstrap text surface viewport-consistent
+
+Zed's editor does not let the native window independently decide which text
+is visible: scroll state, text layout, cursor, and selection are updated from
+the editor state and then painted in the same viewport. The initial Windows
+surface now follows that contract even before DirectWrite/GPU glyph resources
+exist. The Win32 backend receives scroll line, cursor byte/line, and selection
+updates, renders individual logical lines with `DT_SINGLELINE` (avoiding
+`DrawTextW` word-wrap divergence), clips to the editor viewport, and paints a
+fixed-width bootstrap caret and selection background. UTF-8 is retained only
+at this boundary to map selection byte ranges to bootstrap codepoint columns;
+the editor's grapheme-aware byte range remains authoritative. This makes
+pointer selection and wheel scrolling observable without pretending that the
+bootstrap metrics are the final Windows text layout.

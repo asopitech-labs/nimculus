@@ -51,7 +51,8 @@ when not defined(windows):
     if callback != nil: discard
 when not defined(windows):
   proc platformSetEditorCursor*(x, y: cdouble) = discard (x, y)
-proc platformSetEditorCursorByte*(byteOffset, line: uint32) = discard (byteOffset, line)
+when not defined(windows):
+  proc platformSetEditorCursorByte*(byteOffset, line: uint32) = discard (byteOffset, line)
 proc platformSetEditorFontSize*(size: cdouble) = discard size
 proc platformSetEditorFontName*(name: cstring) = discard name
 proc platformEditorLineHeight*(): cdouble = 16.0
@@ -59,7 +60,8 @@ when not defined(windows):
   proc platformInvalidateImeCoordinates*() = discard
 proc platformEditorByteOffsetAtPoint*(x, y: cdouble): uint32 = 0
 proc platformEditorUtf16OffsetAtPoint*(x, y: cdouble): uint32 = 0
-proc platformSetEditorScrollLine*(line: uint32) = discard line
+when not defined(windows):
+  proc platformSetEditorScrollLine*(line: uint32) = discard line
 proc platformSetEditorRect*(x, y, width, height: cdouble) = discard (x, y, width, height)
 proc platformSetEditorDirty*(dirty: bool) = discard dirty
 proc platformSetEditorIndentGuides*(visible: bool, indentWidth: uint32) = discard (visible, indentWidth)
@@ -73,7 +75,8 @@ proc platformShowSavePanelAndCloseTab*() = discard
 proc platformRequestQuit*() = discard
 proc platformConfirmQuit*() = discard
 proc platformShowSavePanelAndClose*() = discard
-proc platformSetEditorSelection*(startByte, endByte: uint32) = discard (startByte, endByte)
+when not defined(windows):
+  proc platformSetEditorSelection*(startByte, endByte: uint32) = discard (startByte, endByte)
 when not defined(windows):
   proc platformSetEditorText*(text: cstring, length: uint32) = discard (text, length)
 proc platformSetEditorOutline*(text: cstring, length, symbolCount: uint32) = discard (text, length, symbolCount)

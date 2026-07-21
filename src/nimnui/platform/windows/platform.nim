@@ -20,6 +20,9 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformSetTerminalText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_terminal_text", cdecl.}
   proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}
   proc platformSetEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_text", cdecl.}
+  proc platformSetEditorCursorByte*(byteOffset, line: uint32) {.importc: "nimculus_platform_set_editor_cursor_byte", cdecl.}
+  proc platformSetEditorScrollLine*(line: uint32) {.importc: "nimculus_platform_set_editor_scroll_line", cdecl.}
+  proc platformSetEditorSelection*(startByte, endByte: uint32) {.importc: "nimculus_platform_set_editor_selection", cdecl.}
   proc platformToggleFullscreen*() {.importc: "nimculus_platform_toggle_fullscreen", cdecl.}
   proc platformMinimizeWindow*() {.importc: "nimculus_platform_minimize_window", cdecl.}
   proc platformMaximizeWindow*() {.importc: "nimculus_platform_maximize_window", cdecl.}
@@ -60,6 +63,9 @@ else:
   proc platformSetTerminalText*(text: cstring, length: uint32) = discard (text, length)
   proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) = discard (commands, count)
   proc platformSetEditorText*(text: cstring, length: uint32) = discard (text, length)
+  proc platformSetEditorCursorByte*(byteOffset, line: uint32) = discard (byteOffset, line)
+  proc platformSetEditorScrollLine*(line: uint32) = discard line
+  proc platformSetEditorSelection*(startByte, endByte: uint32) = discard (startByte, endByte)
   proc platformToggleFullscreen*() = discard
   proc platformMinimizeWindow*() = discard
   proc platformMaximizeWindow*() = discard

@@ -34,9 +34,11 @@ terminal surface is connected through a bootstrap GDI overlay. Windows packaging
 Nim/ISCC invocation and artifact upload rather than the application layer. The
 current Windows terminal surface is a bootstrap GDI overlay fed by
 `windows_terminal.nim`; the D3D11 PaintList path currently covers opaque
-rectangle primitives with scissor clipping. Editor text is currently copied
-through a UTF-8/UTF-16 GDI bootstrap overlay; terminal text uses its separate
-GDI overlay, while glyph/image GPU resources remain later refinements. Window
+rectangle primitives with scissor clipping. Editor text is copied through a
+UTF-8/UTF-16 GDI bootstrap overlay that renders visible lines without native
+word wrapping, follows the shared scroll-line/cursor/selection state, and
+draws a bootstrap caret and selection background. Terminal text uses its
+separate GDI overlay, while glyph/image GPU resources remain later refinements. Window
 state commands are also kept in the Win32 backend:
 fullscreen stores and restores the pre-fullscreen style, extended style, and
 monitor rectangle, while minimize, maximize, and restore delegate to native

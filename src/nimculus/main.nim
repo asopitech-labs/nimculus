@@ -1338,13 +1338,31 @@ proc syncEditorCursor() =
     platformSetEditorStatus(status.cstring)
   elif defined(windows):
     let document = activeDocument()
+    if document != nil:
+      editorViewState.clampSelectionToText(document[].buffer.toString())
+    let visibleLines = max(1, int(floor(float32(demoEditorBounds.size.height) / 18'f32)))
     let location = if document == nil: (line: 0, column: 0) else:
       document[].buffer.lineColumn(editorViewState.cursor)
-    # The native backend consumes logical client coordinates and converts them
-    # to physical pixels for IMM32. Keep this small contract independent from
-    # Win32 while the full Windows text renderer is still being implemented.
-    platformSetEditorCursor(cdouble(8.0 + float(location.column) * 8.0),
-      cdouble(20.0 + float(location.line) * 18.0))
+    if document != nil:
+      let lastVisibleLine = max(0, document[].buffer.lineStarts.len - visibleLines)
+      if location.line < editorViewState.scrollLine:
+        editorViewState.scrollLine = location.line
+      elif location.line >= editorViewState.scrollLine + visibleLines:
+        editorViewState.scrollLine = min(lastVisibleLine, location.line - visibleLines + 1)
+    platformSetEditorScrollLine(uint32(max(0, editorViewState.scrollLine)))
+    platformSetEditorCursorByte(uint32(max(0, editorViewState.cursor)),
+      uint32(max(0, location.line)))
+    let selection = if document == nil: (startByte: 0, endByte: 0) else:
+      editorViewState.selectedRange()
+    platformSetEditorSelection(uint32(max(0, selection.startByte)),
+      uint32(max(0, selection.endByte)))
+    # The native backend consumes logical window coordinates for IMM32. The
+    # bootstrap renderer uses the same fixed-width cell metrics and scroll
+    # origin, while the final DirectWrite layout will replace these constants.
+    let visibleLine = max(0, location.line - editorViewState.scrollLine)
+    platformSetEditorCursor(
+      cdouble(float32(demoEditorBounds.origin.x) + 8.0'f32 + float(location.column) * 8.0),
+      cdouble(float32(demoEditorBounds.origin.y) + 6.0'f32 + float(visibleLine) * 18.0))
     var tabTitles: seq[string]
     for tab in editorSession.tabs:
       tabTitles.add(tab.title & (if tab.document.buffer.isDirty: " •" else: ""))
