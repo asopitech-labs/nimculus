@@ -7,6 +7,8 @@ suite "macOS platform contract":
     platformGetMetrics(addr metrics)
     check metrics.scaleFactor >= 0.0
     check metrics.widthPixels >= 0'u32
+    check metrics.lastFrameTimeMs >= 0.0
+    check metrics.frameCount >= 0'u64
 
   test "input counter is monotonic":
     let before = platformInputCount()

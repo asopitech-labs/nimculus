@@ -9,6 +9,8 @@ type
     heightPoints*: uint32
     widthPixels*: uint32
     heightPixels*: uint32
+    lastFrameTimeMs*: cdouble
+    frameCount*: uint64
 
 proc platformRun*(): bool {.importc: "nimculus_platform_run", cdecl.}
 proc platformValidateNative*(): bool {.importc: "nimculus_platform_validate_native", cdecl.}

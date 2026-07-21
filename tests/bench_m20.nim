@@ -6,6 +6,7 @@ import nimculus/editor_syntax
 import nimculus/terminal
 import nimculus/workspace
 import nimnui/text
+import nimnui/platform/macos/platform
 
 proc report(name: string, elapsed: float, details: string) =
   # TSV keeps the output stream-friendly for CI artifacts and spreadsheet
@@ -49,6 +50,14 @@ block terminalParser:
   let start = cpuTime()
   screen.feed(payload)
   report("terminal_parse", cpuTime() - start, "bytes=" & $payload.len)
+
+block platformFrameMetrics:
+  var metrics: PlatformMetrics
+  let start = cpuTime()
+  for _ in 0 ..< 1000:
+    platformGetMetrics(addr metrics)
+  report("frame_metrics_read", cpuTime() - start,
+    "frames=" & $metrics.frameCount & ";last_frame_ms=" & $metrics.lastFrameTimeMs)
 
 block workspaceLoad:
   let root = getTempDir() / ("nimculus-m20-" & $getCurrentProcessId())
