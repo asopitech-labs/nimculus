@@ -1070,6 +1070,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusOutlineOverlay : NSTextView
 @end
 
+@interface NimculusLineNumberOverlay : NSView
+@end
+
 @interface NimculusStatusOverlay : NSTextField
 @end
 
@@ -1105,6 +1108,33 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   NSString *command = [NSString stringWithFormat:@"commandPalette:open symbol %lu",
     (unsigned long)symbolIndex + 1];
   g_command_callback(command.UTF8String);
+}
+@end
+
+@implementation NimculusLineNumberOverlay
+- (BOOL)isFlipped { return YES; }
+- (BOOL)acceptsFirstResponder { return NO; }
+- (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
+- (void)drawRect:(NSRect)dirtyRect {
+  (void)dirtyRect;
+  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  if (lines.count == 0) return;
+  NSUInteger first = MIN(g_editor_scroll_line, lines.count - 1);
+  NSUInteger count = MIN(lines.count - first,
+    (NSUInteger)MAX(1.0, ceil(self.bounds.size.height / editorLineHeight())));
+  NSDictionary *attributes = @{
+    NSFontAttributeName: [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular],
+    NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0])
+      colorWithAlphaComponent:0.58]
+  };
+  for (NSUInteger index = 0; index < count; index++) {
+    NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)first + index + 1];
+    NSSize size = [number sizeWithAttributes:attributes];
+    CGFloat y = index * editorLineHeight() + 1.0;
+    [number drawAtPoint:NSMakePoint(MAX(2.0, self.bounds.size.width - size.width - 6.0), y)
+      withAttributes:attributes];
+  }
 }
 @end
 
@@ -1287,6 +1317,9 @@ static void applyTerminalRuns(NSTextView *terminal) {
     outline.textContainerInset = NSMakeSize(8.0, 8.0);
     outline.string = g_editor_outline_text;
     [self addSubview:outline];
+    NimculusLineNumberOverlay *lineNumbers = [[NimculusLineNumberOverlay alloc]
+      initWithFrame:NSZeroRect];
+    [self addSubview:lineNumbers];
     NimculusStatusOverlay *status = [[NimculusStatusOverlay alloc]
       initWithFrame:NSZeroRect];
     status.editable = NO;
@@ -1387,12 +1420,14 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
 - (void)updateTerminalFrame {
   NimculusOutlineOverlay *outline = nil;
+  NimculusLineNumberOverlay *lineNumbers = nil;
   NimculusStatusOverlay *status = nil;
   NimculusTerminalOverlay *terminal = nil;
   NimculusTaskOutputOverlay *taskOutput = nil;
   NimculusEditorAnnotationOverlay *annotations = nil;
   for (NSView *subview in self.subviews) {
     if ([subview isKindOfClass:[NimculusOutlineOverlay class]]) outline = (NimculusOutlineOverlay *)subview;
+    if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) lineNumbers = (NimculusLineNumberOverlay *)subview;
     if ([subview isKindOfClass:[NimculusStatusOverlay class]]) status = (NimculusStatusOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) terminal = (NimculusTerminalOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) taskOutput = (NimculusTaskOutputOverlay *)subview;
@@ -1402,6 +1437,12 @@ static void applyTerminalRuns(NSTextView *terminal) {
     CGFloat width = MAX(180.0, g_editor_rect[0] - 12.0);
     outline.frame = NSMakeRect(8.0, g_editor_rect[1], width, g_editor_rect[3]);
     outline.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
+  }
+  if (lineNumbers) {
+    lineNumbers.frame = NSMakeRect(0.0, g_editor_rect[1],
+      MAX(36.0, g_editor_rect[0] - 8.0), g_editor_rect[3]);
+    lineNumbers.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
+    [lineNumbers setNeedsDisplay:YES];
   }
   if (status) {
     status.frame = NSMakeRect(g_editor_rect[0], 2.0, g_editor_rect[2], 20.0);
@@ -2527,6 +2568,11 @@ void nimculus_platform_set_editor_font_size(double size) {
   g_editor_line_height = MAX(12.0, ceil(g_editor_font_size * 1.2857142857));
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   markSceneFullyDirty();
+  if (g_active_view) {
+    for (NSView *subview in ((NimculusMetalView *)g_active_view).subviews) {
+      if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) [subview setNeedsDisplay:YES];
+    }
+  }
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_font_name(const char *name) {
@@ -2534,6 +2580,11 @@ void nimculus_platform_set_editor_font_name(const char *name) {
   g_editor_font_name = requested.length > 0 ? [requested copy] : @"Menlo";
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   markSceneFullyDirty();
+  if (g_active_view) {
+    for (NSView *subview in ((NimculusMetalView *)g_active_view).subviews) {
+      if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) [subview setNeedsDisplay:YES];
+    }
+  }
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 double nimculus_platform_editor_line_height(void) { return editorLineHeight(); }
@@ -2599,6 +2650,11 @@ uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y) {
 }
 void nimculus_platform_set_editor_scroll_line(uint32_t line) {
   g_editor_scroll_line = line;
+  if (g_active_view) {
+    for (NSView *subview in ((NimculusMetalView *)g_active_view).subviews) {
+      if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) [subview setNeedsDisplay:YES];
+    }
+  }
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
@@ -2714,6 +2770,11 @@ void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
     ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
     : @"";
   if (!g_editor_text) g_editor_text = @"";
+  if (g_active_view) {
+    for (NSView *subview in ((NimculusMetalView *)g_active_view).subviews) {
+      if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) [subview setNeedsDisplay:YES];
+    }
+  }
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   if (g_active_view) [g_active_view drawFrame];
