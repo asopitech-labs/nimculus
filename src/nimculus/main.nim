@@ -24,6 +24,13 @@ import nimculus/settings
 when defined(windows):
   import nimculus/windows_terminal
 
+when defined(windows):
+  var windowsTaskJob: TaskJob
+  var windowsTaskCommand = ""
+  var windowsTaskOutput = ""
+  var windowsTaskOutputVisible = false
+  var windowsTaskProblems: seq[TaskProblem]
+
 proc syncEditorCursor()
 proc persistSession()
 
@@ -1670,6 +1677,74 @@ when defined(macosx):
     else: false
 
 when defined(windows):
+  proc windowsTaskWorkingDirectory(document: ptr FileDocument): string =
+    if activeWorkspace != nil and activeWorkspace.rootPaths.len > 0:
+      return activeWorkspace.rootPaths[0]
+    if document != nil and document[].path.len > 0:
+      return splitFile(absolutePath(document[].path)).dir
+    getCurrentDir()
+
+  proc startWindowsTask(command: string) =
+    if windowsTaskJob != nil and not windowsTaskJob.done:
+      windowsTaskJob.cancel()
+    windowsTaskCommand = command
+    windowsTaskOutput = ""
+    windowsTaskProblems.setLen(0)
+    windowsTaskOutputVisible = false
+    platformSetTaskOutputVisible(false)
+    windowsTaskJob = startTask(TaskSpec(command: "cmd.exe",
+      args: @["/C", command],
+      workingDirectory: windowsTaskWorkingDirectory(activeDocument())))
+    editorViewState.statusMessage = "Task: running " & command
+
+  proc cancelWindowsTask() =
+    if windowsTaskJob == nil or windowsTaskJob.done:
+      editorViewState.statusMessage = "Task: no running task"
+      return
+    windowsTaskJob.cancel()
+    editorViewState.statusMessage = "Task: cancelled"
+
+  proc pollWindowsTask() =
+    if windowsTaskJob == nil: return
+    let completed = windowsTaskJob.poll()
+    let taskResult = windowsTaskJob.result
+    if taskResult.output != windowsTaskOutput:
+      windowsTaskOutput = taskResult.output
+      windowsTaskProblems = taskResult.problems
+      platformSetTaskOutputText(windowsTaskOutput.cstring, uint32(windowsTaskOutput.len))
+    if not completed: return
+    windowsTaskProblems = taskResult.problems
+    let output = taskResult.output.strip()
+    let summary = if output.len == 0: "" else:
+      let lines = output.splitLines
+      " — " & lines[lines.high]
+    let problemSummary = if windowsTaskProblems.len == 0: "" else:
+      " (" & $windowsTaskProblems.len & " problems)"
+    case taskResult.status
+    of taskSucceeded:
+      editorViewState.statusMessage = "Task succeeded: " & windowsTaskCommand & summary
+    of taskFailed:
+      editorViewState.statusMessage = "Task failed (" & $taskResult.exitCode & "): " &
+        windowsTaskCommand & problemSummary & summary
+    of taskCancelled:
+      editorViewState.statusMessage = "Task cancelled: " & windowsTaskCommand
+    else: discard
+    windowsTaskJob = nil
+
+  proc toggleWindowsTaskOutput() =
+    if windowsTaskOutputVisible:
+      windowsTaskOutputVisible = false
+      platformSetTaskOutputVisible(false)
+      return
+    if windowsTaskOutput.len == 0:
+      editorViewState.statusMessage = "Task output is empty"
+      return
+    if windowsTerminalVisible:
+      closeWindowsTerminal()
+    windowsTaskOutputVisible = true
+    platformSetTaskOutputVisible(true)
+    platformSetTaskOutputText(windowsTaskOutput.cstring, uint32(windowsTaskOutput.len))
+
   proc pollWindowsWorkspaceChanges() =
     ## Consume ReadDirectoryChangesW notifications at the UI boundary.
     ## Filesystem events are incomplete until derived views invalidate them.
@@ -1710,6 +1785,7 @@ when defined(windows):
       applySettingsTheme()
       editorViewState.statusMessage = "Settings reloaded"
     pollWindowsTerminal()
+    pollWindowsTask()
     pollWindowsWorkspace()
     inc persistenceTick
     if persistenceTick mod 20 == 0:
@@ -1913,6 +1989,15 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "__next_terminal__", "__previous_terminal__":
       editorViewState.statusMessage = "Windows supports one terminal session in this milestone"
       return
+    of "__run_task__":
+      editorViewState.statusMessage = "Use `run task <command>` from the command palette"
+      return
+    of "__cancel_task__":
+      cancelWindowsTask()
+      return
+    of "__task_output__":
+      toggleWindowsTaskOutput()
+      return
     else: discard
   when defined(windows):
     if windowsTerminalVisible:
@@ -1987,6 +2072,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         editorViewState.statusMessage = "Unsaved changes: use save all or discard all before closing"
         platformSetCloseDecision(false)
       else:
+        cancelWindowsTask()
         closeWindowsTerminal()
         platformSetCloseDecision(true)
   elif name == "saveAllAndQuit":
@@ -2410,8 +2496,15 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "Task requires a command"
         else:
           startNativeTask(taskCommand)
+      when defined(windows):
+        let taskCommand = if rawCommand.len > 9: rawCommand[9 .. ^1].strip else: ""
+        if taskCommand.len == 0:
+          editorViewState.statusMessage = "Task requires a command"
+        else:
+          startWindowsTask(taskCommand)
     of "__cancel_task__":
       when defined(macosx): cancelNativeTask()
+      when defined(windows): cancelWindowsTask()
     of "__cancel_git__":
       when defined(macosx):
         if editorGitActionJob == nil or editorGitActionJob.done:
@@ -2429,6 +2522,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx): switchNativeTerminal(-1)
     of "__task_output__":
       when defined(macosx): toggleNativeTaskOutput()
+      when defined(windows): toggleWindowsTaskOutput()
     of "workspace search":
       when defined(macosx):
         platformShowWorkspaceSearch()

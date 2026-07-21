@@ -1726,3 +1726,13 @@ reload of the workspace layer, and reapplies platform settings. This keeps
 folder-open and session-restoration behavior consistent with the selected
 project instead of retaining configuration from the previous root. The
 global settings layer remains unchanged.
+## M13-045: Connect Windows task execution to the native task output
+
+The Windows task path must not remain inside the macOS-only task service block.
+The command palette resolves `run task <command>` at the application boundary,
+then starts `cmd.exe /C <command>` through the shared `TaskService`, polls its
+bounded output on the Windows idle callback, and sends that output to the native
+Windows task overlay. Cancellation is explicit and is also performed before
+window close. This keeps process execution and problem matching shared while
+leaving output presentation platform-specific, matching the existing terminal
+boundary and Zed's separation between command dispatch and platform rendering.
