@@ -209,8 +209,12 @@ proc setupShortcutRegistry() =
       "insertNewline", "insertTab", "moveWordLeft", "moveWordRight",
       "selectWordLeft", "selectWordRight", "deleteBackward", "deleteForward",
       "deleteWordBackward", "cancel"]:
-    shortcutRegistry.register(Command(name: name,
-      action: nativeShortcutAction(name)))
+    var action: proc() {.closure.}
+    if name == "openSettings":
+      action = proc() = receiveNativeCommand("openSettingsUI".cstring)
+    else:
+      action = nativeShortcutAction(name)
+    shortcutRegistry.register(Command(name: name, action: action))
 
 proc applySettingsKeymap() =
   when defined(macosx):
@@ -1835,6 +1839,48 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "Editing Nimculus settings"
         except CatchableError as error:
           editorViewState.statusMessage = "Settings failed: " & error.msg
+  elif name == "openSettingsUI":
+    when defined(macosx):
+      let theme = if appSettings != nil: appSettings.stringSetting("theme", "system") else: "system"
+      let editorSize = if appSettings != nil: $appSettings.intSetting("editor.fontSize", 14) else: "14"
+      let terminalSize = if appSettings != nil: $appSettings.intSetting("terminal.fontSize", 12) else: "12"
+      let font = if appSettings != nil: appSettings.stringSetting("editor.fontFamily", "Menlo") else: "Menlo"
+      let shell = if appSettings != nil: appSettings.stringSetting("terminal.shell", "/bin/zsh") else: "/bin/zsh"
+      platformShowSettingsPanel(theme.cstring, editorSize.cstring, terminalSize.cstring,
+        font.cstring, shell.cstring)
+  elif name.startsWith("settingsApply:"):
+    let payload = name["settingsApply:".len .. ^1]
+    let fields = payload.split('\x1f')
+    if fields.len != 5 or settingsFilePath.len == 0:
+      editorViewState.statusMessage = "Settings panel: invalid values"
+      return
+    var editorSize, terminalSize: int
+    try:
+      editorSize = parseInt(fields[1])
+      terminalSize = parseInt(fields[2])
+    except ValueError:
+      editorViewState.statusMessage = "Settings panel: font sizes must be numbers"
+      return
+    if editorSize < 6 or editorSize > 48 or terminalSize < 6 or terminalSize > 48:
+      editorViewState.statusMessage = "Settings panel: font sizes must be 6-48"
+      return
+    var root = if fileExists(settingsFilePath): parseFile(settingsFilePath) else: newJObject()
+    if root.kind != JObject: root = newJObject()
+    if not root.hasKey("editor") or root["editor"].kind != JObject: root["editor"] = newJObject()
+    if not root.hasKey("terminal") or root["terminal"].kind != JObject: root["terminal"] = newJObject()
+    root["theme"] = %fields[0]
+    root["editor"]["fontSize"] = %editorSize
+    root["editor"]["fontFamily"] = %fields[3]
+    root["terminal"]["fontSize"] = %terminalSize
+    root["terminal"]["shell"] = %fields[4]
+    try:
+      writeFile(settingsFilePath, pretty(root) & "\n")
+      if appSettings != nil: discard appSettings.reload()
+      applySettingsKeymap()
+      applySettingsTheme()
+      editorViewState.statusMessage = "Settings applied"
+    except CatchableError as error:
+      editorViewState.statusMessage = "Settings failed: " & error.msg
   elif name.startsWith("goToLine:") and document != nil:
     let value = name[9 .. ^1].strip
     try:

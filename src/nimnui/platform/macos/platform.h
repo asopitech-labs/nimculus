@@ -166,6 +166,9 @@ void nimculus_platform_set_paint_dirty_regions(const NimculusPaintRegion *region
 void nimculus_platform_show_external_change(const char *path);
 void nimculus_platform_show_find_document(void);
 void nimculus_platform_show_workspace_search(void);
+void nimculus_platform_show_settings_panel(const char *theme, const char *editor_font_size,
+                                           const char *terminal_font_size,
+                                           const char *font_family, const char *shell);
 void nimculus_platform_set_ui_rectangle(double x, double y, double width, double height);
 void nimculus_clipboard_set(const char *utf8, uint32_t length);
 uint32_t nimculus_clipboard_utf8_length(void);

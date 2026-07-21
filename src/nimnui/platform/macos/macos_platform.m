@@ -1910,7 +1910,59 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
 - (void)openSettings:(id)sender {
   (void)sender;
-  if (g_command_callback) g_command_callback("openSettings");
+  if (g_command_callback) g_command_callback("openSettingsUI");
+}
+
+- (void)showSettingsPanelWithTheme:(NSString *)theme editorFontSize:(NSString *)editorFontSize
+                 terminalFontSize:(NSString *)terminalFontSize fontFamily:(NSString *)fontFamily
+                              shell:(NSString *)shell {
+  NSAlert *alert = [[NSAlert alloc] init];
+  alert.messageText = @"Nimculus Settings";
+  alert.informativeText = @"Changes are written to the global settings file and applied immediately.";
+  NSStackView *fields = [[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 420, 132)];
+  fields.orientation = NSUserInterfaceLayoutOrientationVertical;
+  fields.alignment = NSLayoutAttributeWidth;
+  fields.spacing = 8.0;
+
+  NSStackView *(^row)(NSString *, NSView *) = ^NSStackView *(NSString *label, NSView *control) {
+    NSTextField *title = [NSTextField labelWithString:label];
+    title.alignment = NSTextAlignmentRight;
+    title.translatesAutoresizingMaskIntoConstraints = NO;
+    [title.widthAnchor constraintEqualToConstant:128.0].active = YES;
+    NSStackView *line = [[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 420, 24)];
+    line.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    line.spacing = 8.0;
+    [line addArrangedSubview:title];
+    [line addArrangedSubview:control];
+    return line;
+  };
+
+  NSPopUpButton *themePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 270, 24) pullsDown:NO];
+  [themePopup addItemsWithTitles:@[@"system", @"light", @"dark"]];
+  NSInteger themeIndex = [themePopup indexOfItemWithTitle:theme ?: @"system"];
+  [themePopup selectItemAtIndex:themeIndex >= 0 ? themeIndex : 0];
+  themePopup.identifier = @"theme";
+  NSTextField *editorSize = [NSTextField textFieldWithString:editorFontSize ?: @"14"];
+  editorSize.identifier = @"editorFontSize";
+  NSTextField *terminalSize = [NSTextField textFieldWithString:terminalFontSize ?: @"12"];
+  terminalSize.identifier = @"terminalFontSize";
+  NSTextField *font = [NSTextField textFieldWithString:fontFamily ?: @"Menlo"];
+  font.identifier = @"fontFamily";
+  NSTextField *shellField = [NSTextField textFieldWithString:shell ?: @"/bin/zsh"];
+  shellField.identifier = @"shell";
+  [fields addArrangedSubview:row(@"Appearance", themePopup)];
+  [fields addArrangedSubview:row(@"Editor font size", editorSize)];
+  [fields addArrangedSubview:row(@"Terminal font size", terminalSize)];
+  [fields addArrangedSubview:row(@"Font family", font)];
+  [fields addArrangedSubview:row(@"Terminal shell", shellField)];
+  alert.accessoryView = fields;
+  [alert addButtonWithTitle:@"Apply"];
+  [alert addButtonWithTitle:@"Cancel"];
+  if ([alert runModal] != NSAlertFirstButtonReturn || !g_command_callback) return;
+  NSString *command = [NSString stringWithFormat:@"settingsApply:%@\x1f%@\x1f%@\x1f%@\x1f%@",
+    themePopup.titleOfSelectedItem ?: @"system", editorSize.stringValue ?: @"14",
+    terminalSize.stringValue ?: @"12", font.stringValue ?: @"Menlo", shellField.stringValue ?: @"/bin/zsh"];
+  g_command_callback(command.UTF8String);
 }
 
 - (void)previousTab:(id)sender {
@@ -2351,6 +2403,19 @@ void nimculus_platform_show_command_palette(void) {
   id delegate = [NSApp delegate];
   if ([delegate respondsToSelector:@selector(openCommandPalette:)]) {
     [delegate performSelector:@selector(openCommandPalette:) withObject:nil];
+  }
+}
+
+void nimculus_platform_show_settings_panel(const char *theme, const char *editor_font_size,
+                                           const char *terminal_font_size,
+                                           const char *font_family, const char *shell) {
+  id delegate = [NSApp delegate];
+  if ([delegate respondsToSelector:@selector(showSettingsPanelWithTheme:editorFontSize:terminalFontSize:fontFamily:shell:)]) {
+    [delegate showSettingsPanelWithTheme:theme ? [NSString stringWithUTF8String:theme] : @"system"
+      editorFontSize:editor_font_size ? [NSString stringWithUTF8String:editor_font_size] : @"14"
+      terminalFontSize:terminal_font_size ? [NSString stringWithUTF8String:terminal_font_size] : @"12"
+      fontFamily:font_family ? [NSString stringWithUTF8String:font_family] : @"Menlo"
+      shell:shell ? [NSString stringWithUTF8String:shell] : @"/bin/zsh"];
   }
 }
 
