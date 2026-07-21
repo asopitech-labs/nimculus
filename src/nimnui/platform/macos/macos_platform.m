@@ -39,6 +39,8 @@ static NSString *g_terminal_text = @"";
 static NSString *g_theme_background = @"#1f2329";
 static NSString *g_theme_foreground = @"#d7dae0";
 static NSString *g_theme_accent = @"#4daafc";
+static NSString *g_theme_selection = @"#264f78";
+static NSString *g_theme_border = @"#3b4048";
 static NSString *g_crash_report_path = nil;
 static NimculusTerminalRun *g_terminal_runs = NULL;
 static uint32_t g_terminal_run_count = 0;
@@ -74,6 +76,16 @@ static NSColor *themeHexColor(NSString *value, NSColor *fallback) {
   red = (red >> 16) & 0xFF;
   return [NSColor colorWithCalibratedRed:red / 255.0 green:green / 255.0
                                    blue:blue / 255.0 alpha:1.0];
+}
+
+static void themeRGB(NSString *value, NSColor *fallback,
+                     float *red, float *green, float *blue) {
+  NSColor *color = themeHexColor(value, fallback);
+  CGFloat r = 0.0, g = 0.0, b = 0.0, a = 1.0;
+  [color getRed:&r green:&g blue:&b alpha:&a];
+  *red = (float)r;
+  *green = (float)g;
+  *blue = (float)b;
 }
 
 static void nimculus_uncaught_exception_handler(NSException *exception) {
@@ -388,22 +400,26 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
     }
   }
   [encoder setRenderPipelineState:g_pipeline];
+  float themeRed = 0.15f, themeGreen = 0.48f, themeBlue = 0.92f;
   if (paint.kind == 0) { // rectangle
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height,
       0.15f, 0.48f, 0.92f, 1.0f, transform);
   } else if (paint.kind == 1) { // border
+    themeRGB(g_theme_border,
+      [NSColor colorWithCalibratedRed:0.15 green:0.48 blue:0.92 alpha:1.0],
+      &themeRed, &themeGreen, &themeBlue);
     const double thickness = 2.0;
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
-      x, y, width, thickness, 0.15f, 0.48f, 0.92f, 1.0f, transform);
+      x, y, width, thickness, themeRed, themeGreen, themeBlue, 1.0f, transform);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y + height - thickness, width, thickness,
-      0.15f, 0.48f, 0.92f, 1.0f, transform);
+      themeRed, themeGreen, themeBlue, 1.0f, transform);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
-      x, y, thickness, height, 0.15f, 0.48f, 0.92f, 1.0f, transform);
+      x, y, thickness, height, themeRed, themeGreen, themeBlue, 1.0f, transform);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x + width - thickness, y, thickness, height,
-      0.15f, 0.48f, 0.92f, 1.0f, transform);
+      themeRed, themeGreen, themeBlue, 1.0f, transform);
   } else if (paint.kind == 2) { // rounded rectangle
     drawRoundedRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height, paint.radius,
@@ -425,9 +441,12 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
       x, y, width, height,
       0.85f, 0.90f, 1.0f, 1.0f, transform);
   } else if (paint.kind == 9) { // selection
+    themeRGB(g_theme_selection,
+      [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0],
+      &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height,
-      0.20f, 0.40f, 0.75f, 0.45f, transform);
+      themeRed, themeGreen, themeBlue, 0.45f, transform);
   } else if (paint.kind == 10) { // scrollbar
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height,
@@ -602,7 +621,10 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         g_editor_selection_end > lineStartUnit && g_editor_selection_start < lineEndUnit) {
       NSUInteger startUnit = MAX(g_editor_selection_start, lineStartUnit) - lineStartUnit;
       NSUInteger endUnit = MIN(g_editor_selection_end, lineEndUnit) - lineStartUnit;
-      CGContextSetRGBFillColor(context, 0.20, 0.40, 0.75, 0.45);
+      NSColor *selectionColor = [themeHexColor(g_theme_selection,
+        [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
+        colorWithAlphaComponent:0.45];
+      CGContextSetFillColorWithColor(context, selectionColor.CGColor);
       CGContextFillRect(context, CGRectMake(8.0 + editorTextOffset(lineText, startUnit),
         logicalHeight - lineHeight * (displayIndex + 1) - 4.0,
         MAX(1.0, editorTextOffset(lineText, endUnit) - editorTextOffset(lineText, startUnit)), 20.0));
@@ -1117,6 +1139,11 @@ static void applyTerminalSelection(NSTextView *terminal) {
   NSUInteger lower = MIN(start, end);
   NSUInteger upper = MAX(start, end);
   terminal.selectedRange = NSMakeRange(lower, upper - lower);
+  terminal.selectedTextAttributes = @{
+    NSBackgroundColorAttributeName: [themeHexColor(g_theme_selection,
+      [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
+      colorWithAlphaComponent:0.65]
+  };
 }
 
 static void terminalIndexedColor(uint32_t index, CGFloat *red, CGFloat *green, CGFloat *blue) {
@@ -2597,10 +2624,13 @@ void nimculus_platform_set_terminal_runs(const char *utf8, uint32_t length,
   }
 }
 void nimculus_platform_set_theme_colors(const char *background, const char *foreground,
-                                        const char *accent) {
+                                        const char *accent, const char *selection,
+                                        const char *border) {
   if (background) g_theme_background = [[NSString alloc] initWithUTF8String:background] ?: @"#1f2329";
   if (foreground) g_theme_foreground = [[NSString alloc] initWithUTF8String:foreground] ?: @"#d7dae0";
   if (accent) g_theme_accent = [[NSString alloc] initWithUTF8String:accent] ?: @"#4daafc";
+  if (selection) g_theme_selection = [[NSString alloc] initWithUTF8String:selection] ?: @"#264f78";
+  if (border) g_theme_border = [[NSString alloc] initWithUTF8String:border] ?: @"#3b4048";
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
   for (NSView *subview in view.subviews) {
@@ -2610,6 +2640,11 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
         [NSColor colorWithCalibratedRed:0.025 green:0.030 blue:0.045 alpha:1.0]) colorWithAlphaComponent:0.98];
       terminal.textColor = themeHexColor(g_theme_foreground,
         [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]);
+      terminal.selectedTextAttributes = @{
+        NSBackgroundColorAttributeName: [themeHexColor(g_theme_selection,
+          [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
+          colorWithAlphaComponent:0.65]
+      };
     }
   }
   [view drawFrame];

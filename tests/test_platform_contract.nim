@@ -93,7 +93,8 @@ suite "macOS platform contract":
     check true
 
   test "terminal overlay contract can be cleared":
-    platformSetThemeColors("#1f2329".cstring, "#d7dae0".cstring, "#4daafc".cstring)
+    platformSetThemeColors("#1f2329".cstring, "#d7dae0".cstring, "#4daafc".cstring,
+      "#264f78".cstring, "#3b4048".cstring)
     platformSetTerminalVisible(false)
     platformSetTerminalText("".cstring, 0)
     platformSetTerminalRuns("".cstring, 0, nil, 0)

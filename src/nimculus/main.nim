@@ -231,7 +231,7 @@ proc applySettingsTheme() =
         colors.foreground = "#1f2329"
         colors.accent = "#007aff"
     platformSetThemeColors(colors.background.cstring, colors.foreground.cstring,
-      colors.accent.cstring)
+      colors.accent.cstring, colors.selection.cstring, colors.border.cstring)
 
 var imeState = newImeState()
 var editorSession: EditorSession
