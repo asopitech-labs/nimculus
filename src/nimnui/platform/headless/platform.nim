@@ -44,8 +44,9 @@ when not defined(windows):
     if callback != nil: discard
 proc platformSetCommandCallback*(callback: CommandCallback) =
   if callback != nil: discard
-proc platformSetIdleCallback*(callback: IdleCallback) =
-  if callback != nil: discard
+when not defined(windows):
+  proc platformSetIdleCallback*(callback: IdleCallback) =
+    if callback != nil: discard
 when not defined(windows):
   proc platformSetEditorCursor*(x, y: cdouble) = discard (x, y)
 proc platformSetEditorCursorByte*(byteOffset, line: uint32) = discard (byteOffset, line)
@@ -73,8 +74,9 @@ proc platformShowSavePanelAndClose*() = discard
 proc platformSetEditorSelection*(startByte, endByte: uint32) = discard (startByte, endByte)
 proc platformSetEditorText*(text: cstring, length: uint32) = discard (text, length)
 proc platformSetEditorOutline*(text: cstring, length, symbolCount: uint32) = discard (text, length, symbolCount)
-proc platformSetTerminalVisible*(visible: bool) = discard visible
-proc platformSetTerminalText*(text: cstring, length: uint32) = discard (text, length)
+when not defined(windows):
+  proc platformSetTerminalVisible*(visible: bool) = discard visible
+  proc platformSetTerminalText*(text: cstring, length: uint32) = discard (text, length)
 proc platformSetTerminalRuns*(text: cstring, length: uint32,
                               runs: ptr NativeTerminalRun, count: uint32) = discard (text, length,
                                   runs, count)

@@ -15,6 +15,7 @@ static NimculusPlatformMetrics g_metrics = {1.0, 0, 0, 0, 0, 0.0, 0};
 static uint64_t g_input_count = 0;
 static NimculusInputCallback g_input_callback = NULL;
 static NimculusTextCallback g_text_callback = NULL;
+static NimculusIdleCallback g_idle_callback = NULL;
 typedef void (*NimculusFontCallback)(const char *name);
 static NimculusFileCallback g_file_callback = NULL;
 static NimculusFontCallback g_font_callback = NULL;
@@ -28,6 +29,8 @@ static ID3D11RenderTargetView *g_render_target = NULL;
 static char g_clipboard_utf8[4 * 1024 * 1024];
 static wchar_t g_dialog_path[32768];
 static char g_dialog_utf8[32768];
+static wchar_t g_terminal_text[262144];
+static bool g_terminal_visible = false;
 static wchar_t g_ime_wide[32768];
 static char g_ime_utf8[131072];
 static double g_editor_cursor_x = 8.0;
@@ -203,6 +206,32 @@ static void render_frame(void) {
   }
 }
 
+static void render_terminal_overlay(void) {
+  if (!g_window || !g_terminal_visible) return;
+  HDC dc = GetDC(g_window);
+  if (!dc) return;
+  RECT rect;
+  GetClientRect(g_window, &rect);
+  LONG height = min(280L, max(120L, (rect.bottom - rect.top) / 3));
+  rect.top = rect.bottom - height;
+  HBRUSH background = CreateSolidBrush(RGB(15, 18, 24));
+  FillRect(dc, &rect, background);
+  DeleteObject(background);
+  SetBkMode(dc, TRANSPARENT);
+  SetTextColor(dc, RGB(220, 225, 235));
+  HFONT font = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+      DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+      FIXED_PITCH | FF_MODERN, L"Consolas");
+  HGDIOBJ old_font = SelectObject(dc, font);
+  rect.left += 8;
+  rect.right -= 8;
+  rect.top += 6;
+  DrawTextW(dc, g_terminal_text, -1, &rect, DT_LEFT | DT_TOP | DT_NOPREFIX | DT_WORDBREAK);
+  SelectObject(dc, old_font);
+  DeleteObject(font);
+  ReleaseDC(g_window, dc);
+}
+
 static void send_input(UINT type, UINT key_code, UINT button, LPARAM lparam) {
   if (!g_input_callback) return;
   NimculusInputEvent event = {0};
@@ -240,9 +269,13 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
       PAINTSTRUCT paint;
       BeginPaint(window, &paint);
       render_frame();
+      render_terminal_overlay();
       EndPaint(window, &paint);
       return 0;
     }
+    case WM_TIMER:
+      if (g_idle_callback) g_idle_callback();
+      return 0;
     case WM_KEYDOWN:
       send_input(1, (UINT)wparam, 0, 0);
       return 0;
@@ -322,6 +355,7 @@ bool nimculus_platform_run(void) {
   ShowWindow(g_window, SW_SHOW);
   UpdateWindow(g_window);
   DragAcceptFiles(g_window, TRUE);
+  SetTimer(g_window, 1, 16, NULL);
   create_device();
   MSG message;
   while (GetMessageW(&message, NULL, 0, 0) > 0) {
@@ -445,6 +479,25 @@ const char *nimculus_choose_save_file(void) { return run_file_dialog(TRUE); }
 
 void nimculus_platform_set_text_callback(NimculusTextCallback callback) {
   g_text_callback = callback;
+}
+
+void nimculus_platform_set_idle_callback(NimculusIdleCallback callback) {
+  g_idle_callback = callback;
+}
+
+void nimculus_platform_set_terminal_visible(bool visible) {
+  g_terminal_visible = visible;
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
+}
+
+void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length) {
+  ZeroMemory(g_terminal_text, sizeof(g_terminal_text));
+  if (utf8 && length > 0) {
+    int bounded = (int)min((uint32_t)(sizeof(g_terminal_text) / sizeof(wchar_t) - 1), length);
+    MultiByteToWideChar(CP_UTF8, 0, utf8, bounded, g_terminal_text,
+                        (int)(sizeof(g_terminal_text) / sizeof(wchar_t) - 1));
+  }
+  if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
 
 void nimculus_platform_set_file_callback(NimculusFileCallback callback) {

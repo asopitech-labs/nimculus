@@ -31,7 +31,10 @@ creation, pipes, process attributes, resize, and close are isolated in
 `src/nimculus/windows_pty.c` behind the `TerminalPty` contract; the GUI terminal
 surface still needs to be connected on Windows. Windows packaging is isolated in
 `scripts/package_windows.ps1` and `packaging/windows/Nimculus.iss`; CI owns the
-Nim/ISCC invocation and artifact upload rather than the application layer.
+Nim/ISCC invocation and artifact upload rather than the application layer. The
+current Windows terminal surface is a bootstrap GDI overlay fed by
+`windows_terminal.nim`; the eventual GPU PaintList terminal renderer remains a
+separate refinement.
 
 ## M1 boundary
 

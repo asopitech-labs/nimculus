@@ -1347,6 +1347,17 @@ lifetime rules in `windows_pty.c`, exposing only create/write/read/resize/close
 operations to `terminal.nim`. This makes the protocol parser reusable while
 leaving the Windows native terminal surface as a separate integration step.
 
+## M13-009: Keep Windows terminal manager separate from macOS AppKit state
+
+The existing macOS terminal manager also owns AppKit overlay layout, Git, task,
+and LSP state, so broadening that conditional block would leak platform-specific
+assumptions into the Windows build. Nimculus instead adds
+`windows_terminal.nim`: it owns one Windows `TerminalPty`, polls it through the
+Win32 idle timer, forwards `WM_CHAR`/selected virtual-key input, and sends UTF-8
+screen text to the Windows platform overlay. The current overlay is deliberately
+a bootstrap GDI surface; the terminal protocol and process lifetime remain
+independent of the eventual GPU renderer.
+
 ## M13-008: Make Windows packaging a reproducible CI-owned pipeline
 
 Zed's Windows bundle script stages the executable and its runtime artifacts

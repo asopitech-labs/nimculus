@@ -21,6 +21,7 @@ import nimculus/task_service
 import nimculus/update_service
 import nimculus/terminal
 import nimculus/settings
+import nimculus/windows_terminal
 
 proc syncEditorCursor()
 proc persistSession()
@@ -1555,11 +1556,17 @@ when defined(macosx):
       true
     else: false
 
+when defined(windows):
+  proc receiveNativeIdle() {.cdecl.} =
+    pollWindowsTerminal()
+
 proc receiveNativeTextValue(value: string, composing: bool) =
   when defined(macosx):
     if editorTerminalVisible and editorTerminal != nil and not composing:
       if value.len > 0: writeNativeTerminalInput(value)
       return
+  when defined(windows):
+    if not composing and writeWindowsTerminalText(value): return
   imeState.receiveText(value, composing)
   when defined(macosx):
     if composing:
@@ -2510,6 +2517,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
 
 proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   if event.isNil: return
+  when defined(windows):
+    if handleWindowsTerminalInput(event): return
   when defined(macosx): pollLspAndRefreshDiagnostics()
   let kind = nativeEventKind(event.kind)
   # AppKit view points use a bottom-left origin. NimNUI layout and hit-test
@@ -2666,4 +2675,6 @@ when isMainModule:
     platformSetTextCallback(receiveNativeText)
     platformSetInputCallback(receiveNativeInput)
     platformSetFileCallback(receiveNativeFile)
+    platformSetIdleCallback(receiveNativeIdle)
+    startWindowsTerminal()
   discard platformRun()
