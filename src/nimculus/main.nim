@@ -4,6 +4,7 @@ import std/math
 import std/os
 import std/strutils
 import std/tables
+import std/unicode
 import nimnui/nimnui
 import nimnui/render
 import nimculus/editor_app
@@ -1491,6 +1492,18 @@ when defined(macosx):
       platformSetEditorCompletions("".cstring, 0)
 
 when defined(windows):
+  proc windowsTabIndexAtPoint(x, y: float32): int =
+    if y < 88'f32 or y > 120'f32: return -1
+    var left = 24'f32
+    for index, tab in editorSession.tabs:
+      let title = tab.title & (if tab.document.buffer.isDirty: " •" else: "")
+      var titleCharacters = 0
+      for _ in title.runes: inc titleCharacters
+      let width = max(92'f32, float32(titleCharacters * 8 + 28))
+      if x >= left and x < left + width: return index
+      left += width + 1'f32
+    -1
+
   proc editorOffsetAtWindowsPoint(document: ptr FileDocument, x, y: float32): int =
     ## The Windows text surface is currently a fixed-width GDI bootstrap. Keep
     ## its hit testing in the editor layer, just as Zed converts a logical
@@ -2966,6 +2979,11 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   when defined(windows):
     let document = activeDocument()
     let inEditor = demoEditorBounds.contains(point)
+    if kind == pointerDown:
+      let tabIndex = windowsTabIndexAtPoint(float32(event.x), uiY)
+      if tabIndex >= 0:
+        receiveNativeCommand(("selectTab:" & $tabIndex).cstring)
+        return
     if kind == pointerDown and workspacePreviewMode == "quickOpen" and
         workspacePreviewEntries.len > 0:
       openWindowsWorkspaceEntryAtPoint(event.y)

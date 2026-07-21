@@ -22,6 +22,15 @@ making the application layer depend on Win32 drawing types. The
 `nimculusPortableOnly` Windows build keeps the same API as safe no-ops so the
 platform-selection boundary remains buildable without the Windows SDK.
 
+## M13-050: Route Windows tab hit-testing before editor input
+
+The Windows tab bar is painted by the native chrome pass, so tab selection
+must be resolved at the same logical-point boundary before pointer events enter
+the editor text hit-test. The application calculates the same bounded tab
+geometry as the renderer and dispatches the existing `selectTab:<index>` command;
+this keeps tab state mutation in the application layer, matching Zed's tab
+component click dispatch, rather than duplicating session state in C.
+
 ## M13-047: Keep Windows command palette input at the native UI boundary
 
 The Windows command palette uses a small native `EDIT` control rather than
