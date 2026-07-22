@@ -430,14 +430,17 @@ proc runSearchProcess(command: string, token: CancelToken,
                       maxOutputBytes = MaxWorkspaceSearchOutputBytes):
     tuple[exitCode: int, output: string, truncated: bool] =
   ## Run an external search without making cancellation wait for command exit.
-  ## POSIX uses a shell only for file redirection; the command itself is fully
-  ## quoteShell-escaped by the caller and is executed as `exec`-equivalent.
-  when defined(posix):
+  ## POSIX and Windows use a shell only for file redirection; the command
+  ## itself is fully quoteShell-escaped by the caller. Both platforms monitor
+  ## the temporary file so output and disk usage stay bounded.
+  when defined(posix) or defined(windows):
     let outputPath = getTempDir() / ("nimculus-rg-" & $getCurrentProcessId() & "-" &
       $int(epochTime() * 1_000_000) & ".out")
     var process: Process
     try:
-      process = startProcess("exec " & command & " > " & quoteShell(outputPath) & " 2>&1",
+      let shellCommand = (when defined(posix): "exec " else: "") & command &
+        " > " & quoteShell(outputPath) & " 2>&1"
+      process = startProcess(shellCommand,
         options = {poEvalCommand})
       while process.running:
         if token != nil and token.cancelled:

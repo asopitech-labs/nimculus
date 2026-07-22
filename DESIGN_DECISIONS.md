@@ -34,13 +34,15 @@ entries or requiring a full workspace enumeration.
 
 Zed's project search limits returned files and ranges and streams candidates
 through bounded asynchronous channels. Nimculus now caps a search at 10,000
-matches and caps the POSIX ripgrep temporary output at 32 MiB. When ripgrep
-exceeds the output cap, its process is stopped and the safely readable prefix
-is parsed; the cooperative fallback and search jobs use the same match cap.
+matches and caps the ripgrep temporary output at 32 MiB. When ripgrep exceeds
+the output cap, its process is stopped and the safely readable prefix is
+parsed; the cooperative fallback and search jobs use the same match cap.
 The cooperative fallback reads files line-by-line rather than flattening a
 whole file into memory. This prevents a broad query from retaining an
 unbounded result sequence, file body, or temporary file while preserving
-cancellation.
+cancellation. The same temporary-file path is used on Windows; the portable
+fallback must not use `execCmdEx`, whose all-at-once output buffer would bypass
+the search limit in the Windows/WSL workflow.
 
 ## M10-005: Compact scrollback in batches without changing its public shape
 
