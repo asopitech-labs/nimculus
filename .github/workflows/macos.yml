@@ -9,6 +9,8 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Setup Nim
         run: brew install nim
       - name: Install Nim dependencies

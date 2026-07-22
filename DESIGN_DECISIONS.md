@@ -905,6 +905,10 @@ unit because generated symbols are not namespace-safe when concatenated.
 This keeps grammar loading deterministic and avoids a runtime shared-library
 trust boundary.
 
+Both macOS and Windows CI checkout these submodules recursively before the
+portable or release build. A local-only grammar checkout must not be required
+for package smoke tests.
+
 ## M6-002: Workspace operations stay path-confined
 
 All create, delete, and rename operations resolve relative paths against the
