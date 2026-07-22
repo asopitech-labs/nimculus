@@ -1391,6 +1391,14 @@ static float glyph_advance_pixels(IDWriteFontFace *font_face, UINT16 glyph_id,
       (float)font_metrics.designUnitsPerEm * font_size * (float)scale;
 }
 
+static uint8_t quantized_subpixel(double position) {
+  double fraction = position - floor(position);
+  int variant = (int)floor(fraction * 4.0 + 0.5);
+  if (variant >= 4) variant = 0;
+  if (variant < 0) variant = 0;
+  return (uint8_t)variant;
+}
+
 static bool editor_text_is_plain_ascii(void) {
   if (!g_editor_text || g_editor_text_length <= 0 ||
       g_editor_highlight_count != 0 || g_editor_composition_length != 0 ||
@@ -1469,12 +1477,14 @@ static bool draw_glyph_atlas_sprites(void) {
                                                       &glyph_id))) continue;
         float advance = glyph_advance_pixels(font_face, glyph_id, font_size, scale);
         if (codepoint >= 0x20 && codepoint <= 0x7e) {
-          if (!rasterize_glyph_for_cache(codepoint, font_size, scale, 0, 0)) {
+          uint8_t subpixel_x = quantized_subpixel(pen_x);
+          if (!rasterize_glyph_for_cache(codepoint, font_size, scale,
+                                         subpixel_x, 0)) {
             pen_x += advance;
             continue;
           }
           NimculusGlyphRaster *raster = cached_glyph_for_codepoint(
-              codepoint, font_size, scale, 0, 0);
+              codepoint, font_size, scale, subpixel_x, 0);
           if (!raster || !upload_glyph_raster_to_atlas(raster)) {
             pen_x += advance;
             continue;
@@ -2510,6 +2520,19 @@ bool nimculus_platform_validate_glyph_raster_cache(void) {
   if (!rasterize_glyph_for_cache('A', (float)g_editor_font_size, scale, 0, 0))
     return false;
   return g_glyph_raster_hit_count > hits_before;
+}
+
+bool nimculus_platform_validate_glyph_subpixel_variants(void) {
+  double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+  float font_size = (float)g_editor_font_size;
+  if (!rasterize_glyph_for_cache('A', font_size, scale, 0, 0) ||
+      !rasterize_glyph_for_cache('A', font_size, scale, 1, 0)) return false;
+  NimculusGlyphRaster *first = cached_glyph_for_codepoint('A', font_size,
+      scale, 0, 0);
+  NimculusGlyphRaster *second = cached_glyph_for_codepoint('A', font_size,
+      scale, 1, 0);
+  return first != NULL && second != NULL && first != second &&
+      first->subpixel_x == 0 && second->subpixel_x == 1;
 }
 
 bool nimculus_platform_validate_glyph_atlas_upload(void) {

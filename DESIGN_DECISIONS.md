@@ -2180,4 +2180,7 @@ editor range (ASCII glyphs only). DirectWrite/D2D remains the visible fallback
 for complex, colored, and highlighted text; plain ASCII glyphs additionally use
 the R8 atlas pixel shader and quad path. This keeps shaping behavior unchanged
 while making atlas sampling part of the normal frame. Full shaped-run
-submission, colored glyphs, and subpixel positioning remain unimplemented.
+submission and colored glyphs remain unimplemented. Plain ASCII glyphs now
+quantize their device-space x origin to the same 4-way subpixel variant used by
+the DirectWrite baseline offset and cache key; y-origin variants remain a later
+step because the current line baseline is integral.
