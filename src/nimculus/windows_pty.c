@@ -44,6 +44,11 @@ static void close_handle(HANDLE *handle) {
   }
 }
 
+static DWORD WINAPI close_pseudoconsole_worker(LPVOID parameter) {
+  ClosePseudoConsole((NimculusHPCON)parameter);
+  return 0;
+}
+
 NimculusConPty *nimculus_conpty_create(const char *shell, const char *working_directory,
                                        uint16_t columns, uint16_t rows) {
   wchar_t *wide_shell = utf8_to_wide(shell && shell[0] ? shell : "cmd.exe");
@@ -180,20 +185,31 @@ bool nimculus_conpty_resize(NimculusConPty *pty, uint16_t columns, uint16_t rows
 
 void nimculus_conpty_close(NimculusConPty *pty) {
   if (!pty) return;
-  /* Microsoft requires the output side to be closed before ClosePseudoConsole
-     so the final console output cannot leave that call waiting indefinitely. */
-  close_handle(&pty->input_write);
-  close_handle(&pty->output_read);
-  if (pty->pseudo_console) {
-    ClosePseudoConsole(pty->pseudo_console);
-    pty->pseudo_console = NULL;
-  }
+  /* Stop the child before releasing the console so no client can keep the
+     pseudoconsole alive while its communication handles are being closed. */
   if (pty->process) {
     if (WaitForSingleObject(pty->process, 0) == WAIT_TIMEOUT) {
       TerminateProcess(pty->process, 0);
       WaitForSingleObject(pty->process, 1000);
     }
     close_handle(&pty->process);
+  }
+  /* Microsoft requires the output side to be closed before ClosePseudoConsole
+     so the final console output cannot leave that call waiting indefinitely. */
+  close_handle(&pty->input_write);
+  close_handle(&pty->output_read);
+  if (pty->pseudo_console) {
+    HANDLE close_thread = CreateThread(NULL, 0, close_pseudoconsole_worker,
+                                       pty->pseudo_console, 0, NULL);
+    if (close_thread) {
+      /* Older Windows versions can wait indefinitely here. The worker owns
+         the console handle after this point; it may finish asynchronously. */
+      WaitForSingleObject(close_thread, 2000);
+      CloseHandle(close_thread);
+    } else {
+      ClosePseudoConsole(pty->pseudo_console);
+    }
+    pty->pseudo_console = NULL;
   }
   free(pty);
 }

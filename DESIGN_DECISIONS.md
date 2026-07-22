@@ -927,6 +927,9 @@ newer SDK header, and use the documented thread-attribute value.
 Shutdown closes both application pipe handles before `ClosePseudoConsole`, then
 waits for and terminates the child process. This follows Microsoft's warning
 that leaving the output side open can make ConPTY shutdown wait indefinitely.
+The child is stopped before release, and the release call runs on a worker with
+a two-second wait bound because older Windows versions can still block the
+close call while a console client disconnects.
 
 ## M6-002: Workspace operations stay path-confined
 
