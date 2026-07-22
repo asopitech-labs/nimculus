@@ -2179,8 +2179,10 @@ The upload path is now called from the Windows frame boundary for the visible
 editor range (ASCII glyphs only). DirectWrite/D2D remains the visible fallback
 for complex, colored, and highlighted text; plain ASCII glyphs additionally use
 the R8 atlas pixel shader and quad path. This keeps shaping behavior unchanged
-while making atlas sampling part of the normal frame. Full shaped-run
-submission and colored glyphs remain unimplemented. Plain ASCII glyphs now
+while making atlas sampling part of the normal frame. Plain ASCII shaped-run
+submission is now implemented through `IDWriteTextAnalyzer::GetGlyphs` and
+`GetGlyphPlacements`, preserving glyph IDs and advance/offset data before atlas
+upload. Colored glyphs remain unimplemented. Plain ASCII glyphs now
 quantize their device-space x origin to the same 4-way subpixel variant used by
 the DirectWrite baseline offset and cache key; y-origin variants remain a later
 step because the current line baseline is integral.

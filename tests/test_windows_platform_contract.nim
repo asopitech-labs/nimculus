@@ -45,6 +45,9 @@ when defined(windows):
     test "DirectWrite glyph raster cache separates subpixel variants":
       check platformValidateGlyphSubpixelVariants()
 
+    test "DirectWrite analyzer produces a shaped glyph run":
+      check platformValidateGlyphShaping()
+
     test "D3D11 glyph atlas uploads and reuses a cached tile":
       if platformValidateNative():
         check platformValidateGlyphAtlasUpload()

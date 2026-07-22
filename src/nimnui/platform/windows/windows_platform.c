@@ -50,6 +50,7 @@ static ID2D1RenderTarget *g_d2d_target = NULL;
 static ID2D1SolidColorBrush *g_d2d_text_brush = NULL;
 static IDWriteFactory *g_dwrite_factory = NULL;
 static IDWriteFactory2 *g_dwrite_factory2 = NULL;
+static IDWriteTextAnalyzer *g_dwrite_analyzer = NULL;
 static IDWriteFontFace *g_glyph_font_face = NULL;
 static wchar_t g_glyph_font_face_name[LF_FACESIZE];
 static uint64_t g_glyph_raster_hit_count = 0;
@@ -770,13 +771,26 @@ static bool create_directwrite_target(void) {
 }
 
 static bool ensure_directwrite_factory(void) {
-  if (g_dwrite_factory && g_dwrite_factory2) return true;
+  if (g_dwrite_factory && g_dwrite_factory2 && g_dwrite_analyzer) return true;
   HRESULT hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
       &IID_IDWriteFactory, (IUnknown **)&g_dwrite_factory);
   if (FAILED(hr) || !g_dwrite_factory) return false;
   hr = g_dwrite_factory->lpVtbl->QueryInterface((IUnknown *)g_dwrite_factory,
       &IID_IDWriteFactory2, (void **)&g_dwrite_factory2);
   if (FAILED(hr) || !g_dwrite_factory2) {
+    if (g_dwrite_factory) {
+      g_dwrite_factory->lpVtbl->Release(g_dwrite_factory);
+      g_dwrite_factory = NULL;
+    }
+    return false;
+  }
+  hr = g_dwrite_factory->lpVtbl->CreateTextAnalyzer(g_dwrite_factory,
+      &g_dwrite_analyzer);
+  if (FAILED(hr) || !g_dwrite_analyzer) {
+    if (g_dwrite_factory2) {
+      g_dwrite_factory2->lpVtbl->Release(g_dwrite_factory2);
+      g_dwrite_factory2 = NULL;
+    }
     if (g_dwrite_factory) {
       g_dwrite_factory->lpVtbl->Release(g_dwrite_factory);
       g_dwrite_factory = NULL;
@@ -967,15 +981,12 @@ static NimculusGlyphRaster *allocate_glyph_raster_slot(void) {
   return oldest;
 }
 
-static bool rasterize_glyph_for_cache(uint32_t codepoint, float font_size,
+static bool rasterize_glyph_id_for_cache(uint16_t glyph_id, float font_size,
                                       double scale, uint8_t subpixel_x,
                                       uint8_t subpixel_y) {
   IDWriteFontFace *font_face = ensure_glyph_font_face();
   if (!font_face || !ensure_directwrite_factory()) return false;
-  UINT16 glyph_id = 0;
-  HRESULT hr = font_face->lpVtbl->GetGlyphIndices(font_face, &codepoint, 1,
-      &glyph_id);
-  if (FAILED(hr)) return false;
+  HRESULT hr;
   if (find_glyph_raster(glyph_id, font_size, scale, subpixel_x, subpixel_y))
     return true;
 
@@ -1041,6 +1052,26 @@ static bool rasterize_glyph_for_cache(uint32_t codepoint, float font_size,
   return true;
 }
 
+static bool rasterize_glyph_for_cache(uint32_t codepoint, float font_size,
+                                      double scale, uint8_t subpixel_x,
+                                      uint8_t subpixel_y) {
+  IDWriteFontFace *font_face = ensure_glyph_font_face();
+  if (!font_face) return false;
+  UINT16 glyph_id = 0;
+  if (FAILED(font_face->lpVtbl->GetGlyphIndices(font_face, &codepoint, 1,
+                                                &glyph_id))) return false;
+  return rasterize_glyph_id_for_cache(glyph_id, font_size, scale,
+                                       subpixel_x, subpixel_y);
+}
+
+static NimculusGlyphRaster *cached_glyph_for_id(uint16_t glyph_id,
+                                                 float font_size,
+                                                 double scale,
+                                                 uint8_t subpixel_x,
+                                                 uint8_t subpixel_y) {
+  return find_glyph_raster(glyph_id, font_size, scale, subpixel_x, subpixel_y);
+}
+
 static NimculusGlyphRaster *cached_glyph_for_codepoint(uint32_t codepoint,
                                                         float font_size,
                                                         double scale,
@@ -1051,7 +1082,7 @@ static NimculusGlyphRaster *cached_glyph_for_codepoint(uint32_t codepoint,
   UINT16 glyph_id = 0;
   if (FAILED(font_face->lpVtbl->GetGlyphIndices(font_face, &codepoint, 1,
                                                 &glyph_id))) return NULL;
-  return find_glyph_raster(glyph_id, font_size, scale, subpixel_x, subpixel_y);
+  return cached_glyph_for_id(glyph_id, font_size, scale, subpixel_x, subpixel_y);
 }
 
 /* Warm the device-owned atlas from the same visible editor range that the
@@ -1412,6 +1443,108 @@ static bool editor_text_is_plain_ascii(void) {
   return true;
 }
 
+static bool shape_ascii_run(const wchar_t *text, uint32_t text_length,
+                            UINT16 **glyph_indices, DWRITE_GLYPH_OFFSET **offsets,
+                            FLOAT **advances, uint32_t *glyph_count) {
+  if (!text || text_length == 0 || !glyph_indices || !offsets || !advances ||
+      !glyph_count || !ensure_directwrite_factory() || !g_dwrite_analyzer)
+    return false;
+  IDWriteFontFace *font_face = ensure_glyph_font_face();
+  if (!font_face) return false;
+  uint32_t max_glyphs = text_length * 2 + 16;
+  if (max_glyphs > 8192) max_glyphs = 8192;
+  UINT16 *cluster_map = (UINT16 *)calloc(text_length, sizeof(UINT16));
+  DWRITE_SHAPING_TEXT_PROPERTIES *text_props =
+      (DWRITE_SHAPING_TEXT_PROPERTIES *)calloc(text_length,
+                                                sizeof(DWRITE_SHAPING_TEXT_PROPERTIES));
+  UINT16 *indices = (UINT16 *)calloc(max_glyphs, sizeof(UINT16));
+  DWRITE_SHAPING_GLYPH_PROPERTIES *glyph_props =
+      (DWRITE_SHAPING_GLYPH_PROPERTIES *)calloc(max_glyphs,
+                                                sizeof(DWRITE_SHAPING_GLYPH_PROPERTIES));
+  FLOAT *glyph_advances = (FLOAT *)calloc(max_glyphs, sizeof(FLOAT));
+  DWRITE_GLYPH_OFFSET *glyph_offsets =
+      (DWRITE_GLYPH_OFFSET *)calloc(max_glyphs, sizeof(DWRITE_GLYPH_OFFSET));
+  if (!cluster_map || !text_props || !indices || !glyph_props ||
+      !glyph_advances || !glyph_offsets) {
+    free(cluster_map); free(text_props); free(indices); free(glyph_props);
+    free(glyph_advances); free(glyph_offsets);
+    return false;
+  }
+  DWRITE_SCRIPT_ANALYSIS script = {0, (DWRITE_SCRIPT_SHAPES)0};
+  UINT32 actual_glyphs = 0;
+  HRESULT hr = g_dwrite_analyzer->lpVtbl->GetGlyphs(g_dwrite_analyzer, text,
+      text_length, font_face, FALSE, FALSE, &script, L"en-us", NULL, NULL,
+      NULL, 0, max_glyphs, cluster_map, text_props, indices, glyph_props,
+      &actual_glyphs);
+  if (SUCCEEDED(hr)) {
+    hr = g_dwrite_analyzer->lpVtbl->GetGlyphPlacements(g_dwrite_analyzer, text,
+        cluster_map, text_props, text_length, indices, glyph_props,
+        actual_glyphs, font_face, (FLOAT)g_editor_font_size, FALSE, FALSE,
+        &script, L"en-us", NULL, NULL, 0, glyph_advances, glyph_offsets);
+  }
+  free(cluster_map);
+  free(text_props);
+  free(glyph_props);
+  if (FAILED(hr) || actual_glyphs == 0) {
+    free(indices); free(glyph_advances); free(glyph_offsets);
+    return false;
+  }
+  *glyph_indices = indices;
+  *advances = glyph_advances;
+  *offsets = glyph_offsets;
+  *glyph_count = actual_glyphs;
+  return true;
+}
+
+static void free_shaped_run(UINT16 *glyph_indices, DWRITE_GLYPH_OFFSET *offsets,
+                            FLOAT *advances) {
+  free(glyph_indices);
+  free(offsets);
+  free(advances);
+}
+
+static void draw_cached_glyph_sprite(NimculusGlyphRaster *raster, float pen_x,
+                                     float baseline, float left, float top,
+                                     float right, float bottom, float width,
+                                     float height, uint32_t *drawn) {
+  if (!raster || !raster->atlas_valid || !drawn) return;
+  float glyph_left = pen_x + (float)raster->bounds.left;
+  float glyph_top = baseline + (float)raster->bounds.top;
+  float glyph_right = glyph_left + (float)raster->atlas_width;
+  float glyph_bottom = glyph_top + (float)raster->atlas_height;
+  if (glyph_right <= left || glyph_left >= right || glyph_bottom <= top ||
+      glyph_top >= bottom) return;
+  float u0 = (float)raster->atlas_x / NIMCULUS_GLYPH_ATLAS_SIZE;
+  float v0 = (float)raster->atlas_y / NIMCULUS_GLYPH_ATLAS_SIZE;
+  float u1 = (float)(raster->atlas_x + raster->atlas_width) /
+      NIMCULUS_GLYPH_ATLAS_SIZE;
+  float v1 = (float)(raster->atlas_y + raster->atlas_height) /
+      NIMCULUS_GLYPH_ATLAS_SIZE;
+  NimculusQuadVertex vertices[6] = {
+    {(glyph_left / width) * 2.0f - 1.0f, 1.0f - (glyph_top / height) * 2.0f,
+      1.0f, 1.0f, 1.0f, 1.0f, u0, v0, 0, 0, 0, 0},
+    {(glyph_right / width) * 2.0f - 1.0f, 1.0f - (glyph_top / height) * 2.0f,
+      1.0f, 1.0f, 1.0f, 1.0f, u1, v0, 0, 0, 0, 0},
+    {(glyph_right / width) * 2.0f - 1.0f, 1.0f - (glyph_bottom / height) * 2.0f,
+      1.0f, 1.0f, 1.0f, 1.0f, u1, v1, 0, 0, 0, 0},
+    {(glyph_left / width) * 2.0f - 1.0f, 1.0f - (glyph_top / height) * 2.0f,
+      1.0f, 1.0f, 1.0f, 1.0f, u0, v0, 0, 0, 0, 0},
+    {(glyph_right / width) * 2.0f - 1.0f, 1.0f - (glyph_bottom / height) * 2.0f,
+      1.0f, 1.0f, 1.0f, 1.0f, u1, v1, 0, 0, 0, 0},
+    {(glyph_left / width) * 2.0f - 1.0f, 1.0f - (glyph_bottom / height) * 2.0f,
+      1.0f, 1.0f, 1.0f, 1.0f, u0, v1, 0, 0, 0, 0}
+  };
+  D3D11_MAPPED_SUBRESOURCE mapped;
+  if (SUCCEEDED(g_context->lpVtbl->Map(g_context,
+      (ID3D11Resource *)g_quad_vertex_buffer, 0, D3D11_MAP_WRITE_DISCARD,
+      0, &mapped))) {
+    memcpy(mapped.pData, vertices, sizeof(vertices));
+    g_context->lpVtbl->Unmap(g_context, (ID3D11Resource *)g_quad_vertex_buffer, 0);
+    g_context->lpVtbl->Draw(g_context, 6, 0);
+    (*drawn)++;
+  }
+}
+
 static bool draw_glyph_atlas_sprites(void) {
   if (!g_context || !g_glyph_atlas_view || !g_glyph_pixel_shader ||
       !g_quad_vertex_buffer || !g_quad_input_layout || !g_quad_vertex_shader ||
@@ -1468,6 +1601,32 @@ static bool draw_glyph_atlas_sprites(void) {
       float baseline = top + (float)(line - g_editor_scroll_line) * line_height +
           font_size * (float)scale;
       float pen_x = left;
+      UINT16 *shaped_indices = NULL;
+      DWRITE_GLYPH_OFFSET *shaped_offsets = NULL;
+      FLOAT *shaped_advances = NULL;
+      uint32_t shaped_count = 0;
+      if (shape_ascii_run(line_start, (uint32_t)(line_end - line_start),
+                          &shaped_indices, &shaped_offsets, &shaped_advances,
+                          &shaped_count)) {
+        for (uint32_t glyph_index = 0; glyph_index < shaped_count; ++glyph_index) {
+          UINT16 glyph_id = shaped_indices[glyph_index];
+          uint8_t subpixel_x = quantized_subpixel(pen_x +
+              shaped_offsets[glyph_index].advanceOffset * (float)scale);
+          if (rasterize_glyph_id_for_cache(glyph_id, font_size, scale,
+                                           subpixel_x, 0)) {
+            NimculusGlyphRaster *raster = cached_glyph_for_id(glyph_id,
+                font_size, scale, subpixel_x, 0);
+            if (raster && upload_glyph_raster_to_atlas(raster)) {
+              draw_cached_glyph_sprite(raster,
+                  pen_x + shaped_offsets[glyph_index].advanceOffset * (float)scale,
+                  baseline - shaped_offsets[glyph_index].ascenderOffset * (float)scale,
+                  left, top, right, bottom, width, height, &drawn);
+            }
+          }
+          pen_x += shaped_advances[glyph_index] * (float)scale;
+        }
+        free_shaped_run(shaped_indices, shaped_offsets, shaped_advances);
+      } else {
       for (const wchar_t *character = line_start; character < line_end;
            ++character) {
         uint32_t codepoint = (uint32_t)*character;
@@ -1489,45 +1648,11 @@ static bool draw_glyph_atlas_sprites(void) {
             pen_x += advance;
             continue;
           }
-          float glyph_left = pen_x + (float)raster->bounds.left;
-          float glyph_top = baseline + (float)raster->bounds.top;
-          float glyph_right = glyph_left + (float)raster->atlas_width;
-          float glyph_bottom = glyph_top + (float)raster->atlas_height;
-          if (glyph_right > left && glyph_left < right &&
-              glyph_bottom > top && glyph_top < bottom) {
-            float u0 = (float)raster->atlas_x / NIMCULUS_GLYPH_ATLAS_SIZE;
-            float v0 = (float)raster->atlas_y / NIMCULUS_GLYPH_ATLAS_SIZE;
-            float u1 = (float)(raster->atlas_x + raster->atlas_width) /
-                NIMCULUS_GLYPH_ATLAS_SIZE;
-            float v1 = (float)(raster->atlas_y + raster->atlas_height) /
-                NIMCULUS_GLYPH_ATLAS_SIZE;
-            NimculusQuadVertex vertices[6] = {
-              {(glyph_left / width) * 2.0f - 1.0f, 1.0f - (glyph_top / height) * 2.0f,
-                1.0f, 1.0f, 1.0f, 1.0f, u0, v0, 0, 0, 0, 0},
-              {(glyph_right / width) * 2.0f - 1.0f, 1.0f - (glyph_top / height) * 2.0f,
-                1.0f, 1.0f, 1.0f, 1.0f, u1, v0, 0, 0, 0, 0},
-              {(glyph_right / width) * 2.0f - 1.0f, 1.0f - (glyph_bottom / height) * 2.0f,
-                1.0f, 1.0f, 1.0f, 1.0f, u1, v1, 0, 0, 0, 0},
-              {(glyph_left / width) * 2.0f - 1.0f, 1.0f - (glyph_top / height) * 2.0f,
-                1.0f, 1.0f, 1.0f, 1.0f, u0, v0, 0, 0, 0, 0},
-              {(glyph_right / width) * 2.0f - 1.0f, 1.0f - (glyph_bottom / height) * 2.0f,
-                1.0f, 1.0f, 1.0f, 1.0f, u1, v1, 0, 0, 0, 0},
-              {(glyph_left / width) * 2.0f - 1.0f, 1.0f - (glyph_bottom / height) * 2.0f,
-                1.0f, 1.0f, 1.0f, 1.0f, u0, v1, 0, 0, 0, 0}
-            };
-            D3D11_MAPPED_SUBRESOURCE mapped;
-            if (SUCCEEDED(g_context->lpVtbl->Map(g_context,
-                (ID3D11Resource *)g_quad_vertex_buffer, 0,
-                D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-              memcpy(mapped.pData, vertices, sizeof(vertices));
-              g_context->lpVtbl->Unmap(g_context,
-                  (ID3D11Resource *)g_quad_vertex_buffer, 0);
-              g_context->lpVtbl->Draw(g_context, 6, 0);
-              drawn++;
-            }
-          }
+          draw_cached_glyph_sprite(raster, pen_x, baseline, left, top, right,
+                                    bottom, width, height, &drawn);
         }
         pen_x += advance;
+      }
       }
     }
     if (line_end >= end) break;
@@ -2459,6 +2584,10 @@ bool nimculus_platform_run(void) {
     g_d2d_factory->lpVtbl->Release(g_d2d_factory);
     g_d2d_factory = NULL;
   }
+  if (g_dwrite_analyzer) {
+    g_dwrite_analyzer->lpVtbl->Release(g_dwrite_analyzer);
+    g_dwrite_analyzer = NULL;
+  }
   if (g_dwrite_factory) {
     g_dwrite_factory->lpVtbl->Release(g_dwrite_factory);
     g_dwrite_factory = NULL;
@@ -2533,6 +2662,23 @@ bool nimculus_platform_validate_glyph_subpixel_variants(void) {
       scale, 1, 0);
   return first != NULL && second != NULL && first != second &&
       first->subpixel_x == 0 && second->subpixel_x == 1;
+}
+
+bool nimculus_platform_validate_glyph_shaping(void) {
+  static const wchar_t sample[] = L"office";
+  UINT16 *indices = NULL;
+  DWRITE_GLYPH_OFFSET *offsets = NULL;
+  FLOAT *advances = NULL;
+  uint32_t count = 0;
+  bool valid = shape_ascii_run(sample, 6, &indices, &offsets, &advances, &count);
+  if (valid) {
+    valid = count > 0;
+    for (uint32_t index = 0; index < count; ++index) {
+      if (!(advances[index] >= 0.0f) || !isfinite(advances[index])) valid = false;
+    }
+  }
+  free_shaped_run(indices, offsets, advances);
+  return valid;
 }
 
 bool nimculus_platform_validate_glyph_atlas_upload(void) {
