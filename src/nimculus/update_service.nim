@@ -15,6 +15,7 @@ type
     process: Process
     release*: UpdateRelease
     destination*: string
+    partialDestination: string
     done*: bool
     success*: bool
 
@@ -25,6 +26,13 @@ proc artifactWithinLimit(path: string): bool =
     fileExists(path) and getFileSize(path) <= MaxUpdateArtifactBytes
   except CatchableError:
     false
+
+proc partialUpdatePath(destination: string): string = destination & ".part"
+
+proc removeIfPresent(path: string) =
+  if path.len == 0 or not fileExists(path): return
+  try: removeFile(path)
+  except CatchableError: discard
 
 proc isHttpsUrl(url: string): bool =
   url.startsWith("https://")
@@ -97,39 +105,45 @@ proc downloadAndVerify*(release: UpdateRelease, destination: string): bool =
   ## Download an HTTPS artifact without a shell, then verify it before the
   ## caller can hand it to an installer. Failed or mismatched artifacts are
   ## removed so a stale file cannot be mistaken for a verified update.
+  let partial = partialUpdatePath(destination)
+  removeIfPresent(partial)
+  removeIfPresent(destination)
   if not isHttpsUrl(release.url) or release.sha256.len != 64 or
       not release.sha256.allCharsInSet(HexDigits) or destination.len == 0:
     return false
   try:
     let process = startProcess("curl", args = ["--fail", "--location", "--silent",
       "--show-error", "--proto", "=https", "--tlsv1.2", "--max-filesize",
-      $MaxUpdateArtifactBytes, "--output", destination,
+      $MaxUpdateArtifactBytes, "--output", partial,
       release.url], options = {poUsePath, poStdErrToStdOut})
     discard process.outputStream.readAll()
     let exitCode = process.waitForExit()
     process.close()
-    if exitCode != 0 or not artifactWithinLimit(destination) or
-        not verifySha256(destination, release.sha256):
-      if fileExists(destination): removeFile(destination)
+    if exitCode != 0 or not artifactWithinLimit(partial) or
+        not verifySha256(partial, release.sha256):
+      removeIfPresent(partial)
       return false
+    moveFile(partial, destination)
     true
   except CatchableError:
-    if fileExists(destination):
-      try: removeFile(destination)
-      except CatchableError: discard
+    removeIfPresent(partial)
+    removeIfPresent(destination)
     false
 
 proc startUpdateDownload*(release: UpdateRelease, destination: string): UpdateDownloadJob =
   ## Start the HTTPS download without blocking the UI thread. Hash validation is
   ## performed only after curl exits successfully.
-  result = UpdateDownloadJob(release: release, destination: destination, done: true)
+  result = UpdateDownloadJob(release: release, destination: destination,
+    partialDestination: partialUpdatePath(destination), done: true)
+  removeIfPresent(destination)
+  removeIfPresent(result.partialDestination)
   if not isHttpsUrl(release.url) or release.sha256.len != 64 or
       not release.sha256.allCharsInSet(HexDigits) or destination.len == 0:
     return
   try:
     result.process = startProcess("curl", args = ["--fail", "--location", "--silent",
       "--show-error", "--proto", "=https", "--tlsv1.2", "--max-filesize",
-      $MaxUpdateArtifactBytes, "--output", destination,
+      $MaxUpdateArtifactBytes, "--output", result.partialDestination,
       release.url], options = {poUsePath, poStdErrToStdOut})
     result.done = false
   except CatchableError:
@@ -137,12 +151,12 @@ proc startUpdateDownload*(release: UpdateRelease, destination: string): UpdateDo
 
 proc pollUpdateDownload*(job: UpdateDownloadJob): bool =
   if job == nil or job.done: return true
-  if fileExists(job.destination) and not artifactWithinLimit(job.destination):
+  if fileExists(job.partialDestination) and
+      not artifactWithinLimit(job.partialDestination):
     job.process.terminate()
     discard job.process.waitForExit()
     job.process.close()
-    try: removeFile(job.destination)
-    except CatchableError: discard
+    removeIfPresent(job.partialDestination)
     job.done = true
     job.success = false
     return true
@@ -150,11 +164,16 @@ proc pollUpdateDownload*(job: UpdateDownloadJob): bool =
   if exitCode < 0: return false
   job.process.close()
   job.done = true
-  job.success = exitCode == 0 and artifactWithinLimit(job.destination) and
-    verifySha256(job.destination, job.release.sha256)
-  if not job.success and fileExists(job.destination):
-    try: removeFile(job.destination)
-    except CatchableError: discard
+  job.success = exitCode == 0 and artifactWithinLimit(job.partialDestination) and
+    verifySha256(job.partialDestination, job.release.sha256)
+  if job.success:
+    try:
+      moveFile(job.partialDestination, job.destination)
+    except CatchableError:
+      job.success = false
+  if not job.success:
+    removeIfPresent(job.partialDestination)
+    removeIfPresent(job.destination)
   true
 
 proc runChecked(command: string, args: openArray[string]): bool =

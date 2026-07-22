@@ -19,6 +19,15 @@ directory, and removes the consumed DMG in a `finally` cleanup path. This
 avoids verifying one path while detaching another and prevents stale update
 artifacts from accumulating in the temporary directory.
 
+## M11-008: Verify update downloads before publishing the destination path
+
+Zed keeps an update inside its installer directory until the download and
+verification lifecycle completes. Nimculus now downloads to
+`<destination>.part`, removes stale destination/partial files before a new
+attempt, checks size and SHA-256 on the partial file, and moves it into the
+destination only after verification. Failed or interrupted downloads cannot
+be mistaken for an installable DMG.
+
 ## M9-006: Bound Git process output before it reaches UI state
 
 Zed compresses large commit diffs for presentation and applies explicit

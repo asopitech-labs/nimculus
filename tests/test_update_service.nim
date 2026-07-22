@@ -39,6 +39,14 @@ suite "M11 update service":
     check invalidJob.done
     check not invalidJob.success
 
+    let staleDestination = getTempDir() / "nimculus-update-stale"
+    writeFile(staleDestination, "stale")
+    let rejected = startUpdateDownload(UpdateRelease(url: "http://example.invalid/a",
+      sha256: "0000000000000000000000000000000000000000000000000000000000000000"),
+      staleDestination)
+    check rejected.done
+    check not fileExists(staleDestination)
+
   test "rejects an invalid install target without touching the artifact":
     let artifact = getTempDir() / "nimculus-update-invalid-install.dmg"
     writeFile(artifact, "not a disk image")
