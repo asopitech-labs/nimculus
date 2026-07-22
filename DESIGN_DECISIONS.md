@@ -87,6 +87,24 @@ the legacy environment-variable credentials only as a fallback. Partial API
 key configuration and unreadable key files fail before submission, preventing
 an ambiguous or insecure packaging run.
 
+## M11-013: Generate the ICNS container with ImageIO
+
+The Apple iconset contract still requires the ten 1x/2x PNG renditions, but
+the local `iconutil` conversion rejected the generated set even when its names
+and pixel dimensions matched that contract. The macOS packaging path therefore
+keeps generating the documented iconset and uses ImageIO's
+`com.apple.icns` destination to write the final ICNS container directly. The
+package smoke test validates the signed app, ZIP, and DMG at the release
+boundary.
+
+## M0-009: Install Nimble dependencies without rebuilding the workspace
+
+`nimble install` may build the current package in a temporary dependency tree.
+That breaks this repository's `nimble.workspace` source layout because the
+temporary tree does not contain the sibling `nimnui` package. CI and packaging
+therefore use `nimble install -y --depsOnly`; the project itself is compiled by
+the explicit build step.
+
 ## M13-053: Run the Windows native contract test on the Windows runner
 
 The macOS workflow can only compile the Windows portable boundary because it

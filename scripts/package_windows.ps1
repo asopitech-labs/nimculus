@@ -18,7 +18,7 @@ if (-not $SkipBuild) {
     Remove-Item (Join-Path $stage "*") -Recurse -Force -ErrorAction SilentlyContinue
     Push-Location $repo
     try {
-        nimble install -y
+        nimble install -y --depsOnly
         nim c --mm:arc -d:release --nimcache:$nimcache --path:src --out:$exe src/nimculus/main.nim
     } finally {
         Pop-Location

@@ -71,8 +71,8 @@ rm -rf "$OUT_DIR"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 ICONSET="$OUT_DIR/Nimculus.iconset"
-swift "$ROOT_DIR/scripts/generate_macos_icon.swift" "$ICONSET"
-iconutil --convert icns --output "$APP/Contents/Resources/Nimculus.icns" "$ICONSET"
+swift "$ROOT_DIR/scripts/generate_macos_icon.swift" "$ICONSET" \
+  "$APP/Contents/Resources/Nimculus.icns"
 rm -rf "$ICONSET"
 
 nim c --mm:arc -d:release --cpu:"$ARCH" \

@@ -1,13 +1,15 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import ImageIO
 
-guard CommandLine.arguments.count == 2 else {
-    fputs("usage: generate_macos_icon.swift <iconset-directory>\n", stderr)
+guard CommandLine.arguments.count == 3 else {
+    fputs("usage: generate_macos_icon.swift <iconset-directory> <icns-output>\n", stderr)
     exit(2)
 }
 
 let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
+let icnsOutput = URL(fileURLWithPath: CommandLine.arguments[2])
 try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
 
 let sizes = [16, 32, 128, 256, 512]
@@ -47,11 +49,19 @@ func render(pixelSize: Int, logicalSize: Int, to url: URL) throws {
     context.addPath(path)
     context.fillPath()
 
-    guard let image = context.makeImage(), let data = NSBitmapImageRep(cgImage: image)
-        .representation(using: .png, properties: [:]) else {
+    guard let image = context.makeImage() else {
         throw NSError(domain: "NimculusIcon", code: 2)
     }
-    try data.write(to: url)
+    let data = NSMutableData()
+    guard let destination = CGImageDestinationCreateWithData(
+        data, "public.png" as CFString, 1, nil) else {
+        throw NSError(domain: "NimculusIcon", code: 3)
+    }
+    CGImageDestinationAddImage(destination, image, nil)
+    guard CGImageDestinationFinalize(destination) else {
+        throw NSError(domain: "NimculusIcon", code: 4)
+    }
+    try (data as Data).write(to: url)
 }
 
 for size in sizes {
@@ -59,4 +69,28 @@ for size in sizes {
                to: output.appendingPathComponent("icon_\(size)x\(size).png"))
     try render(pixelSize: size * 2, logicalSize: size,
                to: output.appendingPathComponent("icon_\(size)x\(size)@2x.png"))
+}
+
+let imageURLs = sizes.flatMap { size in
+    [
+        output.appendingPathComponent("icon_\(size)x\(size).png"),
+        output.appendingPathComponent("icon_\(size)x\(size)@2x.png")
+    ]
+}
+let images = try imageURLs.map { url -> CGImage in
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+        throw NSError(domain: "NimculusIcon", code: 5)
+    }
+    return image
+}
+guard let destination = CGImageDestinationCreateWithURL(
+    icnsOutput as CFURL, "com.apple.icns" as CFString, images.count, nil) else {
+    throw NSError(domain: "NimculusIcon", code: 6)
+}
+for image in images {
+    CGImageDestinationAddImage(destination, image, nil)
+}
+guard CGImageDestinationFinalize(destination) else {
+    throw NSError(domain: "NimculusIcon", code: 7)
 }

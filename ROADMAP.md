@@ -391,7 +391,7 @@ Task stdout/stderrはPOSIX pipeをnon-blockingでpollし、プロセス終了前
 
 **進捗：** 🟡 配布スクリプトと署名検証ゲートを実装済み・Apple資格情報によるnotarization実行待ち
 
-**実装済み基盤：** `packaging/macos/Info.plist`、CoreGraphics/AppKitからのマルチサイズiconset生成（`scripts/generate_macos_icon.swift`）と`.icns` bundle組み込み、file associationと`nimculus://` URL scheme、Finder/Open WithとURLイベントのAppDelegate受信、hardened runtime用entitlements、Apple Silicon/x86_64を選べる`scripts/package_macos.sh` による`.app`生成、codesign、`codesign --verify --deep --strict`、Developer ID署名時の`spctl --assess`、ZIP/DMG生成、`xcrun notarytool`提出、stapling、stapler validateを接続。署名IDなしではadhoc許可を明示しない限り失敗し、notarization指定時はApple ID・Team ID・app-specific passwordを必須化する。
+**実装済み基盤：** `packaging/macos/Info.plist`、CoreGraphics/AppKitからApple仕様の10種類のマルチサイズiconsetを生成し、ImageIOの`com.apple.icns`で`.icns`を直接生成する処理（`scripts/generate_macos_icon.swift`）とbundle組み込み、file associationと`nimculus://` URL scheme、Finder/Open WithとURLイベントのAppDelegate受信、hardened runtime用entitlements、Apple Silicon/x86_64を選べる`scripts/package_macos.sh` による`.app`生成、codesign、`codesign --verify --deep --strict`、Developer ID署名時の`spctl --assess`、ZIP/DMG生成、`xcrun notarytool`提出、stapling、stapler validateを接続。署名IDなしではadhoc許可を明示しない限り失敗し、notarization指定時はApple ID・Team ID・app-specific passwordを必須化する。macOS CIのpackage smoke testでadhoc署名、ZIP、DMG、`hdiutil verify`まで確認する。
 **crash report基盤：** AppKitの未捕捉Objective-C例外をUI本体へ再入せず、Application Supportの`crash-report.json`へ時刻・例外名・理由を書き込むネイティブハンドラを起動時に登録する。Nimのrecovery fileとは別経路で保持する。
 
 **update基盤：** Zedのrelease判定とダウンロード／インストール責務の分離を参考に、HTTPS artifactのみを受理するmanifest parser、semver比較、非同期HTTPS download、SHA-256 artifact検証、Command Paletteの`check for updates`（`NIMCULUS_UPDATE_MANIFEST`指定時）、macOS `.app`に対する`codesign --verify`／`spctl --assess`検証、DMGのマウント・検証・rsync・アンマウントを分離したインストールAPIを実装した。Command Paletteから検出・ダウンロードを開始し、検証済みDMGを保持して署名済み`.app`終了時に適用する導線を接続済み。notarization済み配布物による実機検証は未完了のまま残す。
@@ -440,6 +440,8 @@ Windowsの固定幅エディタ入力では、画面上の列をUTF-8 byte offse
 **実装済み追加項目：** Windowsのcommand paletteから`run task <command>`を実行できる。実行は共有`TaskService`で`cmd.exe /C`として開始し、workspace rootまたはactive documentのディレクトリを作業ディレクトリに使用する。idle callbackで出力、problem matcher、終了状態を更新し、native task overlayへの表示、cancel、window close時のプロセス停止まで接続した。Ctrl+Shift+PはZedのpicker境界を参考にしたWindows native EDIT入力pickerを開き、IME入力・Enter確定・Escape取消を`commandPalette:<query>`へ渡す。`workspace search <query>`と`quick open <query>`は同じ入力境界から起動し、Windows idleでbounded batchをpollしてnative editor previewへ描画し、行クリックをファイル／検索位置へ接続した。Windows native editorはline numbers、indent guides、tab titles、dirty state、status barを受け取り、GDI chromeとして描画する。DirectWriteのsoft-wrap設定も同じ状態境界から反映する。タブバーのpointer downは本文hit-testより先に`selectTab:<index>`へdispatchし、Windowsでもタブクリックで切り替えられる。新規文書・タブ閉鎖時はWindows native editorのtext、highlight、composition、selection、cursor stateを消去・再同期し、settings keymapのlive reloadもWindowsで有効化した。
 
 **配布検証追加：** Windows CIで生成したInno Setup installerをrunner上へsilent installし、exe/uninstallerの存在とsilent uninstall後のディレクトリ削除を確認する。
+
+**CI依存関係境界：** Nimble workspaceを一時インストールツリーで再ビルドしないよう、macOS/Windows CIとWindows packaging scriptの依存関係導入は`nimble install -y --depsOnly`を使用し、ビルドは後続の明示的な`nimble build`または`nim c`で行う。
 
 **完了条件：** 主要機能、日本語 IME、ConPTY、Windows インストーラーが動作し、macOS 固有コードがコアへ漏れない。
 
