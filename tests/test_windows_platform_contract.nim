@@ -67,6 +67,12 @@ when defined(windows):
       else:
         echo "  [SKIP] PNG color atlas contract requires an active native window"
 
+    test "JPEG color glyphs decode and upload when the fallback provides them":
+      if platformValidateNative():
+        check platformValidateJpegColorGlyphAtlas()
+      else:
+        echo "  [SKIP] JPEG color atlas contract requires an active native window"
+
     test "D3D11 glyph atlas uploads and reuses a cached tile":
       if platformValidateNative():
         check platformValidateGlyphAtlasUpload()

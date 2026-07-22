@@ -20,6 +20,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformValidateColorGlyphPath*(): bool {.importc: "nimculus_platform_validate_color_glyph_path", cdecl.}
   proc platformValidateAdvancedColorGlyphPath*(): bool {.importc: "nimculus_platform_validate_advanced_color_glyph_path", cdecl.}
   proc platformValidatePngColorGlyphAtlas*(): bool {.importc: "nimculus_platform_validate_png_color_glyph_atlas", cdecl.}
+  proc platformValidateJpegColorGlyphAtlas*(): bool {.importc: "nimculus_platform_validate_jpeg_color_glyph_atlas", cdecl.}
   proc platformValidateColorGlyphAtlas*(): bool {.importc: "nimculus_platform_validate_color_glyph_atlas", cdecl.}
   proc platformValidateGlyphAtlasUpload*(): bool {.importc: "nimculus_platform_validate_glyph_atlas_upload", cdecl.}
   proc platformValidateVisibleGlyphFrame*(): bool {.importc: "nimculus_platform_validate_visible_glyph_frame", cdecl.}
@@ -98,6 +99,7 @@ else:
   proc platformValidateColorGlyphPath*(): bool = false
   proc platformValidateAdvancedColorGlyphPath*(): bool = false
   proc platformValidatePngColorGlyphAtlas*(): bool = false
+  proc platformValidateJpegColorGlyphAtlas*(): bool = false
   proc platformValidateColorGlyphAtlas*(): bool = false
   proc platformValidateGlyphAtlasUpload*(): bool = false
   proc platformValidateVisibleGlyphFrame*(): bool = false

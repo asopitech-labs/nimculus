@@ -12,6 +12,7 @@ when defined(windows):
   var colorGlyphPassed = false
   var advancedColorGlyphPassed = false
   var pngColorAtlasPassed = false
+  var jpegColorAtlasPassed = false
   var colorAtlasPassed = false
   var interactionPassed = false
   var visibleGlyphPassed = false
@@ -38,6 +39,7 @@ when defined(windows):
     colorGlyphPassed = platformValidateColorGlyphPath()
     advancedColorGlyphPassed = platformValidateAdvancedColorGlyphPath()
     pngColorAtlasPassed = platformValidatePngColorGlyphAtlas()
+    jpegColorAtlasPassed = platformValidateJpegColorGlyphAtlas()
     colorAtlasPassed = platformValidateColorGlyphAtlas()
     visibleGlyphPassed = platformValidateVisibleGlyphFrame()
     interactionPassed = platformValidateNativeInteraction()
@@ -60,6 +62,7 @@ when defined(windows):
       check colorGlyphPassed
       check advancedColorGlyphPassed
       check pngColorAtlasPassed
+      check jpegColorAtlasPassed
       check colorAtlasPassed
       check visibleGlyphPassed
       check interactionPassed
