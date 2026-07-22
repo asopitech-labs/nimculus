@@ -1,12 +1,16 @@
 # Implementation review
 
-最終確認日: 2026-07-19
+最終確認日: 2026-07-22
 
 この文書は、ロードマップのチェック済み表示をコード、テスト、Apple
 Silicon macOSビルドの証拠と突き合わせたレビュー記録である。コードが
 存在するだけでGUI実機確認済みとは扱わない。
 
 ## 確認済み
+
+- M11 distribution validation: macOS packaging now verifies non-empty ZIP/DMG artifacts and runs `hdiutil verify` both before and after notarization container rebuilds. `notarytool` supports keychain profiles, App Store Connect API keys, and legacy Apple ID credentials without storing secrets in the repository.
+- M13 Windows native contract: `tests/test_windows_platform_contract.nim` is part of `nimble test` and the Windows workflow. The Windows runner checks shared ABI sizes, frame/DPI metrics, resident/live-allocation counters, and input counter monotonicity against the native backend; non-Windows environments explicitly skip the native branch.
+- M20 reliability soak: `scripts/benchmark_soak.sh` runs the application with an eight-hour default and records idle-boundary memory/allocation/frame/input samples until `soak_complete`. The harness is implemented and syntax-tested; an eight-hour GUI run remains a required target-environment verification.
 
 - M0: Nimble build、テストタスク、ベンチマークタスク、`nimpretty` formatter task、`nim check` lint task、macOS CI実行成功（run 29635552288）。
 - M1: Cocoa/Metal/Retina/入力のmacOSネイティブコードがコンパイルされる。GUI起動・入力・リサイズは未確認。
