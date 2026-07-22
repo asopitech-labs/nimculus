@@ -71,6 +71,15 @@ continues through the dirty-document confirmation path. This prevents a
 benchmark from presenting a user modal and makes its timeout a real startup
 failure rather than an unattended dialog.
 
+## M11-006: Verify the app from the mounted DMG
+
+Generating a DMG and running `hdiutil verify` does not prove that the
+distribution contains a launchable application. `scripts/verify_macos_package.sh`
+therefore mounts the DMG read-only, verifies the embedded app signature, runs
+the bundle cold-start probe against the mounted executable, and detaches the
+volume in a cleanup trap. This follows the distribution boundary used by the
+packaging workflow and keeps writable application state in a temporary HOME.
+
 ## M20-012: Keep settings application out of the idle render loop
 
 Zed applies settings changes through explicit settings updates rather than

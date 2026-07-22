@@ -141,6 +141,7 @@ formatter は `nimble format`（Nim 標準 `nimpretty`）、静的検査は
 - `.app` bundle、`Info.plist`、アイコン、file association、URL scheme を管理する
 - hardened runtime、code signing、notarization、stapling を CI で検証する
 - 配布成果物はZIP/DMG生成直後とnotarization後に非空検証し、DMGは`hdiutil verify`を通す
+- DMGはreadonlyでmountし、内部の`.app`を署名検証したうえでcold-startし、検証後に必ずdetachする
 - notarizationはkeychain profileまたはApp Store Connect API keyを優先し、資格情報をリポジトリへ保存しない
 - Gatekeeper 警告なしの起動、DMG / ZIP インストール、Apple Silicon 配布物生成をリリース条件とする
 
