@@ -1,6 +1,6 @@
 when defined(windows) and not defined(nimculusPortableOnly):
   {.compile: "windows_platform.c".}
-  {.passL: "-ld3d11 -ldxgi -ld3dcompiler -ld2d1 -ldwrite -luser32 -lgdi32 -lcomdlg32 -limm32 -lshell32 -lpsapi".}
+  {.passL: "-ld3d11 -ldxgi -ld3dcompiler -ld2d1 -ldwrite -lwindowscodecs -luser32 -lgdi32 -lcomdlg32 -limm32 -lshell32 -lpsapi".}
 
 import nimnui/platform/headless/platform as headless_platform
 export headless_platform
@@ -19,6 +19,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformValidateGlyphFallbackShaping*(): bool {.importc: "nimculus_platform_validate_glyph_fallback_shaping", cdecl.}
   proc platformValidateColorGlyphPath*(): bool {.importc: "nimculus_platform_validate_color_glyph_path", cdecl.}
   proc platformValidateAdvancedColorGlyphPath*(): bool {.importc: "nimculus_platform_validate_advanced_color_glyph_path", cdecl.}
+  proc platformValidatePngColorGlyphAtlas*(): bool {.importc: "nimculus_platform_validate_png_color_glyph_atlas", cdecl.}
   proc platformValidateColorGlyphAtlas*(): bool {.importc: "nimculus_platform_validate_color_glyph_atlas", cdecl.}
   proc platformValidateGlyphAtlasUpload*(): bool {.importc: "nimculus_platform_validate_glyph_atlas_upload", cdecl.}
   proc platformValidateVisibleGlyphFrame*(): bool {.importc: "nimculus_platform_validate_visible_glyph_frame", cdecl.}
@@ -96,6 +97,7 @@ else:
   proc platformValidateGlyphFallbackShaping*(): bool = false
   proc platformValidateColorGlyphPath*(): bool = false
   proc platformValidateAdvancedColorGlyphPath*(): bool = false
+  proc platformValidatePngColorGlyphAtlas*(): bool = false
   proc platformValidateColorGlyphAtlas*(): bool = false
   proc platformValidateGlyphAtlasUpload*(): bool = false
   proc platformValidateVisibleGlyphFrame*(): bool = false

@@ -6,6 +6,7 @@
 #include <dwrite.h>
 #include <dwrite_2.h>
 #include <dwrite_3.h>
+#include <wincodec.h>
 #include <dxgi.h>
 #include <commdlg.h>
 #include <imm.h>
@@ -53,6 +54,8 @@ static ID2D1SolidColorBrush *g_d2d_text_brush = NULL;
 static IDWriteFactory *g_dwrite_factory = NULL;
 static IDWriteFactory2 *g_dwrite_factory2 = NULL;
 static IDWriteFactory4 *g_dwrite_factory4 = NULL;
+static IWICImagingFactory *g_wic_factory = NULL;
+static bool g_wic_com_initialized = false;
 static IDWriteTextAnalyzer *g_dwrite_analyzer = NULL;
 static IDWriteFontFallback *g_dwrite_font_fallback = NULL;
 static IDWriteFontFace *g_glyph_font_face = NULL;
@@ -853,6 +856,100 @@ static bool ensure_directwrite_factory(void) {
     return false;
   }
   return true;
+}
+
+static bool ensure_wic_factory(void) {
+  if (g_wic_factory) return true;
+  HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+  if (SUCCEEDED(hr) || hr == RPC_E_CHANGED_MODE) {
+    g_wic_com_initialized = SUCCEEDED(hr);
+  } else if (FAILED(hr)) {
+    return false;
+  }
+  hr = CoCreateInstance(&CLSID_WICImagingFactory, NULL,
+      CLSCTX_INPROC_SERVER, &IID_IWICImagingFactory,
+      (void **)&g_wic_factory);
+  if (FAILED(hr) || !g_wic_factory) {
+    g_wic_factory = NULL;
+    if (g_wic_com_initialized) {
+      CoUninitialize();
+      g_wic_com_initialized = false;
+    }
+    return false;
+  }
+  return true;
+}
+
+static bool decode_wic_rgba(const void *encoded, uint32_t encoded_length,
+                            uint32_t target_width, uint32_t target_height,
+                            uint32_t *width, uint32_t *height,
+                            uint8_t **pixels) {
+  if (!encoded || encoded_length == 0 || !width || !height || !pixels ||
+      !ensure_wic_factory()) return false;
+  *width = 0;
+  *height = 0;
+  *pixels = NULL;
+  IWICStream *stream = NULL;
+  IWICBitmapDecoder *decoder = NULL;
+  IWICBitmapFrameDecode *frame = NULL;
+  IWICFormatConverter *converter = NULL;
+  IWICBitmapScaler *scaler = NULL;
+  bool valid = false;
+  HRESULT hr = g_wic_factory->lpVtbl->CreateStream(g_wic_factory, &stream);
+  if (SUCCEEDED(hr)) {
+    hr = stream->lpVtbl->InitializeFromMemory(stream, (BYTE *)encoded,
+        encoded_length);
+  }
+  if (SUCCEEDED(hr)) {
+    hr = g_wic_factory->lpVtbl->CreateDecoderFromStream(g_wic_factory,
+        (IStream *)stream, NULL, WICDecodeMetadataCacheOnLoad, &decoder);
+  }
+  if (SUCCEEDED(hr)) hr = decoder->lpVtbl->GetFrame(decoder, 0, &frame);
+  if (SUCCEEDED(hr)) hr = g_wic_factory->lpVtbl->CreateFormatConverter(
+      g_wic_factory, &converter);
+  if (SUCCEEDED(hr)) {
+    hr = converter->lpVtbl->Initialize(converter, (IWICBitmapSource *)frame,
+        &GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, NULL, 0.0,
+        WICBitmapPaletteTypeCustom);
+  }
+  UINT32 source_width = 0;
+  UINT32 source_height = 0;
+  if (SUCCEEDED(hr)) hr = converter->lpVtbl->GetSize(converter,
+      &source_width, &source_height);
+  IWICBitmapSource *source = (IWICBitmapSource *)converter;
+  if (SUCCEEDED(hr) && target_width > 0 && target_height > 0 &&
+      (target_width != source_width || target_height != source_height)) {
+    hr = g_wic_factory->lpVtbl->CreateBitmapScaler(g_wic_factory, &scaler);
+    if (SUCCEEDED(hr)) hr = scaler->lpVtbl->Initialize(scaler, source,
+        target_width, target_height, WICBitmapInterpolationModeFant);
+    if (SUCCEEDED(hr)) source = (IWICBitmapSource *)scaler;
+  }
+  UINT32 decoded_width = 0;
+  UINT32 decoded_height = 0;
+  if (SUCCEEDED(hr)) hr = source->lpVtbl->GetSize(source,
+      &decoded_width, &decoded_height);
+  uint64_t byte_length = (uint64_t)decoded_width * decoded_height * 4;
+  uint8_t *decoded = NULL;
+  if (SUCCEEDED(hr) && decoded_width > 0 && decoded_height > 0 &&
+      byte_length <= UINT32_MAX) decoded = (uint8_t *)malloc((size_t)byte_length);
+  if (decoded) {
+    hr = source->lpVtbl->CopyPixels(source, NULL, decoded_width * 4,
+        (UINT)byte_length, decoded);
+    if (SUCCEEDED(hr)) {
+      *width = decoded_width;
+      *height = decoded_height;
+      *pixels = decoded;
+      valid = true;
+    } else {
+      free(decoded);
+    }
+  }
+  if (scaler) scaler->lpVtbl->Release(scaler);
+  if (converter) converter->lpVtbl->Release(converter);
+  if (frame) frame->lpVtbl->Release(frame);
+  if (decoder) decoder->lpVtbl->Release(decoder);
+  if (stream) stream->lpVtbl->Release(stream);
+  return valid;
 }
 
 typedef struct NimculusFallbackSource {
@@ -2037,6 +2134,73 @@ static bool rasterize_color_glyph_for_cache(IDWriteFontFace *font_face,
   return true;
 }
 
+static bool rasterize_png_glyph_for_cache(IDWriteFontFace *font_face,
+                                          UINT16 glyph_id, float font_size,
+                                          double scale, uint8_t subpixel_x,
+                                          uint8_t subpixel_y) {
+  if (!font_face || !ensure_directwrite_factory() || !g_dwrite_factory4 ||
+      find_color_glyph_raster(font_face, glyph_id, font_size, scale,
+                              subpixel_x, subpixel_y)) return false;
+  IDWriteFontFace4 *font_face4 = NULL;
+  HRESULT hr = font_face->lpVtbl->QueryInterface((IUnknown *)font_face,
+      &IID_IDWriteFontFace4, (void **)&font_face4);
+  if (FAILED(hr) || !font_face4) return false;
+  UINT32 requested_ppem = (UINT32)floor((double)font_size * scale + 0.5);
+  if (requested_ppem == 0) requested_ppem = 1;
+  DWRITE_GLYPH_IMAGE_DATA image_data;
+  ZeroMemory(&image_data, sizeof(image_data));
+  void *image_context = NULL;
+  hr = font_face4->lpVtbl->GetGlyphImageData(font_face4, glyph_id,
+      requested_ppem, DWRITE_GLYPH_IMAGE_FORMATS_PNG, &image_data,
+      &image_context);
+  if (FAILED(hr) || !image_data.imageData || image_data.imageDataSize == 0 ||
+      image_data.pixelsPerEm == 0 || image_data.pixelSize.width == 0 ||
+      image_data.pixelSize.height == 0) {
+    if (image_context) font_face4->lpVtbl->ReleaseGlyphImageData(font_face4,
+        image_context);
+    font_face4->lpVtbl->Release(font_face4);
+    return false;
+  }
+  double image_scale = (double)requested_ppem / image_data.pixelsPerEm;
+  uint32_t target_width = (uint32_t)floor(
+      (double)image_data.pixelSize.width * image_scale + 0.5);
+  uint32_t target_height = (uint32_t)floor(
+      (double)image_data.pixelSize.height * image_scale + 0.5);
+  uint32_t width = 0;
+  uint32_t height = 0;
+  uint8_t *pixels = NULL;
+  bool valid = target_width > 0 && target_height > 0 &&
+      decode_wic_rgba(image_data.imageData, image_data.imageDataSize,
+                      target_width, target_height, &width, &height, &pixels);
+  if (image_context) font_face4->lpVtbl->ReleaseGlyphImageData(font_face4,
+      image_context);
+  font_face4->lpVtbl->Release(font_face4);
+  if (!valid || !pixels || width == 0 || height == 0 ||
+      width >= NIMCULUS_GLYPH_ATLAS_SIZE || height >= NIMCULUS_GLYPH_ATLAS_SIZE) {
+    free(pixels);
+    return false;
+  }
+  NimculusColorGlyphRaster *raster = allocate_color_glyph_raster();
+  raster->valid = true;
+  raster->glyph_id = glyph_id;
+  raster->font_face = font_face;
+  font_face->lpVtbl->AddRef(font_face);
+  raster->font_size = font_size;
+  raster->scale = scale;
+  raster->subpixel_x = subpixel_x;
+  raster->subpixel_y = subpixel_y;
+  raster->bounds.left = (LONG)floor(
+      -(double)image_data.horizontalLeftOrigin.x * image_scale + 0.5);
+  raster->bounds.top = (LONG)floor(
+      -(double)image_data.horizontalLeftOrigin.y * image_scale + 0.5);
+  raster->bounds.right = raster->bounds.left + (LONG)width;
+  raster->bounds.bottom = raster->bounds.top + (LONG)height;
+  raster->length = width * height * 4;
+  raster->pixels = pixels;
+  raster->last_used = ++g_glyph_raster_clock;
+  return true;
+}
+
 static uint8_t quantized_subpixel(double position) {
   double fraction = position - floor(position);
   int variant = (int)floor(fraction * 4.0 + 0.5);
@@ -2334,8 +2498,16 @@ static bool draw_mapped_shaped_runs(const wchar_t *text, uint32_t text_length,
       uint8_t subpixel_x = quantized_subpixel(*pen_x +
           offsets[index].advanceOffset * scale);
       bool rendered_color = false;
-      if (run_has_surrogate && rasterize_color_glyph_for_cache(font_face,
-          glyph_id, run_font_size, scale, subpixel_x, subpixel_y)) {
+      bool color_prepared = false;
+      if (run_has_surrogate) {
+        color_prepared = rasterize_color_glyph_for_cache(font_face, glyph_id,
+            run_font_size, scale, subpixel_x, subpixel_y);
+        if (!color_prepared) {
+          color_prepared = rasterize_png_glyph_for_cache(font_face, glyph_id,
+              run_font_size, scale, subpixel_x, subpixel_y);
+        }
+      }
+      if (run_has_surrogate && color_prepared) {
         NimculusColorGlyphRaster *color = find_color_glyph_raster(font_face,
             glyph_id, run_font_size, scale, subpixel_x, subpixel_y);
         if (color && upload_color_glyph_to_atlas(color)) {
@@ -3430,6 +3602,14 @@ bool nimculus_platform_run(void) {
     g_dwrite_factory2->lpVtbl->Release(g_dwrite_factory2);
     g_dwrite_factory2 = NULL;
   }
+  if (g_wic_factory) {
+    g_wic_factory->lpVtbl->Release(g_wic_factory);
+    g_wic_factory = NULL;
+  }
+  if (g_wic_com_initialized) {
+    CoUninitialize();
+    g_wic_com_initialized = false;
+  }
   release_images();
   free(g_paint_commands);
   g_paint_commands = NULL;
@@ -3714,6 +3894,58 @@ bool nimculus_platform_validate_advanced_color_glyph_path(void) {
     }
   }
   if (enumerator) enumerator->lpVtbl->Release(enumerator);
+  font_face->lpVtbl->Release(font_face);
+  return valid;
+}
+
+bool nimculus_platform_validate_png_color_glyph_atlas(void) {
+  if (!g_device || !g_context || !ensure_directwrite_factory()) return false;
+  if (!g_dwrite_factory4) return true;
+  static const wchar_t sample[] = {0xd83d, 0xde00};
+  UINT32 mapped_length = 0;
+  FLOAT fallback_scale = 1.0f;
+  IDWriteFontFace *font_face = map_fallback_font(sample, 2,
+      &mapped_length, &fallback_scale);
+  if (!font_face || mapped_length != 2) {
+    if (font_face) font_face->lpVtbl->Release(font_face);
+    return false;
+  }
+  UINT32 codepoint = 0x1f600;
+  UINT16 glyph_id = 0;
+  bool valid = SUCCEEDED(font_face->lpVtbl->GetGlyphIndices(font_face,
+      &codepoint, 1, &glyph_id)) && glyph_id != 0;
+  IDWriteFontFace4 *font_face4 = NULL;
+  if (valid) valid = SUCCEEDED(font_face->lpVtbl->QueryInterface(
+      (IUnknown *)font_face, &IID_IDWriteFontFace4, (void **)&font_face4)) &&
+      font_face4 != NULL;
+  bool has_png = false;
+  if (valid) {
+    UINT32 requested_ppem = (UINT32)floor(g_editor_font_size *
+        (g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0) + 0.5);
+    if (requested_ppem == 0) requested_ppem = 1;
+    DWRITE_GLYPH_IMAGE_DATA image_data;
+    ZeroMemory(&image_data, sizeof(image_data));
+    void *image_context = NULL;
+    HRESULT hr = font_face4->lpVtbl->GetGlyphImageData(font_face4, glyph_id,
+        requested_ppem, DWRITE_GLYPH_IMAGE_FORMATS_PNG, &image_data,
+        &image_context);
+    has_png = SUCCEEDED(hr) && image_data.imageData &&
+        image_data.imageDataSize > 0;
+    if (image_context) font_face4->lpVtbl->ReleaseGlyphImageData(font_face4,
+        image_context);
+  }
+  if (font_face4) font_face4->lpVtbl->Release(font_face4);
+  if (valid && has_png) {
+    double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+    valid = rasterize_png_glyph_for_cache(font_face, glyph_id,
+        (float)g_editor_font_size * fallback_scale, scale, 0, 0);
+    if (valid) {
+      NimculusColorGlyphRaster *raster = find_color_glyph_raster(font_face,
+          glyph_id, (float)g_editor_font_size * fallback_scale, scale, 0, 0);
+      valid = raster && upload_color_glyph_to_atlas(raster) &&
+          raster->atlas_valid && raster->length > 0;
+    }
+  }
   font_face->lpVtbl->Release(font_face);
   return valid;
 }

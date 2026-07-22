@@ -2334,3 +2334,21 @@ The native contract test exercises this classification with a surrogate emoji
 and accepts `DWRITE_E_NOCOLOR`, while rejecting null enumerator runs, unknown
 formats, and failed enumeration. This prevents a future advanced-color atlas
 implementation from silently treating an image run as a monochrome outline.
+
+## M13-068: Decode PNG glyph images before GPU atlas upload
+
+The Factory4 path can expose bitmap glyphs as PNG data rather than COLR
+layers. For that case the backend queries `IDWriteFontFace4::GetGlyphImageData`
+at the requested pixels-per-em, scales the intrinsic image size with WIC when
+the font returns a different native size, converts it to straight-alpha
+32-bit RGBA, and stores the image origin from `DWRITE_GLYPH_IMAGE_DATA` in the
+same color-raster cache used by COLR. The existing image pixel shader then
+uploads and draws the resulting texture tile. The glyph-image COM context is
+released immediately after copying, and the WIC factory is released with the
+Windows platform lifecycle.
+
+SVG, JPEG, and premultiplied BGRA32 remain on DirectWrite/D2D because their
+decoding and color semantics require separate renderer paths. The native
+contract test treats an absent PNG glyph as a valid environment-dependent
+case, but validates decode, atlas upload, and tile metadata when a PNG fallback
+is present.

@@ -11,6 +11,7 @@ when defined(windows):
   var fallbackShapingPassed = false
   var colorGlyphPassed = false
   var advancedColorGlyphPassed = false
+  var pngColorAtlasPassed = false
   var colorAtlasPassed = false
   var interactionPassed = false
   var visibleGlyphPassed = false
@@ -36,6 +37,7 @@ when defined(windows):
     fallbackShapingPassed = platformValidateGlyphFallbackShaping()
     colorGlyphPassed = platformValidateColorGlyphPath()
     advancedColorGlyphPassed = platformValidateAdvancedColorGlyphPath()
+    pngColorAtlasPassed = platformValidatePngColorGlyphAtlas()
     colorAtlasPassed = platformValidateColorGlyphAtlas()
     visibleGlyphPassed = platformValidateVisibleGlyphFrame()
     interactionPassed = platformValidateNativeInteraction()
@@ -57,6 +59,7 @@ when defined(windows):
       check fallbackShapingPassed
       check colorGlyphPassed
       check advancedColorGlyphPassed
+      check pngColorAtlasPassed
       check colorAtlasPassed
       check visibleGlyphPassed
       check interactionPassed
