@@ -46,6 +46,9 @@ suite "macOS platform contract":
     else:
       echo "  [SKIP] native Metal layer contract (no Metal device in this session)"
 
+  test "native window resize keeps Retina drawable dimensions aligned":
+    check platformValidateWindowLifecycle()
+
   test "native input event fields are read only for supported event types":
     check platformValidateInputEventFields()
 

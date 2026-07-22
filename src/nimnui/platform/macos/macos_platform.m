@@ -2919,6 +2919,41 @@ bool nimculus_platform_validate_native(void) {
     layer.drawableSize.height == 800.0;
 }
 
+bool nimculus_platform_validate_window_lifecycle(void) {
+  NimculusPlatformMetrics previousMetrics = g_metrics;
+  BOOL valid = NO;
+  @autoreleasepool {
+    NSWindow *window = [[NSWindow alloc]
+      initWithContentRect:NSMakeRect(0.0, 0.0, 640.0, 480.0)
+      styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskResizable)
+      backing:NSBackingStoreBuffered defer:NO];
+    if (window) {
+      NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
+        NSMakeRect(0.0, 0.0, 640.0, 480.0)];
+      if (view) {
+        window.contentView = view;
+        [view updateBackingScale];
+        CGFloat scale = window.backingScaleFactor;
+        BOOL initial = scale > 0.0 &&
+          fabs(view.metalLayer.drawableSize.width - view.bounds.size.width * scale) < 0.5 &&
+          fabs(view.metalLayer.drawableSize.height - view.bounds.size.height * scale) < 0.5;
+        [window setContentSize:NSMakeSize(960.0, 720.0)];
+        [view layoutSubtreeIfNeeded];
+        [view updateBackingScale];
+        BOOL resized = view.bounds.size.width >= 959.0 && view.bounds.size.height >= 719.0 &&
+          fabs(view.metalLayer.drawableSize.width - view.bounds.size.width * scale) < 0.5 &&
+          fabs(view.metalLayer.drawableSize.height - view.bounds.size.height * scale) < 0.5;
+        valid = initial && resized;
+      }
+      [window close];
+    }
+  }
+  // AppKit may deliver the final view-detachment callback while the pool is
+  // draining, so restore the observable metrics only after that boundary.
+  g_metrics = previousMetrics;
+  return valid;
+}
+
 bool nimculus_platform_validate_input_event_fields(void) {
   @autoreleasepool {
     // AppKit's event factory only permits the mouse-movement mask here; the

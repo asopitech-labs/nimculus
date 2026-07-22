@@ -2,6 +2,7 @@
 
 bool nimculus_platform_run(void);
 bool nimculus_platform_validate_native(void);
+bool nimculus_platform_validate_window_lifecycle(void);
 bool nimculus_platform_validate_input_event_fields(void);
 bool nimculus_platform_validate_clipboard_roundtrip(void);
 bool nimculus_platform_validate_glyph_atlas(void);

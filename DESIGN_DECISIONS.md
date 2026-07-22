@@ -100,6 +100,15 @@ events and routes them through the input logger. This exercises the field
 access boundary without requiring Accessibility permission; the live
 MouseEntered/MouseExited callbacks continue to use the same non-keyboard path.
 
+## M1-015: Exercise the real window resize boundary without leaking test state
+
+The macOS platform contract attaches `NimculusMetalView` to an `NSWindow`,
+changes the content size, and checks that the CAMetalLayer drawable remains
+aligned with the backing scale. AppKit can deliver one final layout callback
+while an autorelease pool drains, so the test restores observable platform
+metrics only after that boundary. This keeps the native smoke reusable by
+later text and hit-test contracts.
+
 ## M3-009: Verify clipboard round trips without changing user state
 
 The macOS platform contract writes a Japanese/emoji UTF-8 sample to the real
