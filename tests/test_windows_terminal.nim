@@ -12,9 +12,12 @@ when defined(windows):
       var output = ""
       for _ in 0 ..< 100:
         output.add(pty.pollOutput())
-        if ">" in output: break
+        # cmd.exe emits the initial prompt through the ConPTY host, while the
+        # prompt text itself is not guaranteed to be present in this pipe.
+        # Cursor-visible is the startup-ready sequence we can observe here.
+        if "\e[?25h" in output: break
         sleep(10)
-      check ">" in output
+      check "\e[?25h" in output
       discard pty.writeInput("echo NIMCULUS_CONPTY\r\n")
       for _ in 0 ..< 100:
         output.add(pty.pollOutput())

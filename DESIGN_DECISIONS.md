@@ -931,10 +931,11 @@ The child is stopped before release, and the release call runs on a worker with
 a two-second wait bound because older Windows versions can still block the
 close call while a console client disconnects.
 
-The Windows ConPTY integration test also waits for the initial `cmd.exe`
-prompt before writing its first command. This verifies the real input/output
-handshake instead of racing process startup and mistaking lost early input for
-a terminal implementation failure.
+The Windows ConPTY integration test waits for the initial `cmd.exe`
+cursor-visible VT sequence before writing its first command. The prompt text is
+not guaranteed to be present in the application pipe, so the VT readiness
+sequence verifies the real input/output handshake without racing process
+startup.
 
 ## M6-002: Workspace operations stay path-confined
 
