@@ -445,6 +445,8 @@ Windowsの固定幅エディタ入力では、画面上の列をUTF-8 byte offse
 
 **Native input smoke：** Windows runnerのnative smokeでfocus、mouse move、left-button capture/release、screen-coordinate wheel、keyboard down/up、`WM_CHAR`のASCII/surrogate pair、resizeを実ウィンドウへ送信し、共通input/text callback、capture解放、drawable metricsを検証する。手動GUI操作と長時間実機検証は未完了。
 
+**Visible glyph smoke：** native smokeで`office 日本`をeditor textへ設定し、通常のvisible glyph sprite生成、run mapping、shaping、atlas upload、D3D11 drawまでを検証する。
+
 ### M14：WSL リモート — `v0.8.0-beta`
 
 Windows 側に Nimculus GUI、NimNUI、GPU 描画、入力、セッション管理を置き、WSL 側に `nimculus-agent`、ファイル I/O、Git、LSP、検索、ターミナル、タスクを置く。

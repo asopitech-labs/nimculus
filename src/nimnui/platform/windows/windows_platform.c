@@ -3262,6 +3262,12 @@ bool nimculus_platform_validate_glyph_atlas_upload(void) {
 
 uint64_t nimculus_platform_input_count(void) { return g_input_count; }
 
+bool nimculus_platform_validate_visible_glyph_frame(void) {
+  if (!g_editor_text || g_editor_text_length <= 0 || !g_device ||
+      !g_context || !g_glyph_atlas_view) return false;
+  return draw_glyph_atlas_sprites();
+}
+
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics) {
   if (metrics) *metrics = g_metrics;
 }

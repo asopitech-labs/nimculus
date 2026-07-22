@@ -2291,3 +2291,12 @@ that the text callback receives all UTF-8 events and that `WM_UNICHAR` returns
 the handled result.
 This covers the Win32 UTF-16 boundary without depending on a physical
 keyboard or IME being attached to the CI runner.
+
+## M13-065: Verify visible Windows glyph sprites from editor text
+
+The native smoke test now installs the mixed text `office 日本` before the
+window loop starts. After D3D11 and the atlas are ready, it calls the same
+visible glyph sprite routine used by `WM_PAINT` and requires at least one
+sprite draw. This closes the gap between testing an isolated cached `A` tile
+and testing editor text, run mapping, shaping, atlas upload, and sprite
+submission together.

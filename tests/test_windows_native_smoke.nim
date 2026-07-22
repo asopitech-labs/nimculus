@@ -11,6 +11,7 @@ when defined(windows):
   var fallbackShapingPassed = false
   var colorGlyphPassed = false
   var interactionPassed = false
+  var visibleGlyphPassed = false
   var inputEvents = 0
   var textEvents = 0
 
@@ -32,11 +33,14 @@ when defined(windows):
     fallbackPassed = platformValidateGlyphFallback()
     fallbackShapingPassed = platformValidateGlyphFallbackShaping()
     colorGlyphPassed = platformValidateColorGlyphPath()
+    visibleGlyphPassed = platformValidateVisibleGlyphFrame()
     interactionPassed = platformValidateNativeInteraction()
     platformRequestQuit()
 
   suite "Windows native GPU text smoke":
     test "creates D3D11 device and validates glyph frame contracts":
+      let sample = "office 日本"
+      platformSetEditorText(sample.cstring, uint32(sample.len))
       platformSetInputCallback(countInput)
       platformSetTextCallback(countText)
       platformSetIdleCallback(validateNativeFrame)
@@ -48,6 +52,7 @@ when defined(windows):
       check fallbackPassed
       check fallbackShapingPassed
       check colorGlyphPassed
+      check visibleGlyphPassed
       check interactionPassed
       check inputEvents >= 6
       check textEvents >= 3
