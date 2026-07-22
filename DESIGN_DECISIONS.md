@@ -2274,3 +2274,13 @@ calls `AnalyzeScript`, and uses the returned script when shaping ASCII and
 homogeneous fallback runs. If one run spans inconsistent script analyses, the
 atlas path declines it and the existing DirectWrite/D2D renderer remains the
 authority instead of producing an incorrectly shaped sprite sequence.
+
+## M13-064: Exercise Win32 input and resize through the native smoke window
+
+The Windows native smoke test now installs an input callback and sends real
+Win32 messages to the created window: focus, mouse move, left-button capture
+and release, screen-coordinate wheel input, keyboard down/up, and a restored
+resize. The native contract checks that the shared input counter advances, the
+capture is released, and the drawable metrics remain valid. This validates the
+message-to-NimNUI boundary in the same run that validates D3D11 text resources,
+rather than treating window creation alone as GUI verification.

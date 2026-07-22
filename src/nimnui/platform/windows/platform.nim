@@ -9,6 +9,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformRun*(): bool {.importc: "nimculus_platform_run", cdecl.}
   proc platformRequestQuit*() {.importc: "nimculus_platform_request_quit", cdecl.}
   proc platformValidateNative*(): bool {.importc: "nimculus_platform_validate_native", cdecl.}
+  proc platformValidateNativeInteraction*(): bool {.importc: "nimculus_platform_validate_native_interaction", cdecl.}
   proc platformValidateTextFormatCache*(): bool {.importc: "nimculus_platform_validate_text_format_cache", cdecl.}
   proc platformValidateGlyphRasterInterface*(): bool {.importc: "nimculus_platform_validate_glyph_raster_interface", cdecl.}
   proc platformValidateGlyphRasterCache*(): bool {.importc: "nimculus_platform_validate_glyph_raster_cache", cdecl.}
@@ -82,6 +83,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
 else:
   proc platformRun*(): bool = false
   proc platformValidateNative*(): bool = false
+  proc platformValidateNativeInteraction*(): bool = false
   proc platformValidateTextFormatCache*(): bool = false
   proc platformValidateGlyphRasterInterface*(): bool = false
   proc platformValidateGlyphRasterCache*(): bool = false

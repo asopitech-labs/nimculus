@@ -10,6 +10,12 @@ when defined(windows):
   var fallbackPassed = false
   var fallbackShapingPassed = false
   var colorGlyphPassed = false
+  var interactionPassed = false
+  var inputEvents = 0
+
+  proc countInput(event: ptr NimculusInputEvent) {.cdecl.} =
+    if event != nil:
+      inputEvents.inc
 
   proc validateNativeFrame() {.cdecl.} =
     if callbackRan:
@@ -21,10 +27,12 @@ when defined(windows):
     fallbackPassed = platformValidateGlyphFallback()
     fallbackShapingPassed = platformValidateGlyphFallbackShaping()
     colorGlyphPassed = platformValidateColorGlyphPath()
+    interactionPassed = platformValidateNativeInteraction()
     platformRequestQuit()
 
   suite "Windows native GPU text smoke":
     test "creates D3D11 device and validates glyph frame contracts":
+      platformSetInputCallback(countInput)
       platformSetIdleCallback(validateNativeFrame)
       check platformRun()
       check callbackRan
@@ -34,6 +42,8 @@ when defined(windows):
       check fallbackPassed
       check fallbackShapingPassed
       check colorGlyphPassed
+      check interactionPassed
+      check inputEvents >= 6
 else:
   suite "Windows native GPU text smoke":
     test "requires a Windows runner":

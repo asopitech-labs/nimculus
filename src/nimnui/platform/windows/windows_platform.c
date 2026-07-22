@@ -3058,6 +3058,28 @@ bool nimculus_platform_validate_native(void) {
   return g_device != NULL && g_swap_chain != NULL;
 }
 
+bool nimculus_platform_validate_native_interaction(void) {
+  if (!g_window || !g_device || !g_swap_chain || !g_input_callback) return false;
+  RECT client;
+  if (!GetClientRect(g_window, &client) || client.right <= 8 || client.bottom <= 8)
+    return false;
+  uint64_t input_before = g_input_count;
+  SetFocus(g_window);
+  SendMessageW(g_window, WM_MOUSEMOVE, 0, MAKELPARAM(4, 4));
+  SendMessageW(g_window, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(4, 4));
+  SendMessageW(g_window, WM_LBUTTONUP, 0, MAKELPARAM(4, 4));
+  POINT screen = {4, 4};
+  ClientToScreen(g_window, &screen);
+  SendMessageW(g_window, WM_MOUSEWHEEL, MAKEWPARAM(0, WHEEL_DELTA),
+      MAKELPARAM(screen.x, screen.y));
+  SendMessageW(g_window, WM_KEYDOWN, 'A', 0);
+  SendMessageW(g_window, WM_KEYUP, 'A', 0);
+  SendMessageW(g_window, WM_SIZE, SIZE_RESTORED,
+      MAKELPARAM((WORD)client.right, (WORD)client.bottom));
+  return g_input_count >= input_before + 6 && GetCapture() == NULL &&
+      g_metrics.width_pixels > 0 && g_metrics.height_pixels > 0;
+}
+
 bool nimculus_platform_validate_text_format_cache(void) {
   double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
   IDWriteTextFormat *first = ensure_editor_text_format(scale);
