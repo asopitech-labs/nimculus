@@ -2300,3 +2300,21 @@ visible glyph sprite routine used by `WM_PAINT` and requires at least one
 sprite draw. This closes the gap between testing an isolated cached `A` tile
 and testing editor text, run mapping, shaping, atlas upload, and sprite
 submission together.
+
+## M13-066: Keep COLR layers in a separate RGBA atlas
+
+`IDWriteFactory2::TranslateColorGlyphRun` returns the legacy
+`DWRITE_COLOR_GLYPH_RUN` structure, where each enumerated run is a colored
+COLR layer. The Windows backend rasterizes each layer's alpha mask with
+`CreateGlyphRunAnalysis`, composites the layer colors into a CPU straight-alpha
+RGBA buffer, and uploads that buffer to a separate `R8G8B8A8_UNORM`
+texture. The color sprite uses the image shader, while ordinary glyphs keep
+using the R8 atlas. This follows Zed's separate color-glyph path and prevents
+color emoji from being converted into monochrome coverage. The newer
+`DWRITE_COLOR_GLYPH_RUN1` formats (PNG/SVG/advanced color) remain delegated to
+DirectWrite/D2D until the Factory4 path is introduced.
+
+The Windows native smoke test now includes an emoji and validates the color
+atlas when the installed fallback exposes a COLR face. `DWRITE_E_NOCOLOR` is
+accepted as a valid environment-dependent result, so the test remains useful
+on runners whose installed emoji fallback is monochrome or non-COLR.
