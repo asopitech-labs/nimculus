@@ -1648,17 +1648,16 @@ static bool editor_text_is_plain_ascii(void) {
   return true;
 }
 
-static bool shape_ascii_run(const wchar_t *text, uint32_t text_length,
-                            UINT16 **glyph_indices, DWRITE_GLYPH_OFFSET **offsets,
-                            FLOAT **advances, uint32_t *glyph_count) {
+static bool shape_run_with_font(const wchar_t *text, uint32_t text_length,
+                                IDWriteFontFace *font_face,
+                                const wchar_t *locale, float font_size,
+                                UINT16 **glyph_indices,
+                                DWRITE_GLYPH_OFFSET **offsets,
+                                FLOAT **advances, uint32_t *glyph_count) {
   if (!text || text_length == 0 || !glyph_indices || !offsets || !advances ||
-      !glyph_count || !ensure_directwrite_factory() || !g_dwrite_analyzer)
+      !glyph_count || !font_face || !ensure_directwrite_factory() ||
+      !g_dwrite_analyzer)
     return false;
-  for (uint32_t index = 0; index < text_length; ++index) {
-    if (text[index] < 0x20 || text[index] > 0x7e) return false;
-  }
-  IDWriteFontFace *font_face = ensure_glyph_font_face();
-  if (!font_face) return false;
   uint32_t max_glyphs = text_length * 2 + 16;
   if (max_glyphs > 8192) max_glyphs = 8192;
   UINT16 *cluster_map = (UINT16 *)calloc(text_length, sizeof(UINT16));
@@ -1681,14 +1680,14 @@ static bool shape_ascii_run(const wchar_t *text, uint32_t text_length,
   DWRITE_SCRIPT_ANALYSIS script = {0, (DWRITE_SCRIPT_SHAPES)0};
   UINT32 actual_glyphs = 0;
   HRESULT hr = g_dwrite_analyzer->lpVtbl->GetGlyphs(g_dwrite_analyzer, text,
-      text_length, font_face, FALSE, FALSE, &script, L"en-us", NULL, NULL,
+      text_length, font_face, FALSE, FALSE, &script, locale, NULL, NULL,
       NULL, 0, max_glyphs, cluster_map, text_props, indices, glyph_props,
       &actual_glyphs);
   if (SUCCEEDED(hr)) {
     hr = g_dwrite_analyzer->lpVtbl->GetGlyphPlacements(g_dwrite_analyzer, text,
         cluster_map, text_props, text_length, indices, glyph_props,
-        actual_glyphs, font_face, (FLOAT)g_editor_font_size, FALSE, FALSE,
-        &script, L"en-us", NULL, NULL, 0, glyph_advances, glyph_offsets);
+        actual_glyphs, font_face, font_size, FALSE, FALSE, &script, locale,
+        NULL, NULL, 0, glyph_advances, glyph_offsets);
   }
   free(cluster_map);
   free(text_props);
@@ -1701,6 +1700,46 @@ static bool shape_ascii_run(const wchar_t *text, uint32_t text_length,
   *advances = glyph_advances;
   *offsets = glyph_offsets;
   *glyph_count = actual_glyphs;
+  return true;
+}
+
+static bool shape_ascii_run(const wchar_t *text, uint32_t text_length,
+                            UINT16 **glyph_indices, DWRITE_GLYPH_OFFSET **offsets,
+                            FLOAT **advances, uint32_t *glyph_count) {
+  if (!text || text_length == 0) return false;
+  for (uint32_t index = 0; index < text_length; ++index) {
+    if (text[index] < 0x20 || text[index] > 0x7e) return false;
+  }
+  IDWriteFontFace *font_face = ensure_glyph_font_face();
+  if (!font_face) return false;
+  return shape_run_with_font(text, text_length, font_face, L"en-us",
+      (FLOAT)g_editor_font_size, glyph_indices, offsets, advances, glyph_count);
+}
+
+static bool shape_fallback_run(const wchar_t *text, uint32_t text_length,
+                               UINT16 **glyph_indices,
+                               DWRITE_GLYPH_OFFSET **offsets,
+                               FLOAT **advances, uint32_t *glyph_count,
+                               IDWriteFontFace **font_face,
+                               FLOAT *font_size) {
+  if (!text || text_length == 0 || !font_face || !font_size) return false;
+  UINT32 mapped_length = 0;
+  FLOAT fallback_scale = 1.0f;
+  IDWriteFontFace *fallback = map_fallback_font(text, text_length,
+      &mapped_length, &fallback_scale);
+  if (!fallback || mapped_length != text_length) {
+    if (fallback) fallback->lpVtbl->Release(fallback);
+    return false;
+  }
+  FLOAT mapped_size = (FLOAT)g_editor_font_size * fallback_scale;
+  bool shaped = shape_run_with_font(text, text_length, fallback, L"ja-jp",
+      mapped_size, glyph_indices, offsets, advances, glyph_count);
+  if (!shaped) {
+    fallback->lpVtbl->Release(fallback);
+    return false;
+  }
+  *font_face = fallback;
+  *font_size = mapped_size;
   return true;
 }
 
@@ -1836,8 +1875,34 @@ static bool draw_glyph_atlas_sprites(void) {
         }
         free_shaped_run(shaped_indices, shaped_offsets, shaped_advances);
       } else {
-      for (const wchar_t *character = line_start; character < line_end;
-           ++character) {
+        IDWriteFontFace *fallback_face = NULL;
+        FLOAT fallback_font_size = 0.0f;
+        if (shape_fallback_run(line_start, (uint32_t)(line_end - line_start),
+                               &shaped_indices, &shaped_offsets,
+                               &shaped_advances, &shaped_count,
+                               &fallback_face, &fallback_font_size)) {
+          for (uint32_t glyph_index = 0; glyph_index < shaped_count; ++glyph_index) {
+            UINT16 glyph_id = shaped_indices[glyph_index];
+            uint8_t subpixel_x = quantized_subpixel(pen_x +
+                shaped_offsets[glyph_index].advanceOffset * (float)scale);
+            if (rasterize_glyph_id_for_cache(fallback_face, glyph_id,
+                                             fallback_font_size, scale,
+                                             subpixel_x, subpixel_y)) {
+              NimculusGlyphRaster *raster = cached_glyph_for_id(fallback_face,
+                  glyph_id, fallback_font_size, scale, subpixel_x, subpixel_y);
+              if (raster && upload_glyph_raster_to_atlas(raster)) {
+                draw_cached_glyph_sprite(raster,
+                    pen_x + shaped_offsets[glyph_index].advanceOffset * (float)scale,
+                    baseline - shaped_offsets[glyph_index].ascenderOffset * (float)scale,
+                    left, top, right, bottom, width, height, &drawn);
+              }
+            }
+            pen_x += shaped_advances[glyph_index] * (float)scale;
+          }
+          free_shaped_run(shaped_indices, shaped_offsets, shaped_advances);
+          fallback_face->lpVtbl->Release(fallback_face);
+        } else for (const wchar_t *character = line_start; character < line_end;
+                    ++character) {
         uint32_t codepoint = (uint32_t)*character;
         if (codepoint == L'\r') continue;
         if (codepoint >= 0x20 && codepoint != 0x7f &&
@@ -1851,7 +1916,7 @@ static bool draw_glyph_atlas_sprites(void) {
               codepoint, font_size, scale, subpixel_x, subpixel_y);
           if (raster) {
             float advance = glyph_advance_pixels(raster->font_face,
-                raster->glyph_id, font_size, scale);
+                raster->glyph_id, raster->font_size, scale);
             if (upload_glyph_raster_to_atlas(raster)) {
               draw_cached_glyph_sprite(raster, pen_x, baseline, left, top,
                   right, bottom, width, height, &drawn);
@@ -1859,7 +1924,7 @@ static bool draw_glyph_atlas_sprites(void) {
             pen_x += advance;
           }
         }
-      }
+        }
       }
     }
     if (line_end >= end) break;
@@ -2912,6 +2977,28 @@ bool nimculus_platform_validate_glyph_fallback(void) {
       font_size, scale_factor, 0, 0);
   valid = raster != NULL && raster->font_face != g_glyph_font_face &&
       raster->pixels != NULL && raster->length > 0;
+  return valid;
+}
+
+bool nimculus_platform_validate_glyph_fallback_shaping(void) {
+  static const wchar_t sample[] = L"日本";
+  UINT16 *indices = NULL;
+  DWRITE_GLYPH_OFFSET *offsets = NULL;
+  FLOAT *advances = NULL;
+  uint32_t count = 0;
+  IDWriteFontFace *font_face = NULL;
+  FLOAT font_size = 0.0f;
+  bool valid = shape_fallback_run(sample, 2, &indices, &offsets, &advances,
+      &count, &font_face, &font_size);
+  if (valid) {
+    valid = font_face != NULL && font_face != g_glyph_font_face &&
+        count > 0 && font_size > 0.0f;
+    for (uint32_t index = 0; valid && index < count; ++index) {
+      if (!(advances[index] >= 0.0f) || !isfinite(advances[index])) valid = false;
+    }
+  }
+  free_shaped_run(indices, offsets, advances);
+  if (font_face) font_face->lpVtbl->Release(font_face);
   return valid;
 }
 

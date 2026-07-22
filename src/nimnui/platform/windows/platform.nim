@@ -15,6 +15,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformValidateGlyphSubpixelVariants*(): bool {.importc: "nimculus_platform_validate_glyph_subpixel_variants", cdecl.}
   proc platformValidateGlyphShaping*(): bool {.importc: "nimculus_platform_validate_glyph_shaping", cdecl.}
   proc platformValidateGlyphFallback*(): bool {.importc: "nimculus_platform_validate_glyph_fallback", cdecl.}
+  proc platformValidateGlyphFallbackShaping*(): bool {.importc: "nimculus_platform_validate_glyph_fallback_shaping", cdecl.}
   proc platformValidateGlyphAtlasUpload*(): bool {.importc: "nimculus_platform_validate_glyph_atlas_upload", cdecl.}
   proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
   proc platformResidentMemoryBytes*(): uint64 {.importc: "nimculus_platform_resident_memory_bytes", cdecl.}
@@ -86,6 +87,7 @@ else:
   proc platformValidateGlyphSubpixelVariants*(): bool = false
   proc platformValidateGlyphShaping*(): bool = false
   proc platformValidateGlyphFallback*(): bool = false
+  proc platformValidateGlyphFallbackShaping*(): bool = false
   proc platformValidateGlyphAtlasUpload*(): bool = false
   proc platformGetMetrics*(metrics: ptr PlatformMetrics) =
     if metrics != nil: metrics[] = PlatformMetrics(scaleFactor: 1.0)

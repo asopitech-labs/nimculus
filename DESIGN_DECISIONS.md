@@ -2210,3 +2210,18 @@ color glyphs, and BiDi remain on the DirectWrite/D2D path until their glyph-run
 and color-text contracts are implemented. The contract and native smoke tests
 verify that Japanese `日` maps to a non-primary font face and produces a
 non-empty raster.
+
+## M13-059: Shape a homogeneous Windows fallback run before per-codepoint fallback
+
+The atlas path first tries the configured face for plain ASCII. For a line that
+is not ASCII, it asks DirectWrite system fallback for the complete line and
+uses `GetGlyphs` plus `GetGlyphPlacements` when the mapping covers the whole
+line with one fallback face. The returned glyph IDs, advances, and offsets are
+then rasterized with that same face and submitted to the atlas. If the line
+contains mixed primary/fallback fonts, surrogate pairs, or another unsupported
+case, the existing per-codepoint BMP path or the DirectWrite/D2D text path
+remains in effect. The fallback scale is used both for rasterization and glyph
+advance calculation, preventing subsequent glyphs from drifting horizontally.
+
+The contract and native smoke tests now exercise a two-character Japanese
+fallback run in addition to the single-glyph mapping test.

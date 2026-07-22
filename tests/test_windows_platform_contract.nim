@@ -50,6 +50,8 @@ when defined(windows):
 
     test "DirectWrite system fallback maps Japanese text to a font face":
       check platformValidateGlyphFallback()
+    test "DirectWrite system fallback shapes a Japanese glyph run":
+      check platformValidateGlyphFallbackShaping()
 
     test "D3D11 glyph atlas uploads and reuses a cached tile":
       if platformValidateNative():
