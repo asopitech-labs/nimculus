@@ -84,8 +84,9 @@ let images = try imageURLs.map { url -> CGImage in
     }
     return image
 }
-guard let destination = CGImageDestinationCreateWithURL(
-    icnsOutput as CFURL, "com.apple.icns" as CFString, images.count, nil) else {
+let icnsData = NSMutableData()
+guard let destination = CGImageDestinationCreateWithData(
+    icnsData, "com.apple.icns" as CFString, images.count, nil) else {
     throw NSError(domain: "NimculusIcon", code: 6)
 }
 for image in images {
@@ -94,3 +95,4 @@ for image in images {
 guard CGImageDestinationFinalize(destination) else {
     throw NSError(domain: "NimculusIcon", code: 7)
 }
+try (icnsData as Data).write(to: icnsOutput)

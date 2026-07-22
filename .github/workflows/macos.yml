@@ -12,7 +12,7 @@ jobs:
       - name: Setup Nim
         run: brew install nim
       - name: Install Nim dependencies
-        run: nimble install -y --depsOnly
+        run: nimble install --depsOnly -y
       - name: Build
         run: nimble build
       - name: Compile portable platform boundary
