@@ -2218,6 +2218,96 @@ static bool rasterize_jpeg_glyph_for_cache(IDWriteFontFace *font_face,
       scale, subpixel_x, subpixel_y, DWRITE_GLYPH_IMAGE_FORMATS_JPEG);
 }
 
+static bool rasterize_premultiplied_glyph_for_cache(
+    IDWriteFontFace *font_face, UINT16 glyph_id, float font_size,
+    double scale, uint8_t subpixel_x, uint8_t subpixel_y) {
+  if (!font_face || !ensure_directwrite_factory() || !g_dwrite_factory4 ||
+      find_color_glyph_raster(font_face, glyph_id, font_size, scale,
+                              subpixel_x, subpixel_y)) return false;
+  IDWriteFontFace4 *font_face4 = NULL;
+  HRESULT hr = font_face->lpVtbl->QueryInterface((IUnknown *)font_face,
+      &IID_IDWriteFontFace4, (void **)&font_face4);
+  if (FAILED(hr) || !font_face4) return false;
+  UINT32 requested_ppem = (UINT32)floor((double)font_size * scale + 0.5);
+  if (requested_ppem == 0) requested_ppem = 1;
+  DWRITE_GLYPH_IMAGE_DATA image_data;
+  ZeroMemory(&image_data, sizeof(image_data));
+  void *image_context = NULL;
+  hr = font_face4->lpVtbl->GetGlyphImageData(font_face4, glyph_id,
+      requested_ppem, DWRITE_GLYPH_IMAGE_FORMATS_PREMULTIPLIED_B8G8R8A8,
+      &image_data, &image_context);
+  bool has_data = SUCCEEDED(hr) && image_data.imageData &&
+      image_data.imageDataSize >= (uint64_t)image_data.pixelSize.width *
+          image_data.pixelSize.height * 4 && image_data.pixelsPerEm > 0 &&
+      image_data.pixelSize.width > 0 && image_data.pixelSize.height > 0;
+  if (!has_data) {
+    if (image_context) font_face4->lpVtbl->ReleaseGlyphImageData(font_face4,
+        image_context);
+    font_face4->lpVtbl->Release(font_face4);
+    return false;
+  }
+  double image_scale = (double)requested_ppem / image_data.pixelsPerEm;
+  uint32_t width = (uint32_t)floor(
+      (double)image_data.pixelSize.width * image_scale + 0.5);
+  uint32_t height = (uint32_t)floor(
+      (double)image_data.pixelSize.height * image_scale + 0.5);
+  bool valid = width > 0 && height > 0 && width < NIMCULUS_GLYPH_ATLAS_SIZE &&
+      height < NIMCULUS_GLYPH_ATLAS_SIZE &&
+      (uint64_t)width * height <= UINT32_MAX / 4;
+  uint8_t *pixels = valid ? (uint8_t *)malloc((size_t)width * height * 4) : NULL;
+  const uint8_t *source = (const uint8_t *)image_data.imageData;
+  if (pixels) {
+    for (uint32_t y = 0; y < height; ++y) {
+      uint32_t source_y = (uint32_t)floor((double)y / image_scale);
+      if (source_y >= image_data.pixelSize.height)
+        source_y = image_data.pixelSize.height - 1;
+      for (uint32_t x = 0; x < width; ++x) {
+        uint32_t source_x = (uint32_t)floor((double)x / image_scale);
+        if (source_x >= image_data.pixelSize.width)
+          source_x = image_data.pixelSize.width - 1;
+        const uint8_t *source_pixel = source +
+            ((size_t)source_y * image_data.pixelSize.width + source_x) * 4;
+        uint8_t *destination = pixels + ((size_t)y * width + x) * 4;
+        uint32_t alpha = source_pixel[3];
+        destination[3] = (uint8_t)alpha;
+        if (alpha == 0) {
+          destination[0] = destination[1] = destination[2] = 0;
+        } else {
+          destination[0] = (uint8_t)((source_pixel[2] * 255u + alpha / 2u) /
+              alpha);
+          destination[1] = (uint8_t)((source_pixel[1] * 255u + alpha / 2u) /
+              alpha);
+          destination[2] = (uint8_t)((source_pixel[0] * 255u + alpha / 2u) /
+              alpha);
+        }
+      }
+    }
+  }
+  if (image_context) font_face4->lpVtbl->ReleaseGlyphImageData(font_face4,
+      image_context);
+  font_face4->lpVtbl->Release(font_face4);
+  if (!pixels) return false;
+  NimculusColorGlyphRaster *raster = allocate_color_glyph_raster();
+  raster->valid = true;
+  raster->glyph_id = glyph_id;
+  raster->font_face = font_face;
+  font_face->lpVtbl->AddRef(font_face);
+  raster->font_size = font_size;
+  raster->scale = scale;
+  raster->subpixel_x = subpixel_x;
+  raster->subpixel_y = subpixel_y;
+  raster->bounds.left = (LONG)floor(
+      -(double)image_data.horizontalLeftOrigin.x * image_scale + 0.5);
+  raster->bounds.top = (LONG)floor(
+      -(double)image_data.horizontalLeftOrigin.y * image_scale + 0.5);
+  raster->bounds.right = raster->bounds.left + (LONG)width;
+  raster->bounds.bottom = raster->bounds.top + (LONG)height;
+  raster->length = width * height * 4;
+  raster->pixels = pixels;
+  raster->last_used = ++g_glyph_raster_clock;
+  return true;
+}
+
 static uint8_t quantized_subpixel(double position) {
   double fraction = position - floor(position);
   int variant = (int)floor(fraction * 4.0 + 0.5);
@@ -2526,6 +2616,10 @@ static bool draw_mapped_shaped_runs(const wchar_t *text, uint32_t text_length,
         if (!color_prepared) {
           color_prepared = rasterize_jpeg_glyph_for_cache(font_face, glyph_id,
               run_font_size, scale, subpixel_x, subpixel_y);
+        }
+        if (!color_prepared) {
+          color_prepared = rasterize_premultiplied_glyph_for_cache(font_face,
+              glyph_id, run_font_size, scale, subpixel_x, subpixel_y);
         }
       }
       if (run_has_surrogate && color_prepared) {
@@ -3940,7 +4034,7 @@ static bool validate_bitmap_color_glyph_atlas(
   if (valid) valid = SUCCEEDED(font_face->lpVtbl->QueryInterface(
       (IUnknown *)font_face, &IID_IDWriteFontFace4, (void **)&font_face4)) &&
       font_face4 != NULL;
-  bool has_png = false;
+  bool has_image = false;
   if (valid) {
     UINT32 requested_ppem = (UINT32)floor(g_editor_font_size *
         (g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0) + 0.5);
@@ -3951,16 +4045,21 @@ static bool validate_bitmap_color_glyph_atlas(
     HRESULT hr = font_face4->lpVtbl->GetGlyphImageData(font_face4, glyph_id,
         requested_ppem, format, &image_data,
         &image_context);
-    has_png = SUCCEEDED(hr) && image_data.imageData &&
+    has_image = SUCCEEDED(hr) && image_data.imageData &&
         image_data.imageDataSize > 0;
     if (image_context) font_face4->lpVtbl->ReleaseGlyphImageData(font_face4,
         image_context);
   }
   if (font_face4) font_face4->lpVtbl->Release(font_face4);
-  if (valid && has_png) {
+  if (valid && has_image) {
     double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
-    valid = rasterize_bitmap_glyph_for_cache(font_face, glyph_id,
-        (float)g_editor_font_size * fallback_scale, scale, 0, 0, format);
+    if (format == DWRITE_GLYPH_IMAGE_FORMATS_PREMULTIPLIED_B8G8R8A8) {
+      valid = rasterize_premultiplied_glyph_for_cache(font_face, glyph_id,
+          (float)g_editor_font_size * fallback_scale, scale, 0, 0);
+    } else {
+      valid = rasterize_bitmap_glyph_for_cache(font_face, glyph_id,
+          (float)g_editor_font_size * fallback_scale, scale, 0, 0, format);
+    }
     if (valid) {
       NimculusColorGlyphRaster *raster = find_color_glyph_raster(font_face,
           glyph_id, (float)g_editor_font_size * fallback_scale, scale, 0, 0);
@@ -3978,6 +4077,11 @@ bool nimculus_platform_validate_png_color_glyph_atlas(void) {
 
 bool nimculus_platform_validate_jpeg_color_glyph_atlas(void) {
   return validate_bitmap_color_glyph_atlas(DWRITE_GLYPH_IMAGE_FORMATS_JPEG);
+}
+
+bool nimculus_platform_validate_premultiplied_color_glyph_atlas(void) {
+  return validate_bitmap_color_glyph_atlas(
+      DWRITE_GLYPH_IMAGE_FORMATS_PREMULTIPLIED_B8G8R8A8);
 }
 
 bool nimculus_platform_validate_color_glyph_atlas(void) {

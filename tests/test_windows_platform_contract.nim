@@ -73,6 +73,12 @@ when defined(windows):
       else:
         echo "  [SKIP] JPEG color atlas contract requires an active native window"
 
+    test "Premultiplied BGRA glyphs convert and upload when provided":
+      if platformValidateNative():
+        check platformValidatePremultipliedColorGlyphAtlas()
+      else:
+        echo "  [SKIP] premultiplied color atlas contract requires an active native window"
+
     test "D3D11 glyph atlas uploads and reuses a cached tile":
       if platformValidateNative():
         check platformValidateGlyphAtlasUpload()
