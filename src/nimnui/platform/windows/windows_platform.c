@@ -39,6 +39,7 @@ static ID3D11RenderTargetView *g_render_target = NULL;
 static ID3D11VertexShader *g_quad_vertex_shader = NULL;
 static ID3D11PixelShader *g_quad_pixel_shader = NULL;
 static ID3D11PixelShader *g_image_pixel_shader = NULL;
+static ID3D11PixelShader *g_glyph_pixel_shader = NULL;
 static ID3D11InputLayout *g_quad_input_layout = NULL;
 static ID3D11Buffer *g_quad_vertex_buffer = NULL;
 static ID3D11RasterizerState *g_quad_rasterizer = NULL;
@@ -525,6 +526,15 @@ static const char g_image_pixel_source[] =
   "float4 main(PSInput input) : SV_TARGET {"
   "return imageTexture.Sample(imageSampler, input.local) * input.color; }";
 
+static const char g_glyph_pixel_source[] =
+  "struct PSInput { float4 position : SV_POSITION; float4 color : COLOR;"
+  " float2 local : LOCAL; float2 size : SIZE; float radius : RADIUS; float kind : KIND; };"
+  "Texture2D glyphAtlas : register(t0);"
+  "SamplerState glyphSampler : register(s0);"
+  "float4 main(PSInput input) : SV_TARGET {"
+  " float alpha = glyphAtlas.Sample(glyphSampler, input.local).r;"
+  " return float4(input.color.rgb, input.color.a * alpha); }";
+
 static void release_quad_pipeline(void) {
   if (g_quad_blend_state) g_quad_blend_state->lpVtbl->Release(g_quad_blend_state);
   if (g_quad_rasterizer) g_quad_rasterizer->lpVtbl->Release(g_quad_rasterizer);
@@ -532,6 +542,7 @@ static void release_quad_pipeline(void) {
   if (g_quad_input_layout) g_quad_input_layout->lpVtbl->Release(g_quad_input_layout);
   if (g_quad_pixel_shader) g_quad_pixel_shader->lpVtbl->Release(g_quad_pixel_shader);
   if (g_image_pixel_shader) g_image_pixel_shader->lpVtbl->Release(g_image_pixel_shader);
+  if (g_glyph_pixel_shader) g_glyph_pixel_shader->lpVtbl->Release(g_glyph_pixel_shader);
   if (g_quad_vertex_shader) g_quad_vertex_shader->lpVtbl->Release(g_quad_vertex_shader);
   if (g_image_sampler) g_image_sampler->lpVtbl->Release(g_image_sampler);
   g_quad_rasterizer = NULL;
@@ -540,6 +551,7 @@ static void release_quad_pipeline(void) {
   g_quad_blend_state = NULL;
   g_quad_pixel_shader = NULL;
   g_image_pixel_shader = NULL;
+  g_glyph_pixel_shader = NULL;
   g_image_sampler = NULL;
   g_quad_vertex_shader = NULL;
 }
@@ -548,6 +560,7 @@ static bool create_quad_pipeline(void) {
   ID3DBlob *vertex_blob = NULL;
   ID3DBlob *pixel_blob = NULL;
   ID3DBlob *image_pixel_blob = NULL;
+  ID3DBlob *glyph_pixel_blob = NULL;
   ID3DBlob *errors = NULL;
   HRESULT hr = D3DCompile(g_quad_vertex_source, sizeof(g_quad_vertex_source) - 1,
       "nimculus_quad_vs", NULL, NULL, "main", "vs_4_0", 0, 0, &vertex_blob, &errors);
@@ -569,6 +582,16 @@ static bool create_quad_pipeline(void) {
     pixel_blob->lpVtbl->Release(pixel_blob);
     return false;
   }
+  hr = D3DCompile(g_glyph_pixel_source, sizeof(g_glyph_pixel_source) - 1,
+      "nimculus_glyph_ps", NULL, NULL, "main", "ps_4_0", 0, 0,
+      &glyph_pixel_blob, &errors);
+  if (errors) errors->lpVtbl->Release(errors);
+  if (FAILED(hr)) {
+    vertex_blob->lpVtbl->Release(vertex_blob);
+    pixel_blob->lpVtbl->Release(pixel_blob);
+    image_pixel_blob->lpVtbl->Release(image_pixel_blob);
+    return false;
+  }
   hr = g_device->lpVtbl->CreateVertexShader(g_device, vertex_blob->lpVtbl->GetBufferPointer(vertex_blob),
       vertex_blob->lpVtbl->GetBufferSize(vertex_blob), NULL, &g_quad_vertex_shader);
   if (SUCCEEDED(hr)) {
@@ -580,6 +603,12 @@ static bool create_quad_pipeline(void) {
         image_pixel_blob->lpVtbl->GetBufferPointer(image_pixel_blob),
         image_pixel_blob->lpVtbl->GetBufferSize(image_pixel_blob), NULL,
         &g_image_pixel_shader);
+  }
+  if (SUCCEEDED(hr)) {
+    hr = g_device->lpVtbl->CreatePixelShader(g_device,
+        glyph_pixel_blob->lpVtbl->GetBufferPointer(glyph_pixel_blob),
+        glyph_pixel_blob->lpVtbl->GetBufferSize(glyph_pixel_blob), NULL,
+        &g_glyph_pixel_shader);
   }
   D3D11_INPUT_ELEMENT_DESC elements[6] = {
     {"POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
@@ -597,6 +626,7 @@ static bool create_quad_pipeline(void) {
   vertex_blob->lpVtbl->Release(vertex_blob);
   pixel_blob->lpVtbl->Release(pixel_blob);
   image_pixel_blob->lpVtbl->Release(image_pixel_blob);
+  glyph_pixel_blob->lpVtbl->Release(glyph_pixel_blob);
   if (FAILED(hr)) {
     release_quad_pipeline();
     return false;
@@ -1345,6 +1375,160 @@ static void draw_paint_quads(void) {
   }
 }
 
+static float glyph_advance_pixels(IDWriteFontFace *font_face, UINT16 glyph_id,
+                                  float font_size, double scale) {
+  if (!font_face) return font_size * (float)scale * 0.6f;
+  DWRITE_FONT_METRICS font_metrics;
+  ZeroMemory(&font_metrics, sizeof(font_metrics));
+  DWRITE_GLYPH_METRICS glyph_metrics;
+  ZeroMemory(&glyph_metrics, sizeof(glyph_metrics));
+  if (FAILED(font_face->lpVtbl->GetMetrics(font_face, &font_metrics)) ||
+      font_metrics.designUnitsPerEm == 0 ||
+      FAILED(font_face->lpVtbl->GetDesignGlyphMetrics(font_face, &glyph_id, 1,
+                                                       &glyph_metrics, FALSE)))
+    return font_size * (float)scale * 0.6f;
+  return (float)glyph_metrics.advanceWidth /
+      (float)font_metrics.designUnitsPerEm * font_size * (float)scale;
+}
+
+static bool editor_text_is_plain_ascii(void) {
+  if (!g_editor_text || g_editor_text_length <= 0 ||
+      g_editor_highlight_count != 0 || g_editor_composition_length != 0 ||
+      g_editor_soft_wrap) return false;
+  for (int index = 0; index < g_editor_text_length; ++index) {
+    wchar_t character = g_editor_text[index];
+    if (character == L'\n' || character == L'\r' ||
+        (character >= 0x20 && character <= 0x7e)) continue;
+    return false;
+  }
+  return true;
+}
+
+static bool draw_glyph_atlas_sprites(void) {
+  if (!g_context || !g_glyph_atlas_view || !g_glyph_pixel_shader ||
+      !g_quad_vertex_buffer || !g_quad_input_layout || !g_quad_vertex_shader ||
+      !g_quad_rasterizer || !g_quad_blend_state || !g_image_sampler ||
+      !editor_text_is_plain_ascii()) return false;
+  double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+  float font_size = (float)g_editor_font_size;
+  float line_height = (font_size + 2.0f) * (float)scale;
+  float left = (float)(g_editor_rect[0] * scale);
+  float top = (float)(g_editor_rect[1] * scale);
+  float right = (float)((g_editor_rect[0] + g_editor_rect[2]) * scale);
+  float bottom = (float)((g_editor_rect[1] + g_editor_rect[3]) * scale);
+  float width = (float)g_metrics.width_pixels;
+  float height = (float)g_metrics.height_pixels;
+  if (right <= left || bottom <= top || width <= 0.0f || height <= 0.0f) return false;
+  IDWriteFontFace *font_face = ensure_glyph_font_face();
+  if (!font_face) return false;
+  UINT stride = sizeof(NimculusQuadVertex);
+  UINT offset = 0;
+  g_context->lpVtbl->IASetInputLayout(g_context, g_quad_input_layout);
+  g_context->lpVtbl->IASetVertexBuffers(g_context, 0, 1, &g_quad_vertex_buffer,
+                                         &stride, &offset);
+  g_context->lpVtbl->IASetPrimitiveTopology(g_context,
+                                             D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  g_context->lpVtbl->VSSetShader(g_context, g_quad_vertex_shader, NULL, 0);
+  g_context->lpVtbl->PSSetShader(g_context, g_glyph_pixel_shader, NULL, 0);
+  g_context->lpVtbl->PSSetShaderResources(g_context, 0, 1, &g_glyph_atlas_view);
+  g_context->lpVtbl->PSSetSamplers(g_context, 0, 1, &g_image_sampler);
+  g_context->lpVtbl->RSSetState(g_context, g_quad_rasterizer);
+  const FLOAT blend_factor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  g_context->lpVtbl->OMSetBlendState(g_context, g_quad_blend_state,
+                                     blend_factor, 0xffffffffu);
+  LONG clip_left = (LONG)left;
+  LONG clip_top = (LONG)top;
+  LONG clip_right = (LONG)right;
+  LONG clip_bottom = (LONG)bottom;
+  if (clip_left < 0) clip_left = 0;
+  if (clip_top < 0) clip_top = 0;
+  if (clip_right > (LONG)g_metrics.width_pixels) clip_right = (LONG)g_metrics.width_pixels;
+  if (clip_bottom > (LONG)g_metrics.height_pixels) clip_bottom = (LONG)g_metrics.height_pixels;
+  if (clip_right <= clip_left || clip_bottom <= clip_top) return false;
+  D3D11_RECT scissor = {clip_left, clip_top, clip_right, clip_bottom};
+  g_context->lpVtbl->RSSetScissorRects(g_context, 1, &scissor);
+  uint32_t visible_lines = (uint32_t)(g_editor_rect[3] /
+      (g_editor_font_size + 2.0)) + 2;
+  uint32_t line = 0;
+  uint32_t drawn = 0;
+  const wchar_t *line_start = g_editor_text;
+  const wchar_t *end = g_editor_text + g_editor_text_length;
+  while (line_start <= end && line < g_editor_scroll_line + visible_lines) {
+    const wchar_t *line_end = line_start;
+    while (line_end < end && *line_end != L'\n') line_end++;
+    if (line >= g_editor_scroll_line) {
+      float baseline = top + (float)(line - g_editor_scroll_line) * line_height +
+          font_size * (float)scale;
+      float pen_x = left;
+      for (const wchar_t *character = line_start; character < line_end;
+           ++character) {
+        uint32_t codepoint = (uint32_t)*character;
+        if (codepoint == L'\r') continue;
+        UINT16 glyph_id = 0;
+        if (FAILED(font_face->lpVtbl->GetGlyphIndices(font_face, &codepoint, 1,
+                                                      &glyph_id))) continue;
+        float advance = glyph_advance_pixels(font_face, glyph_id, font_size, scale);
+        if (codepoint >= 0x20 && codepoint <= 0x7e) {
+          if (!rasterize_glyph_for_cache(codepoint, font_size, scale, 0, 0)) {
+            pen_x += advance;
+            continue;
+          }
+          NimculusGlyphRaster *raster = cached_glyph_for_codepoint(
+              codepoint, font_size, scale, 0, 0);
+          if (!raster || !upload_glyph_raster_to_atlas(raster)) {
+            pen_x += advance;
+            continue;
+          }
+          float glyph_left = pen_x + (float)raster->bounds.left;
+          float glyph_top = baseline + (float)raster->bounds.top;
+          float glyph_right = glyph_left + (float)raster->atlas_width;
+          float glyph_bottom = glyph_top + (float)raster->atlas_height;
+          if (glyph_right > left && glyph_left < right &&
+              glyph_bottom > top && glyph_top < bottom) {
+            float u0 = (float)raster->atlas_x / NIMCULUS_GLYPH_ATLAS_SIZE;
+            float v0 = (float)raster->atlas_y / NIMCULUS_GLYPH_ATLAS_SIZE;
+            float u1 = (float)(raster->atlas_x + raster->atlas_width) /
+                NIMCULUS_GLYPH_ATLAS_SIZE;
+            float v1 = (float)(raster->atlas_y + raster->atlas_height) /
+                NIMCULUS_GLYPH_ATLAS_SIZE;
+            NimculusQuadVertex vertices[6] = {
+              {(glyph_left / width) * 2.0f - 1.0f, 1.0f - (glyph_top / height) * 2.0f,
+                1.0f, 1.0f, 1.0f, 1.0f, u0, v0, 0, 0, 0, 0},
+              {(glyph_right / width) * 2.0f - 1.0f, 1.0f - (glyph_top / height) * 2.0f,
+                1.0f, 1.0f, 1.0f, 1.0f, u1, v0, 0, 0, 0, 0},
+              {(glyph_right / width) * 2.0f - 1.0f, 1.0f - (glyph_bottom / height) * 2.0f,
+                1.0f, 1.0f, 1.0f, 1.0f, u1, v1, 0, 0, 0, 0},
+              {(glyph_left / width) * 2.0f - 1.0f, 1.0f - (glyph_top / height) * 2.0f,
+                1.0f, 1.0f, 1.0f, 1.0f, u0, v0, 0, 0, 0, 0},
+              {(glyph_right / width) * 2.0f - 1.0f, 1.0f - (glyph_bottom / height) * 2.0f,
+                1.0f, 1.0f, 1.0f, 1.0f, u1, v1, 0, 0, 0, 0},
+              {(glyph_left / width) * 2.0f - 1.0f, 1.0f - (glyph_bottom / height) * 2.0f,
+                1.0f, 1.0f, 1.0f, 1.0f, u0, v1, 0, 0, 0, 0}
+            };
+            D3D11_MAPPED_SUBRESOURCE mapped;
+            if (SUCCEEDED(g_context->lpVtbl->Map(g_context,
+                (ID3D11Resource *)g_quad_vertex_buffer, 0,
+                D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+              memcpy(mapped.pData, vertices, sizeof(vertices));
+              g_context->lpVtbl->Unmap(g_context,
+                  (ID3D11Resource *)g_quad_vertex_buffer, 0);
+              g_context->lpVtbl->Draw(g_context, 6, 0);
+              drawn++;
+            }
+          }
+        }
+        pen_x += advance;
+      }
+    }
+    if (line_end >= end) break;
+    line_start = line_end + 1;
+    line++;
+  }
+  ID3D11ShaderResourceView *none = NULL;
+  g_context->lpVtbl->PSSetShaderResources(g_context, 0, 1, &none);
+  return drawn > 0;
+}
+
 static void editor_line_byte_range(uint32_t target_line, uint32_t *start,
                                    uint32_t *end) {
   uint32_t line = 0;
@@ -1699,6 +1883,7 @@ static void render_frame(void) {
   draw_paint_quads();
   g_directwrite_frame = render_editor_directwrite();
   prepare_visible_glyph_atlas();
+  if (draw_glyph_atlas_sprites()) g_directwrite_frame = true;
   HRESULT present = g_swap_chain->lpVtbl->Present(g_swap_chain, 1, 0);
   if (SUCCEEDED(present)) {
     if (g_qpc_frequency.QuadPart == 0)
@@ -2328,7 +2513,8 @@ bool nimculus_platform_validate_glyph_raster_cache(void) {
 }
 
 bool nimculus_platform_validate_glyph_atlas_upload(void) {
-  if (!g_device || !g_context || !ensure_glyph_atlas_texture()) return false;
+  if (!g_device || !g_context || !g_glyph_pixel_shader ||
+      !ensure_glyph_atlas_texture()) return false;
   double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
   if (!rasterize_glyph_for_cache('A', (float)g_editor_font_size, scale, 0, 0))
     return false;

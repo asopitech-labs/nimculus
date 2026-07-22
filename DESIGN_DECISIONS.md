@@ -2176,8 +2176,8 @@ is an upload/lifetime contract only; glyph vertex generation, sampling, and
 subpixel positioning remain separate follow-up work.
 
 The upload path is now called from the Windows frame boundary for the visible
-editor range (ASCII glyphs only). DirectWrite/D2D remains the visible fallback,
-so this warm-up cannot change shaping, color emoji, or highlighted text behavior;
-it does ensure that normal editor frames populate the device atlas and that a
-device recreation can rebuild it from the CPU cache. Sprite sampling and full
-shaped-run submission remain explicitly unimplemented.
+editor range (ASCII glyphs only). DirectWrite/D2D remains the visible fallback
+for complex, colored, and highlighted text; plain ASCII glyphs additionally use
+the R8 atlas pixel shader and quad path. This keeps shaping behavior unchanged
+while making atlas sampling part of the normal frame. Full shaped-run
+submission, colored glyphs, and subpixel positioning remain unimplemented.
