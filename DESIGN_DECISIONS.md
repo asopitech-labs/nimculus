@@ -1,5 +1,15 @@
 # Design Decisions
 
+## M6-004: Invalidate lazy workspace entries at the filesystem event boundary
+
+Zed's worktree scanner treats filesystem events as the boundary for updating
+the in-memory entry snapshot and removes deleted entries instead of leaving
+stale paths in the project model. Nimculus now removes the changed path and
+all cached descendants from `Workspace.entries` when `changedPaths()` drains
+the coalesced event set. The next lazy tree/search operation rescans the
+affected path, which handles delete and rename events without retaining stale
+entries or requiring a full workspace enumeration.
+
 ## M10-004: Bound task output like terminal output
 
 Zed applies an explicit byte limit when exposing terminal output and preserves

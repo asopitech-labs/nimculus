@@ -104,6 +104,22 @@ suite "M6 workspace":
     check workspace.changedPaths().len == 0
     removeFile(filePath); removeDir(root)
 
+  test "changed paths invalidate cached files and descendants":
+    let root = getTempDir() / "nimculus-m6-cache-invalidation"
+    createDir(root); createDir(root / "nested")
+    writeFile(root / "nested" / "one.txt", "one")
+    writeFile(root / "nested" / "two.txt", "two")
+    let workspace = openWorkspace(root)
+    discard workspace.enumerateFiles()
+    check workspace.entries.len == 3
+    workspace.changes.add(root / "nested")
+    discard workspace.changedPaths()
+    check workspace.entries.len == 0
+    removeFile(root / "nested" / "one.txt")
+    removeFile(root / "nested" / "two.txt")
+    removeDir(root / "nested")
+    removeDir(root)
+
   test "fuzzy search yields bounded batches and can be cancelled":
     let root = getTempDir() / "nimculus-m6-fuzzy-job"
     createDir(root)

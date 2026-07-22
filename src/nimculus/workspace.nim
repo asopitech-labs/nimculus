@@ -310,6 +310,20 @@ proc pollFuzzySearch*(job: FuzzySearchJob, maxEntries = 256,
 proc searchWorkspace*(workspace: Workspace, query: string,
                       token: CancelToken = nil): seq[SearchResult]
 
+proc invalidateEntryCache(workspace: Workspace, path: string) =
+  ## Filesystem events are the invalidation boundary for the lazy entry cache.
+  ## Remove the changed path and descendants before a subsequent tree scan;
+  ## this handles deletes and renames where the path no longer exists.
+  if workspace == nil or workspace.entries.len == 0: return
+  let normalized = normalizedPath(path)
+  var stale: seq[string]
+  for key in workspace.entries.keys:
+    let candidate = normalizedPath(key)
+    if candidate == normalized or candidate.startsWith(normalized & DirSep):
+      stale.add(key)
+  for key in stale:
+    workspace.entries.del(key)
+
 proc startSearch*(workspace: Workspace, query: string,
                   token: CancelToken = nil): SearchJob =
   result = SearchJob(workspace: workspace, query: query,
@@ -522,6 +536,8 @@ proc changedPaths*(workspace: Workspace): seq[string] =
     workspace.changes.setLen(0)
   finally:
     release(workspace.changesLock)
+  for path in result:
+    workspace.invalidateEntryCache(path)
   for path in result:
     if workspace.isIgnoreRulePath(path):
       workspace.reloadIgnoreRules()

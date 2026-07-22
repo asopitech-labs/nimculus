@@ -10,7 +10,7 @@
 | M3：macOS テキスト描画と IME | 🟡 実装済み・GUI実機検証待ち | Core Text、glyph atlas、動的Metal文字描画、Tree-sitter構文色、marked text表示、IME、候補位置、clipboardを実装。日本語IME、カーソル/選択、Retina文字表示の実機確認が残る |
 | M4：エディタバッファと編集コア | ✅ 完了 | Piece Table、原子的編集、Undo/Redo、複数カーソル、位置変換、fuzz、候補構造比較を実装・検証済み |
 | M5：macOS 最小実用エディタ | 🟡 実装済み・GUI実機検証待ち | 編集サービス、plain-text fallbackを含む動的文書表示、構文色、macOSメニュー/IME/Finder接続、Application Supportへのセッション復元・クラッシュリカバリー、`Cmd+,`の設定パネル導線を実装。GUI実機確認が残る |
-| M6：macOS プロジェクト・ワークスペース | 🟡 部分UI統合・高度なGit UI待ち | フォルダ選択、Fileメニューからの複数ルート追加、Quick Open fuzzy file search、表示件数を制限した遅延深さ優先ツリー、Workspace検索入力/結果/継続更新/キャンセル、Worktree branch/HEAD表示、標準Fileメニューからのファイル作成・フォルダ作成・名前変更・削除、Workspace rootのセッション復元を接続。複数ルート、`.gitignore`、fuzzy/ripgrep API、協調型検索ジョブ、FSEvents、Worktree状態分離、10万ファイル計測を実装。Git diff/stage等の高度なUIが残る |
+| M6：macOS プロジェクト・ワークスペース | 🟡 部分UI統合・高度なGit UI待ち | フォルダ選択、Fileメニューからの複数ルート追加、Quick Open fuzzy file search、表示件数を制限した遅延深さ優先ツリー、Workspace検索入力/結果/継続更新/キャンセル、Worktree branch/HEAD表示、標準Fileメニューからのファイル作成・フォルダ作成・名前変更・削除、Workspace rootのセッション復元を接続。複数ルート、`.gitignore`、fuzzy/ripgrep API、協調型検索ジョブ、FSEvents、Worktree状態分離、10万ファイル計測を実装。FSEvents/ReadDirectoryChangesWの変更通知でキャッシュ済みファイル・子孫を無効化し、削除・rename後のstale entryを残さない。Git diff/stage等の高度なUIが残る |
 | M7：Tree-sitter | 🟡 実装済み・GUI実機検証待ち | Nim/Rust/TypeScript/Python/JSON/MarkdownのFFI、増分解析、構文状態、可視範囲ハイライト、RGBA Metalテクスチャ接続、大規模ファイル計測を実装。GUI実機確認が残る |
 | M8：LSPクライアント | 🟡 実装済み・GUI実機検証待ち | JSON-RPC、stdio、stale response破棄、restart、diagnostics、completion、hover、definition、references、symbols、rename、formatting、code action、signature help、semantic tokens、inlay hintsを実装。実Language Server接続のGUI確認が残る |
 | M9：macOS Git統合 | 🟡 実装済み・GUI実機検証待ち | 非同期status/diff、branch・変更数・conflict数、gutter、本文inline diff背景、hunk stage/unstage、commit/log/blame/checkoutを実装。実機表示確認が残る |
