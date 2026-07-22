@@ -1,14 +1,21 @@
 #define WIN32_LEAN_AND_MEAN
 #define _WIN32_WINNT 0x0A00
 #include <windows.h>
-#include <winconpty.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
+/* MinGW's bundled headers may predate the Windows 10 ConPTY declarations. */
+typedef void *NimculusHPCON;
+WINBASEAPI HRESULT WINAPI CreatePseudoConsole(
+    COORD size, HANDLE hInput, HANDLE hOutput, DWORD dwFlags,
+    NimculusHPCON *phPC);
+WINBASEAPI VOID WINAPI ClosePseudoConsole(NimculusHPCON hPC);
+WINBASEAPI HRESULT WINAPI ResizePseudoConsole(NimculusHPCON hPC, COORD size);
+
 typedef struct NimculusConPty {
-  HPCON pseudo_console;
+  NimculusHPCON pseudo_console;
   HANDLE input_write;
   HANDLE output_read;
   HANDLE process;
@@ -64,7 +71,7 @@ NimculusConPty *nimculus_conpty_create(const char *shell, const char *working_di
 
   COORD size = {(SHORT)(columns > 0 ? columns : 80),
                 (SHORT)(rows > 0 ? rows : 24)};
-  HPCON pseudo_console = NULL;
+  NimculusHPCON pseudo_console = NULL;
   HRESULT result = CreatePseudoConsole(size, input_read, output_write, 0, &pseudo_console);
   close_handle(&input_read);
   close_handle(&output_write);

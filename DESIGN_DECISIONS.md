@@ -916,9 +916,12 @@ directory, to `GITHUB_PATH` because
 Chocolatey's environment changes are not automatically visible to later GitHub
 Actions steps.
 
-The ConPTY C boundary includes MinGW's `winconpty.h` explicitly. `windows.h`
-alone does not expose `HPCON` on the Windows runner's headers even when
-`_WIN32_WINNT` targets Windows 10.
+The ConPTY C boundary declares the small Windows 10 API surface locally when
+building with MinGW. The hosted runner's MinGW headers do not ship
+`winconpty.h` or expose `HPCON`, although the functions are exported by
+`kernel32`; the declarations mirror Microsoft's `CreatePseudoConsole`,
+`ClosePseudoConsole`, and `ResizePseudoConsole` contracts without requiring a
+newer SDK header.
 
 ## M6-002: Workspace operations stay path-confined
 
