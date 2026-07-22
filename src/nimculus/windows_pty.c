@@ -8,6 +8,9 @@
 
 /* MinGW's bundled headers may predate the Windows 10 ConPTY declarations. */
 typedef void *NimculusHPCON;
+#ifndef PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE
+#define PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE 0x00020016
+#endif
 WINBASEAPI HRESULT WINAPI CreatePseudoConsole(
     COORD size, HANDLE hInput, HANDLE hOutput, DWORD dwFlags,
     NimculusHPCON *phPC);
