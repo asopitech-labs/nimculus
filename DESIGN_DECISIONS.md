@@ -2174,3 +2174,10 @@ device releases the texture/SRV and invalidates tile coordinates, but preserves
 CPU rasters so the next frame can rebuild the atlas without rerasterizing. This
 is an upload/lifetime contract only; glyph vertex generation, sampling, and
 subpixel positioning remain separate follow-up work.
+
+The upload path is now called from the Windows frame boundary for the visible
+editor range (ASCII glyphs only). DirectWrite/D2D remains the visible fallback,
+so this warm-up cannot change shaping, color emoji, or highlighted text behavior;
+it does ensure that normal editor frames populate the device atlas and that a
+device recreation can rebuild it from the CPU cache. Sprite sampling and full
+shaped-run submission remain explicitly unimplemented.

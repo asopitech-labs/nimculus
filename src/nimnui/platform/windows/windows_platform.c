@@ -1011,6 +1011,56 @@ static bool rasterize_glyph_for_cache(uint32_t codepoint, float font_size,
   return true;
 }
 
+static NimculusGlyphRaster *cached_glyph_for_codepoint(uint32_t codepoint,
+                                                        float font_size,
+                                                        double scale,
+                                                        uint8_t subpixel_x,
+                                                        uint8_t subpixel_y) {
+  IDWriteFontFace *font_face = ensure_glyph_font_face();
+  if (!font_face) return NULL;
+  UINT16 glyph_id = 0;
+  if (FAILED(font_face->lpVtbl->GetGlyphIndices(font_face, &codepoint, 1,
+                                                &glyph_id))) return NULL;
+  return find_glyph_raster(glyph_id, font_size, scale, subpixel_x, subpixel_y);
+}
+
+/* Warm the device-owned atlas from the same visible editor range that the
+ * DirectWrite fallback paints. The atlas remains an independent resource until
+ * the sprite pipeline is enabled; keeping this boundary here makes device-loss
+ * recovery exercise the real frame path instead of only a test helper. */
+static void prepare_visible_glyph_atlas(void) {
+  if (!g_device || !g_context || !g_editor_text || g_editor_text_length <= 0)
+    return;
+  double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+  float font_size = (float)g_editor_font_size;
+  uint32_t visible_lines = (uint32_t)(g_editor_rect[3] /
+      (g_editor_font_size + 2.0)) + 2;
+  uint32_t line = 0;
+  uint32_t prepared = 0;
+  const wchar_t *line_start = g_editor_text;
+  const wchar_t *end = g_editor_text + g_editor_text_length;
+  while (line_start <= end && line < g_editor_scroll_line + visible_lines) {
+    const wchar_t *line_end = line_start;
+    while (line_end < end && *line_end != L'\n') line_end++;
+    if (line >= g_editor_scroll_line) {
+      for (const wchar_t *character = line_start; character < line_end;
+           ++character) {
+        uint32_t codepoint = (uint32_t)*character;
+        if (codepoint < 0x20 || codepoint > 0x7e) continue;
+        if (!rasterize_glyph_for_cache(codepoint, font_size, scale, 0, 0))
+          continue;
+        NimculusGlyphRaster *raster = cached_glyph_for_codepoint(
+            codepoint, font_size, scale, 0, 0);
+        if (raster && upload_glyph_raster_to_atlas(raster)) prepared++;
+        if (prepared >= 4096) return;
+      }
+    }
+    if (line_end >= end) break;
+    line_start = line_end + 1;
+    line++;
+  }
+}
+
 static void release_editor_text_format(void) {
   if (g_editor_text_format) {
     g_editor_text_format->lpVtbl->Release(g_editor_text_format);
@@ -1648,6 +1698,7 @@ static void render_frame(void) {
   g_context->lpVtbl->RSSetViewports(g_context, 1, &viewport);
   draw_paint_quads();
   g_directwrite_frame = render_editor_directwrite();
+  prepare_visible_glyph_atlas();
   HRESULT present = g_swap_chain->lpVtbl->Present(g_swap_chain, 1, 0);
   if (SUCCEEDED(present)) {
     if (g_qpc_frequency.QuadPart == 0)
