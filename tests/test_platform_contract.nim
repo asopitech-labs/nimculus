@@ -55,6 +55,9 @@ suite "macOS platform contract":
   test "native file open events preserve Finder and URL paths":
     check platformValidateFileOpenEvents()
 
+  test "native IME composition preserves UTF-16 and UTF-8 boundaries":
+    check platformValidateImeComposition()
+
   test "native input event fields are read only for supported event types":
     check platformValidateInputEventFields()
 

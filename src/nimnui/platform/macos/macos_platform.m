@@ -3027,6 +3027,77 @@ bool nimculus_platform_validate_file_open_events(void) {
   }
 }
 
+static char g_validation_ime_text[4][128];
+static BOOL g_validation_ime_composing[4];
+static uint32_t g_validation_ime_text_count = 0;
+static uint32_t g_validation_ime_selection_start = 0;
+static uint32_t g_validation_ime_selection_end = 0;
+static uint32_t g_validation_ime_selection_start2 = 0;
+static uint32_t g_validation_ime_selection_end2 = 0;
+static uint32_t g_validation_ime_selection_count = 0;
+
+static void validationImeTextCallback(const char *utf8, bool composing) {
+  uint32_t index = g_validation_ime_text_count++;
+  if (index >= 4) return;
+  strncpy(g_validation_ime_text[index], utf8 ?: "", sizeof(g_validation_ime_text[index]) - 1);
+  g_validation_ime_text[index][sizeof(g_validation_ime_text[index]) - 1] = '\0';
+  g_validation_ime_composing[index] = composing;
+}
+
+static void validationImeSelectionCallback(uint32_t startByte, uint32_t endByte) {
+  if (g_validation_ime_selection_count == 0) {
+    g_validation_ime_selection_start = startByte;
+    g_validation_ime_selection_end = endByte;
+  } else if (g_validation_ime_selection_count == 1) {
+    g_validation_ime_selection_start2 = startByte;
+    g_validation_ime_selection_end2 = endByte;
+  }
+  g_validation_ime_selection_count++;
+}
+
+bool nimculus_platform_validate_ime_composition(void) {
+  @autoreleasepool {
+    NimculusTextCallback previousTextCallback = g_text_callback;
+    NimculusSelectionCallback previousSelectionCallback = g_selection_callback;
+    NSString *previousText = g_editor_text;
+    NSUInteger previousSelectionStart = g_editor_selection_start;
+    NSUInteger previousSelectionEnd = g_editor_selection_end;
+    g_validation_ime_text_count = 0;
+    g_validation_ime_selection_count = 0;
+    g_validation_ime_selection_start2 = 0;
+    g_validation_ime_selection_end2 = 0;
+    memset(g_validation_ime_text, 0, sizeof(g_validation_ime_text));
+    g_validation_ime_text[0][0] = '\0';
+    g_text_callback = validationImeTextCallback;
+    g_selection_callback = validationImeSelectionCallback;
+    g_editor_text = @"A日本語";
+    g_editor_selection_start = 1;
+    g_editor_selection_end = 4;
+    NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
+      NSMakeRect(0.0, 0.0, 640.0, 480.0)];
+    [view setMarkedText:@"にっぽん" selectedRange:NSMakeRange(4, 0)
+      replacementRange:NSMakeRange(NSNotFound, 0)];
+    BOOL marked = view.hasMarkedText && view.markedRange.location == 1 &&
+      view.markedRange.length == 4 && g_validation_ime_text_count == 1 &&
+      strcmp(g_validation_ime_text[0], "にっぽん") == 0 &&
+      g_validation_ime_composing[0] && g_validation_ime_selection_count == 1 &&
+      g_validation_ime_selection_start == 1 && g_validation_ime_selection_end == 10;
+    [view insertText:@"日本" replacementRange:NSMakeRange(1, 2)];
+    BOOL committed = g_validation_ime_text_count == 3 &&
+      strcmp(g_validation_ime_text[1], "日本") == 0 &&
+      !g_validation_ime_composing[1] && g_validation_ime_text[2][0] == '\0' &&
+      g_validation_ime_composing[2] && g_validation_ime_selection_count == 2 &&
+      g_validation_ime_selection_start2 == 1 && g_validation_ime_selection_end2 == 7 &&
+      !view.hasMarkedText;
+    g_text_callback = previousTextCallback;
+    g_selection_callback = previousSelectionCallback;
+    g_editor_text = previousText;
+    g_editor_selection_start = previousSelectionStart;
+    g_editor_selection_end = previousSelectionEnd;
+    return marked && committed;
+  }
+}
+
 bool nimculus_platform_validate_input_event_fields(void) {
   @autoreleasepool {
     // AppKit's event factory only permits the mouse-movement mask here; the

@@ -1245,6 +1245,19 @@ not truncate Core Text layout, hit-testing, or IME document coordinates. The
 native side constructs `NSString` with `initWithBytes:length:encoding:` and
 the platform contract includes a length-preservation test.
 
+## M3-020: Verify the NSTextInputClient composition transaction at the native boundary
+
+The macOS platform contract exercises the same composition sequence used by
+AppKit: `setMarkedText:selectedRange:replacementRange:` receives a UTF-16
+replacement range, forwards its UTF-8 byte bounds to Nim, and emits a composing
+callback; `insertText:replacementRange:` forwards a committed callback and then
+`unmarkText` emits the empty composing callback. The contract checks Japanese
+text, UTF-16 marked-text length, UTF-8 byte ranges, and callback ordering without
+requiring a physical IME on CI. This follows Zed's `InputHandler` separation of
+marked text from committed buffer edits while keeping the AppKit marked-text
+surface and editor document state independent. The smoke restores all global
+callbacks and editor selection state before returning.
+
 ## M1-005: Initialize the Metal drawable on first window attachment
 
 `viewDidMoveToWindow` calls the same backing-scale update used by layout and
