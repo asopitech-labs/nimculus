@@ -3,6 +3,14 @@ import std/os
 import std/osproc
 import std/streams
 import std/strutils
+when defined(posix):
+  import std/posix
+
+when defined(posix):
+  type
+    UpdateFileStreamObj = object of Stream
+      f: File
+    UpdateFileStream = ref UpdateFileStreamObj
 
 type
   UpdateRelease* = object
@@ -33,6 +41,64 @@ proc removeIfPresent(path: string) =
   if path.len == 0 or not fileExists(path): return
   try: removeFile(path)
   except CatchableError: discard
+
+proc appendBoundedOutput(current, chunk: string, limit: int):
+    tuple[output: string, truncated: bool] =
+  if chunk.len == 0: return (current, false)
+  if limit <= 0: return ("", true)
+  if current.len >= limit: return (current, true)
+  let remaining = limit - current.len
+  if chunk.len <= remaining: return (current & chunk, false)
+  (current & chunk[0 ..< remaining], true)
+
+proc readAvailable(process: Process, output: Stream): string =
+  if process == nil or output == nil: return
+  when defined(posix):
+    let stream = cast[UpdateFileStream](output)
+    if stream == nil or stream.f == nil: return
+    let fd = cint(getOsFileHandle(stream.f))
+    let flags = fcntl(fd, F_GETFL)
+    if flags < 0 or fcntl(fd, F_SETFL, flags or O_NONBLOCK) < 0: return
+    var bytes: array[8192, char]
+    while true:
+      let count = posix.read(fd, addr bytes[0], bytes.len)
+      if count > 0:
+        let oldLength = result.len
+        result.setLen(oldLength + count)
+        copyMem(addr result[oldLength], addr bytes[0], count)
+      elif count < 0 and (errno == EAGAIN or errno == EWOULDBLOCK):
+        break
+      else:
+        break
+  else:
+    if process.hasData(): result = output.readStr(8192)
+
+proc runProcessBounded(command: string, args: openArray[string],
+                       maxOutputBytes = 64 * 1024):
+    tuple[exitCode: int, output: string, truncated: bool] =
+  try:
+    let process = startProcess(command, args = @args,
+      options = {poUsePath, poStdErrToStdOut})
+    let outputStream = process.peekableOutputStream()
+    while true:
+      let chunk = process.readAvailable(outputStream)
+      if chunk.len > 0:
+        let bounded = appendBoundedOutput(result.output, chunk, maxOutputBytes)
+        result.output = bounded.output
+        result.truncated = result.truncated or bounded.truncated
+      let exitCode = process.peekExitCode()
+      if exitCode >= 0:
+        let tail = process.readAvailable(outputStream)
+        if tail.len > 0:
+          let bounded = appendBoundedOutput(result.output, tail, maxOutputBytes)
+          result.output = bounded.output
+          result.truncated = result.truncated or bounded.truncated
+        result.exitCode = exitCode
+        process.close()
+        return
+      sleep(1)
+  except CatchableError:
+    result.exitCode = -1
 
 proc isHttpsUrl(url: string): bool =
   url.startsWith("https://")
@@ -91,13 +157,9 @@ proc verifySha256*(path, expected: string): bool =
   let digest = expected.toLowerAscii
   if path.len == 0 or digest.len != 64 or not digest.allCharsInSet(HexDigits): return false
   try:
-    let process = startProcess("shasum", args = ["-a", "256", path],
-      options = {poUsePath, poStdErrToStdOut})
-    let output = process.outputStream.readStr(64 * 1024)
-    let exitCode = process.waitForExit()
-    process.close()
-    if exitCode != 0: return false
-    let actual = output.strip.splitWhitespace
+    let checked = runProcessBounded("shasum", ["-a", "256", path])
+    if checked.exitCode != 0: return false
+    let actual = checked.output.strip.splitWhitespace
     actual.len > 0 and actual[0].toLowerAscii == digest
   except CatchableError: false
 
@@ -112,14 +174,11 @@ proc downloadAndVerify*(release: UpdateRelease, destination: string): bool =
       not release.sha256.allCharsInSet(HexDigits) or destination.len == 0:
     return false
   try:
-    let process = startProcess("curl", args = ["--fail", "--location", "--silent",
+    let checked = runProcessBounded("curl", ["--fail", "--location", "--silent",
       "--show-error", "--proto", "=https", "--tlsv1.2", "--max-filesize",
       $MaxUpdateArtifactBytes, "--output", partial,
-      release.url], options = {poUsePath, poStdErrToStdOut})
-    discard process.outputStream.readAll()
-    let exitCode = process.waitForExit()
-    process.close()
-    if exitCode != 0 or not artifactWithinLimit(partial) or
+      release.url])
+    if checked.exitCode != 0 or not artifactWithinLimit(partial) or
         not verifySha256(partial, release.sha256):
       removeIfPresent(partial)
       return false
@@ -179,12 +238,7 @@ proc pollUpdateDownload*(job: UpdateDownloadJob): bool =
 proc runChecked(command: string, args: openArray[string]): bool =
   ## Run a platform verifier without a shell and discard its diagnostic output.
   try:
-    let process = startProcess(command, args = @args,
-      options = {poUsePath, poStdErrToStdOut})
-    discard process.outputStream.readAll()
-    let exitCode = process.waitForExit()
-    process.close()
-    exitCode == 0
+    runProcessBounded(command, args).exitCode == 0
   except CatchableError:
     false
 
@@ -210,28 +264,17 @@ proc installMacosDmgUpdate*(downloadedDmg, runningAppPath, temporaryDirectory: s
   try:
     createDir(temporaryDirectory)
     createDir(mountRoot)
-    let attach = startProcess("hdiutil", args = ["attach", "-nobrowse",
-      "-mountroot", mountRoot, downloadedDmg],
-      options = {poUsePath, poStdErrToStdOut})
-    discard attach.outputStream.readAll()
-    mounted = attach.waitForExit() == 0
-    attach.close()
+    mounted = runProcessBounded("hdiutil", ["attach", "-nobrowse",
+      "-mountroot", mountRoot, downloadedDmg]).exitCode == 0
     if not mounted or not verifyMacosSignedApp(mountedApp): return false
-    let copy = startProcess("rsync", args = ["-a", "--delete", "--exclude", "Icon?",
-      mountedApp & "/", runningAppPath & "/"],
-      options = {poUsePath, poStdErrToStdOut})
-    discard copy.outputStream.readAll()
-    copy.waitForExit() == 0
+    runProcessBounded("rsync", ["-a", "--delete", "--exclude", "Icon?",
+      mountedApp & "/", runningAppPath & "/"]).exitCode == 0
   except CatchableError:
     false
   finally:
     if mounted:
       try:
-        let detach = startProcess("hdiutil", args = ["detach", "-force", mountRoot],
-          options = {poUsePath, poStdErrToStdOut})
-        discard detach.outputStream.readAll()
-        discard detach.waitForExit()
-        detach.close()
+        discard runProcessBounded("hdiutil", ["detach", "-force", mountRoot])
       except CatchableError: discard
     try:
       if dirExists(mountRoot): removeDir(mountRoot)

@@ -28,6 +28,16 @@ attempt, checks size and SHA-256 on the partial file, and moves it into the
 destination only after verification. Failed or interrupted downloads cannot
 be mistaken for an installable DMG.
 
+## M11-009: Drain update-tool diagnostics with a bounded runner
+
+Zed keeps update work off the UI path and awaits each external operation as a
+separate lifecycle step. Nimculus now uses one bounded process runner for
+`shasum`, `curl`, `codesign`, `spctl`, `hdiutil`, and `rsync`: POSIX output is
+drained non-blockingly while the process runs, retained diagnostics are capped
+at 64 KiB, and the process is not allowed to block on a full pipe. This keeps
+verification and installation bounded even when a tool emits unexpected
+diagnostic output.
+
 ## M9-006: Bound Git process output before it reaches UI state
 
 Zed compresses large commit diffs for presentation and applies explicit
