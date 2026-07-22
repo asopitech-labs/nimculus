@@ -7,6 +7,7 @@ export headless_platform
 
 when defined(windows) and not defined(nimculusPortableOnly):
   proc platformRun*(): bool {.importc: "nimculus_platform_run", cdecl.}
+  proc platformRequestQuit*() {.importc: "nimculus_platform_request_quit", cdecl.}
   proc platformValidateNative*(): bool {.importc: "nimculus_platform_validate_native", cdecl.}
   proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
   proc platformResidentMemoryBytes*(): uint64 {.importc: "nimculus_platform_resident_memory_bytes", cdecl.}

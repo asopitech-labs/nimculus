@@ -29,6 +29,17 @@ before/after resident bytes; the watcher is stopped before its temporary root
 is removed. This makes service-level growth visible without treating Nim's
 allocator count as a complete measure of native resources.
 
+## M20-008: Measure cold start at the first platform idle callback
+
+Zed records startup relative to the application lifecycle rather than treating
+compile time as startup time. Nimculus now captures the process start before
+application initialization and, only when `NIMCULUS_BENCH_COLD_START=1` is set,
+reports the elapsed time at the first platform idle callback. The benchmark
+then requests a normal platform quit, so the measured boundary includes
+session/settings/workspace setup and native window initialization without
+altering normal launches. `scripts/benchmark_cold_start.sh` builds in a
+PID-scoped temporary cache and removes it after repeated runs.
+
 ## M11-006: Bound update artifacts before verification and installation
 
 Zed downloads update bodies in bounded chunks and verifies the completed

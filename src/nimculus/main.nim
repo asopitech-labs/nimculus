@@ -4,6 +4,7 @@ import std/math
 import std/os
 import std/strutils
 import std/tables
+import std/times
 import std/unicode except splitWhitespace
 import nimnui/nimnui
 import nimnui/render
@@ -31,6 +32,19 @@ when defined(windows):
   var windowsTaskOutput = ""
   var windowsTaskOutputVisible = false
   var windowsTaskProblems: seq[TaskProblem]
+
+when defined(macosx) or defined(windows):
+  var coldStartBenchmarkPending = getEnv("NIMCULUS_BENCH_COLD_START", "") == "1"
+  let coldStartBenchmarkStartedAt = epochTime()
+
+  proc finishColdStartBenchmark(): bool =
+    if not coldStartBenchmarkPending: return false
+    coldStartBenchmarkPending = false
+    let elapsedMs = (epochTime() - coldStartBenchmarkStartedAt) * 1000.0
+    echo "cold_start\t", formatFloat(elapsedMs, ffDecimal, 3),
+      "\tmilliseconds\tready=1"
+    platformRequestQuit()
+    true
 
 proc syncEditorCursor()
 proc persistSession()
@@ -1666,6 +1680,7 @@ when defined(macosx):
     if document != nil: syncNativeDiagnostics(document)
 
   proc receiveNativeIdle() {.cdecl.} =
+    if finishColdStartBenchmark(): return
     if appSettings != nil and appSettings.reload():
       applySettingsKeymap()
       editorViewState.statusMessage = "Settings reloaded"
@@ -1850,6 +1865,7 @@ when defined(windows):
       externalAlertShown = false
 
   proc receiveNativeIdle() {.cdecl.} =
+    if finishColdStartBenchmark(): return
     if appSettings != nil and appSettings.reload():
       applySettingsTheme()
       editorViewState.statusMessage = "Settings reloaded"

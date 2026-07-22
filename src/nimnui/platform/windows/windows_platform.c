@@ -1909,6 +1909,10 @@ bool nimculus_platform_run(void) {
   return true;
 }
 
+void nimculus_platform_request_quit(void) {
+  PostQuitMessage(0);
+}
+
 bool nimculus_platform_validate_native(void) {
   return g_device != NULL && g_swap_chain != NULL;
 }
