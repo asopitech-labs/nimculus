@@ -9,8 +9,13 @@ when defined(windows):
       let pty = newTerminalPty("cmd.exe", getCurrentDir(), 80, 24)
       defer: pty.close()
       check pty != nil
-      discard pty.writeInput("echo NIMCULUS_CONPTY\r\n")
       var output = ""
+      for _ in 0 ..< 100:
+        output.add(pty.pollOutput())
+        if ">" in output: break
+        sleep(10)
+      check ">" in output
+      discard pty.writeInput("echo NIMCULUS_CONPTY\r\n")
       for _ in 0 ..< 100:
         output.add(pty.pollOutput())
         if "NIMCULUS_CONPTY" in output: break

@@ -931,6 +931,11 @@ The child is stopped before release, and the release call runs on a worker with
 a two-second wait bound because older Windows versions can still block the
 close call while a console client disconnects.
 
+The Windows ConPTY integration test also waits for the initial `cmd.exe`
+prompt before writing its first command. This verifies the real input/output
+handshake instead of racing process startup and mistaking lost early input for
+a terminal implementation failure.
+
 ## M6-002: Workspace operations stay path-confined
 
 All create, delete, and rename operations resolve relative paths against the
