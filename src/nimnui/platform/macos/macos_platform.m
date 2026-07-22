@@ -3726,6 +3726,20 @@ const uint8_t *nimculus_clipboard_utf8_bytes(void) {
   return (const uint8_t *)g_clipboard_utf8_data.bytes;
 }
 
+bool nimculus_platform_validate_clipboard_roundtrip(void) {
+  @autoreleasepool {
+    NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+    NSString *previous = [pasteboard stringForType:NSPasteboardTypeString];
+    NSString *sample = @"Nimculus clipboard 日本語 🙂";
+    nimculus_clipboard_set(sample.UTF8String, (uint32_t)strlen(sample.UTF8String));
+    NSString *roundtrip = [pasteboard stringForType:NSPasteboardTypeString];
+    BOOL valid = [roundtrip isEqualToString:sample];
+    [pasteboard clearContents];
+    if (previous) [pasteboard setString:previous forType:NSPasteboardTypeString];
+    return valid;
+  }
+}
+
 static const char *runFilePanel(BOOL save) {
   @autoreleasepool {
     NSSavePanel *savePanel = save ? [NSSavePanel savePanel] : nil;

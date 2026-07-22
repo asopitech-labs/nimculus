@@ -49,6 +49,9 @@ suite "macOS platform contract":
   test "native input event fields are read only for supported event types":
     check platformValidateInputEventFields()
 
+  test "native clipboard round trip preserves UTF-8 text":
+    check platformValidateClipboardRoundtrip()
+
   test "editor font settings drive a valid native line height":
     platformSetEditorFontName("Menlo")
     platformSetEditorFontSize(20.0)

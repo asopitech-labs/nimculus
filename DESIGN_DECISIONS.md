@@ -100,6 +100,14 @@ events and routes them through the input logger. This exercises the field
 access boundary without requiring Accessibility permission; the live
 MouseEntered/MouseExited callbacks continue to use the same non-keyboard path.
 
+## M3-009: Verify clipboard round trips without changing user state
+
+The macOS platform contract writes a Japanese/emoji UTF-8 sample to the real
+general pasteboard, reads it back, and restores the previous string afterward.
+This verifies the `NSPasteboardTypeString` boundary rather than only the
+in-process cache, while avoiding a persistent change to the developer's
+clipboard during local tests.
+
 ## M20-009: Report live allocation blocks with explicit platform limits
 
 Zed's allocator and profiler boundaries distinguish process-level memory from
