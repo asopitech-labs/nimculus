@@ -351,6 +351,22 @@ suite "M3 text foundation":
     check atlas.glyphs.len == 1
     check first.atlasX == second.atlasX
 
+  test "glyph atlas separates font scale and subpixel variants":
+    var atlas = newGlyphAtlas(128, 64)
+    let base = GlyphKey(codepoint: Rune(65), fontId: "Menlo", fontSize: 14.0,
+      scaleFactor: 2.0, subpixelX: 0, subpixelY: 0)
+    let fractional = GlyphKey(codepoint: Rune(65), fontId: "Menlo", fontSize: 14.0,
+      scaleFactor: 2.0, subpixelX: 1, subpixelY: 0)
+    let otherFont = GlyphKey(codepoint: Rune(65), fontId: "SF Mono", fontSize: 14.0,
+      scaleFactor: 2.0, subpixelX: 0, subpixelY: 0)
+    discard atlas.insertGlyphVariant(base, 8, 12)
+    let fractionalGlyph = atlas.insertGlyphVariant(fractional, 8, 12)
+    let otherFontGlyph = atlas.insertGlyphVariant(otherFont, 8, 12)
+    check atlas.glyphs.len == 3
+    check fractionalGlyph.atlasX != atlas.glyphs[0].atlasX
+    check otherFontGlyph.atlasX != atlas.glyphs[0].atlasX
+    check atlas.insertGlyphVariant(fractional, 8, 12).atlasX == fractionalGlyph.atlasX
+
   test "paint list emits only commands intersecting dirty regions":
     var paint: PaintList
     paint.invalidate(Rect(origin: Point(x: px(0), y: px(0)), size: Size(width: px(10), height: px(10))))

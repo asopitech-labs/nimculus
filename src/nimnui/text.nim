@@ -11,8 +11,21 @@ type
     byteOffset*: int
     graphemeIndex*: int
 
+  GlyphKey* = object
+    ## The complete raster configuration used to identify an atlas entry.
+    ##
+    ## Zed's RenderGlyphParams uses the same principle: a glyph ID alone is
+    ## not sufficient because font, size, scale, and fractional origin all
+    ## change the rasterized pixels.
+    codepoint*: Rune
+    fontId*: string
+    fontSize*: float
+    scaleFactor*: float
+    subpixelX*, subpixelY*: uint8
+
   Glyph* = object
     codepoint*: Rune
+    key*: GlyphKey
     advance*: Pixels
     atlasX*, atlasY*, atlasWidth*, atlasHeight*: int
 
@@ -81,17 +94,25 @@ proc evictGlyphs*(atlas: var GlyphAtlas, keep = 2048) =
   atlas.nextY = 0
   atlas.rowHeight = 0
 
-proc insertGlyph*(atlas: var GlyphAtlas, codepoint: Rune, width, height: int): Glyph =
+proc insertGlyphVariant*(atlas: var GlyphAtlas, key: GlyphKey,
+                         width, height: int): Glyph =
+  ## Insert or retrieve one raster variant. Callers should quantize
+  ## subpixelX/Y before constructing the key (the platform backends use a
+  ## 4x4 grid, matching Zed's SUBPIXEL_VARIANTS_X/Y contract).
   for glyph in atlas.glyphs:
-    if glyph.codepoint == codepoint: return glyph
+    if glyph.key == key: return glyph
   if atlas.glyphs.len >= atlas.maxGlyphs: atlas.evictGlyphs()
   if atlas.nextX + width > atlas.width:
     atlas.nextX = 0
     atlas.nextY += atlas.rowHeight
     atlas.rowHeight = 0
-  if atlas.nextY + height > atlas.height: return Glyph(codepoint: codepoint)
-  result = Glyph(codepoint: codepoint, atlasX: atlas.nextX, atlasY: atlas.nextY,
+  if atlas.nextY + height > atlas.height: return Glyph(codepoint: key.codepoint, key: key)
+  result = Glyph(codepoint: key.codepoint, key: key, atlasX: atlas.nextX, atlasY: atlas.nextY,
                  atlasWidth: width, atlasHeight: height)
   atlas.glyphs.add(result)
   atlas.nextX += width
   atlas.rowHeight = max(atlas.rowHeight, height)
+
+proc insertGlyph*(atlas: var GlyphAtlas, codepoint: Rune, width, height: int): Glyph =
+  ## Compatibility helper for callers that do not yet have font metrics.
+  result = atlas.insertGlyphVariant(GlyphKey(codepoint: codepoint), width, height)

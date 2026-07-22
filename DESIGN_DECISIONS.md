@@ -324,6 +324,16 @@ atlas entry. This prevents a glyph raster generated at one fractional origin
 from being reused at another origin, while retaining atlas reuse for identical
 positions.
 
+## M3-025: Make the shared glyph atlas key raster-complete
+
+Zed's `RenderGlyphParams` hashes the font ID, glyph ID, font size, scale
+factor, quantized subpixel variant, and rendering flags rather than using a
+Unicode character alone. The shared NimNUI atlas previously keyed only on
+`Rune`, which could reuse a Menlo/2x glyph for another font or scale. It now
+exposes `GlyphKey` and `insertGlyphVariant`; the compatibility `insertGlyph`
+API creates the default key. Platform code is responsible for quantizing the
+fractional origin to the same 4x4 grid before insertion.
+
 ## M13-052: Match Windows tab primary and auxiliary clicks to Zed
 
 Zed activates a tab from its primary click handler and closes an unpinned tab
