@@ -125,6 +125,14 @@ Command Palette. The native menu contract enumerates the real AppKit menu
 hierarchy and checks the standard File shortcuts, Settings comma shortcut,
 and the palette modifier mask.
 
+## M5-015: Test Finder and URL opens at the AppDelegate boundary
+
+Finder `openFiles:` and registered `nimculus://` URLs enter through different
+AppKit delegate callbacks. The native contract invokes both callbacks with
+representative absolute paths and restores the previous file callback after
+checking the received path and non-saving flag. This covers Open With and URL
+scheme routing without opening a user dialog or creating a file.
+
 ## M20-009: Report live allocation blocks with explicit platform limits
 
 Zed's allocator and profiler boundaries distinguish process-level memory from

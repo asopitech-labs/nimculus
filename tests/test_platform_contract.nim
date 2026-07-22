@@ -52,6 +52,9 @@ suite "macOS platform contract":
   test "native main menu exposes macOS standard command shortcuts":
     check platformValidateMainMenu()
 
+  test "native file open events preserve Finder and URL paths":
+    check platformValidateFileOpenEvents()
+
   test "native input event fields are read only for supported event types":
     check platformValidateInputEventFields()
 

@@ -2998,6 +2998,35 @@ bool nimculus_platform_validate_main_menu(void) {
   }
 }
 
+static char g_validation_file_path[PATH_MAX];
+static BOOL g_validation_file_saving = YES;
+
+static void validationFileCallback(const char *path, bool saving) {
+  strncpy(g_validation_file_path, path ?: "", sizeof(g_validation_file_path) - 1);
+  g_validation_file_path[sizeof(g_validation_file_path) - 1] = '\0';
+  g_validation_file_saving = saving;
+}
+
+bool nimculus_platform_validate_file_open_events(void) {
+  @autoreleasepool {
+    NimculusFileCallback previousCallback = g_file_callback;
+    g_file_callback = validationFileCallback;
+    g_validation_file_path[0] = '\0';
+    g_validation_file_saving = YES;
+    NimculusAppDelegate *delegate = [NimculusAppDelegate new];
+    NSString *finderPath = @"/tmp/nimculus-finder-open.txt";
+    [delegate application:NSApp openFiles:@[finderPath]];
+    BOOL finderValid = !g_validation_file_saving &&
+      [@(g_validation_file_path) isEqualToString:finderPath];
+    NSURL *url = [NSURL URLWithString:@"nimculus:///tmp/nimculus-url-open.txt"];
+    [delegate application:NSApp openURLs:@[url]];
+    BOOL urlValid = !g_validation_file_saving &&
+      [@(g_validation_file_path) isEqualToString:@"/tmp/nimculus-url-open.txt"];
+    g_file_callback = previousCallback;
+    return finderValid && urlValid;
+  }
+}
+
 bool nimculus_platform_validate_input_event_fields(void) {
   @autoreleasepool {
     // AppKit's event factory only permits the mouse-movement mask here; the
