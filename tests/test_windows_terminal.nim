@@ -18,9 +18,7 @@ when defined(windows):
         if "\e[?25h" in output: break
         sleep(10)
       check "\e[?25h" in output
-      # Interactive Enter is carriage return; the Windows terminal input
-      # path uses the same byte instead of POSIX-style CRLF.
-      check pty.writeInput("echo NIMCULUS_CONPTY\r") > 0
+      check pty.writeInput("echo NIMCULUS_CONPTY\r\n") > 0
       for _ in 0 ..< 500:
         output.add(pty.pollOutput())
         if "NIMCULUS_CONPTY" in output: break

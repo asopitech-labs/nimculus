@@ -936,8 +936,8 @@ cursor-visible VT sequence before writing its first command. The prompt text is
 not guaranteed to be present in the application pipe, so the VT readiness
 sequence verifies the real input/output handshake without racing process
 startup.
-The test sends carriage return for Enter, matching the native Windows terminal
-input contract rather than injecting a POSIX CRLF pair.
+The test sends the CRLF line terminator accepted by the interactive `cmd.exe`
+input path.
 The post-input poll is bounded to five seconds so slow hosted runners do not
 turn normal ConPTY scheduling variance into a false negative.
 
