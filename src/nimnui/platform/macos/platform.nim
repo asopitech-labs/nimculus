@@ -8,6 +8,7 @@ export contracts
 proc platformRun*(): bool {.importc: "nimculus_platform_run", cdecl.}
 proc platformValidateNative*(): bool {.importc: "nimculus_platform_validate_native", cdecl.}
 proc platformValidateWindowLifecycle*(): bool {.importc: "nimculus_platform_validate_window_lifecycle", cdecl.}
+proc platformValidateMainMenu*(): bool {.importc: "nimculus_platform_validate_main_menu", cdecl.}
 proc platformValidateInputEventFields*(): bool {.importc: "nimculus_platform_validate_input_event_fields", cdecl.}
 proc platformValidateClipboardRoundtrip*(): bool {.importc: "nimculus_platform_validate_clipboard_roundtrip", cdecl.}
 proc platformValidateGlyphAtlas*(): bool {.importc: "nimculus_platform_validate_glyph_atlas", cdecl.}

@@ -2220,6 +2220,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
 @property(nonatomic, strong) NSWindow *window;
 @property(nonatomic, strong) NimculusMetalView *view;
 @property(nonatomic, strong) NSTimer *workspaceSearchTimer;
+- (void)setupMainMenu;
 @end
 
 @implementation NimculusAppDelegate
@@ -2352,7 +2353,9 @@ static void applyTerminalRuns(NSTextView *terminal) {
   cancelSearch.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   [editMenu addItem:cancelSearch];
   for (NSMenuItem *item in editMenu.itemArray) {
-    if (item != workspaceSearch) item.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+    if (item != workspaceSearch && item != commandPalette) {
+      item.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+    }
   }
   [editItem setSubmenu:editMenu];
   [mainMenu addItem:editItem];
@@ -2952,6 +2955,47 @@ bool nimculus_platform_validate_window_lifecycle(void) {
   // draining, so restore the observable metrics only after that boundary.
   g_metrics = previousMetrics;
   return valid;
+}
+
+static NSMenuItem *menuItemWithTitle(NSMenu *menu, NSString *title) {
+  for (NSMenuItem *item in menu.itemArray) {
+    if ([item.title isEqualToString:title]) return item;
+  }
+  return nil;
+}
+
+bool nimculus_platform_validate_main_menu(void) {
+  @autoreleasepool {
+    NSApplication *application = [NSApplication sharedApplication];
+    NSMenu *previousMenu = application.mainMenu;
+    NimculusAppDelegate *delegate = [NimculusAppDelegate new];
+    [delegate setupMainMenu];
+    NSMenu *mainMenu = application.mainMenu;
+    NSMenuItem *appItem = menuItemWithTitle(mainMenu, @"Nimculus");
+    NSMenuItem *fileItem = menuItemWithTitle(mainMenu, @"File");
+    NSMenuItem *editItem = menuItemWithTitle(mainMenu, @"Edit");
+    NSMenuItem *viewItem = menuItemWithTitle(mainMenu, @"View");
+    NSMenuItem *windowItem = menuItemWithTitle(mainMenu, @"Window");
+    BOOL topLevel = appItem.submenu && fileItem.submenu && editItem.submenu &&
+      viewItem.submenu && windowItem.submenu;
+    NSMenuItem *settings = menuItemWithTitle(appItem.submenu, @"Settings…");
+    NSMenuItem *open = menuItemWithTitle(fileItem.submenu, @"Open…");
+    NSMenuItem *save = menuItemWithTitle(fileItem.submenu, @"Save");
+    NSMenuItem *close = menuItemWithTitle(fileItem.submenu, @"Close Tab");
+    NSMenuItem *palette = menuItemWithTitle(editItem.submenu, @"Command Palette…");
+    BOOL shortcuts = settings.keyEquivalentModifierMask == NSEventModifierFlagCommand &&
+      [settings.keyEquivalent isEqualToString:@","] &&
+      open.keyEquivalentModifierMask == NSEventModifierFlagCommand &&
+      [open.keyEquivalent isEqualToString:@"o"] &&
+      save.keyEquivalentModifierMask == NSEventModifierFlagCommand &&
+      [save.keyEquivalent isEqualToString:@"s"] &&
+      close.keyEquivalentModifierMask == NSEventModifierFlagCommand &&
+      [close.keyEquivalent isEqualToString:@"w"] &&
+      palette.keyEquivalentModifierMask == (NSEventModifierFlagCommand | NSEventModifierFlagShift);
+    BOOL valid = topLevel && settings && open && save && close && palette && shortcuts;
+    [application setMainMenu:previousMenu];
+    return valid;
+  }
 }
 
 bool nimculus_platform_validate_input_event_fields(void) {

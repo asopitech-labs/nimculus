@@ -49,6 +49,9 @@ suite "macOS platform contract":
   test "native window resize keeps Retina drawable dimensions aligned":
     check platformValidateWindowLifecycle()
 
+  test "native main menu exposes macOS standard command shortcuts":
+    check platformValidateMainMenu()
+
   test "native input event fields are read only for supported event types":
     check platformValidateInputEventFields()
 

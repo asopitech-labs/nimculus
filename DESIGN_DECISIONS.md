@@ -117,6 +117,14 @@ This verifies the `NSPasteboardTypeString` boundary rather than only the
 in-process cache, while avoiding a persistent change to the developer's
 clipboard during local tests.
 
+## M5-014: Preserve explicit macOS menu shortcut overrides
+
+The standard menu builder applies Command modifiers to ordinary Edit items,
+but must not overwrite explicit combinations such as Command-Shift-P for the
+Command Palette. The native menu contract enumerates the real AppKit menu
+hierarchy and checks the standard File shortcuts, Settings comma shortcut,
+and the palette modifier mask.
+
 ## M20-009: Report live allocation blocks with explicit platform limits
 
 Zed's allocator and profiler boundaries distinguish process-level memory from
