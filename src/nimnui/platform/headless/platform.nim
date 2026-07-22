@@ -13,6 +13,7 @@ when not defined(windows):
   proc platformRun*(): bool = false
   proc platformValidateNative*(): bool = false
   proc platformValidateGlyphAtlas*(): bool = false
+  proc platformValidateColorEmojiFallback*(): bool = false
 
   proc platformGetMetrics*(metrics: ptr PlatformMetrics) =
     if metrics != nil:

@@ -64,6 +64,12 @@ suite "macOS platform contract":
     else:
       echo "  [SKIP] native glyph atlas contract (no Metal/Core Text device in this session)"
 
+  test "color emoji uses the RGBA Core Text fallback texture":
+    if platformValidateColorEmojiFallback():
+      check true
+    else:
+      echo "  [SKIP] color emoji fallback contract (no Metal/Core Text device in this session)"
+
   test "Core Text hit-test preserves UTF-8 and UTF-16 contracts":
     platformSetEditorRect(48.0, 128.0, 400.0, 300.0)
     let text = "A日本語🙂\nnext"

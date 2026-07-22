@@ -727,6 +727,25 @@ static NSUInteger editorUTF16OffsetAtPoint(double x, double y) {
 }
 
 static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text);
+static void resetGlyphVertices(void);
+
+static BOOL textContainsColorEmoji(NSString *text) {
+  if (!text) return NO;
+  NSUInteger length = text.length;
+  for (NSUInteger index = 0; index < length; index++) {
+    uint32_t scalar = [text characterAtIndex:index];
+    if (scalar >= 0xD800 && scalar <= 0xDBFF && index + 1 < length) {
+      uint32_t low = [text characterAtIndex:index + 1];
+      if (low >= 0xDC00 && low <= 0xDFFF) {
+        scalar = 0x10000 + ((scalar - 0xD800) << 10) + (low - 0xDC00);
+        index++;
+      }
+    }
+    if ((scalar >= 0x1F000 && scalar <= 0x1FAFF) ||
+        (scalar >= 0x2600 && scalar <= 0x27BF)) return YES;
+  }
+  return NO;
+}
 
 static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
                                     BOOL updateAtlas) {
@@ -1191,10 +1210,15 @@ static void appendGlyphQuad(CGSize sceneSize, CGRect editorRect, CGFloat scale,
 
 static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
   g_glyph_rendering_available = NO;
+  resetGlyphVertices();
   if (!device) return;
+  // The atlas is currently R8 monochrome. Zed separates polychrome emoji
+  // sprites into a different atlas; until that backend exists here, route
+  // color emoji through the RGBA Core Text texture below rather than silently
+  // discarding its color channels.
+  if (textContainsColorEmoji(text)) return;
   CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
   ensureGlyphAtlas(device, scale);
-  resetGlyphVertices();
   CTFontRef baseFont = editorFont();
   if (!baseFont) return;
   NSColor *baseColor = themeHexColor(g_theme_foreground,
@@ -2895,12 +2919,19 @@ bool nimculus_platform_validate_glyph_atlas(void) {
   if (g_metrics.scale_factor <= 0.0) g_metrics.scale_factor = 2.0;
   if (g_editor_rect[2] <= 0.0) g_editor_rect[2] = 640.0;
   if (g_editor_rect[3] <= 0.0) g_editor_rect[3] = 320.0;
-  NSString *sample = @"A日本語🙂";
+  NSString *sample = @"A日本語";
   updateEditorGlyphAtlas(device, sample);
   if (!g_glyph_atlas_texture || g_glyph_vertex_count == 0) return false;
   uint64_t hitsBefore = g_glyph_atlas_hit_count;
   updateEditorGlyphAtlas(device, sample);
   return g_glyph_vertex_count > 0 && g_glyph_atlas_hit_count > hitsBefore;
+}
+
+bool nimculus_platform_validate_color_emoji_fallback(void) {
+  id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+  if (!device) return false;
+  updateEditorTextTexture(device, @"A🙂", YES);
+  return g_text_texture != nil && !g_glyph_rendering_available;
 }
 
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics) {

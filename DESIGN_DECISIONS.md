@@ -346,6 +346,20 @@ status, subpixel rendering mode, and dilation so a ligature or color glyph
 cannot alias a normal character raster. Platform code is responsible for
 quantizing the fractional origin to the same 4x4 grid before insertion.
 
+## M3-026: Keep macOS color emoji out of the monochrome glyph atlas
+
+Zed uses a separate polychrome atlas for emoji. Nimculus's current Metal
+glyph atlas is intentionally `R8Unorm`, so putting Apple Color Emoji into it
+would produce a silently monochrome or missing glyph. The macOS text path now
+detects emoji scalars, skips the monochrome atlas for that text update, and
+renders the complete visible text through the existing Core Text RGBA texture
+fallback. That texture is still uploaded and sampled by Metal. Normal text
+continues to use the persistent glyph atlas; a future polychrome atlas can
+replace this fallback without changing the editor contract.
+The macOS platform contract exercises this path by generating an emoji sample
+and checking that a texture exists while monochrome glyph rendering is
+disabled.
+
 ## M13-052: Match Windows tab primary and auxiliary clicks to Zed
 
 Zed activates a tab from its primary click handler and closes an unpinned tab
