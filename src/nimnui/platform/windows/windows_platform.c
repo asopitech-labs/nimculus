@@ -1792,6 +1792,61 @@ static void draw_cached_glyph_sprite(NimculusGlyphRaster *raster, float pen_x,
   }
 }
 
+static bool draw_mapped_shaped_runs(const wchar_t *text, uint32_t text_length,
+                                    float *pen_x, float baseline,
+                                    uint8_t subpixel_y, float left, float top,
+                                    float right, float bottom, float width,
+                                    float height, float scale, uint32_t *drawn) {
+  if (!text || text_length == 0 || !pen_x || !drawn) return false;
+  uint32_t offset = 0;
+  bool rendered = false;
+  while (offset < text_length) {
+    UINT32 mapped_length = 0;
+    FLOAT run_scale = 1.0f;
+    IDWriteFontFace *font_face = map_fallback_font(text + offset,
+        text_length - offset, &mapped_length, &run_scale);
+    if (!font_face || mapped_length == 0 || mapped_length > text_length - offset) {
+      if (font_face) font_face->lpVtbl->Release(font_face);
+      return false;
+    }
+    FLOAT run_font_size = (FLOAT)g_editor_font_size * run_scale;
+    UINT16 *indices = NULL;
+    DWRITE_GLYPH_OFFSET *offsets = NULL;
+    FLOAT *advances = NULL;
+    uint32_t glyph_count = 0;
+    bool shaped = shape_run_with_font(text + offset, mapped_length, font_face,
+        L"ja-jp", run_font_size, &indices, &offsets, &advances,
+        &glyph_count);
+    if (!shaped) {
+      font_face->lpVtbl->Release(font_face);
+      free_shaped_run(indices, offsets, advances);
+      return false;
+    }
+    for (uint32_t index = 0; index < glyph_count; ++index) {
+      UINT16 glyph_id = indices[index];
+      uint8_t subpixel_x = quantized_subpixel(*pen_x +
+          offsets[index].advanceOffset * scale);
+      if (rasterize_glyph_id_for_cache(font_face, glyph_id, run_font_size,
+                                        scale, subpixel_x, subpixel_y)) {
+        NimculusGlyphRaster *raster = cached_glyph_for_id(font_face, glyph_id,
+            run_font_size, scale, subpixel_x, subpixel_y);
+        if (raster && upload_glyph_raster_to_atlas(raster)) {
+          draw_cached_glyph_sprite(raster,
+              *pen_x + offsets[index].advanceOffset * scale,
+              baseline - offsets[index].ascenderOffset * scale,
+              left, top, right, bottom, width, height, drawn);
+          rendered = true;
+        }
+      }
+      *pen_x += advances[index] * scale;
+    }
+    free_shaped_run(indices, offsets, advances);
+    font_face->lpVtbl->Release(font_face);
+    offset += mapped_length;
+  }
+  return rendered;
+}
+
 static bool draw_glyph_atlas_sprites(void) {
   if (!g_context || !g_glyph_atlas_view || !g_glyph_pixel_shader ||
       !g_quad_vertex_buffer || !g_quad_input_layout || !g_quad_vertex_shader ||
@@ -1874,35 +1929,12 @@ static bool draw_glyph_atlas_sprites(void) {
           pen_x += shaped_advances[glyph_index] * (float)scale;
         }
         free_shaped_run(shaped_indices, shaped_offsets, shaped_advances);
-      } else {
-        IDWriteFontFace *fallback_face = NULL;
-        FLOAT fallback_font_size = 0.0f;
-        if (shape_fallback_run(line_start, (uint32_t)(line_end - line_start),
-                               &shaped_indices, &shaped_offsets,
-                               &shaped_advances, &shaped_count,
-                               &fallback_face, &fallback_font_size)) {
-          for (uint32_t glyph_index = 0; glyph_index < shaped_count; ++glyph_index) {
-            UINT16 glyph_id = shaped_indices[glyph_index];
-            uint8_t subpixel_x = quantized_subpixel(pen_x +
-                shaped_offsets[glyph_index].advanceOffset * (float)scale);
-            if (rasterize_glyph_id_for_cache(fallback_face, glyph_id,
-                                             fallback_font_size, scale,
-                                             subpixel_x, subpixel_y)) {
-              NimculusGlyphRaster *raster = cached_glyph_for_id(fallback_face,
-                  glyph_id, fallback_font_size, scale, subpixel_x, subpixel_y);
-              if (raster && upload_glyph_raster_to_atlas(raster)) {
-                draw_cached_glyph_sprite(raster,
-                    pen_x + shaped_offsets[glyph_index].advanceOffset * (float)scale,
-                    baseline - shaped_offsets[glyph_index].ascenderOffset * (float)scale,
-                    left, top, right, bottom, width, height, &drawn);
-              }
-            }
-            pen_x += shaped_advances[glyph_index] * (float)scale;
-          }
-          free_shaped_run(shaped_indices, shaped_offsets, shaped_advances);
-          fallback_face->lpVtbl->Release(fallback_face);
-        } else for (const wchar_t *character = line_start; character < line_end;
-                    ++character) {
+      } else if (!draw_mapped_shaped_runs(line_start,
+                  (uint32_t)(line_end - line_start), &pen_x, baseline,
+                  subpixel_y, left, top, right, bottom, width, height,
+                  (float)scale, &drawn)) {
+        for (const wchar_t *character = line_start; character < line_end;
+             ++character) {
         uint32_t codepoint = (uint32_t)*character;
         if (codepoint == L'\r') continue;
         if (codepoint >= 0x20 && codepoint != 0x7f &&

@@ -2225,3 +2225,9 @@ advance calculation, preventing subsequent glyphs from drifting horizontally.
 
 The contract and native smoke tests now exercise a two-character Japanese
 fallback run in addition to the single-glyph mapping test.
+
+The frame path extends the same rule to mixed lines: it advances through
+`MapCharacters`'s `mappedLength`, shapes each primary or fallback font run, and
+keeps the run's font face attached to every raster-cache lookup. This avoids
+using a primary-font glyph cache entry for a fallback outline and avoids the
+horizontal drift that would result from treating a mixed line as one font.
