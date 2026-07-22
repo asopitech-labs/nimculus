@@ -2341,9 +2341,24 @@ static bool text_contains_rtl(const wchar_t *text, uint32_t length) {
 }
 
 static bool is_color_glyph_candidate(uint32_t codepoint) {
-  return (codepoint >= 0x2300 && codepoint <= 0x27ff) ||
+  return codepoint == 0x00a9 || codepoint == 0x00ae ||
+      (codepoint >= 0x2000 && codepoint <= 0x204f) ||
+      (codepoint >= 0x2100 && codepoint <= 0x214f) ||
+      (codepoint >= 0x2190 && codepoint <= 0x21ff) ||
+      (codepoint >= 0x2300 && codepoint <= 0x27ff) ||
       (codepoint >= 0x2b00 && codepoint <= 0x2bff) ||
       (codepoint >= 0x1f000 && codepoint <= 0x1faff);
+}
+
+static bool font_face_is_color_font(IDWriteFontFace *font_face) {
+  if (!font_face) return false;
+  IDWriteFontFace2 *font_face2 = NULL;
+  HRESULT hr = font_face->lpVtbl->QueryInterface((IUnknown *)font_face,
+      &IID_IDWriteFontFace2, (void **)&font_face2);
+  if (FAILED(hr) || !font_face2) return false;
+  BOOL is_color = font_face2->lpVtbl->IsColorFont(font_face2);
+  font_face2->lpVtbl->Release(font_face2);
+  return is_color != FALSE;
 }
 
 static bool glyph_cluster_has_color_candidate(const wchar_t *text,
@@ -2639,14 +2654,16 @@ static bool draw_mapped_shaped_runs(const wchar_t *text, uint32_t text_length,
       free_shaped_run(indices, offsets, advances);
       return false;
     }
+    bool font_is_color = font_face_is_color_font(font_face);
     for (uint32_t index = 0; index < glyph_count; ++index) {
       UINT16 glyph_id = indices[index];
       uint8_t subpixel_x = quantized_subpixel(*pen_x +
           offsets[index].advanceOffset * scale);
       bool rendered_color = false;
       bool color_prepared = false;
-      bool color_candidate = glyph_cluster_has_color_candidate(text + offset,
-          mapped_length, cluster_map, index);
+      bool color_candidate = (font_is_color ||
+          glyph_cluster_has_color_candidate(text + offset, mapped_length,
+              cluster_map, index));
       if (color_candidate) {
         color_prepared = rasterize_color_glyph_for_cache(font_face, glyph_id,
             run_font_size, scale, subpixel_x, subpixel_y);

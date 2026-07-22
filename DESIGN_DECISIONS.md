@@ -2357,6 +2357,9 @@ cache-hit contract as COLR rasters: a cached raster returns success without
 re-decoding or allocating a second atlas tile. The shaped fallback path keeps
 DirectWrite's UTF-16 cluster map and tests color candidates per glyph cluster,
 so a line mixing ordinary text and emoji cannot suppress the ordinary glyphs.
+`IDWriteFontFace2::IsColorFont` enables the full glyph-by-glyph probe for
+COLR/CPAL fonts, while the Unicode candidate ranges retain SVG/PNG/JPEG
+coverage because those formats are not implied by the COLR/CPAL flag.
 RTL runs are left to DirectWrite/D2D, which owns bidi reordering. The native contract test treats
 an absent PNG, JPEG, or premultiplied glyph as a valid environment-dependent
 case, but validates decode/conversion, atlas upload, and tile metadata when the
