@@ -107,6 +107,16 @@ the cache, and shutdown releases it before the DirectWrite factory. The
 Windows native contract verifies that an unchanged configuration returns the
 same COM object.
 
+## M13-055: Acquire IDWriteFactory2 before implementing the Windows glyph atlas
+
+Zed's Windows text path uses `CreateGlyphRunAnalysis`, which is exposed by
+the newer DirectWrite factory interface. Nimculus previously kept only the
+base `IDWriteFactory`, so an atlas implementation could not use the official
+glyph rasterization API safely. The Windows boundary now queries and owns
+`IDWriteFactory2`, releases it during shutdown, and exposes a native contract
+that verifies the interface is available. This is an atlas prerequisite, not
+the completion of the persistent atlas itself.
+
 ## M6-007: Exercise FSEvents through the main run loop in integration tests
 
 Zed's filesystem tests drive the platform watcher until events are delivered

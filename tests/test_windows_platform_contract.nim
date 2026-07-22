@@ -35,6 +35,9 @@ when defined(windows):
 
     test "DirectWrite text format is cached for an unchanged configuration":
       check platformValidateTextFormatCache()
+
+    test "DirectWrite glyph rasterization interface is available":
+      check platformValidateGlyphRasterInterface()
 else:
   suite "Windows platform contract":
     test "requires a Windows runner":

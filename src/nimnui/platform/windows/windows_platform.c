@@ -48,6 +48,7 @@ static ID2D1Factory *g_d2d_factory = NULL;
 static ID2D1RenderTarget *g_d2d_target = NULL;
 static ID2D1SolidColorBrush *g_d2d_text_brush = NULL;
 static IDWriteFactory *g_dwrite_factory = NULL;
+static IDWriteFactory2 *g_dwrite_factory2 = NULL;
 static IDWriteTextFormat *g_editor_text_format = NULL;
 static float g_editor_text_format_size = 0.0f;
 static double g_editor_text_format_scale = 0.0;
@@ -706,10 +707,20 @@ static bool create_directwrite_target(void) {
 }
 
 static bool ensure_directwrite_factory(void) {
-  if (g_dwrite_factory) return true;
+  if (g_dwrite_factory && g_dwrite_factory2) return true;
   HRESULT hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
       &IID_IDWriteFactory, (IUnknown **)&g_dwrite_factory);
-  return SUCCEEDED(hr);
+  if (FAILED(hr) || !g_dwrite_factory) return false;
+  hr = g_dwrite_factory->lpVtbl->QueryInterface((IUnknown *)g_dwrite_factory,
+      &IID_IDWriteFactory2, (void **)&g_dwrite_factory2);
+  if (FAILED(hr) || !g_dwrite_factory2) {
+    if (g_dwrite_factory) {
+      g_dwrite_factory->lpVtbl->Release(g_dwrite_factory);
+      g_dwrite_factory = NULL;
+    }
+    return false;
+  }
+  return true;
 }
 
 static void release_editor_text_format(void) {
@@ -1915,6 +1926,10 @@ bool nimculus_platform_run(void) {
     g_dwrite_factory->lpVtbl->Release(g_dwrite_factory);
     g_dwrite_factory = NULL;
   }
+  if (g_dwrite_factory2) {
+    g_dwrite_factory2->lpVtbl->Release(g_dwrite_factory2);
+    g_dwrite_factory2 = NULL;
+  }
   release_images();
   free(g_paint_commands);
   g_paint_commands = NULL;
@@ -1954,6 +1969,10 @@ bool nimculus_platform_validate_text_format_cache(void) {
   IDWriteTextFormat *first = ensure_editor_text_format(scale);
   IDWriteTextFormat *second = ensure_editor_text_format(scale);
   return first != NULL && first == second;
+}
+
+bool nimculus_platform_validate_glyph_raster_interface(void) {
+  return ensure_directwrite_factory() && g_dwrite_factory2 != NULL;
 }
 
 uint64_t nimculus_platform_input_count(void) { return g_input_count; }
