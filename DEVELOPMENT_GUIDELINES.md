@@ -143,6 +143,8 @@ formatter は `nimble format`（Nim 標準 `nimpretty`）、静的検査は
 - 配布成果物はZIP/DMG生成直後とnotarization後に非空検証し、DMGは`hdiutil verify`を通す
 - DMGはreadonlyでmountし、内部の`.app`を署名検証したうえでcold-startし、検証後に必ずdetachする
 - notarizationはkeychain profileまたはApp Store Connect API keyを優先し、資格情報をリポジトリへ保存しない
+- Developer ID配布は`.github/workflows/macos-release.yml`の手動実行を使い、`APPLE_CERTIFICATE_BASE64`、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_IDENTITY`、`APPLE_NOTARY_KEY_BASE64`、`APPLE_NOTARY_KEY_ID`、`APPLE_NOTARY_ISSUER_ID`をGitHub Actions secretsとしてのみ供給する
+- 通常CIのadhoc package smokeをnotarization済みの証拠とみなさず、release workflowの`NIMCULUS_REQUIRE_NOTARIZATION=1` strict verifierを通過した成果物だけを配布候補とする
 - Gatekeeper 警告なしの起動、DMG / ZIP インストール、Apple Silicon 配布物生成をリリース条件とする
 
 ## 7. UI・テキスト・編集コアの規約

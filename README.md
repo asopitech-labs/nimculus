@@ -38,6 +38,10 @@ Developer ID notarizationは、Appleのkeychain profile（`APPLE_NOTARY_PROFILE`
 従来の`APPLE_ID`、`APPLE_TEAM_ID`、`APPLE_APP_SPECIFIC_PASSWORD`も利用可能だが、
 資格情報をリポジトリへ保存してはならない。
 
+GitHub ActionsでDeveloper ID配布を行う場合は、`macos-release.yml`を手動実行する。
+証明書、証明書パスワード、署名ID、App Store Connect API keyはActions secretsへ登録し、
+workflowがrunner一時keychainへ導入してstrictなstapler/Gatekeeper検証後にartifactを公開する。
+
 Zedのreliability heartbeatを参考に、アプリのidle境界でresident memory、
 live allocation、frame/inputを定期記録するsoak計測は次で実行する。既定は
 8時間で、GUIセッションが利用できるmacOSまたはWindowsで実行する。

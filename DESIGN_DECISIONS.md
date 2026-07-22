@@ -100,6 +100,11 @@ events and routes them through the input logger. This exercises the field
 access boundary without requiring Accessibility permission; the live
 MouseEntered/MouseExited callbacks continue to use the same non-keyboard path.
 
+The contract also constructs `flagsChanged`, `scrollWheel`, and both tracking
+events through their AppKit-specific factories. This keeps keyboard-only
+`keyCode` access and precise-scrolling access covered for every event family
+that the view receives.
+
 ## M1-015: Exercise the real window resize boundary without leaking test state
 
 The macOS platform contract attaches `NimculusMetalView` to an `NSWindow`,
@@ -177,6 +182,20 @@ the legacy environment-variable credentials only as a fallback. Partial API
 key configuration and unreadable key files fail before submission, preventing
 an ambiguous or insecure packaging run.
 
+## M11-014: Make stapled distribution verification an explicit release gate
+
+The normal macOS CI package smoke intentionally uses an ad-hoc signature, so it
+cannot prove Developer ID or Apple notary service acceptance. The mounted-DMG
+verifier now accepts `NIMCULUS_REQUIRE_NOTARIZATION=1`; in that mode it runs
+`stapler validate` and Gatekeeper assessment for both the mounted app and the
+DMG. A manually dispatched `macos-release.yml` workflow installs the
+Developer ID certificate into a runner-only keychain, decodes an App Store
+Connect API key from a GitHub secret, runs `notarytool`, staples the app and
+DMG, and invokes that strict verifier. No signing or notarization material is
+stored in the repository. This follows Apple's required hardened-runtime,
+Developer ID, `notarytool`, and stapling sequence while keeping the ordinary
+adhoc regression gate credential-free.
+
 ## M11-013: Generate the ICNS container with ImageIO
 
 The Apple iconset contract still requires the ten 1x/2x PNG renditions, but
@@ -188,6 +207,16 @@ package script verifies the resulting ICNS and falls back to Apple's
 `iconutil` when an older runner image lacks that ImageIO destination. The
 package smoke test validates the signed app, ZIP, and DMG at the release
 boundary.
+
+## M11-015: Keep Swift packaging caches inside the disposable build boundary
+
+The icon generator is a Swift program and the compiler may otherwise write its
+Clang module cache under the user's home directory. That made an otherwise
+valid package smoke fail in restricted environments and violated the cache
+cleanup rule. `package_macos.sh` now sets `CLANG_MODULE_CACHE_PATH` beneath its
+per-run temporary Nim cache, which is removed by the existing cleanup trap.
+The source tree and user cache are therefore not used as hidden packaging
+state.
 
 ## M0-009: Install Nimble dependencies without rebuilding the workspace
 

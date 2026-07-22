@@ -71,7 +71,9 @@ rm -rf "$OUT_DIR"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 ICONSET="$OUT_DIR/Nimculus.iconset"
-if ! swift "$ROOT_DIR/scripts/generate_macos_icon.swift" "$ICONSET" \
+mkdir -p "$NIMCACHE_DIR/clang-module-cache"
+if ! CLANG_MODULE_CACHE_PATH="$NIMCACHE_DIR/clang-module-cache" \
+  swift "$ROOT_DIR/scripts/generate_macos_icon.swift" "$ICONSET" \
   "$APP/Contents/Resources/Nimculus.icns"; then
   # ImageIO is the primary writer. Older/macOS runner images may not expose
   # the ICNS destination, while iconutil can still consume the documented

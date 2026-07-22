@@ -3100,8 +3100,9 @@ bool nimculus_platform_validate_ime_composition(void) {
 
 bool nimculus_platform_validate_input_event_fields(void) {
   @autoreleasepool {
-    // AppKit's event factory only permits the mouse-movement mask here; the
-    // same non-keyboard field path is used by entered/exited tracking events.
+    // AppKit's event factories expose different constructors for keyboard,
+    // scroll, and tracking events. Exercise each event class through the same
+    // field-reading boundary used by the live view.
     NSEvent *mouseMoved = [NSEvent mouseEventWithType:NSEventTypeMouseMoved
       location:NSMakePoint(32.0, 24.0) modifierFlags:0 timestamp:0.0
       windowNumber:0 context:nil eventNumber:0 clickCount:0 pressure:0.0];
@@ -3109,11 +3110,30 @@ bool nimculus_platform_validate_input_event_fields(void) {
       location:NSMakePoint(32.0, 24.0) modifierFlags:0 timestamp:0.0
       windowNumber:0 context:nil characters:@"a" charactersIgnoringModifiers:@"a"
       isARepeat:NO keyCode:0];
-    if (!mouseMoved || !keyDown) return false;
+    NSEvent *flagsChanged = [NSEvent keyEventWithType:NSEventTypeFlagsChanged
+      location:NSMakePoint(32.0, 24.0) modifierFlags:NSEventModifierFlagCommand
+      timestamp:0.0 windowNumber:0 context:nil characters:@""
+      charactersIgnoringModifiers:@"" isARepeat:NO keyCode:55];
+    CGEventRef scrollEvent = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitPixel,
+      2, 3, -2, 0);
+    NSEvent *scrollWheel = scrollEvent ? [NSEvent eventWithCGEvent:scrollEvent] : nil;
+    if (scrollEvent) CFRelease(scrollEvent);
+    NSEvent *mouseEntered = [NSEvent enterExitEventWithType:NSEventTypeMouseEntered
+      location:NSMakePoint(32.0, 24.0) modifierFlags:0 timestamp:0.0
+      windowNumber:0 context:nil eventNumber:1 trackingNumber:1 userData:nil];
+    NSEvent *mouseExited = [NSEvent enterExitEventWithType:NSEventTypeMouseExited
+      location:NSMakePoint(32.0, 24.0) modifierFlags:0 timestamp:0.0
+      windowNumber:0 context:nil eventNumber:2 trackingNumber:1 userData:nil];
+    if (!mouseMoved || !keyDown || !flagsChanged || !scrollWheel ||
+        !mouseEntered || !mouseExited) return false;
     uint64_t before = g_input_count;
     logInput(@"validationMouseMoved", mouseMoved);
     logInput(@"validationKeyDown", keyDown);
-    return g_input_count == before + 2;
+    logInput(@"validationFlagsChanged", flagsChanged);
+    logInput(@"validationScrollWheel", scrollWheel);
+    logInput(@"validationMouseEntered", mouseEntered);
+    logInput(@"validationMouseExited", mouseExited);
+    return g_input_count == before + 6;
   }
 }
 

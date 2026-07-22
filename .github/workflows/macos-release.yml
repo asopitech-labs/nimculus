@@ -1,0 +1,108 @@
+name: macOS release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version embedded in the macOS artifacts"
+        required: true
+        default: "0.1.0"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  notarized-arm64:
+    runs-on: macos-14
+    env:
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+      APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+      APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Nim
+        run: brew install nim
+
+      - name: Install Nim dependencies
+        run: nimble install --depsOnly -y
+        working-directory: ci
+
+      - name: Install Developer ID certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${APPLE_CERTIFICATE_BASE64:?APPLE_CERTIFICATE_BASE64 is required}"
+          : "${APPLE_CERTIFICATE_PASSWORD:?APPLE_CERTIFICATE_PASSWORD is required}"
+          : "${APPLE_SIGNING_IDENTITY:?APPLE_SIGNING_IDENTITY is required}"
+          keychain="$RUNNER_TEMP/nimculus-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 32)"
+          certificate="$RUNNER_TEMP/developer-id-application.p12"
+          printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -k "$keychain" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          security default-keychain -s "$keychain"
+          printf '%s\n' "$keychain" > "$RUNNER_TEMP/nimculus-signing-keychain-path"
+          rm -f "$certificate"
+
+      - name: Prepare App Store Connect API key
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${APPLE_NOTARY_KEY_BASE64:?APPLE_NOTARY_KEY_BASE64 is required}"
+          : "${APPLE_NOTARY_KEY_ID:?APPLE_NOTARY_KEY_ID is required}"
+          : "${APPLE_NOTARY_ISSUER_ID:?APPLE_NOTARY_ISSUER_ID is required}"
+          key="$RUNNER_TEMP/AuthKey_${APPLE_NOTARY_KEY_ID}.p8"
+          printf '%s' "$APPLE_NOTARY_KEY_BASE64" | base64 --decode > "$key"
+          chmod 600 "$key"
+          printf '%s\n' "$key" > "$RUNNER_TEMP/nimculus-notary-key-path"
+
+      - name: Build, notarize, and staple arm64 artifacts
+        shell: bash
+        env:
+          NIMCULUS_VERSION: ${{ inputs.version }}
+          NIMCULUS_ARCH: arm64
+          NIMCULUS_OUT_DIR: ${{ runner.temp }}/nimculus-release
+          NIMCULUS_NOTARIZE: "1"
+          APPLE_NOTARY_KEY: ${{ runner.temp }}/AuthKey_${{ secrets.APPLE_NOTARY_KEY_ID }}.p8
+        run: |
+          set -euo pipefail
+          bash scripts/package_macos.sh
+
+      - name: Verify stapled package with Gatekeeper
+        shell: bash
+        env:
+          NIMCULUS_OUT_DIR: ${{ runner.temp }}/nimculus-release
+          NIMCULUS_REQUIRE_NOTARIZATION: "1"
+        run: bash scripts/verify_macos_package.sh
+
+      - name: Upload notarized artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimculus-macos-${{ inputs.version }}-arm64
+          path: ${{ runner.temp }}/nimculus-release/Nimculus-${{ inputs.version }}-arm64.*
+          if-no-files-found: error
+
+      - name: Remove signing material
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [[ -f "$RUNNER_TEMP/nimculus-signing-keychain-path" ]]; then
+            security delete-keychain "$(cat "$RUNNER_TEMP/nimculus-signing-keychain-path")"
+          fi
+          rm -f "$RUNNER_TEMP/AuthKey_"*.p8 "$RUNNER_TEMP/nimculus-signing-keychain-path" \
+            "$RUNNER_TEMP/nimculus-notary-key-path"

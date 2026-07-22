@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="${NIMCULUS_OUT_DIR:-$ROOT_DIR/build/macos}"
 DMG="${NIMCULUS_DMG:-}"
+REQUIRE_NOTARIZATION="${NIMCULUS_REQUIRE_NOTARIZATION:-0}"
 MOUNT_DIR="${TMPDIR:-/tmp}/nimculus-package-mount-$$"
 MOUNTED=0
 
@@ -43,6 +44,16 @@ if [[ ! -x "$APP/Contents/MacOS/Nimculus" ]]; then
 fi
 
 codesign --verify --deep --strict --verbose=2 "$APP"
+
+if [[ "$REQUIRE_NOTARIZATION" == "1" ]]; then
+  # A valid Developer ID signature is not enough for the distribution gate:
+  # require the ticket to be stapled and require Gatekeeper to accept both
+  # the mounted application and the disk image that contains it.
+  xcrun stapler validate "$APP"
+  spctl --assess --type execute --verbose "$APP"
+  xcrun stapler validate "$DMG"
+  spctl --assess --type open --context context:primary-signature "$DMG"
+fi
 
 # Run the exact app executable from the mounted distribution. The benchmark
 # supplies a temporary HOME, so the read-only DMG is never used for writable
