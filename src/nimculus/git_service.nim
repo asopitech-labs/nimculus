@@ -2,11 +2,20 @@ import std/os
 import std/osproc
 import std/streams
 import std/strutils
+when defined(posix):
+  import std/posix
+
+when defined(posix):
+  type
+    GitFileStreamObj = object of Stream
+      f: File
+    GitFileStream = ref GitFileStreamObj
 
 type
   GitResult* = object
     exitCode*: int
     output*: string
+    outputTruncated*: bool
 
   GitStatusEntry* = object
     indexStatus*: char
@@ -41,6 +50,7 @@ type
 
   GitJob* = ref object
     process: Process
+    output: Stream
     done*: bool
     cancelled*: bool
     result*: GitResult
@@ -48,14 +58,65 @@ type
   GitRepository* = ref object
     root*: string
 
+const MaxGitOutputBytes* = 16 * 1024 * 1024
+
+proc appendBoundedGitOutput*(current, chunk: string;
+    limit: int = MaxGitOutputBytes): tuple[output: string, truncated: bool] =
+  ## Keep Git output bounded while retaining the newest complete lines.
+  ## Truncate only at UTF-8 and line boundaries, as Git consumers parse text.
+  if chunk.len == 0: return (current, false)
+  let combined = current & chunk
+  if limit <= 0: return ("", combined.len > 0)
+  if combined.len <= limit: return (combined, false)
+  var start = combined.len - limit
+  while start < combined.len and
+      (ord(combined[start]) and 0xC0) == 0x80:
+    inc start
+  let lineBreak = combined.find('\n', start)
+  if lineBreak >= 0: start = lineBreak + 1
+  if start >= combined.len: return ("", true)
+  (combined[start .. ^1], true)
+
+proc readAvailable(job: GitJob): string =
+  if job == nil or job.process == nil or job.output == nil: return
+  when defined(posix):
+    let stream = cast[GitFileStream](job.output)
+    if stream == nil or stream.f == nil: return
+    let fd = cint(getOsFileHandle(stream.f))
+    let flags = fcntl(fd, F_GETFL)
+    if flags < 0 or fcntl(fd, F_SETFL, flags or O_NONBLOCK) < 0: return
+    var bytes: array[8192, char]
+    while true:
+      let count = posix.read(fd, addr bytes[0], bytes.len)
+      if count > 0:
+        let oldLength = result.len
+        result.setLen(oldLength + count)
+        copyMem(addr result[oldLength], addr bytes[0], count)
+      elif count < 0 and (errno == EAGAIN or errno == EWOULDBLOCK):
+        break
+      else:
+        break
+  else:
+    if job.process.hasData(): result = job.output.readStr(8192)
+
+proc absorbOutput(job: GitJob) =
+  let chunk = job.readAvailable()
+  if chunk.len == 0: return
+  let bounded = appendBoundedGitOutput(job.result.output, chunk)
+  job.result.output = bounded.output
+  job.result.outputTruncated = job.result.outputTruncated or bounded.truncated
+
 proc cancel*(job: GitJob)
+proc poll*(job: GitJob): bool
+proc startGitJobInput*(repository: GitRepository, args: openArray[string],
+                       input: string): GitJob
 
 proc newGitRepository*(root: string): GitRepository =
   let absolute = absolutePath(root)
   if not dirExists(absolute): return nil
   let probe = startProcess("git", "", @["-C", absolute, "rev-parse", "--show-toplevel"],
     options = {poUsePath, poStdErrToStdOut})
-  let output = probe.outputStream.readAll()
+  let output = probe.outputStream.readStr(MaxGitOutputBytes)
   let exitCode = probe.waitForExit()
   probe.close()
   if exitCode != 0: return nil
@@ -69,29 +130,28 @@ proc runGit*(repository: GitRepository, args: openArray[string]): GitResult =
   commandArgs.add(args)
   let process = startProcess("git", "", commandArgs,
     options = {poUsePath, poStdErrToStdOut})
-  result.output = process.outputStream.readAll()
-  result.exitCode = process.waitForExit()
-  process.close()
+  var job = GitJob(process: process, output: process.peekableOutputStream())
+  while not job.poll():
+    sleep(1)
+  result = job.result
 
 proc runGitInput(repository: GitRepository, args: openArray[string], input: string): GitResult =
   if repository == nil: return GitResult(exitCode: -1, output: "not a git repository")
   var commandArgs = @["-C", repository.root]
   commandArgs.add(args)
-  let process = startProcess("git", "", commandArgs,
-    options = {poUsePath, poStdErrToStdOut})
-  process.inputStream.write(input)
-  process.inputStream.close()
-  result.output = process.outputStream.readAll()
-  result.exitCode = process.waitForExit()
-  process.close()
+  let job = repository.startGitJobInput(args, input)
+  while not job.poll():
+    sleep(1)
+  result = job.result
 
 proc startGitJob*(repository: GitRepository, args: openArray[string]): GitJob =
   if repository == nil: return GitJob(done: true,
     result: GitResult(exitCode: -1, output: "not a git repository"))
   var commandArgs = @["-C", repository.root]
   commandArgs.add(args)
-  result = GitJob(process: startProcess("git", "", commandArgs,
-    options = {poUsePath, poStdErrToStdOut}))
+  let process = startProcess("git", "", commandArgs,
+    options = {poUsePath, poStdErrToStdOut})
+  result = GitJob(process: process, output: process.peekableOutputStream())
 
 proc startGitJobInput*(repository: GitRepository, args: openArray[string],
                        input: string): GitJob =
@@ -120,8 +180,9 @@ proc poll*(job: GitJob): bool =
   if job.done: return true
   let exitCode = job.process.peekExitCode()
   if exitCode < 0: return false
-  job.result.output = job.process.outputStream.readAll()
+  job.absorbOutput()
   job.result.exitCode = exitCode
+  job.absorbOutput()
   job.process.close()
   job.done = true
   true

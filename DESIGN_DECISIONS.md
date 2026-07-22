@@ -1,5 +1,16 @@
 # Design Decisions
 
+## M9-006: Bound Git process output before it reaches UI state
+
+Zed compresses large commit diffs for presentation and applies explicit
+limits before exposing process output to UI state. Nimculus now consumes Git
+stdout/stderr through a non-blocking stream while the process is running,
+keeps at most `MaxGitOutputBytes` (16 MiB), and records `outputTruncated`.
+The retained suffix is cut only at UTF-8 and complete-line boundaries. This
+applies to status, diff, log, blame, and command results, preventing a large
+repository or generated diff from blocking on a full pipe or growing the
+editor's memory without limit.
+
 ## M6-004: Invalidate lazy workspace entries at the filesystem event boundary
 
 Zed's worktree scanner treats filesystem events as the boundary for updating

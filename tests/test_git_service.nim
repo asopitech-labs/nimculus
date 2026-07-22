@@ -2,6 +2,7 @@ import std/os
 import std/osproc
 import std/strutils
 import std/sequtils
+import std/unicode
 import std/unittest
 import nimculus/git_service
 
@@ -13,6 +14,13 @@ proc git(repo: string, args: varargs[string]): string =
   output.output
 
 suite "M9 Git service":
+  test "bounds Git output at UTF-8 and line boundaries":
+    let bounded = appendBoundedGitOutput("old\n", "日本語の長い出力\nnew\n", limit = 16)
+    check bounded.truncated
+    check bounded.output.len <= 16
+    check bounded.output.validateUtf8 == -1
+    check not bounded.output.startsWith("語")
+
   test "parses unified diff hunk ranges for inline and gutter consumers":
     let hunks = parseDiffHunks("diff --git a/a b/a\n@@ -2,2 +2,3 @@\n-old\n+new\n+added\n@@ -8 +9,0 @@\n-removed\n")
     check hunks.len == 2
