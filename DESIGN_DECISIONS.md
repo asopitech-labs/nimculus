@@ -909,10 +909,11 @@ Both macOS and Windows CI checkout these submodules recursively before the
 portable or release build. A local-only grammar checkout must not be required
 for package smoke tests.
 
-The Windows runner installs Nim through Chocolatey. Its shim directory and
-the user Nimble bin directory are appended to `GITHUB_PATH` in the setup step,
-because environment changes made by Chocolatey are not automatically visible
-to later GitHub Actions steps.
+The Windows runner installs Nim through Chocolatey. The setup step locates the
+installed `nimble.exe` under Chocolatey's Nim package directory and appends
+that directory, plus the user Nimble bin directory, to `GITHUB_PATH` because
+Chocolatey's environment changes are not automatically visible to later GitHub
+Actions steps.
 
 ## M6-002: Workspace operations stay path-confined
 
