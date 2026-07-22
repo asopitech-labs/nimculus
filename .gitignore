@@ -26,3 +26,7 @@ dist/windows/
 tests/test_windows_terminal
 references/zed/
 .nimcache/
+tests/test_*
+!tests/test_*.nim
+tests/bench_*
+!tests/bench_*.nim

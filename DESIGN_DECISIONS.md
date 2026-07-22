@@ -1,5 +1,15 @@
 # Design Decisions
 
+## M0-008: Keep Nimble build outputs bounded and explicitly cleanable
+
+Zed keeps generated build state separate from source and reference trees and
+has explicit cleanup boundaries for generated artifacts. Nimculus now routes
+the regular `nimble build` cache to `.nimcache/build`, ignores generated test
+and benchmark executables without ignoring their `.nim` sources, and provides
+`nimble clean` for disposable caches and local build/distribution outputs.
+This makes the disk-usage check enforceable rather than dependent on each
+developer remembering Nim's default user cache location.
+
 ## M11-006: Bound update artifacts before verification and installation
 
 Zed downloads update bodies in bounded chunks and verifies the completed

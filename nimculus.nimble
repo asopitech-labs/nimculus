@@ -10,7 +10,15 @@ requires "graphemes >= 0.12.0"
 requires "gitignore >= 0.1.0"
 
 task build, "Build the Nimculus macOS application":
-  exec "nim c --mm:arc -d:release src/nimculus/main.nim"
+  exec "nim c --mm:arc -d:release --nimcache:.nimcache/build src/nimculus/main.nim"
+
+task clean, "Remove generated build caches and local artifacts":
+  rmDir(".nimcache")
+  rmDir("nimcache")
+  rmDir("nimblecache")
+  rmDir("build")
+  rmDir("dist")
+  rmFile("src/nimculus/main")
 
 task format, "Format Nim sources with nimpretty":
   exec "nimpretty --maxLineLen:100 src/nimnui/*.nim src/nimnui/platform/macos/*.nim src/nimnui/platform/headless/*.nim src/nimnui/platform/windows/*.nim src/nimculus/*.nim tests/*.nim"
