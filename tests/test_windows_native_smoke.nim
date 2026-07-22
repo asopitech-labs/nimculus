@@ -50,7 +50,7 @@ when defined(windows):
       check colorGlyphPassed
       check interactionPassed
       check inputEvents >= 6
-      check textEvents >= 2
+      check textEvents >= 3
 else:
   suite "Windows native GPU text smoke":
     test "requires a Windows runner":

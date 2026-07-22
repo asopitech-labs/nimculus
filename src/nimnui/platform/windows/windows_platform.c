@@ -3078,10 +3078,12 @@ bool nimculus_platform_validate_native_interaction(void) {
   SendMessageW(g_window, WM_CHAR, 'x', 0);
   SendMessageW(g_window, WM_CHAR, 0xd83d, 0);
   SendMessageW(g_window, WM_CHAR, 0xde00, 0);
+  LRESULT unichar_result = SendMessageW(g_window, WM_UNICHAR, 0x1f600, 0);
   SendMessageW(g_window, WM_SIZE, SIZE_RESTORED,
       MAKELPARAM((WORD)client.right, (WORD)client.bottom));
   return g_input_count >= input_before + 6 && GetCapture() == NULL &&
-      g_metrics.width_pixels > 0 && g_metrics.height_pixels > 0;
+      g_metrics.width_pixels > 0 && g_metrics.height_pixels > 0 &&
+      unichar_result == TRUE;
 }
 
 bool nimculus_platform_validate_text_format_cache(void) {

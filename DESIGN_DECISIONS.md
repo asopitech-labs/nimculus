@@ -2286,6 +2286,8 @@ message-to-NimNUI boundary in the same run that validates D3D11 text resources,
 rather than treating window creation alone as GUI verification.
 
 The same interaction smoke sends `WM_CHAR` for an ASCII character and a
-surrogate pair, and checks that the text callback receives both UTF-8 events.
+surrogate pair, plus `WM_UNICHAR` for a supplementary code point, and checks
+that the text callback receives all UTF-8 events and that `WM_UNICHAR` returns
+the handled result.
 This covers the Win32 UTF-16 boundary without depending on a physical
 keyboard or IME being attached to the CI runner.
