@@ -1326,13 +1326,19 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   if (g_active_view) {
     location = [(NSView *)g_active_view convertPoint:event.locationInWindow fromView:nil];
   }
+  // AppKit only defines keyCode for keyboard events. Reading it for tracking
+  // or mouse events raises an NSInternalInconsistencyException on recent
+  // macOS versions (notably for MouseEntered/MouseExited).
+  const BOOL hasKeyCode = event.type == NSEventTypeKeyDown ||
+    event.type == NSEventTypeKeyUp || event.type == NSEventTypeFlagsChanged;
+  const unsigned short keyCode = hasKeyCode ? event.keyCode : 0;
   NSLog(@"Nimculus input kind=%@ keyCode=%hu modifiers=0x%lx x=%.1f y=%.1f dx=%.1f dy=%.1f",
-        kind, event.keyCode, event.modifierFlags, location.x, location.y,
+        kind, keyCode, event.modifierFlags, location.x, location.y,
         event.deltaX, event.deltaY);
   if (g_input_callback) {
     NimculusInputEvent input = {
       .type = (uint32_t)event.type,
-      .key_code = event.keyCode,
+      .key_code = keyCode,
       .modifiers = (uint32_t)event.modifierFlags,
       .button = mouseButtonForEvent(event),
       .x = location.x, .y = location.y,

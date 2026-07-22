@@ -50,6 +50,10 @@ leave a direct developer launch without a reliable finish/terminate sequence.
 The probe now measures the same bundle boundary as distribution, and a
 provided raw binary is wrapped in that temporary bundle as well.
 
+The same bundle boundary is used by `scripts/benchmark_soak.sh`; otherwise a
+soak run could report a timeout caused by raw AppKit launch behavior instead
+of measuring the application loop.
+
 ## M5-013: Initialize macOS settings before the first workspace preview
 
 The first macOS workspace open refreshes the preview and resolves file icons
@@ -66,6 +70,21 @@ platform's confirmed termination entry point directly, while normal Cmd+Q
 continues through the dirty-document confirmation path. This prevents a
 benchmark from presenting a user modal and makes its timeout a real startup
 failure rather than an unattended dialog.
+
+## M20-012: Keep settings application out of the idle render loop
+
+Zed applies settings changes through explicit settings updates rather than
+rebuilding text resources on every frame. Nimculus now applies the macOS
+theme/font settings at startup and only after `SettingsStore.reload()` reports
+a change. This prevents repeated Core Text shaping and Metal glyph-atlas
+uploads, and keeps the idle callback bounded for long-running sessions.
+
+## M1-014: Read macOS event fields according to event type
+
+AppKit raises an internal exception when `NSEvent.keyCode` is queried for a
+mouse or tracking event. The macOS input bridge now supplies keyCode only for
+keyDown, keyUp, and flagsChanged events, while pointer events use zero. This
+keeps tracking-area events safe during normal window-idle operation.
 
 ## M20-009: Report live allocation blocks with explicit platform limits
 

@@ -1729,8 +1729,8 @@ when defined(macosx):
     if pollSoakBenchmark(): return
     if appSettings != nil and appSettings.reload():
       applySettingsKeymap()
+      applySettingsTheme()
       editorViewState.statusMessage = "Settings reloaded"
-    applySettingsTheme()
     pollNativeGitHunks()
     pollNativeGitStatus()
     pollNativeGitAction()

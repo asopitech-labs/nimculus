@@ -27,7 +27,8 @@ executableを`NIMCULUS_BINARY`で指定した場合も、LaunchServicesのbundle
 bash scripts/benchmark_cold_start.sh
 ```
 
-既存の実行ファイルを使う場合は `NIMCULUS_BINARY=/path/to/Nimculus`、
+既存の実行ファイルを使う場合は `NIMCULUS_BINARY=/path/to/Nimculus`（raw
+実行ファイルは一時`.app`へ自動的に包む）、
 反復回数は `NIMCULUS_COLD_START_RUNS=10`、1回あたりのtimeoutは
 `NIMCULUS_COLD_START_TIMEOUT_SECONDS=30` で指定できる。
 
