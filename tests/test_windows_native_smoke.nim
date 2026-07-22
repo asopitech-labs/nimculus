@@ -12,10 +12,15 @@ when defined(windows):
   var colorGlyphPassed = false
   var interactionPassed = false
   var inputEvents = 0
+  var textEvents = 0
 
   proc countInput(event: ptr NimculusInputEvent) {.cdecl.} =
     if event != nil:
       inputEvents.inc
+
+  proc countText(text: cstring, composing: bool) {.cdecl.} =
+    if text != nil:
+      textEvents.inc
 
   proc validateNativeFrame() {.cdecl.} =
     if callbackRan:
@@ -33,6 +38,7 @@ when defined(windows):
   suite "Windows native GPU text smoke":
     test "creates D3D11 device and validates glyph frame contracts":
       platformSetInputCallback(countInput)
+      platformSetTextCallback(countText)
       platformSetIdleCallback(validateNativeFrame)
       check platformRun()
       check callbackRan
@@ -44,6 +50,7 @@ when defined(windows):
       check colorGlyphPassed
       check interactionPassed
       check inputEvents >= 6
+      check textEvents >= 2
 else:
   suite "Windows native GPU text smoke":
     test "requires a Windows runner":

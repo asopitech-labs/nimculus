@@ -2284,3 +2284,8 @@ resize. The native contract checks that the shared input counter advances, the
 capture is released, and the drawable metrics remain valid. This validates the
 message-to-NimNUI boundary in the same run that validates D3D11 text resources,
 rather than treating window creation alone as GUI verification.
+
+The same interaction smoke sends `WM_CHAR` for an ASCII character and a
+surrogate pair, and checks that the text callback receives both UTF-8 events.
+This covers the Win32 UTF-16 boundary without depending on a physical
+keyboard or IME being attached to the CI runner.

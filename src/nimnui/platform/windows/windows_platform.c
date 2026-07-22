@@ -3059,7 +3059,8 @@ bool nimculus_platform_validate_native(void) {
 }
 
 bool nimculus_platform_validate_native_interaction(void) {
-  if (!g_window || !g_device || !g_swap_chain || !g_input_callback) return false;
+  if (!g_window || !g_device || !g_swap_chain || !g_input_callback ||
+      !g_text_callback) return false;
   RECT client;
   if (!GetClientRect(g_window, &client) || client.right <= 8 || client.bottom <= 8)
     return false;
@@ -3074,6 +3075,9 @@ bool nimculus_platform_validate_native_interaction(void) {
       MAKELPARAM(screen.x, screen.y));
   SendMessageW(g_window, WM_KEYDOWN, 'A', 0);
   SendMessageW(g_window, WM_KEYUP, 'A', 0);
+  SendMessageW(g_window, WM_CHAR, 'x', 0);
+  SendMessageW(g_window, WM_CHAR, 0xd83d, 0);
+  SendMessageW(g_window, WM_CHAR, 0xde00, 0);
   SendMessageW(g_window, WM_SIZE, SIZE_RESTORED,
       MAKELPARAM((WORD)client.right, (WORD)client.bottom));
   return g_input_count >= input_before + 6 && GetCapture() == NULL &&

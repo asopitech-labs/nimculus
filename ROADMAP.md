@@ -443,7 +443,7 @@ Windowsの固定幅エディタ入力では、画面上の列をUTF-8 byte offse
 
 **完了条件：** 主要機能、日本語 IME、ConPTY、Windows インストーラーが動作し、macOS 固有コードがコアへ漏れない。
 
-**Native input smoke：** Windows runnerのnative smokeでfocus、mouse move、left-button capture/release、screen-coordinate wheel、keyboard down/up、resizeを実ウィンドウへ送信し、共通input callback、capture解放、drawable metricsを検証する。手動GUI操作と長時間実機検証は未完了。
+**Native input smoke：** Windows runnerのnative smokeでfocus、mouse move、left-button capture/release、screen-coordinate wheel、keyboard down/up、`WM_CHAR`のASCII/surrogate pair、resizeを実ウィンドウへ送信し、共通input/text callback、capture解放、drawable metricsを検証する。手動GUI操作と長時間実機検証は未完了。
 
 ### M14：WSL リモート — `v0.8.0-beta`
 
