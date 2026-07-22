@@ -29,6 +29,18 @@ bash scripts/benchmark_cold_start.sh
 反復回数は `NIMCULUS_COLD_START_RUNS=10`、1回あたりのtimeoutは
 `NIMCULUS_COLD_START_TIMEOUT_SECONDS=30` で指定できる。
 
+Zedのreliability heartbeatを参考に、アプリのidle境界でresident memory、
+live allocation、frame/inputを定期記録するsoak計測は次で実行する。既定は
+8時間で、GUIセッションが利用できるmacOSまたはWindowsで実行する。
+
+```sh
+bash scripts/benchmark_soak.sh
+```
+
+短い動作確認では `NIMCULUS_SOAK_SECONDS=60`、記録間隔は
+`NIMCULUS_SOAK_INTERVAL_SECONDS=10`、実行ファイルは
+`NIMCULUS_BINARY=/path/to/Nimculus` で指定できる。
+
 M1 の最小縦切りは macOS ウィンドウ、`CAMetalLayer`、Metal の clear / rectangle 描画、Retina 対応、基本入力イベントログです。
 
 ## ドキュメント

@@ -55,6 +55,19 @@ as `allocation_count` with `kind=live_blocks`, outside the timed workload.
 It is not a cumulative event counter and does not include allocations hidden
 behind allocator implementations that are outside the reported zone/heap.
 
+## M20-010: Use an idle-boundary reliability heartbeat for soak runs
+
+Zed's reliability loop samples resident memory on a short poll interval and
+emits a heartbeat less frequently, while also logging significant changes.
+Nimculus keeps the benchmark deterministic and portable: when
+`NIMCULUS_BENCH_SOAK=1` is set, the existing macOS/Windows idle callback emits
+resident bytes, live allocation blocks, frame count, and input count at the
+configured interval, then requests a normal platform quit at the configured
+duration. `scripts/benchmark_soak.sh` supplies an eight-hour default and a
+timeout greater than the duration. This measures the real application loop;
+it does not claim an eight-hour result until the script has actually completed
+on the target GUI environment.
+
 ## M6-007: Exercise FSEvents through the main run loop in integration tests
 
 Zed's filesystem tests drive the platform watcher until events are delivered

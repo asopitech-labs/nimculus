@@ -37,6 +37,19 @@ when defined(macosx) or defined(windows):
   var coldStartBenchmarkPending = getEnv("NIMCULUS_BENCH_COLD_START", "") == "1"
   let coldStartBenchmarkStartedAt = epochTime()
 
+  proc positiveEnvSeconds(name: string, defaultValue: int): int =
+    try:
+      result = parseInt(getEnv(name, $defaultValue))
+    except ValueError:
+      result = defaultValue
+    result = max(1, result)
+
+  var soakBenchmarkPending = getEnv("NIMCULUS_BENCH_SOAK", "") == "1"
+  let soakBenchmarkStartedAt = epochTime()
+  let soakBenchmarkDurationSeconds = positiveEnvSeconds("NIMCULUS_SOAK_SECONDS", 8 * 60 * 60)
+  let soakBenchmarkIntervalSeconds = positiveEnvSeconds("NIMCULUS_SOAK_INTERVAL_SECONDS", 30)
+  var soakBenchmarkNextSampleAt = soakBenchmarkStartedAt
+
   proc finishColdStartBenchmark(): bool =
     if not coldStartBenchmarkPending: return false
     coldStartBenchmarkPending = false
@@ -45,6 +58,26 @@ when defined(macosx) or defined(windows):
       "\tmilliseconds\tready=1"
     platformRequestQuit()
     true
+
+  proc pollSoakBenchmark(): bool =
+    if not soakBenchmarkPending: return false
+    let now = epochTime()
+    if now >= soakBenchmarkNextSampleAt:
+      var metrics: PlatformMetrics
+      platformGetMetrics(addr metrics)
+      echo "soak_sample\t", formatFloat(now - soakBenchmarkStartedAt, ffDecimal, 3),
+        "\tseconds\tresident=", platformResidentMemoryBytes(),
+        "\tlive_blocks=", platformLiveAllocationCount(),
+        "\tframes=", metrics.frameCount,
+        "\tinput=", platformInputCount()
+      soakBenchmarkNextSampleAt = now + float64(soakBenchmarkIntervalSeconds)
+    if now - soakBenchmarkStartedAt >= float64(soakBenchmarkDurationSeconds):
+      soakBenchmarkPending = false
+      echo "soak_complete\t", formatFloat(now - soakBenchmarkStartedAt, ffDecimal, 3),
+        "\tseconds\tsamples=ready"
+      platformRequestQuit()
+      return true
+    false
 
 proc syncEditorCursor()
 proc persistSession()
@@ -1681,6 +1714,7 @@ when defined(macosx):
 
   proc receiveNativeIdle() {.cdecl.} =
     if finishColdStartBenchmark(): return
+    if pollSoakBenchmark(): return
     if appSettings != nil and appSettings.reload():
       applySettingsKeymap()
       editorViewState.statusMessage = "Settings reloaded"
@@ -1866,6 +1900,7 @@ when defined(windows):
 
   proc receiveNativeIdle() {.cdecl.} =
     if finishColdStartBenchmark(): return
+    if pollSoakBenchmark(): return
     if appSettings != nil and appSettings.reload():
       applySettingsTheme()
       editorViewState.statusMessage = "Settings reloaded"
