@@ -2183,6 +2183,6 @@ while making atlas sampling part of the normal frame. Plain ASCII shaped-run
 submission is now implemented through `IDWriteTextAnalyzer::GetGlyphs` and
 `GetGlyphPlacements`, preserving glyph IDs and advance/offset data before atlas
 upload. Colored glyphs remain unimplemented. Plain ASCII glyphs now
-quantize their device-space x origin to the same 4-way subpixel variant used by
-the DirectWrite baseline offset and cache key; y-origin variants remain a later
-step because the current line baseline is integral.
+quantize their device-space x/y origin to the same 4-way subpixel variants used
+by the DirectWrite baseline offsets and cache key. This preserves fractional
+placement through rasterization, atlas lookup, and sprite placement.

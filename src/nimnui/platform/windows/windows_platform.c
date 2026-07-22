@@ -1600,6 +1600,7 @@ static bool draw_glyph_atlas_sprites(void) {
     if (line >= g_editor_scroll_line) {
       float baseline = top + (float)(line - g_editor_scroll_line) * line_height +
           font_size * (float)scale;
+      uint8_t subpixel_y = quantized_subpixel(baseline);
       float pen_x = left;
       UINT16 *shaped_indices = NULL;
       DWRITE_GLYPH_OFFSET *shaped_offsets = NULL;
@@ -1613,9 +1614,9 @@ static bool draw_glyph_atlas_sprites(void) {
           uint8_t subpixel_x = quantized_subpixel(pen_x +
               shaped_offsets[glyph_index].advanceOffset * (float)scale);
           if (rasterize_glyph_id_for_cache(glyph_id, font_size, scale,
-                                           subpixel_x, 0)) {
+                                           subpixel_x, subpixel_y)) {
             NimculusGlyphRaster *raster = cached_glyph_for_id(glyph_id,
-                font_size, scale, subpixel_x, 0);
+                font_size, scale, subpixel_x, subpixel_y);
             if (raster && upload_glyph_raster_to_atlas(raster)) {
               draw_cached_glyph_sprite(raster,
                   pen_x + shaped_offsets[glyph_index].advanceOffset * (float)scale,
@@ -1638,12 +1639,12 @@ static bool draw_glyph_atlas_sprites(void) {
         if (codepoint >= 0x20 && codepoint <= 0x7e) {
           uint8_t subpixel_x = quantized_subpixel(pen_x);
           if (!rasterize_glyph_for_cache(codepoint, font_size, scale,
-                                         subpixel_x, 0)) {
+                                         subpixel_x, subpixel_y)) {
             pen_x += advance;
             continue;
           }
           NimculusGlyphRaster *raster = cached_glyph_for_codepoint(
-              codepoint, font_size, scale, subpixel_x, 0);
+              codepoint, font_size, scale, subpixel_x, subpixel_y);
           if (!raster || !upload_glyph_raster_to_atlas(raster)) {
             pen_x += advance;
             continue;
@@ -2660,8 +2661,12 @@ bool nimculus_platform_validate_glyph_subpixel_variants(void) {
       scale, 0, 0);
   NimculusGlyphRaster *second = cached_glyph_for_codepoint('A', font_size,
       scale, 1, 0);
-  return first != NULL && second != NULL && first != second &&
-      first->subpixel_x == 0 && second->subpixel_x == 1;
+  if (!first || !second || first == second || first->subpixel_x != 0 ||
+      second->subpixel_x != 1) return false;
+  if (!rasterize_glyph_for_cache('A', font_size, scale, 0, 1)) return false;
+  NimculusGlyphRaster *vertical = cached_glyph_for_codepoint('A', font_size,
+      scale, 0, 1);
+  return vertical != NULL && vertical != first && vertical->subpixel_y == 1;
 }
 
 bool nimculus_platform_validate_glyph_shaping(void) {
