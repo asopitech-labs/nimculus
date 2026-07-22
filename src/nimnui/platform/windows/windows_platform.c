@@ -915,6 +915,98 @@ static const IDWriteTextAnalysisSourceVtbl g_fallback_source_vtable = {
   fallback_source_number_substitution
 };
 
+typedef struct NimculusScriptSink {
+  IDWriteTextAnalysisSink iface;
+  ULONG references;
+  DWRITE_SCRIPT_ANALYSIS script;
+  bool has_script;
+  bool consistent;
+} NimculusScriptSink;
+
+static HRESULT STDMETHODCALLTYPE script_sink_query(
+    IDWriteTextAnalysisSink *interface, REFIID identifier, void **object) {
+  if (!object) return E_POINTER;
+  *object = NULL;
+  if (IsEqualIID(identifier, &IID_IUnknown) ||
+      IsEqualIID(identifier, &IID_IDWriteTextAnalysisSink)) {
+    *object = interface;
+    interface->lpVtbl->AddRef(interface);
+    return S_OK;
+  }
+  return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE script_sink_addref(
+    IDWriteTextAnalysisSink *interface) {
+  NimculusScriptSink *sink = (NimculusScriptSink *)interface;
+  return ++sink->references;
+}
+
+static ULONG STDMETHODCALLTYPE script_sink_release(
+    IDWriteTextAnalysisSink *interface) {
+  NimculusScriptSink *sink = (NimculusScriptSink *)interface;
+  if (sink->references > 0) sink->references--;
+  return sink->references;
+}
+
+static HRESULT STDMETHODCALLTYPE script_sink_set_script(
+    IDWriteTextAnalysisSink *interface, UINT32 position, UINT32 length,
+    const DWRITE_SCRIPT_ANALYSIS *script) {
+  (void)position;
+  (void)length;
+  NimculusScriptSink *sink = (NimculusScriptSink *)interface;
+  if (!script) return E_POINTER;
+  if (!sink->has_script) {
+    sink->script = *script;
+    sink->has_script = true;
+  } else if (sink->script.script != script->script ||
+             sink->script.shapes != script->shapes) {
+    sink->consistent = false;
+  }
+  return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE script_sink_set_line_breakpoints(
+    IDWriteTextAnalysisSink *interface, UINT32 position, UINT32 length,
+    const DWRITE_LINE_BREAKPOINT *points) {
+  (void)interface;
+  (void)position;
+  (void)length;
+  (void)points;
+  return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE script_sink_set_bidi_level(
+    IDWriteTextAnalysisSink *interface, UINT32 position, UINT32 length,
+    UINT8 explicit_level, UINT8 resolved_level) {
+  (void)interface;
+  (void)position;
+  (void)length;
+  (void)explicit_level;
+  (void)resolved_level;
+  return S_OK;
+}
+
+static HRESULT STDMETHODCALLTYPE script_sink_set_number_substitution(
+    IDWriteTextAnalysisSink *interface, UINT32 position, UINT32 length,
+    IDWriteNumberSubstitution *substitution) {
+  (void)interface;
+  (void)position;
+  (void)length;
+  (void)substitution;
+  return S_OK;
+}
+
+static const IDWriteTextAnalysisSinkVtbl g_script_sink_vtable = {
+  script_sink_query,
+  script_sink_addref,
+  script_sink_release,
+  script_sink_set_script,
+  script_sink_set_line_breakpoints,
+  script_sink_set_bidi_level,
+  script_sink_set_number_substitution
+};
+
 static IDWriteFontFace *map_fallback_font(const wchar_t *text, UINT32 length,
                                           UINT32 *mapped_length, FLOAT *scale) {
   if (!text || length == 0 || !ensure_directwrite_factory() ||
@@ -1686,9 +1778,28 @@ static bool shape_run_with_font(const wchar_t *text, uint32_t text_length,
     free(glyph_advances); free(glyph_offsets);
     return false;
   }
-  DWRITE_SCRIPT_ANALYSIS script = {0, (DWRITE_SCRIPT_SHAPES)0};
+  NimculusFallbackSource source;
+  ZeroMemory(&source, sizeof(source));
+  source.iface.lpVtbl = &g_fallback_source_vtable;
+  source.references = 1;
+  source.text = text;
+  source.length = text_length;
+  source.locale = locale ? locale : L"en-us";
+  NimculusScriptSink sink;
+  ZeroMemory(&sink, sizeof(sink));
+  sink.iface.lpVtbl = &g_script_sink_vtable;
+  sink.references = 1;
+  sink.consistent = true;
+  HRESULT hr = g_dwrite_analyzer->lpVtbl->AnalyzeScript(g_dwrite_analyzer,
+      &source.iface, 0, text_length, &sink.iface);
+  if (FAILED(hr) || !sink.has_script || !sink.consistent) {
+    free(cluster_map); free(text_props); free(indices); free(glyph_props);
+    free(glyph_advances); free(glyph_offsets);
+    return false;
+  }
+  DWRITE_SCRIPT_ANALYSIS script = sink.script;
   UINT32 actual_glyphs = 0;
-  HRESULT hr = g_dwrite_analyzer->lpVtbl->GetGlyphs(g_dwrite_analyzer, text,
+  hr = g_dwrite_analyzer->lpVtbl->GetGlyphs(g_dwrite_analyzer, text,
       text_length, font_face, FALSE, FALSE, &script, locale, NULL, NULL,
       NULL, 0, max_glyphs, cluster_map, text_props, indices, glyph_props,
       &actual_glyphs);

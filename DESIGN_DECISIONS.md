@@ -2264,3 +2264,13 @@ atlas shaping helper currently submits `isRightToLeft = FALSE`; allowing it to
 run for RTL text would draw incorrectly ordered monochrome sprites over the
 correct D2D result. Full BiDi glyph-run extraction for the GPU atlas remains a
 separate implementation item.
+
+## M13-063: Feed DirectWrite script analysis into Windows glyph shaping
+
+`GetGlyphs` and `GetGlyphPlacements` require a `DWRITE_SCRIPT_ANALYSIS` result;
+passing a zero-initialized structure is not a valid substitute for script
+analysis. The Windows backend now supplies a COM `IDWriteTextAnalysisSink`,
+calls `AnalyzeScript`, and uses the returned script when shaping ASCII and
+homogeneous fallback runs. If one run spans inconsistent script analyses, the
+atlas path declines it and the existing DirectWrite/D2D renderer remains the
+authority instead of producing an incorrectly shaped sprite sequence.
