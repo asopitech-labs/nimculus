@@ -916,6 +916,10 @@ directory, to `GITHUB_PATH` because
 Chocolatey's environment changes are not automatically visible to later GitHub
 Actions steps.
 
+The ConPTY C boundary includes MinGW's `winconpty.h` explicitly. `windows.h`
+alone does not expose `HPCON` on the Windows runner's headers even when
+`_WIN32_WINNT` targets Windows 10.
+
 ## M6-002: Workspace operations stay path-confined
 
 All create, delete, and rename operations resolve relative paths against the
