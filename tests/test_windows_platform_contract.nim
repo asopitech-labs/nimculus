@@ -38,6 +38,9 @@ when defined(windows):
 
     test "DirectWrite glyph rasterization interface is available":
       check platformValidateGlyphRasterInterface()
+
+    test "DirectWrite glyph raster cache reuses the same raster":
+      check platformValidateGlyphRasterCache()
 else:
   suite "Windows platform contract":
     test "requires a Windows runner":

@@ -117,6 +117,17 @@ glyph rasterization API safely. The Windows boundary now queries and owns
 that verifies the interface is available. This is an atlas prerequisite, not
 the completion of the persistent atlas itself.
 
+## M13-056: Implement the DirectWrite glyph raster cache before GPU upload
+
+The Windows text path now resolves the configured font face, builds a
+`DWRITE_GLYPH_RUN`, obtains `IDWriteGlyphRunAnalysis` bounds, and stores the
+grayscale alpha bitmap in a bounded 1024-entry LRU cache keyed by glyph ID,
+font size, scale, and 4x4 subpixel variant. Font changes invalidate the cache;
+size and scale are part of the key. A native contract rasterizes the same
+glyph twice and verifies the second request is a cache hit. The cache is the
+CPU rasterization stage of the Zed-style atlas pipeline; D3D texture/SRV
+upload and visible glyph draw remain a separate M13 step.
+
 ## M6-007: Exercise FSEvents through the main run loop in integration tests
 
 Zed's filesystem tests drive the platform watcher until events are delivered

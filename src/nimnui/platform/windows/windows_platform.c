@@ -49,6 +49,10 @@ static ID2D1RenderTarget *g_d2d_target = NULL;
 static ID2D1SolidColorBrush *g_d2d_text_brush = NULL;
 static IDWriteFactory *g_dwrite_factory = NULL;
 static IDWriteFactory2 *g_dwrite_factory2 = NULL;
+static IDWriteFontFace *g_glyph_font_face = NULL;
+static wchar_t g_glyph_font_face_name[LF_FACESIZE];
+static uint64_t g_glyph_raster_hit_count = 0;
+static uint64_t g_glyph_raster_miss_count = 0;
 static IDWriteTextFormat *g_editor_text_format = NULL;
 static float g_editor_text_format_size = 0.0f;
 static double g_editor_text_format_scale = 0.0;
@@ -117,6 +121,23 @@ static HWND g_palette_window = NULL;
 static HWND g_palette_edit = NULL;
 static WNDPROC g_palette_edit_original = NULL;
 static char g_palette_command[131072];
+
+#define NIMCULUS_MAX_GLYPH_RASTERS 1024
+typedef struct NimculusGlyphRaster {
+  bool valid;
+  uint16_t glyph_id;
+  float font_size;
+  double scale;
+  uint8_t subpixel_x;
+  uint8_t subpixel_y;
+  RECT bounds;
+  uint32_t length;
+  uint8_t *pixels;
+  uint64_t last_used;
+} NimculusGlyphRaster;
+
+static NimculusGlyphRaster g_glyph_rasters[NIMCULUS_MAX_GLYPH_RASTERS];
+static uint64_t g_glyph_raster_clock = 0;
 
 static LRESULT CALLBACK palette_edit_proc(HWND window, UINT message,
                                           WPARAM wparam, LPARAM lparam);
@@ -720,6 +741,170 @@ static bool ensure_directwrite_factory(void) {
     }
     return false;
   }
+  return true;
+}
+
+static void release_glyph_raster_cache(void) {
+  for (size_t index = 0; index < NIMCULUS_MAX_GLYPH_RASTERS; ++index) {
+    free(g_glyph_rasters[index].pixels);
+    ZeroMemory(&g_glyph_rasters[index], sizeof(g_glyph_rasters[index]));
+  }
+  g_glyph_raster_clock = 0;
+  g_glyph_raster_hit_count = 0;
+  g_glyph_raster_miss_count = 0;
+}
+
+static void release_glyph_font_face(void) {
+  if (g_glyph_font_face) {
+    g_glyph_font_face->lpVtbl->Release(g_glyph_font_face);
+    g_glyph_font_face = NULL;
+  }
+  ZeroMemory(g_glyph_font_face_name, sizeof(g_glyph_font_face_name));
+}
+
+static IDWriteFontFace *ensure_glyph_font_face(void) {
+  if (!ensure_directwrite_factory()) return NULL;
+  if (g_glyph_font_face &&
+      wcscmp(g_glyph_font_face_name, g_editor_font_name) == 0) {
+    return g_glyph_font_face;
+  }
+  release_glyph_raster_cache();
+  release_glyph_font_face();
+  IDWriteFontCollection *collection = NULL;
+  HRESULT hr = g_dwrite_factory->lpVtbl->GetSystemFontCollection(
+      g_dwrite_factory, &collection, FALSE);
+  if (FAILED(hr) || !collection) return NULL;
+  UINT32 family_index = 0;
+  BOOL exists = FALSE;
+  hr = collection->lpVtbl->FindFamilyName(collection, g_editor_font_name,
+      &family_index, &exists);
+  if (FAILED(hr) || !exists) {
+    collection->lpVtbl->Release(collection);
+    return NULL;
+  }
+  IDWriteFontFamily *family = NULL;
+  hr = collection->lpVtbl->GetFontFamily(collection, family_index, &family);
+  collection->lpVtbl->Release(collection);
+  if (FAILED(hr) || !family) return NULL;
+  IDWriteFont *font = NULL;
+  hr = family->lpVtbl->GetFirstMatchingFont(family,
+      DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+      DWRITE_FONT_STYLE_NORMAL, &font);
+  family->lpVtbl->Release(family);
+  if (FAILED(hr) || !font) return NULL;
+  hr = font->lpVtbl->CreateFontFace(font, &g_glyph_font_face);
+  font->lpVtbl->Release(font);
+  if (FAILED(hr) || !g_glyph_font_face) {
+    release_glyph_font_face();
+    return NULL;
+  }
+  wcsncpy(g_glyph_font_face_name, g_editor_font_name,
+      LF_FACESIZE - 1);
+  g_glyph_font_face_name[LF_FACESIZE - 1] = L'\0';
+  return g_glyph_font_face;
+}
+
+static NimculusGlyphRaster *find_glyph_raster(uint16_t glyph_id,
+                                               float font_size, double scale,
+                                               uint8_t subpixel_x,
+                                               uint8_t subpixel_y) {
+  for (size_t index = 0; index < NIMCULUS_MAX_GLYPH_RASTERS; ++index) {
+    NimculusGlyphRaster *raster = &g_glyph_rasters[index];
+    if (!raster->valid || raster->glyph_id != glyph_id ||
+        fabs((double)raster->font_size - (double)font_size) >= 0.001 ||
+        fabs(raster->scale - scale) >= 0.001 ||
+        raster->subpixel_x != subpixel_x || raster->subpixel_y != subpixel_y) continue;
+    raster->last_used = ++g_glyph_raster_clock;
+    g_glyph_raster_hit_count++;
+    return raster;
+  }
+  g_glyph_raster_miss_count++;
+  return NULL;
+}
+
+static NimculusGlyphRaster *allocate_glyph_raster_slot(void) {
+  NimculusGlyphRaster *oldest = &g_glyph_rasters[0];
+  for (size_t index = 0; index < NIMCULUS_MAX_GLYPH_RASTERS; ++index) {
+    NimculusGlyphRaster *raster = &g_glyph_rasters[index];
+    if (!raster->valid) return raster;
+    if (raster->last_used < oldest->last_used) oldest = raster;
+  }
+  free(oldest->pixels);
+  ZeroMemory(oldest, sizeof(*oldest));
+  return oldest;
+}
+
+static bool rasterize_glyph_for_cache(uint32_t codepoint, float font_size,
+                                      double scale, uint8_t subpixel_x,
+                                      uint8_t subpixel_y) {
+  IDWriteFontFace *font_face = ensure_glyph_font_face();
+  if (!font_face || !ensure_directwrite_factory()) return false;
+  UINT16 glyph_id = 0;
+  HRESULT hr = font_face->lpVtbl->GetGlyphIndices(font_face, &codepoint, 1,
+      &glyph_id);
+  if (FAILED(hr)) return false;
+  if (find_glyph_raster(glyph_id, font_size, scale, subpixel_x, subpixel_y))
+    return true;
+
+  FLOAT advance = 0.0f;
+  DWRITE_GLYPH_OFFSET offset;
+  ZeroMemory(&offset, sizeof(offset));
+  DWRITE_GLYPH_RUN run;
+  ZeroMemory(&run, sizeof(run));
+  run.fontFace = font_face;
+  run.fontEmSize = font_size;
+  run.glyphCount = 1;
+  run.glyphIndices = &glyph_id;
+  run.glyphAdvances = &advance;
+  run.glyphOffsets = &offset;
+  DWRITE_MATRIX transform = { (FLOAT)scale, 0.0f, 0.0f, (FLOAT)scale,
+                              0.0f, 0.0f };
+  IDWriteGlyphRunAnalysis *analysis = NULL;
+  hr = g_dwrite_factory2->lpVtbl->CreateGlyphRunAnalysis(g_dwrite_factory2,
+      &run, &transform, DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
+      DWRITE_MEASURING_MODE_NATURAL, DWRITE_GRID_FIT_MODE_ENABLED,
+      DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE,
+      (FLOAT)subpixel_x / (4.0f * (FLOAT)scale),
+      (FLOAT)subpixel_y / (4.0f * (FLOAT)scale), &analysis);
+  if (FAILED(hr) || !analysis) return false;
+  RECT bounds;
+  ZeroMemory(&bounds, sizeof(bounds));
+  hr = analysis->lpVtbl->GetAlphaTextureBounds(analysis,
+      DWRITE_TEXTURE_ALIASED_1x1, &bounds);
+  if (FAILED(hr) || bounds.right <= bounds.left || bounds.bottom <= bounds.top) {
+    analysis->lpVtbl->Release(analysis);
+    return false;
+  }
+  uint64_t width = (uint64_t)(bounds.right - bounds.left);
+  uint64_t height = (uint64_t)(bounds.bottom - bounds.top);
+  uint64_t length = width * height;
+  if (width > UINT32_MAX || height > UINT32_MAX || length > UINT32_MAX) {
+    analysis->lpVtbl->Release(analysis);
+    return false;
+  }
+  uint8_t *pixels = (uint8_t *)malloc((size_t)length);
+  if (!pixels) {
+    analysis->lpVtbl->Release(analysis);
+    return false;
+  }
+  hr = analysis->lpVtbl->CreateAlphaTexture(analysis,
+      DWRITE_TEXTURE_ALIASED_1x1, &bounds, pixels, (UINT32)length);
+  analysis->lpVtbl->Release(analysis);
+  if (FAILED(hr)) {
+    free(pixels);
+    return false;
+  }
+  NimculusGlyphRaster *raster = allocate_glyph_raster_slot();
+  raster->valid = true;
+  raster->glyph_id = glyph_id;
+  raster->font_size = font_size;
+  raster->scale = scale;
+  raster->subpixel_x = subpixel_x;
+  raster->subpixel_y = subpixel_y;
+  raster->bounds = bounds;
+  raster->length = (uint32_t)length;
+  raster->pixels = pixels;
+  raster->last_used = ++g_glyph_raster_clock;
   return true;
 }
 
@@ -1917,6 +2102,8 @@ bool nimculus_platform_run(void) {
     }
   }
   release_device();
+  release_glyph_raster_cache();
+  release_glyph_font_face();
   release_editor_text_format();
   if (g_d2d_factory) {
     g_d2d_factory->lpVtbl->Release(g_d2d_factory);
@@ -1973,6 +2160,16 @@ bool nimculus_platform_validate_text_format_cache(void) {
 
 bool nimculus_platform_validate_glyph_raster_interface(void) {
   return ensure_directwrite_factory() && g_dwrite_factory2 != NULL;
+}
+
+bool nimculus_platform_validate_glyph_raster_cache(void) {
+  double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+  uint64_t hits_before = g_glyph_raster_hit_count;
+  if (!rasterize_glyph_for_cache('A', (float)g_editor_font_size, scale, 0, 0))
+    return false;
+  if (!rasterize_glyph_for_cache('A', (float)g_editor_font_size, scale, 0, 0))
+    return false;
+  return g_glyph_raster_hit_count > hits_before;
 }
 
 uint64_t nimculus_platform_input_count(void) { return g_input_count; }
@@ -2032,6 +2229,7 @@ void nimculus_platform_set_editor_font_size(double size) {
   if (size < 6.0) size = 6.0;
   if (size > 48.0) size = 48.0;
   g_editor_font_size = size;
+  release_glyph_raster_cache();
   release_editor_text_format();
   if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
@@ -2044,6 +2242,7 @@ void nimculus_platform_set_editor_font_name(const char *name) {
   wide[LF_FACESIZE - 1] = L'\0';
   wcsncpy(g_editor_font_name, wide, LF_FACESIZE - 1);
   g_editor_font_name[LF_FACESIZE - 1] = L'\0';
+  release_glyph_raster_cache();
   release_editor_text_format();
   if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
