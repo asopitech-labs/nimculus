@@ -18,6 +18,11 @@ jobs:
         working-directory: ci
       - name: Build
         run: nimble build
+      - name: macOS bundle cold-start smoke
+        run: |
+          NIMCULUS_COLD_START_RUNS=1 \
+          NIMCULUS_COLD_START_TIMEOUT_SECONDS=30 \
+          bash scripts/benchmark_cold_start.sh
       - name: Compile portable platform boundary
         run: |
           nim c --compileOnly --os:linux --mm:arc --nimcache="$RUNNER_TEMP/nimculus-linux-compile" --path:src src/nimculus/main.nim

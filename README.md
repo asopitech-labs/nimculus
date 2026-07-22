@@ -18,8 +18,10 @@ nimble benchmark
 ```
 
 macOSの実アプリ起動から初回ready/idle到達までを測る場合は、専用の一時
-ビルドとHOMEを使う次の計測を実行する。GUIセッションが利用できるApple
-Silicon macOSで実行すること。
+`.app` bundle、ビルドキャッシュ、HOMEを使う次の計測を実行する。raw
+executableを`NIMCULUS_BINARY`で指定した場合も、LaunchServicesのbundle
+ライフサイクルを再現する一時`.app`へ包んで起動する。GUIセッションが利用
+できるApple Silicon macOSで実行すること。
 
 ```sh
 bash scripts/benchmark_cold_start.sh

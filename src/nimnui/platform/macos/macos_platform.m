@@ -3236,6 +3236,13 @@ void nimculus_platform_show_save_panel_and_close_tab(void) {
 }
 void nimculus_platform_confirm_quit(void);
 void nimculus_platform_request_quit(void) {
+  // Automated lifecycle probes and a normal quit with no dirty documents do
+  // not need an unsaved-changes sheet. Zed's application-level quit path
+  // likewise only enters confirmation when there is state to protect.
+  if (!g_editor_dirty) {
+    nimculus_platform_confirm_quit();
+    return;
+  }
   g_close_decision = NO;
   NSAlert *alert = [[NSAlert alloc] init];
   alert.messageText = @"Unsaved Changes";

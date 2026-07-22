@@ -56,7 +56,13 @@ when defined(macosx) or defined(windows):
     let elapsedMs = (epochTime() - coldStartBenchmarkStartedAt) * 1000.0
     echo "cold_start\t", formatFloat(elapsedMs, ffDecimal, 3),
       "\tmilliseconds\tready=1"
-    platformRequestQuit()
+    when defined(macosx):
+      # The probe never edits a document, so bypass the user-facing dirty
+      # confirmation sheet and exercise the actual application termination
+      # path directly.
+      platformConfirmQuit()
+    else:
+      platformRequestQuit()
     true
 
   proc pollSoakBenchmark(): bool =
@@ -75,7 +81,10 @@ when defined(macosx) or defined(windows):
       soakBenchmarkPending = false
       echo "soak_complete\t", formatFloat(now - soakBenchmarkStartedAt, ffDecimal, 3),
         "\tseconds\tsamples=ready"
-      platformRequestQuit()
+      when defined(macosx):
+        platformConfirmQuit()
+      else:
+        platformRequestQuit()
       return true
     false
 
@@ -1222,7 +1231,10 @@ proc openActiveWorkspace(path: string) =
 
 proc refreshWorkspacePreview() =
   when defined(macosx) or defined(windows):
-    if activeWorkspace == nil: return
+    # Workspace opening can refresh the preview while the platform-specific
+    # settings store is still being constructed. Keep that boundary safe, but
+    # initialize settings before the first normal workspace refresh below.
+    if activeWorkspace == nil or appSettings == nil: return
     workspacePreviewMode = "tree"
     workspacePreviewEntries.setLen(0)
     var lines = @["Workspace: " & activeWorkspace.root]
@@ -3122,14 +3134,17 @@ when isMainModule:
     let initialRoot = if editorSession.workspaceRoots.len > 0:
       editorSession.workspaceRoots[0]
     else: getCurrentDir()
+    # The workspace preview resolves file icons through SettingsStore. Build
+    # the settings layer before opening the workspace so the first refresh is
+    # identical to subsequent root changes.
+    appSettings = newSettingsStore(settingsFilePath,
+      initialRoot / ".nimculus" / "settings.json")
     openActiveWorkspace(if dirExists(initialRoot): initialRoot else: getCurrentDir())
     if editorSession.workspaceRoots.len > 1:
       for root in editorSession.workspaceRoots[1 .. ^1]:
         if dirExists(root): activeWorkspace.addRoot(root)
       activeWorkspace.startWatching()
       refreshWorkspacePreview()
-    appSettings = newSettingsStore(settingsFilePath,
-      initialRoot / ".nimculus" / "settings.json")
     applySettingsKeymap()
     applySettingsTheme()
     let outline = "Outline\n────────\nNo symbols"

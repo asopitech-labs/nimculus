@@ -43,6 +43,30 @@ PID-scoped temporary cache and removes it after repeated runs.
 The launcher applies a positive timeout to every child process so a failed GUI
 startup cannot leave a benchmark or CI job running indefinitely.
 
+The cold-start launcher creates a minimal `.app` bundle before starting the
+executable. A raw executable does not provide the LaunchServices bundle
+identity that AppKit uses for the normal application lifecycle, which can
+leave a direct developer launch without a reliable finish/terminate sequence.
+The probe now measures the same bundle boundary as distribution, and a
+provided raw binary is wrapped in that temporary bundle as well.
+
+## M5-013: Initialize macOS settings before the first workspace preview
+
+The first macOS workspace open refreshes the preview and resolves file icons
+through `SettingsStore`. Initializing the workspace before the settings store
+caused a reproducible nil dereference during cold start. The application now
+constructs the global/workspace settings layer before opening the workspace,
+and the preview boundary remains safe while settings are unavailable during
+future reconfiguration.
+
+## M20-011: Quit lifecycle probes without a dirty-document confirmation
+
+Cold-start and soak probes do not edit a document. They therefore use the
+platform's confirmed termination entry point directly, while normal Cmd+Q
+continues through the dirty-document confirmation path. This prevents a
+benchmark from presenting a user modal and makes its timeout a real startup
+failure rather than an unattended dialog.
+
 ## M20-009: Report live allocation blocks with explicit platform limits
 
 Zed's allocator and profiler boundaries distinguish process-level memory from
