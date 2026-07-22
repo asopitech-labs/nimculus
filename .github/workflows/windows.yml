@@ -24,6 +24,9 @@ jobs:
       - name: Test workspace watcher integration
         shell: pwsh
         run: nim c --mm:arc --path:src -r tests/test_workspace_watcher.nim
+      - name: Test Windows platform contract
+        shell: pwsh
+        run: nim c --mm:arc --path:src -r tests/test_windows_platform_contract.nim
       - name: Build and package Windows application
         shell: pwsh
         run: .\scripts\package_windows.ps1 -Version 0.1.0

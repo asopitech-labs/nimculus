@@ -77,6 +77,16 @@ DMG. The same checks run again after notarization rebuilds the containers, so
 an apparently successful signing step cannot publish a truncated or invalid
 distribution artifact.
 
+## M13-053: Run the Windows native contract test on the Windows runner
+
+The macOS workflow can only compile the Windows portable boundary because it
+does not have the Windows SDK. The Windows workflow now compiles and runs a
+native platform contract test before packaging. It checks the shared ABI
+sizes, DPI/frame metric shape, resident/live-allocation counters, and input
+counter monotonicity. A missing native symbol or incorrect C/Nim declaration
+therefore fails on the target runner instead of being hidden by a portable
+no-op build.
+
 ## M6-007: Exercise FSEvents through the main run loop in integration tests
 
 Zed's filesystem tests drive the platform watcher until events are delivered
