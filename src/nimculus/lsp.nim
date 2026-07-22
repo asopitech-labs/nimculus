@@ -141,6 +141,11 @@ type
     diagnostics: Table[string, seq[LspDiagnostic]]
     responses: Table[int, JsonNode]
 
+const
+  MaxLspFrameBytes* = 16 * 1024 * 1024
+  MaxLspHeaderBytes* = 64 * 1024
+  MaxLspMessagesPerPoll* = 128
+
 proc protocolError(message: string): ref LspProtocolError =
   newException(LspProtocolError, message)
 
@@ -171,14 +176,22 @@ proc parseContentLength(headers: string): int =
     found = true
   if not found: raise protocolError("missing Content-Length header")
 
-proc feed*(decoder: var LspFrameDecoder, bytes: string): seq[JsonNode] =
+proc feed*(decoder: var LspFrameDecoder, bytes: string,
+           maxMessages = MaxLspMessagesPerPoll): seq[JsonNode] =
   ## Consume as many complete LSP frames as available. Partial headers and
-  ## partial UTF-8 JSON bodies remain buffered for the next read.
+  ## partial UTF-8 JSON bodies remain buffered for the next read. The message
+  ## limit keeps a burst from monopolizing the foreground poll.
   decoder.buffer.add(bytes)
   while true:
+    if result.len >= max(1, maxMessages): break
     let headerEnd = decoder.buffer.find("\r\n\r\n")
-    if headerEnd < 0: break
+    if headerEnd < 0:
+      if decoder.buffer.len > MaxLspHeaderBytes:
+        raise protocolError("LSP headers exceed the maximum size")
+      break
     let bodyLength = parseContentLength(decoder.buffer[0 ..< headerEnd])
+    if bodyLength > MaxLspFrameBytes:
+      raise protocolError("LSP frame exceeds the maximum size")
     let bodyStart = headerEnd + 4
     if decoder.buffer.len - bodyStart < bodyLength: break
     let bodyEnd = bodyStart + bodyLength
@@ -187,8 +200,10 @@ proc feed*(decoder: var LspFrameDecoder, bytes: string): seq[JsonNode] =
       result.add(parseJson(body))
     except JsonParsingError as error:
       raise protocolError("invalid JSON-RPC body: " & error.msg)
-    decoder.buffer = decoder.buffer[bodyEnd .. ^1]
-    if decoder.buffer.len == 0: break
+    if bodyEnd == decoder.buffer.len:
+      decoder.buffer.setLen(0)
+    else:
+      decoder.buffer = decoder.buffer[bodyEnd .. ^1]
 
 proc initLspRequestTracker*(): LspRequestTracker =
   LspRequestTracker(nextId: 1, nextGeneration: 0,
@@ -633,6 +648,11 @@ proc readMessages*(client: LspProcess): seq[JsonNode] =
   ## Call this from the app's worker/event task, never from the rendering
   ## callback; the decoder itself remains incremental and non-lossy.
   if client == nil or client.process == nil or client.state != lspRunning: return
+  ## Decode frames retained from an earlier bounded poll before reading more
+  ## stdout. This is the foreground side of the same backpressure boundary as
+  ## Zed's capped incoming LSP message channel.
+  result.add(client.decoder.feed("", MaxLspMessagesPerPoll))
+  if result.len >= MaxLspMessagesPerPoll: return
   ## A pipe read is allowed to block until the requested buffer is filled on
   ## some platforms. Wait for readiness first so a short LSP response is not
   ## held hostage by the 4 KiB scratch buffer.
@@ -670,12 +690,13 @@ proc readMessages*(client: LspProcess): seq[JsonNode] =
         client.state = lspFailed
         break
     if chunk.len > 0:
-      result.add(client.decoder.feed(chunk))
+      result.add(client.decoder.feed(chunk, MaxLspMessagesPerPoll - result.len))
   else:
     # Non-POSIX builds retain the portable stream path. The macOS-first
     # implementation above is the non-blocking path used by Nimculus today.
     let chunk = client.output.readStr(1)
-    if chunk.len > 0: result.add(client.decoder.feed(chunk))
+    if chunk.len > 0:
+      result.add(client.decoder.feed(chunk, MaxLspMessagesPerPoll - result.len))
 
 proc stop*(client: LspProcess, terminate = true): int =
   if client == nil or client.process == nil: return -1

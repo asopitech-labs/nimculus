@@ -197,6 +197,16 @@ NimNUI owns a `CAMetalLayer` through its macOS view. Drawable size is derived
 from the backing scale factor during layout, so logical points and drawable
 pixels remain distinct for Retina displays.
 
+## M8-002: Bound LSP frames and foreground message bursts
+
+Zed's LSP stdout handler caps the incoming message channel at 128 entries so
+that a slow foreground consumer applies backpressure to the language server
+instead of accumulating notifications without limit. Nimculus now retains
+unconsumed complete frames in the incremental decoder, processes at most 128
+per poll, and rejects headers larger than 64 KiB or frames larger than 16 MiB.
+These limits bound malformed-server memory use while preserving partial-frame
+and multi-frame protocol behavior.
+
 ## M8-001: Make LSP framing byte-accurate and generation-aware
 
 The LSP foundation encodes `Content-Length` from the UTF-8 byte length of the

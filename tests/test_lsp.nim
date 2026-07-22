@@ -26,6 +26,28 @@ suite "M8 LSP protocol foundation":
     expect LspProtocolError:
       discard decoder.feed("Content-Length: nope\r\n\r\n{}")
 
+  test "rejects oversized frames and headers":
+    var frameDecoder: LspFrameDecoder
+    expect LspProtocolError:
+      discard frameDecoder.feed("Content-Length: " & $(MaxLspFrameBytes + 1) &
+        "\r\n\r\n")
+    var headerDecoder: LspFrameDecoder
+    expect LspProtocolError:
+      discard headerDecoder.feed("X-Header: " & repeat('x', MaxLspHeaderBytes) &
+        "\r\n")
+
+  test "limits decoded messages per poll while retaining the remainder":
+    var decoder: LspFrameDecoder
+    var payload = ""
+    for index in 0 ..< (MaxLspMessagesPerPoll + 3):
+      payload.add(encodeLspMessage(%*{"jsonrpc": "2.0", "id": index, "result": true}))
+    let first = decoder.feed(payload)
+    check first.len == MaxLspMessagesPerPoll
+    check decoder.buffer.len > 0
+    let second = decoder.feed("")
+    check second.len == 3
+    check decoder.buffer.len == 0
+
   test "drops cancelled and stale responses":
     var tracker = initLspRequestTracker()
     let first = tracker.beginRequest("textDocument/completion")
