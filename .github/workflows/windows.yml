@@ -15,11 +15,14 @@ jobs:
         shell: pwsh
         run: |
           choco install nim -y --no-progress
-          $nimRoot = Join-Path $env:ChocolateyInstall "lib\nim"
-          $nimble = Get-ChildItem -Path $nimRoot -Filter nimble.exe -Recurse -File |
+          $nimRoots = @("C:\tools\Nim")
+          if (-not [string]::IsNullOrWhiteSpace($env:ChocolateyToolsLocation)) {
+            $nimRoots += Join-Path $env:ChocolateyToolsLocation "Nim"
+          }
+          $nimble = Get-ChildItem -Path $nimRoots -Filter nimble.exe -Recurse -File |
             Select-Object -First 1
           if ($null -eq $nimble) {
-            throw "nimble.exe was not found under $nimRoot"
+            throw "nimble.exe was not found under $($nimRoots -join ', ')"
           }
           $nimble.Directory.FullName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           (Join-Path $env:USERPROFILE ".nimble\bin") |

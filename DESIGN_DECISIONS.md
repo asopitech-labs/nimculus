@@ -910,8 +910,9 @@ portable or release build. A local-only grammar checkout must not be required
 for package smoke tests.
 
 The Windows runner installs Nim through Chocolatey. The setup step locates the
-installed `nimble.exe` under Chocolatey's Nim package directory and appends
-that directory, plus the user Nimble bin directory, to `GITHUB_PATH` because
+installed `nimble.exe` under Chocolatey's tools directory (`C:\tools\Nim` on
+the hosted runner) and appends that directory, plus the user Nimble bin
+directory, to `GITHUB_PATH` because
 Chocolatey's environment changes are not automatically visible to later GitHub
 Actions steps.
 
