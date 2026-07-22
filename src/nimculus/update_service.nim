@@ -192,7 +192,7 @@ proc installMacosDmgUpdate*(downloadedDmg, runningAppPath, temporaryDirectory: s
     createDir(temporaryDirectory)
     createDir(mountRoot)
     let attach = startProcess("hdiutil", args = ["attach", "-nobrowse",
-      "-mountroot", temporaryDirectory, downloadedDmg],
+      "-mountroot", mountRoot, downloadedDmg],
       options = {poUsePath, poStdErrToStdOut})
     discard attach.outputStream.readAll()
     mounted = attach.waitForExit() == 0
@@ -214,3 +214,9 @@ proc installMacosDmgUpdate*(downloadedDmg, runningAppPath, temporaryDirectory: s
         discard detach.waitForExit()
         detach.close()
       except CatchableError: discard
+    try:
+      if dirExists(mountRoot): removeDir(mountRoot)
+    except CatchableError: discard
+    try:
+      if fileExists(downloadedDmg): removeFile(downloadedDmg)
+    except CatchableError: discard

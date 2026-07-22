@@ -9,6 +9,16 @@ and removes an oversized file, and repeats the size check before SHA-256
 verification. This prevents a malformed or compromised update endpoint from
 consuming unbounded disk space.
 
+## M11-007: Keep the macOS mount point and cleanup boundary exact
+
+Zed passes the installer directory used by `hdiutil` as the mount root and
+always awaits unmounting before its temporary installer directory is removed.
+Nimculus now passes `NimculusUpdateMount` consistently to `hdiutil`, verifies
+the app at that exact mount point, detaches that same point, removes the mount
+directory, and removes the consumed DMG in a `finally` cleanup path. This
+avoids verifying one path while detaching another and prevents stale update
+artifacts from accumulating in the temporary directory.
+
 ## M9-006: Bound Git process output before it reaches UI state
 
 Zed compresses large commit diffs for presentation and applies explicit

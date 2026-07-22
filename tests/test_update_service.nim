@@ -38,3 +38,12 @@ suite "M11 update service":
       getTempDir() / "nimculus-update-job-invalid")
     check invalidJob.done
     check not invalidJob.success
+
+  test "rejects an invalid install target without touching the artifact":
+    let artifact = getTempDir() / "nimculus-update-invalid-install.dmg"
+    writeFile(artifact, "not a disk image")
+    defer:
+      if fileExists(artifact): removeFile(artifact)
+    check not installMacosDmgUpdate(artifact, getTempDir() / "missing-nimculus.app",
+      getTempDir() / "nimculus-update-test")
+    check fileExists(artifact)
