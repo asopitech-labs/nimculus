@@ -4,6 +4,7 @@
 #include <d3dcompiler.h>
 #include <d2d1.h>
 #include <dwrite.h>
+#include <dwrite_2.h>
 #include <dxgi.h>
 #include <commdlg.h>
 #include <imm.h>
@@ -3031,6 +3032,54 @@ bool nimculus_platform_validate_glyph_fallback_shaping(void) {
   }
   free_shaped_run(indices, offsets, advances);
   if (font_face) font_face->lpVtbl->Release(font_face);
+  return valid;
+}
+
+bool nimculus_platform_validate_color_glyph_path(void) {
+  static const wchar_t sample[] = {0xd83d, 0xde00};
+  UINT32 mapped_length = 0;
+  FLOAT fallback_scale = 1.0f;
+  IDWriteFontFace *font_face = map_fallback_font(sample, 2,
+      &mapped_length, &fallback_scale);
+  if (!font_face || mapped_length != 2) {
+    if (font_face) font_face->lpVtbl->Release(font_face);
+    return false;
+  }
+  UINT32 codepoint = 0x1f600;
+  UINT16 glyph_id = 0;
+  HRESULT hr = font_face->lpVtbl->GetGlyphIndices(font_face, &codepoint, 1,
+      &glyph_id);
+  bool valid = SUCCEEDED(hr) && glyph_id != 0 && ensure_directwrite_factory();
+  IDWriteColorGlyphRunEnumerator *enumerator = NULL;
+  if (valid) {
+    FLOAT advance = glyph_advance_pixels(font_face, glyph_id,
+        (float)g_editor_font_size * fallback_scale,
+        g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0);
+    DWRITE_GLYPH_OFFSET offset = {0.0f, 0.0f};
+    DWRITE_GLYPH_RUN run;
+    ZeroMemory(&run, sizeof(run));
+    run.fontFace = font_face;
+    run.fontEmSize = (FLOAT)g_editor_font_size * fallback_scale;
+    run.glyphCount = 1;
+    run.glyphIndices = &glyph_id;
+    run.glyphAdvances = &advance;
+    run.glyphOffsets = &offset;
+    hr = g_dwrite_factory2->lpVtbl->TranslateColorGlyphRun(
+        g_dwrite_factory2, 0.0f, 0.0f, &run, NULL,
+        DWRITE_MEASURING_MODE_NATURAL, NULL, 0, &enumerator);
+    if (hr == DWRITE_E_NOCOLOR) {
+      /* The platform has no color face for this glyph; D2D remains the
+       * documented fallback and this is still a valid non-color path. */
+      valid = true;
+    } else if (SUCCEEDED(hr) && enumerator) {
+      BOOL has_run = FALSE;
+      valid = SUCCEEDED(enumerator->lpVtbl->MoveNext(enumerator, &has_run));
+    } else {
+      valid = false;
+    }
+  }
+  if (enumerator) enumerator->lpVtbl->Release(enumerator);
+  font_face->lpVtbl->Release(font_face);
   return valid;
 }
 

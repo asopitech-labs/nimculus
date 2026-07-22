@@ -2231,3 +2231,16 @@ The frame path extends the same rule to mixed lines: it advances through
 keeps the run's font face attached to every raster-cache lookup. This avoids
 using a primary-font glyph cache entry for a fallback outline and avoids the
 horizontal drift that would result from treating a mixed line as one font.
+
+## M13-060: Keep Windows color glyphs on the color-capable DirectWrite path
+
+The monochrome atlas is `R8_UNORM`, so color emoji must not be rasterized into
+it. Following Zed's `TranslateColorGlyphRun` path, the Windows backend now
+constructs a surrogate-pair glyph run for the emoji fallback face and asks
+`IDWriteFactory2::TranslateColorGlyphRun` whether color layers are available.
+The contract accepts `DWRITE_E_NOCOLOR` because the installed fallback font may
+not contain a color face; when an enumerator is returned, it must be safely
+enumerable. The visible editor remains on DirectWrite/D2D for that run, which
+preserves color. Conversion of COLR/PNG/SVG layers into a dedicated RGBA GPU
+atlas is still tracked separately rather than discarding color information in
+the R8 atlas.

@@ -52,6 +52,8 @@ when defined(windows):
       check platformValidateGlyphFallback()
     test "DirectWrite system fallback shapes a Japanese glyph run":
       check platformValidateGlyphFallbackShaping()
+    test "DirectWrite color glyph translation path is safe":
+      check platformValidateColorGlyphPath()
 
     test "D3D11 glyph atlas uploads and reuses a cached tile":
       if platformValidateNative():
