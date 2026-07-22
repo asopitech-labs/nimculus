@@ -18,6 +18,7 @@ jobs:
       - name: Install Nim dependencies
         shell: pwsh
         run: nimble install --depsOnly -y
+        working-directory: ci
       - name: Test ConPTY integration
         shell: pwsh
         run: nim c --mm:arc --path:src -r tests/test_windows_terminal.nim

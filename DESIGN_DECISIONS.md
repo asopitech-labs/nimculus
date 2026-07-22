@@ -103,9 +103,10 @@ boundary.
 
 `nimble install` may build the current package in a temporary dependency tree.
 That breaks this repository's `nimble.workspace` source layout because the
-temporary tree does not contain the sibling `nimnui` package. CI and packaging
-therefore use `nimble install -y --depsOnly`; the project itself is compiled by
-the explicit build step.
+temporary tree does not contain the sibling `nimnui` package. CI and Windows
+packaging therefore run `nimble install --depsOnly -y` from the standalone
+`ci/dependencies.nimble` manifest; the project itself is compiled by the
+explicit build step.
 
 ## M13-053: Run the Windows native contract test on the Windows runner
 

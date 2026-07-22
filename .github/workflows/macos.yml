@@ -13,6 +13,7 @@ jobs:
         run: brew install nim
       - name: Install Nim dependencies
         run: nimble install --depsOnly -y
+        working-directory: ci
       - name: Build
         run: nimble build
       - name: Compile portable platform boundary

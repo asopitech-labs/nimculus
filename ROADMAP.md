@@ -441,7 +441,7 @@ Windowsの固定幅エディタ入力では、画面上の列をUTF-8 byte offse
 
 **配布検証追加：** Windows CIで生成したInno Setup installerをrunner上へsilent installし、exe/uninstallerの存在とsilent uninstall後のディレクトリ削除を確認する。
 
-**CI依存関係境界：** Nimble workspaceを一時インストールツリーで再ビルドしないよう、macOS/Windows CIとWindows packaging scriptの依存関係導入は`nimble install -y --depsOnly`を使用し、ビルドは後続の明示的な`nimble build`または`nim c`で行う。
+**CI依存関係境界：** Nimble workspaceを一時インストールツリーで再ビルドしないよう、macOS/Windows CIとWindows packaging scriptは`ci/dependencies.nimble`から`nimble install --depsOnly -y`を実行し、ビルドは後続の明示的な`nimble build`または`nim c`で行う。
 
 **完了条件：** 主要機能、日本語 IME、ConPTY、Windows インストーラーが動作し、macOS 固有コードがコアへ漏れない。
 
