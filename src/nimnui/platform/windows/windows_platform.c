@@ -2325,6 +2325,45 @@ static bool is_rtl_codepoint(uint32_t codepoint) {
       (codepoint >= 0x10800 && codepoint <= 0x10fff);
 }
 
+static bool text_contains_rtl(const wchar_t *text, uint32_t length) {
+  if (!text) return false;
+  for (uint32_t index = 0; index < length; ++index) {
+    uint32_t codepoint = (uint32_t)text[index];
+    if (codepoint >= 0xd800 && codepoint <= 0xdbff && index + 1 < length &&
+        text[index + 1] >= 0xdc00 && text[index + 1] <= 0xdfff) {
+      codepoint = 0x10000 + ((codepoint - 0xd800) << 10) +
+          ((uint32_t)text[index + 1] - 0xdc00);
+      index++;
+    }
+    if (is_rtl_codepoint(codepoint)) return true;
+  }
+  return false;
+}
+
+static bool is_color_glyph_candidate(uint32_t codepoint) {
+  return (codepoint >= 0x2300 && codepoint <= 0x27ff) ||
+      (codepoint >= 0x2b00 && codepoint <= 0x2bff) ||
+      (codepoint >= 0x1f000 && codepoint <= 0x1faff);
+}
+
+static bool glyph_cluster_has_color_candidate(const wchar_t *text,
+                                               uint32_t text_length,
+                                               const UINT16 *cluster_map,
+                                               uint32_t glyph_index) {
+  if (!text || !cluster_map) return false;
+  for (uint32_t index = 0; index < text_length; ++index) {
+    if (cluster_map[index] != glyph_index) continue;
+    uint32_t codepoint = (uint32_t)text[index];
+    if (codepoint >= 0xd800 && codepoint <= 0xdbff && index + 1 < text_length &&
+        text[index + 1] >= 0xdc00 && text[index + 1] <= 0xdfff) {
+      codepoint = 0x10000 + ((codepoint - 0xd800) << 10) +
+          ((uint32_t)text[index + 1] - 0xdc00);
+    }
+    if (is_color_glyph_candidate(codepoint)) return true;
+  }
+  return false;
+}
+
 static bool editor_text_is_plain_ascii(void) {
   if (!g_editor_text || g_editor_text_length <= 0 ||
       g_editor_highlight_count != 0 || g_editor_composition_length != 0 ||
@@ -2355,11 +2394,13 @@ static bool shape_run_with_font(const wchar_t *text, uint32_t text_length,
                                 const wchar_t *locale, float font_size,
                                 UINT16 **glyph_indices,
                                 DWRITE_GLYPH_OFFSET **offsets,
-                                FLOAT **advances, uint32_t *glyph_count) {
+                                FLOAT **advances, uint32_t *glyph_count,
+                                UINT16 **cluster_map_out) {
   if (!text || text_length == 0 || !glyph_indices || !offsets || !advances ||
       !glyph_count || !font_face || !ensure_directwrite_factory() ||
       !g_dwrite_analyzer)
     return false;
+  if (text_contains_rtl(text, text_length)) return false;
   uint32_t max_glyphs = text_length * 2 + 16;
   if (max_glyphs > 8192) max_glyphs = 8192;
   UINT16 *cluster_map = (UINT16 *)calloc(text_length, sizeof(UINT16));
@@ -2410,13 +2451,15 @@ static bool shape_run_with_font(const wchar_t *text, uint32_t text_length,
         actual_glyphs, font_face, font_size, FALSE, FALSE, &script, locale,
         NULL, NULL, 0, glyph_advances, glyph_offsets);
   }
-  free(cluster_map);
   free(text_props);
   free(glyph_props);
   if (FAILED(hr) || actual_glyphs == 0) {
+    free(cluster_map);
     free(indices); free(glyph_advances); free(glyph_offsets);
     return false;
   }
+  if (cluster_map_out) *cluster_map_out = cluster_map;
+  else free(cluster_map);
   *glyph_indices = indices;
   *advances = glyph_advances;
   *offsets = glyph_offsets;
@@ -2434,7 +2477,8 @@ static bool shape_ascii_run(const wchar_t *text, uint32_t text_length,
   IDWriteFontFace *font_face = ensure_glyph_font_face();
   if (!font_face) return false;
   return shape_run_with_font(text, text_length, font_face, L"en-us",
-      (FLOAT)g_editor_font_size, glyph_indices, offsets, advances, glyph_count);
+      (FLOAT)g_editor_font_size, glyph_indices, offsets, advances, glyph_count,
+      NULL);
 }
 
 static bool shape_fallback_run(const wchar_t *text, uint32_t text_length,
@@ -2454,7 +2498,7 @@ static bool shape_fallback_run(const wchar_t *text, uint32_t text_length,
   }
   FLOAT mapped_size = (FLOAT)g_editor_font_size * fallback_scale;
   bool shaped = shape_run_with_font(text, text_length, fallback, L"ja-jp",
-      mapped_size, glyph_indices, offsets, advances, glyph_count);
+      mapped_size, glyph_indices, offsets, advances, glyph_count, NULL);
   if (!shaped) {
     fallback->lpVtbl->Release(fallback);
     return false;
@@ -2585,22 +2629,15 @@ static bool draw_mapped_shaped_runs(const wchar_t *text, uint32_t text_length,
     UINT16 *indices = NULL;
     DWRITE_GLYPH_OFFSET *offsets = NULL;
     FLOAT *advances = NULL;
+    UINT16 *cluster_map = NULL;
     uint32_t glyph_count = 0;
     bool shaped = shape_run_with_font(text + offset, mapped_length, font_face,
         L"ja-jp", run_font_size, &indices, &offsets, &advances,
-        &glyph_count);
+        &glyph_count, &cluster_map);
     if (!shaped) {
       font_face->lpVtbl->Release(font_face);
       free_shaped_run(indices, offsets, advances);
       return false;
-    }
-    bool run_has_surrogate = false;
-    for (uint32_t text_index = 0; text_index < mapped_length; ++text_index) {
-      if (text[offset + text_index] >= 0xd800 &&
-          text[offset + text_index] <= 0xdfff) {
-        run_has_surrogate = true;
-        break;
-      }
     }
     for (uint32_t index = 0; index < glyph_count; ++index) {
       UINT16 glyph_id = indices[index];
@@ -2608,7 +2645,9 @@ static bool draw_mapped_shaped_runs(const wchar_t *text, uint32_t text_length,
           offsets[index].advanceOffset * scale);
       bool rendered_color = false;
       bool color_prepared = false;
-      if (run_has_surrogate) {
+      bool color_candidate = glyph_cluster_has_color_candidate(text + offset,
+          mapped_length, cluster_map, index);
+      if (color_candidate) {
         color_prepared = rasterize_color_glyph_for_cache(font_face, glyph_id,
             run_font_size, scale, subpixel_x, subpixel_y);
         if (!color_prepared) {
@@ -2624,7 +2663,7 @@ static bool draw_mapped_shaped_runs(const wchar_t *text, uint32_t text_length,
               glyph_id, run_font_size, scale, subpixel_x, subpixel_y);
         }
       }
-      if (run_has_surrogate && color_prepared) {
+      if (color_candidate && color_prepared) {
         NimculusColorGlyphRaster *color = find_color_glyph_raster(font_face,
             glyph_id, run_font_size, scale, subpixel_x, subpixel_y);
         if (color && upload_color_glyph_to_atlas(color)) {
@@ -2636,7 +2675,7 @@ static bool draw_mapped_shaped_runs(const wchar_t *text, uint32_t text_length,
           rendered = true;
         }
       }
-      if (!rendered_color && !run_has_surrogate &&
+      if (!rendered_color &&
           rasterize_glyph_id_for_cache(font_face, glyph_id, run_font_size,
                                        scale, subpixel_x, subpixel_y)) {
         NimculusGlyphRaster *raster = cached_glyph_for_id(font_face, glyph_id,
@@ -2651,6 +2690,7 @@ static bool draw_mapped_shaped_runs(const wchar_t *text, uint32_t text_length,
       }
       *pen_x += advances[index] * scale;
     }
+    free(cluster_map);
     free_shaped_run(indices, offsets, advances);
     font_face->lpVtbl->Release(font_face);
     offset += mapped_length;
@@ -2743,7 +2783,9 @@ static bool draw_glyph_atlas_sprites(void) {
       } else if (!draw_mapped_shaped_runs(line_start,
                   (uint32_t)(line_end - line_start), &pen_x, baseline,
                   subpixel_y, left, top, right, bottom, width, height,
-                  (float)scale, &drawn)) {
+                  (float)scale, &drawn) &&
+                 !text_contains_rtl(line_start,
+                     (uint32_t)(line_end - line_start))) {
         for (const wchar_t *character = line_start; character < line_end;
              ++character) {
         uint32_t codepoint = (uint32_t)*character;

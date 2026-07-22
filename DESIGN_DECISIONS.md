@@ -2354,7 +2354,10 @@ Premultiplied BGRA32 is returned as raw pixels, so the backend converts BGRA
 premultiplied samples to straight-alpha RGBA before atlas upload and
 un-premultiplies only when alpha is nonzero. Bitmap color rasters use the same
 cache-hit contract as COLR rasters: a cached raster returns success without
-re-decoding or allocating a second atlas tile. The native contract test treats
+re-decoding or allocating a second atlas tile. The shaped fallback path keeps
+DirectWrite's UTF-16 cluster map and tests color candidates per glyph cluster,
+so a line mixing ordinary text and emoji cannot suppress the ordinary glyphs.
+RTL runs are left to DirectWrite/D2D, which owns bidi reordering. The native contract test treats
 an absent PNG, JPEG, or premultiplied glyph as a valid environment-dependent
 case, but validates decode/conversion, atlas upload, and tile metadata when the
 corresponding fallback is present.
