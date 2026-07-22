@@ -26,7 +26,8 @@ bash scripts/benchmark_cold_start.sh
 ```
 
 既存の実行ファイルを使う場合は `NIMCULUS_BINARY=/path/to/Nimculus`、
-反復回数は `NIMCULUS_COLD_START_RUNS=10` で指定できる。
+反復回数は `NIMCULUS_COLD_START_RUNS=10`、1回あたりのtimeoutは
+`NIMCULUS_COLD_START_TIMEOUT_SECONDS=30` で指定できる。
 
 M1 の最小縦切りは macOS ウィンドウ、`CAMetalLayer`、Metal の clear / rectangle 描画、Retina 対応、基本入力イベントログです。
 

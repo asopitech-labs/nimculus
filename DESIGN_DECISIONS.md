@@ -40,6 +40,9 @@ session/settings/workspace setup and native window initialization without
 altering normal launches. `scripts/benchmark_cold_start.sh` builds in a
 PID-scoped temporary cache and removes it after repeated runs.
 
+The launcher applies a positive timeout to every child process so a failed GUI
+startup cannot leave a benchmark or CI job running indefinitely.
+
 ## M6-007: Exercise FSEvents through the main run loop in integration tests
 
 Zed's filesystem tests drive the platform watcher until events are delivered
