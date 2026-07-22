@@ -15,6 +15,13 @@ suite "M10 terminal core":
     screen.feed("\x1b[2K")
     check screen.lineText(0) == ""
 
+  test "compacts scrollback in batches while retaining the newest rows":
+    var screen = initTerminalScreen(8, 1, 4)
+    screen.feed("1\r\n2\r\n3\r\n4\r\n5\r\n6")
+    check screen.scrollback.len <= 4
+    check screen.scrollback.len == 3
+    check screen.scrollback[0][0].text == "3"
+
   test "keeps UTF-8 glyphs in screen cells":
     var screen = initTerminalScreen(8, 1)
     screen.feed("日本語")

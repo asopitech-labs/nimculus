@@ -83,15 +83,30 @@ proc clearLine(screen: var TerminalScreen, row: int) =
   if row < 0 or row >= screen.lines.len: return
   screen.lines[row] = screen.blankRow()
 
+proc trimScrollback(screen: var TerminalScreen) =
+  ## Keep the public seq-backed history compatible while avoiding one
+  ## O(n) delete(0) for every line once the limit is reached. Retain a small
+  ## reserve below the limit and compact in batches, like a deque-backed
+  ## terminal history.
+  if screen.scrollbackLimit <= 0:
+    screen.scrollback.setLen(0)
+    return
+  if screen.scrollback.len <= screen.scrollbackLimit: return
+  let batch = min(256, max(1, screen.scrollbackLimit div 4))
+  let keep = max(0, screen.scrollbackLimit - batch)
+  if keep == 0:
+    screen.scrollback.setLen(0)
+  else:
+    let first = screen.scrollback.len - keep
+    screen.scrollback = screen.scrollback[first .. ^1]
+
 proc scrollRegionUp(screen: var TerminalScreen, amount = 1) =
   let count = max(1, amount)
   for _ in 0 ..< count:
     if screen.scrollTop == 0 and screen.scrollBottom == screen.rows - 1 and
         not screen.alternateScreen:
       screen.scrollback.add(screen.lines[screen.scrollTop])
-      if screen.scrollback.len > screen.scrollbackLimit:
-        for _ in 0 ..< screen.scrollback.len - screen.scrollbackLimit:
-          screen.scrollback.delete(0)
+      screen.trimScrollback()
     for row in screen.scrollTop ..< screen.scrollBottom:
       screen.lines[row] = screen.lines[row + 1]
     screen.lines[screen.scrollBottom] = screen.blankRow()
@@ -135,7 +150,10 @@ proc resize*(screen: var TerminalScreen, columns, rows: int) =
     for _ in screen.lines.len ..< nextRows: screen.lines.add(screen.blankRow())
   elif nextRows < screen.lines.len:
     let removed = screen.lines.len - nextRows
-    for _ in 0 ..< removed: screen.scrollback.add(screen.lines[0]); screen.lines.delete(0)
+    for _ in 0 ..< removed:
+      screen.scrollback.add(screen.lines[0])
+      screen.lines.delete(0)
+    screen.trimScrollback()
   screen.columns = nextColumns
   screen.rows = nextRows
   screen.scrollTop = min(screen.scrollTop, screen.rows - 1)

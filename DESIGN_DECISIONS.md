@@ -10,6 +10,15 @@ the coalesced event set. The next lazy tree/search operation rescans the
 affected path, which handles delete and rename events without retaining stale
 entries or requiring a full workspace enumeration.
 
+## M10-005: Compact scrollback in batches without changing its public shape
+
+Zed's terminal configuration passes an explicit maximum scroll history to a
+deque-backed terminal implementation. Nimculus already exposes a sequence for
+compatibility, so replacing the field type would be an unnecessary API break.
+Instead, history now retains the newest rows and compacts in batches below the
+configured limit. This keeps memory bounded and avoids repeatedly shifting the
+whole sequence with `delete(0)` during long-running terminal sessions.
+
 ## M10-004: Bound task output like terminal output
 
 Zed applies an explicit byte limit when exposing terminal output and preserves
