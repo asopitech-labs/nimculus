@@ -20,6 +20,12 @@
 
 WSL は Windows 版の完成後に着手する。macOS の完成度を下げて他プラットフォームを先行させない。
 
+この環境での当面の実装対象は macOS のみとする。M1〜M12 の macOS 完了条件、GUI
+実機検証、Apple Silicon 向け配布、Developer ID 署名、notarization、stapling、
+性能・安定性の受け入れ計測が完了するまで、Windows、WSL、Linux、SSH の新規実装や
+トライアンドエラーを開始しない。Windows 用コードのコンパイル確認がCIに残っていても、
+macOS完了の代替とはみなさない。
+
 ### 2.2 Apple Silicon を基準環境とする
 
 初期の実装・テスト・ベンチマーク・配布物は Apple Silicon macOS を基準にする。Intel macOS と Windows ARM64 は、v1.0 での需要を確認してから優先度を決める。
@@ -201,6 +207,10 @@ DAP は Nim、Rust、C/C++、Python を初期対象とし、launch、attach、br
 - Fuzz Test：編集、Undo/Redo、UTF-8 / UTF-16 / grapheme 変換、プロトコル
 - UI Gallery Test：レイアウト、フォーカス、スクロール、dirty 再描画
 - CI Test：Apple Silicon macOS を必須とし、対応 OS 追加後は各 OS の CI を追加する。Windows追加後はportable compileだけでなくnative platform contract、ConPTY、watcher、installer生成をWindows runnerで実行する
+
+macOSの受け入れ確認は、ヘッドレス契約テストだけで完了扱いにしない。GUIセッションを
+利用できるApple Silicon macOSで、ウィンドウ、Metal描画、リサイズ、Retina、入力、
+日本語IME、標準メニュー、ファイルダイアログ、PTY、長時間操作を実機確認する。
 
 ### 10.2 完了判定
 

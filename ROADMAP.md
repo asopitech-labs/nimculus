@@ -2,6 +2,10 @@
 
 ## 現在の進捗
 
+現在の実装対象は macOS のみとする。M1〜M12 の macOS 完了条件と M20 の macOS
+性能・安定性受け入れを完了するまで、M13以降のWindows/WSL/Linux/SSH実装は凍結する。
+Windows CIのportable compileや既存コードの検証結果は、macOSの完了判定に含めない。
+
 | マイルストーン | 状態 | 備考 |
 |---|---|---|
 | M0：モノレポ基盤 | ✅ 完了 | Apple Silicon のローカル build / test / benchmark / lint、およびmacOS CI（run 29635844053）を確認済み |
@@ -17,7 +21,7 @@
 | M10：macOSターミナル・タスク | 🟡 実装済み・GUI実機検証待ち | PTY、VT/ANSI、複数セッション、selection、kitty keyboard、task実行・cancel・problem matcher・output panelを実装。タスク出力は4 MiB上限・UTF-8/行境界切り詰め・切り詰め状態記録、scrollbackは上限内のバッチ圧縮に対応。長時間実機確認が残る |
 | M11：macOS配布基盤 | 🟡 実装済み・資格情報/実機検証待ち | `.app`、生成アイコン、署名、hardened runtime、ZIP/DMG、notarization/stapling、更新検証、crash reportを実装。Zedのbundle工程を参考に、ZIP/DMG生成直後とnotarization後の再生成時に非空検証と`hdiutil verify`を行う。notarytoolはkeychain profileまたはApp Store Connect API keyを優先し、従来のApple ID方式も後方互換で利用できる。更新成果物を1 GiBに制限し、`.part`へダウンロードしてサイズ/SHA-256検証後にdestinationへ移動、非同期中のサイズ超過を停止・削除、更新ツール出力を64 KiB上限の非ブロッキングrunnerで消費、DMGのmount root・検証対象・detach対象を一致させ、処理後にmount directory/DMGをcleanupする。adhoc署名による`.app`・icon・ZIP/DMGスモークは成功。Developer IDとApple資格情報による実行が残る |
 | M12：設定・テーマ・キーバインド | 🟡 実装済み・GUI実機検証待ち | 階層設定、schema、live reload、keymap、theme/icon theme、font・terminal・LSP設定、system appearance連動を実装。実機確認が残る |
-| M13：Windows対応 | 🟡 Win32/D3D11・clipboard/dialog/IME/font/drop/ConPTY/terminal/bundle/input基盤 | OS非依存ABIをC/Nim双方のcontractsへ分離し、Win32 window/message loop、per-monitor v2 DPI、D3D11 device/swap chain/clear-present、fullscreen復元、minimize/maximize/restore、共通NSEvent番号に対応したkeyboard/pointer/wheel/modifier/focus callback、Windows VKから共通key codeへの正規化、shortcut callback、client/screen座標境界とDPI logical point変換、mouse capture/leave/X button、Unicode clipboard、Open/Save file dialog、IMM32 composition/result/candidate position、font discovery、Unicode file drop、ConPTYライフサイクル、Windows terminal manager/overlay、ZIP/Inno Setup bundle工程、Windows ConPTY integration test、native platform contract test、native D3D11 GPU text smoke、設定依存のDirectWrite text format cache、IDWriteFactory2/4取得contract、DirectWrite analyzerによるplain ASCII shaped glyph run、R8 glyph atlas sprite描画、4分割subpixel x/y variant、DirectWrite system font fallbackによるBMP glyphの選択・raster・atlas描画、fallback fontを使った日本語shaped glyph run、mixed primary/fallback font run分割、COLR/PNG/JPEG/premultiplied BGRA32 RGBA atlas、Factory4 color format classification、RTL文字のDirectWrite/D2D委譲、Windows installer lifecycle smokeを追加。D3D11初期化失敗時は生成済みCOM資源を解放して起動失敗を返す。Factory4のSVGとBiDi glyph runのGPU atlas化、実Windows GUI操作検証は未完了 |
+| M13：Windows対応 | ⏸ macOS完了まで凍結 | macOS M0〜M12とM20の受け入れ完了後に再開する。既存Windows実装の追加拡張・トライアンドエラーは行わない |
 | M14：WSLリモート | ⚪ 未着手 | Windows版完了後にagent、remote file、LSP、Git、terminal、reconnectを実装する |
 | M15：Linux対応 | ⚪ 未着手 | WSL基盤の後にWayland優先、X11 fallback、IME、PTY、packagingを実装する |
 | M16：SSHリモート | ⚪ 未着手 | WSLプロトコルを一般化し、SSH agentとremote開発を実装する |
