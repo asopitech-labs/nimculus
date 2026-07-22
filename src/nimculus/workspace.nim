@@ -608,6 +608,9 @@ when defined(macosx) or defined(windows):
 
 proc stopWatching*(workspace: Workspace)
 
+proc isWatching*(workspace: Workspace): bool =
+  workspace != nil and workspace.watchers.len > 0
+
 proc startWatching*(workspace: Workspace) =
   when defined(macosx) or defined(windows):
     workspace.stopWatching()

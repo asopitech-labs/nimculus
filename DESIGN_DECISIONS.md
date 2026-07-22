@@ -40,6 +40,16 @@ session/settings/workspace setup and native window initialization without
 altering normal launches. `scripts/benchmark_cold_start.sh` builds in a
 PID-scoped temporary cache and removes it after repeated runs.
 
+## M6-007: Exercise FSEvents through the main run loop in integration tests
+
+Zed's filesystem tests drive the platform watcher until events are delivered
+and keep the watcher handle alive until the owning scope is torn down. The
+macOS FSEvents bridge schedules its stream on `CFRunLoopGetMain()`, so the
+Nimculus macOS integration test now pumps that run loop while waiting for
+create, rename, delete, and coalesced write events. Cleanup stops the watcher
+before removing the temporary root. This closes the gap where the primary
+macOS watcher had implementation code but only the Windows path was exercised.
+
 ## M11-006: Bound update artifacts before verification and installation
 
 Zed downloads update bodies in bounded chunks and verifies the completed

@@ -35,7 +35,8 @@ void *nimculus_start_workspace_watcher(const char *root, NimculusWorkspaceCallba
   FSEventStreamContext streamContext = {0, watcher, NULL, NULL, NULL};
   watcher->stream = FSEventStreamCreate(NULL, workspaceEventCallback, &streamContext,
     (__bridge CFArrayRef)paths, kFSEventStreamEventIdSinceNow, 0.2,
-    kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer);
+    kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer |
+      kFSEventStreamCreateFlagUseCFTypes);
   if (!watcher->stream) {
     free(watcher);
     return NULL;

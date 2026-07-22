@@ -28,5 +28,6 @@ references/zed/
 .nimcache/
 tests/test_*
 !tests/test_*.nim
+!tests/test_*.m
 tests/bench_*
 !tests/bench_*.nim
