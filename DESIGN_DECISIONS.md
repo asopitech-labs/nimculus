@@ -86,6 +86,11 @@ mouse or tracking event. The macOS input bridge now supplies keyCode only for
 keyDown, keyUp, and flagsChanged events, while pointer events use zero. This
 keeps tracking-area events safe during normal window-idle operation.
 
+The macOS platform contract also constructs real AppKit mouse and keyboard
+events and routes them through the input logger. This exercises the field
+access boundary without requiring Accessibility permission; the live
+MouseEntered/MouseExited callbacks continue to use the same non-keyboard path.
+
 ## M20-009: Report live allocation blocks with explicit platform limits
 
 Zed's allocator and profiler boundaries distinguish process-level memory from

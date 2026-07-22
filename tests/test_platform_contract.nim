@@ -46,6 +46,9 @@ suite "macOS platform contract":
     else:
       echo "  [SKIP] native Metal layer contract (no Metal device in this session)"
 
+  test "native input event fields are read only for supported event types":
+    check platformValidateInputEventFields()
+
   test "editor font settings drive a valid native line height":
     platformSetEditorFontName("Menlo")
     platformSetEditorFontSize(20.0)

@@ -2919,6 +2919,25 @@ bool nimculus_platform_validate_native(void) {
     layer.drawableSize.height == 800.0;
 }
 
+bool nimculus_platform_validate_input_event_fields(void) {
+  @autoreleasepool {
+    // AppKit's event factory only permits the mouse-movement mask here; the
+    // same non-keyboard field path is used by entered/exited tracking events.
+    NSEvent *mouseMoved = [NSEvent mouseEventWithType:NSEventTypeMouseMoved
+      location:NSMakePoint(32.0, 24.0) modifierFlags:0 timestamp:0.0
+      windowNumber:0 context:nil eventNumber:0 clickCount:0 pressure:0.0];
+    NSEvent *keyDown = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSMakePoint(32.0, 24.0) modifierFlags:0 timestamp:0.0
+      windowNumber:0 context:nil characters:@"a" charactersIgnoringModifiers:@"a"
+      isARepeat:NO keyCode:0];
+    if (!mouseMoved || !keyDown) return false;
+    uint64_t before = g_input_count;
+    logInput(@"validationMouseMoved", mouseMoved);
+    logInput(@"validationKeyDown", keyDown);
+    return g_input_count == before + 2;
+  }
+}
+
 bool nimculus_platform_validate_glyph_atlas(void) {
   id<MTLDevice> device = MTLCreateSystemDefaultDevice();
   if (!device) return false;
