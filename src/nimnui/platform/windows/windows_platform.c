@@ -1634,12 +1634,20 @@ static uint8_t quantized_subpixel(double position) {
   return (uint8_t)variant;
 }
 
+static bool is_rtl_codepoint(uint32_t codepoint) {
+  return (codepoint >= 0x0590 && codepoint <= 0x08ff) ||
+      (codepoint >= 0xfb1d && codepoint <= 0xfdff) ||
+      (codepoint >= 0xfe70 && codepoint <= 0xfeff) ||
+      (codepoint >= 0x10800 && codepoint <= 0x10fff);
+}
+
 static bool editor_text_is_plain_ascii(void) {
   if (!g_editor_text || g_editor_text_length <= 0 ||
       g_editor_highlight_count != 0 || g_editor_composition_length != 0 ||
       g_editor_soft_wrap) return false;
   for (int index = 0; index < g_editor_text_length; ++index) {
     wchar_t character = g_editor_text[index];
+    if (is_rtl_codepoint((uint32_t)character)) return false;
     if (character == L'\n' || character == L'\r' ||
         (character >= 0x20 && character <= 0x7e) ||
         (character > 0x7e && character != 0x7f &&

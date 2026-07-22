@@ -2244,3 +2244,14 @@ enumerable. The visible editor remains on DirectWrite/D2D for that run, which
 preserves color. Conversion of COLR/PNG/SVG layers into a dedicated RGBA GPU
 atlas is still tracked separately rather than discarding color information in
 the R8 atlas.
+
+## M13-061: Do not overlay an LTR atlas over DirectWrite BiDi layout
+
+The Windows atlas sprite path is intentionally disabled for RTL code point
+ranges (Hebrew, Arabic, presentation forms, and the supplementary RTL blocks).
+Those runs stay entirely on the DirectWrite/D2D layout path, which owns script
+analysis, visual ordering, and caret placement. This is required because the
+atlas shaping helper currently submits `isRightToLeft = FALSE`; allowing it to
+run for RTL text would draw incorrectly ordered monochrome sprites over the
+correct D2D result. Full BiDi glyph-run extraction for the GPU atlas remains a
+separate implementation item.
