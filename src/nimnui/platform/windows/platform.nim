@@ -12,6 +12,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformValidateTextFormatCache*(): bool {.importc: "nimculus_platform_validate_text_format_cache", cdecl.}
   proc platformValidateGlyphRasterInterface*(): bool {.importc: "nimculus_platform_validate_glyph_raster_interface", cdecl.}
   proc platformValidateGlyphRasterCache*(): bool {.importc: "nimculus_platform_validate_glyph_raster_cache", cdecl.}
+  proc platformValidateGlyphAtlasUpload*(): bool {.importc: "nimculus_platform_validate_glyph_atlas_upload", cdecl.}
   proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
   proc platformResidentMemoryBytes*(): uint64 {.importc: "nimculus_platform_resident_memory_bytes", cdecl.}
   proc platformLiveAllocationCount*(): uint64 {.importc: "nimculus_platform_live_allocation_count", cdecl.}
@@ -79,6 +80,7 @@ else:
   proc platformValidateTextFormatCache*(): bool = false
   proc platformValidateGlyphRasterInterface*(): bool = false
   proc platformValidateGlyphRasterCache*(): bool = false
+  proc platformValidateGlyphAtlasUpload*(): bool = false
   proc platformGetMetrics*(metrics: ptr PlatformMetrics) =
     if metrics != nil: metrics[] = PlatformMetrics(scaleFactor: 1.0)
   proc platformResidentMemoryBytes*(): uint64 = 0

@@ -41,6 +41,12 @@ when defined(windows):
 
     test "DirectWrite glyph raster cache reuses the same raster":
       check platformValidateGlyphRasterCache()
+
+    test "D3D11 glyph atlas uploads and reuses a cached tile":
+      if platformValidateNative():
+        check platformValidateGlyphAtlasUpload()
+      else:
+        echo "  [SKIP] D3D11 glyph atlas upload requires an active native window"
 else:
   suite "Windows platform contract":
     test "requires a Windows runner":

@@ -2161,3 +2161,16 @@ Windows task overlay. Cancellation is explicit and is also performed before
 window close. This keeps process execution and problem matching shared while
 leaving output presentation platform-specific, matching the existing terminal
 boundary and Zed's separation between command dispatch and platform rendering.
+
+## M13-057: Keep Windows glyph raster data CPU-owned and atlas uploads device-owned
+
+Zed's DirectX atlas treats the GPU texture and atlas tiles as device-lifetime
+resources, while glyph rasterization remains a separate cacheable operation. The
+Windows backend follows that boundary: DirectWrite produces bounded grayscale
+`R8` rasters in a CPU cache, and a lazy upload places each raster into a padded
+`R8_UNORM` D3D11 shader-resource texture. Repeated requests reuse the same tile
+without another `UpdateSubresource` upload. Releasing or recreating the D3D11
+device releases the texture/SRV and invalidates tile coordinates, but preserves
+CPU rasters so the next frame can rebuild the atlas without rerasterizing. This
+is an upload/lifetime contract only; glyph vertex generation, sampling, and
+subpixel positioning remain separate follow-up work.

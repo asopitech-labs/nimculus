@@ -123,6 +123,7 @@ static WNDPROC g_palette_edit_original = NULL;
 static char g_palette_command[131072];
 
 #define NIMCULUS_MAX_GLYPH_RASTERS 1024
+#define NIMCULUS_GLYPH_ATLAS_SIZE 2048
 typedef struct NimculusGlyphRaster {
   bool valid;
   uint16_t glyph_id;
@@ -133,11 +134,22 @@ typedef struct NimculusGlyphRaster {
   RECT bounds;
   uint32_t length;
   uint8_t *pixels;
+  bool atlas_valid;
+  uint32_t atlas_x;
+  uint32_t atlas_y;
+  uint32_t atlas_width;
+  uint32_t atlas_height;
   uint64_t last_used;
 } NimculusGlyphRaster;
 
 static NimculusGlyphRaster g_glyph_rasters[NIMCULUS_MAX_GLYPH_RASTERS];
 static uint64_t g_glyph_raster_clock = 0;
+static ID3D11Texture2D *g_glyph_atlas_texture = NULL;
+static ID3D11ShaderResourceView *g_glyph_atlas_view = NULL;
+static uint32_t g_glyph_atlas_next_x = 0;
+static uint32_t g_glyph_atlas_next_y = 0;
+static uint32_t g_glyph_atlas_row_height = 0;
+static uint64_t g_glyph_atlas_upload_count = 0;
 
 static LRESULT CALLBACK palette_edit_proc(HWND window, UINT message,
                                           WPARAM wparam, LPARAM lparam);
@@ -752,6 +764,97 @@ static void release_glyph_raster_cache(void) {
   g_glyph_raster_clock = 0;
   g_glyph_raster_hit_count = 0;
   g_glyph_raster_miss_count = 0;
+  g_glyph_atlas_next_x = 0;
+  g_glyph_atlas_next_y = 0;
+  g_glyph_atlas_row_height = 0;
+}
+
+static void release_glyph_atlas_texture(void) {
+  if (g_glyph_atlas_view) {
+    g_glyph_atlas_view->lpVtbl->Release(g_glyph_atlas_view);
+    g_glyph_atlas_view = NULL;
+  }
+  if (g_glyph_atlas_texture) {
+    g_glyph_atlas_texture->lpVtbl->Release(g_glyph_atlas_texture);
+    g_glyph_atlas_texture = NULL;
+  }
+  g_glyph_atlas_next_x = 0;
+  g_glyph_atlas_next_y = 0;
+  g_glyph_atlas_row_height = 0;
+  for (size_t index = 0; index < NIMCULUS_MAX_GLYPH_RASTERS; ++index) {
+    g_glyph_rasters[index].atlas_valid = false;
+    g_glyph_rasters[index].atlas_x = 0;
+    g_glyph_rasters[index].atlas_y = 0;
+    g_glyph_rasters[index].atlas_width = 0;
+    g_glyph_rasters[index].atlas_height = 0;
+  }
+}
+
+static bool ensure_glyph_atlas_texture(void) {
+  if (g_glyph_atlas_texture && g_glyph_atlas_view) return true;
+  if (!g_device) return false;
+  D3D11_TEXTURE2D_DESC description;
+  ZeroMemory(&description, sizeof(description));
+  description.Width = NIMCULUS_GLYPH_ATLAS_SIZE;
+  description.Height = NIMCULUS_GLYPH_ATLAS_SIZE;
+  description.MipLevels = 1;
+  description.ArraySize = 1;
+  description.Format = DXGI_FORMAT_R8_UNORM;
+  description.SampleDesc.Count = 1;
+  description.Usage = D3D11_USAGE_DEFAULT;
+  description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+  HRESULT hr = g_device->lpVtbl->CreateTexture2D(g_device, &description,
+      NULL, &g_glyph_atlas_texture);
+  if (FAILED(hr) || !g_glyph_atlas_texture) {
+    g_glyph_atlas_texture = NULL;
+    return false;
+  }
+  hr = g_device->lpVtbl->CreateShaderResourceView(g_device,
+      (ID3D11Resource *)g_glyph_atlas_texture, NULL, &g_glyph_atlas_view);
+  if (FAILED(hr) || !g_glyph_atlas_view) {
+    release_glyph_atlas_texture();
+    return false;
+  }
+  return true;
+}
+
+static bool upload_glyph_raster_to_atlas(NimculusGlyphRaster *raster) {
+  if (!raster || !raster->valid || !raster->pixels || raster->length == 0)
+    return false;
+  if (!g_context || !ensure_glyph_atlas_texture()) return false;
+  if (raster->atlas_valid) return true;
+  int width = raster->bounds.right - raster->bounds.left;
+  int height = raster->bounds.bottom - raster->bounds.top;
+  if (width <= 0 || height <= 0 || width + 2 >= NIMCULUS_GLYPH_ATLAS_SIZE ||
+      height + 2 >= NIMCULUS_GLYPH_ATLAS_SIZE) return false;
+  if (g_glyph_atlas_next_x + (uint32_t)width + 2 > NIMCULUS_GLYPH_ATLAS_SIZE) {
+    g_glyph_atlas_next_x = 0;
+    g_glyph_atlas_next_y += g_glyph_atlas_row_height;
+    g_glyph_atlas_row_height = 0;
+  }
+  if (g_glyph_atlas_next_y + (uint32_t)height + 2 > NIMCULUS_GLYPH_ATLAS_SIZE) {
+    g_glyph_atlas_next_x = 0;
+    g_glyph_atlas_next_y = 0;
+    g_glyph_atlas_row_height = 0;
+    for (size_t index = 0; index < NIMCULUS_MAX_GLYPH_RASTERS; ++index)
+      g_glyph_rasters[index].atlas_valid = false;
+  }
+  uint32_t x = g_glyph_atlas_next_x + 1;
+  uint32_t y = g_glyph_atlas_next_y + 1;
+  D3D11_BOX box = {x, y, 0, x + (uint32_t)width, y + (uint32_t)height, 1};
+  g_context->lpVtbl->UpdateSubresource(g_context,
+      (ID3D11Resource *)g_glyph_atlas_texture, 0, &box, raster->pixels,
+      (UINT)width, 0);
+  g_glyph_atlas_next_x += (uint32_t)width + 2;
+  if ((uint32_t)height + 2 > g_glyph_atlas_row_height)
+    g_glyph_atlas_row_height = (uint32_t)height + 2;
+  raster->atlas_valid = true;
+  raster->atlas_x = x;
+  raster->atlas_y = y;
+  raster->atlas_width = (uint32_t)width;
+  raster->atlas_height = (uint32_t)height;
+  g_glyph_atlas_upload_count++;
+  return true;
 }
 
 static void release_glyph_font_face(void) {
@@ -1074,6 +1177,7 @@ static void release_device(void) {
   release_directwrite_target();
   release_render_target();
   release_image_views();
+  release_glyph_atlas_texture();
   release_quad_pipeline();
   if (g_swap_chain) g_swap_chain->lpVtbl->Release(g_swap_chain);
   if (g_context) g_context->lpVtbl->Release(g_context);
@@ -2170,6 +2274,35 @@ bool nimculus_platform_validate_glyph_raster_cache(void) {
   if (!rasterize_glyph_for_cache('A', (float)g_editor_font_size, scale, 0, 0))
     return false;
   return g_glyph_raster_hit_count > hits_before;
+}
+
+bool nimculus_platform_validate_glyph_atlas_upload(void) {
+  if (!g_device || !g_context || !ensure_glyph_atlas_texture()) return false;
+  double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+  if (!rasterize_glyph_for_cache('A', (float)g_editor_font_size, scale, 0, 0))
+    return false;
+  IDWriteFontFace *font_face = ensure_glyph_font_face();
+  if (!font_face) return false;
+  UINT32 codepoint = 'A';
+  UINT16 glyph_id = 0;
+  if (FAILED(font_face->lpVtbl->GetGlyphIndices(font_face, &codepoint, 1,
+                                                &glyph_id))) return false;
+  NimculusGlyphRaster *raster = NULL;
+  for (size_t index = 0; index < NIMCULUS_MAX_GLYPH_RASTERS; ++index) {
+    NimculusGlyphRaster *candidate = &g_glyph_rasters[index];
+    if (candidate->valid && candidate->glyph_id == glyph_id &&
+        fabs((double)candidate->font_size - g_editor_font_size) < 0.001 &&
+        fabs(candidate->scale - scale) < 0.001 &&
+        candidate->subpixel_x == 0 && candidate->subpixel_y == 0) {
+      raster = candidate;
+      break;
+    }
+  }
+  if (!raster || !upload_glyph_raster_to_atlas(raster) ||
+      !g_glyph_atlas_view || !raster->atlas_valid) return false;
+  uint64_t uploads = g_glyph_atlas_upload_count;
+  if (!upload_glyph_raster_to_atlas(raster)) return false;
+  return g_glyph_atlas_upload_count == uploads;
 }
 
 uint64_t nimculus_platform_input_count(void) { return g_input_count; }
