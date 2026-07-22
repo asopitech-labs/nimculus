@@ -7,6 +7,7 @@ when defined(windows):
   var atlasUploadPassed = false
   var subpixelPassed = false
   var shapingPassed = false
+  var fallbackPassed = false
 
   proc validateNativeFrame() {.cdecl.} =
     if callbackRan:
@@ -15,6 +16,7 @@ when defined(windows):
     atlasUploadPassed = platformValidateGlyphAtlasUpload()
     subpixelPassed = platformValidateGlyphSubpixelVariants()
     shapingPassed = platformValidateGlyphShaping()
+    fallbackPassed = platformValidateGlyphFallback()
     platformRequestQuit()
 
   suite "Windows native GPU text smoke":
@@ -25,6 +27,7 @@ when defined(windows):
       check atlasUploadPassed
       check subpixelPassed
       check shapingPassed
+      check fallbackPassed
 else:
   suite "Windows native GPU text smoke":
     test "requires a Windows runner":

@@ -2192,3 +2192,21 @@ the real Win32/D3D11 platform loop, invokes the idle callback after device and
 shader creation, validates atlas upload, subpixel variants, and DirectWrite
 shaping, then requests a clean quit. This prevents the normal contract suite's
 headless skip from being mistaken for GPU resource verification.
+
+## M13-058: Resolve Windows BMP glyph fallback through DirectWrite
+
+DirectWrite's system fallback mapping requires an `IDWriteTextAnalysisSource`,
+so the Windows backend provides a synchronous COM source with the text,
+Japanese locale, left-to-right direction, and null number substitution. It
+calls `IDWriteFontFallback::MapCharacters` before rasterizing a code point that
+is missing from the configured editor face. The mapped `IDWriteFontFace` is
+retained by the glyph-raster cache, and the fallback scale returned by
+DirectWrite is included in the raster size key. This avoids treating a glyph
+ID as globally unique when two font faces provide different outlines.
+
+The R8 atlas path now accepts BMP, non-control, non-surrogate code points for
+single-code-point fallback runs. Complex fallback shaping, surrogate pairs,
+color glyphs, and BiDi remain on the DirectWrite/D2D path until their glyph-run
+and color-text contracts are implemented. The contract and native smoke tests
+verify that Japanese `日` maps to a non-primary font face and produces a
+non-empty raster.

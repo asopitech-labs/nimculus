@@ -48,6 +48,9 @@ when defined(windows):
     test "DirectWrite analyzer produces a shaped glyph run":
       check platformValidateGlyphShaping()
 
+    test "DirectWrite system fallback maps Japanese text to a font face":
+      check platformValidateGlyphFallback()
+
     test "D3D11 glyph atlas uploads and reuses a cached tile":
       if platformValidateNative():
         check platformValidateGlyphAtlasUpload()
