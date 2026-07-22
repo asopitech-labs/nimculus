@@ -27,6 +27,19 @@ block idleMemory:
   let bytes = platformResidentMemoryBytes()
   report("idle_memory", cpuTime() - start, "bytes=" & $bytes)
 
+block allocationCount:
+  # This is a native live-block sample, not a cumulative allocation-event
+  # counter. Keep it outside timed regions because the platform walk is
+  # intentionally diagnostic and may be expensive on Windows.
+  let before = platformLiveAllocationCount()
+  var allocationWorkload = newSeq[string](128)
+  for index in 0 ..< allocationWorkload.len:
+    allocationWorkload[index] = "allocation-sample-" & $index
+  let after = platformLiveAllocationCount()
+  report("allocation_count", 0.0,
+    "kind=live_blocks;before=" & $before & ";after=" & $after &
+    ";workload=" & $allocationWorkload.len)
+
 block editorLoad:
   let start = cpuTime()
   var buffer = initPieceTable(source)

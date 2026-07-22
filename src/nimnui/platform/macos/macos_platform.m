@@ -5,6 +5,7 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <mach/mach_time.h>
 #import <mach/task.h>
+#import <malloc/malloc.h>
 #include <limits.h>
 #include <math.h>
 #include <stdlib.h>
@@ -2912,6 +2913,13 @@ uint64_t nimculus_platform_resident_memory_bytes(void) {
   kern_return_t result = task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
     (task_info_t)&info, &count);
   return result == KERN_SUCCESS ? (uint64_t)info.resident_size : 0;
+}
+
+uint64_t nimculus_platform_live_allocation_count(void) {
+  malloc_statistics_t stats;
+  memset(&stats, 0, sizeof(stats));
+  malloc_zone_statistics(malloc_default_zone(), &stats);
+  return (uint64_t)stats.blocks_in_use;
 }
 
 uint64_t nimculus_platform_input_count(void) { return g_input_count; }

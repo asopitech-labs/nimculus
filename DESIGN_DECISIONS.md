@@ -43,6 +43,18 @@ PID-scoped temporary cache and removes it after repeated runs.
 The launcher applies a positive timeout to every child process so a failed GUI
 startup cannot leave a benchmark or CI job running indefinitely.
 
+## M20-009: Report live allocation blocks with explicit platform limits
+
+Zed's allocator and profiler boundaries distinguish process-level memory from
+instrumented allocation domains; a single number must not be presented as a
+complete allocation history. Nimculus therefore exposes
+`platformLiveAllocationCount` as a diagnostic sample. macOS reports
+`malloc_default_zone()`'s `blocks_in_use`, while Windows walks the process
+heaps and counts `PROCESS_HEAP_ENTRY_BUSY` entries. The benchmark emits this
+as `allocation_count` with `kind=live_blocks`, outside the timed workload.
+It is not a cumulative event counter and does not include allocations hidden
+behind allocator implementations that are outside the reported zone/heap.
+
 ## M6-007: Exercise FSEvents through the main run loop in integration tests
 
 Zed's filesystem tests drive the platform watcher until events are delivered

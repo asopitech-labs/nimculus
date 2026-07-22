@@ -14,6 +14,9 @@ suite "macOS platform contract":
   test "resident memory metric has a valid contract":
     check platformResidentMemoryBytes() >= 0'u64
 
+  test "live allocation metric has a valid contract":
+    check platformLiveAllocationCount() >= 0'u64
+
   test "native ABI sizes match Nim contracts":
     check uint32(sizeof(PlatformMetrics)) == platformMetricsSize()
     check uint32(sizeof(NimculusInputEvent)) == platformInputEventSize()

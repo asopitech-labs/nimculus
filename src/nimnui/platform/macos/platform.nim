@@ -10,6 +10,7 @@ proc platformValidateNative*(): bool {.importc: "nimculus_platform_validate_nati
 proc platformValidateGlyphAtlas*(): bool {.importc: "nimculus_platform_validate_glyph_atlas", cdecl.}
 proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
 proc platformResidentMemoryBytes*(): uint64 {.importc: "nimculus_platform_resident_memory_bytes", cdecl.}
+proc platformLiveAllocationCount*(): uint64 {.importc: "nimculus_platform_live_allocation_count", cdecl.}
 proc platformInputCount*(): uint64 {.importc: "nimculus_platform_input_count", cdecl.}
 proc platformMetricsSize*(): uint32 {.importc: "nimculus_platform_metrics_size", cdecl.}
 proc platformInputEventSize*(): uint32 {.importc: "nimculus_platform_input_event_size", cdecl.}

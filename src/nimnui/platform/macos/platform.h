@@ -5,6 +5,7 @@ bool nimculus_platform_validate_native(void);
 bool nimculus_platform_validate_glyph_atlas(void);
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics);
 uint64_t nimculus_platform_resident_memory_bytes(void);
+uint64_t nimculus_platform_live_allocation_count(void);
 uint64_t nimculus_platform_input_count(void);
 uint32_t nimculus_platform_metrics_size(void);
 uint32_t nimculus_platform_input_event_size(void);

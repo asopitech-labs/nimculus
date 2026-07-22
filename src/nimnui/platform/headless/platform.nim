@@ -20,6 +20,7 @@ when not defined(windows):
 
   proc platformInputCount*(): uint64 = 0
   proc platformResidentMemoryBytes*(): uint64 = 0
+  proc platformLiveAllocationCount*(): uint64 = 0
 proc platformMetricsSize*(): uint32 = uint32(sizeof(PlatformMetrics))
 proc platformInputEventSize*(): uint32 = uint32(sizeof(NimculusInputEvent))
 proc platformTerminalRunSize*(): uint32 = uint32(sizeof(NativeTerminalRun))

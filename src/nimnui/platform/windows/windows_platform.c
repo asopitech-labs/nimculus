@@ -1931,6 +1931,26 @@ uint64_t nimculus_platform_resident_memory_bytes(void) {
   return (uint64_t)counters.WorkingSetSize;
 }
 
+uint64_t nimculus_platform_live_allocation_count(void) {
+  DWORD heap_count = GetProcessHeaps(0, NULL);
+  if (heap_count == 0) return 0;
+  HANDLE *heaps = (HANDLE *)malloc(sizeof(HANDLE) * heap_count);
+  if (!heaps) return 0;
+  DWORD actual_count = GetProcessHeaps(heap_count, heaps);
+  uint64_t blocks = 0;
+  for (DWORD i = 0; i < actual_count; i++) {
+    if (!HeapLock(heaps[i])) continue;
+    PROCESS_HEAP_ENTRY entry;
+    memset(&entry, 0, sizeof(entry));
+    while (HeapWalk(heaps[i], &entry)) {
+      if ((entry.wFlags & PROCESS_HEAP_ENTRY_BUSY) != 0) blocks++;
+    }
+    HeapUnlock(heaps[i]);
+  }
+  free(heaps);
+  return blocks;
+}
+
 void nimculus_platform_set_input_callback(NimculusInputCallback callback) {
   g_input_callback = callback;
 }

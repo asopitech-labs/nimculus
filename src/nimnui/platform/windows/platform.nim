@@ -11,6 +11,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformValidateNative*(): bool {.importc: "nimculus_platform_validate_native", cdecl.}
   proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
   proc platformResidentMemoryBytes*(): uint64 {.importc: "nimculus_platform_resident_memory_bytes", cdecl.}
+  proc platformLiveAllocationCount*(): uint64 {.importc: "nimculus_platform_live_allocation_count", cdecl.}
   proc platformInputCount*(): uint64 {.importc: "nimculus_platform_input_count", cdecl.}
   proc platformSetInputCallback*(callback: InputCallback) {.importc: "nimculus_platform_set_input_callback", cdecl.}
   proc platformSetShortcutCallback*(callback: ShortcutCallback) {.importc: "nimculus_platform_set_shortcut_callback", cdecl.}
@@ -75,6 +76,7 @@ else:
   proc platformGetMetrics*(metrics: ptr PlatformMetrics) =
     if metrics != nil: metrics[] = PlatformMetrics(scaleFactor: 1.0)
   proc platformResidentMemoryBytes*(): uint64 = 0
+  proc platformLiveAllocationCount*(): uint64 = 0
   proc platformInputCount*(): uint64 = 0
   proc platformSetInputCallback*(callback: InputCallback) =
     if callback != nil: discard
