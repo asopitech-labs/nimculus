@@ -430,6 +430,7 @@ static void update_metrics(void) {
 }
 
 static void resize_render_target(void);
+static void release_device(void);
 static bool create_device(void);
 
 typedef struct NimculusQuadVertex {
@@ -811,9 +812,15 @@ static bool create_device(void) {
       D3D11_SDK_VERSION, &desc, &g_swap_chain, &g_device, &level, &g_context);
   if (FAILED(hr)) return false;
   update_metrics();
-  if (!create_render_target()) return false;
+  if (!create_render_target()) {
+    release_device();
+    return false;
+  }
   create_directwrite_target();
-  if (!create_quad_pipeline()) return false;
+  if (!create_quad_pipeline()) {
+    release_device();
+    return false;
+  }
   for (size_t index = 0; index < NIMCULUS_MAX_IMAGES; ++index) {
     if (g_images[index].id != 0) upload_image_view(&g_images[index]);
   }
@@ -1852,7 +1859,11 @@ bool nimculus_platform_run(void) {
   UpdateWindow(g_window);
   DragAcceptFiles(g_window, TRUE);
   SetTimer(g_window, 1, 16, NULL);
-  create_device();
+  if (!create_device()) {
+    DestroyWindow(g_window);
+    g_window = NULL;
+    return false;
+  }
   MSG message;
   while (GetMessageW(&message, NULL, 0, 0) > 0) {
     DispatchMessageW(&message);

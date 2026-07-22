@@ -38,6 +38,14 @@ at 64 KiB, and the process is not allowed to block on a full pipe. This keeps
 verification and installation bounded even when a tool emits unexpected
 diagnostic output.
 
+## M13-052: Fail cleanly when the Windows GPU backend cannot initialize
+
+Zed's Windows platform startup treats GPU/device initialization as a
+fallible boundary and does not continue with a partially initialized window.
+Nimculus now releases render target, DirectWrite, pipeline, swap-chain, and
+device resources on each D3D11 setup failure and returns `false` from the
+platform runner instead of entering the message loop without a renderer.
+
 ## M9-006: Bound Git process output before it reaches UI state
 
 Zed compresses large commit diffs for presentation and applies explicit
