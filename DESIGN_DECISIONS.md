@@ -924,6 +924,10 @@ although the functions are exported by
 `ClosePseudoConsole`, and `ResizePseudoConsole` contracts without requiring a
 newer SDK header, and use the documented thread-attribute value.
 
+Shutdown closes both application pipe handles before `ClosePseudoConsole`, then
+waits for and terminates the child process. This follows Microsoft's warning
+that leaving the output side open can make ConPTY shutdown wait indefinitely.
+
 ## M6-002: Workspace operations stay path-confined
 
 All create, delete, and rename operations resolve relative paths against the

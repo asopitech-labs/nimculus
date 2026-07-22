@@ -180,6 +180,14 @@ bool nimculus_conpty_resize(NimculusConPty *pty, uint16_t columns, uint16_t rows
 
 void nimculus_conpty_close(NimculusConPty *pty) {
   if (!pty) return;
+  /* Microsoft requires the output side to be closed before ClosePseudoConsole
+     so the final console output cannot leave that call waiting indefinitely. */
+  close_handle(&pty->input_write);
+  close_handle(&pty->output_read);
+  if (pty->pseudo_console) {
+    ClosePseudoConsole(pty->pseudo_console);
+    pty->pseudo_console = NULL;
+  }
   if (pty->process) {
     if (WaitForSingleObject(pty->process, 0) == WAIT_TIMEOUT) {
       TerminateProcess(pty->process, 0);
@@ -187,8 +195,5 @@ void nimculus_conpty_close(NimculusConPty *pty) {
     }
     close_handle(&pty->process);
   }
-  close_handle(&pty->input_write);
-  close_handle(&pty->output_read);
-  if (pty->pseudo_console) ClosePseudoConsole(pty->pseudo_console);
   free(pty);
 }
