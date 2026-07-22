@@ -18,10 +18,14 @@ type
     ## not sufficient because font, size, scale, and fractional origin all
     ## change the rasterized pixels.
     codepoint*: Rune
+    glyphId*: uint32
     fontId*: string
     fontSize*: float
     scaleFactor*: float
     subpixelX*, subpixelY*: uint8
+    isEmoji*: bool
+    subpixelRendering*: bool
+    dilation*: uint8
 
   Glyph* = object
     codepoint*: Rune

@@ -367,6 +367,19 @@ suite "M3 text foundation":
     check otherFontGlyph.atlasX != atlas.glyphs[0].atlasX
     check atlas.insertGlyphVariant(fractional, 8, 12).atlasX == fractionalGlyph.atlasX
 
+  test "glyph atlas separates glyph and rendering variants":
+    var atlas = newGlyphAtlas(128, 64)
+    let base = GlyphKey(codepoint: Rune(65), glyphId: 10, fontId: "Menlo",
+      fontSize: 14.0, scaleFactor: 2.0)
+    let ligature = GlyphKey(codepoint: Rune(65), glyphId: 11, fontId: "Menlo",
+      fontSize: 14.0, scaleFactor: 2.0)
+    let emoji = GlyphKey(codepoint: Rune(65), glyphId: 10, fontId: "Menlo",
+      fontSize: 14.0, scaleFactor: 2.0, isEmoji: true)
+    discard atlas.insertGlyphVariant(base, 8, 12)
+    discard atlas.insertGlyphVariant(ligature, 8, 12)
+    discard atlas.insertGlyphVariant(emoji, 8, 12)
+    check atlas.glyphs.len == 3
+
   test "paint list emits only commands intersecting dirty regions":
     var paint: PaintList
     paint.invalidate(Rect(origin: Point(x: px(0), y: px(0)), size: Size(width: px(10), height: px(10))))

@@ -331,8 +331,10 @@ factor, quantized subpixel variant, and rendering flags rather than using a
 Unicode character alone. The shared NimNUI atlas previously keyed only on
 `Rune`, which could reuse a Menlo/2x glyph for another font or scale. It now
 exposes `GlyphKey` and `insertGlyphVariant`; the compatibility `insertGlyph`
-API creates the default key. Platform code is responsible for quantizing the
-fractional origin to the same 4x4 grid before insertion.
+API creates the default key. The key also includes glyph ID, emoji/color
+status, subpixel rendering mode, and dilation so a ligature or color glyph
+cannot alias a normal character raster. Platform code is responsible for
+quantizing the fractional origin to the same 4x4 grid before insertion.
 
 ## M13-052: Match Windows tab primary and auxiliary clicks to Zed
 
