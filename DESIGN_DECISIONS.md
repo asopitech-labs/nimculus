@@ -2186,3 +2186,9 @@ upload. Colored glyphs remain unimplemented. Plain ASCII glyphs now
 quantize their device-space x/y origin to the same 4-way subpixel variants used
 by the DirectWrite baseline offsets and cache key. This preserves fractional
 placement through rasterization, atlas lookup, and sprite placement.
+
+The Windows CI now also runs `tests/test_windows_native_smoke.nim`. It starts
+the real Win32/D3D11 platform loop, invokes the idle callback after device and
+shader creation, validates atlas upload, subpixel variants, and DirectWrite
+shaping, then requests a clean quit. This prevents the normal contract suite's
+headless skip from being mistaken for GPU resource verification.
