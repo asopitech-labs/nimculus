@@ -2245,6 +2245,15 @@ preserves color. Conversion of COLR/PNG/SVG layers into a dedicated RGBA GPU
 atlas is still tracked separately rather than discarding color information in
 the R8 atlas.
 
+## M13-062: Verify the Windows installer lifecycle in CI
+
+Generating a non-empty Inno Setup executable does not prove that the package
+can be installed. The Windows workflow now installs the generated artifact
+silently into a runner-temporary directory, checks the installed executable and
+uninstaller, then silently uninstalls it and asserts that the directory is
+gone. This keeps the packaging gate aligned with the roadmap's installability
+condition while avoiding a GUI launch in the headless runner.
+
 ## M13-061: Do not overlay an LTR atlas over DirectWrite BiDi layout
 
 The Windows atlas sprite path is intentionally disabled for RTL code point

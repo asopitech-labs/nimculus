@@ -42,6 +42,27 @@ jobs:
           if ($setups.Count -ne 1 -or $setups[0].Length -le 0) {
             throw "Expected exactly one non-empty installer"
           }
+      - name: Smoke test Windows installer lifecycle
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem "dist/windows/installer" -Filter "*.exe" -File | Select-Object -First 1
+          $installDir = Join-Path $env:RUNNER_TEMP "nimculus-install-smoke"
+          Remove-Item $installDir -Recurse -Force -ErrorAction SilentlyContinue
+          $install = Start-Process -FilePath $setup.FullName -ArgumentList @(
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=$installDir"
+          ) -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "Installer exited with $($install.ExitCode)" }
+          $installedExe = Join-Path $installDir "nimculus.exe"
+          if (-not (Test-Path $installedExe) -or (Get-Item $installedExe).Length -le 0) {
+            throw "Installed executable is missing or empty"
+          }
+          $uninstaller = Join-Path $installDir "unins000.exe"
+          if (-not (Test-Path $uninstaller)) { throw "Uninstaller is missing" }
+          $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @(
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
+          ) -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw "Uninstaller exited with $($uninstall.ExitCode)" }
+          if (Test-Path $installDir) { throw "Install directory remains after uninstall" }
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
