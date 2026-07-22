@@ -10,6 +10,7 @@
 #include <psapi.h>
 #include <shellapi.h>
 #include <stdint.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
@@ -47,6 +48,10 @@ static ID2D1Factory *g_d2d_factory = NULL;
 static ID2D1RenderTarget *g_d2d_target = NULL;
 static ID2D1SolidColorBrush *g_d2d_text_brush = NULL;
 static IDWriteFactory *g_dwrite_factory = NULL;
+static IDWriteTextFormat *g_editor_text_format = NULL;
+static float g_editor_text_format_size = 0.0f;
+static double g_editor_text_format_scale = 0.0;
+static bool g_editor_text_format_wrap = false;
 static bool g_directwrite_frame = false;
 static NimculusPaintCommand *g_paint_commands = NULL;
 static uint32_t g_paint_count = 0;
@@ -707,6 +712,47 @@ static bool ensure_directwrite_factory(void) {
   return SUCCEEDED(hr);
 }
 
+static void release_editor_text_format(void) {
+  if (g_editor_text_format) {
+    g_editor_text_format->lpVtbl->Release(g_editor_text_format);
+    g_editor_text_format = NULL;
+  }
+  g_editor_text_format_size = 0.0f;
+  g_editor_text_format_scale = 0.0;
+  g_editor_text_format_wrap = false;
+}
+
+static IDWriteTextFormat *ensure_editor_text_format(double scale) {
+  if (!ensure_directwrite_factory()) return NULL;
+  float size = (float)(g_editor_font_size * scale);
+  bool wrap = g_editor_soft_wrap;
+  if (g_editor_text_format &&
+      fabs((double)g_editor_text_format_size - (double)size) < 0.001 &&
+      fabs(g_editor_text_format_scale - scale) < 0.001 &&
+      g_editor_text_format_wrap == wrap) {
+    return g_editor_text_format;
+  }
+  release_editor_text_format();
+  HRESULT hr = g_dwrite_factory->lpVtbl->CreateTextFormat(g_dwrite_factory,
+      g_editor_font_name, NULL, DWRITE_FONT_WEIGHT_NORMAL,
+      DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, L"",
+      &g_editor_text_format);
+  if (FAILED(hr) || !g_editor_text_format) {
+    release_editor_text_format();
+    return NULL;
+  }
+  g_editor_text_format->lpVtbl->SetWordWrapping(g_editor_text_format,
+      wrap ? DWRITE_WORD_WRAPPING_WRAP : DWRITE_WORD_WRAPPING_NO_WRAP);
+  g_editor_text_format->lpVtbl->SetTextAlignment(g_editor_text_format,
+      DWRITE_TEXT_ALIGNMENT_LEADING);
+  g_editor_text_format->lpVtbl->SetParagraphAlignment(g_editor_text_format,
+      DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+  g_editor_text_format_size = size;
+  g_editor_text_format_scale = scale;
+  g_editor_text_format_wrap = wrap;
+  return g_editor_text_format;
+}
+
 static bool create_render_target(void) {
   if (!g_swap_chain || !g_device) return false;
   ID3D11Texture2D *back_buffer = NULL;
@@ -1004,27 +1050,14 @@ static bool render_editor_directwrite(void) {
   float right = (float)((g_editor_rect[0] + g_editor_rect[2]) * scale);
   float bottom = (float)((g_editor_rect[1] + g_editor_rect[3]) * scale);
   if (right <= left || bottom <= top) return false;
-  if (!ensure_directwrite_factory()) return false;
-  IDWriteFactory *factory = g_dwrite_factory;
   HRESULT hr;
-  IDWriteTextFormat *format = NULL;
-  hr = factory->lpVtbl->CreateTextFormat(factory, g_editor_font_name, NULL,
-      DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-      DWRITE_FONT_STRETCH_NORMAL, (FLOAT)(g_editor_font_size * scale),
-      L"", &format);
-  if (FAILED(hr)) {
-    return false;
-  }
-  format->lpVtbl->SetWordWrapping(format, g_editor_soft_wrap
-      ? DWRITE_WORD_WRAPPING_WRAP : DWRITE_WORD_WRAPPING_NO_WRAP);
-  format->lpVtbl->SetTextAlignment(format, DWRITE_TEXT_ALIGNMENT_LEADING);
-  format->lpVtbl->SetParagraphAlignment(format, DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+  IDWriteTextFormat *format = ensure_editor_text_format(scale);
+  if (!format) return false;
   ID2D1SolidColorBrush *selection_brush = NULL;
   D2D1_COLOR_F selection_color = {0.22f, 0.30f, 0.44f, 1.0f};
   hr = g_d2d_target->lpVtbl->CreateSolidColorBrush(g_d2d_target,
       &selection_color, NULL, &selection_brush);
   if (FAILED(hr)) {
-    format->lpVtbl->Release(format);
     return false;
   }
   ID2D1SolidColorBrush *highlight_brushes[6] = {NULL, NULL, NULL, NULL, NULL, NULL};
@@ -1037,7 +1070,6 @@ static bool render_editor_directwrite(void) {
       for (uint32_t index = 0; index < kind; ++index)
         highlight_brushes[index]->lpVtbl->Release(highlight_brushes[index]);
       selection_brush->lpVtbl->Release(selection_brush);
-      format->lpVtbl->Release(format);
       return false;
     }
   }
@@ -1166,7 +1198,6 @@ static bool render_editor_directwrite(void) {
   for (uint32_t kind = 0; kind < 6; ++kind)
     highlight_brushes[kind]->lpVtbl->Release(highlight_brushes[kind]);
   selection_brush->lpVtbl->Release(selection_brush);
-  format->lpVtbl->Release(format);
   if (FAILED(hr)) {
     release_directwrite_target();
     return false;
@@ -1875,6 +1906,7 @@ bool nimculus_platform_run(void) {
     }
   }
   release_device();
+  release_editor_text_format();
   if (g_d2d_factory) {
     g_d2d_factory->lpVtbl->Release(g_d2d_factory);
     g_d2d_factory = NULL;
@@ -1915,6 +1947,13 @@ void nimculus_platform_request_quit(void) {
 
 bool nimculus_platform_validate_native(void) {
   return g_device != NULL && g_swap_chain != NULL;
+}
+
+bool nimculus_platform_validate_text_format_cache(void) {
+  double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+  IDWriteTextFormat *first = ensure_editor_text_format(scale);
+  IDWriteTextFormat *second = ensure_editor_text_format(scale);
+  return first != NULL && first == second;
 }
 
 uint64_t nimculus_platform_input_count(void) { return g_input_count; }
@@ -1974,6 +2013,7 @@ void nimculus_platform_set_editor_font_size(double size) {
   if (size < 6.0) size = 6.0;
   if (size > 48.0) size = 48.0;
   g_editor_font_size = size;
+  release_editor_text_format();
   if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
 
@@ -1985,6 +2025,7 @@ void nimculus_platform_set_editor_font_name(const char *name) {
   wide[LF_FACESIZE - 1] = L'\0';
   wcsncpy(g_editor_font_name, wide, LF_FACESIZE - 1);
   g_editor_font_name[LF_FACESIZE - 1] = L'\0';
+  release_editor_text_format();
   if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
 
@@ -2027,6 +2068,7 @@ void nimculus_platform_set_editor_line_numbers(bool visible) {
 
 void nimculus_platform_set_editor_soft_wrap(bool enabled) {
   g_editor_soft_wrap = enabled;
+  release_editor_text_format();
   if (g_window) InvalidateRect(g_window, NULL, FALSE);
 }
 

@@ -97,6 +97,16 @@ counter monotonicity. A missing native symbol or incorrect C/Nim declaration
 therefore fails on the target runner instead of being hidden by a portable
 no-op build.
 
+## M13-054: Cache the Windows DirectWrite text format by render configuration
+
+Zed's Windows text system retains font-system state instead of constructing
+font resources for every visible line and frame. Nimculus now caches the
+`IDWriteTextFormat` used by the DirectWrite editor path, keyed by font size,
+per-monitor scale factor, and soft-wrap mode. Font and wrap setters invalidate
+the cache, and shutdown releases it before the DirectWrite factory. The
+Windows native contract verifies that an unchanged configuration returns the
+same COM object.
+
 ## M6-007: Exercise FSEvents through the main run loop in integration tests
 
 Zed's filesystem tests drive the platform watcher until events are delivered

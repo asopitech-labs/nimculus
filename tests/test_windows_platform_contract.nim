@@ -32,6 +32,9 @@ when defined(windows):
         check true
       else:
         echo "  [SKIP] native D3D11 device contract (no active window in this test)"
+
+    test "DirectWrite text format is cached for an unchanged configuration":
+      check platformValidateTextFormatCache()
 else:
   suite "Windows platform contract":
     test "requires a Windows runner":

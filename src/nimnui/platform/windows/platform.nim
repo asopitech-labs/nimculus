@@ -9,6 +9,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformRun*(): bool {.importc: "nimculus_platform_run", cdecl.}
   proc platformRequestQuit*() {.importc: "nimculus_platform_request_quit", cdecl.}
   proc platformValidateNative*(): bool {.importc: "nimculus_platform_validate_native", cdecl.}
+  proc platformValidateTextFormatCache*(): bool {.importc: "nimculus_platform_validate_text_format_cache", cdecl.}
   proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
   proc platformResidentMemoryBytes*(): uint64 {.importc: "nimculus_platform_resident_memory_bytes", cdecl.}
   proc platformLiveAllocationCount*(): uint64 {.importc: "nimculus_platform_live_allocation_count", cdecl.}
@@ -73,6 +74,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
 else:
   proc platformRun*(): bool = false
   proc platformValidateNative*(): bool = false
+  proc platformValidateTextFormatCache*(): bool = false
   proc platformGetMetrics*(metrics: ptr PlatformMetrics) =
     if metrics != nil: metrics[] = PlatformMetrics(scaleFactor: 1.0)
   proc platformResidentMemoryBytes*(): uint64 = 0
