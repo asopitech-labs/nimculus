@@ -2352,7 +2352,9 @@ SVG remains on DirectWrite/D2D because its vector semantics require a separate
 renderer path. JPEG uses the same WIC decode and atlas path as PNG.
 Premultiplied BGRA32 is returned as raw pixels, so the backend converts BGRA
 premultiplied samples to straight-alpha RGBA before atlas upload and
-un-premultiplies only when alpha is nonzero. The native contract test treats
+un-premultiplies only when alpha is nonzero. Bitmap color rasters use the same
+cache-hit contract as COLR rasters: a cached raster returns success without
+re-decoding or allocating a second atlas tile. The native contract test treats
 an absent PNG, JPEG, or premultiplied glyph as a valid environment-dependent
 case, but validates decode/conversion, atlas upload, and tile metadata when the
 corresponding fallback is present.

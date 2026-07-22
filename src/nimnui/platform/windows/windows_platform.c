@@ -2139,9 +2139,10 @@ static bool rasterize_bitmap_glyph_for_cache(IDWriteFontFace *font_face,
                                              double scale, uint8_t subpixel_x,
                                              uint8_t subpixel_y,
                                              DWRITE_GLYPH_IMAGE_FORMATS format) {
-  if (!font_face || !ensure_directwrite_factory() || !g_dwrite_factory4 ||
-      find_color_glyph_raster(font_face, glyph_id, font_size, scale,
-                              subpixel_x, subpixel_y)) return false;
+  if (!font_face || !ensure_directwrite_factory() || !g_dwrite_factory4)
+    return false;
+  if (find_color_glyph_raster(font_face, glyph_id, font_size, scale,
+                              subpixel_x, subpixel_y)) return true;
   IDWriteFontFace4 *font_face4 = NULL;
   HRESULT hr = font_face->lpVtbl->QueryInterface((IUnknown *)font_face,
       &IID_IDWriteFontFace4, (void **)&font_face4);
@@ -2221,9 +2222,10 @@ static bool rasterize_jpeg_glyph_for_cache(IDWriteFontFace *font_face,
 static bool rasterize_premultiplied_glyph_for_cache(
     IDWriteFontFace *font_face, UINT16 glyph_id, float font_size,
     double scale, uint8_t subpixel_x, uint8_t subpixel_y) {
-  if (!font_face || !ensure_directwrite_factory() || !g_dwrite_factory4 ||
-      find_color_glyph_raster(font_face, glyph_id, font_size, scale,
-                              subpixel_x, subpixel_y)) return false;
+  if (!font_face || !ensure_directwrite_factory() || !g_dwrite_factory4)
+    return false;
+  if (find_color_glyph_raster(font_face, glyph_id, font_size, scale,
+                              subpixel_x, subpixel_y)) return true;
   IDWriteFontFace4 *font_face4 = NULL;
   HRESULT hr = font_face->lpVtbl->QueryInterface((IUnknown *)font_face,
       &IID_IDWriteFontFace4, (void **)&font_face4);

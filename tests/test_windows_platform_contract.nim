@@ -76,6 +76,7 @@ when defined(windows):
     test "Premultiplied BGRA glyphs convert and upload when provided":
       if platformValidateNative():
         check platformValidatePremultipliedColorGlyphAtlas()
+        check platformValidatePremultipliedColorGlyphAtlas()
       else:
         echo "  [SKIP] premultiplied color atlas contract requires an active native window"
 

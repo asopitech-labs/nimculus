@@ -42,6 +42,8 @@ when defined(windows):
     pngColorAtlasPassed = platformValidatePngColorGlyphAtlas()
     jpegColorAtlasPassed = platformValidateJpegColorGlyphAtlas()
     premultipliedColorAtlasPassed = platformValidatePremultipliedColorGlyphAtlas()
+    premultipliedColorAtlasPassed = premultipliedColorAtlasPassed and
+      platformValidatePremultipliedColorGlyphAtlas()
     colorAtlasPassed = platformValidateColorGlyphAtlas()
     visibleGlyphPassed = platformValidateVisibleGlyphFrame()
     interactionPassed = platformValidateNativeInteraction()
