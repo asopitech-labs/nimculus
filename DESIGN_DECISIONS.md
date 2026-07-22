@@ -370,6 +370,13 @@ The macOS platform contract exercises this path by generating an emoji sample
 and checking that a texture exists while monochrome glyph rendering is
 disabled.
 
+## M3-027: Reject invalid glyph atlas tiles before mutating the shelf allocator
+
+The shared atlas now rejects zero, negative, and oversized tile dimensions
+before changing `nextX`, `nextY`, or `rowHeight`. This keeps a failed glyph
+rasterization from corrupting subsequent placement and matches the defensive
+allocation boundary used by Zed's atlas allocator.
+
 ## M13-052: Match Windows tab primary and auxiliary clicks to Zed
 
 Zed activates a tab from its primary click handler and closes an unpinned tab

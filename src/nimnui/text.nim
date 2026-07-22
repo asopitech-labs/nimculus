@@ -103,6 +103,8 @@ proc insertGlyphVariant*(atlas: var GlyphAtlas, key: GlyphKey,
   ## Insert or retrieve one raster variant. Callers should quantize
   ## subpixelX/Y before constructing the key (the platform backends use a
   ## 4x4 grid, matching Zed's SUBPIXEL_VARIANTS_X/Y contract).
+  if width <= 0 or height <= 0 or width > atlas.width or height > atlas.height:
+    return Glyph(codepoint: key.codepoint, key: key)
   for glyph in atlas.glyphs:
     if glyph.key == key: return glyph
   if atlas.glyphs.len >= atlas.maxGlyphs: atlas.evictGlyphs()

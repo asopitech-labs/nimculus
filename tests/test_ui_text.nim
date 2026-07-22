@@ -380,6 +380,19 @@ suite "M3 text foundation":
     discard atlas.insertGlyphVariant(emoji, 8, 12)
     check atlas.glyphs.len == 3
 
+  test "glyph atlas rejects invalid dimensions without corrupting placement":
+    var atlas = newGlyphAtlas(32, 32)
+    let key = GlyphKey(codepoint: Rune(66), fontId: "Menlo", fontSize: 14.0,
+      scaleFactor: 2.0)
+    discard atlas.insertGlyphVariant(key, 0, 8)
+    discard atlas.insertGlyphVariant(key, -1, 8)
+    discard atlas.insertGlyphVariant(key, 33, 8)
+    discard atlas.insertGlyphVariant(key, 8, 33)
+    check atlas.glyphs.len == 0
+    let valid = atlas.insertGlyphVariant(key, 8, 8)
+    check valid.atlasX == 0
+    check valid.atlasY == 0
+
   test "paint list emits only commands intersecting dirty regions":
     var paint: PaintList
     paint.invalidate(Rect(origin: Point(x: px(0), y: px(0)), size: Size(width: px(10), height: px(10))))
