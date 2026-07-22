@@ -77,6 +77,16 @@ DMG. The same checks run again after notarization rebuilds the containers, so
 an apparently successful signing step cannot publish a truncated or invalid
 distribution artifact.
 
+## M11-012: Prefer keychain profiles or API keys for notarization
+
+Apple's current `notarytool` workflow supports keychain profiles and App Store
+Connect API keys in addition to app-specific Apple ID passwords. Nimculus now
+accepts `APPLE_NOTARY_PROFILE` or the API-key triplet
+`APPLE_NOTARY_KEY`/`APPLE_NOTARY_KEY_ID`/`APPLE_NOTARY_ISSUER_ID`, and retains
+the legacy environment-variable credentials only as a fallback. Partial API
+key configuration and unreadable key files fail before submission, preventing
+an ambiguous or insecure packaging run.
+
 ## M13-053: Run the Windows native contract test on the Windows runner
 
 The macOS workflow can only compile the Windows portable boundary because it

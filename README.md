@@ -29,6 +29,12 @@ bash scripts/benchmark_cold_start.sh
 反復回数は `NIMCULUS_COLD_START_RUNS=10`、1回あたりのtimeoutは
 `NIMCULUS_COLD_START_TIMEOUT_SECONDS=30` で指定できる。
 
+Developer ID notarizationは、Appleのkeychain profile（`APPLE_NOTARY_PROFILE`）
+またはApp Store Connect API key（`APPLE_NOTARY_KEY`、
+`APPLE_NOTARY_KEY_ID`、`APPLE_NOTARY_ISSUER_ID`）を優先して利用できる。
+従来の`APPLE_ID`、`APPLE_TEAM_ID`、`APPLE_APP_SPECIFIC_PASSWORD`も利用可能だが、
+資格情報をリポジトリへ保存してはならない。
+
 Zedのreliability heartbeatを参考に、アプリのidle境界でresident memory、
 live allocation、frame/inputを定期記録するsoak計測は次で実行する。既定は
 8時間で、GUIセッションが利用できるmacOSまたはWindowsで実行する。

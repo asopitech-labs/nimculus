@@ -30,6 +30,34 @@ verify_dmg() {
   hdiutil verify "$artifact" >/dev/null
 }
 
+submit_notarization() {
+  local artifact="$1"
+  local -a credentials
+  if [[ -n "${APPLE_NOTARY_PROFILE:-}" ]]; then
+    credentials=(--keychain-profile "$APPLE_NOTARY_PROFILE")
+  elif [[ -n "${APPLE_NOTARY_KEY:-}" ||
+          -n "${APPLE_NOTARY_KEY_ID:-}" ||
+          -n "${APPLE_NOTARY_ISSUER_ID:-}" ]]; then
+    if [[ -z "${APPLE_NOTARY_KEY:-}" ||
+          -z "${APPLE_NOTARY_KEY_ID:-}" ||
+          -z "${APPLE_NOTARY_ISSUER_ID:-}" ||
+          ! -r "$APPLE_NOTARY_KEY" ]]; then
+      echo "API-key notarization requires a readable key, key ID, and issuer ID" >&2
+      exit 4
+    fi
+    credentials=(--key "$APPLE_NOTARY_KEY"
+      --key-id "$APPLE_NOTARY_KEY_ID" --issuer "$APPLE_NOTARY_ISSUER_ID")
+  elif [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" &&
+          -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
+    credentials=(--apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID"
+      --password "$APPLE_APP_SPECIFIC_PASSWORD")
+  else
+    echo "notarization requires a keychain profile, API key credentials, or Apple ID credentials" >&2
+    exit 4
+  fi
+  xcrun notarytool submit "$artifact" "${credentials[@]}" --wait
+}
+
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "macOS packaging must run on Darwin" >&2
   exit 2
@@ -82,14 +110,11 @@ verify_artifact "$ZIP"
 verify_dmg "$DMG"
 
 if [[ "${NIMCULUS_NOTARIZE:-0}" == "1" ]]; then
-  if [[ -z "$IDENTITY" || -z "${APPLE_ID:-}" || -z "${APPLE_TEAM_ID:-}" ||
-        -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
-    echo "notarization requires signing identity and Apple notarization credentials" >&2
+  if [[ -z "$IDENTITY" ]]; then
+    echo "notarization requires a Developer ID signing identity" >&2
     exit 4
   fi
-  xcrun notarytool submit "$ZIP" \
-    --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
-    --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
+  submit_notarization "$ZIP"
   xcrun stapler staple "$APP"
   xcrun stapler validate "$APP"
   spctl --assess --type execute --verbose "$APP"
@@ -99,9 +124,7 @@ if [[ "${NIMCULUS_NOTARIZE:-0}" == "1" ]]; then
     -ov -format UDZO "$DMG"
   verify_artifact "$ZIP"
   verify_dmg "$DMG"
-  xcrun notarytool submit "$DMG" \
-    --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
-    --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
+  submit_notarization "$DMG"
   xcrun stapler staple "$DMG"
   xcrun stapler validate "$DMG"
   spctl --assess --type open --context context:primary-signature \
