@@ -68,6 +68,15 @@ timeout greater than the duration. This measures the real application loop;
 it does not claim an eight-hour result until the script has actually completed
 on the target GUI environment.
 
+## M11-011: Validate distribution containers at every packaging boundary
+
+Zed's macOS bundle flow treats the DMG as a release artifact that must remain
+valid through signing and notarization. Nimculus now verifies that the ZIP and
+DMG are non-empty immediately after creation, and runs `hdiutil verify` on the
+DMG. The same checks run again after notarization rebuilds the containers, so
+an apparently successful signing step cannot publish a truncated or invalid
+distribution artifact.
+
 ## M6-007: Exercise FSEvents through the main run loop in integration tests
 
 Zed's filesystem tests drive the platform watcher until events are delivered

@@ -8,11 +8,27 @@ IDENTITY="${NIMCULUS_CODESIGN_IDENTITY:-}"
 OUT_DIR="${NIMCULUS_OUT_DIR:-$ROOT_DIR/build/macos}"
 APP="$OUT_DIR/Nimculus.app"
 NIMCACHE_DIR="${TMPDIR:-/tmp}/nimculus-package-nimcache-$$"
+ZIP="$OUT_DIR/Nimculus-$VERSION-$ARCH.zip"
+DMG="$OUT_DIR/Nimculus-$VERSION-$ARCH.dmg"
 
 cleanup() {
   rm -rf "$NIMCACHE_DIR"
 }
 trap cleanup EXIT
+
+verify_artifact() {
+  local artifact="$1"
+  if [[ ! -s "$artifact" ]]; then
+    echo "distribution artifact is missing or empty: $artifact" >&2
+    exit 5
+  fi
+}
+
+verify_dmg() {
+  local artifact="$1"
+  verify_artifact "$artifact"
+  hdiutil verify "$artifact" >/dev/null
+}
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "macOS packaging must run on Darwin" >&2
@@ -59,9 +75,11 @@ if [[ -n "$IDENTITY" ]]; then
   spctl --assess --type execute --verbose "$APP"
 fi
 
-ditto -c -k --keepParent "$APP" "$OUT_DIR/Nimculus-$VERSION-$ARCH.zip"
+ditto -c -k --keepParent "$APP" "$ZIP"
 hdiutil create -quiet -volname Nimculus -srcfolder "$APP" \
-  -ov -format UDZO "$OUT_DIR/Nimculus-$VERSION-$ARCH.dmg"
+  -ov -format UDZO "$DMG"
+verify_artifact "$ZIP"
+verify_dmg "$DMG"
 
 if [[ "${NIMCULUS_NOTARIZE:-0}" == "1" ]]; then
   if [[ -z "$IDENTITY" || -z "${APPLE_ID:-}" || -z "${APPLE_TEAM_ID:-}" ||
@@ -69,25 +87,27 @@ if [[ "${NIMCULUS_NOTARIZE:-0}" == "1" ]]; then
     echo "notarization requires signing identity and Apple notarization credentials" >&2
     exit 4
   fi
-  xcrun notarytool submit "$OUT_DIR/Nimculus-$VERSION-$ARCH.zip" \
+  xcrun notarytool submit "$ZIP" \
     --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
     --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
   xcrun stapler staple "$APP"
   xcrun stapler validate "$APP"
   spctl --assess --type execute --verbose "$APP"
   # Rebuild containers so the stapled app is what users receive.
-  ditto -c -k --keepParent "$APP" "$OUT_DIR/Nimculus-$VERSION-$ARCH.zip"
+  ditto -c -k --keepParent "$APP" "$ZIP"
   hdiutil create -quiet -volname Nimculus -srcfolder "$APP" \
-    -ov -format UDZO "$OUT_DIR/Nimculus-$VERSION-$ARCH.dmg"
-  xcrun notarytool submit "$OUT_DIR/Nimculus-$VERSION-$ARCH.dmg" \
+    -ov -format UDZO "$DMG"
+  verify_artifact "$ZIP"
+  verify_dmg "$DMG"
+  xcrun notarytool submit "$DMG" \
     --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
     --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
-  xcrun stapler staple "$OUT_DIR/Nimculus-$VERSION-$ARCH.dmg"
-  xcrun stapler validate "$OUT_DIR/Nimculus-$VERSION-$ARCH.dmg"
+  xcrun stapler staple "$DMG"
+  xcrun stapler validate "$DMG"
   spctl --assess --type open --context context:primary-signature \
-    "$OUT_DIR/Nimculus-$VERSION-$ARCH.dmg"
+    "$DMG"
 fi
 
 echo "Created $APP"
-echo "Created $OUT_DIR/Nimculus-$VERSION-$ARCH.zip"
-echo "Created $OUT_DIR/Nimculus-$VERSION-$ARCH.dmg"
+echo "Created $ZIP"
+echo "Created $DMG"
