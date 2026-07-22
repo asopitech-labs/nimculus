@@ -4,6 +4,9 @@ import std/os
 import nimculus/update_service
 
 suite "M11 update service":
+  test "defines a bounded update artifact size":
+    check MaxUpdateArtifactBytes == 1024'i64 * 1024 * 1024
+
   test "parses a secure release manifest":
     let release = parseUpdateManifest("""{"version":"v0.2.0","url":"https://example.invalid/Nimculus.dmg","sha256":"0000000000000000000000000000000000000000000000000000000000000000","notes":"fixes"}""")
     check release.version == "v0.2.0"

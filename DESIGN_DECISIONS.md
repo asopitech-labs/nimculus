@@ -1,5 +1,14 @@
 # Design Decisions
 
+## M11-006: Bound update artifacts before verification and installation
+
+Zed downloads update bodies in bounded chunks and verifies the completed
+artifact before installation. Nimculus now gives curl a 1 GiB maximum, checks
+the destination size while an asynchronous download is running, terminates
+and removes an oversized file, and repeats the size check before SHA-256
+verification. This prevents a malformed or compromised update endpoint from
+consuming unbounded disk space.
+
 ## M9-006: Bound Git process output before it reaches UI state
 
 Zed compresses large commit diffs for presentation and applies explicit

@@ -18,6 +18,14 @@ type
     done*: bool
     success*: bool
 
+const MaxUpdateArtifactBytes* = 1024'i64 * 1024 * 1024
+
+proc artifactWithinLimit(path: string): bool =
+  try:
+    fileExists(path) and getFileSize(path) <= MaxUpdateArtifactBytes
+  except CatchableError:
+    false
+
 proc isHttpsUrl(url: string): bool =
   url.startsWith("https://")
 
@@ -77,7 +85,7 @@ proc verifySha256*(path, expected: string): bool =
   try:
     let process = startProcess("shasum", args = ["-a", "256", path],
       options = {poUsePath, poStdErrToStdOut})
-    let output = process.outputStream.readAll()
+    let output = process.outputStream.readStr(64 * 1024)
     let exitCode = process.waitForExit()
     process.close()
     if exitCode != 0: return false
@@ -94,12 +102,14 @@ proc downloadAndVerify*(release: UpdateRelease, destination: string): bool =
     return false
   try:
     let process = startProcess("curl", args = ["--fail", "--location", "--silent",
-      "--show-error", "--proto", "=https", "--tlsv1.2", "--output", destination,
+      "--show-error", "--proto", "=https", "--tlsv1.2", "--max-filesize",
+      $MaxUpdateArtifactBytes, "--output", destination,
       release.url], options = {poUsePath, poStdErrToStdOut})
     discard process.outputStream.readAll()
     let exitCode = process.waitForExit()
     process.close()
-    if exitCode != 0 or not verifySha256(destination, release.sha256):
+    if exitCode != 0 or not artifactWithinLimit(destination) or
+        not verifySha256(destination, release.sha256):
       if fileExists(destination): removeFile(destination)
       return false
     true
@@ -118,7 +128,8 @@ proc startUpdateDownload*(release: UpdateRelease, destination: string): UpdateDo
     return
   try:
     result.process = startProcess("curl", args = ["--fail", "--location", "--silent",
-      "--show-error", "--proto", "=https", "--tlsv1.2", "--output", destination,
+      "--show-error", "--proto", "=https", "--tlsv1.2", "--max-filesize",
+      $MaxUpdateArtifactBytes, "--output", destination,
       release.url], options = {poUsePath, poStdErrToStdOut})
     result.done = false
   except CatchableError:
@@ -126,11 +137,21 @@ proc startUpdateDownload*(release: UpdateRelease, destination: string): UpdateDo
 
 proc pollUpdateDownload*(job: UpdateDownloadJob): bool =
   if job == nil or job.done: return true
+  if fileExists(job.destination) and not artifactWithinLimit(job.destination):
+    job.process.terminate()
+    discard job.process.waitForExit()
+    job.process.close()
+    try: removeFile(job.destination)
+    except CatchableError: discard
+    job.done = true
+    job.success = false
+    return true
   let exitCode = job.process.peekExitCode()
   if exitCode < 0: return false
   job.process.close()
   job.done = true
-  job.success = exitCode == 0 and verifySha256(job.destination, job.release.sha256)
+  job.success = exitCode == 0 and artifactWithinLimit(job.destination) and
+    verifySha256(job.destination, job.release.sha256)
   if not job.success and fileExists(job.destination):
     try: removeFile(job.destination)
     except CatchableError: discard
