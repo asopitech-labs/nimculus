@@ -938,6 +938,8 @@ sequence verifies the real input/output handshake without racing process
 startup.
 The test sends the CRLF line terminator accepted by the interactive `cmd.exe`
 input path.
+After the readiness sequence it allows a bounded 250ms for `cmd.exe` to finish
+installing its input reader before sending the first line.
 The post-input poll is bounded to five seconds so slow hosted runners do not
 turn normal ConPTY scheduling variance into a false negative.
 
