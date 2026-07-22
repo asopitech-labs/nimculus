@@ -5,6 +5,7 @@
 #include <d2d1.h>
 #include <dwrite.h>
 #include <dwrite_2.h>
+#include <dwrite_3.h>
 #include <dxgi.h>
 #include <commdlg.h>
 #include <imm.h>
@@ -51,6 +52,7 @@ static ID2D1RenderTarget *g_d2d_target = NULL;
 static ID2D1SolidColorBrush *g_d2d_text_brush = NULL;
 static IDWriteFactory *g_dwrite_factory = NULL;
 static IDWriteFactory2 *g_dwrite_factory2 = NULL;
+static IDWriteFactory4 *g_dwrite_factory4 = NULL;
 static IDWriteTextAnalyzer *g_dwrite_analyzer = NULL;
 static IDWriteFontFallback *g_dwrite_font_fallback = NULL;
 static IDWriteFontFace *g_glyph_font_face = NULL;
@@ -814,9 +816,17 @@ static bool ensure_directwrite_factory(void) {
     }
     return false;
   }
+  /* Factory4 is optional: Windows 8.1/older SDK environments still have a
+   * valid Factory2 COLR path.  Keep the newer image-format path additive. */
+  g_dwrite_factory->lpVtbl->QueryInterface((IUnknown *)g_dwrite_factory,
+      &IID_IDWriteFactory4, (void **)&g_dwrite_factory4);
   hr = g_dwrite_factory->lpVtbl->CreateTextAnalyzer(g_dwrite_factory,
       &g_dwrite_analyzer);
   if (FAILED(hr) || !g_dwrite_analyzer) {
+    if (g_dwrite_factory4) {
+      g_dwrite_factory4->lpVtbl->Release(g_dwrite_factory4);
+      g_dwrite_factory4 = NULL;
+    }
     if (g_dwrite_factory2) {
       g_dwrite_factory2->lpVtbl->Release(g_dwrite_factory2);
       g_dwrite_factory2 = NULL;
@@ -832,6 +842,10 @@ static bool ensure_directwrite_factory(void) {
   if (FAILED(hr) || !g_dwrite_font_fallback) {
     g_dwrite_analyzer->lpVtbl->Release(g_dwrite_analyzer);
     g_dwrite_analyzer = NULL;
+    if (g_dwrite_factory4) {
+      g_dwrite_factory4->lpVtbl->Release(g_dwrite_factory4);
+      g_dwrite_factory4 = NULL;
+    }
     g_dwrite_factory2->lpVtbl->Release(g_dwrite_factory2);
     g_dwrite_factory2 = NULL;
     g_dwrite_factory->lpVtbl->Release(g_dwrite_factory);
@@ -3404,6 +3418,10 @@ bool nimculus_platform_run(void) {
     g_dwrite_font_fallback->lpVtbl->Release(g_dwrite_font_fallback);
     g_dwrite_font_fallback = NULL;
   }
+  if (g_dwrite_factory4) {
+    g_dwrite_factory4->lpVtbl->Release(g_dwrite_factory4);
+    g_dwrite_factory4 = NULL;
+  }
   if (g_dwrite_factory) {
     g_dwrite_factory->lpVtbl->Release(g_dwrite_factory);
     g_dwrite_factory = NULL;
@@ -3609,6 +3627,88 @@ bool nimculus_platform_validate_color_glyph_path(void) {
     } else if (SUCCEEDED(hr) && enumerator) {
       BOOL has_run = FALSE;
       valid = SUCCEEDED(enumerator->lpVtbl->MoveNext(enumerator, &has_run));
+    } else {
+      valid = false;
+    }
+  }
+  if (enumerator) enumerator->lpVtbl->Release(enumerator);
+  font_face->lpVtbl->Release(font_face);
+  return valid;
+}
+
+bool nimculus_platform_validate_advanced_color_glyph_path(void) {
+  if (!g_device || !g_context || !ensure_directwrite_factory()) return false;
+  /* Factory4 is available on Windows 10 1607 and later.  Older systems keep
+   * using the Factory2 COLR/D2D path and are valid by construction. */
+  if (!g_dwrite_factory4) return true;
+  static const wchar_t sample[] = {0xd83d, 0xde00};
+  UINT32 mapped_length = 0;
+  FLOAT fallback_scale = 1.0f;
+  IDWriteFontFace *font_face = map_fallback_font(sample, 2,
+      &mapped_length, &fallback_scale);
+  if (!font_face || mapped_length != 2) {
+    if (font_face) font_face->lpVtbl->Release(font_face);
+    return false;
+  }
+  UINT32 codepoint = 0x1f600;
+  UINT16 glyph_id = 0;
+  HRESULT hr = font_face->lpVtbl->GetGlyphIndices(font_face, &codepoint, 1,
+      &glyph_id);
+  bool valid = SUCCEEDED(hr) && glyph_id != 0;
+  IDWriteColorGlyphRunEnumerator1 *enumerator = NULL;
+  if (valid) {
+    double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+    FLOAT advance = glyph_advance_pixels(font_face, glyph_id,
+        (float)g_editor_font_size * fallback_scale, scale);
+    DWRITE_GLYPH_OFFSET offset = {0.0f, 0.0f};
+    DWRITE_GLYPH_RUN run;
+    ZeroMemory(&run, sizeof(run));
+    run.fontFace = font_face;
+    run.fontEmSize = (FLOAT)g_editor_font_size * fallback_scale;
+    run.glyphCount = 1;
+    run.glyphIndices = &glyph_id;
+    run.glyphAdvances = &advance;
+    run.glyphOffsets = &offset;
+    DWRITE_MATRIX transform = {(FLOAT)scale, 0.0f, 0.0f, (FLOAT)scale,
+                               0.0f, 0.0f};
+    D2D1_POINT_2F origin = {0.0f, 0.0f};
+    DWRITE_GLYPH_IMAGE_FORMATS formats =
+        DWRITE_GLYPH_IMAGE_FORMATS_COLR |
+        DWRITE_GLYPH_IMAGE_FORMATS_SVG |
+        DWRITE_GLYPH_IMAGE_FORMATS_PNG |
+        DWRITE_GLYPH_IMAGE_FORMATS_JPEG |
+        DWRITE_GLYPH_IMAGE_FORMATS_PREMULTIPLIED_B8G8R8A8;
+    hr = g_dwrite_factory4->lpVtbl->TranslateColorGlyphRun(
+        g_dwrite_factory4, origin, &run, NULL, formats,
+        DWRITE_MEASURING_MODE_NATURAL, &transform, 0, &enumerator);
+    if (hr == DWRITE_E_NOCOLOR) {
+      valid = true;
+    } else if (SUCCEEDED(hr) && enumerator) {
+      uint32_t run_count = 0;
+      BOOL has_next = FALSE;
+      for (;;) {
+        const DWRITE_COLOR_GLYPH_RUN1 *color_run = NULL;
+        hr = enumerator->lpVtbl->IDWriteColorGlyphRunEnumerator1_GetCurrentRun(
+            enumerator, &color_run);
+        if (FAILED(hr) || !color_run) {
+          valid = false;
+          break;
+        }
+        DWRITE_GLYPH_IMAGE_FORMATS image_format =
+            color_run->glyphImageFormat & ~DWRITE_GLYPH_IMAGE_FORMATS_TRUETYPE;
+        if (image_format != DWRITE_GLYPH_IMAGE_FORMATS_COLR &&
+            image_format != DWRITE_GLYPH_IMAGE_FORMATS_SVG &&
+            image_format != DWRITE_GLYPH_IMAGE_FORMATS_PNG &&
+            image_format != DWRITE_GLYPH_IMAGE_FORMATS_JPEG &&
+            image_format != DWRITE_GLYPH_IMAGE_FORMATS_PREMULTIPLIED_B8G8R8A8) {
+          valid = false;
+          break;
+        }
+        run_count++;
+        hr = enumerator->lpVtbl->MoveNext(enumerator, &has_next);
+        if (FAILED(hr) || !has_next) break;
+      }
+      valid = valid && run_count > 0;
     } else {
       valid = false;
     }

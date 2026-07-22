@@ -2318,3 +2318,19 @@ The Windows native smoke test now includes an emoji and validates the color
 atlas when the installed fallback exposes a COLR face. `DWRITE_E_NOCOLOR` is
 accepted as a valid environment-dependent result, so the test remains useful
 on runners whose installed emoji fallback is monochrome or non-COLR.
+
+## M13-067: Classify Factory4 color formats before choosing a renderer
+
+Zed's Windows renderer branches on `DWRITE_COLOR_GLYPH_RUN1` rather than
+assuming that every color run is a COLR layer. The backend now optionally
+queries `IDWriteFactory4` and requests COLR, SVG, PNG, JPEG, and
+premultiplied BGRA32 formats. Each enumerated run is checked for exactly one
+known image format. COLR continues through the dedicated RGBA atlas; PNG,
+SVG, JPEG, and premultiplied bitmap runs remain on DirectWrite/D2D until their
+bitmap/SVG raster upload path is implemented. If Factory4 is unavailable, the
+Factory2 COLR path remains the compatibility path.
+
+The native contract test exercises this classification with a surrogate emoji
+and accepts `DWRITE_E_NOCOLOR`, while rejecting null enumerator runs, unknown
+formats, and failed enumeration. This prevents a future advanced-color atlas
+implementation from silently treating an image run as a monochrome outline.

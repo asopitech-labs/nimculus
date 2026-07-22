@@ -55,6 +55,12 @@ when defined(windows):
     test "DirectWrite color glyph translation path is safe":
       check platformValidateColorGlyphPath()
 
+    test "DirectWrite Factory4 color glyph formats are classified safely":
+      if platformValidateNative():
+        check platformValidateAdvancedColorGlyphPath()
+      else:
+        echo "  [SKIP] DirectWrite Factory4 color format contract requires an active native window"
+
     test "D3D11 glyph atlas uploads and reuses a cached tile":
       if platformValidateNative():
         check platformValidateGlyphAtlasUpload()
