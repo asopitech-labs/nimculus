@@ -45,6 +45,9 @@ type
     activeLine: int
     hasActiveFile: bool
     complete*: bool
+    truncated*: bool
+    maxResults*: int
+    totalResults: int
   FuzzySearchJob* = ref object
     workspace*: Workspace
     query*: string
@@ -61,6 +64,10 @@ type
     watchers: seq[pointer]
     changes*: seq[string]
     changesLock: Lock
+
+const
+  MaxWorkspaceSearchResults* = 10_000
+  MaxWorkspaceSearchOutputBytes* = 32 * 1024 * 1024
 
 when defined(macosx) or defined(windows):
   type WorkspaceChangeCallback* = proc(path: cstring, context: pointer) {.cdecl.}
@@ -308,7 +315,8 @@ proc pollFuzzySearch*(job: FuzzySearchJob, maxEntries = 256,
     if lengthOrder != 0: lengthOrder else: cmp(a.relativePath, b.relativePath))
 
 proc searchWorkspace*(workspace: Workspace, query: string,
-                      token: CancelToken = nil): seq[SearchResult]
+                      token: CancelToken = nil,
+                      maxResults = MaxWorkspaceSearchResults): seq[SearchResult]
 
 proc invalidateEntryCache(workspace: Workspace, path: string) =
   ## Filesystem events are the invalidation boundary for the lazy entry cache.
@@ -327,7 +335,8 @@ proc invalidateEntryCache(workspace: Workspace, path: string) =
 proc startSearch*(workspace: Workspace, query: string,
                   token: CancelToken = nil): SearchJob =
   result = SearchJob(workspace: workspace, query: query,
-    token: if token == nil: newCancelToken() else: token)
+    token: if token == nil: newCancelToken() else: token,
+    truncated: false, maxResults: MaxWorkspaceSearchResults, totalResults: 0)
   if query.len == 0:
     result.complete = true
     return
@@ -348,8 +357,12 @@ proc searchLine(job: SearchJob, line: string, lineNumber: int,
   while true:
     let column = line.find(job.query, offset)
     if column < 0: break
+    if job.totalResults >= max(1, job.maxResults):
+      job.truncated = true
+      return
     job.bufferedResults.add(SearchResult(path: entry.path, rootPath: entry.rootPath,
       line: lineNumber, column: column + 1, text: line))
+    inc job.totalResults
     offset = column + max(1, job.query.len)
 
 proc pollSearch*(job: SearchJob, maxFiles = 16, maxLines = 4096): seq[SearchResult] =
@@ -390,6 +403,11 @@ proc pollSearch*(job: SearchJob, maxFiles = 16, maxLines = 4096): seq[SearchResu
       inc job.activeLine
       job.searchLine(line, job.activeLine, job.activeEntry)
       inc processedLines
+      if job.truncated:
+        close(job.activeFile)
+        job.hasActiveFile = false
+        job.complete = true
+        break
     else:
       close(job.activeFile)
       job.hasActiveFile = false
@@ -399,7 +417,18 @@ proc pollSearch*(job: SearchJob, maxFiles = 16, maxLines = 4096): seq[SearchResu
   result = job.bufferedResults
   job.bufferedResults.setLen(0)
 
-proc runSearchProcess(command: string, token: CancelToken): tuple[exitCode: int, output: string] =
+proc readFilePrefix(path: string, maxBytes: int): string =
+  if maxBytes <= 0: return
+  var file: File
+  if not open(file, path, fmRead): return
+  defer: file.close()
+  result = newString(maxBytes)
+  let count = file.readBuffer(addr result[0], maxBytes)
+  result.setLen(max(0, count))
+
+proc runSearchProcess(command: string, token: CancelToken,
+                      maxOutputBytes = MaxWorkspaceSearchOutputBytes):
+    tuple[exitCode: int, output: string, truncated: bool] =
   ## Run an external search without making cancellation wait for command exit.
   ## POSIX uses a shell only for file redirection; the command itself is fully
   ## quoteShell-escaped by the caller and is executed as `exec`-equivalent.
@@ -416,13 +445,21 @@ proc runSearchProcess(command: string, token: CancelToken): tuple[exitCode: int,
           discard process.waitForExit()
           process.close()
           if fileExists(outputPath): removeFile(outputPath)
-          return (-1, "")
+          return (-1, "", false)
+        if fileExists(outputPath) and getFileSize(outputPath) > int64(maxOutputBytes):
+          result.truncated = true
+          process.terminate()
+          discard process.waitForExit()
+          break
         sleep(10)
       let exitCode = process.waitForExit()
       process.close()
       result.exitCode = exitCode
       if fileExists(outputPath):
-        result.output = readFile(outputPath)
+        let size = getFileSize(outputPath)
+        if size > int64(maxOutputBytes): result.truncated = true
+        result.output = if result.truncated: readFilePrefix(outputPath, maxOutputBytes)
+          else: readFile(outputPath)
         removeFile(outputPath)
     except CatchableError:
       if process != nil:
@@ -433,7 +470,8 @@ proc runSearchProcess(command: string, token: CancelToken): tuple[exitCode: int,
   else:
     let output = execCmdEx(command)
     result.exitCode = output.exitCode
-    result.output = output.output
+    result.truncated = output.output.len > maxOutputBytes
+    result.output = if result.truncated: output.output[0 ..< maxOutputBytes] else: output.output
 
 proc appendRipgrepRecord(results: var seq[SearchResult], root, path, payload: string) =
   let parts = payload.split(':', maxsplit = 2)
@@ -444,12 +482,13 @@ proc appendRipgrepRecord(results: var seq[SearchResult], root, path, payload: st
   except ValueError:
     discard
 
-proc parseRipgrepOutput(output, root: string): seq[SearchResult] =
+proc parseRipgrepOutput(output, root: string,
+                        maxResults = MaxWorkspaceSearchResults): seq[SearchResult] =
   ## `rg --null` emits one path NUL and one result line per match. Keep the
   ## path delimiter separate from the line delimiter so filenames may contain
   ## colons or newlines and multiple matches in one file are not collapsed.
   var offset = 0
-  while offset < output.len:
+  while offset < output.len and result.len < max(1, maxResults):
     let pathEnd = output.find('\0', offset)
     if pathEnd < 0: break
     let resultStart = pathEnd + 1
@@ -461,7 +500,8 @@ proc parseRipgrepOutput(output, root: string): seq[SearchResult] =
     offset = if resultEnd < 0: output.len else: resultEnd + 1
 
 proc searchRipgrep*(workspace: Workspace, query: string,
-                    token: CancelToken = nil): seq[SearchResult] =
+                    token: CancelToken = nil,
+                    maxResults = MaxWorkspaceSearchResults): seq[SearchResult] =
   if query.len == 0 or (token != nil and token.cancelled): return
   var usedRipgrep = true
   try:
@@ -474,10 +514,12 @@ proc searchRipgrep*(workspace: Workspace, query: string,
       let command = "rg --color never --no-heading --line-number --column --null --glob !.git " &
         quoteShell(query) & " " & quoteShell(root)
       let output = runSearchProcess(command, token)
-      if output.exitCode > 1:
+      if output.exitCode > 1 and not output.truncated:
         usedRipgrep = false
         break
-      result.add(parseRipgrepOutput(output.output, root))
+      let remaining = max(1, maxResults) - result.len
+      result.add(parseRipgrepOutput(output.output, root, remaining))
+      if output.truncated or result.len >= max(1, maxResults): return
     if usedRipgrep and workspace.roots.len > 0: return
   except CatchableError:
     discard
@@ -503,21 +545,29 @@ proc gitWorktreeStates*(workspace: Workspace): Table[string, WorktreeState] =
       discard
 
 proc searchWorkspace*(workspace: Workspace, query: string,
-                      token: CancelToken = nil): seq[SearchResult] =
+                      token: CancelToken = nil,
+                      maxResults = MaxWorkspaceSearchResults): seq[SearchResult] =
   if query.len == 0: return
   for entry in workspace.enumerateFiles(token):
+    if result.len >= max(1, maxResults): break
     if token != nil and token.cancelled: break
+    var file: File
+    if not open(file, entry.path, fmRead): continue
     try:
-      let lines = readFile(entry.path).splitLines
-      for lineNumber in 0 ..< lines.len:
-        let line = lines[lineNumber]
+      defer: file.close()
+      var lineNumber = 0
+      var line = ""
+      while file.readLine(line):
+        inc lineNumber
         var offset = 0
         while true:
           let column = line.find(query, offset)
           if column < 0: break
-          result.add(SearchResult(path: entry.path, rootPath: entry.rootPath, line: lineNumber + 1,
+          if result.len >= max(1, maxResults): break
+          result.add(SearchResult(path: entry.path, rootPath: entry.rootPath, line: lineNumber,
             column: column + 1, text: line))
           offset = column + max(1, query.len)
+        if result.len >= max(1, maxResults): break
     except CatchableError:
       discard
 

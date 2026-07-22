@@ -219,6 +219,30 @@ suite "M6 workspace":
     check results[1].text == "needle again"
     removeFile(path); removeDir(root)
 
+  test "search result count is bounded":
+    let root = getTempDir() / "nimculus-m6-search-limit"
+    createDir(root)
+    let path = root / "many.txt"
+    writeFile(path, repeat("needle\n", MaxWorkspaceSearchResults + 5))
+    let workspace = openWorkspace(root)
+    check workspace.searchWorkspace("needle").len == MaxWorkspaceSearchResults
+    check workspace.searchRipgrep("needle").len == MaxWorkspaceSearchResults
+    removeFile(path); removeDir(root)
+
+  test "cooperative search stops after its global result limit":
+    let root = getTempDir() / "nimculus-m6-search-job-limit"
+    createDir(root)
+    let path = root / "many.txt"
+    writeFile(path, repeat("needle\n", MaxWorkspaceSearchResults + 5))
+    let workspace = openWorkspace(root)
+    let job = workspace.startSearch("needle")
+    var total = 0
+    while not job.isComplete:
+      total += job.pollSearch(maxFiles = 1, maxLines = 4096).len
+    check total == MaxWorkspaceSearchResults
+    check job.truncated
+    removeFile(path); removeDir(root)
+
   test "keeps Git worktree state keyed by worktree root":
     let workspace = openWorkspace(getCurrentDir())
     let states = workspace.gitWorktreeStates()

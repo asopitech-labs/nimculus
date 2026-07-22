@@ -10,6 +10,18 @@ the coalesced event set. The next lazy tree/search operation rescans the
 affected path, which handles delete and rename events without retaining stale
 entries or requiring a full workspace enumeration.
 
+## M6-007: Bound workspace search results and ripgrep output
+
+Zed's project search limits returned files and ranges and streams candidates
+through bounded asynchronous channels. Nimculus now caps a search at 10,000
+matches and caps the POSIX ripgrep temporary output at 32 MiB. When ripgrep
+exceeds the output cap, its process is stopped and the safely readable prefix
+is parsed; the cooperative fallback and search jobs use the same match cap.
+The cooperative fallback reads files line-by-line rather than flattening a
+whole file into memory. This prevents a broad query from retaining an
+unbounded result sequence, file body, or temporary file while preserving
+cancellation.
+
 ## M10-005: Compact scrollback in batches without changing its public shape
 
 Zed's terminal configuration passes an explicit maximum scroll history to a
