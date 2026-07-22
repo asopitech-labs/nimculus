@@ -94,6 +94,8 @@ the local `iconutil` conversion rejected the generated set even when its names
 and pixel dimensions matched that contract. The macOS packaging path therefore
 keeps generating the documented iconset and uses ImageIO's
 `com.apple.icns` destination to write the final ICNS container directly. The
+package script verifies the resulting ICNS and falls back to Apple's
+`iconutil` when an older runner image lacks that ImageIO destination. The
 package smoke test validates the signed app, ZIP, and DMG at the release
 boundary.
 

@@ -71,8 +71,15 @@ rm -rf "$OUT_DIR"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 ICONSET="$OUT_DIR/Nimculus.iconset"
-swift "$ROOT_DIR/scripts/generate_macos_icon.swift" "$ICONSET" \
-  "$APP/Contents/Resources/Nimculus.icns"
+if ! swift "$ROOT_DIR/scripts/generate_macos_icon.swift" "$ICONSET" \
+  "$APP/Contents/Resources/Nimculus.icns"; then
+  # ImageIO is the primary writer. Older/macOS runner images may not expose
+  # the ICNS destination, while iconutil can still consume the documented
+  # iconset renditions.
+  rm -f "$APP/Contents/Resources/Nimculus.icns"
+  iconutil --convert icns --output "$APP/Contents/Resources/Nimculus.icns" "$ICONSET"
+fi
+verify_artifact "$APP/Contents/Resources/Nimculus.icns"
 rm -rf "$ICONSET"
 
 nim c --mm:arc -d:release --cpu:"$ARCH" \
