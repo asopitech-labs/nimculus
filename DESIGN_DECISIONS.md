@@ -18,6 +18,17 @@ Nimculus now gives the 100k-file workspace benchmarks a PID-scoped root and a
 scope-bound `defer` cleanup. A failed enumeration or file write no longer
 leaves a large generated tree in the system temporary directory.
 
+## M20-007: Measure bounded service memory at lifecycle boundaries
+
+Zed's reliability loop records resident memory at a process boundary, while
+its workspace and language-server services keep ownership and shutdown tied to
+the owning scope. Nimculus's M20 benchmark now records resident-memory samples
+around terminal parsing, bounded LSP frame decoding, workspace enumeration, and
+file-watcher registration. Each sample includes the workload size and the
+before/after resident bytes; the watcher is stopped before its temporary root
+is removed. This makes service-level growth visible without treating Nim's
+allocator count as a complete measure of native resources.
+
 ## M11-006: Bound update artifacts before verification and installation
 
 Zed downloads update bodies in bounded chunks and verifies the completed

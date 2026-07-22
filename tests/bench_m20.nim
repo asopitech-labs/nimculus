@@ -1,8 +1,10 @@
 import std/os
+import std/json
 import std/strutils
 import std/times
 import nimculus/editor_buffer
 import nimculus/editor_syntax
+import nimculus/lsp
 import nimculus/terminal
 import nimculus/workspace
 import nimnui/text
@@ -59,6 +61,31 @@ block terminalParser:
   screen.feed(payload)
   report("terminal_parse", cpuTime() - start, "bytes=" & $payload.len)
 
+block terminalMemory:
+  let before = platformResidentMemoryBytes()
+  let terminalBytes = parseInt(getEnv("NIMCULUS_BENCH_TERMINAL_BYTES", "1000000"))
+  var screen = initTerminalScreen(120, 40, 10_000)
+  let payload = "Nimculus terminal output 0123456789\r\n"
+  let repetitions = max(1, terminalBytes div max(1, payload.len))
+  let start = cpuTime()
+  screen.feed(payload.repeat(repetitions))
+  let after = platformResidentMemoryBytes()
+  report("terminal_memory", cpuTime() - start,
+    "bytes=" & $(payload.len * repetitions) & ";lines=" & $screen.lineCount &
+    ";resident_before=" & $before & ";resident_after=" & $after)
+
+block lspMemory:
+  let before = platformResidentMemoryBytes()
+  let message = encodeLspMessage(%*{"jsonrpc": "2.0", "id": 1, "result": {"ok": true}})
+  let messageCount = 128
+  var decoder = LspFrameDecoder()
+  let start = cpuTime()
+  let messages = decoder.feed(message.repeat(messageCount), MaxLspMessagesPerPoll)
+  let after = platformResidentMemoryBytes()
+  report("lsp_memory", cpuTime() - start,
+    "messages=" & $messages.len & ";buffered_bytes=" & $decoder.buffer.len &
+    ";resident_before=" & $before & ";resident_after=" & $after)
+
 block layoutTime:
   var tree = newUiTree()
   let root = tree.addNode()
@@ -97,3 +124,18 @@ block workspaceLoad:
   let start = cpuTime()
   let entries = workspace.enumerateFiles()
   report("workspace_load", cpuTime() - start, "files=" & $entries.len)
+
+block fileWatcherLoad:
+  let root = getTempDir() / ("nimculus-m20-watcher-" & $getCurrentProcessId())
+  if dirExists(root): removeDir(root)
+  defer:
+    if dirExists(root): removeDir(root)
+  createDir(root)
+  let workspace = openWorkspace(root)
+  let before = platformResidentMemoryBytes()
+  let start = cpuTime()
+  workspace.startWatching()
+  let after = platformResidentMemoryBytes()
+  workspace.stopWatching()
+  report("file_watcher_load", cpuTime() - start,
+    "roots=1;resident_before=" & $before & ";resident_after=" & $after)
