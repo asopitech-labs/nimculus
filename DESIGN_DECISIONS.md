@@ -938,6 +938,8 @@ sequence verifies the real input/output handshake without racing process
 startup.
 The test sends carriage return for Enter, matching the native Windows terminal
 input contract rather than injecting a POSIX CRLF pair.
+The post-input poll is bounded to five seconds so slow hosted runners do not
+turn normal ConPTY scheduling variance into a false negative.
 
 ## M6-002: Workspace operations stay path-confined
 
