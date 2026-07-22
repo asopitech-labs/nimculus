@@ -10,6 +10,14 @@ and benchmark executables without ignoring their `.nim` sources, and provides
 This makes the disk-usage check enforceable rather than dependent on each
 developer remembering Nim's default user cache location.
 
+## M20-006: Make large benchmark workspaces exception-safe
+
+Zed's large workspace tests isolate generated projects in process-specific
+temporary directories and keep cleanup alive until the test scope exits.
+Nimculus now gives the 100k-file workspace benchmarks a PID-scoped root and a
+scope-bound `defer` cleanup. A failed enumeration or file write no longer
+leaves a large generated tree in the system temporary directory.
+
 ## M11-006: Bound update artifacts before verification and installation
 
 Zed downloads update bodies in bounded chunks and verifies the completed

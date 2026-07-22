@@ -86,6 +86,8 @@ block platformFrameMetrics:
 block workspaceLoad:
   let root = getTempDir() / ("nimculus-m20-" & $getCurrentProcessId())
   if dirExists(root): removeDir(root)
+  defer:
+    if dirExists(root): removeDir(root)
   createDir(root)
   for index in 0 ..< max(1, workspaceFiles):
     let directory = root / ("group" & $(index div 100))
@@ -95,4 +97,3 @@ block workspaceLoad:
   let start = cpuTime()
   let entries = workspace.enumerateFiles()
   report("workspace_load", cpuTime() - start, "files=" & $entries.len)
-  removeDir(root)
