@@ -7,6 +7,11 @@ when defined(posix):
 import nimculus/update_service
 
 suite "M11 update service":
+  test "uses the DMG volume path for mounted update apps":
+    check MacosUpdateVolumeName == "Nimculus"
+    check macosUpdateMountedAppPath("/tmp/NimculusUpdateMount", "Nimculus.app") ==
+      "/tmp/NimculusUpdateMount/Nimculus/Nimculus.app"
+
   test "defines a bounded update artifact size":
     check MaxUpdateArtifactBytes == 1024'i64 * 1024 * 1024
 

@@ -305,11 +305,12 @@ consuming unbounded disk space.
 
 Zed passes the installer directory used by `hdiutil` as the mount root and
 always awaits unmounting before its temporary installer directory is removed.
-Nimculus now passes `NimculusUpdateMount` consistently to `hdiutil`, verifies
-the app at that exact mount point, detaches that same point, removes the mount
-directory, and removes the consumed DMG in a `finally` cleanup path. This
-avoids verifying one path while detaching another and prevents stale update
-artifacts from accumulating in the temporary directory.
+`hdiutil -mountroot root` creates `root/<volume-name>`; Nimculus therefore
+uses `NimculusUpdateMount/Nimculus` for both the mounted app and detach path,
+matching the `Nimculus` volume emitted by the package script. It then removes
+the mount directory and consumed DMG in a `finally` cleanup path. This avoids
+verifying one path while detaching another and prevents stale update artifacts
+from accumulating in the temporary directory.
 
 ## M11-008: Verify update downloads before publishing the destination path
 

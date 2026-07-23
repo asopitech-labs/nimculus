@@ -31,6 +31,7 @@ type
 const MaxUpdateArtifactBytes* = 1024'i64 * 1024 * 1024
 const UpdateProcessGracePeriodMs = 1_000
 const UpdateToolTimeoutMs* = 60_000
+const MacosUpdateVolumeName* = "Nimculus"
 
 proc artifactWithinLimit(path: string): bool =
   try:
@@ -39,6 +40,11 @@ proc artifactWithinLimit(path: string): bool =
     false
 
 proc partialUpdatePath(destination: string): string = destination & ".part"
+
+proc macosUpdateMountedAppPath*(mountRoot, appName: string): string =
+  ## `hdiutil -mountroot root` mounts a volume at `root/<volname>`, not at
+  ## `root` itself. Keep this explicit contract shared by install and tests.
+  mountRoot / MacosUpdateVolumeName / appName
 
 proc removeIfPresent(path: string) =
   if path.len == 0 or not fileExists(path): return
@@ -289,7 +295,8 @@ proc installMacosDmgUpdate*(downloadedDmg, runningAppPath, temporaryDirectory: s
     return false
   let mountRoot = temporaryDirectory / "NimculusUpdateMount"
   let appName = splitFile(runningAppPath).name & splitFile(runningAppPath).ext
-  let mountedApp = mountRoot / appName
+  let mountedVolume = mountRoot / MacosUpdateVolumeName
+  let mountedApp = macosUpdateMountedAppPath(mountRoot, appName)
   var mounted = false
   try:
     createDir(temporaryDirectory)
@@ -304,7 +311,7 @@ proc installMacosDmgUpdate*(downloadedDmg, runningAppPath, temporaryDirectory: s
   finally:
     if mounted:
       try:
-        discard runProcessBounded("hdiutil", ["detach", "-force", mountRoot])
+        discard runProcessBounded("hdiutil", ["detach", "-force", mountedVolume])
       except CatchableError: discard
     try:
       if dirExists(mountRoot): removeDir(mountRoot)
