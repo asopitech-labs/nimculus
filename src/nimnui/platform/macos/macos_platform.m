@@ -237,6 +237,53 @@ static uint32_t g_diagnostic_count = 0;
 static NimculusGitHunkSpan *g_git_hunks = NULL;
 static uint32_t g_git_hunk_count = 0;
 
+static void releasePlatformResources(void) {
+  // As with Zed's renderer drop path, release GPU objects before AppKit tears
+  // down the window/layer, then dispose of CPU buffers and bridge state.
+  g_active_view = nil;
+  [g_scene_texture release]; g_scene_texture = nil;
+  [g_text_texture release]; g_text_texture = nil;
+  [g_glyph_atlas_texture release]; g_glyph_atlas_texture = nil;
+  [g_image_textures release]; g_image_textures = nil;
+  [g_glyph_atlas_entries release]; g_glyph_atlas_entries = nil;
+  [g_pipeline release]; g_pipeline = nil;
+  [g_text_pipeline release]; g_text_pipeline = nil;
+  [g_glyph_pipeline release]; g_glyph_pipeline = nil;
+  [g_image_pipeline release]; g_image_pipeline = nil;
+  [g_queue release]; g_queue = nil;
+  free(g_glyph_vertices); g_glyph_vertices = NULL;
+  g_glyph_vertex_count = 0; g_glyph_vertex_capacity = 0;
+  free(g_paint_commands); g_paint_commands = NULL; g_paint_count = 0;
+  free(g_paint_dirty_regions); g_paint_dirty_regions = NULL; g_paint_dirty_count = 0;
+  free(g_highlights); g_highlights = NULL; g_highlight_count = 0;
+  free(g_diagnostics); g_diagnostics = NULL; g_diagnostic_count = 0;
+  free(g_git_hunks); g_git_hunks = NULL; g_git_hunk_count = 0;
+  free(g_terminal_runs); g_terminal_runs = NULL; g_terminal_run_count = 0;
+  free(g_editor_annotations); g_editor_annotations = NULL; g_editor_annotation_count = 0;
+  [g_terminal_hyperlinks release]; g_terminal_hyperlinks = nil;
+  [g_editor_annotation_texts release]; g_editor_annotation_texts = nil;
+  [g_editor_tab_titles release]; g_editor_tab_titles = nil;
+  [g_recent_files release]; g_recent_files = nil;
+  [g_clipboard_utf8_data release]; g_clipboard_utf8_data = nil;
+  [g_editor_font_name release]; g_editor_font_name = nil;
+  [g_terminal_font_name release]; g_terminal_font_name = nil;
+  [g_editor_text release]; g_editor_text = nil;
+  [g_editor_status release]; g_editor_status = nil;
+  [g_editor_outline_text release]; g_editor_outline_text = nil;
+  [g_terminal_text release]; g_terminal_text = nil;
+  [g_task_output_text release]; g_task_output_text = nil;
+  [g_marked_text release]; g_marked_text = nil;
+  [g_editor_completions release]; g_editor_completions = nil;
+  [g_editor_hover release]; g_editor_hover = nil;
+  [g_clipboard_text release]; g_clipboard_text = nil;
+  [g_theme_background release]; g_theme_background = nil;
+  [g_theme_foreground release]; g_theme_foreground = nil;
+  [g_theme_accent release]; g_theme_accent = nil;
+  [g_theme_selection release]; g_theme_selection = nil;
+  [g_theme_border release]; g_theme_border = nil;
+  [g_crash_report_path release]; g_crash_report_path = nil;
+}
+
 static void markSceneFullyDirty(void) {
   g_scene_dirty = YES;
   free(g_paint_dirty_regions);
@@ -2411,6 +2458,9 @@ static void applyTerminalRuns(NSTextView *terminal) {
 - (void)applicationWillTerminate:(NSNotification *)notification {
   (void)notification;
   if (g_command_callback) g_command_callback("saveSession");
+  [self.workspaceSearchTimer invalidate];
+  self.workspaceSearchTimer = nil;
+  releasePlatformResources();
 }
 
 - (void)setupMainMenu {
@@ -2871,15 +2921,18 @@ static id<MTLRenderPipelineState> newGlyphPipeline(id<MTLLibrary> library,
                                                     NSError **error) {
   if (!library) return nil;
   MTLRenderPipelineDescriptor *descriptor = [MTLRenderPipelineDescriptor new];
-  descriptor.vertexFunction = [library newFunctionWithName:@"glyphVs"];
-  descriptor.fragmentFunction = [library newFunctionWithName:@"glyphFs"];
+  descriptor.vertexFunction = [[library newFunctionWithName:@"glyphVs"] autorelease];
+  descriptor.fragmentFunction = [[library newFunctionWithName:@"glyphFs"] autorelease];
   descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
   descriptor.colorAttachments[0].blendingEnabled = YES;
   descriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
   descriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
   descriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
   descriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-  return [library.device newRenderPipelineStateWithDescriptor:descriptor error:error];
+  id<MTLRenderPipelineState> pipeline =
+    [library.device newRenderPipelineStateWithDescriptor:descriptor error:error];
+  [descriptor release];
+  return pipeline;
 }
 
 static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
@@ -2895,6 +2948,7 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
     "return float4(in.color.rgb,in.color.a*alpha); }";
   id<MTLLibrary> library = [device newLibraryWithSource:source options:nil error:&error];
   g_glyph_pipeline = newGlyphPipeline(library, &error);
+  [library release];
   return g_glyph_pipeline != nil;
 }
 
@@ -2922,13 +2976,13 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
   id<MTLLibrary> library = [device newLibraryWithSource:source options:nil error:&error];
   if (library) {
     MTLRenderPipelineDescriptor *descriptor = [MTLRenderPipelineDescriptor new];
-    descriptor.vertexFunction = [library newFunctionWithName:@"vs"];
-    descriptor.fragmentFunction = [library newFunctionWithName:@"fs"];
+    descriptor.vertexFunction = [[library newFunctionWithName:@"vs"] autorelease];
+    descriptor.fragmentFunction = [[library newFunctionWithName:@"fs"] autorelease];
     descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
     g_pipeline = [device newRenderPipelineStateWithDescriptor:descriptor error:&error];
     MTLRenderPipelineDescriptor *textDescriptor = [MTLRenderPipelineDescriptor new];
-    textDescriptor.vertexFunction = [library newFunctionWithName:@"textVs"];
-    textDescriptor.fragmentFunction = [library newFunctionWithName:@"textFs"];
+    textDescriptor.vertexFunction = [[library newFunctionWithName:@"textVs"] autorelease];
+    textDescriptor.fragmentFunction = [[library newFunctionWithName:@"textFs"] autorelease];
     textDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
     textDescriptor.colorAttachments[0].blendingEnabled = YES;
     textDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
@@ -2938,8 +2992,8 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
     g_text_pipeline = [device newRenderPipelineStateWithDescriptor:textDescriptor error:&error];
     g_glyph_pipeline = newGlyphPipeline(library, &error);
     MTLRenderPipelineDescriptor *imageDescriptor = [MTLRenderPipelineDescriptor new];
-    imageDescriptor.vertexFunction = [library newFunctionWithName:@"imageVs"];
-    imageDescriptor.fragmentFunction = [library newFunctionWithName:@"imageFs"];
+    imageDescriptor.vertexFunction = [[library newFunctionWithName:@"imageVs"] autorelease];
+    imageDescriptor.fragmentFunction = [[library newFunctionWithName:@"imageFs"] autorelease];
     imageDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
     imageDescriptor.colorAttachments[0].blendingEnabled = YES;
     imageDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
@@ -2962,7 +3016,11 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
       }
     }
     nimculus_platform_set_image_rgba(1, 16, 16, demoPixels, sizeof(demoPixels));
+    [descriptor release];
+    [textDescriptor release];
+    [imageDescriptor release];
   }
+  [library release];
 
   NSRect frame = NSMakeRect(0, 0, 960, 640);
   self.window = [[NSWindow alloc] initWithContentRect:frame

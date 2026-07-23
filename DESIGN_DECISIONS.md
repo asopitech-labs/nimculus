@@ -2877,3 +2877,18 @@ AppKit retains them for the modal interaction; the event autorelease pool then
 returns their ownership after the interaction. This bounds repeated command
 palette, search, workspace, and settings UI use without changing their
 interaction contracts.
+
+## M20-007: Explicitly tear down the macOS renderer on application exit
+
+The macOS backend owns Metal pipelines, command queues, retained render
+targets, text/atlas/image textures, CPU-side paint and glyph buffers, and
+bridge-side Objective-C state. Process exit eventually reclaims these, but an
+explicit termination boundary is required to avoid leaving GPU work or timers
+live while AppKit tears down windows and layers.
+
+`applicationWillTerminate:` now first saves the session, invalidates the
+workspace timer, and then releases Metal resources before freeing CPU buffers
+and retained bridge state. Pipeline descriptors, shader functions, and
+libraries created during startup are released once their pipeline state has
+been created. This follows Zed's ownership model in which dropping the
+renderer releases its render targets and atlas resources together.
