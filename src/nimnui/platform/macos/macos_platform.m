@@ -2807,6 +2807,10 @@ static void applyTerminalRuns(NSTextView *terminal) {
     styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
     backing:NSBackingStoreBuffered defer:NO];
+  // Keep AppKit's native fullscreen transition available on every display.
+  // This is the same window-level capability boundary used by Zed's macOS
+  // platform rather than emulating fullscreen in the renderer.
+  self.window.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
   self.window.title = @"Nimculus";
   self.window.acceptsMouseMovedEvents = YES;
   [self setupMainMenu];
@@ -2928,9 +2932,11 @@ bool nimculus_platform_validate_window_lifecycle(void) {
   @autoreleasepool {
     NSWindow *window = [[NSWindow alloc]
       initWithContentRect:NSMakeRect(0.0, 0.0, 640.0, 480.0)
-      styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskResizable)
+      styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                 NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
       backing:NSBackingStoreBuffered defer:NO];
     if (window) {
+      window.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
       NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
         NSMakeRect(0.0, 0.0, 640.0, 480.0)];
       if (view) {
@@ -2946,7 +2952,17 @@ bool nimculus_platform_validate_window_lifecycle(void) {
         BOOL resized = view.bounds.size.width >= 959.0 && view.bounds.size.height >= 719.0 &&
           fabs(view.metalLayer.drawableSize.width - view.bounds.size.width * scale) < 0.5 &&
           fabs(view.metalLayer.drawableSize.height - view.bounds.size.height * scale) < 0.5;
-        valid = initial && resized;
+        NSUInteger screenCount = NSScreen.screens.count;
+        BOOL screensValid = screenCount > 0;
+        for (NSScreen *screen in NSScreen.screens) {
+          screensValid = screensValid && screen.frame.size.width > 0.0 &&
+            screen.frame.size.height > 0.0 && screen.backingScaleFactor > 0.0;
+        }
+        NSWindowStyleMask requiredMask = NSWindowStyleMaskResizable |
+          NSWindowStyleMaskMiniaturizable;
+        BOOL windowStatesValid = (window.styleMask & requiredMask) == requiredMask &&
+          (window.collectionBehavior & NSWindowCollectionBehaviorFullScreenPrimary) != 0;
+        valid = initial && resized && screensValid && windowStatesValid;
       }
       [window close];
     }
@@ -2983,6 +2999,9 @@ bool nimculus_platform_validate_main_menu(void) {
     NSMenuItem *save = menuItemWithTitle(fileItem.submenu, @"Save");
     NSMenuItem *close = menuItemWithTitle(fileItem.submenu, @"Close Tab");
     NSMenuItem *palette = menuItemWithTitle(editItem.submenu, @"Command Palette…");
+    NSMenuItem *fullScreen = menuItemWithTitle(viewItem.submenu, @"Enter Full Screen");
+    NSMenuItem *minimize = menuItemWithTitle(windowItem.submenu, @"Minimize");
+    NSMenuItem *zoom = menuItemWithTitle(windowItem.submenu, @"Zoom");
     BOOL shortcuts = settings.keyEquivalentModifierMask == NSEventModifierFlagCommand &&
       [settings.keyEquivalent isEqualToString:@","] &&
       open.keyEquivalentModifierMask == NSEventModifierFlagCommand &&
@@ -2992,7 +3011,15 @@ bool nimculus_platform_validate_main_menu(void) {
       close.keyEquivalentModifierMask == NSEventModifierFlagCommand &&
       [close.keyEquivalent isEqualToString:@"w"] &&
       palette.keyEquivalentModifierMask == (NSEventModifierFlagCommand | NSEventModifierFlagShift);
-    BOOL valid = topLevel && settings && open && save && close && palette && shortcuts;
+    BOOL windowActions = fullScreen && minimize && zoom &&
+      fullScreen.action == @selector(toggleFullScreen:) &&
+      minimize.action == @selector(performMiniaturize:) &&
+      zoom.action == @selector(performZoom:) &&
+      fullScreen.keyEquivalentModifierMask ==
+        (NSEventModifierFlagCommand | NSEventModifierFlagControl) &&
+      minimize.keyEquivalentModifierMask == NSEventModifierFlagCommand;
+    BOOL valid = topLevel && settings && open && save && close && palette &&
+      fullScreen && minimize && zoom && shortcuts && windowActions;
     [application setMainMenu:previousMenu];
     return valid;
   }
@@ -3156,6 +3183,28 @@ bool nimculus_platform_validate_color_emoji_fallback(void) {
   if (!device) return false;
   updateEditorTextTexture(device, @"A🙂", YES);
   return g_text_texture != nil && !g_glyph_rendering_available;
+}
+
+bool nimculus_platform_validate_visible_text_assets(void) {
+  @autoreleasepool {
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    if (!device) return false;
+    if (g_metrics.scale_factor <= 0.0) g_metrics.scale_factor = 2.0;
+    if (g_editor_rect[2] <= 0.0) g_editor_rect[2] = 640.0;
+    if (g_editor_rect[3] <= 0.0) g_editor_rect[3] = 320.0;
+
+    // Exercise the two text asset paths with the same document: ordinary
+    // glyphs use the monochrome atlas, while the emoji remains in the RGBA
+    // Core Text texture fallback.
+    NSString *mixed = @"A日本語・記号🙂\nnext";
+    NSString *ordinary = @"A日本語・記号";
+    updateEditorGlyphAtlas(device, ordinary);
+    BOOL atlasValid = g_glyph_atlas_texture != nil && g_glyph_vertex_count > 0;
+    updateEditorTextTexture(device, mixed, YES);
+    BOOL textureValid = g_text_texture != nil && g_text_texture.width > 0 &&
+      g_text_texture.height > 0;
+    return atlasValid && textureValid;
+  }
 }
 
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics) {

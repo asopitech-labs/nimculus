@@ -2577,3 +2577,18 @@ launching `NSApplication` there can abort inside AppKit's
 an environment failure must be reproduced in a login GUI session or CI runner
 before changing application code. The rendered-frame requirement remains
 mandatory in both environments.
+
+## M1-016 / M3-021: Verify native window states and mixed visible text
+
+Fullscreen, minimization, and zoom remain AppKit window behaviors. Nimculus
+sets the production window's fullscreen collection behavior and keeps the
+standard responder actions in the Window/View menus; the renderer does not
+simulate those transitions. The native contract also checks the active
+monitor bounds and Retina drawable after resize.
+
+The text-assets contract uses one mixed Japanese/symbol/emoji sample through
+the Core Text texture and the glyph-atlas path. Color emoji continues through
+the RGBA fallback while ordinary glyphs use the monochrome atlas. The actual
+Metal frame gate remains the cold-start/soak smoke; manual IME, mixed-text
+display, and physical multi-display checks remain environment-specific
+acceptance work.

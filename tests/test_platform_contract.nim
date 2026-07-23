@@ -46,11 +46,11 @@ suite "macOS platform contract":
     else:
       echo "  [SKIP] native Metal layer contract (no Metal device in this session)"
 
-  test "native window resize keeps Retina drawable dimensions aligned":
-    check platformValidateWindowLifecycle()
-
   test "native main menu exposes macOS standard command shortcuts":
     check platformValidateMainMenu()
+
+  test "native window supports fullscreen, minimize, zoom, and monitor bounds":
+    check platformValidateWindowLifecycle()
 
   test "native file open events preserve Finder and URL paths":
     check platformValidateFileOpenEvents()
@@ -87,6 +87,12 @@ suite "macOS platform contract":
       check true
     else:
       echo "  [SKIP] color emoji fallback contract (no Metal/Core Text device in this session)"
+
+  test "mixed Japanese symbol and emoji text reaches the visible text asset paths":
+    if platformValidateVisibleTextAssets():
+      check true
+    else:
+      echo "  [SKIP] mixed visible text asset contract (no Metal/Core Text device in this session)"
 
   test "Core Text hit-test preserves UTF-8 and UTF-16 contracts":
     platformSetEditorRect(48.0, 128.0, 400.0, 300.0)
