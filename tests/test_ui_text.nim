@@ -459,6 +459,65 @@ suite "M3 text foundation":
     split.endDrag()
     check abs(split.ratio - 0.8'f32) < 0.001'f32
 
+  test "context menu skips disabled and separator rows and flips into viewport":
+    var overlay: OverlayModel
+    let viewport = Rect(size: Size(width: px(320), height: px(180)))
+    let anchor = Rect(origin: Point(x: px(280), y: px(160)),
+      size: Size(width: px(32), height: px(16)))
+    let items = @[
+      OverlayItem(label: "Disabled", command: "disabled", enabled: false),
+      OverlayItem(separator: true),
+      OverlayItem(label: "Open", command: "open", enabled: true),
+      OverlayItem(label: "Close", command: "close", enabled: true)]
+    overlay.showContextMenu(NodeId(7), anchor, viewport, items,
+      preferredWidth = px(200))
+    check overlay.open
+    check overlay.selectedIndex == 2
+    check float32(overlay.bounds.origin.x + overlay.bounds.size.width) <= 320.0
+    check float32(overlay.bounds.origin.y + overlay.bounds.size.height) <= 180.0
+    check float32(overlay.bounds.origin.y) < float32(anchor.origin.y)
+    check overlay.moveSelection(1)
+    check overlay.selectedIndex == 3
+    check overlay.moveSelection(-1)
+    check overlay.selectedIndex == 2
+
+  test "popup keyboard activation and outside click dismiss":
+    var overlay: OverlayModel
+    let viewport = Rect(size: Size(width: px(400), height: px(240)))
+    overlay.showPopup(NodeId(2), Rect(origin: Point(x: px(10), y: px(10)),
+      size: Size(width: px(80), height: px(24))), viewport,
+      @[OverlayItem(label: "Run", command: "run", enabled: true)])
+    let result = overlay.handleKey(36)
+    check result.handled
+    check result.command == "run"
+    check not overlay.open
+    overlay.showPopup(NodeId(2), Rect(size: Size(width: px(80), height: px(24))),
+      viewport, @[OverlayItem(label: "Run", command: "run", enabled: true)])
+    let outside = overlay.handlePointerDown(Point(x: px(390), y: px(230)))
+    check outside.handled
+    check outside.command.len == 0
+    check not overlay.open
+
+  test "tooltip is passive and emits a paint path":
+    var overlay: OverlayModel
+    let viewport = Rect(size: Size(width: px(300), height: px(160)))
+    overlay.showTooltip(NodeId(3), Rect(origin: Point(x: px(100), y: px(40)),
+      size: Size(width: px(20), height: px(20))), viewport, "Helpful text")
+    check overlay.open
+    check overlay.selectedIndex == -1
+    check not overlay.grabsInput
+    let key = overlay.handleKey(53)
+    check not key.handled
+    check overlay.open
+    check overlay.handlePointerMove(Point(x: px(10), y: px(10)))
+    check not overlay.open
+    overlay.showTooltip(NodeId(3), Rect(origin: Point(x: px(100), y: px(40)),
+      size: Size(width: px(20), height: px(20))), viewport, "Helpful text")
+    var paint: PaintList
+    paint.invalidate(viewport)
+    paint.paintOverlay(overlay)
+    check paint.commands.len >= 3
+
   test "precise scroll accumulates sub-line trackpad deltas":
     var remainder = 0'f32
     check scrollLineDelta(remainder, 9'f32, true) == 0

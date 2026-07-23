@@ -2592,3 +2592,18 @@ the RGBA fallback while ordinary glyphs use the monochrome atlas. The actual
 Metal frame gate remains the cold-start/soak smoke; manual IME, mixed-text
 display, and physical multi-display checks remain environment-specific
 acceptance work.
+
+## M2-022: Make overlays behavioral controls, not enum placeholders
+
+`ControlKind.contextMenu`, `popup`, and `tooltip` previously identified no
+behavior beyond their enum values. The NimNUI overlay model now owns the
+anchor rectangle, viewport-clamped bounds, requested placement with a
+vertical flip, menu items, disabled/separator filtering, keyboard selection,
+activation, and dismissal. Menus grab input and close on an outside click;
+tooltips remain passive and close when the pointer leaves their anchor.
+
+This follows Zed/GPUI's separation between anchored popup geometry and input
+grab policy. The first implementation stays in-window and OS-independent;
+AppKit-native popup windows are not required for the M2 contract. `PaintList`
+receives the overlay background, border, selection, separator, and text
+commands, while the platform renderer remains responsible for text shaping.
