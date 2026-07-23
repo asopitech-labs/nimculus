@@ -136,8 +136,12 @@ proc startTask*(spec: TaskSpec): TaskJob =
 
 proc cancel*(job: TaskJob) =
   if job == nil or job.done: return
-  job.process.terminate()
-  discard job.process.waitForExit()
+  if job.process != nil and job.process.running:
+    job.process.terminate()
+    let exitCode = job.process.waitForExit(1_000)
+    if exitCode < 0:
+      job.process.kill()
+      discard job.process.waitForExit(1_000)
   job.process.close()
   job.result = TaskResult(status: taskCancelled, exitCode: -1, output: "cancelled")
   job.done = true

@@ -391,6 +391,8 @@ GitキャンセルはSIGTERM後1秒のbounded waitとkill fallbackを持ち、st
 
 **実装範囲：**
 
+Task cancelとPTY closeはSIGTERM後のbounded waitを経てkill/reapへフォールバックし、stdin待ち・shell停止不能時もCocoa終了経路をブロックしない。
+
 - ターミナル：macOS PTY、zsh / bash / fish、ANSI/VT parser、screen buffer、scrollback、選択、copy/paste、resize、複数セッション
 - タスク：build、test、run、working directory、環境変数、cancellation、background task、problem matcher、output panel
 

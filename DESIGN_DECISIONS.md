@@ -1755,6 +1755,11 @@ requests normal termination, then hard-kills a process that remains alive;
 the UI never waits indefinitely for a Git subprocess that is blocked on
 stdin, a hook, or an external credential helper.
 
+The same rule applies to tasks and terminals. Task cancellation uses the
+bounded `Process` lifecycle, while the macOS PTY child receives a short SIGTERM
+grace period and is then force-reaped with SIGKILL. This prevents a shell or
+task from keeping the Cocoa close/quit path blocked indefinitely.
+
 ## Reference audit: Zed `858d317`
 
 Before changing text and macOS rendering contracts, the implementation was

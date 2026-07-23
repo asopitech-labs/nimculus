@@ -760,10 +760,20 @@ elif defined(macosx):
     discard terminalIoctl(pty.masterFd, terminalSetWindowSize, addr size)
     pty.screen.resize(columns, rows)
 
+  proc reapTerminalChild(pid: Pid) =
+    var status: cint
+    # Give a shell a short grace period, then force-reap it so closing a
+    # terminal cannot block the Cocoa termination path indefinitely.
+    for _ in 0 ..< 100:
+      let waited = waitpid(pid, status, WNOHANG)
+      if waited == pid or (waited < 0 and errno == ECHILD): return
+      sleep(10)
+    discard kill(pid, SIGKILL)
+    discard waitpid(pid, status, 0)
+
   proc close*(pty: TerminalPty) =
     if pty == nil or pty.closed: return
     discard kill(pty.childPid, SIGTERM)
-    var status: cint
-    discard waitpid(pty.childPid, status, 0)
+    reapTerminalChild(pty.childPid)
     discard posix.close(pty.masterFd)
     pty.closed = true

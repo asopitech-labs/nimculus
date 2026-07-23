@@ -41,6 +41,13 @@ suite "M10 task service":
     check job.done
     check job.result.status == taskCancelled
 
+  test "cancels a task blocked on stdin":
+    let job = startTask(TaskSpec(command: "/bin/sh", args: @["-c", "read value"]))
+    sleep(20)
+    job.cancel()
+    check job.done
+    check job.result.status == taskCancelled
+
   test "makes task output available before process exit":
     let job = startTask(TaskSpec(command: "/bin/sh", args: @["-c",
       "printf first; sleep 1; printf second"]))
