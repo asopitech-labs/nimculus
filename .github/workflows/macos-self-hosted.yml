@@ -1,0 +1,57 @@
+name: macOS Self-Hosted GUI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nimculus-macos-self-hosted-gui
+  cancel-in-progress: false
+
+jobs:
+  build-and-gui-smoke:
+    # This job intentionally never receives push or pull_request events.
+    # A GUI-capable personal Mac must not run untrusted PR code automatically.
+    # `nimculus-local` is assigned explicitly during runner registration.
+    # Avoid relying on GitHub's spelling of its default macOS/ARM labels.
+    runs-on: [self-hosted, nimculus-local]
+    env:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Verify local toolchain
+        run: |
+          nim --version
+          nimble --version
+          xcodebuild -version
+      - name: Install Nim dependencies
+        run: nimble install --depsOnly -y
+        working-directory: ci
+      - name: Build
+        run: nimble build
+      - name: Cocoa and Metal cold-start smoke
+        run: |
+          NIMCULUS_COLD_START_RUNS=1 \
+          NIMCULUS_COLD_START_TIMEOUT_SECONDS=30 \
+          bash scripts/benchmark_cold_start.sh
+      - name: Cocoa and Metal idle soak smoke
+        run: |
+          NIMCULUS_SOAK_SECONDS=20 \
+          NIMCULUS_SOAK_INTERVAL_SECONDS=5 \
+          NIMCULUS_SOAK_TIMEOUT_SECONDS=40 \
+          bash scripts/benchmark_soak.sh
+      - name: Lint
+        run: nimble lint
+      - name: Test
+        run: nimble test
+      - name: Package smoke test
+        run: |
+          NIMCULUS_ALLOW_ADHOC=1 \
+          NIMCULUS_OUT_DIR="$RUNNER_TEMP/nimculus-package" \
+          bash scripts/package_macos.sh
+          NIMCULUS_OUT_DIR="$RUNNER_TEMP/nimculus-package" \
+          bash scripts/verify_macos_package.sh
