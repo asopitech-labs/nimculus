@@ -54,8 +54,11 @@ when defined(macosx) or defined(windows):
     if not coldStartBenchmarkPending: return false
     coldStartBenchmarkPending = false
     let elapsedMs = (epochTime() - coldStartBenchmarkStartedAt) * 1000.0
+    var metrics: PlatformMetrics
+    platformGetMetrics(addr metrics)
     echo "cold_start\t", formatFloat(elapsedMs, ffDecimal, 3),
-      "\tmilliseconds\tready=1"
+      "\tmilliseconds\tready=1\tframes=", metrics.frameCount,
+      "\tdrawable=", metrics.widthPixels, "x", metrics.heightPixels
     when defined(macosx):
       # The probe never edits a document, so bypass the user-facing dirty
       # confirmation sheet and exercise the actual application termination

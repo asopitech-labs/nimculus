@@ -74,7 +74,12 @@ if [[ "$status" -ne 0 ]]; then
   exit "$status"
 fi
 if ! printf '%s\n' "$output" | awk -F '\t' \
-  '$1 == "soak_complete" { found = 1 } END { exit(found ? 0 : 1) }'; then
-  echo "soak run produced no completion metric" >&2
+  '$1 == "soak_sample" {
+     samples++
+     for (i = 1; i <= NF; i++) if ($i ~ /^frames=/) { split($i, value, "="); if (value[2] > max_frames) max_frames = value[2] }
+   }
+   $1 == "soak_complete" { complete = 1 }
+   END { exit(complete && samples > 0 && max_frames > 0 ? 0 : 1) }'; then
+  echo "soak run produced no rendered-frame sample or completion metric" >&2
   exit 1
 fi

@@ -163,6 +163,17 @@ timeout greater than the duration. This measures the real application loop;
 it does not claim an eight-hour result until the script has actually completed
 on the target GUI environment.
 
+## M20-013: Require rendered-frame evidence in startup and soak probes
+
+An idle callback proves only that the application loop is alive; it does not
+prove that `CAMetalLayer` returned a drawable and that a command buffer was
+committed. Cold-start output therefore includes the native frame count and
+drawable dimensions, and `benchmark_cold_start.sh` rejects a run with zero
+frames. Soak samples already include frame counts; `benchmark_soak.sh` now
+requires at least one sample with a rendered frame before accepting
+`soak_complete`. This keeps the reliability gates aligned with M1's actual
+Metal rendering requirement.
+
 ## M11-011: Validate distribution containers at every packaging boundary
 
 Zed's macOS bundle flow treats the DMG as a release artifact that must remain
@@ -2555,3 +2566,14 @@ RTL runs are left to DirectWrite/D2D, which owns bidi reordering. The native con
 an absent PNG, JPEG, or premultiplied glyph as a valid environment-dependent
 case, but validates decode/conversion, atlas upload, and tile metadata when the
 corresponding fallback is present.
+
+## M20-014: Classify AppKit smoke failures by execution boundary
+
+The cold-start and soak gates are intentionally based on a real `.app`
+bundle, a committed Metal frame, and normal application termination. A
+sandboxed automation shell is not an equivalent macOS GUI environment:
+launching `NSApplication` there can abort inside AppKit's
+`_RegisterApplication` before Nimculus reaches its delegate or renderer. Such
+an environment failure must be reproduced in a login GUI session or CI runner
+before changing application code. The rendered-frame requirement remains
+mandatory in both environments.

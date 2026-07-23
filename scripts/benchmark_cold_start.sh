@@ -72,10 +72,15 @@ for run in $(seq 1 "$RUNS"); do
     exit "$status"
   fi
   if ! printf '%s\n' "$output" | awk -F '\t' -v run="$run" \
-      '$1 == "cold_start" { print "cold_start\t" run "\t" $2 "\t" $3 "\t" $4; found = 1 }
-       END { exit(found ? 0 : 1) }'; then
+      '$1 == "cold_start" {
+         frames = 0
+         for (i = 1; i <= NF; i++) if ($i ~ /^frames=/) { split($i, value, "="); frames = value[2] }
+         print "cold_start\t" run "\t" $2 "\t" $3 "\t" $4 "\tframes=" frames
+         found = 1
+       }
+       END { exit(found && frames > 0 ? 0 : 1) }'; then
     echo "$output" >&2
-    echo "cold-start run $run produced no ready metric" >&2
+    echo "cold-start run $run produced no rendered Metal frame" >&2
     exit 1
   fi
 done
