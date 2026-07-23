@@ -6,6 +6,7 @@ import std/tables
 import std/times
 when defined(posix):
   import std/osproc
+  import std/envvars
 import nimculus/workspace
 
 suite "M6 workspace":
@@ -219,6 +220,25 @@ suite "M6 workspace":
       let started = epochTime()
       discard terminateSearchProcess(process)
       check epochTime() - started < 3.0
+
+  when defined(macosx):
+    test "worktree metadata probe is bounded when Git does not respond":
+      let root = getTempDir() / "nimculus-m6-worktree-timeout"
+      let fakeGit = root / "git"
+      if dirExists(root): removeDir(root)
+      createDir(root)
+      writeFile(fakeGit, "#!/bin/sh\nexec sleep 10\n")
+      setFilePermissions(fakeGit, {fpUserRead, fpUserWrite, fpUserExec})
+      let previousPath = getEnv("PATH")
+      putEnv("PATH", root & ":" & previousPath)
+      defer:
+        putEnv("PATH", previousPath)
+        if fileExists(fakeGit): removeFile(fakeGit)
+        if dirExists(root): removeDir(root)
+      let workspace = openWorkspace(root)
+      let started = epochTime()
+      check workspace.gitWorktreeStates().len == 0
+      check epochTime() - started < 4.0
 
   test "ripgrep results preserve colons in paths and source lines":
     let root = getTempDir() / "nimculus-m6-rg-colon"

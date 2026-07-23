@@ -69,6 +69,7 @@ const
   MaxWorkspaceSearchResults* = 10_000
   MaxWorkspaceSearchOutputBytes* = 32 * 1024 * 1024
   SearchProcessGracePeriodMs = 1_000
+  WorkspaceMetadataTimeoutMs = 2_000
 
 when defined(macosx) or defined(windows):
   type WorkspaceChangeCallback* = proc(path: cstring, context: pointer) {.cdecl.}
@@ -447,7 +448,8 @@ proc terminateSearchProcess*(process: Process): int =
   process.close()
 
 proc runSearchProcess(command: string, token: CancelToken,
-                      maxOutputBytes = MaxWorkspaceSearchOutputBytes):
+                      maxOutputBytes = MaxWorkspaceSearchOutputBytes,
+                      maxRuntimeMs = 0):
     tuple[exitCode: int, output: string, truncated: bool] =
   ## Run an external search without making cancellation wait for command exit.
   ## POSIX and Windows use a shell only for file redirection; the command
@@ -458,6 +460,7 @@ proc runSearchProcess(command: string, token: CancelToken,
       $int(epochTime() * 1_000_000) & ".out")
     var process: Process
     var stoppedForOutputLimit = false
+    let startedAt = epochTime()
     try:
       let shellCommand = (when defined(posix): "exec " else: "") & command &
         " > " & quoteShell(outputPath) & " 2>&1"
@@ -470,6 +473,11 @@ proc runSearchProcess(command: string, token: CancelToken,
           return (-1, "", false)
         if fileExists(outputPath) and getFileSize(outputPath) > int64(maxOutputBytes):
           result.truncated = true
+          result.exitCode = terminateSearchProcess(process)
+          stoppedForOutputLimit = true
+          break
+        if maxRuntimeMs > 0 and
+            (epochTime() - startedAt) * 1_000.0 >= float64(maxRuntimeMs):
           result.exitCode = terminateSearchProcess(process)
           stoppedForOutputLimit = true
           break
@@ -501,7 +509,7 @@ when defined(macosx):
     ## Worktree metadata is requested from the Cocoa refresh path. Reuse the
     ## bounded temporary-file runner so a stalled Git helper cannot block the
     ## event loop indefinitely or grow the preview state without a limit.
-    runSearchProcess(command, nil, 64 * 1024)
+    runSearchProcess(command, nil, 64 * 1024, WorkspaceMetadataTimeoutMs)
 
 proc appendRipgrepRecord(results: var seq[SearchResult], root, path, payload: string) =
   let parts = payload.split(':', maxsplit = 2)

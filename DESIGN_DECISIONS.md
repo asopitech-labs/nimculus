@@ -410,9 +410,9 @@ search from blocking the Cocoa event loop indefinitely.
 Zed keeps project/worktree discovery in asynchronous tasks rather than
 running Git metadata commands inside window refresh callbacks. Nimculus now
 uses the bounded temporary-file process runner for macOS `git worktree list`,
-`rev-parse`, and `symbolic-ref` calls, with a 64 KiB output cap and finite
-termination. A failed or truncated metadata command is omitted from the
-preview instead of blocking or publishing partial state.
+`rev-parse`, and `symbolic-ref` calls, with a 64 KiB output cap and a
+two-second runtime limit. A failed, timed-out, or truncated metadata command
+is omitted from the preview instead of blocking or publishing partial state.
 
 ## M10-005: Compact scrollback in batches without changing its public shape
 
