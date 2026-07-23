@@ -361,6 +361,10 @@ static void drawColoredRectangleWithTransform(id<MTLRenderCommandEncoder> encode
     length:sizeof(uniforms) options:MTLResourceStorageModeShared];
   [encoder setVertexBuffer:uniformBuffer offset:0 atIndex:1];
   [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+  // The encoder retains resources referenced by this command until the command
+  // buffer completes, so these per-draw buffers must not accumulate per frame.
+  [uniformBuffer release];
+  [buffer release];
 }
 
 static void drawColoredRectangle(id<MTLRenderCommandEncoder> encoder,
@@ -399,6 +403,7 @@ static void drawImageTexture(id<MTLRenderCommandEncoder> encoder,
   [encoder setVertexBuffer:buffer offset:0 atIndex:0];
   [encoder setFragmentTexture:texture atIndex:0];
   [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+  [buffer release];
 }
 
 static void drawRoundedRectangleWithTransform(id<MTLRenderCommandEncoder> encoder,
@@ -454,6 +459,8 @@ static void drawRoundedRectangleWithTransform(id<MTLRenderCommandEncoder> encode
   [encoder setVertexBuffer:uniformBuffer offset:0 atIndex:1];
   [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
     vertexCount:triangleVertexCount];
+  [uniformBuffer release];
+  [buffer release];
 }
 
 static void drawRoundedRectangle(id<MTLRenderCommandEncoder> encoder,
@@ -1342,6 +1349,20 @@ static BOOL atlasEntryForGlyph(id<MTLDevice> device, CTFontRef font, CGGlyph gly
       (CGFloat)variantY / (CGFloat)(NIMCULUS_SUBPIXEL_VARIANTS_Y * scale));
   CTFontDrawGlyphs(font, &glyph, &origin, 1, context);
   CGContextRelease(context);
+  // Core Text rasterizes into the bitmap's opposite row order from the Metal
+  // texture coordinates used by the editor. Normalize the atlas payload once
+  // at insertion time, rather than flipping every glyph quad at draw time.
+  uint8_t *pixelRows = pixels.mutableBytes;
+  uint8_t *rowScratch = malloc(width);
+  if (!rowScratch) return NO;
+  for (NSUInteger row = 0; row < height / 2; row++) {
+    uint8_t *top = pixelRows + row * width;
+    uint8_t *bottom = pixelRows + (height - row - 1) * width;
+    memcpy(rowScratch, top, width);
+    memcpy(top, bottom, width);
+    memcpy(bottom, rowScratch, width);
+  }
+  free(rowScratch);
   [g_glyph_atlas_texture replaceRegion:MTLRegionMake2D(x, y, width, height)
     mipmapLevel:0 withBytes:pixels.bytes bytesPerRow:width];
   entry->x = (uint32_t)x;
@@ -1376,8 +1397,11 @@ static void appendGlyphQuad(CGSize sceneSize, CGRect editorRect, CGFloat scale,
   CGFloat y1 = editorRect.origin.y + editorRect.size.height - bottomOrigin;
   float u0 = (float)entry.x / 2048.0f;
   float u1 = (float)(entry.x + entry.width) / 2048.0f;
-  float v0 = 1.0f - (float)(entry.y + entry.height) / 2048.0f;
-  float v1 = 1.0f - (float)entry.y / 2048.0f;
+  // CGBitmapContext stores the baseline-facing rows at the beginning of the
+  // uploaded texture. Metal texture coordinates address that row at v = 0,
+  // so map the screen-bottom vertices to the atlas start without flipping.
+  float v0 = (float)entry.y / 2048.0f;
+  float v1 = (float)(entry.y + entry.height) / 2048.0f;
   NimculusGlyphVertex vertices[6] = {
     {normalizedX(x0, sceneSize.width), normalizedY(y1, sceneSize.height), u0, v0, red, green, blue, alpha},
     {normalizedX(x1, sceneSize.width), normalizedY(y1, sceneSize.height), u1, v0, red, green, blue, alpha},
@@ -1481,8 +1505,10 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
           MAX(0, (int)round(fractionalX * NIMCULUS_SUBPIXEL_VARIANTS_X)));
         uint8_t variantY = (uint8_t)MIN(NIMCULUS_SUBPIXEL_VARIANTS_Y - 1,
           MAX(0, (int)round(fractionalY * NIMCULUS_SUBPIXEL_VARIANTS_Y)));
-        CGPoint quantizedPosition = CGPointMake(quantizedX / scale,
-          quantizedY / scale - baselineY);
+        // quantizedX/Y are already returned to logical points above. Dividing
+        // by scale here a second time shifted glyphs on Retina displays.
+        CGPoint quantizedPosition = CGPointMake(quantizedX,
+          quantizedY - baselineY);
         NimculusGlyphAtlasEntry entry;
         if (atlasEntryForGlyph(device, font, glyphs[glyphIndex], scale,
             variantX, variantY, &entry)) {
@@ -2182,6 +2208,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
             vertexCount:g_glyph_vertex_count];
         }
       }
+      [glyphBuffer release];
     }
     if (g_text_pipeline && g_text_texture) {
       const float left = (float)(g_editor_rect[0] / logicalSize.width * 2.0 - 1.0);
@@ -2209,6 +2236,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
           [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
         }
       }
+      [textBuffer release];
     }
     [encoder endEncoding];
     g_scene_initialized = YES;

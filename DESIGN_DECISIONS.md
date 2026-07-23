@@ -2919,3 +2919,19 @@ editor surfaces. The complete M2 gallery is preserved behind
 `NIMCULUS_UI_GALLERY=1` for explicit renderer inspection. Indent guides now
 render only for the indentation present on visible lines rather than drawing a
 full-height guide at every possible column in an empty document.
+
+## M3-010: Composite the glyph atlas beneath transparent native text overlays
+
+The macOS text renderer uses a monochrome Metal glyph atlas for normal text
+and a Core Text RGBA texture for caret, selection, IME composition, and color
+emoji. The atlas initially used Core Graphics' bitmap-row order directly while
+sampling it with Metal texture coordinates in the opposite order. On a real
+file open this sampled the atlas padding rather than glyph pixels, leaving line
+numbers but no visible source text.
+
+The atlas payload is now normalized to Metal's row order once when a glyph is
+inserted, and the glyph positions remain in logical points after Retina
+subpixel quantization. Per-draw Metal buffers are released immediately after
+encoding; the command buffer retains them until GPU completion. This matches
+Zed's separation of monochrome atlas sprites and independent overlay
+primitives without retaining transient buffers across frames.
