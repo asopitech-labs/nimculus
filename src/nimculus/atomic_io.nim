@@ -1,8 +1,15 @@
 import std/os
 
+var atomicWriteSequence = 0
+
 proc atomicWriteFile*(path, content: string) =
   ## Preserve the previous file until the complete replacement is ready.
-  let temporary = path & ".tmp." & $getCurrentProcessId()
+  ## The sequence prevents two writes from the same process from sharing a
+  ## temporary pathname. The temporary remains in the target directory so the
+  ## final rename is an atomic replacement on the same filesystem.
+  let sequence = atomicWriteSequence
+  inc atomicWriteSequence
+  let temporary = path & ".tmp." & $getCurrentProcessId() & "." & $sequence
   try:
     let preservePermissions = fileExists(path)
     let permissions = if preservePermissions: getFilePermissions(path) else: {}

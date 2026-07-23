@@ -1703,6 +1703,21 @@ The atomic helper copies the existing target's Unix permission set to the
 temporary file before the rename. Replacing a file must not silently remove
 the executable bit or other user/group access modes.
 
+## M5-016: Include file identity in the external-change stamp
+
+`FileDocument` records the filesystem `device/file` identity from Nim's
+`getFileInfo`, in addition to existence, size, and modification time. Zed's
+filesystem metadata keeps identity alongside mtime and length; the same
+contract is needed here because an atomic replacement can preserve the byte
+length and can fall within a filesystem timestamp resolution window. A changed
+identity therefore raises the external-change state even when the other two
+values match. The identity remains an opaque string at the editor boundary so
+the core does not depend on a platform-specific integer width.
+
+The atomic temporary path also includes a process-local sequence number. This
+keeps consecutive saves from reusing one pathname while retaining the
+same-directory rename required for atomic replacement.
+
 ## Reference audit: Zed `858d317`
 
 Before changing text and macOS rendering contracts, the implementation was

@@ -15,6 +15,9 @@ type
     ## Presence is tracked separately from size because an empty file can be
     ## deleted without changing its byte count.
     externalExists*: bool
+    ## The filesystem identity distinguishes an atomic replacement from an
+    ## in-place edit, even when size and timestamp happen to be unchanged.
+    externalIdentity*: string
     externalSize*: int64
     externalModified*: Time
   SearchMatch* = object
@@ -34,9 +37,11 @@ type
     recentFiles*: seq[string]
     workspaceRoots*: seq[string]
 
-proc fileStamp(path: string): tuple[size: int64, modified: Time] =
+proc fileStamp(path: string): tuple[identity: string, size: int64, modified: Time] =
   let info = getFileInfo(path)
-  (size: info.size, modified: info.lastWriteTime)
+  (identity: $info.id.device & ":" & $info.id.file,
+   size: info.size,
+   modified: info.lastWriteTime)
 
 proc openDocument*(path: string): FileDocument =
   let raw = readFile(path)
@@ -45,6 +50,7 @@ proc openDocument*(path: string): FileDocument =
   result.buffer = initPieceTable(raw.replace("\r\n", "\n"))
   let stamp = fileStamp(path)
   result.externalExists = true
+  result.externalIdentity = stamp.identity
   result.externalSize = stamp.size
   result.externalModified = stamp.modified
   result.buffer.markSaved()
@@ -62,6 +68,7 @@ proc save*(document: var FileDocument, path = "") =
   document.path = targetPath
   let stamp = fileStamp(targetPath)
   document.externalExists = true
+  document.externalIdentity = stamp.identity
   document.externalSize = stamp.size
   document.externalModified = stamp.modified
   document.buffer.markSaved()
@@ -70,7 +77,9 @@ proc externallyChanged*(document: FileDocument): bool =
   if document.path.len == 0: return false
   if not fileExists(document.path): return document.externalExists
   let stamp = fileStamp(document.path)
-  stamp.size != document.externalSize or stamp.modified != document.externalModified
+  stamp.identity != document.externalIdentity or
+    stamp.size != document.externalSize or
+    stamp.modified != document.externalModified
 
 proc acceptExternalState*(document: var FileDocument) =
   ## Record the current disk state after the user chooses Keep Editing.
@@ -82,6 +91,7 @@ proc acceptExternalState*(document: var FileDocument) =
     return
   let stamp = fileStamp(document.path)
   document.externalExists = true
+  document.externalIdentity = stamp.identity
   document.externalSize = stamp.size
   document.externalModified = stamp.modified
 

@@ -9,6 +9,7 @@ import nimculus/lsp
 import nimculus/editor_app
 import nimculus/editor_view
 import nimculus/session
+import nimculus/atomic_io
 
 suite "M4 editor buffer":
   test "piece table edits and undo redo preserve content":
@@ -137,7 +138,8 @@ suite "M5 editor services":
     check document.replaceAll("one", "1") == 2
     document.save()
     check readFile(path) == "1\r\ntwo\r\n1"
-    check not fileExists(path & ".tmp." & $getCurrentProcessId())
+    for candidate in walkFiles(path & ".tmp." & $getCurrentProcessId() & ".*"):
+      check not fileExists(candidate)
     when defined(posix):
       let originalPermissions = getFilePermissions(path)
       setFilePermissions(path, originalPermissions + {fpUserExec})
@@ -167,6 +169,17 @@ suite "M5 editor services":
     check not document.externallyChanged
     removeFile(path)
     check document.externallyChanged
+
+  test "atomic replacement is detected even when the file size is unchanged":
+    let path = getTempDir() / "nimculus-m5-identity.txt"
+    writeFile(path, "first")
+    var document = openDocument(path)
+    check document.externalIdentity.len > 0
+    atomicWriteFile(path, "second")
+    check document.externallyChanged
+    document.acceptExternalState()
+    check not document.externallyChanged
+    removeFile(path)
 
   test "keeping edits after external deletion records deleted disk state":
     let path = getTempDir() / "nimculus-m5-keep-deleted.txt"
@@ -243,7 +256,8 @@ suite "M5 editor services":
     session.workspaceRoots = @[getTempDir()]
     let sessionPath = getTempDir() / "nimculus-m5-session.json"
     session.saveSession(sessionPath)
-    check not fileExists(sessionPath & ".tmp." & $getCurrentProcessId())
+    for candidate in walkFiles(sessionPath & ".tmp." & $getCurrentProcessId() & ".*"):
+      check not fileExists(candidate)
     let restored = loadSession(sessionPath)
     check restored.tabs.len == 1
     check restored.workspaceRoots == @[getTempDir()]
@@ -251,7 +265,8 @@ suite "M5 editor services":
     check restored.tabs[0].view.scrollLine == 2
     check restored.splitDirection == splitHorizontal
     restored.tabs[0].document.writeRecovery(recoveryPath)
-    check not fileExists(recoveryPath & ".tmp." & $getCurrentProcessId())
+    for candidate in walkFiles(recoveryPath & ".tmp." & $getCurrentProcessId() & ".*"):
+      check not fileExists(candidate)
     let recovered = recoverDocument(recoveryPath)
     check recovered.buffer.toString() == "session\none\ntwo\nthree"
     check recovered.buffer.isDirty
