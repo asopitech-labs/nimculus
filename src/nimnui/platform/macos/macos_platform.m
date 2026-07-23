@@ -1644,15 +1644,33 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
   if (!g_editor_indent_guides) return;
+  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  if (lines.count == 0) return;
   CGFloat characterWidth = 7.2;
-  CGFloat startX = 8.0 + characterWidth * (CGFloat)MAX(1, g_editor_indent_width);
+  NSUInteger indentWidth = MAX((NSUInteger)1, g_editor_indent_width);
+  NSUInteger first = MIN(g_editor_scroll_line, lines.count - 1);
+  CGFloat lineHeight = editorLineHeight();
   NSColor *color = [themeHexColor(g_theme_border,
     [NSColor colorWithCalibratedRed:0.30 green:0.34 blue:0.40 alpha:1.0])
     colorWithAlphaComponent:0.52];
   [color setFill];
-  for (CGFloat x = startX; x < self.bounds.size.width; x += characterWidth * MAX(1, g_editor_indent_width)) {
-    NSRect line = NSMakeRect(x, 0.0, 1.0, self.bounds.size.height);
-    NSRectFill(line);
+  NSUInteger visibleRows = 0;
+  for (NSUInteger index = first; index < lines.count; index++) {
+    if (visibleRows * lineHeight >= self.bounds.size.height) break;
+    NSString *text = lines[index];
+    NSUInteger columns = 0;
+    for (NSUInteger character = 0; character < text.length; character++) {
+      unichar unit = [text characterAtIndex:character];
+      if (unit == ' ') columns++;
+      else if (unit == '\t') columns += indentWidth;
+      else break;
+    }
+    for (NSUInteger guide = indentWidth; guide <= columns; guide += indentWidth) {
+      NSRect line = NSMakeRect(8.0 + characterWidth * guide,
+        visibleRows * lineHeight, 1.0, lineHeight);
+      NSRectFill(line);
+    }
+    visibleRows += g_editor_soft_wrap ? editorSoftWrapRowCount(text) : 1;
   }
 }
 @end

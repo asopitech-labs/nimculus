@@ -2905,3 +2905,17 @@ samples. It requires at least one completed rendered sample and fails when
 growth exceeds configurable limits (128MiB resident and 50,000 live blocks by
 default). The limits remain environment-configurable for intentionally larger
 profiling runs, while the self-hosted GUI smoke uses the same gate.
+
+## M5-012: Keep the renderer gallery out of the normal editor surface
+
+The M2 PaintList gallery is valuable for renderer inspection but its placeholder
+rectangle, text, and image commands are not application chrome. Rendering that
+gallery during normal startup obscured the editor's Core Text surface and made
+an empty document appear as a blue demo canvas.
+
+Normal startup now emits only the editor border and scrollbar from the retained
+PaintList; text, line numbers, outline, cursor, and status remain the native
+editor surfaces. The complete M2 gallery is preserved behind
+`NIMCULUS_UI_GALLERY=1` for explicit renderer inspection. Indent guides now
+render only for the indentation present on visible lines rather than drawing a
+full-height guide at every possible column in an empty document.

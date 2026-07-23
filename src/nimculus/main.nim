@@ -189,27 +189,32 @@ proc setupDemoUi() =
   demoTree.node(scroll.node).bounds = editor
   var paint: PaintList
   paint.invalidate(viewport)
-  paint.drawShadow(panel.offset(px(4), px(6)))
-  paint.drawRoundedRectangle(panel, px(12))
-  paint.drawBorder(panel)
-  paint.drawRoundedRectangle(toolbar, px(8))
-  paint.drawBorder(toolbar)
-  paint.drawText(Rect(origin: Point(x: px(margin * 2 + 16), y: px(margin * 2 + 18)),
-    size: Size(width: px(150), height: px(22))), "Nimculus")
-  paint.drawImage(Rect(origin: Point(x: px(viewportWidth - margin * 3 - 24), y: px(margin * 2 + 16)),
-    size: Size(width: px(24), height: px(24))), imageId = 1)
-  paint.pushTransform(translationTransform(px(6), px(6)))
-  paint.drawRectangle(Rect(origin: Point(x: px(margin * 2 + 260), y: px(margin * 2 + 16)),
-    size: Size(width: px(12), height: px(12))))
-  paint.popTransform()
-  paint.drawSelection(Rect(origin: Point(x: px(72), y: px(145)),
-    size: Size(width: px(220), height: px(24))))
-  paint.pushClip(editor)
-  paint.drawRectangle(editor)
-  paint.drawRectangle(splitBar)
-  paint.drawCaret(Rect(origin: Point(x: px(74), y: px(176)),
-    size: Size(width: px(2), height: px(20))))
-  paint.popClip()
+  if getEnv("NIMCULUS_UI_GALLERY", "") == "1":
+    # Keep the M2 renderer gallery available for explicit visual inspection,
+    # but do not let placeholder paint kinds obscure the normal editor.
+    paint.drawShadow(panel.offset(px(4), px(6)))
+    paint.drawRoundedRectangle(panel, px(12))
+    paint.drawBorder(panel)
+    paint.drawRoundedRectangle(toolbar, px(8))
+    paint.drawBorder(toolbar)
+    paint.drawText(Rect(origin: Point(x: px(margin * 2 + 16), y: px(margin * 2 + 18)),
+      size: Size(width: px(150), height: px(22))), "Nimculus")
+    paint.drawImage(Rect(origin: Point(x: px(viewportWidth - margin * 3 - 24), y: px(margin * 2 + 16)),
+      size: Size(width: px(24), height: px(24))), imageId = 1)
+    paint.pushTransform(translationTransform(px(6), px(6)))
+    paint.drawRectangle(Rect(origin: Point(x: px(margin * 2 + 260), y: px(margin * 2 + 16)),
+      size: Size(width: px(12), height: px(12))))
+    paint.popTransform()
+    paint.drawSelection(Rect(origin: Point(x: px(72), y: px(145)),
+      size: Size(width: px(220), height: px(24))))
+    paint.pushClip(editor)
+    paint.drawRectangle(editor)
+    paint.drawRectangle(splitBar)
+    paint.drawCaret(Rect(origin: Point(x: px(74), y: px(176)),
+      size: Size(width: px(2), height: px(20))))
+    paint.popClip()
+  else:
+    paint.drawBorder(editor)
   paint.drawScrollbar(scrollbar)
   var nativeCommands = newSeq[NativePaintCommand](paint.commands.len)
   for index, command in paint.commands:
