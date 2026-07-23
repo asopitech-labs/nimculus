@@ -2892,3 +2892,13 @@ and retained bridge state. Pipeline descriptors, shader functions, and
 libraries created during startup are released once their pipeline state has
 been created. This follows Zed's ownership model in which dropping the
 renderer releases its render targets and atlas resources together.
+
+## M20-008: Make idle memory growth a soak-test failure
+
+M20 requires that resident memory does not grow indefinitely while the app is
+idle. Recording samples alone cannot enforce that requirement, so the soak
+runner now compares the first and last resident-memory and live-allocation
+samples. It requires at least one completed rendered sample and fails when
+growth exceeds configurable limits (128MiB resident and 50,000 live blocks by
+default). The limits remain environment-configurable for intentionally larger
+profiling runs, while the self-hosted GUI smoke uses the same gate.

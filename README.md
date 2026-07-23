@@ -53,6 +53,10 @@ bash scripts/benchmark_soak.sh
 短い動作確認では `NIMCULUS_SOAK_SECONDS=60`、記録間隔は
 `NIMCULUS_SOAK_INTERVAL_SECONDS=10`、実行ファイルは
 `NIMCULUS_BINARY=/path/to/Nimculus` で指定できる。
+各サンプルの先頭値から最終値までの増加も検証する。既定の上限はresident
+memoryが128MiB、live allocation blocksが50,000で、必要に応じて
+`NIMCULUS_SOAK_MAX_RESIDENT_GROWTH_BYTES` と
+`NIMCULUS_SOAK_MAX_LIVE_BLOCK_GROWTH` で調整できる。
 
 M1 の最小縦切りは macOS ウィンドウ、`CAMetalLayer`、Metal の clear / rectangle 描画、Retina 対応、基本入力イベントログです。
 

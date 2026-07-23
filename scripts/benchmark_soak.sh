@@ -26,12 +26,19 @@ if ! is_positive_integer "$DURATION_SECONDS" ||
   exit 2
 fi
 TIMEOUT_SECONDS="${NIMCULUS_SOAK_TIMEOUT_SECONDS:-$((DURATION_SECONDS + 60))}"
+MAX_RESIDENT_GROWTH_BYTES="${NIMCULUS_SOAK_MAX_RESIDENT_GROWTH_BYTES:-134217728}"
+MAX_LIVE_BLOCK_GROWTH="${NIMCULUS_SOAK_MAX_LIVE_BLOCK_GROWTH:-50000}"
 if ! is_positive_integer "$TIMEOUT_SECONDS"; then
   echo "soak timeout must be a positive integer" >&2
   exit 2
 fi
 if (( TIMEOUT_SECONDS <= DURATION_SECONDS )); then
   echo "NIMCULUS_SOAK_TIMEOUT_SECONDS must exceed NIMCULUS_SOAK_SECONDS" >&2
+  exit 2
+fi
+if ! [[ "$MAX_RESIDENT_GROWTH_BYTES" =~ ^[0-9]+$ ]] ||
+   ! [[ "$MAX_LIVE_BLOCK_GROWTH" =~ ^[0-9]+$ ]]; then
+  echo "soak growth limits must be non-negative integers" >&2
   exit 2
 fi
 
@@ -74,12 +81,32 @@ if [[ "$status" -ne 0 ]]; then
   exit "$status"
 fi
 if ! printf '%s\n' "$output" | awk -F '\t' \
+  -v max_resident_growth="$MAX_RESIDENT_GROWTH_BYTES" \
+  -v max_live_block_growth="$MAX_LIVE_BLOCK_GROWTH" \
   '$1 == "soak_sample" {
      samples++
-     for (i = 1; i <= NF; i++) if ($i ~ /^frames=/) { split($i, value, "="); if (value[2] > max_frames) max_frames = value[2] }
+     for (i = 1; i <= NF; i++) {
+       split($i, value, "=")
+       if (value[1] == "frames" && value[2] > max_frames) max_frames = value[2]
+       if (value[1] == "resident") {
+         if (!have_resident) { first_resident = value[2]; have_resident = 1 }
+         last_resident = value[2]
+       }
+       if (value[1] == "live_blocks") {
+         if (!have_blocks) { first_blocks = value[2]; have_blocks = 1 }
+         last_blocks = value[2]
+       }
+     }
    }
    $1 == "soak_complete" { complete = 1 }
-   END { exit(complete && samples > 0 && max_frames > 0 ? 0 : 1) }'; then
-  echo "soak run produced no rendered-frame sample or completion metric" >&2
+   END {
+     resident_growth = last_resident - first_resident
+     block_growth = last_blocks - first_blocks
+     valid = complete && samples > 0 && max_frames > 0 && have_resident && have_blocks
+     valid = valid && resident_growth <= max_resident_growth && block_growth <= max_live_block_growth
+     if (!valid) printf "soak summary: samples=%d frames=%d resident_growth=%d live_block_growth=%d\\n", samples, max_frames, resident_growth, block_growth > "/dev/stderr"
+     exit(valid ? 0 : 1)
+   }'; then
+  echo "soak run violated frame/completion or memory-growth contract" >&2
   exit 1
 fi
