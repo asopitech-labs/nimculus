@@ -2817,3 +2817,17 @@ environment. Replacing a `newTexture` result or a glyph-atlas dictionary must
 therefore release the prior global resource and retain the replacement. This
 prevents an autorelease-pool dangling atlas after a scale change and prevents
 unbounded texture retention during repeated text updates.
+
+## M1-019: Bound retained scene textures during drawable-size changes
+
+The retained Metal scene target is created with `newTextureWithDescriptor:`
+and therefore has explicit ownership under the macOS backend's manual
+Objective-C memory management. Dropping the global pointer on a resize without
+releasing it retains one GPU texture for every drawable-size transition.
+
+The scene-target replacement path now releases its prior texture before
+creating the replacement, while retaining identical-size targets for reuse.
+The native Metal contract exercises same-size reuse and two size transitions.
+This is consistent with Zed's renderer and atlas lifecycle: stale offscreen
+resources are returned or deallocated before replacement rather than being
+left reachable only through Metal's allocation lifetime.

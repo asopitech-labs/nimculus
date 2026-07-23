@@ -473,6 +473,10 @@ static id<MTLTexture> sceneTextureForDevice(id<MTLDevice> device, CGSize drawabl
   if (g_scene_texture && (g_scene_texture.device != device ||
                           g_scene_texture.width != (NSUInteger)drawableSize.width ||
                           g_scene_texture.height != (NSUInteger)drawableSize.height)) {
+    // `newTextureWithDescriptor:` returns an owned Metal object. Keep the
+    // retained render target bounded to one texture as drawable dimensions
+    // change (for example when moving between Retina displays or resizing).
+    [g_scene_texture release];
     g_scene_texture = nil;
     g_scene_initialized = NO;
   }
@@ -3085,6 +3089,25 @@ bool nimculus_platform_validate_damage_rebuild(void) {
     sceneNeedsFullRebuild(YES, 0) &&
     !sceneNeedsFullRebuild(YES, 1) &&
     sceneNeedsFullRebuild(NO, 0);
+}
+
+bool nimculus_platform_validate_scene_texture_replacement(void) {
+  BOOL valid = NO;
+  @autoreleasepool {
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    if (device) {
+      id<MTLTexture> first = sceneTextureForDevice(device, CGSizeMake(320.0, 180.0));
+      id<MTLTexture> reused = sceneTextureForDevice(device, CGSizeMake(320.0, 180.0));
+      BOOL reusedSameTarget = first && reused == first && reused.width == 320 &&
+        reused.height == 180;
+      id<MTLTexture> resized = sceneTextureForDevice(device, CGSizeMake(640.0, 360.0));
+      BOOL resizedTarget = resized && resized.width == 640 && resized.height == 360;
+      id<MTLTexture> restored = sceneTextureForDevice(device, CGSizeMake(320.0, 180.0));
+      BOOL restoredTarget = restored && restored.width == 320 && restored.height == 180;
+      valid = reusedSameTarget && resizedTarget && restoredTarget;
+    }
+  }
+  return valid;
 }
 
 static NSMenuItem *menuItemWithTitle(NSMenu *menu, NSString *title) {

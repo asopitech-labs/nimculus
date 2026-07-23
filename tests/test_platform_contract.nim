@@ -66,6 +66,14 @@ suite "macOS platform contract":
   test "native retained scene rebuilds fully for a new target":
     check platformValidateDamageRebuild()
 
+  test "native retained scene replaces its Metal texture across size changes":
+    if platformValidateSceneTextureReplacement():
+      check true
+    elif nativeGuiValidationRequired():
+      check false
+    else:
+      echo "  [SKIP] native scene texture replacement (no Metal device in this session)"
+
   test "native file open events preserve Finder and URL paths":
     check platformValidateFileOpenEvents()
 
