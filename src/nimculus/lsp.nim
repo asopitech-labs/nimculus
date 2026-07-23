@@ -135,6 +135,9 @@ type
     process*: LspProcess
     tracker*: LspRequestTracker
     state*: LspSessionState
+    ## A request that exceeds this budget is cancelled at the session poll
+    ## boundary. Keep it configurable for slow language servers and tests.
+    requestTimeoutMs*: int64
     rootUri*: string
     clientName*: string
     initializeId: int
@@ -145,6 +148,7 @@ const
   MaxLspFrameBytes* = 16 * 1024 * 1024
   MaxLspHeaderBytes* = 64 * 1024
   MaxLspMessagesPerPoll* = 128
+  DefaultLspRequestTimeoutMs* = 30_000'i64
 
 proc protocolError(message: string): ref LspProtocolError =
   newException(LspProtocolError, message)
@@ -702,7 +706,12 @@ proc stop*(client: LspProcess, terminate = true): int =
   if client == nil or client.process == nil: return -1
   if client.process.running and terminate:
     client.process.terminate()
-  result = client.process.waitForExit()
+  # A language server may ignore SIGTERM or be blocked in a child process.
+  # Keep shutdown bounded so closing a workspace cannot hang the macOS UI.
+  result = client.process.waitForExit(if terminate: 1_000 else: -1)
+  if result < 0:
+    client.process.kill()
+    result = client.process.waitForExit(1_000)
   client.process.close()
   client.state = if result == 0: lspStopped else: lspFailed
 
@@ -721,6 +730,7 @@ proc startLspSession*(command: string, args: openArray[string],
                       rootUri, clientName: string): LspSession =
   result = LspSession(process: startLspProcess(command, args),
     tracker: initLspRequestTracker(), state: lspSessionInitializing,
+    requestTimeoutMs: DefaultLspRequestTimeoutMs,
     rootUri: rootUri, clientName: clientName,
     diagnostics: initTable[string, seq[LspDiagnostic]](),
     responses: initTable[int, JsonNode]())
@@ -728,10 +738,30 @@ proc startLspSession*(command: string, args: openArray[string],
     initializeParams(rootUri, clientName))
   result.initializeId = request.id
 
+proc cancelExpiredRequests(session: LspSession) =
+  if session == nil or session.process == nil: return
+  let timeout = session.requestTimeoutMs
+  if timeout <= 0: return
+  for id in session.tracker.expireRequests(nowMs(), timeout):
+    if session.process.isRunning:
+      try:
+        session.process.send(cancelJson(id))
+      except CatchableError:
+        session.process.state = lspFailed
+        session.state = lspSessionFailed
+    let wasInitialize = id == session.initializeId
+    # A timeout is terminal while initializing; otherwise the session remains
+    # usable and only the individual feature request is discarded.
+    discard session.tracker.finishResponse(id)
+    if wasInitialize and session.state == lspSessionInitializing:
+      session.state = lspSessionFailed
+
 proc poll*(session: LspSession): seq[JsonNode] =
   ## Consume one worker-task read and apply protocol-level session updates.
   ## Feature-specific response decoding remains at the caller boundary.
   if session == nil or session.state in {lspSessionStopped, lspSessionFailed}: return
+  session.cancelExpiredRequests()
+  if session.state == lspSessionFailed: return
   for message in session.process.readMessages():
     result.add(message)
     if message.kind != JObject: continue

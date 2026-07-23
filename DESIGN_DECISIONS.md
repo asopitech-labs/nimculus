@@ -1732,6 +1732,24 @@ The native watcher owns a Core Foundation copy of the root path so the
 rescan callback remains valid for the entire stream lifetime, including
 non-ARC Objective-C compilation modes.
 
+## M8-006: Enforce LSP request deadlines at the session boundary
+
+The request tracker already records a monotonic generation and start time,
+but calculating expiry without acting on it leaves an unresponsive language
+server's requests in memory and can leave the UI waiting forever. Each
+`LspSession.poll` now expires requests after a configurable 30-second default,
+sends the protocol cancellation notification, and removes the request from
+the tracker. A timed-out initialize request fails the session because no
+usable protocol state exists; a feature request is discarded while the
+initialized session remains available for later requests.
+
+This keeps cancellation and stale-response rejection in one session boundary,
+matching Zed's separation between request lifecycle and feature presentation.
+
+LSP process shutdown uses the same bounded-lifecycle rule: after SIGTERM, the
+process is waited on for at most one second before the hard-kill fallback. A
+language server must not be able to block the Cocoa close/quit path forever.
+
 ## Reference audit: Zed `858d317`
 
 Before changing text and macOS rendering contracts, the implementation was

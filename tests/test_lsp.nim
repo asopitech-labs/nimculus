@@ -1,4 +1,5 @@
 import std/json
+import std/os
 import std/strutils
 import std/unittest
 import nimculus/lsp
@@ -68,6 +69,7 @@ suite "M8 LSP protocol foundation":
     check expired == @[request.id]
     check not tracker.acceptsResponse(request.id)
     check cancelJson(request.id)["method"].getStr == "$/cancelRequest"
+    check DefaultLspRequestTimeoutMs == 30_000
 
   test "stdio process round trips a framed notification":
     let server = "import sys\n" &
@@ -236,3 +238,13 @@ suite "M8 LSP protocol foundation":
     check session.state == lspSessionReady
     check session.diagnosticsFor("file:///a.nim").len == 1
     check session.diagnosticsFor("file:///a.nim")[0].message == "error"
+
+  test "session fails and releases an initialize request after timeout":
+    let server = "import time; time.sleep(2)"
+    let session = startLspSession("python3", ["-u", "-c", server], "", "Nimculus")
+    defer: session.stop()
+    session.requestTimeoutMs = 1
+    sleep(10)
+    discard session.poll()
+    check session.state == lspSessionFailed
+    check session.tracker.pendingCount == 0
