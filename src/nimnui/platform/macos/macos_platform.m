@@ -146,7 +146,7 @@ static void nimculus_uncaught_exception_handler(NSException *exception) {
     @"kind": @"uncaughtObjectiveCException",
     @"name": exception.name ?: @"NSException",
     @"reason": exception.reason ?: @"unknown",
-    @"timestamp": [[NSISO8601DateFormatter new] stringFromDate:[NSDate date]]
+    @"timestamp": [[[NSISO8601DateFormatter new] autorelease] stringFromDate:[NSDate date]]
   };
   NSError *error = nil;
   NSData *data = [NSJSONSerialization dataWithJSONObject:report options:0 error:&error];
@@ -614,6 +614,7 @@ static CGFloat editorTextOffset(NSString *line, NSUInteger utf16Index) {
   CTLineRef ctLine = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
   CGFloat offset = CTLineGetOffsetForStringIndex(ctLine, MIN(utf16Index, value.length), NULL);
   CFRelease(ctLine);
+  [attributed release];
   CFRelease(font);
   return offset;
 }
@@ -636,6 +637,7 @@ static NSUInteger editorSoftWrapBreakLength(NSString *line, NSUInteger start) {
     ? CTTypesetterSuggestLineBreak(typesetter, (CFIndex)start, editorWrapWidth())
     : (CFIndex)(value.length - start);
   if (typesetter) CFRelease(typesetter);
+  [attributed release];
   CFRelease(font);
   NSUInteger result = (NSUInteger)MAX(1, MIN(length, (CFIndex)(value.length - start)));
   return result;
@@ -768,6 +770,7 @@ static NSUInteger editorUTF16OffsetAtPoint(double x, double y) {
     if (index != kCFNotFound) localIndex = MIN((NSUInteger)index, segment.length);
     else localIndex = segment.length;
     CFRelease(ctLine);
+    [attributed release];
     CFRelease(font);
   }
   NSUInteger documentIndex = 0;
@@ -826,6 +829,7 @@ static BOOL textContainsColorEmoji(NSString *text) {
     }
   }
   if (line) CFRelease(line);
+  [attributed release];
   CFRelease(baseFont);
   return result;
 }
@@ -973,6 +977,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     }
     CGPathRelease(path);
     CFRelease(framesetter);
+    [wrappedAttributed release];
   } else for (NSUInteger displayIndex = 0; displayIndex < visibleLines; displayIndex++) {
     NSUInteger index = startLine + displayIndex;
     NSString *lineText = lines[index];
@@ -1079,6 +1084,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       CGContextAddLineToPoint(context, MAX(x0 + 2.0, x1), y);
       CGContextStrokePath(context);
     }
+    [attributed release];
     lineStartByte += lineLength + 1;
     lineStartUnit = lineEndUnit + 1;
   }
@@ -1093,6 +1099,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     CGContextSetTextPosition(context, g_editor_cursor[0], MAX(0.0, baseline));
     CTLineDraw(markedLine, context);
     CFRelease(markedLine);
+    [marked release];
   }
   if (g_editor_completions.length > 0) {
     NSArray<NSString *> *completionLines = [g_editor_completions componentsSeparatedByString:@"\n"];
@@ -1113,6 +1120,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         popupTop - editorLineHeight() * (index + 1) + 3.0);
       CTLineDraw(completionLine, context);
       CFRelease(completionLine);
+      [line release];
     }
   }
   if (g_editor_hover.length > 0) {
@@ -1135,6 +1143,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         popupTop - editorLineHeight() * (index + 1) + 4.0);
       CTLineDraw(hoverLine, context);
       CFRelease(hoverLine);
+      [line release];
     }
   }
   CGContextSetStrokeColorWithColor(context, [NSColor colorWithCalibratedRed:0.85
@@ -1423,6 +1432,7 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
       free(stringIndices);
     }
     CFRelease(line);
+    [attributed release];
     lineStartByte += lineLength + 1;
   }
   CFRelease(baseFont);
@@ -1779,6 +1789,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
   }
   [terminal.textStorage setAttributedString:attributed];
   applyTerminalSelection(terminal);
+  [attributed release];
 }
 
 @implementation NimculusMetalView
@@ -2335,6 +2346,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
   CGFloat width = right - left;
   CGFloat fraction = width > 0.0 ? (textX - left) / width : 0.0;
   CFRelease(ctLine);
+  [attributed release];
   CFRelease(font);
   return MIN(1.0, MAX(0.0, fraction));
 }
@@ -2842,6 +2854,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
   CGContextSetTextPosition(context, 8.0, 12.0);
   CTLineDraw(line, context);
   CFRelease(line);
+  [string release];
   CFRelease(font);
   CGContextRelease(context);
 
@@ -3672,6 +3685,7 @@ uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y) {
   }
   documentIndex += MIN((NSUInteger)localIndex, lineText.length);
   CFRelease(ctLine);
+  [attributed release];
   CFRelease(font);
   return (uint32_t)documentIndex;
 }
@@ -3702,6 +3716,7 @@ uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y) {
   if (utf16Index == kCFNotFound) utf16Index = (CFIndex)lineText.length;
   NSUInteger localByte = utf8BytesForUTF16Offset(lineText, (NSUInteger)utf16Index);
   CFRelease(ctLine);
+  [attributed release];
   CFRelease(font);
   return (uint32_t)(lineStartByte + localByte);
 }
@@ -4259,8 +4274,8 @@ static NSString *clipboardTextFromPasteboard(NSPasteboard *pasteboard) {
   // embedded NULs and non-ASCII text length-preserving; stringForType remains
   // a compatibility fallback for other macOS applications.
   NSData *data = [pasteboard dataForType:NSPasteboardTypeString];
-  NSString *text = data ? [[NSString alloc] initWithData:data
-                                                 encoding:NSUTF8StringEncoding] : nil;
+  NSString *text = data ? [[[NSString alloc] initWithData:data
+                                                 encoding:NSUTF8StringEncoding] autorelease] : nil;
   return text ?: [pasteboard stringForType:NSPasteboardTypeString];
 }
 

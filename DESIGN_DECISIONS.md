@@ -2848,3 +2848,18 @@ ownership is released immediately. The dictionary itself is explicitly owned
 rather than autoreleased. This mirrors Zed's ownership-bound render-target and
 atlas lifecycle and keeps steady-state resource use bounded by current UI
 state rather than update history.
+
+## M20-005: Release Core Text staging objects on every frame path
+
+Core Text bridges require temporary attributed strings for glyph atlas shaping,
+fallback text, soft wrapping, IME composition, completion/hover popups, hit
+testing, and terminal styling. In a manual-reference-counted Objective-C
+backend, these objects are not reclaimed merely because their associated
+`CTLine`, `CTFrame`, or `CTTypesetter` has been released.
+
+Each staging `NSAttributedString` and `NSMutableAttributedString` is now
+released immediately after its Core Text or AppKit consumer has copied the
+data. The change covers both normal and soft-wrap text paths and the terminal
+overlay, avoiding allocation growth proportional to frame count or text
+navigation. Native GUI contracts continue to exercise the corresponding Metal,
+Core Text, IME, clipboard, and terminal paths.
