@@ -101,11 +101,14 @@ suite "macOS platform contract":
     else:
       echo "  [SKIP] native glyph atlas contract (no Metal/Core Text device in this session)"
 
-  test "color emoji uses the RGBA Core Text fallback texture":
+  test "color emoji keeps the RGBA fallback beside the glyph atlas":
     if platformValidateColorEmojiFallback():
       check true
     else:
       echo "  [SKIP] color emoji fallback contract (no Metal/Core Text device in this session)"
+
+  test "Core Text classifies joined and keycap emoji sequences":
+    check platformValidateColorEmojiSequences()
 
   test "mixed Japanese symbol and emoji text reaches the visible text asset paths":
     if platformValidateVisibleTextAssets():

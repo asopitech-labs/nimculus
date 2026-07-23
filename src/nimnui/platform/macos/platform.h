@@ -11,6 +11,7 @@ bool nimculus_platform_validate_input_event_fields(void);
 bool nimculus_platform_validate_clipboard_roundtrip(void);
 bool nimculus_platform_validate_glyph_atlas(void);
 bool nimculus_platform_validate_color_emoji_fallback(void);
+bool nimculus_platform_validate_color_emoji_sequences(void);
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics);
 uint64_t nimculus_platform_resident_memory_bytes(void);
 uint64_t nimculus_platform_live_allocation_count(void);

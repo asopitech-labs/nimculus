@@ -755,31 +755,56 @@ static BOOL colorEmojiAtUTF16Index(NSString *text, NSUInteger index,
   return scalarIsColorEmoji(scalar);
 }
 
-static BOOL textContainsColorEmoji(NSString *text) {
-  if (!text) return NO;
-  NSUInteger length = text.length;
-  for (NSUInteger index = 0; index < length; index++) {
-    NSUInteger unitLength = 1;
-    if (colorEmojiAtUTF16Index(text, index, &unitLength)) return YES;
-    index += unitLength - 1;
-  }
-  return NO;
+static BOOL fontIsColorEmoji(CTFontRef font) {
+  if (!font) return NO;
+  NSString *postScriptName = (__bridge_transfer NSString *)CTFontCopyPostScriptName(font);
+  return [postScriptName isEqualToString:@"AppleColorEmoji"] ||
+    [postScriptName isEqualToString:@".AppleColorEmojiUI"];
 }
 
-static void maskNonColorEmoji(NSMutableAttributedString *attributed,
-                              NSString *text) {
-  if (!attributed || !text) return;
-  NSColor *transparent = [NSColor colorWithCalibratedWhite:1.0 alpha:0.0];
-  NSUInteger index = 0;
-  while (index < text.length) {
-    NSRange clusterRange = [text rangeOfComposedCharacterSequenceAtIndex:index];
-    NSString *cluster = [text substringWithRange:clusterRange];
-    if (!textContainsColorEmoji(cluster)) {
-      [attributed addAttribute:(id)kCTForegroundColorAttributeName
-        value:(id)transparent.CGColor range:clusterRange];
+static BOOL textContainsColorEmoji(NSString *text) {
+  if (!text) return NO;
+  CTFontRef baseFont = editorFont();
+  if (!baseFont) return NO;
+  NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)baseFont };
+  NSAttributedString *attributed = [[NSAttributedString alloc]
+    initWithString:text attributes:attributes];
+  CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
+  BOOL result = NO;
+  CFArrayRef runs = line ? CTLineGetGlyphRuns(line) : NULL;
+  for (CFIndex index = 0; runs && index < CFArrayGetCount(runs); index++) {
+    CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, index);
+    NSDictionary *runAttributes = (__bridge NSDictionary *)CTRunGetAttributes(run);
+    CTFontRef font = (__bridge CTFontRef)[runAttributes objectForKey:(id)kCTFontAttributeName];
+    if (fontIsColorEmoji(font)) {
+      result = YES;
+      break;
     }
-    index = NSMaxRange(clusterRange);
   }
+  if (line) CFRelease(line);
+  CFRelease(baseFont);
+  return result;
+}
+
+static void maskNonColorEmojiRuns(NSMutableAttributedString *attributed) {
+  if (!attributed) return;
+  NSColor *transparent = [NSColor colorWithCalibratedWhite:1.0 alpha:0.0];
+  CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
+  CFArrayRef runs = line ? CTLineGetGlyphRuns(line) : NULL;
+  for (CFIndex index = 0; runs && index < CFArrayGetCount(runs); index++) {
+    CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, index);
+    NSDictionary *runAttributes = (__bridge NSDictionary *)CTRunGetAttributes(run);
+    CTFontRef font = (__bridge CTFontRef)[runAttributes objectForKey:(id)kCTFontAttributeName];
+    if (!fontIsColorEmoji(font)) {
+      CFRange range = CTRunGetStringRange(run);
+      if (range.location != kCFNotFound && range.length > 0) {
+        [attributed addAttribute:(id)kCTForegroundColorAttributeName
+          value:(id)transparent.CGColor
+          range:NSMakeRange((NSUInteger)range.location, (NSUInteger)range.length)];
+      }
+    }
+  }
+  if (line) CFRelease(line);
 }
 
 static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
@@ -975,7 +1000,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         }
       }
     }
-    if (drawColorEmojiFallback) maskNonColorEmoji(attributed, lineText);
+    if (drawColorEmojiFallback) maskNonColorEmojiRuns(attributed);
     if (drawFallbackText || drawColorEmojiFallback) {
       CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
       CGContextSetTextPosition(context, 8.0,
@@ -1321,9 +1346,10 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
       CTRunGetPositions(run, CFRangeMake(0, glyphCount), positions);
       CTRunGetStringIndices(run, CFRangeMake(0, glyphCount), stringIndices);
       for (CFIndex glyphIndex = 0; glyphIndex < glyphCount; glyphIndex++) {
-        if (stringIndices[glyphIndex] != kCFNotFound &&
-            colorEmojiAtUTF16Index(lineText,
-              (NSUInteger)stringIndices[glyphIndex], NULL)) continue;
+        if (fontIsColorEmoji(font) ||
+            (stringIndices[glyphIndex] != kCFNotFound &&
+             colorEmojiAtUTF16Index(lineText,
+               (NSUInteger)stringIndices[glyphIndex], NULL))) continue;
         CGFloat scaledX = positions[glyphIndex].x * scale;
         CGFloat scaledY = (baselineY + positions[glyphIndex].y) * scale;
         CGFloat quantizedX = round(scaledX * NIMCULUS_SUBPIXEL_VARIANTS_X) /
@@ -3243,8 +3269,20 @@ bool nimculus_platform_validate_glyph_atlas(void) {
 bool nimculus_platform_validate_color_emoji_fallback(void) {
   id<MTLDevice> device = MTLCreateSystemDefaultDevice();
   if (!device) return false;
-  updateEditorTextTexture(device, @"A🙂", YES);
-  return g_text_texture != nil && !g_glyph_rendering_available;
+  // Ordinary glyphs and color emoji must coexist: the former remains in the
+  // R8 atlas while the latter is supplied by the RGBA Core Text texture.
+  updateEditorTextTexture(device, @"A🙂 1️⃣", YES);
+  return g_text_texture != nil && g_glyph_rendering_available &&
+    g_glyph_vertex_count > 0;
+}
+
+bool nimculus_platform_validate_color_emoji_sequences(void) {
+  // This contract does not require a drawable. It verifies the Core Text
+  // classification boundary for a ZWJ sequence and a keycap, while ensuring
+  // ordinary text is not routed through the color path.
+  return textContainsColorEmoji(@"👩‍💻") &&
+    textContainsColorEmoji(@"1️⃣") &&
+    !textContainsColorEmoji(@"Nimculus 日本語");
 }
 
 bool nimculus_platform_validate_visible_text_assets(void) {
@@ -3258,7 +3296,7 @@ bool nimculus_platform_validate_visible_text_assets(void) {
     // Exercise the two text asset paths with the same document: ordinary
     // glyphs use the monochrome atlas, while the emoji remains in the RGBA
     // Core Text texture fallback.
-    NSString *mixed = @"A日本語・記号👩‍💻🙂\nnext";
+    NSString *mixed = @"A日本語・記号👩‍💻🙂 1️⃣\nnext";
     updateEditorTextTexture(device, mixed, YES);
     BOOL atlasValid = g_glyph_atlas_texture != nil && g_glyph_vertex_count > 0;
     BOOL textureValid = g_text_texture != nil && g_text_texture.width > 0 &&

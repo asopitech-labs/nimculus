@@ -2626,6 +2626,21 @@ resources while keeping Core Text responsible for macOS fallback shaping.
 The native contract requires both assets for one mixed sample; actual frame
 presentation and visual Retina/IME acceptance remain separate gates.
 
+## M3-023: Classify macOS color glyphs by the resolved Core Text font
+
+Unicode ranges alone do not classify every emoji sequence. In particular,
+keycaps combine an ASCII digit or symbol with Variation Selector-16 and
+`U+20E3`, and joined sequences may be represented by one color-font run. Zed's
+macOS text system marks a shaped glyph as emoji from the resolved
+`AppleColorEmoji` or `.AppleColorEmojiUI` font rather than from a scalar list.
+
+Nimculus now uses that same Core Text run boundary for the main decision:
+ordinary runs are rasterized into the R8 atlas, while color-font runs remain
+in the RGBA Core Text fallback texture. The previous Unicode scalar classifier
+is retained only as a defensive fallback when filtering individual atlas
+glyphs. The native mixed-text contract includes a ZWJ sequence, a supplementary
+emoji, and a keycap, and requires both rendering assets.
+
 ## M1-017: Treat a new Metal target as a full retained-scene rebuild
 
 The macOS renderer keeps a scene texture and applies damage rectangles to it
