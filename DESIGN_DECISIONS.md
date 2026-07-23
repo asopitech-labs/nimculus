@@ -2772,3 +2772,19 @@ The requirement is deliberately limited to the interactive self-hosted
 workflow. GitHub-hosted runners continue to run the same broad test suite and
 cold-start/soak frame gates, while the GUI runner supplies the stronger
 AppKit-session evidence without executing untrusted pull-request code.
+
+## M3-025: Build the glyph pipeline for native text-asset validation
+
+The color-emoji fallback contract must prove that an R8 glyph atlas and an
+RGBA Core Text texture coexist. The production glyph pipeline is normally
+created during `applicationDidFinishLaunching`, but C-ABI platform tests
+intentionally exercise text assets without leaving an application window
+running. Without a pipeline, the test only exercised the all-Core-Text
+fallback and could be silently skipped.
+
+The glyph pipeline descriptor is now shared between application startup and a
+native validation helper. The helper compiles the same Metal glyph shader only
+when no production pipeline exists, then validates the ordinary-glyph atlas
+and color-emoji texture together. This follows Zed's separate monochrome and
+color-glyph resources while keeping the test independent of a persistent GUI
+process.

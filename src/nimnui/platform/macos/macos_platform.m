@@ -2806,6 +2806,37 @@ static void applyTerminalRuns(NSTextView *terminal) {
     mipmapLevel:0 withBytes:pixels.bytes bytesPerRow:width];
 }
 
+static id<MTLRenderPipelineState> newGlyphPipeline(id<MTLLibrary> library,
+                                                    NSError **error) {
+  if (!library) return nil;
+  MTLRenderPipelineDescriptor *descriptor = [MTLRenderPipelineDescriptor new];
+  descriptor.vertexFunction = [library newFunctionWithName:@"glyphVs"];
+  descriptor.fragmentFunction = [library newFunctionWithName:@"glyphFs"];
+  descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+  descriptor.colorAttachments[0].blendingEnabled = YES;
+  descriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+  descriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+  descriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+  descriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+  return [library.device newRenderPipelineStateWithDescriptor:descriptor error:error];
+}
+
+static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
+  if (!device) return NO;
+  if (g_glyph_pipeline) return YES;
+  NSError *error = nil;
+  NSString *source = @"#include <metal_stdlib>\nusing namespace metal;\n"
+    "struct GV { float4 pos [[position]]; float2 uv; float4 color; };\n"
+    "vertex GV glyphVs(uint id [[vertex_id]], constant float4 *v [[buffer(0)]]) { "
+    "GV o; o.pos=float4(v[id*2].xy,0,1); o.uv=v[id*2].zw; o.color=v[id*2+1]; return o; }\n"
+    "fragment float4 glyphFs(GV in [[stage_in]], texture2d<float> atlas [[texture(0)]]) { "
+    "constexpr sampler s(filter::linear); float alpha=atlas.sample(s,in.uv).r; "
+    "return float4(in.color.rgb,in.color.a*alpha); }";
+  id<MTLLibrary> library = [device newLibraryWithSource:source options:nil error:&error];
+  g_glyph_pipeline = newGlyphPipeline(library, &error);
+  return g_glyph_pipeline != nil;
+}
+
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
   id<MTLDevice> device = MTLCreateSystemDefaultDevice();
   g_queue = [device newCommandQueue];
@@ -2844,16 +2875,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
     textDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
     textDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
     g_text_pipeline = [device newRenderPipelineStateWithDescriptor:textDescriptor error:&error];
-    MTLRenderPipelineDescriptor *glyphDescriptor = [MTLRenderPipelineDescriptor new];
-    glyphDescriptor.vertexFunction = [library newFunctionWithName:@"glyphVs"];
-    glyphDescriptor.fragmentFunction = [library newFunctionWithName:@"glyphFs"];
-    glyphDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-    glyphDescriptor.colorAttachments[0].blendingEnabled = YES;
-    glyphDescriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
-    glyphDescriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-    glyphDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
-    glyphDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
-    g_glyph_pipeline = [device newRenderPipelineStateWithDescriptor:glyphDescriptor error:&error];
+    g_glyph_pipeline = newGlyphPipeline(library, &error);
     MTLRenderPipelineDescriptor *imageDescriptor = [MTLRenderPipelineDescriptor new];
     imageDescriptor.vertexFunction = [library newFunctionWithName:@"imageVs"];
     imageDescriptor.fragmentFunction = [library newFunctionWithName:@"imageFs"];
@@ -3267,13 +3289,23 @@ bool nimculus_platform_validate_glyph_atlas(void) {
 }
 
 bool nimculus_platform_validate_color_emoji_fallback(void) {
-  id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-  if (!device) return false;
-  // Ordinary glyphs and color emoji must coexist: the former remains in the
-  // R8 atlas while the latter is supplied by the RGBA Core Text texture.
-  updateEditorTextTexture(device, @"A🙂 1️⃣", YES);
-  return g_text_texture != nil && g_glyph_rendering_available &&
-    g_glyph_vertex_count > 0;
+  @autoreleasepool {
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    if (!device) return false;
+    // Match the visible-text validation setup. These C ABI tests can run
+    // before an NSView exists, so establish the same stable viewport state
+    // that the production renderer obtains from the active Metal view.
+    if (g_metrics.scale_factor <= 0.0) g_metrics.scale_factor = 2.0;
+    if (g_editor_rect[2] <= 0.0) g_editor_rect[2] = 640.0;
+    if (g_editor_rect[3] <= 0.0) g_editor_rect[3] = 320.0;
+    g_editor_scroll_line = 0;
+    if (!ensureGlyphValidationPipeline(device)) return false;
+    // Ordinary glyphs and color emoji must coexist: the former remains in the
+    // R8 atlas while the latter is supplied by the RGBA Core Text texture.
+    updateEditorTextTexture(device, @"A🙂 1️⃣", YES);
+    return g_text_texture != nil && g_glyph_rendering_available &&
+      g_glyph_vertex_count > 0;
+  }
 }
 
 bool nimculus_platform_validate_color_emoji_sequences(void) {

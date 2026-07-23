@@ -106,6 +106,8 @@ suite "macOS platform contract":
   test "color emoji keeps the RGBA fallback beside the glyph atlas":
     if platformValidateColorEmojiFallback():
       check true
+    elif nativeGuiValidationRequired():
+      check false
     else:
       echo "  [SKIP] color emoji fallback contract (no Metal/Core Text device in this session)"
 
