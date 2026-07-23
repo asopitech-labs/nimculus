@@ -214,7 +214,7 @@ suite "M6 workspace":
 
   when defined(posix):
     test "external search termination is bounded":
-      let process = startProcess("/bin/sh", args = @["-c", "sleep 10"],
+      let process = startProcess("/bin/sh", args = @["-c", "exec sleep 10"],
         options = {poUsePath})
       let started = epochTime()
       discard terminateSearchProcess(process)

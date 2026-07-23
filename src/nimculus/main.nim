@@ -666,6 +666,12 @@ when defined(macosx):
       editorViewState.statusMessage = "Update download or verification failed"
     editorUpdateJob = nil
 
+  proc cancelNativeUpdateDownload() =
+    if editorUpdateJob == nil or editorUpdateJob.done: return
+    editorUpdateJob.cancelUpdateDownload()
+    editorUpdateJob = nil
+    editorViewState.statusMessage = "Update download cancelled"
+
   proc runningAppBundle(): string =
     let executable = getAppFilename()
     let candidate = parentDir(parentDir(parentDir(executable)))
@@ -2196,8 +2202,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "quitRequest":
     when defined(macosx):
       if editorUpdateJob != nil and not editorUpdateJob.done:
-        editorViewState.statusMessage = "Wait for the update download to finish"
-      elif editorSession.hasDirtyTabs(): platformRequestQuit()
+        cancelNativeUpdateDownload()
+      if editorSession.hasDirtyTabs(): platformRequestQuit()
       else:
         applyPendingUpdateAtQuit()
         closeNativeTerminals()

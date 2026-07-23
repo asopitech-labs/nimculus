@@ -1,6 +1,9 @@
 import std/unittest
 import std/strutils
 import std/os
+import std/times
+when defined(posix):
+  import std/envvars
 import nimculus/update_service
 
 suite "M11 update service":
@@ -55,3 +58,31 @@ suite "M11 update service":
     check not installMacosDmgUpdate(artifact, getTempDir() / "missing-nimculus.app",
       getTempDir() / "nimculus-update-test")
     check fileExists(artifact)
+
+  when defined(posix):
+    test "cancels an active update download within a bounded wait":
+      let root = getTempDir() / "nimculus-update-cancel"
+      let fakeCurl = root / "curl"
+      let destination = root / "Nimculus-update.dmg"
+      createDir(root)
+      writeFile(fakeCurl, "#!/bin/sh\nexec sleep 10\n")
+      setFilePermissions(fakeCurl, {fpUserRead, fpUserWrite, fpUserExec})
+      let previousPath = getEnv("PATH")
+      putEnv("PATH", root & ":" & previousPath)
+      defer:
+        putEnv("PATH", previousPath)
+        if fileExists(destination): removeFile(destination)
+        if fileExists(destination & ".part"): removeFile(destination & ".part")
+        if fileExists(fakeCurl): removeFile(fakeCurl)
+        if dirExists(root): removeDir(root)
+      let release = UpdateRelease(url: "https://example.invalid/Nimculus.dmg",
+        sha256: repeat("0", 64))
+      let job = startUpdateDownload(release, destination)
+      check not job.done
+      let started = epochTime()
+      job.cancelUpdateDownload()
+      check epochTime() - started < 3.0
+      check job.done
+      check not job.success
+      check not fileExists(destination)
+      check not fileExists(destination & ".part")

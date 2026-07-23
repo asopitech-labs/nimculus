@@ -330,6 +330,17 @@ at 64 KiB, and the process is not allowed to block on a full pipe. This keeps
 verification and installation bounded even when a tool emits unexpected
 diagnostic output.
 
+## M11-010: Make update cancellation and tool shutdown finite
+
+Zed models updating as a cancellable asynchronous lifecycle, so a stalled
+download must not prevent the application from closing. Nimculus now gives
+`curl` one second to exit after cancellation and one further second after a
+forced termination, removes both the partial and published destination, and
+cancels an active download when the user quits. The bounded verifier/installer
+runner also enforces a 60-second timeout for `shasum`, signature checks, DMG
+mount/detach, and `rsync`, preventing an unresponsive external tool from
+holding the macOS termination path indefinitely.
+
 ## M13-052: Fail cleanly when the Windows GPU backend cannot initialize
 
 Zed's Windows platform startup treats GPU/device initialization as a

@@ -3,6 +3,7 @@ import std/os
 import std/osproc
 import std/streams
 import std/strutils
+import std/times
 when defined(posix):
   import std/posix
 
@@ -28,6 +29,8 @@ type
     success*: bool
 
 const MaxUpdateArtifactBytes* = 1024'i64 * 1024 * 1024
+const UpdateProcessGracePeriodMs = 1_000
+const UpdateToolTimeoutMs* = 60_000
 
 proc artifactWithinLimit(path: string): bool =
   try:
@@ -50,6 +53,19 @@ proc appendBoundedOutput(current, chunk: string, limit: int):
   let remaining = limit - current.len
   if chunk.len <= remaining: return (current & chunk, false)
   (current & chunk[0 ..< remaining], true)
+
+proc terminateUpdateProcess(process: Process): int =
+  ## Keep an interrupted update from holding the Cocoa shutdown path forever.
+  if process == nil: return -1
+  if process.running:
+    process.terminate()
+    result = process.waitForExit(UpdateProcessGracePeriodMs)
+    if result < 0:
+      process.kill()
+      result = process.waitForExit(UpdateProcessGracePeriodMs)
+  else:
+    result = process.peekExitCode()
+  process.close()
 
 proc readAvailable(process: Process, output: Stream): string =
   if process == nil or output == nil: return
@@ -74,12 +90,14 @@ proc readAvailable(process: Process, output: Stream): string =
     if process.hasData(): result = output.readStr(8192)
 
 proc runProcessBounded(command: string, args: openArray[string],
-                       maxOutputBytes = 64 * 1024):
+                       maxOutputBytes = 64 * 1024,
+                       timeoutMs = UpdateToolTimeoutMs):
     tuple[exitCode: int, output: string, truncated: bool] =
   try:
     let process = startProcess(command, args = @args,
       options = {poUsePath, poStdErrToStdOut})
     let outputStream = process.peekableOutputStream()
+    let startedAt = epochTime()
     while true:
       let chunk = process.readAvailable(outputStream)
       if chunk.len > 0:
@@ -95,6 +113,13 @@ proc runProcessBounded(command: string, args: openArray[string],
           result.truncated = result.truncated or bounded.truncated
         result.exitCode = exitCode
         process.close()
+        return
+      if timeoutMs > 0 and (epochTime() - startedAt) * 1_000.0 >= float64(timeoutMs):
+        result.exitCode = terminateUpdateProcess(process)
+        let bounded = appendBoundedOutput(result.output,
+          "update tool timed out\n", maxOutputBytes)
+        result.output = bounded.output
+        result.truncated = result.truncated or bounded.truncated
         return
       sleep(1)
   except CatchableError:
@@ -208,16 +233,21 @@ proc startUpdateDownload*(release: UpdateRelease, destination: string): UpdateDo
   except CatchableError:
     result.done = true
 
+proc cancelUpdateDownload*(job: UpdateDownloadJob) =
+  ## Cancellation is deliberately idempotent: it is used by both the UI and
+  ## the macOS quit path, where a partial DMG must never survive as an update.
+  if job == nil or job.done: return
+  discard terminateUpdateProcess(job.process)
+  job.done = true
+  job.success = false
+  removeIfPresent(job.partialDestination)
+  removeIfPresent(job.destination)
+
 proc pollUpdateDownload*(job: UpdateDownloadJob): bool =
   if job == nil or job.done: return true
   if fileExists(job.partialDestination) and
       not artifactWithinLimit(job.partialDestination):
-    job.process.terminate()
-    discard job.process.waitForExit()
-    job.process.close()
-    removeIfPresent(job.partialDestination)
-    job.done = true
-    job.success = false
+    job.cancelUpdateDownload()
     return true
   let exitCode = job.process.peekExitCode()
   if exitCode < 0: return false
