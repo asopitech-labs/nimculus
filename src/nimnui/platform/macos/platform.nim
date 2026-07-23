@@ -13,6 +13,7 @@ proc platformValidateMainMenu*(): bool {.importc: "nimculus_platform_validate_ma
 proc platformValidateVisibleTextAssets*(): bool {.importc: "nimculus_platform_validate_visible_text_assets", cdecl.}
 proc platformValidateFileOpenEvents*(): bool {.importc: "nimculus_platform_validate_file_open_events", cdecl.}
 proc platformValidateImeComposition*(): bool {.importc: "nimculus_platform_validate_ime_composition", cdecl.}
+proc platformValidateImeCandidateRect*(): bool {.importc: "nimculus_platform_validate_ime_candidate_rect", cdecl.}
 proc platformValidateInputEventFields*(): bool {.importc: "nimculus_platform_validate_input_event_fields", cdecl.}
 proc platformValidateClipboardRoundtrip*(): bool {.importc: "nimculus_platform_validate_clipboard_roundtrip", cdecl.}
 proc platformValidateGlyphAtlas*(): bool {.importc: "nimculus_platform_validate_glyph_atlas", cdecl.}

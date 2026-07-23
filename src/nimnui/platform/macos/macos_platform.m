@@ -3164,8 +3164,8 @@ bool nimculus_platform_validate_file_open_events(void) {
   }
 }
 
-static char g_validation_ime_text[4][128];
-static BOOL g_validation_ime_composing[4];
+static char g_validation_ime_text[6][128];
+static BOOL g_validation_ime_composing[6];
 static uint32_t g_validation_ime_text_count = 0;
 static uint32_t g_validation_ime_selection_start = 0;
 static uint32_t g_validation_ime_selection_end = 0;
@@ -3175,7 +3175,7 @@ static uint32_t g_validation_ime_selection_count = 0;
 
 static void validationImeTextCallback(const char *utf8, bool composing) {
   uint32_t index = g_validation_ime_text_count++;
-  if (index >= 4) return;
+  if (index >= 6) return;
   strncpy(g_validation_ime_text[index], utf8 ?: "", sizeof(g_validation_ime_text[index]) - 1);
   g_validation_ime_text[index][sizeof(g_validation_ime_text[index]) - 1] = '\0';
   g_validation_ime_composing[index] = composing;
@@ -3226,13 +3226,77 @@ bool nimculus_platform_validate_ime_composition(void) {
       g_validation_ime_composing[2] && g_validation_ime_selection_count == 2 &&
       g_validation_ime_selection_start2 == 1 && g_validation_ime_selection_end2 == 7 &&
       !view.hasMarkedText;
+    [view setMarkedText:@"かな" selectedRange:NSMakeRange(1, 0)
+      replacementRange:NSMakeRange(NSNotFound, 0)];
+    [view unmarkText];
+    BOOL cancelled = g_validation_ime_text_count == 5 &&
+      strcmp(g_validation_ime_text[3], "かな") == 0 &&
+      g_validation_ime_composing[3] && g_validation_ime_text[4][0] == '\0' &&
+      g_validation_ime_composing[4] && !view.hasMarkedText &&
+      view.markedRange.location == NSNotFound;
     g_text_callback = previousTextCallback;
     g_selection_callback = previousSelectionCallback;
     g_editor_text = previousText;
     g_editor_selection_start = previousSelectionStart;
     g_editor_selection_end = previousSelectionEnd;
-    return marked && committed;
+    return marked && committed && cancelled;
   }
+}
+
+bool nimculus_platform_validate_ime_candidate_rect(void) {
+  NimculusPlatformMetrics previousMetrics = g_metrics;
+  BOOL valid = NO;
+  @autoreleasepool {
+    NSString *previousText = g_editor_text;
+    NSUInteger previousSelectionStart = g_editor_selection_start;
+    NSUInteger previousSelectionEnd = g_editor_selection_end;
+    NSUInteger previousScrollLine = g_editor_scroll_line;
+    CGFloat previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
+      g_editor_rect[2], g_editor_rect[3]};
+    g_editor_text = @"A日本語\nB";
+    g_editor_selection_start = 0;
+    g_editor_selection_end = 0;
+    g_editor_scroll_line = 0;
+    g_editor_rect[0] = 48.0;
+    g_editor_rect[1] = 80.0;
+    g_editor_rect[2] = 400.0;
+    g_editor_rect[3] = 300.0;
+    NSWindow *window = [[NSWindow alloc]
+      initWithContentRect:NSMakeRect(120.0, 160.0, 640.0, 480.0)
+      styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+    NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
+      NSMakeRect(0.0, 0.0, 640.0, 480.0)];
+    if (window && view) {
+      window.contentView = view;
+      [view layoutSubtreeIfNeeded];
+      NSRange actualFirst = NSMakeRange(NSNotFound, 0);
+      NSRange actualSecond = NSMakeRange(NSNotFound, 0);
+      NSRect first = [view firstRectForCharacterRange:NSMakeRange(0, 0)
+        actualRange:&actualFirst];
+      NSRect second = [view firstRectForCharacterRange:NSMakeRange(1, 0)
+        actualRange:&actualSecond];
+      valid = actualFirst.location == 0 && actualFirst.length == 0 &&
+        actualSecond.location == 1 && actualSecond.length == 0 &&
+        first.size.height > 0.0 && second.size.height > 0.0 &&
+        second.origin.x > first.origin.x && isfinite(first.origin.x) &&
+        isfinite(first.origin.y) && isfinite(second.origin.x) &&
+        isfinite(second.origin.y);
+      [window close];
+    }
+    g_editor_text = previousText;
+    g_editor_selection_start = previousSelectionStart;
+    g_editor_selection_end = previousSelectionEnd;
+    g_editor_scroll_line = previousScrollLine;
+    g_editor_rect[0] = previousRect[0];
+    g_editor_rect[1] = previousRect[1];
+    g_editor_rect[2] = previousRect[2];
+    g_editor_rect[3] = previousRect[3];
+  }
+  // AppKit may detach the temporary view while the autorelease pool drains.
+  // Restore the shared resize metrics after that boundary, as in the native
+  // window lifecycle contract.
+  g_metrics = previousMetrics;
+  return valid;
 }
 
 bool nimculus_platform_validate_input_event_fields(void) {

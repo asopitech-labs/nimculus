@@ -2788,3 +2788,18 @@ when no production pipeline exists, then validates the ordinary-glyph atlas
 and color-emoji texture together. This follows Zed's separate monochrome and
 color-glyph resources while keeping the test independent of a persistent GUI
 process.
+
+## M3-026: Validate the complete NSTextInputClient composition boundary
+
+Zed forwards marked-text replacement ranges, committed text, unmark events,
+and character bounds through one InputHandler boundary. Nimculus validates the
+same macOS contract with a Japanese document: marked text selects the correct
+UTF-8 byte range from a UTF-16 replacement range; commit sends text before an
+empty composition update; and cancellation sends an empty composing update
+without manufacturing a committed edit.
+
+The candidate-window rectangle is tested on an attached temporary NSWindow,
+not a detached view, because `firstRectForCharacterRange:` must return screen
+coordinates. The fixture restores text, selection, scroll, editor bounds, and
+metrics after AppKit has detached the temporary view, so candidate validation
+cannot contaminate subsequent Core Text hit-testing.

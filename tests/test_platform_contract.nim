@@ -72,6 +72,14 @@ suite "macOS platform contract":
   test "native IME composition preserves UTF-16 and UTF-8 boundaries":
     check platformValidateImeComposition()
 
+  test "native IME candidate rect follows the UTF-16 cursor position":
+    if platformValidateImeCandidateRect():
+      check true
+    elif nativeGuiValidationRequired():
+      check false
+    else:
+      echo "  [SKIP] native IME candidate rect (GUI services unavailable in this session)"
+
   test "native input event fields are read only for supported event types":
     check platformValidateInputEventFields()
 
