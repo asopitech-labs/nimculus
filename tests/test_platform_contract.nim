@@ -111,6 +111,14 @@ suite "macOS platform contract":
     else:
       echo "  [SKIP] native glyph atlas contract (no Metal/Core Text device in this session)"
 
+  test "Retina scale changes rebuild text assets and retain 2x atlas entries":
+    if platformValidateRetinaTextScaling():
+      check true
+    elif nativeGuiValidationRequired():
+      check false
+    else:
+      echo "  [SKIP] Retina text scale contract (no Metal/Core Text device in this session)"
+
   test "color emoji keeps the RGBA fallback beside the glyph atlas":
     if platformValidateColorEmojiFallback():
       check true

@@ -1105,6 +1105,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
     width:width height:height mipmapped:NO];
   descriptor.usage = MTLTextureUsageShaderRead;
+  [g_text_texture release];
   g_text_texture = [device newTextureWithDescriptor:descriptor];
   [g_text_texture replaceRegion:MTLRegionMake2D(0, 0, width, height)
     mipmapLevel:0 withBytes:pixels.bytes bytesPerRow:width * 4];
@@ -1122,14 +1123,16 @@ static void ensureGlyphAtlas(id<MTLDevice> device, CGFloat scale) {
       texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm
       width:atlasSize height:atlasSize mipmapped:NO];
     descriptor.usage = MTLTextureUsageShaderRead;
+    [g_glyph_atlas_texture release];
     g_glyph_atlas_texture = [device newTextureWithDescriptor:descriptor];
     g_glyph_atlas_scale = scale;
-    g_glyph_atlas_entries = [NSMutableDictionary dictionary];
+    [g_glyph_atlas_entries release];
+    g_glyph_atlas_entries = [[NSMutableDictionary alloc] init];
     g_glyph_atlas_next_x = 0;
     g_glyph_atlas_next_y = 0;
     g_glyph_atlas_row_height = 0;
   }
-  if (!g_glyph_atlas_entries) g_glyph_atlas_entries = [NSMutableDictionary dictionary];
+  if (!g_glyph_atlas_entries) g_glyph_atlas_entries = [[NSMutableDictionary alloc] init];
 }
 
 static void appendGlyphVertex(NimculusGlyphVertex vertex) {
@@ -2801,6 +2804,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
   MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm
     width:width height:height mipmapped:NO];
   descriptor.usage = MTLTextureUsageShaderRead;
+  [g_text_texture release];
   g_text_texture = [device newTextureWithDescriptor:descriptor];
   [g_text_texture replaceRegion:MTLRegionMake2D(0, 0, width, height)
     mipmapLevel:0 withBytes:pixels.bytes bytesPerRow:width];
@@ -3350,6 +3354,60 @@ bool nimculus_platform_validate_glyph_atlas(void) {
   uint64_t hitsBefore = g_glyph_atlas_hit_count;
   updateEditorGlyphAtlas(device, sample);
   return g_glyph_vertex_count > 0 && g_glyph_atlas_hit_count > hitsBefore;
+}
+
+bool nimculus_platform_validate_retina_text_scaling(void) {
+  NimculusPlatformMetrics previousMetrics = g_metrics;
+  NSString *previousText = g_editor_text;
+  NSUInteger previousScrollLine = g_editor_scroll_line;
+  CGFloat previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
+    g_editor_rect[2], g_editor_rect[3]};
+  BOOL valid = NO;
+  @autoreleasepool {
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    if (device && ensureGlyphValidationPipeline(device)) {
+      g_editor_text = @"A日本語🙂";
+      g_editor_scroll_line = 0;
+      g_editor_rect[0] = 0.0;
+      g_editor_rect[1] = 0.0;
+      g_editor_rect[2] = 320.0;
+      g_editor_rect[3] = 180.0;
+
+      g_metrics.scale_factor = 1.0;
+      updateEditorTextTexture(device, g_editor_text, YES);
+      NSUInteger oneXWidth = g_text_texture.width;
+      NSUInteger oneXHeight = g_text_texture.height;
+      BOOL oneXValid = oneXWidth == 320 && oneXHeight == 180 &&
+        fabs(g_glyph_atlas_scale - 1.0) < 0.001 &&
+        g_glyph_atlas_entries.count > 0 && g_glyph_vertex_count > 0;
+
+      g_metrics.scale_factor = 2.0;
+      updateEditorTextTexture(device, g_editor_text, YES);
+      BOOL twoXValid = g_text_texture.width == oneXWidth * 2 &&
+        g_text_texture.height == oneXHeight * 2 &&
+        fabs(g_glyph_atlas_scale - 2.0) < 0.001 &&
+        g_glyph_atlas_entries.count > 0 && g_glyph_vertex_count > 0;
+      uint64_t hitsBefore = g_glyph_atlas_hit_count;
+      updateEditorTextTexture(device, g_editor_text, YES);
+      BOOL twoXReused = g_glyph_atlas_hit_count > hitsBefore;
+
+      g_metrics.scale_factor = 1.0;
+      updateEditorTextTexture(device, g_editor_text, YES);
+      BOOL oneXRestored = g_text_texture.width == oneXWidth &&
+        g_text_texture.height == oneXHeight &&
+        fabs(g_glyph_atlas_scale - 1.0) < 0.001 &&
+        g_glyph_atlas_entries.count > 0 && g_glyph_vertex_count > 0;
+      valid = oneXValid && twoXValid && twoXReused && oneXRestored;
+    }
+    g_editor_text = previousText;
+    g_editor_scroll_line = previousScrollLine;
+    g_editor_rect[0] = previousRect[0];
+    g_editor_rect[1] = previousRect[1];
+    g_editor_rect[2] = previousRect[2];
+    g_editor_rect[3] = previousRect[3];
+  }
+  g_metrics = previousMetrics;
+  return valid;
 }
 
 bool nimculus_platform_validate_color_emoji_fallback(void) {

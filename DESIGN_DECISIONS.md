@@ -2803,3 +2803,17 @@ not a detached view, because `firstRectForCharacterRange:` must return screen
 coordinates. The fixture restores text, selection, scroll, editor bounds, and
 metrics after AppKit has detached the temporary view, so candidate validation
 cannot contaminate subsequent Core Text hit-testing.
+
+## M3-027: Rebuild and own text assets across Retina scale transitions
+
+Following Zed's scale-factor update boundary, Nimculus validates a 1x → 2x →
+1x transition with ordinary Japanese glyphs and color emoji. The RGBA Core
+Text texture must double its device-pixel dimensions at 2x, the monochrome
+glyph atlas must be recreated for the new raster scale, and a second 2x frame
+must reuse its atlas entries instead of rerasterizing them.
+
+The macOS backend is compiled with manual Objective-C ownership in this
+environment. Replacing a `newTexture` result or a glyph-atlas dictionary must
+therefore release the prior global resource and retain the replacement. This
+prevents an autorelease-pool dangling atlas after a scale change and prevents
+unbounded texture retention during repeated text updates.
