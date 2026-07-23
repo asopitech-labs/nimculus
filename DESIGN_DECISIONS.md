@@ -360,6 +360,16 @@ applies to status, diff, log, blame, and command results, preventing a large
 repository or generated diff from blocking on a full pipe or growing the
 editor's memory without limit.
 
+## M9-007: Drain and bound repository discovery
+
+Zed gives each real repository a background executor, keeping Git work away
+from window refreshes. Nimculus now drains Git stdout on every poll rather
+than only after child exit, so a verbose status/diff command cannot deadlock
+on a full pipe. Repository discovery uses the same `GitJob` lifecycle and
+returns no repository after a two-second bounded probe, rather than calling a
+blocking stream read from the macOS UI path. Tests cover a nonresponsive Git
+binary and a one-megabyte stdout stream.
+
 ## M6-004: Invalidate lazy workspace entries at the filesystem event boundary
 
 Zed's worktree scanner treats filesystem events as the boundary for updating

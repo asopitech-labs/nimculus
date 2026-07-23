@@ -2,6 +2,7 @@ import std/os
 import std/osproc
 import std/streams
 import std/strutils
+import std/times
 when defined(posix):
   import std/posix
 
@@ -59,6 +60,7 @@ type
     root*: string
 
 const MaxGitOutputBytes* = 16 * 1024 * 1024
+const GitProbeTimeoutMs = 2_000
 
 proc appendBoundedGitOutput*(current, chunk: string;
     limit: int = MaxGitOutputBytes): tuple[output: string, truncated: bool] =
@@ -114,15 +116,24 @@ proc startGitJobInput*(repository: GitRepository, args: openArray[string],
 proc newGitRepository*(root: string): GitRepository =
   let absolute = absolutePath(root)
   if not dirExists(absolute): return nil
-  let probe = startProcess("git", "", @["-C", absolute, "rev-parse", "--show-toplevel"],
-    options = {poUsePath, poStdErrToStdOut})
-  let output = probe.outputStream.readStr(MaxGitOutputBytes)
-  let exitCode = probe.waitForExit()
-  probe.close()
-  if exitCode != 0: return nil
-  let resolved = output.strip()
+  var probe: Process
+  try:
+    probe = startProcess("git", "", @["-C", absolute, "rev-parse", "--show-toplevel"],
+      options = {poUsePath, poStdErrToStdOut})
+  except CatchableError:
+    return nil
+  let job = GitJob(process: probe, output: probe.peekableOutputStream())
+  let startedAt = epochTime()
+  while not job.poll():
+    if (epochTime() - startedAt) * 1_000.0 >= float64(GitProbeTimeoutMs):
+      job.cancel()
+      return nil
+    sleep(1)
+  if job.result.exitCode != 0 or job.result.outputTruncated: return nil
+  let resolved = job.result.output.strip()
   if resolved.len == 0: return nil
-  GitRepository(root: absolutePath(resolved))
+  try: GitRepository(root: absolutePath(resolved))
+  except CatchableError: nil
 
 proc runGit*(repository: GitRepository, args: openArray[string]): GitResult =
   if repository == nil: return GitResult(exitCode: -1, output: "not a git repository")
@@ -182,6 +193,9 @@ proc cancel*(job: GitJob) =
 proc poll*(job: GitJob): bool =
   if job == nil: return true
   if job.done: return true
+  # Drain while the child is still running. Waiting for its exit before
+  # reading stdout can deadlock a verbose Git command on a full pipe.
+  job.absorbOutput()
   let exitCode = job.process.peekExitCode()
   if exitCode < 0: return false
   job.absorbOutput()

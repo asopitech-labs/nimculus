@@ -2,8 +2,11 @@ import std/os
 import std/osproc
 import std/strutils
 import std/sequtils
+import std/times
 import std/unicode
 import std/unittest
+when defined(posix):
+  import std/envvars
 import nimculus/git_service
 
 proc git(repo: string, args: varargs[string]): string =
@@ -100,6 +103,46 @@ suite "M9 Git service":
     check job.done
     check job.cancelled
     check job.result.exitCode == -1
+
+  when defined(posix):
+    test "bounds repository probing when Git does not respond":
+      let root = getTempDir() / "nimculus-m9-probe-timeout"
+      let fakeGit = root / "git"
+      if dirExists(root): removeDir(root)
+      createDir(root)
+      writeFile(fakeGit, "#!/bin/sh\nexec sleep 10\n")
+      setFilePermissions(fakeGit, {fpUserRead, fpUserWrite, fpUserExec})
+      let previousPath = getEnv("PATH")
+      putEnv("PATH", root & ":" & previousPath)
+      defer:
+        putEnv("PATH", previousPath)
+        if fileExists(fakeGit): removeFile(fakeGit)
+        if dirExists(root): removeDir(root)
+      let started = epochTime()
+      check newGitRepository(root) == nil
+      check epochTime() - started < 4.0
+
+    test "drains verbose Git output before process exit":
+      let root = getTempDir() / "nimculus-m9-verbose-job"
+      let fakeGit = root / "git"
+      if dirExists(root): removeDir(root)
+      createDir(root)
+      writeFile(fakeGit, "#!/bin/sh\nhead -c 1048576 /dev/zero | tr '\\000' x\n")
+      setFilePermissions(fakeGit, {fpUserRead, fpUserWrite, fpUserExec})
+      let previousPath = getEnv("PATH")
+      putEnv("PATH", root & ":" & previousPath)
+      defer:
+        putEnv("PATH", previousPath)
+        if fileExists(fakeGit): removeFile(fakeGit)
+        if dirExists(root): removeDir(root)
+      let job = GitRepository(root: root).startGitJob(["status", "--porcelain"])
+      let deadline = epochTime() + 3.0
+      while not job.poll() and epochTime() < deadline:
+        sleep(1)
+      if not job.done: job.cancel()
+      check job.done
+      check job.result.exitCode == 0
+      check job.result.output.len == 1_048_576
 
   test "stages and unstages one hunk without affecting another":
     let root = getTempDir() / "nimculus-m9-hunk"
