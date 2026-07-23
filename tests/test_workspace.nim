@@ -3,6 +3,9 @@ import std/os
 import std/sequtils
 import std/strutils
 import std/tables
+import std/times
+when defined(posix):
+  import std/osproc
 import nimculus/workspace
 
 suite "M6 workspace":
@@ -208,6 +211,14 @@ suite "M6 workspace":
     check results.len == 1
     check results[0].line == 1
     removeFile(root / "main.nim"); removeDir(root)
+
+  when defined(posix):
+    test "external search termination is bounded":
+      let process = startProcess("/bin/sh", args = @["-c", "sleep 10"],
+        options = {poUsePath})
+      let started = epochTime()
+      discard terminateSearchProcess(process)
+      check epochTime() - started < 3.0
 
   test "ripgrep results preserve colons in paths and source lines":
     let root = getTempDir() / "nimculus-m6-rg-colon"

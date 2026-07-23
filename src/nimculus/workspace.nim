@@ -68,6 +68,7 @@ type
 const
   MaxWorkspaceSearchResults* = 10_000
   MaxWorkspaceSearchOutputBytes* = 32 * 1024 * 1024
+  SearchProcessGracePeriodMs = 1_000
 
 when defined(macosx) or defined(windows):
   type WorkspaceChangeCallback* = proc(path: cstring, context: pointer) {.cdecl.}
@@ -429,6 +430,22 @@ proc readFilePrefix(path: string, maxBytes: int): string =
   let count = file.readBuffer(addr result[0], maxBytes)
   result.setLen(max(0, count))
 
+proc terminateSearchProcess*(process: Process): int =
+  ## Stop an external search without allowing cancellation to block the UI.
+  ## POSIX uses `exec` for the shell command above, so terminate/kill targets
+  ## the ripgrep process itself on macOS. Keep the same bounded lifecycle for
+  ## the Windows implementation until its native search path is replaced.
+  if process == nil: return -1
+  if process.running:
+    process.terminate()
+    result = process.waitForExit(SearchProcessGracePeriodMs)
+    if result < 0:
+      process.kill()
+      result = process.waitForExit(SearchProcessGracePeriodMs)
+  else:
+    result = process.peekExitCode()
+  process.close()
+
 proc runSearchProcess(command: string, token: CancelToken,
                       maxOutputBytes = MaxWorkspaceSearchOutputBytes):
     tuple[exitCode: int, output: string, truncated: bool] =
@@ -440,6 +457,7 @@ proc runSearchProcess(command: string, token: CancelToken,
     let outputPath = getTempDir() / ("nimculus-rg-" & $getCurrentProcessId() & "-" &
       $int(epochTime() * 1_000_000) & ".out")
     var process: Process
+    var stoppedForOutputLimit = false
     try:
       let shellCommand = (when defined(posix): "exec " else: "") & command &
         " > " & quoteShell(outputPath) & " 2>&1"
@@ -447,20 +465,18 @@ proc runSearchProcess(command: string, token: CancelToken,
         options = {poEvalCommand})
       while process.running:
         if token != nil and token.cancelled:
-          process.terminate()
-          discard process.waitForExit()
-          process.close()
+          discard terminateSearchProcess(process)
           if fileExists(outputPath): removeFile(outputPath)
           return (-1, "", false)
         if fileExists(outputPath) and getFileSize(outputPath) > int64(maxOutputBytes):
           result.truncated = true
-          process.terminate()
-          discard process.waitForExit()
+          result.exitCode = terminateSearchProcess(process)
+          stoppedForOutputLimit = true
           break
         sleep(10)
-      let exitCode = process.waitForExit()
-      process.close()
-      result.exitCode = exitCode
+      if not stoppedForOutputLimit:
+        result.exitCode = process.waitForExit()
+        process.close()
       if fileExists(outputPath):
         let size = getFileSize(outputPath)
         if size > int64(maxOutputBytes): result.truncated = true
@@ -478,6 +494,14 @@ proc runSearchProcess(command: string, token: CancelToken,
     result.exitCode = output.exitCode
     result.truncated = output.output.len > maxOutputBytes
     result.output = if result.truncated: output.output[0 ..< maxOutputBytes] else: output.output
+
+when defined(macosx):
+  proc runWorkspaceMetadataCommand(command: string):
+      tuple[exitCode: int, output: string, truncated: bool] =
+    ## Worktree metadata is requested from the Cocoa refresh path. Reuse the
+    ## bounded temporary-file runner so a stalled Git helper cannot block the
+    ## event loop indefinitely or grow the preview state without a limit.
+    runSearchProcess(command, nil, 64 * 1024)
 
 proc appendRipgrepRecord(results: var seq[SearchResult], root, path, payload: string) =
   let parts = payload.split(':', maxsplit = 2)
@@ -533,9 +557,16 @@ proc searchRipgrep*(workspace: Workspace, query: string,
 
 proc gitWorktrees*(workspace: Workspace): seq[string] =
   try:
-    let output = execCmdEx("git -C " & quoteShell(workspace.root) & " worktree list --porcelain")
-    for line in output.output.splitLines:
-      if line.startsWith("worktree "): result.add(line[9 .. ^1])
+    when defined(macosx):
+      let output = runWorkspaceMetadataCommand("git -C " & quoteShell(workspace.root) &
+        " worktree list --porcelain")
+      if output.exitCode != 0 or output.truncated: return
+      for line in output.output.splitLines:
+        if line.startsWith("worktree "): result.add(line[9 .. ^1])
+    else:
+      let output = execCmdEx("git -C " & quoteShell(workspace.root) & " worktree list --porcelain")
+      for line in output.output.splitLines:
+        if line.startsWith("worktree "): result.add(line[9 .. ^1])
   except CatchableError:
     discard
 
@@ -543,9 +574,19 @@ proc gitWorktreeStates*(workspace: Workspace): Table[string, WorktreeState] =
   result = initTable[string, WorktreeState]()
   for root in workspace.gitWorktrees():
     try:
-      let head = execCmdEx("git -C " & quoteShell(root) & " rev-parse HEAD").output.strip
-      let branchResult = execCmdEx("git -C " & quoteShell(root) & " symbolic-ref --short HEAD")
-      let branch = if branchResult.exitCode == 0: branchResult.output.strip else: "(detached)"
+      when defined(macosx):
+        let headResult = runWorkspaceMetadataCommand("git -C " & quoteShell(root) &
+          " rev-parse HEAD")
+        let branchResult = runWorkspaceMetadataCommand("git -C " & quoteShell(root) &
+          " symbolic-ref --short HEAD")
+        if headResult.exitCode != 0 or headResult.truncated: continue
+        let head = headResult.output.strip
+        let branch = if branchResult.exitCode == 0 and not branchResult.truncated:
+          branchResult.output.strip else: "(detached)"
+      else:
+        let head = execCmdEx("git -C " & quoteShell(root) & " rev-parse HEAD").output.strip
+        let branchResult = execCmdEx("git -C " & quoteShell(root) & " symbolic-ref --short HEAD")
+        let branch = if branchResult.exitCode == 0: branchResult.output.strip else: "(detached)"
       result[root] = WorktreeState(root: root, head: head, branch: branch)
     except CatchableError:
       discard

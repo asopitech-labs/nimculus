@@ -373,6 +373,25 @@ cancellation. The same temporary-file path is used on Windows; the portable
 fallback must not use `execCmdEx`, whose all-at-once output buffer would bypass
 the search limit in the Windows/WSL workflow.
 
+## M6-008: Bound external search cancellation
+
+Zed's project searches are asynchronous and cancellation is part of the job
+lifecycle; cancelling a search must not wait for an uncooperative child
+process. Nimculus now gives the macOS ripgrep process a one-second graceful
+termination window, then sends a forced termination and waits one more bounded
+window before closing the process. The same boundary is used when the 32 MiB
+temporary output limit is reached. This prevents a cancelled or over-producing
+search from blocking the Cocoa event loop indefinitely.
+
+## M6-009: Keep macOS Worktree metadata off the Cocoa event loop
+
+Zed keeps project/worktree discovery in asynchronous tasks rather than
+running Git metadata commands inside window refresh callbacks. Nimculus now
+uses the bounded temporary-file process runner for macOS `git worktree list`,
+`rev-parse`, and `symbolic-ref` calls, with a 64 KiB output cap and finite
+termination. A failed or truncated metadata command is omitted from the
+preview instead of blocking or publishing partial state.
+
 ## M10-005: Compact scrollback in batches without changing its public shape
 
 Zed's terminal configuration passes an explicit maximum scroll history to a
