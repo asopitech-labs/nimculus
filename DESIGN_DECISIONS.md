@@ -120,7 +120,10 @@ The macOS platform contract writes a Japanese/emoji UTF-8 sample to the real
 general pasteboard, reads it back, and restores the previous string afterward.
 This verifies the `NSPasteboardTypeString` boundary rather than only the
 in-process cache, while avoiding a persistent change to the developer's
-clipboard during local tests.
+clipboard during local tests. The payload is written as UTF-8 `NSData`, matching
+Zed's `Pasteboard::write_plaintext` path; reading the data first preserves exact
+byte length and embedded NULs, with `stringForType:` retained only as a
+compatibility fallback.
 
 ## M5-014: Preserve explicit macOS menu shortcut overrides
 
@@ -2622,3 +2625,20 @@ This follows Zed's separation of monochrome glyph atlases and color-glyph
 resources while keeping Core Text responsible for macOS fallback shaping.
 The native contract requires both assets for one mixed sample; actual frame
 presentation and visual Retina/IME acceptance remain separate gates.
+
+## M1-017: Treat a new Metal target as a full retained-scene rebuild
+
+The macOS renderer keeps a scene texture and applies damage rectangles to it
+before copying the result into each `CAMetalDrawable`. A damage list is valid
+only when that scene already contains a complete previous frame. When the
+drawable size changes, the Metal device changes, or the first frame is being
+rendered, the target is new; clearing only the damage rectangles and replaying
+only those commands would leave the rest of the frame blank.
+
+The renderer now resets the retained-scene state for size/device changes and
+uses a single `sceneNeedsFullRebuild` decision for the background, PaintList,
+glyph atlas, and Core Text overlay passes. Partial scissor rendering remains
+available only for an initialized scene with a non-empty damage list. This
+matches Zed's boundary between a reusable render target and a newly allocated
+target, and the native contract covers all four initialization/damage
+combinations.

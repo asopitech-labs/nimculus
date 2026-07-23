@@ -470,7 +470,8 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
 
 static id<MTLTexture> sceneTextureForDevice(id<MTLDevice> device, CGSize drawableSize) {
   if (drawableSize.width <= 0 || drawableSize.height <= 0) return nil;
-  if (g_scene_texture && (g_scene_texture.width != (NSUInteger)drawableSize.width ||
+  if (g_scene_texture && (g_scene_texture.device != device ||
+                          g_scene_texture.width != (NSUInteger)drawableSize.width ||
                           g_scene_texture.height != (NSUInteger)drawableSize.height)) {
     g_scene_texture = nil;
     g_scene_initialized = NO;
@@ -484,6 +485,10 @@ static id<MTLTexture> sceneTextureForDevice(id<MTLDevice> device, CGSize drawabl
     g_scene_initialized = NO;
   }
   return g_scene_texture;
+}
+
+static BOOL sceneNeedsFullRebuild(BOOL initialized, uint32_t dirtyCount) {
+  return !initialized || dirtyCount == 0;
 }
 
 static void highlightColor(uint32_t kind, CGFloat *r, CGFloat *g, CGFloat *b) {
@@ -1926,6 +1931,14 @@ static void applyTerminalRuns(NSTextView *terminal) {
   id<MTLTexture> scene = sceneTextureForDevice(drawable.texture.device, drawableSize);
   if (!scene) return;
   if (g_scene_dirty || !g_scene_initialized) {
+    // A damage list is meaningful only when the retained scene already has a
+    // complete previous frame. On the first frame, after a drawable-size
+    // change, or after the Metal device is recreated, the scene texture is
+    // new and must be rebuilt in full. Zed's renderer likewise treats a new
+    // render target as a full scene submission rather than replaying only the
+    // invalidated rectangles.
+    const BOOL fullSceneRebuild = sceneNeedsFullRebuild(g_scene_initialized,
+                                                        g_paint_dirty_count);
     MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
     pass.colorAttachments[0].texture = scene;
     pass.colorAttachments[0].loadAction = g_scene_initialized ? MTLLoadActionLoad : MTLLoadActionClear;
@@ -1936,7 +1949,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
     CGSize drawableSize = CGSizeMake(scene.width, scene.height);
     if (g_pipeline) {
       [encoder setRenderPipelineState:g_pipeline];
-      if (!g_scene_initialized || g_paint_dirty_count == 0) {
+      if (fullSceneRebuild) {
         NimculusPaintRegion full = {0, 0, (float)logicalSize.width, (float)logicalSize.height};
         setScissorForRegion(encoder, full, logicalSize, drawableSize);
         drawColoredRectangle(encoder, drawable.texture.device, logicalSize, 0, 0,
@@ -1950,7 +1963,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
             0.055f, 0.067f, 0.090f, 1.0f);
         }
       }
-      if (g_paint_dirty_count == 0) {
+      if (fullSceneRebuild) {
         MTLScissorRect fullScissor = {0, 0, scene.width, scene.height};
         [encoder setScissorRect:fullScissor];
         for (uint32_t i = 0; i < g_paint_count; i++) {
@@ -1992,7 +2005,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
       [encoder setRenderPipelineState:g_glyph_pipeline];
       [encoder setVertexBuffer:glyphBuffer offset:0 atIndex:0];
       [encoder setFragmentTexture:g_glyph_atlas_texture atIndex:0];
-      if (g_paint_dirty_count == 0) {
+      if (fullSceneRebuild) {
         MTLScissorRect fullScissor = {0, 0, scene.width, scene.height};
         [encoder setScissorRect:fullScissor];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
@@ -2021,7 +2034,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
       [encoder setRenderPipelineState:g_text_pipeline];
       [encoder setVertexBuffer:textBuffer offset:0 atIndex:0];
       [encoder setFragmentTexture:g_text_texture atIndex:0];
-      if (g_paint_dirty_count == 0) {
+      if (fullSceneRebuild) {
         MTLScissorRect fullScissor = {0, 0, scene.width, scene.height};
         [encoder setScissorRect:fullScissor];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
@@ -3012,6 +3025,16 @@ bool nimculus_platform_validate_window_lifecycle(void) {
   return valid;
 }
 
+bool nimculus_platform_validate_damage_rebuild(void) {
+  // A new retained target must ignore a stale/partial damage list. Only an
+  // initialized scene with at least one damage region may take the partial
+  // path.
+  return sceneNeedsFullRebuild(NO, 1) &&
+    sceneNeedsFullRebuild(YES, 0) &&
+    !sceneNeedsFullRebuild(YES, 1) &&
+    sceneNeedsFullRebuild(NO, 0);
+}
+
 static NSMenuItem *menuItemWithTitle(NSMenu *menu, NSString *title) {
   for (NSMenuItem *item in menu.itemArray) {
     if ([item.title isEqualToString:title]) return item;
@@ -3956,7 +3979,7 @@ void nimculus_platform_set_paint_commands(const NimculusPaintCommand *commands, 
 void nimculus_platform_set_image_rgba(uint32_t image_id, uint32_t width,
                                       uint32_t height, const uint8_t *rgba,
                                       uint32_t length) {
-  if (!g_image_textures || image_id == 0) return;
+  if (!g_image_textures || !g_queue || image_id == 0) return;
   uint64_t required = (uint64_t)width * (uint64_t)height * 4u;
   if (!rgba || width == 0 || height == 0 || required > UINT32_MAX || length < required) {
     [g_image_textures removeObjectForKey:@(image_id)];
@@ -3991,6 +4014,18 @@ void nimculus_platform_set_ui_rectangle(double x, double y, double width, double
   g_ui_rect[0] = x; g_ui_rect[1] = y; g_ui_rect[2] = width; g_ui_rect[3] = height;
   markSceneFullyDirty();
 }
+static NSString *clipboardTextFromPasteboard(NSPasteboard *pasteboard) {
+  if (!pasteboard) return nil;
+  // Zed writes the UTF-8 payload as NSPasteboardTypeString data instead of
+  // relying on setString's implicit conversion. Reading the data first keeps
+  // embedded NULs and non-ASCII text length-preserving; stringForType remains
+  // a compatibility fallback for other macOS applications.
+  NSData *data = [pasteboard dataForType:NSPasteboardTypeString];
+  NSString *text = data ? [[NSString alloc] initWithData:data
+                                                 encoding:NSUTF8StringEncoding] : nil;
+  return text ?: [pasteboard stringForType:NSPasteboardTypeString];
+}
+
 void nimculus_clipboard_set(const char *utf8, uint32_t length) {
   NSData *data = (utf8 && length > 0) ?
     [NSData dataWithBytes:utf8 length:length] : [NSData data];
@@ -3999,10 +4034,11 @@ void nimculus_clipboard_set(const char *utf8, uint32_t length) {
   g_clipboard_utf8_data = [g_clipboard_text dataUsingEncoding:NSUTF8StringEncoding];
   NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
   [pasteboard clearContents];
-  [pasteboard setString:g_clipboard_text forType:NSPasteboardTypeString];
+  [pasteboard setData:g_clipboard_utf8_data ?: [NSData data]
+              forType:NSPasteboardTypeString];
 }
 uint32_t nimculus_clipboard_utf8_length(void) {
-  NSString *text = [[NSPasteboard generalPasteboard] stringForType:NSPasteboardTypeString];
+  NSString *text = clipboardTextFromPasteboard([NSPasteboard generalPasteboard]);
   g_clipboard_text = text ?: @"";
   g_clipboard_utf8_data = [g_clipboard_text dataUsingEncoding:NSUTF8StringEncoding];
   return (uint32_t)g_clipboard_utf8_data.length;
@@ -4014,10 +4050,10 @@ const uint8_t *nimculus_clipboard_utf8_bytes(void) {
 bool nimculus_platform_validate_clipboard_roundtrip(void) {
   @autoreleasepool {
     NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
-    NSString *previous = [pasteboard stringForType:NSPasteboardTypeString];
+    NSString *previous = clipboardTextFromPasteboard(pasteboard);
     NSString *sample = @"Nimculus clipboard 日本語 🙂";
     nimculus_clipboard_set(sample.UTF8String, (uint32_t)strlen(sample.UTF8String));
-    NSString *roundtrip = [pasteboard stringForType:NSPasteboardTypeString];
+    NSString *roundtrip = clipboardTextFromPasteboard(pasteboard);
     BOOL valid = [roundtrip isEqualToString:sample];
     [pasteboard clearContents];
     if (previous) [pasteboard setString:previous forType:NSPasteboardTypeString];
