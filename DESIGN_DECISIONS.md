@@ -2893,6 +2893,9 @@ libraries created during startup are released once their pipeline state has
 been created. This follows Zed's ownership model in which dropping the
 renderer releases its render targets and atlas resources together.
 
+The native platform contract runs this teardown as its final test and verifies
+that every retained renderer object and CPU backing buffer has been cleared.
+
 ## M20-008: Make idle memory growth a soak-test failure
 
 M20 requires that resident memory does not grow indefinitely while the app is

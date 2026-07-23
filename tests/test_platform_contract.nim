@@ -209,3 +209,8 @@ suite "macOS platform contract":
     let outline = "Outline\n────────\nmain  1"
     platformSetEditorOutline(outline.cstring, uint32(outline.len), 1)
     check true
+
+  # This must remain last: it releases global Metal, AppKit bridge, and CPU
+  # resources exactly as applicationWillTerminate does.
+  test "native platform teardown releases retained renderer resources":
+    check platformValidateResourceTeardown()

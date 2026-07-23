@@ -284,6 +284,22 @@ static void releasePlatformResources(void) {
   [g_crash_report_path release]; g_crash_report_path = nil;
 }
 
+bool nimculus_platform_validate_resource_teardown(void) {
+  releasePlatformResources();
+  return g_scene_texture == nil && g_text_texture == nil &&
+    g_glyph_atlas_texture == nil && g_image_textures == nil &&
+    g_glyph_atlas_entries == nil && g_pipeline == nil &&
+    g_text_pipeline == nil && g_glyph_pipeline == nil &&
+    g_image_pipeline == nil && g_queue == nil && g_glyph_vertices == NULL &&
+    g_paint_commands == NULL && g_paint_dirty_regions == NULL &&
+    g_highlights == NULL && g_diagnostics == NULL && g_git_hunks == NULL &&
+    g_terminal_runs == NULL && g_editor_annotations == NULL &&
+    g_glyph_vertex_count == 0 && g_paint_count == 0 &&
+    g_paint_dirty_count == 0 && g_highlight_count == 0 &&
+    g_diagnostic_count == 0 && g_git_hunk_count == 0 &&
+    g_terminal_run_count == 0 && g_editor_annotation_count == 0;
+}
+
 static void markSceneFullyDirty(void) {
   g_scene_dirty = YES;
   free(g_paint_dirty_regions);
