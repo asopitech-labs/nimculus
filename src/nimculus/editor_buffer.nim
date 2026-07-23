@@ -13,7 +13,7 @@ type
   Selection* = object
     anchor*, active*: int
   EditRecord = object
-    startByte*: int
+    beforeStartByte, afterStartByte: int
     before*, after*: string
   EditTransaction = object
     records*: seq[EditRecord]
@@ -135,7 +135,8 @@ proc edit*(table: var PieceTable, edit: Edit, recordUndo = true) =
   table.replaceInternal(start, finish, edit.text)
   if recordUndo:
     table.undoStack.add(EditTransaction(
-      records: @[EditRecord(startByte: start, before: oldText, after: edit.text)],
+      records: @[EditRecord(beforeStartByte: start, afterStartByte: start,
+        before: oldText, after: edit.text)],
       beforeContentVersion: beforeContentVersion,
       afterContentVersion: afterContentVersion))
     table.redoStack.setLen(0)
@@ -158,9 +159,14 @@ proc applyEdits*(table: var PieceTable, edits: seq[Edit]) =
   var transaction = EditTransaction(records: newSeq[EditRecord](edits.len))
   transaction.beforeContentVersion = beforeContentVersion
   transaction.afterContentVersion = afterContentVersion
-  for index, edit in edits:
-    transaction.records[index] = EditRecord(startByte: edit.startByte,
+  var cumulativeShift = 0
+  var recordsByStart = ordered
+  recordsByStart.reverse()
+  for index, edit in recordsByStart:
+    transaction.records[index] = EditRecord(beforeStartByte: edit.startByte,
+      afterStartByte: edit.startByte + cumulativeShift,
       before: table.substring(edit.startByte, edit.endByte), after: edit.text)
+    cumulativeShift += edit.text.len - (edit.endByte - edit.startByte)
   for edit in ordered:
     table.replaceInternal(edit.startByte, edit.endByte, edit.text)
   table.undoStack.add(transaction)
@@ -171,16 +177,12 @@ proc applyEdits*(table: var PieceTable, edits: seq[Edit]) =
 proc undo*(table: var PieceTable): bool =
   if table.undoStack.len == 0: return false
   let transaction = table.undoStack.pop()
-  var redo = EditTransaction(records: @[])
   var records = transaction.records
-  records.sort(proc(a, b: EditRecord): int = cmp(b.startByte, a.startByte))
+  records.sort(proc(a, b: EditRecord): int = cmp(b.afterStartByte, a.afterStartByte))
   for record in records:
-    let current = table.substring(record.startByte, record.startByte + record.after.len)
-    table.replaceInternal(record.startByte, record.startByte + record.after.len, record.before)
-    redo.records.add(EditRecord(startByte: record.startByte, before: record.before, after: current))
-  redo.beforeContentVersion = transaction.beforeContentVersion
-  redo.afterContentVersion = transaction.afterContentVersion
-  table.redoStack.add(redo)
+    table.replaceInternal(record.afterStartByte, record.afterStartByte + record.after.len,
+      record.before)
+  table.redoStack.add(transaction)
   table.contentVersion = transaction.beforeContentVersion
   inc table.version
   true
@@ -188,16 +190,12 @@ proc undo*(table: var PieceTable): bool =
 proc redo*(table: var PieceTable): bool =
   if table.redoStack.len == 0: return false
   let transaction = table.redoStack.pop()
-  var undo = EditTransaction(records: @[])
   var records = transaction.records
-  records.sort(proc(a, b: EditRecord): int = cmp(b.startByte, a.startByte))
+  records.sort(proc(a, b: EditRecord): int = cmp(b.beforeStartByte, a.beforeStartByte))
   for record in records:
-    let current = table.substring(record.startByte, record.startByte + record.before.len)
-    table.replaceInternal(record.startByte, record.startByte + record.before.len, record.after)
-    undo.records.add(EditRecord(startByte: record.startByte, before: current, after: record.after))
-  undo.beforeContentVersion = transaction.beforeContentVersion
-  undo.afterContentVersion = transaction.afterContentVersion
-  table.undoStack.add(undo)
+    table.replaceInternal(record.beforeStartByte, record.beforeStartByte + record.before.len,
+      record.after)
+  table.undoStack.add(transaction)
   table.contentVersion = transaction.afterContentVersion
   inc table.version
   true

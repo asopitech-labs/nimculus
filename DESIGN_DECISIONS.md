@@ -1021,10 +1021,12 @@ mutate committed text prematurely.
 
 M4 uses an original/additions/pieces representation. Edits append to the
 additions buffer and update piece boundaries, while line starts are rebuilt at
-the edit boundary. Edit records store before/after text so Undo/Redo and
-multi-cursor transactions share one atomic path. UTF-8 byte offsets remain the
-internal source of truth; grapheme and UTF-16 positions are derived at API
-boundaries.
+the edit boundary. Edit records store before/after text and both the
+pre-transaction and post-transaction byte offset. This lets a multi-cursor
+transaction undo against the shifted post-edit offsets and redo against the
+original offsets even when earlier edits change UTF-8 byte length. UTF-8 byte
+offsets remain the internal source of truth; grapheme and UTF-16 positions are
+derived at API boundaries.
 
 PieceTable validation and range extraction operate over piece descriptors.
 They do not flatten the complete buffer for every edit, split, substring, or
