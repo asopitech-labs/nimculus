@@ -2199,13 +2199,13 @@ static void applyTerminalRuns(NSTextView *terminal) {
   NSString *text = g_editor_text ?: @"";
   NSRange actual = boundedDocumentRange(range, text.length);
   if (actualRange) *actualRange = actual;
-  return [[NSAttributedString alloc] initWithString:[text substringWithRange:actual]];
+  return [[[NSAttributedString alloc] initWithString:[text substringWithRange:actual]] autorelease];
 }
 - (NSAttributedString *)attributedString {
   // This optional NSTextInputClient method describes the committed document,
   // not the transient marked composition. Zed does not register the optional
   // selector, but since Nimculus exposes it, return the actual document.
-  return [[NSAttributedString alloc] initWithString:g_editor_text ?: @""];
+  return [[[NSAttributedString alloc] initWithString:g_editor_text ?: @""] autorelease];
 }
 - (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange
       replacementRange:(NSRange)replacementRange {
@@ -2532,10 +2532,10 @@ static void applyTerminalRuns(NSTextView *terminal) {
 - (void)showSettingsPanelWithTheme:(NSString *)theme editorFontSize:(NSString *)editorFontSize
                  terminalFontSize:(NSString *)terminalFontSize fontFamily:(NSString *)fontFamily
                               shell:(NSString *)shell {
-  NSAlert *alert = [[NSAlert alloc] init];
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"Nimculus Settings";
   alert.informativeText = @"Changes are written to the global settings file and applied immediately.";
-  NSStackView *fields = [[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 420, 132)];
+  NSStackView *fields = [[[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 420, 132)] autorelease];
   fields.orientation = NSUserInterfaceLayoutOrientationVertical;
   fields.alignment = NSLayoutAttributeWidth;
   fields.spacing = 8.0;
@@ -2545,7 +2545,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
     title.alignment = NSTextAlignmentRight;
     title.translatesAutoresizingMaskIntoConstraints = NO;
     [title.widthAnchor constraintEqualToConstant:128.0].active = YES;
-    NSStackView *line = [[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 420, 24)];
+    NSStackView *line = [[[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 420, 24)] autorelease];
     line.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     line.spacing = 8.0;
     [line addArrangedSubview:title];
@@ -2553,7 +2553,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
     return line;
   };
 
-  NSPopUpButton *themePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 270, 24) pullsDown:NO];
+  NSPopUpButton *themePopup = [[[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 270, 24) pullsDown:NO] autorelease];
   [themePopup addItemsWithTitles:@[@"system", @"light", @"dark"]];
   NSInteger themeIndex = [themePopup indexOfItemWithTitle:theme ?: @"system"];
   [themePopup selectItemAtIndex:themeIndex >= 0 ? themeIndex : 0];
@@ -2593,10 +2593,10 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
 - (void)findInWorkspace:(id)sender {
   (void)sender;
-  NSAlert *alert = [[NSAlert alloc] init];
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"Find in Workspace";
   alert.informativeText = @"Enter text to search in the current workspace.";
-  NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
+  NSTextField *field = [[[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)] autorelease];
   field.placeholderString = @"Search text";
   alert.accessoryView = field;
   [alert addButtonWithTitle:@"Find"];
@@ -2609,9 +2609,9 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
 - (void)findInDocument:(id)sender {
   (void)sender;
-  NSAlert *alert = [[NSAlert alloc] init];
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"Find in Document";
-  NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
+  NSTextField *field = [[[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)] autorelease];
   field.placeholderString = @"Search text";
   alert.accessoryView = field;
   [alert addButtonWithTitle:@"Find"];
@@ -2624,14 +2624,14 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
 - (void)replaceInDocument:(id)sender {
   (void)sender;
-  NSAlert *alert = [[NSAlert alloc] init];
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"Replace in Document";
-  NSStackView *fields = [[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 320, 56)];
+  NSStackView *fields = [[[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 320, 56)] autorelease];
   fields.orientation = NSUserInterfaceLayoutOrientationVertical;
   fields.spacing = 8;
-  NSTextField *query = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
+  NSTextField *query = [[[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)] autorelease];
   query.placeholderString = @"Search text";
-  NSTextField *replacement = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
+  NSTextField *replacement = [[[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)] autorelease];
   replacement.placeholderString = @"Replacement";
   [fields addArrangedSubview:query];
   [fields addArrangedSubview:replacement];
@@ -2649,7 +2649,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
 - (void)goToLine:(id)sender {
   (void)sender;
-  NSAlert *alert = [[NSAlert alloc] init];
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"Go to Line";
   NSTextField *field = [self workspacePathField:@"Line number"];
   field.stringValue = @"1";
@@ -2664,7 +2664,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
 - (void)openCommandPalette:(id)sender {
   (void)sender;
-  NSAlert *alert = [[NSAlert alloc] init];
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"Command Palette";
   alert.informativeText = @"Available: new, save, find, workspace search, cancel search";
   NSTextField *field = [self workspacePathField:@"Command"];
@@ -2699,7 +2699,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
 - (void)openRecent:(id)sender {
   (void)sender;
-  NSAlert *alert = [[NSAlert alloc] init];
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"Open Recent";
   if (g_recent_files.count == 0) {
     alert.informativeText = @"No recent files.";
@@ -2707,8 +2707,8 @@ static void applyTerminalRuns(NSTextView *terminal) {
     [alert runModal];
     return;
   }
-  NSPopUpButton *popup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 360, 26)
-    pullsDown:NO];
+  NSPopUpButton *popup = [[[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 360, 26)
+    pullsDown:NO] autorelease];
   [popup addItemsWithTitles:g_recent_files];
   alert.accessoryView = popup;
   [alert addButtonWithTitle:@"Open"];
@@ -2735,7 +2735,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
 - (void)quickOpen:(id)sender {
   (void)sender;
-  NSAlert *alert = [[NSAlert alloc] init];
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"Quick Open";
   alert.informativeText = @"Enter part of a file name or path.";
   NSTextField *field = [self workspacePathField:@"File name"];
@@ -2761,7 +2761,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
 - (void)createWorkspaceFile:(id)sender {
   (void)sender;
-  NSAlert *alert = [[NSAlert alloc] init];
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"New File";
   NSTextField *field = [self workspacePathField:@"Relative path, or absolute path in a workspace root"];
   alert.accessoryView = field;
@@ -2775,7 +2775,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
 - (void)createWorkspaceDirectory:(id)sender {
   (void)sender;
-  NSAlert *alert = [[NSAlert alloc] init];
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"New Folder";
   NSTextField *field = [self workspacePathField:@"Relative path, or absolute path in a workspace root"];
   alert.accessoryView = field;
@@ -2789,9 +2789,9 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
 - (void)renameWorkspaceEntry:(id)sender {
   (void)sender;
-  NSAlert *alert = [[NSAlert alloc] init];
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"Rename Workspace Entry";
-  NSStackView *fields = [[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 320, 56)];
+  NSStackView *fields = [[[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 320, 56)] autorelease];
   fields.orientation = NSUserInterfaceLayoutOrientationVertical;
   fields.spacing = 8;
   NSTextField *oldField = [self workspacePathField:@"Existing relative or absolute path"];
@@ -2810,7 +2810,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
 - (void)deleteWorkspaceEntry:(id)sender {
   (void)sender;
-  NSAlert *alert = [[NSAlert alloc] init];
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"Delete Workspace Entry";
   alert.informativeText = @"Deleting a directory requires it to be empty.";
   NSTextField *field = [self workspacePathField:@"Relative or absolute path in a workspace root"];

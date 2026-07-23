@@ -2863,3 +2863,17 @@ data. The change covers both normal and soft-wrap text paths and the terminal
 overlay, avoiding allocation growth proportional to frame count or text
 navigation. Native GUI contracts continue to exercise the corresponding Metal,
 Core Text, IME, clipboard, and terminal paths.
+
+## M20-006: Return autoreleased Cocoa values from UI callback boundaries
+
+The `NSTextInputClient` attributed-text methods and workspace modal helpers are
+called by AppKit and do not follow the Objective-C create/copy ownership
+convention. Their returned or event-scoped controls must therefore be
+autoreleased, even though the implementation internally uses `alloc/init`.
+
+The backend now returns autoreleased attributed strings and creates transient
+alerts, accessory views, rows, and picker controls as autoreleased objects.
+AppKit retains them for the modal interaction; the event autorelease pool then
+returns their ownership after the interaction. This bounds repeated command
+palette, search, workspace, and settings UI use without changing their
+interaction contracts.
