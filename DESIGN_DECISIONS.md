@@ -2757,3 +2757,18 @@ available only for an initialized scene with a non-empty damage list. This
 matches Zed's boundary between a reusable render target and a newly allocated
 target, and the native contract covers all four initialization/damage
 combinations.
+
+## M1-018 / M3-024: Fail closed for a GUI-capable macOS runner
+
+Zed's visual-test platform combines real Metal rendering with deterministic
+test execution, rather than treating a headless unit test as evidence of a
+native frame. Nimculus keeps the portable tests permissive for terminal-only
+development environments, but its GUI self-hosted workflow explicitly sets
+`NIMCULUS_REQUIRE_NATIVE_GUI=1`. In that mode the Cocoa window lifecycle,
+clipboard, Metal device, glyph atlas, and mixed Japanese/emoji text-asset
+contracts must succeed; they cannot silently downgrade to a skip.
+
+The requirement is deliberately limited to the interactive self-hosted
+workflow. GitHub-hosted runners continue to run the same broad test suite and
+cold-start/soak frame gates, while the GUI runner supplies the stronger
+AppKit-session evidence without executing untrusted pull-request code.

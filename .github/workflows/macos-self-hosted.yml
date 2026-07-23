@@ -33,6 +33,11 @@ jobs:
         working-directory: ci
       - name: Build
         run: nimble build
+      - name: Require native Cocoa, Metal, and text contracts
+        run: |
+          NIMCULUS_REQUIRE_NATIVE_GUI=1 \
+          nim c --mm:arc --nimcache="$RUNNER_TEMP/nimculus-native-gui-contract" \
+            -r --path:src tests/test_platform_contract.nim
       - name: Cocoa and Metal cold-start smoke
         run: |
           NIMCULUS_COLD_START_RUNS=1 \

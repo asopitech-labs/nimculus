@@ -98,6 +98,8 @@ suite "macOS platform contract":
   test "native glyph atlas uploads and reuses visible glyphs":
     if platformValidateGlyphAtlas():
       check true
+    elif nativeGuiValidationRequired():
+      check false
     else:
       echo "  [SKIP] native glyph atlas contract (no Metal/Core Text device in this session)"
 
@@ -113,6 +115,8 @@ suite "macOS platform contract":
   test "mixed Japanese symbol and emoji text reaches the visible text asset paths":
     if platformValidateVisibleTextAssets():
       check true
+    elif nativeGuiValidationRequired():
+      check false
     else:
       echo "  [SKIP] mixed visible text asset contract (no Metal/Core Text device in this session)"
 
