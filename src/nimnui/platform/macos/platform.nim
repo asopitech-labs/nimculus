@@ -18,6 +18,7 @@ proc platformValidateImeCandidateRect*(): bool {.importc: "nimculus_platform_val
 proc platformValidateInputEventFields*(): bool {.importc: "nimculus_platform_validate_input_event_fields", cdecl.}
 proc platformValidateClipboardRoundtrip*(): bool {.importc: "nimculus_platform_validate_clipboard_roundtrip", cdecl.}
 proc platformValidateGlyphAtlas*(): bool {.importc: "nimculus_platform_validate_glyph_atlas", cdecl.}
+proc platformValidateGlyphAtlasEviction*(): bool {.importc: "nimculus_platform_validate_glyph_atlas_eviction", cdecl.}
 proc platformValidateRetinaTextScaling*(): bool {.importc: "nimculus_platform_validate_retina_text_scaling", cdecl.}
 proc platformValidateResourceTeardown*(): bool {.importc: "nimculus_platform_validate_resource_teardown", cdecl.}
 proc platformValidateColorEmojiFallback*(): bool {.importc: "nimculus_platform_validate_color_emoji_fallback", cdecl.}

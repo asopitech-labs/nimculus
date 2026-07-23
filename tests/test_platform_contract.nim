@@ -119,6 +119,14 @@ suite "macOS platform contract":
     else:
       echo "  [SKIP] native glyph atlas contract (no Metal/Core Text device in this session)"
 
+  test "native glyph atlas rebuilds visible quads after eviction":
+    if platformValidateGlyphAtlasEviction():
+      check true
+    elif nativeGuiValidationRequired():
+      check false
+    else:
+      echo "  [SKIP] native glyph atlas eviction contract (no Metal/Core Text device in this session)"
+
   test "Retina scale changes rebuild text assets and retain 2x atlas entries":
     if platformValidateRetinaTextScaling():
       check true

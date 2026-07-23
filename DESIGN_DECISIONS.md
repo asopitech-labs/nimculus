@@ -2920,7 +2920,7 @@ editor surfaces. The complete M2 gallery is preserved behind
 render only for the indentation present on visible lines rather than drawing a
 full-height guide at every possible column in an empty document.
 
-## M3-010: Composite the glyph atlas beneath transparent native text overlays
+## M3-010: Normalize Core Text glyph atlas rows for Metal sampling
 
 The macOS text renderer uses a monochrome Metal glyph atlas for normal text
 and a Core Text RGBA texture for caret, selection, IME composition, and color
@@ -2935,3 +2935,17 @@ subpixel quantization. Per-draw Metal buffers are released immediately after
 encoding; the command buffer retains them until GPU completion. This matches
 Zed's separation of monochrome atlas sprites and independent overlay
 primitives without retaining transient buffers across frames.
+
+## M3-011: Rebuild visible glyph quads after atlas eviction
+
+A glyph-atlas eviction replaces the texture allocation map, so every UV emitted
+before that eviction becomes invalid. Keeping the earlier quads would render
+old glyphs from unrelated new atlas tiles (or transparent padding) when a
+visible document contains enough distinct glyphs.
+
+The macOS renderer now detects an eviction while building visible glyphs and
+rebuilds the full batch once against the new atlas. If the rebuilt visible
+batch itself exceeds the atlas capacity, it clears the batch and uses the
+existing Core Text full-text fallback rather than mixing atlas generations.
+The native platform contract forces the shelf-full path and verifies a valid
+rebuilt batch.

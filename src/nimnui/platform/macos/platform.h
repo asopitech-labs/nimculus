@@ -10,6 +10,7 @@ bool nimculus_platform_validate_ime_composition(void);
 bool nimculus_platform_validate_input_event_fields(void);
 bool nimculus_platform_validate_clipboard_roundtrip(void);
 bool nimculus_platform_validate_glyph_atlas(void);
+bool nimculus_platform_validate_glyph_atlas_eviction(void);
 bool nimculus_platform_validate_color_emoji_fallback(void);
 bool nimculus_platform_validate_color_emoji_sequences(void);
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics);

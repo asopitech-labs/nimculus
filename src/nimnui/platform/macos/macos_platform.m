@@ -193,6 +193,7 @@ static NSUInteger g_glyph_atlas_row_height = 0;
 static uint64_t g_glyph_atlas_hit_count = 0;
 static uint64_t g_glyph_atlas_miss_count = 0;
 static uint64_t g_glyph_atlas_eviction_count = 0;
+static BOOL g_glyph_atlas_rebuild_in_progress = NO;
 #define NIMCULUS_SUBPIXEL_VARIANTS_X 4
 #define NIMCULUS_SUBPIXEL_VARIANTS_Y 4
 
@@ -1423,6 +1424,7 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
   // and let the RGBA Core Text texture render only the color-emoji runs.
   CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
   ensureGlyphAtlas(device, scale);
+  uint64_t evictionCountBefore = g_glyph_atlas_eviction_count;
   CTFontRef baseFont = editorFont();
   if (!baseFont) return;
   NSColor *baseColor = themeHexColor(g_theme_foreground,
@@ -1525,6 +1527,21 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
     lineStartByte += lineLength + 1;
   }
   CFRelease(baseFont);
+  // Atlas eviction invalidates every UV emitted before the eviction. Rebuild
+  // the complete visible batch against the new atlas, just as Zed rebuilds a
+  // sprite batch when its atlas allocation changes. If the visible batch
+  // cannot fit after one retry, use the established Core Text fallback rather
+  // than presenting a mixture of stale and current atlas coordinates.
+  if (g_glyph_atlas_eviction_count != evictionCountBefore) {
+    if (!g_glyph_atlas_rebuild_in_progress) {
+      g_glyph_atlas_rebuild_in_progress = YES;
+      updateEditorGlyphAtlas(device, text);
+      g_glyph_atlas_rebuild_in_progress = NO;
+      return;
+    }
+    resetGlyphVertices();
+    return;
+  }
   g_glyph_rendering_available = g_glyph_pipeline != nil && g_glyph_vertex_count > 0;
 }
 
@@ -3551,6 +3568,25 @@ bool nimculus_platform_validate_glyph_atlas(void) {
   uint64_t hitsBefore = g_glyph_atlas_hit_count;
   updateEditorGlyphAtlas(device, sample);
   return g_glyph_vertex_count > 0 && g_glyph_atlas_hit_count > hitsBefore;
+}
+
+bool nimculus_platform_validate_glyph_atlas_eviction(void) {
+  id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+  if (!device || !ensureGlyphValidationPipeline(device)) return false;
+  if (g_metrics.scale_factor <= 0.0) g_metrics.scale_factor = 2.0;
+  if (g_editor_rect[2] <= 0.0) g_editor_rect[2] = 640.0;
+  if (g_editor_rect[3] <= 0.0) g_editor_rect[3] = 320.0;
+  updateEditorGlyphAtlas(device, @"A日本語");
+  // Put the shelf at its limit so the next uncached glyph takes the same
+  // eviction path as a full atlas without allocating thousands of glyphs.
+  g_glyph_atlas_next_x = 2048;
+  g_glyph_atlas_next_y = 0;
+  g_glyph_atlas_row_height = 2048;
+  uint64_t evictionsBefore = g_glyph_atlas_eviction_count;
+  updateEditorGlyphAtlas(device, @"Ω日本語");
+  return g_glyph_atlas_eviction_count > evictionsBefore &&
+    g_glyph_atlas_entries.count > 0 && g_glyph_vertex_count > 0 &&
+    g_glyph_rendering_available && !g_glyph_atlas_rebuild_in_progress;
 }
 
 bool nimculus_platform_validate_retina_text_scaling(void) {
