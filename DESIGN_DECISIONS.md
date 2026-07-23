@@ -2607,3 +2607,18 @@ grab policy. The first implementation stays in-window and OS-independent;
 AppKit-native popup windows are not required for the M2 contract. `PaintList`
 receives the overlay background, border, selection, separator, and text
 commands, while the platform renderer remains responsible for text shaping.
+
+## M3-022: Split ordinary glyphs from color emoji in mixed lines
+
+The previous macOS path returned from atlas generation as soon as a document
+contained one color-emoji scalar. That made a mixed Japanese/ASCII/emoji line
+fall back as one complete Core Text texture and did not exercise the intended
+GPU split. The atlas path now inspects Core Text glyph-run string indices,
+skips only glyphs backed by color-emoji scalars, and retains ordinary glyphs
+in the R8 atlas. The RGBA texture masks non-emoji foreground glyphs when the
+atlas is available, leaving the color-emoji runs as the fallback layer.
+
+This follows Zed's separation of monochrome glyph atlases and color-glyph
+resources while keeping Core Text responsible for macOS fallback shaping.
+The native contract requires both assets for one mixed sample; actual frame
+presentation and visual Retina/IME acceptance remain separate gates.

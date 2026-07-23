@@ -729,22 +729,52 @@ static NSUInteger editorUTF16OffsetAtPoint(double x, double y) {
 static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text);
 static void resetGlyphVertices(void);
 
+static BOOL scalarIsColorEmoji(uint32_t scalar) {
+  return (scalar >= 0x1F000 && scalar <= 0x1FAFF) ||
+    (scalar >= 0x2600 && scalar <= 0x27BF);
+}
+
+static BOOL colorEmojiAtUTF16Index(NSString *text, NSUInteger index,
+                                   NSUInteger *unitLength) {
+  if (!text || index >= text.length) return NO;
+  uint32_t scalar = [text characterAtIndex:index];
+  NSUInteger length = 1;
+  if (scalar >= 0xD800 && scalar <= 0xDBFF && index + 1 < text.length) {
+    uint32_t low = [text characterAtIndex:index + 1];
+    if (low >= 0xDC00 && low <= 0xDFFF) {
+      scalar = 0x10000 + ((scalar - 0xD800) << 10) + (low - 0xDC00);
+      length = 2;
+    }
+  }
+  if (unitLength) *unitLength = length;
+  return scalarIsColorEmoji(scalar);
+}
+
 static BOOL textContainsColorEmoji(NSString *text) {
   if (!text) return NO;
   NSUInteger length = text.length;
   for (NSUInteger index = 0; index < length; index++) {
-    uint32_t scalar = [text characterAtIndex:index];
-    if (scalar >= 0xD800 && scalar <= 0xDBFF && index + 1 < length) {
-      uint32_t low = [text characterAtIndex:index + 1];
-      if (low >= 0xDC00 && low <= 0xDFFF) {
-        scalar = 0x10000 + ((scalar - 0xD800) << 10) + (low - 0xDC00);
-        index++;
-      }
-    }
-    if ((scalar >= 0x1F000 && scalar <= 0x1FAFF) ||
-        (scalar >= 0x2600 && scalar <= 0x27BF)) return YES;
+    NSUInteger unitLength = 1;
+    if (colorEmojiAtUTF16Index(text, index, &unitLength)) return YES;
+    index += unitLength - 1;
   }
   return NO;
+}
+
+static void maskNonColorEmoji(NSMutableAttributedString *attributed,
+                              NSString *text) {
+  if (!attributed || !text) return;
+  NSColor *transparent = [NSColor colorWithCalibratedWhite:1.0 alpha:0.0];
+  NSUInteger index = 0;
+  while (index < text.length) {
+    NSRange clusterRange = [text rangeOfComposedCharacterSequenceAtIndex:index];
+    NSString *cluster = [text substringWithRange:clusterRange];
+    if (!textContainsColorEmoji(cluster)) {
+      [attributed addAttribute:(id)kCTForegroundColorAttributeName
+        value:(id)transparent.CGColor range:clusterRange];
+    }
+    index = NSMaxRange(clusterRange);
+  }
 }
 
 static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
@@ -755,6 +785,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   // complete-text fallback only when atlas generation is unavailable.
   if (updateAtlas) updateEditorGlyphAtlas(device, text);
   const BOOL drawFallbackText = !g_glyph_rendering_available || g_editor_soft_wrap;
+  const BOOL drawColorEmojiFallback = textContainsColorEmoji(text) &&
+    g_glyph_rendering_available && !g_editor_soft_wrap;
   CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
   const size_t width = (size_t)ceil(MAX(1.0, g_editor_rect[2]) * scale);
   const size_t height = (size_t)ceil(MAX(1.0, g_editor_rect[3]) * scale);
@@ -938,7 +970,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         }
       }
     }
-    if (drawFallbackText) {
+    if (drawColorEmojiFallback) maskNonColorEmoji(attributed, lineText);
+    if (drawFallbackText || drawColorEmojiFallback) {
       CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
       CGContextSetTextPosition(context, 8.0,
         logicalHeight - lineHeight * (displayIndex + 1) + 1.0);
@@ -1213,10 +1246,8 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
   resetGlyphVertices();
   if (!device) return;
   // The atlas is currently R8 monochrome. Zed separates polychrome emoji
-  // sprites into a different atlas; until that backend exists here, route
-  // color emoji through the RGBA Core Text texture below rather than silently
-  // discarding its color channels.
-  if (textContainsColorEmoji(text)) return;
+  // sprites into a different atlas. Keep ordinary glyph runs in this atlas
+  // and let the RGBA Core Text texture render only the color-emoji runs.
   CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
   ensureGlyphAtlas(device, scale);
   CTFontRef baseFont = editorFont();
@@ -1277,10 +1308,17 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
       if (glyphCount == 0) continue;
       CGGlyph *glyphs = malloc(sizeof(CGGlyph) * (NSUInteger)glyphCount);
       CGPoint *positions = malloc(sizeof(CGPoint) * (NSUInteger)glyphCount);
-      if (!glyphs || !positions) { free(glyphs); free(positions); continue; }
+      CFIndex *stringIndices = malloc(sizeof(CFIndex) * (NSUInteger)glyphCount);
+      if (!glyphs || !positions || !stringIndices) {
+        free(glyphs); free(positions); free(stringIndices); continue;
+      }
       CTRunGetGlyphs(run, CFRangeMake(0, glyphCount), glyphs);
       CTRunGetPositions(run, CFRangeMake(0, glyphCount), positions);
+      CTRunGetStringIndices(run, CFRangeMake(0, glyphCount), stringIndices);
       for (CFIndex glyphIndex = 0; glyphIndex < glyphCount; glyphIndex++) {
+        if (stringIndices[glyphIndex] != kCFNotFound &&
+            colorEmojiAtUTF16Index(lineText,
+              (NSUInteger)stringIndices[glyphIndex], NULL)) continue;
         CGFloat scaledX = positions[glyphIndex].x * scale;
         CGFloat scaledY = (baselineY + positions[glyphIndex].y) * scale;
         CGFloat quantizedX = round(scaledX * NIMCULUS_SUBPIXEL_VARIANTS_X) /
@@ -1304,6 +1342,7 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
       }
       free(glyphs);
       free(positions);
+      free(stringIndices);
     }
     CFRelease(line);
     lineStartByte += lineLength + 1;
@@ -3196,11 +3235,9 @@ bool nimculus_platform_validate_visible_text_assets(void) {
     // Exercise the two text asset paths with the same document: ordinary
     // glyphs use the monochrome atlas, while the emoji remains in the RGBA
     // Core Text texture fallback.
-    NSString *mixed = @"A日本語・記号🙂\nnext";
-    NSString *ordinary = @"A日本語・記号";
-    updateEditorGlyphAtlas(device, ordinary);
-    BOOL atlasValid = g_glyph_atlas_texture != nil && g_glyph_vertex_count > 0;
+    NSString *mixed = @"A日本語・記号👩‍💻🙂\nnext";
     updateEditorTextTexture(device, mixed, YES);
+    BOOL atlasValid = g_glyph_atlas_texture != nil && g_glyph_vertex_count > 0;
     BOOL textureValid = g_text_texture != nil && g_text_texture.width > 0 &&
       g_text_texture.height > 0;
     return atlasValid && textureValid;
