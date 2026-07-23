@@ -2831,3 +2831,20 @@ The native Metal contract exercises same-size reuse and two size transitions.
 This is consistent with Zed's renderer and atlas lifecycle: stale offscreen
 resources are returned or deallocated before replacement rather than being
 left reachable only through Metal's allocation lifetime.
+
+## M20-004: Centralize ownership for long-lived macOS UI state
+
+Nimculus' macOS backend uses globals for the state shared by the Nim bridge,
+AppKit overlays, and the Metal renderer. Under manual Objective-C ownership,
+assigning a newly allocated string, array, clipboard payload, or texture into
+one of those globals without releasing its predecessor leaks once per update.
+This is especially visible for editor text, terminal output, hover/completion
+updates, themes, image previews, and clipboard activity.
+
+All long-lived Objective-C state now uses explicit replacement helpers that
+retain/copy the new value before releasing the old one. Image textures are
+owned by their dictionary after insertion, so the temporary `newTexture`
+ownership is released immediately. The dictionary itself is explicitly owned
+rather than autoreleased. This mirrors Zed's ownership-bound render-target and
+atlas lifecycle and keeps steady-state resource use bounded by current UI
+state rather than update history.

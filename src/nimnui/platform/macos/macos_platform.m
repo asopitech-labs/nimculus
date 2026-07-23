@@ -78,6 +78,46 @@ static char g_dialog_path[PATH_MAX] = {0};
 static BOOL g_editor_dirty = NO;
 static BOOL g_close_decision = NO;
 
+// This backend is compiled with manual Objective-C ownership. Globals below
+// outlive an autorelease pool, so every replacement must retain its new value
+// and release the previous one. Keeping this at the C boundary avoids making
+// individual editor/terminal update paths responsible for paired ownership.
+static void replaceOwnedObject(id *slot, id value) {
+  id previous = *slot;
+  *slot = [value retain];
+  [previous release];
+}
+
+static void replaceOwnedString(NSString **slot, NSString *value) {
+  replaceOwnedObject((id *)slot, value ?: @"");
+}
+
+static void replaceOwnedUTF8String(NSString **slot, const char *utf8,
+                                   uint32_t length, NSString *fallback) {
+  NSString *value = (utf8 && length > 0)
+    ? [[[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding] autorelease]
+    : fallback;
+  replaceOwnedString(slot, value ?: fallback ?: @"");
+}
+
+static void replaceOwnedArray(NSArray **slot, NSArray *value) {
+  NSArray *previous = *slot;
+  *slot = [value copy] ?: [[NSArray alloc] init];
+  [previous release];
+}
+
+static void replaceOwnedMutableArray(NSMutableArray **slot, NSArray *value) {
+  NSMutableArray *previous = *slot;
+  *slot = [value mutableCopy] ?: [[NSMutableArray alloc] init];
+  [previous release];
+}
+
+static void replaceOwnedData(NSData **slot, NSData *value) {
+  NSData *previous = *slot;
+  *slot = [value copy] ?: [[NSData alloc] init];
+  [previous release];
+}
+
 static NSColor *themeHexColor(NSString *value, NSColor *fallback) {
   if (!value || value.length != 7 || [value characterAtIndex:0] != '#') return fallback;
   unsigned int red = 0, green = 0, blue = 0;
@@ -2894,7 +2934,8 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
     imageDescriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
     imageDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
     g_image_pipeline = [device newRenderPipelineStateWithDescriptor:imageDescriptor error:&error];
-    g_image_textures = [NSMutableDictionary dictionary];
+    [g_image_textures release];
+    g_image_textures = [[NSMutableDictionary alloc] init];
     updateEditorTextTexture(device, g_editor_text, YES);
     uint8_t demoPixels[16 * 16 * 4];
     for (uint32_t y = 0; y < 16; y++) {
@@ -3588,7 +3629,7 @@ void nimculus_platform_set_editor_font_size(double size) {
 }
 void nimculus_platform_set_editor_font_name(const char *name) {
   NSString *requested = name ? [NSString stringWithUTF8String:name] : nil;
-  g_editor_font_name = requested.length > 0 ? [requested copy] : @"Menlo";
+  replaceOwnedString(&g_editor_font_name, requested.length > 0 ? requested : @"Menlo");
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   markSceneFullyDirty();
   if (g_active_view) {
@@ -3726,9 +3767,9 @@ void nimculus_platform_set_editor_soft_wrap(bool enabled) {
 }
 void nimculus_platform_set_editor_tabs(const char *utf8, uint32_t length, uint32_t active_index) {
   NSString *value = (utf8 && length > 0)
-    ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding] : @"";
-  g_editor_tab_titles = value.length > 0
-    ? [value componentsSeparatedByString:@"\n"] : @[];
+    ? [[[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding] autorelease] : @"";
+  replaceOwnedArray((NSArray **)&g_editor_tab_titles, value.length > 0
+    ? [value componentsSeparatedByString:@"\n"] : @[]);
   g_editor_active_tab = g_editor_tab_titles.count == 0 ? 0
     : MIN((NSUInteger)active_index, g_editor_tab_titles.count - 1);
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
@@ -3742,9 +3783,8 @@ void nimculus_platform_set_editor_tabs(const char *utf8, uint32_t length, uint32
   }
 }
 void nimculus_platform_set_editor_status(const char *utf8) {
-  g_editor_status = (utf8 && strlen(utf8) > 0)
-    ? [[NSString alloc] initWithUTF8String:utf8] : @"Ready";
-  if (!g_editor_status) g_editor_status = @"Ready";
+  replaceOwnedString(&g_editor_status, (utf8 && strlen(utf8) > 0)
+    ? [NSString stringWithUTF8String:utf8] : @"Ready");
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
   for (NSView *subview in view.subviews) {
@@ -3844,10 +3884,7 @@ void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_by
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
-  g_editor_text = (utf8 && length > 0)
-    ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
-    : @"";
-  if (!g_editor_text) g_editor_text = @"";
+  replaceOwnedUTF8String(&g_editor_text, utf8, length, @"");
   if (g_active_view) {
     for (NSView *subview in ((NimculusMetalView *)g_active_view).subviews) {
       if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) [subview setNeedsDisplay:YES];
@@ -3859,10 +3896,8 @@ void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
 }
 void nimculus_platform_set_editor_outline(const char *utf8, uint32_t length,
                                           uint32_t symbol_count) {
-  g_editor_outline_text = (utf8 && length > 0)
-    ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
-    : @"Outline\n────────\nNo symbols";
-  if (!g_editor_outline_text) g_editor_outline_text = @"Outline\n────────\nNo symbols";
+  replaceOwnedUTF8String(&g_editor_outline_text, utf8, length,
+    @"Outline\n────────\nNo symbols");
   g_editor_outline_symbol_count = symbol_count;
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
@@ -3882,10 +3917,7 @@ void nimculus_platform_set_terminal_visible(bool visible) {
   }
 }
 void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length) {
-  g_terminal_text = (utf8 && length > 0)
-    ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
-    : @"";
-  if (!g_terminal_text) g_terminal_text = @"";
+  replaceOwnedUTF8String(&g_terminal_text, utf8, length, @"");
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (view) {
     NSTextView *terminal = nil;
@@ -3903,14 +3935,12 @@ void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length) {
 }
 void nimculus_platform_set_terminal_runs(const char *utf8, uint32_t length,
                                          const NimculusTerminalRun *runs, uint32_t count) {
-  g_terminal_text = (utf8 && length > 0)
-    ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
-    : @"";
-  if (!g_terminal_text) g_terminal_text = @"";
+  replaceOwnedUTF8String(&g_terminal_text, utf8, length, @"");
   free(g_terminal_runs);
   g_terminal_runs = NULL;
   g_terminal_run_count = 0;
-  g_terminal_hyperlinks = [NSMutableArray arrayWithCapacity:count];
+  replaceOwnedMutableArray((NSMutableArray **)&g_terminal_hyperlinks,
+    [NSMutableArray arrayWithCapacity:count]);
   if (runs && count > 0) {
     g_terminal_runs = calloc(count, sizeof(NimculusTerminalRun));
     if (g_terminal_runs) {
@@ -3937,11 +3967,11 @@ void nimculus_platform_set_terminal_runs(const char *utf8, uint32_t length,
 void nimculus_platform_set_theme_colors(const char *background, const char *foreground,
                                         const char *accent, const char *selection,
                                         const char *border) {
-  if (background) g_theme_background = [[NSString alloc] initWithUTF8String:background] ?: @"#1f2329";
-  if (foreground) g_theme_foreground = [[NSString alloc] initWithUTF8String:foreground] ?: @"#d7dae0";
-  if (accent) g_theme_accent = [[NSString alloc] initWithUTF8String:accent] ?: @"#4daafc";
-  if (selection) g_theme_selection = [[NSString alloc] initWithUTF8String:selection] ?: @"#264f78";
-  if (border) g_theme_border = [[NSString alloc] initWithUTF8String:border] ?: @"#3b4048";
+  if (background) replaceOwnedString(&g_theme_background, [NSString stringWithUTF8String:background] ?: @"#1f2329");
+  if (foreground) replaceOwnedString(&g_theme_foreground, [NSString stringWithUTF8String:foreground] ?: @"#d7dae0");
+  if (accent) replaceOwnedString(&g_theme_accent, [NSString stringWithUTF8String:accent] ?: @"#4daafc");
+  if (selection) replaceOwnedString(&g_theme_selection, [NSString stringWithUTF8String:selection] ?: @"#264f78");
+  if (border) replaceOwnedString(&g_theme_border, [NSString stringWithUTF8String:border] ?: @"#3b4048");
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
   for (NSView *subview in view.subviews) {
@@ -3991,7 +4021,7 @@ void nimculus_platform_set_terminal_font_size(double size) {
 }
 void nimculus_platform_set_terminal_font_name(const char *name) {
   NSString *requested = name ? [NSString stringWithUTF8String:name] : nil;
-  g_terminal_font_name = requested.length > 0 ? [requested copy] : @"Menlo";
+  replaceOwnedString(&g_terminal_font_name, requested.length > 0 ? requested : @"Menlo");
   updateTerminalFonts();
 }
 void nimculus_platform_set_terminal_selection(uint32_t start_row, uint32_t start_column,
@@ -4022,7 +4052,7 @@ bool nimculus_platform_is_dark_appearance(void) {
 }
 
 void nimculus_platform_install_crash_handler(const char *path) {
-  g_crash_report_path = path ? [[NSString alloc] initWithUTF8String:path] : nil;
+  replaceOwnedString(&g_crash_report_path, path ? [NSString stringWithUTF8String:path] : @"");
   NSSetUncaughtExceptionHandler(nimculus_uncaught_exception_handler);
 }
 void nimculus_platform_set_task_output_visible(bool visible) {
@@ -4033,10 +4063,7 @@ void nimculus_platform_set_task_output_visible(bool visible) {
   }
 }
 void nimculus_platform_set_task_output_text(const char *utf8, uint32_t length) {
-  g_task_output_text = (utf8 && length > 0)
-    ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
-    : @"";
-  if (!g_task_output_text) g_task_output_text = @"";
+  replaceOwnedUTF8String(&g_task_output_text, utf8, length, @"");
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (view) {
     for (NSView *subview in view.subviews) {
@@ -4050,19 +4077,13 @@ void nimculus_platform_set_task_output_text(const char *utf8, uint32_t length) {
   }
 }
 void nimculus_platform_set_editor_completions(const char *utf8, uint32_t length) {
-  g_editor_completions = (utf8 && length > 0)
-    ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
-    : @"";
-  if (!g_editor_completions) g_editor_completions = @"";
+  replaceOwnedUTF8String(&g_editor_completions, utf8, length, @"");
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   if (g_active_view) [g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_hover(const char *utf8, uint32_t length) {
-  g_editor_hover = (utf8 && length > 0)
-    ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
-    : @"";
-  if (!g_editor_hover) g_editor_hover = @"";
+  replaceOwnedUTF8String(&g_editor_hover, utf8, length, @"");
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   if (g_active_view) [g_active_view drawFrame];
@@ -4079,7 +4100,7 @@ uint32_t nimculus_platform_editor_text_utf8_length(void) {
   return data ? (uint32_t)data.length : 0;
 }
 void nimculus_platform_set_editor_composition(const char *utf8) {
-  g_marked_text = utf8 ? [NSString stringWithUTF8String:utf8] : @"";
+  replaceOwnedString(&g_marked_text, utf8 ? [NSString stringWithUTF8String:utf8] : @"");
   if (g_marked_text.length == 0 && g_active_view) {
     // Empty composition updates are also used by command/menu paths to end
     // composition. Keep the NSTextInputClient state in lockstep instead of
@@ -4093,7 +4114,7 @@ void nimculus_platform_set_editor_composition(const char *utf8) {
   if (g_active_view) [g_active_view drawFrame];
 }
 void nimculus_platform_clear_editor_composition(void) {
-  g_marked_text = @"";
+  replaceOwnedString(&g_marked_text, @"");
   if (g_active_view) {
     NimculusMetalView *view = (NimculusMetalView *)g_active_view;
     view.markedText = @"";
@@ -4136,7 +4157,8 @@ void nimculus_platform_set_editor_annotations(const NimculusEditorAnnotation *an
   free(g_editor_annotations);
   g_editor_annotations = NULL;
   g_editor_annotation_count = 0;
-  g_editor_annotation_texts = [NSMutableArray arrayWithCapacity:count];
+  replaceOwnedMutableArray((NSMutableArray **)&g_editor_annotation_texts,
+    [NSMutableArray arrayWithCapacity:count]);
   if (annotations && count > 0) {
     g_editor_annotations = calloc(count, sizeof(NimculusEditorAnnotation));
     if (g_editor_annotations) {
@@ -4176,7 +4198,7 @@ void nimculus_platform_set_recent_files(const char *const *paths, uint32_t count
       if (path.length > 0) [files addObject:path];
     }
   }
-  g_recent_files = [files copy];
+  replaceOwnedArray((NSArray **)&g_recent_files, files);
 }
 void nimculus_platform_set_paint_commands(const NimculusPaintCommand *commands, uint32_t count) {
   free(g_paint_commands);
@@ -4209,6 +4231,7 @@ void nimculus_platform_set_image_rgba(uint32_t image_id, uint32_t width,
   [texture replaceRegion:MTLRegionMake2D(0, 0, width, height) mipmapLevel:0
     withBytes:rgba bytesPerRow:(NSUInteger)width * 4];
   g_image_textures[@(image_id)] = texture;
+  [texture release];
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
@@ -4244,9 +4267,10 @@ static NSString *clipboardTextFromPasteboard(NSPasteboard *pasteboard) {
 void nimculus_clipboard_set(const char *utf8, uint32_t length) {
   NSData *data = (utf8 && length > 0) ?
     [NSData dataWithBytes:utf8 length:length] : [NSData data];
-  NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-  g_clipboard_text = text ?: @"";
-  g_clipboard_utf8_data = [g_clipboard_text dataUsingEncoding:NSUTF8StringEncoding];
+  NSString *text = [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease];
+  replaceOwnedString(&g_clipboard_text, text ?: @"");
+  replaceOwnedData(&g_clipboard_utf8_data,
+    [g_clipboard_text dataUsingEncoding:NSUTF8StringEncoding]);
   NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
   [pasteboard clearContents];
   [pasteboard setData:g_clipboard_utf8_data ?: [NSData data]
@@ -4254,8 +4278,9 @@ void nimculus_clipboard_set(const char *utf8, uint32_t length) {
 }
 uint32_t nimculus_clipboard_utf8_length(void) {
   NSString *text = clipboardTextFromPasteboard([NSPasteboard generalPasteboard]);
-  g_clipboard_text = text ?: @"";
-  g_clipboard_utf8_data = [g_clipboard_text dataUsingEncoding:NSUTF8StringEncoding];
+  replaceOwnedString(&g_clipboard_text, text ?: @"");
+  replaceOwnedData(&g_clipboard_utf8_data,
+    [g_clipboard_text dataUsingEncoding:NSUTF8StringEncoding]);
   return (uint32_t)g_clipboard_utf8_data.length;
 }
 const uint8_t *nimculus_clipboard_utf8_bytes(void) {
