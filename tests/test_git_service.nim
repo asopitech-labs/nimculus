@@ -87,6 +87,20 @@ suite "M9 Git service":
     check job.cancelled
     check job.result.exitCode == -1
 
+  test "cancels a Git process that is waiting for stdin":
+    let root = getTempDir() / "nimculus-m9-blocked-job"
+    if dirExists(root): removeDir(root)
+    createDir(root)
+    defer: removeDir(root)
+    discard git(root, "init", "-q")
+    let repository = newGitRepository(root)
+    let job = repository.startGitJob(["hash-object", "--stdin"])
+    sleep(10)
+    job.cancel()
+    check job.done
+    check job.cancelled
+    check job.result.exitCode == -1
+
   test "stages and unstages one hunk without affecting another":
     let root = getTempDir() / "nimculus-m9-hunk"
     if dirExists(root): removeDir(root)

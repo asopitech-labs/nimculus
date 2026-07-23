@@ -169,8 +169,12 @@ proc startGitJobInput*(repository: GitRepository, args: openArray[string],
 proc cancel*(job: GitJob) =
   if job == nil or job.done: return
   job.cancelled = true
-  job.process.terminate()
-  discard job.process.waitForExit()
+  if job.process != nil and job.process.running:
+    job.process.terminate()
+    let exitCode = job.process.waitForExit(1_000)
+    if exitCode < 0:
+      job.process.kill()
+      discard job.process.waitForExit(1_000)
   job.process.close()
   job.result = GitResult(exitCode: -1, output: "cancelled")
   job.done = true

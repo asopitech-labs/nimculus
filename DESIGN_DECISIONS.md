@@ -1750,6 +1750,11 @@ LSP process shutdown uses the same bounded-lifecycle rule: after SIGTERM, the
 process is waited on for at most one second before the hard-kill fallback. A
 language server must not be able to block the Cocoa close/quit path forever.
 
+Git jobs use the same one-second termination boundary. `GitJob.cancel` first
+requests normal termination, then hard-kills a process that remains alive;
+the UI never waits indefinitely for a Git subprocess that is blocked on
+stdin, a hook, or an external credential helper.
+
 ## Reference audit: Zed `858d317`
 
 Before changing text and macOS rendering contracts, the implementation was
