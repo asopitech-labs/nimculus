@@ -75,6 +75,9 @@ when defined(macosx) or defined(windows):
                               context: pointer): pointer {.importc: "nimculus_start_workspace_watcher", cdecl.}
   proc stopWorkspaceWatcher*(watcher: pointer) {.importc: "nimculus_stop_workspace_watcher", cdecl.}
 
+when defined(macosx):
+  proc validateWorkspaceWatcherRescanFlags*(): bool {.importc: "nimculus_workspace_validate_rescan_flags", cdecl.}
+
 proc newCancelToken*(): CancelToken = CancelToken(cancelled: false)
 proc cancel*(token: CancelToken) = token.cancelled = true
 

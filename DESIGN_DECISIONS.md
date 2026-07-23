@@ -1718,6 +1718,20 @@ The atomic temporary path also includes a process-local sequence number. This
 keeps consecutive saves from reusing one pathname while retaining the
 same-directory rename required for atomic replacement.
 
+## M6-008: Treat lossy FSEvents notifications as a root rescan
+
+Zed's filesystem watcher marks `notify::Event::need_rescan` events separately
+from ordinary path events. Nimculus now applies the same boundary to Apple's
+FSEvents flags: `MustScanSubDirs`, user/kernel drops, wrapped event IDs, and a
+changed root all enqueue the watched root rather than forwarding an
+incomplete path list. The existing lazy workspace invalidates that root's
+cached entries and rebuilds the visible tree/search view on the next main-loop
+poll. `HistoryDone` is informational and is not treated as data loss.
+
+The native watcher owns a Core Foundation copy of the root path so the
+rescan callback remains valid for the entire stream lifetime, including
+non-ARC Objective-C compilation modes.
+
 ## Reference audit: Zed `858d317`
 
 Before changing text and macOS rendering contracts, the implementation was

@@ -6,6 +6,10 @@ import std/tables
 import nimculus/workspace
 
 suite "M6 workspace":
+  when defined(macosx):
+    test "FSEvents loss flags request a root rescan":
+      check validateWorkspaceWatcherRescanFlags()
+
   test "lazy tree honors gitignore and enumerates files":
     let root = getTempDir() / "nimculus-m6-workspace"
     createDir(root)
