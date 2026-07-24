@@ -3516,6 +3516,48 @@ bool nimculus_platform_validate_save_panel_sheet(void) {
   }
 }
 
+bool nimculus_platform_validate_unsaved_close_sheet(void) {
+  NimculusPlatformMetrics previousMetrics = g_metrics;
+  BOOL previousDirty = g_editor_dirty;
+  @autoreleasepool {
+    NSApplication *application = [NSApplication sharedApplication];
+    (void)application;
+    id previousView = g_active_view;
+    NSWindow *window = [[NSWindow alloc]
+      initWithContentRect:NSMakeRect(160.0, 180.0, 640.0, 480.0)
+      styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+    NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
+      NSMakeRect(0.0, 0.0, 640.0, 480.0)];
+    if (!window || !view) {
+      [view release];
+      [window release];
+      g_metrics = previousMetrics;
+      return false;
+    }
+    window.contentView = view;
+    g_active_view = view;
+    g_editor_dirty = YES;
+    [window makeKeyAndOrderFront:nil];
+    nimculus_platform_request_close_tab();
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    NSWindow *sheet = window.attachedSheet;
+    // attachedSheet is AppKit's sheet window, not the NSAlert controller.
+    BOOL attached = sheet != nil;
+    if (sheet) [window endSheet:sheet returnCode:NSAlertThirdButtonReturn];
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    BOOL detached = window.attachedSheet == nil;
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
+    g_active_view = previousView;
+    g_editor_dirty = previousDirty;
+    [window orderOut:nil];
+    [window close];
+    [view release];
+    [window release];
+    g_metrics = previousMetrics;
+    return attached && detached;
+  }
+}
+
 static char g_validation_file_path[PATH_MAX];
 static BOOL g_validation_file_saving = YES;
 static char g_validation_command[64];
@@ -4210,13 +4252,20 @@ void nimculus_platform_request_close_tab(void) {
   [alert addButtonWithTitle:@"Save"];
   [alert addButtonWithTitle:@"Don’t Save"];
   [alert addButtonWithTitle:@"Cancel"];
-  NSInteger response = [alert runModal];
-  if (response == NSAlertSecondButtonReturn) {
-    if (g_command_callback) g_command_callback("closeTabConfirmed");
-  } else if (response == NSAlertFirstButtonReturn && g_command_callback) {
-    g_command_callback("saveAndCloseTab");
-    if (g_close_decision) g_command_callback("closeTabConfirmed");
-  }
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  NSWindow *window = view.window;
+  void (^complete)(NSModalResponse) = ^(NSModalResponse response) {
+    if (response == NSAlertSecondButtonReturn) {
+      if (g_command_callback) g_command_callback("closeTabConfirmed");
+    } else if (response == NSAlertFirstButtonReturn && g_command_callback) {
+      // saveAndCloseTab may open its own asynchronous Save Panel. Its
+      // completion emits closeTabConfirmed only after the write succeeds.
+      g_command_callback("saveAndCloseTab");
+    }
+  };
+  if (window) [alert beginSheetModalForWindow:window completionHandler:complete];
+  else [alert beginWithCompletionHandler:complete];
+  [alert release];
 }
 void nimculus_platform_show_save_panel_and_close_tab(void) {
   g_close_decision = NO;
@@ -4250,13 +4299,21 @@ void nimculus_platform_request_quit(void) {
   [alert addButtonWithTitle:@"Save All"];
   [alert addButtonWithTitle:@"Don’t Save"];
   [alert addButtonWithTitle:@"Cancel"];
-  NSInteger response = [alert runModal];
-  if (response == NSAlertSecondButtonReturn) {
-    if (g_command_callback) g_command_callback("discardAllAndQuit");
-  } else if (response == NSAlertFirstButtonReturn && g_command_callback) {
-    g_command_callback("saveAllAndQuit");
-  }
-  if (g_close_decision) nimculus_platform_confirm_quit();
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  NSWindow *window = view.window;
+  void (^complete)(NSModalResponse) = ^(NSModalResponse response) {
+    if (response == NSAlertSecondButtonReturn) {
+      if (g_command_callback) g_command_callback("discardAllAndQuit");
+    } else if (response == NSAlertFirstButtonReturn && g_command_callback) {
+      // Save All may continue through several asynchronous Save Panels. The
+      // final panel completion confirms termination after every write.
+      g_command_callback("saveAllAndQuit");
+    }
+    if (g_close_decision) nimculus_platform_confirm_quit();
+  };
+  if (window) [alert beginSheetModalForWindow:window completionHandler:complete];
+  else [alert beginWithCompletionHandler:complete];
+  [alert release];
 }
 void nimculus_platform_confirm_quit(void) {
   g_terminate_decision = YES;

@@ -3030,3 +3030,19 @@ remaining tabs, applies a pending update, closes native terminals, and then
 confirms the deferred application termination. Cancellation emits
 `savePanelCancelled`, clears the pending index, and keeps the application
 open, so a later ordinary Save cannot accidentally resume an abandoned quit.
+
+## M5-021: Keep unsaved close and quit confirmation out of nested modal loops
+
+The unsaved-tab close confirmation and the application quit confirmation still
+used synchronous `NSAlert.runModal` after file prompts had moved to sheets.
+That nested AppKit's event loop over the Metal editor, and the close action
+could only inspect a Save Panel result synchronously.
+
+Both confirmations now use window-attached completion-handler sheets. Choosing
+Save starts the existing asynchronous save-and-close or Save All queue;
+choosing Don't Save performs the existing discard action. The close sheet does
+not emit `closeTabConfirmed` until the subsequent Save Panel callback reports
+success. The quit sheet confirms termination immediately only for a synchronous
+discard or an all-named Save All; an untitled Save All is confirmed by the
+queue's final completion. A dedicated macOS GUI contract verifies the actual
+unsaved-close sheet attaches and detaches without nesting a modal loop.
