@@ -155,17 +155,19 @@ proc addTab*(session: var EditorSession, document: FileDocument) =
   session.activeTab = session.tabs.high
 
 proc tabIndexForPath*(session: EditorSession, path: string): int =
-  ## File-open events may repeat an already-visible absolute path. Keep one
-  ## buffer and activate it instead of creating divergent tabs for one file.
+  ## Every file-bearing feature (Finder, Save As, LSP, and navigation) must
+  ## identify a document the same way. Keep one buffer for symlink and macOS
+  ## path aliases, rather than requiring every caller to normalize first.
+  let identityPath = canonicalOpenPath(path)
   for index, tab in session.tabs:
-    if tab.document.path == path: return index
+    if tab.document.path == identityPath: return index
   -1
 
 proc tabIndexForSaveTarget*(session: EditorSession, path: string): int =
   ## Save As must not make two independently editable tabs represent one
   ## document. Normalize the prospective destination before comparing it to
   ## current tab identities; this also handles symlink aliases.
-  session.tabIndexForPath(canonicalOpenPath(path))
+  session.tabIndexForPath(path)
 
 proc saveActiveView*(session: var EditorSession, view: EditorViewState) =
   if session.activeTab >= 0 and session.activeTab < session.tabs.len:

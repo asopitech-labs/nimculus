@@ -3182,3 +3182,8 @@ itself intact; replacing the link pathname would be a destructive surprise for
 an editor. The editor test suite covers Japanese/emoji Save As identities,
 already-open destination detection, and macOS symlink preservation, including
 the deleted-file session-recovery case.
+
+`tabIndexForPath` owns the normalization rather than trusting each caller to
+perform it. LSP workspace edits and definition navigation therefore update or
+activate the existing symlink-backed tab, instead of reading a second buffer
+and applying an edit only to that temporary copy.

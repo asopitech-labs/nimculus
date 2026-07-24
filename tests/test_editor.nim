@@ -134,6 +134,10 @@ suite "M4 editor buffer":
         if symlinkExists(link): removeFile(link)
         if fileExists(target): removeFile(target)
       var document = openDocument(link)
+      var session: EditorSession
+      session.addTab(document)
+      check session.tabIndexForPath(link) == 0
+      check session.tabIndexForPath(target) == 0
       document.buffer.edit(Edit(startByte: 0, endByte: 6, text: "after"))
       document.save()
       check symlinkExists(link)

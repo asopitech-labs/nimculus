@@ -770,11 +770,7 @@ when defined(macosx):
         editorViewState.statusMessage = label & " skipped: unsupported URI"
         return false
       var target: FileDocument
-      var tabIndex = -1
-      for index, tab in editorSession.tabs:
-        if tab.document.path.len > 0 and absolutePath(tab.document.path) == absolutePath(path):
-          tabIndex = index
-          break
+      let tabIndex = editorSession.tabIndexForPath(path)
       if tabIndex >= 0:
         target = editorSession.tabs[tabIndex].document
       else:
@@ -2121,7 +2117,7 @@ when defined(macosx):
     let targetPath = filePathFromUri(locations[0].uri)
     if targetPath.len == 0: return
     let current = activeDocument()
-    if current == nil or absolutePath(current[].path) != absolutePath(targetPath):
+    if current == nil or canonicalOpenPath(current[].path) != canonicalOpenPath(targetPath):
       receiveNativeFile(targetPath.cstring, false)
     let document = activeDocument()
     if document == nil: return
