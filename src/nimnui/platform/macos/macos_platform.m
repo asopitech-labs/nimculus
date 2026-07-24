@@ -2598,8 +2598,14 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
   NSMenuItem *editItem = [[NSMenuItem alloc] initWithTitle:@"Edit" action:NULL keyEquivalent:@""];
   NSMenu *editMenu = [[NSMenu alloc] initWithTitle:@"Edit"];
-  [editMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Undo" action:@selector(undo:) keyEquivalent:@"z"]];
-  [editMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Redo" action:@selector(redo:) keyEquivalent:@"Z"]];
+  NSMenuItem *undo = [[NSMenuItem alloc] initWithTitle:@"Undo" action:@selector(undo:)
+    keyEquivalent:@"z"];
+  undo.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  [editMenu addItem:undo];
+  NSMenuItem *redo = [[NSMenuItem alloc] initWithTitle:@"Redo" action:@selector(redo:)
+    keyEquivalent:@"z"];
+  redo.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
+  [editMenu addItem:redo];
   [editMenu addItem:[NSMenuItem separatorItem]];
   [editMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Cut" action:@selector(cut:) keyEquivalent:@"x"]];
   [editMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Copy" action:@selector(copy:) keyEquivalent:@"c"]];
@@ -2629,7 +2635,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
   cancelSearch.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   [editMenu addItem:cancelSearch];
   for (NSMenuItem *item in editMenu.itemArray) {
-    if (item != workspaceSearch && item != commandPalette) {
+    if (item != redo && item != workspaceSearch && item != commandPalette) {
       item.keyEquivalentModifierMask = NSEventModifierFlagCommand;
     }
   }
@@ -3392,6 +3398,7 @@ bool nimculus_platform_validate_main_menu(void) {
     NSMenuItem *save = menuItemWithTitle(fileItem.submenu, @"Save");
     NSMenuItem *saveAs = menuItemWithTitle(fileItem.submenu, @"Save As…");
     NSMenuItem *close = menuItemWithTitle(fileItem.submenu, @"Close Tab");
+    NSMenuItem *redo = menuItemWithTitle(editItem.submenu, @"Redo");
     NSMenuItem *palette = menuItemWithTitle(editItem.submenu, @"Command Palette…");
     NSMenuItem *fullScreen = menuItemWithTitle(viewItem.submenu, @"Enter Full Screen");
     NSMenuItem *minimize = menuItemWithTitle(windowItem.submenu, @"Minimize");
@@ -3407,6 +3414,9 @@ bool nimculus_platform_validate_main_menu(void) {
       [saveAs.keyEquivalent isEqualToString:@"S"] &&
       close.keyEquivalentModifierMask == NSEventModifierFlagCommand &&
       [close.keyEquivalent isEqualToString:@"w"] &&
+      redo.keyEquivalentModifierMask ==
+        (NSEventModifierFlagCommand | NSEventModifierFlagShift) &&
+      [redo.keyEquivalent isEqualToString:@"z"] &&
       palette.keyEquivalentModifierMask == (NSEventModifierFlagCommand | NSEventModifierFlagShift);
     BOOL windowActions = fullScreen && minimize && zoom &&
       fullScreen.action == @selector(toggleFullScreen:) &&
@@ -3415,7 +3425,7 @@ bool nimculus_platform_validate_main_menu(void) {
       fullScreen.keyEquivalentModifierMask ==
         (NSEventModifierFlagCommand | NSEventModifierFlagControl) &&
       minimize.keyEquivalentModifierMask == NSEventModifierFlagCommand;
-    BOOL valid = topLevel && settings && open && save && saveAs && close && palette &&
+    BOOL valid = topLevel && settings && open && save && saveAs && close && redo && palette &&
       fullScreen && minimize && zoom && shortcuts && windowActions;
     [application setMainMenu:previousMenu];
     return valid;

@@ -3083,3 +3083,12 @@ updates the tab title, and persists the session. The native panel contract
 checks that this is a window-attached sheet and that a Japanese suggested name
 reaches the actual AppKit panel. The main-menu contract verifies the standard
 Command-Shift-S key equivalent.
+
+## M5-024: Preserve the standard macOS Redo key equivalent
+
+The menu-wide shortcut normalization assigned Command to every Edit menu item
+after it was created. That inadvertently replaced Redo's required
+Command-Shift-Z modifier mask. Redo now has an explicit lowercase `z` key
+equivalent with Command and Shift, and the normalization loop leaves that
+explicit binding intact. The native menu contract verifies both modifier flags
+and key equivalent so later menu additions cannot silently regress it.
