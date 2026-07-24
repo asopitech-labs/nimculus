@@ -3277,3 +3277,18 @@ gone away. It closes the master, drops pending input, and marks the session
 closed without blocking the Cocoa idle callback. The integration test execs a
 finite `printf`, verifies its final line is delivered, then verifies the closed
 state, rejected input, and absent process group.
+
+## M10-011: Cancel macOS tasks by their verified process group
+
+Zed's Unix process wrapper creates a group for each owned process so stopping
+a task also stops its descendants. Nimculus previously called `terminate` on
+only the shell spawned for `run task`; a build child could survive after the
+task panel reported cancellation.
+
+Nimculus now asks Nim's POSIX spawn path to set the child's process group before
+`exec`, then records that group only after `getpgid` verifies it. Cancellation
+sends TERM, then bounded-wait KILL, to the verified group; a failed setup
+safely falls back to terminating only the direct process rather than risking
+the editor's group. Partial output is drained and retained before the process
+closes. The macOS test starts a shell with a background child, cancels it, and
+verifies the whole group disappears.

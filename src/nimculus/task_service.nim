@@ -40,6 +40,10 @@ type
   TaskJob* = ref object
     process: Process
     output: Stream
+    ## Set only after verifying the POSIX spawn-created child group. Keeping
+    ## this optional prevents a failed group setup from ever signaling the
+    ## editor's own process group.
+    processGroupId*: Pid
     result*: TaskResult
     done*: bool
 
@@ -121,15 +125,37 @@ proc taskEnvironment(spec: TaskSpec): StringTableRef =
   for entry in spec.environment:
     if entry.key.len > 0: result[entry.key] = entry.value
 
+when defined(posix):
+  proc getpgid(pid: Pid): Pid {.importc, header: "<unistd.h>".}
+
+proc taskProcessOptions(): set[ProcessOption] =
+  result = {poUsePath, poStdErrToStdOut}
+  when defined(posix):
+    # Nim's POSIX spawn path implements poDaemon with
+    # POSIX_SPAWN_SETPGROUP. Unlike a parent-side setpgid call, this happens
+    # before exec and cannot race a fast shell command.
+    result.incl(poDaemon)
+
+proc configureTaskProcessGroup(job: TaskJob) =
+  ## Match Zed's Unix task ownership: descendants belong to the task, not the
+  ## editor. Verify the child-side spawn group before ever using kill(-pid).
+  when defined(posix):
+    if job == nil or job.process == nil: return
+    let pid = Pid(processID(job.process))
+    if pid <= 0: return
+    if getpgid(pid) == pid:
+      job.processGroupId = pid
+
 proc startTask*(spec: TaskSpec): TaskJob =
   if spec.command.strip.len == 0:
     return TaskJob(done: true,
       result: TaskResult(status: taskFailed, exitCode: -1, output: "task command is empty"))
   try:
     let process = startProcess(spec.command, spec.workingDirectory, spec.args,
-      env = taskEnvironment(spec), options = {poUsePath, poStdErrToStdOut})
+      env = taskEnvironment(spec), options = taskProcessOptions())
     result = TaskJob(process: process, output: process.peekableOutputStream(),
       result: TaskResult(status: taskRunning, exitCode: -1))
+    result.configureTaskProcessGroup()
   except CatchableError as error:
     result = TaskJob(done: true,
       result: TaskResult(status: taskFailed, exitCode: -1, output: error.msg))
@@ -137,13 +163,32 @@ proc startTask*(spec: TaskSpec): TaskJob =
 proc cancel*(job: TaskJob) =
   if job == nil or job.done: return
   if job.process != nil and job.process.running:
-    job.process.terminate()
+    when defined(posix):
+      if job.processGroupId > 0:
+        discard kill(-job.processGroupId, SIGTERM)
+      else:
+        job.process.terminate()
+    else:
+      job.process.terminate()
     let exitCode = job.process.waitForExit(1_000)
     if exitCode < 0:
-      job.process.kill()
+      when defined(posix):
+        if job.processGroupId > 0:
+          discard kill(-job.processGroupId, SIGKILL)
+        else:
+          job.process.kill()
+      else:
+        job.process.kill()
       discard job.process.waitForExit(1_000)
+  let tail = job.readAvailable()
+  if tail.len > 0:
+    let bounded = appendBoundedTaskOutput(job.result.output, tail)
+    job.result.output = bounded.output
+    job.result.outputTruncated = job.result.outputTruncated or bounded.truncated
   job.process.close()
-  job.result = TaskResult(status: taskCancelled, exitCode: -1, output: "cancelled")
+  job.result.status = taskCancelled
+  job.result.exitCode = -1
+  job.result.problems = parseTaskProblems(job.result.output)
   job.done = true
 
 proc poll*(job: TaskJob): bool =
