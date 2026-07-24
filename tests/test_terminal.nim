@@ -211,6 +211,26 @@ suite "M10 terminal core":
       check kill(-childPid, 0) == -1
       check errno == ESRCH
 
+    test "macOS PTY releases itself after its shell exits":
+      let pty = newTerminalPty("/bin/sh", "/tmp", 40, 8)
+      let childPid = pty.childPid
+      # `exec` makes the shell's terminal process end after a finite write.
+      # Octal escapes keep the command echo distinct from the expected output.
+      check pty.writeInput(
+        "exec /usr/bin/printf '\\164\\145\\162\\155\\151\\156\\141\\154\\055\\145\\170\\151\\164\\145\\144\\012'\n"
+      ) > 0
+      var output = ""
+      for _ in 0 ..< 100:
+        output.add(pty.pollOutput())
+        if pty.closed: break
+        sleep(10)
+      check "terminal-exited" in output
+      check pty.closed
+      check pty.pendingInputBytes == 0
+      check pty.writeInput("ignored") == 0
+      check kill(-childPid, 0) == -1
+      check errno == ESRCH
+
     test "macOS PTY queues a large paste after a partial non-blocking write":
       # `cat` reads complete lines and echoes them to the slave. Without a
       # matching poll, its output blocks and the master must retain the input

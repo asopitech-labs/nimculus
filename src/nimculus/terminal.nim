@@ -790,6 +790,31 @@ elif defined(macosx):
     result = input.len
     discard pty.flushInput()
 
+  proc terminalChildExited(pid: Pid): bool =
+    ## Reap a naturally exited shell without blocking Cocoa's idle path. Keep
+    ## the master open until `read` reports EOF/EIO so its final output is
+    ## still delivered to the terminal screen.
+    if pid <= 0: return true
+    var status: cint
+    let waited = waitpid(pid, status, WNOHANG)
+    waited == pid or (waited < 0 and errno == ECHILD)
+
+  proc terminalProcessGroupExited(pid: Pid): bool =
+    ## A login shell can exit while a foreground child still owns the slave.
+    ## Do not release on a momentary EAGAIN until the PTY-owned group is gone.
+    if pid <= 0: return true
+    if kill(-pid, 0) == 0: return false
+    errno == ESRCH
+
+  proc releaseTerminalPty(pty: TerminalPty) =
+    if pty == nil or pty.closed: return
+    if pty.masterFd >= 0:
+      discard posix.close(pty.masterFd)
+      pty.masterFd = -1
+    pty.pendingInput.setLen(0)
+    pty.pendingInputOffset = 0
+    pty.closed = true
+
   proc pollOutput*(pty: TerminalPty): string =
     if pty == nil or pty.closed: return
     discard pty.flushInput()
@@ -798,7 +823,19 @@ elif defined(macosx):
       let capacity = min(TerminalReadChunkBytes, remainingBudget)
       var buffer = newString(capacity)
       let count = posix.read(pty.masterFd, addr buffer[0], buffer.len)
-      if count <= 0: break
+      if count <= 0:
+        # EAGAIN only means the non-blocking master has no output in this
+        # frame. EOF and non-retryable errors after the shell exits mean this
+        # session cannot produce more output and must not stay in the idle
+        # polling set forever.
+        if count == 0 or (errno != EAGAIN and errno != EWOULDBLOCK and errno != EINTR):
+          if terminalChildExited(pty.childPid): pty.releaseTerminalPty()
+        elif terminalChildExited(pty.childPid) and terminalProcessGroupExited(pty.childPid):
+          # On macOS a non-blocking master can report EAGAIN briefly after a
+          # short-lived child has closed the slave. Once its group is gone,
+          # there can be no later output to drain.
+          pty.releaseTerminalPty()
+        break
       buffer.setLen(count)
       pty.screen.feed(buffer)
       for response in pty.screen.takeResponses():
@@ -837,7 +874,4 @@ elif defined(macosx):
     if pty == nil or pty.closed: return
     terminateTerminalProcessGroup(pty.childPid, SIGTERM)
     reapTerminalChild(pty.childPid)
-    discard posix.close(pty.masterFd)
-    pty.pendingInput.setLen(0)
-    pty.pendingInputOffset = 0
-    pty.closed = true
+    pty.releaseTerminalPty()

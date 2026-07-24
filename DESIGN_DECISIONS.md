@@ -3261,3 +3261,19 @@ Windows-only terminal, platform, and native smoke tests are grouped under
 `nimble testWindows` for a future Windows runner, and the macOS workflow no
 longer cross-compiles Linux or Windows. This preserves the existing Windows
 sources without treating them as part of macOS acceptance.
+
+## M10-010: Release a macOS PTY after natural shell exit
+
+Zed's terminal task lifetime ends when its process completes; retaining an
+idle terminal transport after its shell has gone away wastes polling work and
+can leave a dead session selected in the UI. Nimculus previously reclaimed a
+PTY only through an explicit application close.
+
+The macOS transport now keeps the master readable through the shell's final
+output, then treats EOF or a non-retryable read error together with a reaped
+child as terminal completion. It also handles macOS's short post-exit `EAGAIN`
+window only after both the direct child and its PTY-owned process group have
+gone away. It closes the master, drops pending input, and marks the session
+closed without blocking the Cocoa idle callback. The integration test execs a
+finite `printf`, verifies its final line is delivered, then verifies the closed
+state, rejected input, and absent process group.
