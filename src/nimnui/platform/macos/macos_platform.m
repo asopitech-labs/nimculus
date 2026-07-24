@@ -3453,9 +3453,53 @@ bool nimculus_platform_validate_open_panel_sheet(void) {
     if (sheet) [window endSheet:sheet returnCode:NSModalResponseCancel];
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
     BOOL detached = window.attachedSheet == nil;
+    // NSOpenPanel finishes its sheet transform asynchronously. Let the
+    // animation release its AppKit-owned state before releasing this
+    // temporary parent window in the native contract.
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
     [window orderOut:nil];
     [delegate release];
     [window release];
+    return attached && detached;
+  }
+}
+
+bool nimculus_platform_validate_save_panel_sheet(void) {
+  NimculusPlatformMetrics previousMetrics = g_metrics;
+  BOOL previousCloseDecision = g_close_decision;
+  @autoreleasepool {
+    id previousView = g_active_view;
+    NSWindow *window = [[NSWindow alloc]
+      initWithContentRect:NSMakeRect(160.0, 180.0, 640.0, 480.0)
+      styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+    NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
+      NSMakeRect(0.0, 0.0, 640.0, 480.0)];
+    if (!window || !view) {
+      [view release];
+      [window release];
+      g_metrics = previousMetrics;
+      return false;
+    }
+    window.contentView = view;
+    g_active_view = view;
+    [window makeKeyAndOrderFront:nil];
+    nimculus_platform_show_save_panel();
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    NSWindow *sheet = window.attachedSheet;
+    BOOL attached = [sheet isKindOfClass:[NSSavePanel class]];
+    if (sheet) [window endSheet:sheet returnCode:NSModalResponseCancel];
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    BOOL detached = window.attachedSheet == nil;
+    // NSSavePanel uses the same asynchronous sheet transform as NSOpenPanel.
+    // Do not tear down the test window while that animation still owns it.
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
+    g_active_view = previousView;
+    g_close_decision = previousCloseDecision;
+    [window orderOut:nil];
+    [window close];
+    [view release];
+    [window release];
+    g_metrics = previousMetrics;
     return attached && detached;
   }
 }
@@ -3525,6 +3569,9 @@ bool nimculus_platform_validate_external_change_sheet(void) {
     if (sheet) [window endSheet:sheet returnCode:NSAlertFirstButtonReturn];
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
     BOOL reloaded = strcmp(g_validation_command, "reloadExternal") == 0;
+    // NSAlert also owns a sheet transform until the following run-loop turns.
+    // Complete it before the temporary test window is released.
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
     g_command_callback = previousCallback;
     g_active_view = previousView;
     [window orderOut:nil];
@@ -4123,6 +4170,18 @@ void nimculus_platform_set_editor_status(const char *utf8) {
   }
 }
 void nimculus_platform_set_close_decision(bool allow) { g_close_decision = allow ? YES : NO; }
+void nimculus_platform_show_save_panel(void) {
+  NSSavePanel *panel = [NSSavePanel savePanel];
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  NSWindow *window = view.window;
+  void (^complete)(NSModalResponse) = ^(NSModalResponse response) {
+    if (response == NSModalResponseOK && g_file_callback) {
+      g_file_callback(panel.URL.path.UTF8String, true);
+    }
+  };
+  if (window) [panel beginSheetModalForWindow:window completionHandler:complete];
+  else [panel beginWithCompletionHandler:complete];
+}
 void nimculus_platform_request_close_tab(void) {
   if (!g_editor_dirty) {
     if (g_command_callback) g_command_callback("closeTabConfirmed");
@@ -4146,9 +4205,18 @@ void nimculus_platform_request_close_tab(void) {
 void nimculus_platform_show_save_panel_and_close_tab(void) {
   g_close_decision = NO;
   NSSavePanel *panel = [NSSavePanel savePanel];
-  if ([panel runModal] == NSModalResponseOK) {
-    if (g_file_callback) g_file_callback(panel.URL.path.UTF8String, true);
-  }
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  NSWindow *window = view.window;
+  void (^complete)(NSModalResponse) = ^(NSModalResponse response) {
+    if (response != NSModalResponseOK || !g_file_callback) return;
+    g_file_callback(panel.URL.path.UTF8String, true);
+    // receiveNativeFile synchronously writes the document and sets this only
+    // on success. With an asynchronous panel this must happen after the
+    // completion handler, not in the original confirmation action.
+    if (g_close_decision && g_command_callback) g_command_callback("closeTabConfirmed");
+  };
+  if (window) [panel beginSheetModalForWindow:window completionHandler:complete];
+  else [panel beginWithCompletionHandler:complete];
 }
 void nimculus_platform_confirm_quit(void);
 void nimculus_platform_request_quit(void) {
@@ -4181,8 +4249,11 @@ void nimculus_platform_confirm_quit(void) {
 void nimculus_platform_show_save_panel_and_close(void) {
   g_close_decision = NO;
   NSSavePanel *panel = [NSSavePanel savePanel];
-  if ([panel runModal] == NSModalResponseOK) {
-    if (g_file_callback) g_file_callback(panel.URL.path.UTF8String, true);
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  NSWindow *window = view.window;
+  void (^complete)(NSModalResponse) = ^(NSModalResponse response) {
+    if (response != NSModalResponseOK || !g_file_callback) return;
+    g_file_callback(panel.URL.path.UTF8String, true);
     // windowShouldClose/applicationShouldTerminate already returned a
     // deferred cancellation while the modal Save Panel was open. A successful
     // Nim save changes g_close_decision asynchronously at this boundary, so
@@ -4195,7 +4266,9 @@ void nimculus_platform_show_save_panel_and_close(void) {
         if (window) [window performClose:nil];
       }
     }
-  }
+  };
+  if (window) [panel beginSheetModalForWindow:window completionHandler:complete];
+  else [panel beginWithCompletionHandler:complete];
 }
 void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_byte) {
   NSUInteger start = utf16OffsetForUTF8Bytes(g_editor_text ?: @"", start_byte);

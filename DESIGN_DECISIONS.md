@@ -2994,3 +2994,24 @@ only after an accepted response; cancellation leaves application state
 untouched. The native GUI contract attaches the actual File/Open action to a
 temporary Cocoa window, verifies the `NSOpenPanel` sheet, dismisses it, and
 checks that the sheet detaches without a nested modal loop.
+
+## M5-019: Route untitled-document Save through an asynchronous sheet
+
+The ordinary `save` command used a synchronous `NSSavePanel` for an untitled
+document even after the File/Open path had become asynchronous. That reentered
+the AppKit modal loop and duplicated part of the document-save flow on the Nim
+side.
+
+The macOS save command now opens a window-attached `NSSavePanel` and returns
+immediately. Its accepted path reaches the existing native file callback, so
+the same document write, tab-title update, session persistence, and close
+decision handling serve every panel-based save. Save-after-close and
+save-before-window-close also continue their deferred close only after that
+callback reports a successful write.
+
+AppKit delays teardown of sheet transform animations beyond the response
+callback. The Save Panel contract therefore runs in its own test process; this
+prevents a temporary test window's deferred animation state from contaminating
+unrelated alert contracts in the same process. Both the isolated Save Panel
+contract and the ordinary macOS platform contract are required in local and
+self-hosted macOS CI.

@@ -13,6 +13,7 @@ proc platformValidateSceneTextureReplacement*(): bool {.importc: "nimculus_platf
 proc platformValidateMainMenu*(): bool {.importc: "nimculus_platform_validate_main_menu", cdecl.}
 proc platformValidateShortcutDispatch*(): bool {.importc: "nimculus_platform_validate_shortcut_dispatch", cdecl.}
 proc platformValidateOpenPanelSheet*(): bool {.importc: "nimculus_platform_validate_open_panel_sheet", cdecl.}
+proc platformValidateSavePanelSheet*(): bool {.importc: "nimculus_platform_validate_save_panel_sheet", cdecl.}
 proc platformValidateVisibleTextAssets*(): bool {.importc: "nimculus_platform_validate_visible_text_assets", cdecl.}
 proc platformValidateFileOpenEvents*(): bool {.importc: "nimculus_platform_validate_file_open_events", cdecl.}
 proc platformValidateExternalChangeSheet*(): bool {.importc: "nimculus_platform_validate_external_change_sheet", cdecl.}
@@ -65,6 +66,7 @@ proc platformSetEditorTabs*(titles: cstring, length, activeIndex: uint32) {.impo
 proc platformSetEditorStatus*(text: cstring) {.importc: "nimculus_platform_set_editor_status", cdecl.}
 proc platformSetCloseDecision*(allow: bool) {.importc: "nimculus_platform_set_close_decision", cdecl.}
 proc platformRequestCloseTab*() {.importc: "nimculus_platform_request_close_tab", cdecl.}
+proc platformShowSavePanel*() {.importc: "nimculus_platform_show_save_panel", cdecl.}
 proc platformShowSavePanelAndCloseTab*() {.importc: "nimculus_platform_show_save_panel_and_close_tab", cdecl.}
 proc platformRequestQuit*() {.importc: "nimculus_platform_request_quit", cdecl.}
 proc platformConfirmQuit*() {.importc: "nimculus_platform_confirm_quit", cdecl.}

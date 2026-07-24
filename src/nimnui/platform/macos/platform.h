@@ -7,6 +7,7 @@ bool nimculus_platform_validate_damage_rebuild(void);
 bool nimculus_platform_validate_main_menu(void);
 bool nimculus_platform_validate_shortcut_dispatch(void);
 bool nimculus_platform_validate_open_panel_sheet(void);
+bool nimculus_platform_validate_save_panel_sheet(void);
 bool nimculus_platform_validate_file_open_events(void);
 bool nimculus_platform_validate_external_change_sheet(void);
 bool nimculus_platform_validate_ime_composition(void);
@@ -54,6 +55,7 @@ void nimculus_platform_set_editor_tabs(const char *utf8, uint32_t length, uint32
 void nimculus_platform_set_editor_status(const char *utf8);
 void nimculus_platform_set_close_decision(bool allow);
 void nimculus_platform_request_close_tab(void);
+void nimculus_platform_show_save_panel(void);
 void nimculus_platform_show_save_panel_and_close_tab(void);
 void nimculus_platform_request_quit(void);
 void nimculus_platform_confirm_quit(void);

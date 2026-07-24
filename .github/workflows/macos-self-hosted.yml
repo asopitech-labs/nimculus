@@ -37,6 +37,9 @@ jobs:
         run: |
           NIMCULUS_REQUIRE_NATIVE_GUI=1 \
           nim c --mm:arc --nimcache="$RUNNER_TEMP/nimculus-native-gui-contract" \
+            -r --path:src tests/test_macos_file_panels.nim
+          NIMCULUS_REQUIRE_NATIVE_GUI=1 \
+          nim c --mm:arc --nimcache="$RUNNER_TEMP/nimculus-platform-contract" \
             -r --path:src tests/test_platform_contract.nim
       - name: Cocoa and Metal cold-start smoke
         run: |

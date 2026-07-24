@@ -1991,6 +1991,8 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
         if editorSession.activeTab >= 0 and editorSession.activeTab < editorSession.tabs.len:
           editorSession.tabs[editorSession.activeTab].title = splitFile(filePath).name
         externalAlertShown = false
+        editorSession.saveActiveView(editorViewState)
+        persistSession()
         editorViewState.statusMessage = "Saved " & filePath
         syncEditorCursor()
         when defined(macosx):
@@ -2351,13 +2353,18 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       if document[].path.len > 0:
         document[].save()
       else:
-        let path = chooseSaveFile()
-        if path == nil or ($path).len == 0:
-          editorViewState.statusMessage = "Save cancelled"
+        when defined(macosx):
+          platformShowSavePanel()
+          editorViewState.statusMessage = "Choose a location to save"
           return
-        document[].save($path)
-        if editorSession.activeTab >= 0 and editorSession.activeTab < editorSession.tabs.len:
-          editorSession.tabs[editorSession.activeTab].title = splitFile(document[].path).name
+        else:
+          let path = chooseSaveFile()
+          if path == nil or ($path).len == 0:
+            editorViewState.statusMessage = "Save cancelled"
+            return
+          document[].save($path)
+          if editorSession.activeTab >= 0 and editorSession.activeTab < editorSession.tabs.len:
+            editorSession.tabs[editorSession.activeTab].title = splitFile(document[].path).name
       editorSession.saveActiveView(editorViewState)
       persistSession()
       editorViewState.statusMessage = "Saved " &
@@ -2485,8 +2492,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           except CatchableError as error:
             editorViewState.statusMessage = "Save failed: " & error.msg
         else:
-          let path = chooseSaveFile()
-          if path != nil and ($path).len > 0: receiveNativeFile(path, true)
+          platformShowSavePanel()
+          editorViewState.statusMessage = "Choose a location to save"
     of "find":
       when defined(macosx):
         platformShowFindDocument()
