@@ -37,6 +37,10 @@ type
     ## The divider is session state, not transient UI state.  Keeping it here
     ## makes resize and relaunch preserve the user's pane allocation.
     splitRatio*: float32
+    ## A cloned split starts on the same document, but owns its own cursor,
+    ## selection, viewport, and display preferences.
+    secondaryView*: EditorViewState
+    splitActivePane*: int
     recentFiles*: seq[string]
     workspaceRoots*: seq[string]
 
@@ -232,6 +236,11 @@ proc splitEditor*(session: var EditorSession, direction: SplitDirection,
   session.split = true
   session.splitDirection = direction
   session.splitRatio = normalizedSplitRatio(ratio)
+  if session.activeTab >= 0 and session.activeTab < session.tabs.len:
+    session.secondaryView = session.tabs[session.activeTab].view
+  else:
+    session.secondaryView = newEditorView()
+  session.splitActivePane = 0
 
 proc setSplitRatio*(session: var EditorSession, ratio: float32) =
   session.splitRatio = normalizedSplitRatio(ratio)
@@ -239,6 +248,15 @@ proc setSplitRatio*(session: var EditorSession, ratio: float32) =
 proc effectiveSplitRatio*(session: EditorSession): float32 =
   ## Sessions written before split ratios existed deserialize as zero.
   if session.splitRatio <= 0'f32: 0.5'f32 else: normalizedSplitRatio(session.splitRatio)
+
+proc activateSplitPane*(session: var EditorSession, pane: int): bool =
+  if not session.split or pane notin 0..1: return false
+  session.splitActivePane = pane
+  true
+
+proc closeSplit*(session: var EditorSession) =
+  session.split = false
+  session.splitActivePane = 0
 
 proc recordRecent*(session: var EditorSession, path: string) =
   session.recentFiles = session.recentFiles.filterIt(it != path)

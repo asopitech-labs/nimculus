@@ -40,12 +40,31 @@ proc normalizedSessionPaths(paths: openArray[string], directoriesOnly = false): 
     if identityPath.len > 0 and identityPath notin result:
       result.add(identityPath)
 
+proc serializedView(view: EditorViewState): JsonNode =
+  %*{"anchor": view.selection.anchor, "active": view.selection.active,
+      "scrollLine": view.scrollLine, "showLineNumbers": view.showLineNumbers,
+      "softWrap": view.softWrap, "showIndentGuides": view.showIndentGuides,
+      "indentWidth": view.indentWidth}
+
+proc loadView(node: JsonNode, text: string): EditorViewState =
+  result = newEditorView()
+  if node == nil or node.kind != JObject: return
+  result.selection.anchor = floorGraphemeBoundary(text, jsonInt(node, "anchor", 0))
+  result.selection.active = floorGraphemeBoundary(text, jsonInt(node, "active", 0))
+  result.scrollLine = max(0, jsonInt(node, "scrollLine", 0))
+  result.showLineNumbers = jsonBool(node, "showLineNumbers", true)
+  result.softWrap = jsonBool(node, "softWrap", false)
+  result.showIndentGuides = jsonBool(node, "showIndentGuides", true)
+  result.indentWidth = max(1, jsonInt(node, "indentWidth", 2))
+
 proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
   let recentFiles = normalizedSessionPaths(session.recentFiles)
   let workspaceRoots = normalizedSessionPaths(session.workspaceRoots, directoriesOnly = true)
   var root = %*{"activeTab": -1, "split": session.split,
                 "splitDirection": $session.splitDirection,
                 "splitRatio": session.effectiveSplitRatio,
+                "splitActivePane": session.splitActivePane,
+                "splitSecondaryView": serializedView(session.secondaryView),
                 "recentFiles": recentFiles,
                 "workspaceRoots": workspaceRoots}
   var tabs = newJArray()
@@ -91,15 +110,7 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
     if originalIndex == session.activeTab: savedActive = tabs.len
     var serializedTab = %*{"path": tab.document.path, "title": tab.title,
       "dirty": saveDirty,
-      "view": {
-        "anchor": tab.view.selection.anchor,
-        "active": tab.view.selection.active,
-        "scrollLine": tab.view.scrollLine,
-        "showLineNumbers": tab.view.showLineNumbers,
-        "softWrap": tab.view.softWrap,
-        "showIndentGuides": tab.view.showIndentGuides,
-        "indentWidth": tab.view.indentWidth
-      }}
+      "view": serializedView(tab.view)}
     if tab.document.path.len == 0 or saveDirty:
       serializedTab["content"] = %tab.document.buffer.toString()
       serializedTab["lineEnding"] = %($tab.document.lineEnding)
@@ -133,6 +144,7 @@ proc loadSession*(path: string): EditorSession =
   let direction = jsonString(root, "splitDirection", "splitVertical")
   result.splitDirection = if direction == "splitHorizontal": splitHorizontal else: splitVertical
   result.splitRatio = normalizedSplitRatio(jsonFloat(root, "splitRatio", 0.5'f32))
+  result.splitActivePane = min(1, max(0, jsonInt(root, "splitActivePane", 0)))
   if root.hasKey("recentFiles") and root["recentFiles"].kind == JArray:
     for item in root["recentFiles"].getElems:
       if item.kind == JString:
@@ -216,22 +228,22 @@ proc loadSession*(path: string): EditorSession =
           let savedTitle = jsonString(item, "title", "")
           if savedTitle.len > 0: result.tabs[tabIndex].title = savedTitle
         if adopted and item.hasKey("view") and item["view"].kind == JObject:
-          let view = item["view"]
-          let tabView = addr result.tabs[tabIndex].view
           let text = result.tabs[tabIndex].document.buffer.toString()
-          tabView[].selection.anchor = floorGraphemeBoundary(text, jsonInt(view, "anchor", 0))
-          tabView[].selection.active = floorGraphemeBoundary(text, jsonInt(view, "active", 0))
-          tabView[].scrollLine = min(max(0, jsonInt(view, "scrollLine", 0)),
-            max(0, result.tabs[tabIndex].document.buffer.lineStarts.high))
-          tabView[].showLineNumbers = jsonBool(view, "showLineNumbers", true)
-          tabView[].softWrap = jsonBool(view, "softWrap", false)
-          tabView[].showIndentGuides = jsonBool(view, "showIndentGuides", true)
-          tabView[].indentWidth = max(1, jsonInt(view, "indentWidth", 2))
+          result.tabs[tabIndex].view = loadView(item["view"], text)
     except CatchableError: discard
   if result.tabs.len == 0: result.activeTab = -1
   else:
     result.activeTab = if restoredActive >= 0: restoredActive
       else: max(0, min(requestedActive, result.tabs.high))
+  if result.split and result.activeTab >= 0 and result.activeTab < result.tabs.len:
+    let text = result.tabs[result.activeTab].document.buffer.toString()
+    result.secondaryView = loadView(if root.hasKey("splitSecondaryView"):
+      root["splitSecondaryView"] else: nil, text)
+    result.secondaryView.scrollLine = min(result.secondaryView.scrollLine,
+      max(0, result.tabs[result.activeTab].document.buffer.lineStarts.high))
+  else:
+    result.secondaryView = newEditorView()
+    result.splitActivePane = 0
 
 proc writeRecovery*(document: FileDocument, path: string) =
   atomicWriteFile(path, document.buffer.toString())

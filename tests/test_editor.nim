@@ -289,6 +289,12 @@ suite "M5 editor services":
     check session.tabs.len == 3
     check session.split
     check abs(session.effectiveSplitRatio - 0.72'f32) < 0.001'f32
+    session.secondaryView.moveCursor(1)
+    session.secondaryView.scrollLine = 4
+    check session.activateSplitPane(1)
+    check session.splitActivePane == 1
+    session.closeSplit()
+    check not session.split
     session.setSplitRatio(4.0)
     check abs(session.effectiveSplitRatio - 0.9'f32) < 0.001'f32
     check session.closeActiveTab()
@@ -334,6 +340,9 @@ suite "M5 editor services":
     session.tabs[0].view.moveCursor(3)
     session.tabs[0].view.scrollLine = 2
     session.splitEditor(splitHorizontal, 0.31)
+    session.secondaryView.moveCursor(2)
+    session.secondaryView.scrollLine = 1
+    discard session.activateSplitPane(1)
     session.workspaceRoots = @[getTempDir()]
     let sessionPath = getTempDir() / "nimculus-m5-session.json"
     session.saveSession(sessionPath)
@@ -346,6 +355,9 @@ suite "M5 editor services":
     check restored.tabs[0].view.scrollLine == 2
     check restored.splitDirection == splitHorizontal
     check abs(restored.effectiveSplitRatio - 0.31'f32) < 0.001'f32
+    check restored.splitActivePane == 1
+    check restored.secondaryView.cursor == 2
+    check restored.secondaryView.scrollLine == 1
     restored.tabs[0].document.writeRecovery(recoveryPath)
     for candidate in walkFiles(recoveryPath & ".tmp." & $getCurrentProcessId() & ".*"):
       check not fileExists(candidate)

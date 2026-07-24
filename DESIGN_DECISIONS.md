@@ -3565,3 +3565,18 @@ immediately. The roadmap deliberately keeps actual independent panes, native
 rendering, input routing, and pane-local view state unchecked until that
 vertical slice exists; a divider alone must not be represented as completed
 split display.
+
+## M5-029: Give a cloned split its own persisted view state
+
+Pane-local cursor, selection, scroll position, and display preferences cannot
+be stored on a shared document tab: moving in one clone would otherwise move
+the other. Zed keeps item state in each `Pane`, while the document remains a
+separate shared item.
+
+Nimculus now preserves that separation for its initial two-pane model. The
+document tab remains the shared buffer; the second pane receives a copied
+`EditorViewState` when created and serializes independently with the split
+direction, ratio, and active-pane index. Legacy sessions get the default view
+and an even divider. Native dual-pane rendering and input routing remain the
+next required vertical slice, so this state model is intentionally not marked
+as completed split display.
