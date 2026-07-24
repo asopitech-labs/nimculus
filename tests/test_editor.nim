@@ -293,6 +293,16 @@ suite "M5 editor services":
     session.secondaryView.scrollLine = 4
     check session.activateSplitPane(1)
     check session.splitActivePane == 1
+    var secondary = session.secondaryView
+    check session.switchTab(view, secondary, -1)
+    check session.activeTab == 1
+    check secondary.cursor == 0
+    secondary.moveCursor(2)
+    secondary.scrollLine = 6
+    check session.switchTab(view, secondary, 1)
+    check session.activeTab == 2
+    check secondary.cursor == 1
+    check secondary.scrollLine == 4
     session.closeSplit()
     check not session.split
     session.setSplitRatio(4.0)
@@ -358,6 +368,8 @@ suite "M5 editor services":
     check restored.splitActivePane == 1
     check restored.secondaryView.cursor == 2
     check restored.secondaryView.scrollLine == 1
+    check restored.tabs[0].secondaryView.cursor == 2
+    check restored.tabs[0].secondaryView.scrollLine == 1
     restored.tabs[0].document.writeRecovery(recoveryPath)
     for candidate in walkFiles(recoveryPath & ".tmp." & $getCurrentProcessId() & ".*"):
       check not fileExists(candidate)

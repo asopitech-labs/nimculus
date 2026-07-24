@@ -28,6 +28,10 @@ type
     ## Per-tab transient editor state, matching Zed's item-owned selections
     ## and scroll position rather than sharing one pane state across buffers.
     view*: EditorViewState
+    ## The first split duplicates the same item into a second viewport.  Its
+    ## state belongs to the item too, otherwise switching tabs leaks the last
+    ## document's secondary cursor and scroll position into the next one.
+    secondaryView*: EditorViewState
   SplitDirection* = enum splitVertical, splitHorizontal
   EditorSession* = object
     tabs*: seq[EditorTab]
@@ -158,7 +162,9 @@ proc replaceAll*(document: var FileDocument, query, replacement: string,
 
 proc addTab*(session: var EditorSession, document: FileDocument) =
   let title = if document.path.len > 0: splitFile(document.path).name else: "Untitled"
-  session.tabs.add(EditorTab(document: document, title: title, view: newEditorView()))
+  let view = newEditorView()
+  session.tabs.add(EditorTab(document: document, title: title, view: view,
+    secondaryView: view))
   session.activeTab = session.tabs.high
 
 proc tabIndexForPath*(session: EditorSession, path: string): int =
@@ -185,6 +191,15 @@ proc loadActiveView*(session: EditorSession, view: var EditorViewState) =
   if session.activeTab >= 0 and session.activeTab < session.tabs.len:
     view = session.tabs[session.activeTab].view
 
+proc saveSecondaryActiveView*(session: var EditorSession, view: EditorViewState) =
+  session.secondaryView = view
+  if session.activeTab >= 0 and session.activeTab < session.tabs.len:
+    session.tabs[session.activeTab].secondaryView = view
+
+proc loadSecondaryActiveView*(session: var EditorSession) =
+  if session.activeTab >= 0 and session.activeTab < session.tabs.len:
+    session.secondaryView = session.tabs[session.activeTab].secondaryView
+
 proc switchTab*(session: var EditorSession, delta: int): bool =
   ## Move around the existing tabs without mutating their buffers.
   if session.tabs.len < 2: return false
@@ -198,6 +213,16 @@ proc switchTab*(session: var EditorSession, view: var EditorViewState, delta: in
   session.saveActiveView(view)
   if not session.switchTab(delta): return false
   session.loadActiveView(view)
+  true
+
+proc switchTab*(session: var EditorSession, view: var EditorViewState,
+                secondaryView: var EditorViewState, delta: int): bool =
+  session.saveActiveView(view)
+  session.saveSecondaryActiveView(secondaryView)
+  if not session.switchTab(delta): return false
+  session.loadActiveView(view)
+  session.loadSecondaryActiveView()
+  secondaryView = session.secondaryView
   true
 
 proc closeActiveTab*(session: var EditorSession, forceDirty = false): bool =
@@ -238,6 +263,7 @@ proc splitEditor*(session: var EditorSession, direction: SplitDirection,
   session.splitRatio = normalizedSplitRatio(ratio)
   if session.activeTab >= 0 and session.activeTab < session.tabs.len:
     session.secondaryView = session.tabs[session.activeTab].view
+    session.tabs[session.activeTab].secondaryView = session.secondaryView
   else:
     session.secondaryView = newEditorView()
   session.splitActivePane = 0

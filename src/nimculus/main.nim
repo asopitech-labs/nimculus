@@ -450,12 +450,17 @@ when defined(macosx):
   var editorUpdateJob: UpdateDownloadJob
   var editorUpdatePath = ""
 
-proc resetEditorViewState() =
-  editorViewState = newEditorView()
+proc resetEditorTransientState() =
+  ## Tab switches must preserve their cursor/selection/viewport. Only reset
+  ## interaction and derived UI state which is not owned by an EditorTab.
   editorScrollRemainder = 0'f32
   when defined(macosx):
     pendingLspSymbols.setLen(0)
     syncNativeSymbolTree()
+
+proc resetEditorViewState() =
+  editorViewState = newEditorView()
+  resetEditorTransientState()
 
 proc resetPointerInteractions() =
   demoSplitDragging = false
@@ -1244,6 +1249,7 @@ proc persistSession() =
   if sessionFilePath.len == 0: return
   try:
     editorSession.saveActiveView(editorViewState)
+    editorSession.saveSecondaryActiveView(editorSession.secondaryView)
     if activeWorkspace != nil: editorSession.workspaceRoots = activeWorkspace.rootPaths
     saveSession(editorSession, sessionFilePath, preserveDirty = not discardDirtyOnExit)
     let document = activeDocument()
@@ -1281,6 +1287,7 @@ proc restoreSession() =
     except CatchableError:
       discard
   editorSession.loadActiveView(editorViewState)
+  editorSession.loadSecondaryActiveView()
   demoSplitRatio = editorSession.effectiveSplitRatio
   demoSplitEnabled = editorSession.split
   demoSplitDirection = editorSession.splitDirection
@@ -2105,8 +2112,10 @@ when defined(macosx):
           return
         continue
       editorSession.saveActiveView(editorViewState)
+      editorSession.saveSecondaryActiveView(editorSession.secondaryView)
       editorSession.activeTab = tabIndex
       editorSession.loadActiveView(editorViewState)
+      editorSession.loadSecondaryActiveView()
       syncEditorCursor()
       platformShowSavePanel()
       editorViewState.statusMessage = "Choose a location to save " &
@@ -2176,10 +2185,12 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       let existingTab = editorSession.tabIndexForPath(filePath)
       if existingTab >= 0:
         editorSession.saveActiveView(editorViewState)
+        editorSession.saveSecondaryActiveView(editorSession.secondaryView)
         editorSession.activeTab = existingTab
         editorSession.loadActiveView(editorViewState)
+        editorSession.loadSecondaryActiveView()
         resetImeState()
-        resetEditorViewState()
+        resetEditorTransientState()
         externalAlertShown = false
         workspacePreviewMode = ""
         if syntaxState != nil:
@@ -2195,7 +2206,9 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       workspacePreviewEntries.setLen(0)
       workspacePreviewMode = ""
       editorSession.saveActiveView(editorViewState)
+      editorSession.saveSecondaryActiveView(editorSession.secondaryView)
       editorSession.addTab(openDocument(filePath))
+      editorSession.loadSecondaryActiveView()
       resetImeState()
       resetEditorViewState()
       let document = activeDocument()
@@ -2572,10 +2585,17 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     else:
       when defined(macosx): platformShowSavePanelAndCloseTab()
   elif name == "closeTabConfirmed":
+    editorSession.saveActiveView(editorViewState)
+    editorSession.saveSecondaryActiveView(editorSession.secondaryView)
     when defined(macosx): editorLspSignatureText = ""
     if editorSession.closeActiveTab(forceDirty = true):
       resetImeState()
-      resetEditorViewState()
+      if editorSession.activeTab >= 0:
+        editorSession.loadActiveView(editorViewState)
+        editorSession.loadSecondaryActiveView()
+        resetEditorTransientState()
+      else:
+        resetEditorViewState()
       externalAlertShown = false
       if syntaxState != nil:
         syntaxState.close()
@@ -2592,10 +2612,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       persistSession()
   elif name in ["previousTab", "nextTab"]:
     let delta = if name == "previousTab": -1 else: 1
-    if editorSession.switchTab(editorViewState, delta):
+    if editorSession.switchTab(editorViewState, editorSession.secondaryView, delta):
       when defined(macosx): editorLspSignatureText = ""
       resetImeState()
-      resetEditorViewState()
+      resetEditorTransientState()
       workspacePreviewMode = ""
       externalAlertShown = false
       if syntaxState != nil:
@@ -2610,10 +2630,12 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       let target = parseInt(payload)
       if target >= 0 and target < editorSession.tabs.len and target != editorSession.activeTab:
         editorSession.saveActiveView(editorViewState)
+        editorSession.saveSecondaryActiveView(editorSession.secondaryView)
         editorSession.activeTab = target
         editorSession.loadActiveView(editorViewState)
+        editorSession.loadSecondaryActiveView()
         resetImeState()
-        resetEditorViewState()
+        resetEditorTransientState()
         workspacePreviewMode = ""
         externalAlertShown = false
         if syntaxState != nil:

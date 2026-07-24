@@ -110,7 +110,8 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
     if originalIndex == session.activeTab: savedActive = tabs.len
     var serializedTab = %*{"path": tab.document.path, "title": tab.title,
       "dirty": saveDirty,
-      "view": serializedView(tab.view)}
+      "view": serializedView(tab.view),
+      "splitView": serializedView(tab.secondaryView)}
     if tab.document.path.len == 0 or saveDirty:
       serializedTab["content"] = %tab.document.buffer.toString()
       serializedTab["lineEnding"] = %($tab.document.lineEnding)
@@ -230,6 +231,8 @@ proc loadSession*(path: string): EditorSession =
         if adopted and item.hasKey("view") and item["view"].kind == JObject:
           let text = result.tabs[tabIndex].document.buffer.toString()
           result.tabs[tabIndex].view = loadView(item["view"], text)
+          result.tabs[tabIndex].secondaryView = loadView(
+            if item.hasKey("splitView"): item["splitView"] else: item["view"], text)
     except CatchableError: discard
   if result.tabs.len == 0: result.activeTab = -1
   else:
@@ -239,6 +242,12 @@ proc loadSession*(path: string): EditorSession =
     let text = result.tabs[result.activeTab].document.buffer.toString()
     result.secondaryView = loadView(if root.hasKey("splitSecondaryView"):
       root["splitSecondaryView"] else: nil, text)
+    if root.hasKey("splitSecondaryView"):
+      # Older sessions stored only the active split state at the root.  Adopt
+      # it into the newly tab-owned representation during migration.
+      result.tabs[result.activeTab].secondaryView = result.secondaryView
+    else:
+      result.loadSecondaryActiveView()
     result.secondaryView.scrollLine = min(result.secondaryView.scrollLine,
       max(0, result.tabs[result.activeTab].document.buffer.lineStarts.high))
   else:

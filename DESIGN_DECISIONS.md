@@ -3658,3 +3658,16 @@ clones the active document's view into the secondary pane; closing it removes
 only the secondary view and geometry, never the shared document or the
 primary view.  Both operations rebuild native geometry, resynchronize the
 active text-input pane, and persist the resulting session immediately.
+
+## M5-035: Make both split view states tab-owned
+
+Each split pane shares the active document buffer, but each document needs a
+separate primary and secondary viewport. Keeping `secondaryView` only on the
+session leaked its cursor and scroll position after a tab switch; the old UI
+then also reset the newly loaded primary view to a blank state.
+
+`EditorTab` now owns `view` and `secondaryView`. Switching, selecting,
+opening, closing, saving, and restoring a tab save/load both views, while only
+transient UI state (IME remainder and derived symbols) is reset. The session
+stores `splitView` per tab and imports the old root-level
+`splitSecondaryView` into the active tab for backward compatibility.
