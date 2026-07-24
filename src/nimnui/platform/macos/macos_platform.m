@@ -2802,6 +2802,11 @@ static void applyTerminalRuns(NSTextView *terminal) {
     action:@selector(nextTab:) keyEquivalent:@"]"];
   nextTab.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
   [windowMenu addItem:nextTab];
+  [windowMenu addItem:[NSMenuItem separatorItem]];
+  [windowMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Split Editor"
+    action:@selector(splitEditor:) keyEquivalent:@""]];
+  [windowMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Close Split"
+    action:@selector(closeSplit:) keyEquivalent:@""]];
   [windowMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Zoom" action:@selector(performZoom:) keyEquivalent:@""]];
   [windowItem setSubmenu:windowMenu];
   [mainMenu addItem:windowItem];
@@ -2875,6 +2880,16 @@ static void applyTerminalRuns(NSTextView *terminal) {
 - (void)nextTab:(id)sender {
   (void)sender;
   if (g_command_callback) g_command_callback("nextTab");
+}
+
+- (void)splitEditor:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("splitEditor");
+}
+
+- (void)closeSplit:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("closeSplit");
 }
 
 - (void)findInWorkspace:(id)sender {
@@ -3580,6 +3595,8 @@ bool nimculus_platform_validate_main_menu(void) {
     NSMenuItem *palette = menuItemWithTitle(editItem.submenu, @"Command Palette…");
     NSMenuItem *fullScreen = menuItemWithTitle(viewItem.submenu, @"Enter Full Screen");
     NSMenuItem *minimize = menuItemWithTitle(windowItem.submenu, @"Minimize");
+    NSMenuItem *split = menuItemWithTitle(windowItem.submenu, @"Split Editor");
+    NSMenuItem *closeSplit = menuItemWithTitle(windowItem.submenu, @"Close Split");
     NSMenuItem *zoom = menuItemWithTitle(windowItem.submenu, @"Zoom");
     BOOL shortcuts = settings.keyEquivalentModifierMask == NSEventModifierFlagCommand &&
       [settings.keyEquivalent isEqualToString:@","] &&
@@ -3596,15 +3613,17 @@ bool nimculus_platform_validate_main_menu(void) {
         (NSEventModifierFlagCommand | NSEventModifierFlagShift) &&
       [redo.keyEquivalent isEqualToString:@"z"] &&
       palette.keyEquivalentModifierMask == (NSEventModifierFlagCommand | NSEventModifierFlagShift);
-    BOOL windowActions = fullScreen && minimize && zoom &&
+    BOOL windowActions = fullScreen && minimize && zoom && split && closeSplit &&
       fullScreen.action == @selector(toggleFullScreen:) &&
       minimize.action == @selector(performMiniaturize:) &&
       zoom.action == @selector(performZoom:) &&
+      split.action == @selector(splitEditor:) &&
+      closeSplit.action == @selector(closeSplit:) &&
       fullScreen.keyEquivalentModifierMask ==
         (NSEventModifierFlagCommand | NSEventModifierFlagControl) &&
       minimize.keyEquivalentModifierMask == NSEventModifierFlagCommand;
     BOOL valid = topLevel && settings && open && save && saveAs && close && redo && palette &&
-      fullScreen && minimize && zoom && shortcuts && windowActions;
+      fullScreen && minimize && zoom && split && closeSplit && shortcuts && windowActions;
     [application setMainMenu:previousMenu];
     return valid;
   }

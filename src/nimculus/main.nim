@@ -332,7 +332,7 @@ proc setupShortcutRegistry() =
   # bindings are installed below and are resolved before interpretKeyEvents.
   for name in [
       # Application and menu commands.
-    "save", "newDocument", "closeTabRequest", "openSettings", "undo", "redo",
+    "save", "newDocument", "closeTabRequest", "openSettings", "splitEditor", "closeSplit", "undo", "redo",
       "cut", "copy", "paste", "selectAll", "previousTab", "nextTab",
       # AppKit NSText movement/editing selectors. Keeping these names at the
         # application boundary lets settings override Command/Option behavior
@@ -2463,6 +2463,29 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     if activeDocument() != nil: refreshEditorSyntax()
   elif name == "windowFocusLost":
     resetPointerInteractions()
+  elif name == "splitEditor":
+    if document == nil:
+      editorViewState.statusMessage = "Open a document before splitting"
+    elif editorSession.split:
+      editorViewState.statusMessage = "Editor is already split"
+    else:
+      editorSession.splitEditor(splitVertical, demoSplitRatio)
+      demoSplitEnabled = true
+      demoSplitDirection = editorSession.splitDirection
+      editorViewState.statusMessage = "Editor split"
+      setupDemoUi()
+      syncEditorCursor()
+      persistSession()
+  elif name == "closeSplit":
+    if editorSession.split:
+      editorSession.closeSplit()
+      demoSplitEnabled = false
+      editorPointerPane = 0
+      editorPointerDragging = false
+      editorViewState.statusMessage = "Split closed"
+      setupDemoUi()
+      syncEditorCursor()
+      persistSession()
   elif name == "quitRequest":
     when defined(macosx):
       if editorSession.hasDirtyTabs(): platformRequestQuit()
@@ -2753,6 +2776,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command.startsWith("run task "): "__run_task__"
       elif command == "cancel task": "__cancel_task__"
       elif command == "cancel git": "__cancel_git__"
+      elif command in ["split", "split editor", "split vertical"]: "splitEditor"
+      elif command in ["close split", "unsplit"]: "closeSplit"
       elif command.startsWith("workspace search "): "__workspace_search__"
       elif command.startsWith("quick open "): "__quick_open__"
       elif command == "open settings": "openSettings"

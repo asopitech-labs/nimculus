@@ -3644,3 +3644,17 @@ committed text, selection callbacks, navigation, deletion, clipboard, and
 undo/redo selectors through that pane's `EditorViewState`; the document buffer
 remains deliberately shared.  This follows Zed's focused-editor input model
 without duplicating Cocoa responders.
+
+## M5-034: Expose the initial split lifecycle through macOS commands
+
+The first two-pane editor must be reversible; a divider that can only create
+state leaves the user with a persistent layout accident.  Zed's pane group
+also treats pane creation and removal as workspace actions rather than hidden
+pointer-only behavior.
+
+Nimculus therefore exposes `Split Editor` and `Close Split` in the Window menu
+and accepts the same operations from the Command Palette.  Creating a split
+clones the active document's view into the secondary pane; closing it removes
+only the secondary view and geometry, never the shared document or the
+primary view.  Both operations rebuild native geometry, resynchronize the
+active text-input pane, and persist the resulting session immediately.
