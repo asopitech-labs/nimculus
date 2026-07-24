@@ -66,6 +66,7 @@ proc platformSetSecondaryEditorRect*(visible: bool, x, y, width, height: cdouble
 proc platformSetSecondaryEditorCursorByte*(byteOffset, line: uint32) {.importc: "nimculus_platform_set_secondary_editor_cursor_byte", cdecl.}
 proc platformSetSecondaryEditorSelection*(startByte, endByte: uint32) {.importc: "nimculus_platform_set_secondary_editor_selection", cdecl.}
 proc platformSetSecondaryEditorScrollLine*(line: uint32) {.importc: "nimculus_platform_set_secondary_editor_scroll_line", cdecl.}
+proc platformSetSecondaryEditorSoftWrap*(enabled: bool) {.importc: "nimculus_platform_set_secondary_editor_soft_wrap", cdecl.}
 proc platformSetEditorInputPane*(pane: uint32) {.importc: "nimculus_platform_set_editor_input_pane", cdecl.}
 proc platformEditorPaneAtPoint*(x, y: cdouble): uint32 {.importc: "nimculus_platform_editor_pane_at_point", cdecl.}
 proc platformSetEditorDirty*(dirty: bool) {.importc: "nimculus_platform_set_editor_dirty", cdecl.}

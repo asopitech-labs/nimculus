@@ -1595,6 +1595,7 @@ when defined(macosx):
     let location = document[].buffer.lineColumn(editorSession.secondaryView.cursor)
     let selection = editorSession.secondaryView.selectedRange()
     platformSetSecondaryEditorScrollLine(uint32(max(0, editorSession.secondaryView.scrollLine)))
+    platformSetSecondaryEditorSoftWrap(editorSession.secondaryView.softWrap)
     platformSetSecondaryEditorCursorByte(uint32(editorSession.secondaryView.cursor),
       uint32(max(0, location.line)))
     platformSetSecondaryEditorSelection(uint32(selection.startByte), uint32(selection.endByte))
@@ -2770,15 +2771,24 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     let value = name[9 .. ^1].strip
     try:
       let line = max(1, parseInt(value)) - 1
-      editorViewState.moveCursor(document[].buffer.byteOffsetAtLineColumn(line, 0))
+      let target = document[].buffer.byteOffsetAtLineColumn(line, 0)
+      if editorSession.split and editorSession.splitActivePane == 1:
+        editorSession.secondaryView.moveCursor(target)
+      else:
+        editorViewState.moveCursor(target)
       syncEditorCursor()
       refreshEditorSyntax()
     except ValueError:
       editorViewState.statusMessage = "Invalid line number"
   elif name == "toggleSoftWrap":
-    editorViewState.softWrap = not editorViewState.softWrap
-    editorViewState.statusMessage = if editorViewState.softWrap:
-      "Soft wrap enabled" else: "Soft wrap disabled"
+    if editorSession.split and editorSession.splitActivePane == 1:
+      editorSession.secondaryView.softWrap = not editorSession.secondaryView.softWrap
+      editorViewState.statusMessage = if editorSession.secondaryView.softWrap:
+        "Soft wrap enabled in secondary pane" else: "Soft wrap disabled in secondary pane"
+    else:
+      editorViewState.softWrap = not editorViewState.softWrap
+      editorViewState.statusMessage = if editorViewState.softWrap:
+        "Soft wrap enabled" else: "Soft wrap disabled"
     syncEditorCursor()
     refreshEditorSyntax()
     persistSession()
@@ -3188,8 +3198,12 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       return
     let matches = document[].search(query)
     if matches.len > 0:
-      editorViewState.selection.anchor = matches[0].startByte
-      editorViewState.selection.active = matches[0].endByte
+      if editorSession.split and editorSession.splitActivePane == 1:
+        editorSession.secondaryView.selection.anchor = matches[0].startByte
+        editorSession.secondaryView.selection.active = matches[0].endByte
+      else:
+        editorViewState.selection.anchor = matches[0].startByte
+        editorViewState.selection.active = matches[0].endByte
       editorViewState.statusMessage = "Found " & query
       syncEditorCursor()
       refreshEditorSyntax()

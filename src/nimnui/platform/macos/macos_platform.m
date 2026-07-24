@@ -36,6 +36,7 @@ static double g_secondary_editor_cursor[2] = {8.0, 12.0};
 static NSUInteger g_secondary_editor_scroll_line = 0;
 static NSUInteger g_secondary_editor_selection_start = 0;
 static NSUInteger g_secondary_editor_selection_end = 0;
+static BOOL g_secondary_editor_soft_wrap = NO;
 static NSUInteger g_editor_input_pane = 0;
 static NimculusPaintCommand *g_paint_commands = NULL;
 static uint32_t g_paint_count = 0;
@@ -1324,6 +1325,7 @@ static void rebuildSecondaryEditorTexture(id<MTLDevice> device) {
   NSUInteger previousScrollLine = g_editor_scroll_line;
   NSUInteger previousSelectionStart = g_editor_selection_start;
   NSUInteger previousSelectionEnd = g_editor_selection_end;
+  BOOL previousSoftWrap = g_editor_soft_wrap;
   BOOL previousGlyphRendering = g_glyph_rendering_available;
   id<MTLTexture> primaryTexture = [g_text_texture retain];
   memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
@@ -1331,6 +1333,7 @@ static void rebuildSecondaryEditorTexture(id<MTLDevice> device) {
   g_editor_scroll_line = g_secondary_editor_scroll_line;
   g_editor_selection_start = g_secondary_editor_selection_start;
   g_editor_selection_end = g_secondary_editor_selection_end;
+  g_editor_soft_wrap = g_secondary_editor_soft_wrap;
   g_glyph_rendering_available = NO;
   updateEditorTextTexture(device, g_editor_text, NO);
   [g_secondary_text_texture release];
@@ -1343,6 +1346,7 @@ static void rebuildSecondaryEditorTexture(id<MTLDevice> device) {
   g_editor_scroll_line = previousScrollLine;
   g_editor_selection_start = previousSelectionStart;
   g_editor_selection_end = previousSelectionEnd;
+  g_editor_soft_wrap = previousSoftWrap;
 }
 
 static void resetGlyphVertices(void) {
@@ -2585,11 +2589,14 @@ static void applyTerminalRuns(NSTextView *terminal) {
   double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
     g_editor_rect[2], g_editor_rect[3]};
   NSUInteger previousScrollLine = g_editor_scroll_line;
+  BOOL previousSoftWrap = g_editor_soft_wrap;
   memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
   g_editor_scroll_line = g_secondary_editor_scroll_line;
+  g_editor_soft_wrap = g_secondary_editor_soft_wrap;
   NSUInteger result = nimculus_platform_editor_utf16_offset_at_point(viewPoint.x, viewPoint.y);
   memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
   g_editor_scroll_line = previousScrollLine;
+  g_editor_soft_wrap = previousSoftWrap;
   return result;
 }
 - (CGFloat)baselineDeltaForCharacterAtIndex:(NSUInteger)index { return editorLineHeight(); }
@@ -4469,9 +4476,12 @@ void nimculus_platform_set_secondary_editor_cursor_byte(uint32_t byte_offset, ui
   NSUInteger utf16 = utf16OffsetForUTF8Bytes(lineText, localByte);
   NSUInteger documentOffset = editorLineUTF16Offset(lineIndex, lines);
   NSUInteger previousScrollLine = g_editor_scroll_line;
+  BOOL previousSoftWrap = g_editor_soft_wrap;
   g_editor_scroll_line = g_secondary_editor_scroll_line;
+  g_editor_soft_wrap = g_secondary_editor_soft_wrap;
   CGPoint point = editorPointForUTF16Offset(documentOffset + utf16);
   g_editor_scroll_line = previousScrollLine;
+  g_editor_soft_wrap = previousSoftWrap;
   g_secondary_editor_cursor[0] = point.x;
   g_secondary_editor_cursor[1] = point.y;
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
@@ -4494,6 +4504,12 @@ void nimculus_platform_set_secondary_editor_selection(uint32_t start_byte, uint3
 }
 void nimculus_platform_set_secondary_editor_scroll_line(uint32_t line) {
   g_secondary_editor_scroll_line = line;
+  if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
+  markSceneFullyDirty();
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+void nimculus_platform_set_secondary_editor_soft_wrap(bool enabled) {
+  g_secondary_editor_soft_wrap = enabled ? YES : NO;
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
