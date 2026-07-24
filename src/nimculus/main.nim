@@ -101,8 +101,11 @@ var demoSplitNode = NodeId(0)
 var demoScrollNode = NodeId(0)
 var demoSplitRatio = 0.5'f32
 var demoSplitDragging = false
+var demoSplitEnabled = false
+var demoSplitDirection = splitVertical
 var activePointerNode = NodeId(0)
 var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
+var demoSecondaryEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 when defined(macosx) or defined(windows):
   var appSettings: SettingsStore
   var editorLspSemanticTokens: seq[LspSemanticToken]
@@ -183,10 +186,30 @@ proc setupDemoUi() =
   let editorHeight = max(0'f32, viewportHeight - 208'f32)
   let editor = Rect(origin: Point(x: px(margin * 2 + outlineWidth), y: px(128)),
     size: Size(width: px(editorWidth), height: px(editorHeight)))
-  demoEditorBounds = editor
-  let splitBar = Rect(origin: Point(x: px(margin * 2 + outlineWidth + editorWidth * demoSplitRatio),
-      y: px(128)),
-    size: Size(width: px(2), height: px(editorHeight)))
+  var primaryEditor = editor
+  var secondaryEditor = Rect(size: Size(width: px(0), height: px(0)))
+  var splitBar = Rect(size: Size(width: px(0), height: px(0)))
+  if demoSplitEnabled:
+    if demoSplitDirection == splitVertical:
+      let primaryWidth = max(1'f32, editorWidth * demoSplitRatio - 1'f32)
+      let secondaryWidth = max(1'f32, editorWidth - primaryWidth - 2'f32)
+      primaryEditor.size.width = px(primaryWidth)
+      secondaryEditor = Rect(origin: Point(x: px(float32(editor.origin.x) + primaryWidth + 2'f32),
+          y: editor.origin.y), size: Size(width: px(secondaryWidth), height: editor.size.height))
+      splitBar = Rect(origin: Point(x: px(float32(editor.origin.x) + primaryWidth), y: editor.origin.y),
+        size: Size(width: px(2), height: editor.size.height))
+    else:
+      let primaryHeight = max(1'f32, editorHeight * demoSplitRatio - 1'f32)
+      let secondaryHeight = max(1'f32, editorHeight - primaryHeight - 2'f32)
+      primaryEditor.size.height = px(primaryHeight)
+      secondaryEditor = Rect(origin: Point(x: editor.origin.x,
+          y: px(float32(editor.origin.y) + primaryHeight + 2'f32)),
+        size: Size(width: editor.size.width, height: px(secondaryHeight)))
+      splitBar = Rect(origin: Point(x: editor.origin.x,
+          y: px(float32(editor.origin.y) + primaryHeight)),
+        size: Size(width: editor.size.width, height: px(2)))
+  demoEditorBounds = primaryEditor
+  demoSecondaryEditorBounds = secondaryEditor
   let scrollbar = Rect(origin: Point(x: px(margin * 2 + outlineWidth + editorWidth + 24), y: px(144)),
     size: Size(width: px(8), height: px(max(0'f32, editorHeight - 32'f32))))
   demoTree.node(button.node).bounds = toolbar
@@ -262,8 +285,12 @@ proc setupDemoUi() =
     platformSetPaintDirtyRegions(nil, 0)
   platformSetUiRectangle(float32(bounds.origin.x), float32(bounds.origin.y),
                          float32(bounds.size.width), float32(bounds.size.height))
-  platformSetEditorRect(float64(float32(editor.origin.x)), float64(float32(editor.origin.y)),
-                        float64(float32(editor.size.width)), float64(float32(editor.size.height)))
+  platformSetEditorRect(float64(float32(primaryEditor.origin.x)), float64(float32(primaryEditor.origin.y)),
+                        float64(float32(primaryEditor.size.width)), float64(float32(primaryEditor.size.height)))
+  when defined(macosx):
+    platformSetSecondaryEditorRect(demoSplitEnabled,
+      float64(float32(secondaryEditor.origin.x)), float64(float32(secondaryEditor.origin.y)),
+      float64(float32(secondaryEditor.size.width)), float64(float32(secondaryEditor.size.height)))
 
 proc receiveNativeCommand(command: cstring) {.cdecl.}
 proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.}
@@ -1251,6 +1278,8 @@ proc restoreSession() =
       discard
   editorSession.loadActiveView(editorViewState)
   demoSplitRatio = editorSession.effectiveSplitRatio
+  demoSplitEnabled = editorSession.split
+  demoSplitDirection = editorSession.splitDirection
 
 proc reloadWorkspaceSettings(root: string) =
   when defined(macosx) or defined(windows):
@@ -3155,7 +3184,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   else: hit
   when defined(macosx):
     let document = activeDocument()
-    let inEditor = demoEditorBounds.contains(point)
+    let inEditor = demoEditorBounds.contains(point) or demoSecondaryEditorBounds.contains(point)
     var splitPointerHandled = false
     if editorTerminalVisible and kind in {pointerDown, pointerMove, pointerUp, scroll} and
         handleTerminalPointer(kind, float32(event.x), uiY, event.button,
@@ -3176,6 +3205,10 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
         handleGitGutterClick(document, uiY, event.modifiers):
       return
     if kind == pointerDown and hit == demoSplitNode:
+      if not editorSession.split:
+        editorSession.splitEditor(splitVertical, demoSplitRatio)
+      demoSplitEnabled = true
+      demoSplitDirection = editorSession.splitDirection
       demoSplitDragging = true
       editorPointerDragging = false
       splitPointerHandled = true
@@ -3193,6 +3226,13 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       # pointer sample would create avoidable I/O and cache churn while dragging.
       persistSession()
       splitPointerHandled = true
+    elif document != nil and kind == pointerDown and demoSplitEnabled:
+      let pane = platformEditorPaneAtPoint(event.x, cdouble(uiY))
+      if pane <= 1'u32 and editorSession.activateSplitPane(int(pane)):
+        # Selection/IME routing follows in the dual-rendering slice.  Record
+        # focus now so a secondary-pane click cannot be interpreted as a
+        # primary-pane edit with incorrect coordinates.
+        splitPointerHandled = pane == 1'u32
     if kind == pointerDown and workspacePreviewMode == "quickOpen" and
         workspacePreviewEntries.len > 0:
       openWorkspaceEntryAtPoint(event.y)

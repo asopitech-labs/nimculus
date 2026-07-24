@@ -3593,3 +3593,17 @@ and exposes a half-open hit-test (`[origin, origin + size)`) that returns pane
 0, pane 1, or no pane. The native regression covers left/top inclusion and
 right-edge exclusion, including the divider gap. Drawing and editing the
 secondary pane remain the next required vertical slice.
+
+## M5-031: Start a split from the divider without misrouting secondary input
+
+The existing divider had no session effect, and its hit region could only
+adjust a global ratio. A real split must make that gesture create split state
+and must never send a secondary-pane coordinate through the primary Core Text
+hit-test while dual rendering is still incomplete.
+
+Dragging the divider now creates the vertical split state on first use, lays
+out primary and secondary rectangles from the persisted ratio, and registers
+both with the macOS platform. A click in the secondary rectangle activates its
+pane state but suppresses primary-editor editing until the secondary renderer
+and pane-local text input path are available. This preserves user data while
+the remaining rendering slice is implemented.
