@@ -398,7 +398,7 @@ Gitキャンセルは検証済み専用process groupへSIGTERM後1秒のbounded 
 
 **実装範囲：**
 
-Task cancelとPTY closeはSIGTERM後のbounded waitを経てkill/reapへフォールバックし、stdin待ち・shell停止不能時もCocoa終了経路をブロックしない。macOS PTYは専用process groupへshellとその子孫を収め、close時はgroup全体を終了するため、pipelineがアプリ終了後に残らない。shellの自然終了時も最終出力をdrainした後にmasterを解放し、idle pollingに死んだセッションを残さない。Taskも検証済み専用process groupをTERM/KILLするため、cancel後にbuild子プロセスを残さない。
+Task cancelとPTY closeはSIGTERM後のbounded waitを経てkill/reapへフォールバックし、stdin待ち・shell停止不能時もCocoa終了経路をブロックしない。macOS PTYは専用process groupへshellとその子孫を収め、close時はgroup全体を終了するため、pipelineがアプリ終了後に残らない。shellの自然終了時も最終出力をdrainした後にmasterを解放し、idle pollingに死んだセッションを残さない。Taskも検証済み専用process groupをTERM/KILLするため、cancel後にbuild子プロセスを残さない。ユーザーがquitを確定した時点では、Task、Git diff/status/action、LSP、更新download、全PTYを単一のshutdown経路で停止する。取消した未保存確認はこのshutdownを呼ばず、進行中の作業を維持する。
 
 macOS PTY outputはCocoa idleごとにEAGAINまで読み、1回64 KiBの上限を設ける。短いnon-blocking readを「出力終端」と扱わないため、連続したbuild outputを複数frameへ不必要に遅延させない。
 

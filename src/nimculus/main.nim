@@ -1073,6 +1073,26 @@ when defined(macosx):
     editorTerminal = nil
     editorTerminalIndex = -1
 
+  proc shutdownNativeServices() =
+    ## Run only after the macOS close/quit decision has been accepted. The
+    ## app owns every process it started, so do not rely on process exit to
+    ## clean up task children, Git hooks, LSP workers, or an update download.
+    cancelNativeUpdateDownload()
+    if editorGitDiffJob != nil and not editorGitDiffJob.done:
+      editorGitDiffJob.cancel()
+    editorGitDiffJob = nil
+    if editorGitStatusJob != nil and not editorGitStatusJob.done:
+      editorGitStatusJob.cancel()
+    editorGitStatusJob = nil
+    cancelNativeGitAction()
+    if editorTaskJob != nil and not editorTaskJob.done:
+      editorTaskJob.cancel()
+    editorTaskJob = nil
+    if lspBridge != nil:
+      lspBridge.stop()
+    lspBridge = nil
+    closeNativeTerminals()
+
   proc resizeNativeTerminals() =
     if editorTerminals.len == 0: return
     let bounds = terminalOverlayBounds()
@@ -1981,8 +2001,8 @@ when defined(macosx):
     if editorSession.hasDirtyTabs():
       platformSetCloseDecision(false)
       return
+    shutdownNativeServices()
     applyPendingUpdateAtQuit()
-    closeNativeTerminals()
     platformSetCloseDecision(true)
     # applicationShouldTerminate already deferred the first quit request
     # while an untitled document's Save Panel was open.
@@ -2293,12 +2313,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     resetPointerInteractions()
   elif name == "quitRequest":
     when defined(macosx):
-      if editorUpdateJob != nil and not editorUpdateJob.done:
-        cancelNativeUpdateDownload()
       if editorSession.hasDirtyTabs(): platformRequestQuit()
       else:
+        shutdownNativeServices()
         applyPendingUpdateAtQuit()
-        closeNativeTerminals()
         platformConfirmQuit()
     when defined(windows):
       if editorSession.hasDirtyTabs():
@@ -2337,8 +2355,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       except CatchableError:
         success = false
     if success and not editorSession.hasDirtyTabs():
+      when defined(macosx): shutdownNativeServices()
       when defined(macosx): applyPendingUpdateAtQuit()
-      when defined(macosx): closeNativeTerminals()
       when defined(windows): closeWindowsTerminal()
     platformSetCloseDecision(success and not editorSession.hasDirtyTabs())
   elif name == "savePanelCancelled":
@@ -2354,8 +2372,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     discardDirtyOnExit = true
     if recoveryFilePath.len > 0 and fileExists(recoveryFilePath):
       removeFile(recoveryFilePath)
+    when defined(macosx): shutdownNativeServices()
     when defined(macosx): applyPendingUpdateAtQuit()
-    when defined(macosx): closeNativeTerminals()
     when defined(windows): closeWindowsTerminal()
     platformSetCloseDecision(true)
   elif name == "closeTabRequest":

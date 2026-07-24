@@ -3353,3 +3353,18 @@ resuming M13. Running the Windows workflow on every main push contradicts that
 order and creates Windows trial-and-error work without advancing the active
 target. The workflow is therefore manual-dispatch only until the documented
 macOS completion gates allow the Windows milestone to resume.
+
+## M10-012: Stop every macOS-owned service after quit is accepted
+
+The Cocoa quit sheet can be cancelled, so process cleanup must happen only
+after the user has accepted quit (or after Save All succeeds). Previously that
+path closed PTYs but left the separately owned Task, Git, LSP, and update
+download lifecycles to process termination. Their process groups reduce the
+damage, but relying on application exit leaves a window where helpers can
+outlive the UI.
+
+`shutdownNativeServices` now cancels active update, diff/status/action Git
+jobs, and task jobs; stops the LSP bridge; and then closes all PTYs. Every
+accepted macOS quit route invokes it before applying an already-verified update,
+so no editor-owned helper remains during DMG installation. A cancelled
+unsaved-changes sheet does not cancel a pending update or other active work.
