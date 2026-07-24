@@ -80,6 +80,14 @@ suite "macOS platform contract":
   test "native retained scene rebuilds fully for a new target":
     check platformValidateDamageRebuild()
 
+  test "native Metal scroll viewport clip limits 2x backing pixels":
+    if platformValidateScrollClipPixels():
+      check true
+    elif nativeGuiValidationRequired():
+      check false
+    else:
+      echo "  [SKIP] native Metal scroll clip pixels (no Metal device in this session)"
+
   test "native retained scene replaces its Metal texture across size changes":
     if platformValidateSceneTextureReplacement():
       check true

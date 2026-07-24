@@ -10,6 +10,7 @@ proc platformValidateNative*(): bool {.importc: "nimculus_platform_validate_nati
 proc platformValidateWindowLifecycle*(): bool {.importc: "nimculus_platform_validate_window_lifecycle", cdecl.}
 proc platformValidateEditorPaneGeometry*(): bool {.importc: "nimculus_platform_validate_editor_pane_geometry", cdecl.}
 proc platformValidateDamageRebuild*(): bool {.importc: "nimculus_platform_validate_damage_rebuild", cdecl.}
+proc platformValidateScrollClipPixels*(): bool {.importc: "nimculus_platform_validate_scroll_clip_pixels", cdecl.}
 proc platformValidateSceneTextureReplacement*(): bool {.importc: "nimculus_platform_validate_scene_texture_replacement", cdecl.}
 proc platformValidateMainMenu*(): bool {.importc: "nimculus_platform_validate_main_menu", cdecl.}
 proc platformValidateShortcutDispatch*(): bool {.importc: "nimculus_platform_validate_shortcut_dispatch", cdecl.}

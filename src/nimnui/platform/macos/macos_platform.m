@@ -3581,6 +3581,77 @@ bool nimculus_platform_validate_damage_rebuild(void) {
     sceneNeedsFullRebuild(NO, 0);
 }
 
+bool nimculus_platform_validate_scroll_clip_pixels(void) {
+  // GPUI (Zed) carries the current content mask through each draw and snaps it
+  // to backing pixels before submission. Exercise the equivalent Metal
+  // scissor boundary directly at 2x: a full logical rectangle must only reach
+  // the physical pixels in its scroll viewport clip.
+  @autoreleasepool {
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    if (!device) return false;
+    id<MTLCommandQueue> queue = [device newCommandQueue];
+    NSError *error = nil;
+    NSString *source = @"#include <metal_stdlib>\nusing namespace metal;\n"
+      "struct V { float4 pos [[position]]; float4 color; };\n"
+      "struct U { float opacity; };\n"
+      "vertex V vs(uint id [[vertex_id]], constant float4 *v [[buffer(0)]], "
+      "constant U& u [[buffer(1)]]) { V o; o.pos=v[id*2]; o.color=v[id*2+1]*u.opacity; return o; }\n"
+      "fragment float4 fs(V in [[stage_in]]) { return in.color; }";
+    id<MTLLibrary> library = [device newLibraryWithSource:source options:nil error:&error];
+    MTLRenderPipelineDescriptor *pipelineDescriptor = [MTLRenderPipelineDescriptor new];
+    pipelineDescriptor.vertexFunction = [library newFunctionWithName:@"vs"];
+    pipelineDescriptor.fragmentFunction = [library newFunctionWithName:@"fs"];
+    pipelineDescriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+    id<MTLRenderPipelineState> pipeline =
+      [device newRenderPipelineStateWithDescriptor:pipelineDescriptor error:&error];
+    [pipelineDescriptor.vertexFunction release];
+    [pipelineDescriptor.fragmentFunction release];
+    [pipelineDescriptor release];
+
+    MTLTextureDescriptor *textureDescriptor =
+      [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                          width:32 height:32 mipmapped:NO];
+    textureDescriptor.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+    textureDescriptor.storageMode = MTLStorageModeShared;
+    id<MTLTexture> texture = [device newTextureWithDescriptor:textureDescriptor];
+    BOOL rendered = queue && library && pipeline && texture;
+    if (rendered) {
+      MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
+      pass.colorAttachments[0].texture = texture;
+      pass.colorAttachments[0].loadAction = MTLLoadActionClear;
+      pass.colorAttachments[0].storeAction = MTLStoreActionStore;
+      pass.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
+      id<MTLCommandBuffer> command = [queue commandBuffer];
+      id<MTLRenderCommandEncoder> encoder = [command renderCommandEncoderWithDescriptor:pass];
+      [encoder setRenderPipelineState:pipeline];
+      CGSize logicalSize = CGSizeMake(16.0, 16.0);
+      CGSize drawableSize = CGSizeMake(32.0, 32.0);
+      NimculusPaintRegion viewport = {4.0f, 4.0f, 4.0f, 4.0f};
+      setScissorForRegion(encoder, viewport, logicalSize, drawableSize);
+      drawColoredRectangle(encoder, device, logicalSize, 0.0, 0.0, 16.0, 16.0,
+                           1.0f, 0.0f, 0.0f, 1.0f);
+      [encoder endEncoding];
+      [command commit];
+      [command waitUntilCompleted];
+      uint8_t pixels[32 * 32 * 4] = {0};
+      [texture getBytes:pixels bytesPerRow:32 * 4 fromRegion:MTLRegionMake2D(0, 0, 32, 32)
+             mipmapLevel:0];
+      const NSUInteger inside = ((NSUInteger)20 * 32 + 10) * 4;
+      const NSUInteger outsideLeft = ((NSUInteger)20 * 32 + 7) * 4;
+      const NSUInteger outsideTop = ((NSUInteger)15 * 32 + 10) * 4;
+      // BGRA8: the viewport is x=[8,16), y=[16,24) after 2x conversion.
+      rendered = command.status == MTLCommandBufferStatusCompleted &&
+        pixels[inside + 2] == 255 && pixels[inside + 1] == 0 &&
+        pixels[outsideLeft + 2] == 0 && pixels[outsideTop + 2] == 0;
+    }
+    [texture release];
+    [pipeline release];
+    [library release];
+    [queue release];
+    return rendered;
+  }
+}
+
 bool nimculus_platform_validate_scene_texture_replacement(void) {
   BOOL valid = NO;
   @autoreleasepool {

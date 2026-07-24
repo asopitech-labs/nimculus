@@ -1,5 +1,17 @@
 # Design Decisions
 
+## M2-014: Verify viewport clipping at the Metal backing-pixel boundary
+
+Zed intersects every nested content mask before it submits a primitive and
+snaps that mask to backing pixels. Nimculus already converts the `PaintList`
+clip (and partial repaint's `dirty ∩ clip`) into a Metal scissor rectangle.
+The macOS platform contract now renders a full logical rectangle into a 2x
+offscreen Metal target and reads the pixels back: only the intended scroll
+viewport may be red. This covers the coordinate inversion and Retina scale at
+the native rendering boundary without relying on an unchecked visual
+inspection. Interactive scrolling in a real GUI remains a separate roadmap
+acceptance condition.
+
 ## M0-008: Keep Nimble build outputs bounded and explicitly cleanable
 
 Zed keeps generated build state separate from source and reference trees and
