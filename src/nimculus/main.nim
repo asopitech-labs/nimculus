@@ -1076,7 +1076,14 @@ when defined(macosx):
   proc shutdownNativeServices() =
     ## Run only after the macOS close/quit decision has been accepted. The
     ## app owns every process it started, so do not rely on process exit to
-    ## clean up task children, Git hooks, LSP workers, or an update download.
+    ## clean up task children, Git hooks, LSP workers, an update download, or
+    ## workspace watcher callbacks.
+    if workspaceSearchJob != nil: workspaceSearchJob.cancelSearch()
+    workspaceSearchJob = nil
+    if workspaceQuickOpenJob != nil: workspaceQuickOpenJob.cancelFuzzySearch()
+    workspaceQuickOpenJob = nil
+    if activeWorkspace != nil: activeWorkspace.stopWatching()
+    activeWorkspace = nil
     cancelNativeUpdateDownload()
     if editorGitDiffJob != nil and not editorGitDiffJob.done:
       editorGitDiffJob.cancel()

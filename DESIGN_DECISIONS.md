@@ -3375,3 +3375,8 @@ block if a failed Language Server no longer drains stdin. It stops the verified
 server process group directly and drops bridge state. The macOS regression test
 uses an unresponsive shell server with a background child and verifies the
 whole group is gone.
+
+The same accepted-quit boundary cancels incremental workspace/Quick Open jobs
+and stops every FSEvents watcher before dropping the active workspace. Workspace
+replacement already used this order; applying it to termination prevents an
+asynchronous watcher callback from observing partially released editor state.

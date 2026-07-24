@@ -14,6 +14,17 @@ suite "M6 workspace":
     test "FSEvents loss flags request a root rescan":
       check validateWorkspaceWatcherRescanFlags()
 
+    test "FSEvents watcher can stop before its workspace is released":
+      let root = getTempDir() / "nimculus-m6-watcher-stop"
+      if dirExists(root): removeDir(root)
+      createDir(root)
+      defer: removeDir(root)
+      let workspace = openWorkspace(root)
+      workspace.startWatching()
+      check workspace.isWatching
+      workspace.stopWatching()
+      check not workspace.isWatching
+
   test "lazy tree honors gitignore and enumerates files":
     let root = getTempDir() / "nimculus-m6-workspace"
     createDir(root)
