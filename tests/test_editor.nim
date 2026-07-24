@@ -152,14 +152,14 @@ suite "M4 editor buffer":
 
 suite "M5 editor services":
   test "open save search replace and external change":
-    let path = getTempDir() / "nimculus-m5-test.txt"
-    writeFile(path, "one\r\ntwo\r\none")
+    let path = getTempDir() / "nimculus-m5-日本語🙂.txt"
+    writeFile(path, "one\r\n日本語🙂\r\none")
     var document = openDocument(path)
     check document.lineEnding == crlf
     check document.search("one").len == 2
     check document.replaceAll("one", "1") == 2
     document.save()
-    check readFile(path) == "1\r\ntwo\r\n1"
+    check readFile(path) == "1\r\n日本語🙂\r\n1"
     for candidate in walkFiles(path & ".tmp." & $getCurrentProcessId() & ".*"):
       check not fileExists(candidate)
     when defined(posix):

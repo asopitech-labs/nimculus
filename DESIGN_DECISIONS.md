@@ -3114,3 +3114,9 @@ The benchmark forwards that optional path only after validating that it
 exists. This proves the actual bundled application reaches a rendered Metal
 frame after CLI open-path routing, rather than proving only the pure path
 filter.
+
+The normal M5 open/search/replace/save integration test also uses a Japanese
+and emoji-named path and keeps Japanese/emoji content through CRLF conversion,
+atomic replacement, and existing-permission preservation. This covers the
+same storage boundary used by a completed Save Panel callback without
+pretending that an Accessibility-driven panel click was performed.
