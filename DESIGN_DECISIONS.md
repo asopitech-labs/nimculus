@@ -3628,3 +3628,19 @@ composition still target the primary input client until focus can atomically
 switch the full text-input bridge, including the candidate rectangle.  This
 keeps the remaining gap explicit instead of presenting partial input routing
 as a finished split editor.
+
+## M5-033: Switch one NSTextInputClient to the focused split pane
+
+AppKit owns one first responder for the window, so creating a second native
+text-input client would split focus and IME state unnecessarily.  Instead,
+Nimculus keeps the Metal view as the sole `NSTextInputClient` and explicitly
+selects its input pane when `PaneGroup` geometry activates a split pane.
+
+The selected pane supplies the UTF-16 selection for `setMarkedText:`, the
+viewport and rectangle used by `firstRectForCharacterRange:`, and the
+coordinate conversion used by `characterIndexForPoint:`.  Marked-text
+rendering rebuilds only the selected pane's Core Text texture.  Nim routes
+committed text, selection callbacks, navigation, deletion, clipboard, and
+undo/redo selectors through that pane's `EditorViewState`; the document buffer
+remains deliberately shared.  This follows Zed's focused-editor input model
+without duplicating Cocoa responders.

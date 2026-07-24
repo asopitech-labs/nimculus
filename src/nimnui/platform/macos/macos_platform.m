@@ -36,6 +36,7 @@ static double g_secondary_editor_cursor[2] = {8.0, 12.0};
 static NSUInteger g_secondary_editor_scroll_line = 0;
 static NSUInteger g_secondary_editor_selection_start = 0;
 static NSUInteger g_secondary_editor_selection_end = 0;
+static NSUInteger g_editor_input_pane = 0;
 static NimculusPaintCommand *g_paint_commands = NULL;
 static uint32_t g_paint_count = 0;
 static NimculusPaintRegion *g_paint_dirty_regions = NULL;
@@ -2473,8 +2474,11 @@ static void applyTerminalRuns(NSTextView *terminal) {
   // replacement range to its InputHandler instead of assuming it equals the
   // current selection; do the same at the Cocoa/Nim boundary.
   NSRange effectiveReplacement = replacementRange.location == NSNotFound
-    ? NSMakeRange(g_editor_selection_start,
-                  g_editor_selection_end - g_editor_selection_start)
+    ? (g_editor_input_pane == 1
+        ? NSMakeRange(g_secondary_editor_selection_start,
+                      g_secondary_editor_selection_end - g_secondary_editor_selection_start)
+        : NSMakeRange(g_editor_selection_start,
+                      g_editor_selection_end - g_editor_selection_start))
     : replacementRange;
   NSUInteger textLength = g_editor_text.length;
   NSRange boundedReplacement = boundedDocumentRange(effectiveReplacement, textLength);
@@ -2558,9 +2562,13 @@ static void applyTerminalRuns(NSTextView *terminal) {
   // The editor keeps cursor Y in top-origin logical coordinates, while NSView
   // uses a bottom-origin coordinate system for this protocol callback.
   CGFloat lineHeight = editorLineHeight();
+  double *rect = g_editor_input_pane == 1 ? g_secondary_editor_rect : g_editor_rect;
+  NSUInteger previousScrollLine = g_editor_scroll_line;
+  if (g_editor_input_pane == 1) g_editor_scroll_line = g_secondary_editor_scroll_line;
   CGPoint logical = editorPointForUTF16Offset(start);
-  CGFloat viewY = self.bounds.size.height - g_editor_rect[1] - logical.y - lineHeight;
-  NSRect cursor = NSMakeRect(g_editor_rect[0] + logical.x, MAX(0.0, viewY), 0, lineHeight);
+  g_editor_scroll_line = previousScrollLine;
+  CGFloat viewY = self.bounds.size.height - rect[1] - logical.y - lineHeight;
+  NSRect cursor = NSMakeRect(rect[0] + logical.x, MAX(0.0, viewY), 0, lineHeight);
   return [self.window convertRectToScreen:[self convertRect:cursor toView:nil]];
 }
 - (NSUInteger)characterIndexForPoint:(NSPoint)point {
@@ -2571,7 +2579,18 @@ static void applyTerminalRuns(NSTextView *terminal) {
   // in screen_point_to_gpui_point).
   NSPoint windowPoint = self.window ? [self.window convertScreenToBase:point] : point;
   NSPoint viewPoint = [self convertPoint:windowPoint fromView:nil];
-  return nimculus_platform_editor_utf16_offset_at_point(viewPoint.x, viewPoint.y);
+  if (g_editor_input_pane != 1) {
+    return nimculus_platform_editor_utf16_offset_at_point(viewPoint.x, viewPoint.y);
+  }
+  double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
+    g_editor_rect[2], g_editor_rect[3]};
+  NSUInteger previousScrollLine = g_editor_scroll_line;
+  memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
+  g_editor_scroll_line = g_secondary_editor_scroll_line;
+  NSUInteger result = nimculus_platform_editor_utf16_offset_at_point(viewPoint.x, viewPoint.y);
+  memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
+  g_editor_scroll_line = previousScrollLine;
+  return result;
 }
 - (CGFloat)baselineDeltaForCharacterAtIndex:(NSUInteger)index { return editorLineHeight(); }
 - (BOOL)drawsVerticallyForCharacterAtIndex:(NSUInteger)index { return NO; }
@@ -3474,6 +3493,7 @@ bool nimculus_platform_validate_editor_pane_geometry(void) {
   double previousSecondary[4] = {g_secondary_editor_rect[0], g_secondary_editor_rect[1],
     g_secondary_editor_rect[2], g_secondary_editor_rect[3]};
   BOOL previousVisible = g_secondary_editor_visible;
+  NSUInteger previousInputPane = g_editor_input_pane;
   NSString *previousText = [g_editor_text retain];
   NSUInteger previousPrimaryScroll = g_editor_scroll_line;
   NSUInteger previousSecondaryScroll = g_secondary_editor_scroll_line;
@@ -3483,14 +3503,17 @@ bool nimculus_platform_validate_editor_pane_geometry(void) {
   nimculus_platform_set_editor_text(sample, (uint32_t)strlen(sample));
   nimculus_platform_set_editor_scroll_line(0);
   nimculus_platform_set_secondary_editor_scroll_line(2);
+  nimculus_platform_set_editor_input_pane(1);
   BOOL valid = nimculus_platform_editor_pane_at_point(40.0, 80.0) == 0 &&
     nimculus_platform_editor_pane_at_point(340.0, 90.0) == UINT32_MAX &&
     nimculus_platform_editor_pane_at_point(348.0, 80.0) == 1 &&
     nimculus_platform_editor_pane_at_point(648.0, 80.0) == UINT32_MAX &&
-    nimculus_platform_secondary_editor_byte_offset_at_point(356.0, 556.0) == 9;
+    nimculus_platform_secondary_editor_byte_offset_at_point(356.0, 556.0) == 9 &&
+    g_editor_input_pane == 1;
   memcpy(g_editor_rect, previousPrimary, sizeof(previousPrimary));
   memcpy(g_secondary_editor_rect, previousSecondary, sizeof(previousSecondary));
   g_secondary_editor_visible = previousVisible;
+  g_editor_input_pane = previousInputPane;
   nimculus_platform_set_editor_text(previousText.UTF8String, (uint32_t)[previousText lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
   g_editor_scroll_line = previousPrimaryScroll;
   g_secondary_editor_scroll_line = previousSecondaryScroll;
@@ -4441,6 +4464,11 @@ void nimculus_platform_set_secondary_editor_selection(uint32_t start_byte, uint3
   NSUInteger end = utf16OffsetForUTF8Bytes(g_editor_text ?: @"", end_byte);
   g_secondary_editor_selection_start = MIN(start, end);
   g_secondary_editor_selection_end = MAX(start, end);
+  if (g_editor_input_pane == 1 && g_active_view) {
+    NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+    view.selectedTextRange = NSMakeRange(g_secondary_editor_selection_start,
+      g_secondary_editor_selection_end - g_secondary_editor_selection_start);
+  }
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
@@ -4450,6 +4478,19 @@ void nimculus_platform_set_secondary_editor_scroll_line(uint32_t line) {
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+void nimculus_platform_set_editor_input_pane(uint32_t pane) {
+  g_editor_input_pane = pane == 1 && g_secondary_editor_visible ? 1 : 0;
+  if (g_active_view) {
+    NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+    NSUInteger start = g_editor_input_pane == 1 ? g_secondary_editor_selection_start
+      : g_editor_selection_start;
+    NSUInteger end = g_editor_input_pane == 1 ? g_secondary_editor_selection_end
+      : g_editor_selection_end;
+    view.selectedTextRange = NSMakeRange(start, end - start);
+  }
+  NSTextInputContext *inputContext = [NSTextInputContext currentInputContext];
+  if (inputContext) [inputContext invalidateCharacterCoordinates];
 }
 uint32_t nimculus_platform_editor_pane_at_point(double x, double y) {
   if (editorRectContains(g_editor_rect, x, y)) return 0;
@@ -4656,7 +4697,7 @@ void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_by
   NSUInteger end = utf16OffsetForUTF8Bytes(g_editor_text ?: @"", end_byte);
   g_editor_selection_start = MIN(start, end);
   g_editor_selection_end = MAX(start, end);
-  if (g_active_view) {
+  if (g_editor_input_pane == 0 && g_active_view) {
     NimculusMetalView *view = (NimculusMetalView *)g_active_view;
     view.selectedTextRange = NSMakeRange(g_editor_selection_start,
       g_editor_selection_end - g_editor_selection_start);
@@ -4893,7 +4934,10 @@ void nimculus_platform_set_editor_composition(const char *utf8) {
     view.markedTextRange = NSMakeRange(NSNotFound, 0);
   }
   markSceneFullyDirty();
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  if (g_queue) {
+    if (g_editor_input_pane == 1) rebuildSecondaryEditorTexture(g_queue.device);
+    else updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  }
   if (g_active_view) [g_active_view drawFrame];
 }
 void nimculus_platform_clear_editor_composition(void) {
@@ -4904,7 +4948,10 @@ void nimculus_platform_clear_editor_composition(void) {
     view.markedTextRange = NSMakeRange(NSNotFound, 0);
   }
   markSceneFullyDirty();
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  if (g_queue) {
+    if (g_editor_input_pane == 1) rebuildSecondaryEditorTexture(g_queue.device);
+    else updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  }
   if (g_active_view) [g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans, uint32_t count) {

@@ -1540,6 +1540,7 @@ proc syncEditorCursor() =
       else: editorViewState.statusMessage
     platformSetEditorStatus(status.cstring)
     syncSecondaryEditorView()
+    platformSetEditorInputPane(uint32(if editorSession.split: editorSession.splitActivePane else: 0))
   elif defined(windows):
     let document = activeDocument()
     if document != nil:
@@ -2044,10 +2045,14 @@ proc receiveNativeTextValue(value: string, composing: bool) =
   if not composing and value.len > 0:
     let document = activeDocument()
     if document != nil:
-      let selected = editorViewState.selectedRange()
+      let selected = if editorSession.split and editorSession.splitActivePane == 1:
+        editorSession.secondaryView.selectedRange() else: editorViewState.selectedRange()
       document[].buffer.edit(Edit(startByte: selected.startByte,
         endByte: selected.endByte, text: value))
-      editorViewState.moveCursor(selected.startByte + value.len)
+      if editorSession.split and editorSession.splitActivePane == 1:
+        editorSession.secondaryView.moveCursor(selected.startByte + value.len)
+      else:
+        editorViewState.moveCursor(selected.startByte + value.len)
       syncEditorCursor()
       refreshEditorSyntax()
       when defined(macosx):
@@ -2061,8 +2066,12 @@ proc receiveNativeSelection(startByte, endByte: uint32) {.cdecl.} =
   if document == nil: return
   let text = document[].buffer.toString()
   let length = text.len
-  editorViewState.selection.anchor = floorGraphemeBoundary(text, min(int(startByte), length))
-  editorViewState.selection.active = floorGraphemeBoundary(text, min(int(endByte), length))
+  if editorSession.split and editorSession.splitActivePane == 1:
+    editorSession.secondaryView.selection.anchor = floorGraphemeBoundary(text, min(int(startByte), length))
+    editorSession.secondaryView.selection.active = floorGraphemeBoundary(text, min(int(endByte), length))
+  else:
+    editorViewState.selection.anchor = floorGraphemeBoundary(text, min(int(startByte), length))
+    editorViewState.selection.active = floorGraphemeBoundary(text, min(int(endByte), length))
   syncEditorCursor()
 
 when defined(macosx):
@@ -2286,6 +2295,77 @@ proc lineEndOffset(document: ptr FileDocument, line: int): int =
   if document == nil or document[].buffer.lineStarts.len == 0: return 0
   document[].buffer.lineEndByteOffset(line)
 
+proc handleSecondaryEditorCommand(name: string, document: ptr FileDocument): bool =
+  ## Cocoa has one NSTextInputClient, while a split owns two view states. Once
+  ## the platform selected pane 1, route every editing selector through that
+  ## view before mutating the shared document buffer.
+  if document == nil or not editorSession.split or editorSession.splitActivePane != 1:
+    return false
+  template view: untyped = editorSession.secondaryView
+  let text = document[].buffer.toString()
+  case name
+  of "moveLeft": view.moveCursor(previousBoundary(text, view.cursor))
+  of "selectLeft": view.moveCursor(previousBoundary(text, view.cursor), selecting = true)
+  of "moveRight": view.moveCursor(nextBoundary(text, view.cursor))
+  of "selectRight": view.moveCursor(nextBoundary(text, view.cursor), selecting = true)
+  of "moveUp", "moveDown", "selectUp", "selectDown":
+    let location = document[].buffer.lineColumn(view.cursor)
+    let delta = if name in ["moveUp", "selectUp"]: -1 else: 1
+    let targetLine = max(0, min(document[].buffer.lineStarts.high, location.line + delta))
+    view.moveCursor(document[].buffer.byteOffsetAtLineColumn(targetLine, location.column),
+      selecting = name.startsWith("select"))
+  of "moveToBeginningOfLine", "selectToBeginningOfLine":
+    let location = document[].buffer.lineColumn(view.cursor)
+    view.moveCursor(document[].buffer.lineStarts[location.line], selecting = name.startsWith("select"))
+  of "moveToEndOfLine", "selectToEndOfLine":
+    let location = document[].buffer.lineColumn(view.cursor)
+    view.moveCursor(lineEndOffset(document, location.line), selecting = name.startsWith("select"))
+  of "moveToBeginningOfDocument": view.moveCursor(0)
+  of "moveToEndOfDocument": view.moveCursor(text.len)
+  of "moveWordLeft": view.moveCursor(previousWordBoundary(text, view.cursor))
+  of "selectWordLeft": view.moveCursor(previousWordBoundary(text, view.cursor), selecting = true)
+  of "moveWordRight": view.moveCursor(nextWordBoundary(text, view.cursor))
+  of "selectWordRight": view.moveCursor(nextWordBoundary(text, view.cursor), selecting = true)
+  of "deleteBackward", "deleteForward", "deleteWordBackward":
+    let selected = view.selectedRange()
+    var start = selected.startByte
+    var finish = selected.endByte
+    if start == finish:
+      if name == "deleteWordBackward": start = previousWordBoundary(text, start)
+      elif name == "deleteBackward": start = previousBoundary(text, start)
+      else: finish = nextBoundary(text, finish)
+    if finish > start:
+      document[].buffer.edit(Edit(startByte: start, endByte: finish, text: ""))
+      view.moveCursor(start)
+      refreshEditorSyntax()
+  of "undo":
+    if document[].buffer.undo():
+      view.moveCursor(min(view.cursor, document[].buffer.toString().len))
+      refreshEditorSyntax()
+  of "redo":
+    if document[].buffer.redo():
+      view.moveCursor(min(view.cursor, document[].buffer.toString().len))
+      refreshEditorSyntax()
+  of "copy":
+    let selected = view.selectedRange()
+    let copied = document[].buffer.substring(selected.startByte, selected.endByte)
+    clipboardSet(copied.cstring, uint32(copied.len))
+  of "cut":
+    let selected = view.selectedRange()
+    let copied = document[].buffer.substring(selected.startByte, selected.endByte)
+    clipboardSet(copied.cstring, uint32(copied.len))
+    if selected.endByte > selected.startByte:
+      document[].buffer.edit(Edit(startByte: selected.startByte, endByte: selected.endByte, text: ""))
+      view.moveCursor(selected.startByte)
+      refreshEditorSyntax()
+  of "paste": receiveNativeTextValue(clipboardGet(), false)
+  of "selectAll":
+    view.selection.anchor = 0
+    view.selection.active = text.len
+  else: return false
+  syncEditorCursor()
+  true
+
 proc receiveNativeCommand(command: cstring) {.cdecl.} =
   if command == nil: return
   let name = $command
@@ -2371,6 +2451,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
                   "selectAll", "paste"]:
         return
   let document = activeDocument()
+  when defined(macosx):
+    if handleSecondaryEditorCommand(name, document): return
   if name == "workspaceSearchTick":
     pollWorkspaceSearch()
   elif name == "cancelWorkspaceSearch":
