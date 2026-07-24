@@ -7,10 +7,10 @@ snaps that mask to backing pixels. Nimculus already converts the `PaintList`
 clip (and partial repaint's `dirty ∩ clip`) into a Metal scissor rectangle.
 The macOS platform contract now renders a full logical rectangle into a 2x
 offscreen Metal target and reads the pixels back: only the intended scroll
-viewport may be red. This covers the coordinate inversion and Retina scale at
-the native rendering boundary without relying on an unchecked visual
-inspection. Interactive scrolling in a real GUI remains a separate roadmap
-acceptance condition.
+viewport may be red, and a partial repaint may reach only `dirty ∩ viewport`.
+This covers the coordinate inversion and Retina scale at the native rendering
+boundary without relying on an unchecked visual inspection. Interactive
+scrolling in a real GUI remains a separate roadmap acceptance condition.
 
 ## M0-008: Keep Nimble build outputs bounded and explicitly cleanable
 

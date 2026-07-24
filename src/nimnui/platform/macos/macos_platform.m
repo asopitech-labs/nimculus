@@ -3643,6 +3643,39 @@ bool nimculus_platform_validate_scroll_clip_pixels(void) {
       rendered = command.status == MTLCommandBufferStatusCompleted &&
         pixels[inside + 2] == 255 && pixels[inside + 1] == 0 &&
         pixels[outsideLeft + 2] == 0 && pixels[outsideTop + 2] == 0;
+      if (rendered) {
+        // Partial repaint uses the same path as the retained scene: only
+        // dirty ∩ viewport may be submitted to the scissor. This ensures a
+        // dirty region cannot repaint content outside its scroll container.
+        NimculusPaintRegion dirty = {6.0f, 2.0f, 4.0f, 6.0f};
+        NimculusPaintRegion visible = intersectPaintRegions(dirty, viewport);
+        MTLRenderPassDescriptor *partialPass = [MTLRenderPassDescriptor renderPassDescriptor];
+        partialPass.colorAttachments[0].texture = texture;
+        partialPass.colorAttachments[0].loadAction = MTLLoadActionClear;
+        partialPass.colorAttachments[0].storeAction = MTLStoreActionStore;
+        partialPass.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 1.0);
+        id<MTLCommandBuffer> partialCommand = [queue commandBuffer];
+        id<MTLRenderCommandEncoder> partialEncoder =
+          [partialCommand renderCommandEncoderWithDescriptor:partialPass];
+        [partialEncoder setRenderPipelineState:pipeline];
+        setScissorForRegion(partialEncoder, visible, logicalSize, drawableSize);
+        drawColoredRectangle(partialEncoder, device, logicalSize, 0.0, 0.0, 16.0, 16.0,
+                             1.0f, 0.0f, 0.0f, 1.0f);
+        [partialEncoder endEncoding];
+        [partialCommand commit];
+        [partialCommand waitUntilCompleted];
+        memset(pixels, 0, sizeof(pixels));
+        [texture getBytes:pixels bytesPerRow:32 * 4 fromRegion:MTLRegionMake2D(0, 0, 32, 32)
+               mipmapLevel:0];
+        const NSUInteger partialInside = ((NSUInteger)20 * 32 + 13) * 4;
+        const NSUInteger partialOutside = ((NSUInteger)20 * 32 + 11) * 4;
+        // dirty ∩ viewport is logical x=[6,8), y=[4,8), or x=[12,16),
+        // y=[16,24) on the 2x backing texture.
+        rendered = partialCommand.status == MTLCommandBufferStatusCompleted &&
+          visible.x == 6.0f && visible.y == 4.0f && visible.width == 2.0f &&
+          visible.height == 4.0f && pixels[partialInside + 2] == 255 &&
+          pixels[partialOutside + 2] == 0;
+      }
     }
     [texture release];
     [pipeline release];
