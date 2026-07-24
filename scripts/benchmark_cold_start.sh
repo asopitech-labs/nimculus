@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUNS="${NIMCULUS_COLD_START_RUNS:-5}"
 TIMEOUT_SECONDS="${NIMCULUS_COLD_START_TIMEOUT_SECONDS:-15}"
+STARTUP_PATH="${NIMCULUS_COLD_START_PATH:-}"
 TMP_ROOT="${TMPDIR:-/tmp}/nimculus-cold-start-$$"
 CACHE_DIR="$TMP_ROOT/nimcache"
 HOME_DIR="${NIMCULUS_BENCH_HOME:-$TMP_ROOT/home}"
@@ -28,6 +29,10 @@ case "$TIMEOUT_SECONDS" in
 esac
 if [[ "$TIMEOUT_SECONDS" -lt 1 ]]; then
   echo "NIMCULUS_COLD_START_TIMEOUT_SECONDS must be a positive integer" >&2
+  exit 2
+fi
+if [[ -n "$STARTUP_PATH" && ! -e "$STARTUP_PATH" ]]; then
+  echo "NIMCULUS_COLD_START_PATH does not exist: $STARTUP_PATH" >&2
   exit 2
 fi
 
@@ -61,9 +66,14 @@ if [[ ! -x "$RUN_BINARY" ]]; then
 fi
 
 for run in $(seq 1 "$RUNS"); do
+  startup_args=()
+  if [[ -n "$STARTUP_PATH" ]]; then
+    startup_args+=("$STARTUP_PATH")
+  fi
   set +e
   output="$(HOME="$HOME_DIR" NIMCULUS_BENCH_COLD_START=1 \
-    /usr/bin/perl -e 'alarm shift; exec @ARGV' "$TIMEOUT_SECONDS" "$RUN_BINARY" 2>&1)"
+    /usr/bin/perl -e 'alarm shift; exec @ARGV' "$TIMEOUT_SECONDS" "$RUN_BINARY" \
+      "${startup_args[@]}" 2>&1)"
   status=$?
   set -e
   if [[ "$status" -ne 0 ]]; then

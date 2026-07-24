@@ -49,8 +49,10 @@ jobs:
             -r --path:src tests/test_platform_contract.nim
       - name: Cocoa and Metal cold-start smoke
         run: |
+          touch "$RUNNER_TEMP/日本語🙂.nim"
           NIMCULUS_COLD_START_RUNS=1 \
           NIMCULUS_COLD_START_TIMEOUT_SECONDS=30 \
+          NIMCULUS_COLD_START_PATH="$RUNNER_TEMP/日本語🙂.nim" \
           bash scripts/benchmark_cold_start.sh
       - name: Cocoa and Metal idle soak smoke
         run: |

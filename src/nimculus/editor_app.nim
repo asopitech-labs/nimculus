@@ -59,6 +59,22 @@ proc newDocument*(): FileDocument =
   result.buffer = initPieceTable()
   result.buffer.markSaved()
 
+proc startupOpenPaths*(arguments: openArray[string]): seq[string] =
+  ## Resolve positional startup paths before the native event loop begins.
+  ## macOS LaunchServices delivers Finder opens later through AppDelegate, but
+  ## `Nimculus path/to/file` must use the same file callback path and must not
+  ## treat editor flags as documents. `--` permits a path beginning with '-'.
+  var positionalOnly = false
+  for argument in arguments:
+    if not positionalOnly and argument == "--":
+      positionalOnly = true
+      continue
+    if not positionalOnly and argument.startsWith('-'): continue
+    if argument.len == 0: continue
+    let path = absolutePath(argument)
+    if (fileExists(path) or dirExists(path)) and path notin result:
+      result.add(path)
+
 proc save*(document: var FileDocument, path = "") =
   let targetPath = if path.len > 0: path else: document.path
   if targetPath.len == 0: raise newException(IOError, "document has no path")

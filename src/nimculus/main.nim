@@ -3262,6 +3262,11 @@ when isMainModule:
     platformSetFileCallback(receiveNativeFile)
     platformSetCommandCallback(receiveNativeCommand)
     platformSetIdleCallback(receiveNativeIdle)
+    # Match Finder/Open With handling for direct terminal launches. This runs
+    # only after the native callbacks are installed, so Japanese paths and
+    # workspace directories follow the same open boundary as Apple Events.
+    for startupPath in startupOpenPaths(commandLineParams()):
+      receiveNativeFile(startupPath.cstring, false)
     if activeDocument() != nil:
       syncEditorCursor()
       refreshEditorSyntax()

@@ -71,6 +71,28 @@ suite "M4 editor buffer":
     check previousWordBoundary("hello 世界", 12) == 6
     check nextWordBoundary("hello 世界", 0) == 5
 
+  test "startup paths accept Japanese files and ignore editor flags":
+    let root = getTempDir() / "nimculus-日本語-startup-paths"
+    if dirExists(root): removeDir(root)
+    createDir(root)
+    let source = root / "日本語🙂.nim"
+    let dashed = root / "-日本語.txt"
+    defer:
+      if fileExists(source): removeFile(source)
+      if fileExists(dashed): removeFile(dashed)
+      if dirExists(root): removeDir(root)
+    writeFile(source, "echo \"日本語\"")
+    let resolved = startupOpenPaths(@["--safe-mode", source, root, source])
+    check resolved == @[absolutePath(source), absolutePath(root)]
+    writeFile(dashed, "ok")
+    let originalDir = getCurrentDir()
+    setCurrentDir(root)
+    defer: setCurrentDir(originalDir)
+    check startupOpenPaths(@["-日本語.txt"]).len == 0
+    let escaped = startupOpenPaths(@["--", "-日本語.txt"])
+    check escaped.len == 1
+    check sameFile(escaped[0], dashed)
+
   test "resolves LSP diagnostics from UTF-16 positions to byte ranges":
     let buffer = initPieceTable("A\n😀日本")
     let diagnostic = LspDiagnostic(

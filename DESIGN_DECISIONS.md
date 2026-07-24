@@ -3092,3 +3092,25 @@ Command-Shift-Z modifier mask. Redo now has an explicit lowercase `z` key
 equivalent with Command and Shift, and the normalization loop leaves that
 explicit binding intact. The native menu contract verifies both modifier flags
 and key equivalent so later menu additions cannot silently regress it.
+
+## M5-025: Route CLI startup paths through the macOS file-open boundary
+
+Zed collects startup open paths independently of its macOS URL callback and
+then routes both through the same workspace open operation. Nimculus accepted
+Finder and URL Apple Events but ignored positional command-line paths, which
+made direct terminal launch inconsistent and prevented an automated Japanese
+path smoke test.
+
+`startupOpenPaths` now filters editor flags, resolves existing files and
+directories to absolute paths, de-duplicates them, and honors `--` for a
+path beginning with a hyphen. After Cocoa callbacks are installed, main feeds
+each path through `receiveNativeFile`, exactly like Finder/Open With. The
+editor service test covers a Japanese/emoji file name, directory path,
+duplicate suppression, flag rejection, and the `--` escape boundary.
+
+The self-hosted Cocoa/Metal cold-start smoke additionally creates a Japanese
+and emoji-named fixture and supplies it through `NIMCULUS_COLD_START_PATH`.
+The benchmark forwards that optional path only after validating that it
+exists. This proves the actual bundled application reaches a rendered Metal
+frame after CLI open-path routing, rather than proving only the pure path
+filter.
