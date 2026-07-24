@@ -3,6 +3,7 @@
 bool nimculus_platform_run(void);
 bool nimculus_platform_validate_native(void);
 bool nimculus_platform_validate_window_lifecycle(void);
+bool nimculus_platform_validate_fullscreen_transition(void);
 bool nimculus_platform_validate_editor_pane_geometry(void);
 bool nimculus_platform_validate_damage_rebuild(void);
 bool nimculus_platform_validate_scroll_clip_pixels(void);

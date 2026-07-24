@@ -3529,6 +3529,64 @@ bool nimculus_platform_validate_window_lifecycle(void) {
   return valid;
 }
 
+static BOOL waitForFullscreenStyle(NSWindow *window, BOOL expected, NSTimeInterval timeout) {
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeout];
+  while ([deadline timeIntervalSinceNow] > 0.0) {
+    BOOL fullscreen = (window.styleMask & NSWindowStyleMaskFullScreen) != 0;
+    if (fullscreen == expected) return YES;
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+  }
+  return ((window.styleMask & NSWindowStyleMaskFullScreen) != 0) == expected;
+}
+
+bool nimculus_platform_validate_fullscreen_transition(void) {
+  // A real fullscreen transition changes the active GUI workspace. Keep this
+  // opt-in and run it only on the dedicated, manually dispatched GUI runner.
+  // Zed also relies on AppKit's asynchronous toggleFullScreen: lifecycle and
+  // distinguishes the entered style state from the restored window state.
+  const char *required = getenv("NIMCULUS_REQUIRE_FULLSCREEN_TRANSITION");
+  if (!required || strcmp(required, "1") != 0) return false;
+  NimculusPlatformMetrics previousMetrics = g_metrics;
+  BOOL valid = NO;
+  @autoreleasepool {
+    NSApplication *application = [NSApplication sharedApplication];
+    NSWindow *window = [[NSWindow alloc]
+      initWithContentRect:NSMakeRect(80.0, 80.0, 640.0, 480.0)
+      styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                 NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
+      backing:NSBackingStoreBuffered defer:NO];
+    NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
+      NSMakeRect(0.0, 0.0, 640.0, 480.0)];
+    if (application && window && view) {
+      window.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
+      window.contentView = view;
+      [window makeKeyAndOrderFront:nil];
+      [application activateIgnoringOtherApps:YES];
+      [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.10]];
+      [window toggleFullScreen:nil];
+      BOOL entered = waitForFullscreenStyle(window, YES, 5.0);
+      BOOL exited = NO;
+      if (entered) {
+        [window toggleFullScreen:nil];
+        exited = waitForFullscreenStyle(window, NO, 5.0);
+      }
+      valid = entered && exited;
+      // Do not leave the runner in fullscreen after a timeout or an AppKit
+      // transition error. A close must happen only after a best-effort exit.
+      if (!exited && (window.styleMask & NSWindowStyleMaskFullScreen) != 0) {
+        [window toggleFullScreen:nil];
+        (void)waitForFullscreenStyle(window, NO, 5.0);
+      }
+      [window orderOut:nil];
+      [window close];
+    }
+    [view release];
+    [window release];
+  }
+  g_metrics = previousMetrics;
+  return valid;
+}
+
 static BOOL editorRectContains(const double rect[4], double x, double y) {
   return x >= rect[0] && y >= rect[1] && x < rect[0] + rect[2] &&
     y < rect[1] + rect[3];

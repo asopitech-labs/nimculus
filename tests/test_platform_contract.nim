@@ -7,6 +7,11 @@ proc nativeGuiValidationRequired(): bool =
   ## though compilation and non-modal AppKit contracts still work.
   getEnv("CI").len > 0 or getEnv("NIMCULUS_REQUIRE_NATIVE_GUI") == "1"
 
+proc fullscreenTransitionValidationRequired(): bool =
+  ## This deliberately changes the active macOS GUI space, so it runs only
+  ## on the explicitly opted-in self-hosted runner.
+  getEnv("NIMCULUS_REQUIRE_FULLSCREEN_TRANSITION") == "1"
+
 suite "macOS platform contract":
   test "metrics have a valid default scale":
     var metrics: PlatformMetrics
@@ -73,6 +78,12 @@ suite "macOS platform contract":
       check false
     else:
       echo "  [SKIP] native window lifecycle (GUI services unavailable in this session)"
+
+  test "native window enters and exits macOS fullscreen":
+    if fullscreenTransitionValidationRequired():
+      check platformValidateFullscreenTransition()
+    else:
+      echo "  [SKIP] fullscreen transition (dedicated GUI runner not requested)"
 
   test "native split pane geometry keeps hit regions disjoint":
     check platformValidateEditorPaneGeometry()

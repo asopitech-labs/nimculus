@@ -8,6 +8,7 @@ export contracts
 proc platformRun*(): bool {.importc: "nimculus_platform_run", cdecl.}
 proc platformValidateNative*(): bool {.importc: "nimculus_platform_validate_native", cdecl.}
 proc platformValidateWindowLifecycle*(): bool {.importc: "nimculus_platform_validate_window_lifecycle", cdecl.}
+proc platformValidateFullscreenTransition*(): bool {.importc: "nimculus_platform_validate_fullscreen_transition", cdecl.}
 proc platformValidateEditorPaneGeometry*(): bool {.importc: "nimculus_platform_validate_editor_pane_geometry", cdecl.}
 proc platformValidateDamageRebuild*(): bool {.importc: "nimculus_platform_validate_damage_rebuild", cdecl.}
 proc platformValidateScrollClipPixels*(): bool {.importc: "nimculus_platform_validate_scroll_clip_pixels", cdecl.}

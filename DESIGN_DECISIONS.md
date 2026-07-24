@@ -1,5 +1,16 @@
 # Design Decisions
 
+## M1-016: Restrict real fullscreen transitions to the dedicated GUI runner
+
+Zed invokes AppKit's asynchronous `toggleFullScreen:` and tracks the entered
+and restored fullscreen states through the native window lifecycle. Nimculus
+now exercises the same transition with a temporary Cocoa/Metal window, waiting
+for the `NSWindowStyleMaskFullScreen` state both on entry and exit. Fullscreen
+temporarily changes the active GUI space, so this contract is opt-in through
+`NIMCULUS_REQUIRE_FULLSCREEN_TRANSITION=1` and is enabled only by the manually
+dispatched self-hosted macOS GUI workflow. Normal local and push-triggered
+tests never change the developer's workspace.
+
 ## M2-014: Verify viewport clipping at the Metal backing-pixel boundary
 
 Zed intersects every nested content mask before it submits a primitive and
