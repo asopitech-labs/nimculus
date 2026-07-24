@@ -1082,7 +1082,11 @@ when defined(macosx):
     workspaceSearchJob = nil
     if workspaceQuickOpenJob != nil: workspaceQuickOpenJob.cancelFuzzySearch()
     workspaceQuickOpenJob = nil
-    if activeWorkspace != nil: activeWorkspace.stopWatching()
+    if activeWorkspace != nil:
+      # applicationWillTerminate persists the session after this shutdown
+      # callback. Preserve the current roots before releasing the workspace.
+      editorSession.workspaceRoots = activeWorkspace.rootPaths
+      activeWorkspace.stopWatching()
     activeWorkspace = nil
     cancelNativeUpdateDownload()
     if editorGitDiffJob != nil and not editorGitDiffJob.done:

@@ -3380,3 +3380,5 @@ The same accepted-quit boundary cancels incremental workspace/Quick Open jobs
 and stops every FSEvents watcher before dropping the active workspace. Workspace
 replacement already used this order; applying it to termination prevents an
 asynchronous watcher callback from observing partially released editor state.
+It snapshots the workspace roots into the editor session first, because the
+AppKit termination callback persists that session after services are released.
