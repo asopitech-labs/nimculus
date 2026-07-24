@@ -2021,7 +2021,7 @@ when defined(macosx):
 
 proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
   if path == nil or ($path).len == 0: return
-  let filePath = $path
+  let inputPath = $path
   if workspaceSearchJob != nil:
     workspaceSearchJob.cancelSearch()
     workspaceSearchJob = nil
@@ -2032,13 +2032,13 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
     let document = activeDocument()
     if document != nil:
       try:
-        document[].save(filePath)
+        document[].save(inputPath)
         if editorSession.activeTab >= 0 and editorSession.activeTab < editorSession.tabs.len:
-          editorSession.tabs[editorSession.activeTab].title = splitFile(filePath).name
+          editorSession.tabs[editorSession.activeTab].title = splitFile(inputPath).name
         externalAlertShown = false
         editorSession.saveActiveView(editorViewState)
         persistSession()
-        editorViewState.statusMessage = "Saved " & filePath
+        editorViewState.statusMessage = "Saved " & inputPath
         syncEditorCursor()
         when defined(macosx):
           # The native Save Panel used by close confirmation must only allow
@@ -2053,10 +2053,30 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
         when defined(macosx):
           platformSetCloseDecision(false)
   else:
+    let filePath = canonicalOpenPath(inputPath)
     if dirExists(filePath):
       openActiveWorkspace(filePath)
       return
     try:
+      let existingTab = editorSession.tabIndexForPath(filePath)
+      if existingTab >= 0:
+        editorSession.saveActiveView(editorViewState)
+        editorSession.activeTab = existingTab
+        editorSession.loadActiveView(editorViewState)
+        resetImeState()
+        resetEditorViewState()
+        externalAlertShown = false
+        workspacePreviewMode = ""
+        if syntaxState != nil:
+          syntaxState.close()
+          syntaxState = nil
+        when defined(macosx): editorLspSignatureText = ""
+        editorSession.recordRecent(filePath)
+        syncRecentFiles()
+        syncEditorCursor()
+        refreshEditorSyntax()
+        persistSession()
+        return
       workspacePreviewEntries.setLen(0)
       workspacePreviewMode = ""
       editorSession.saveActiveView(editorViewState)

@@ -59,6 +59,15 @@ proc newDocument*(): FileDocument =
   result.buffer = initPieceTable()
   result.buffer.markSaved()
 
+proc canonicalOpenPath*(path: string): string =
+  ## Existing paths may arrive through `/tmp`, a symlink, Finder, URL events,
+  ## or a shell. Follow symlinks so one on-disk document has one tab identity.
+  if path.len == 0: return ""
+  try:
+    result = expandFilename(path)
+  except OSError:
+    result = absolutePath(path)
+
 proc startupOpenPaths*(arguments: openArray[string]): seq[string] =
   ## Resolve positional startup paths before the native event loop begins.
   ## macOS LaunchServices delivers Finder opens later through AppDelegate, but
@@ -71,7 +80,7 @@ proc startupOpenPaths*(arguments: openArray[string]): seq[string] =
       continue
     if not positionalOnly and argument.startsWith('-'): continue
     if argument.len == 0: continue
-    let path = absolutePath(argument)
+    let path = canonicalOpenPath(argument)
     if (fileExists(path) or dirExists(path)) and path notin result:
       result.add(path)
 
@@ -134,6 +143,13 @@ proc addTab*(session: var EditorSession, document: FileDocument) =
   let title = if document.path.len > 0: splitFile(document.path).name else: "Untitled"
   session.tabs.add(EditorTab(document: document, title: title, view: newEditorView()))
   session.activeTab = session.tabs.high
+
+proc tabIndexForPath*(session: EditorSession, path: string): int =
+  ## File-open events may repeat an already-visible absolute path. Keep one
+  ## buffer and activate it instead of creating divergent tabs for one file.
+  for index, tab in session.tabs:
+    if tab.document.path == path: return index
+  -1
 
 proc saveActiveView*(session: var EditorSession, view: EditorViewState) =
   if session.activeTab >= 0 and session.activeTab < session.tabs.len:

@@ -3609,9 +3609,11 @@ bool nimculus_platform_validate_unsaved_close_sheet(void) {
 
 static char g_validation_file_path[PATH_MAX];
 static BOOL g_validation_file_saving = YES;
+static uint32_t g_validation_file_open_count = 0;
 static char g_validation_command[64];
 
 static void validationFileCallback(const char *path, bool saving) {
+  g_validation_file_open_count++;
   strncpy(g_validation_file_path, path ?: "", sizeof(g_validation_file_path) - 1);
   g_validation_file_path[sizeof(g_validation_file_path) - 1] = '\0';
   g_validation_file_saving = saving;
@@ -3669,14 +3671,16 @@ bool nimculus_platform_validate_file_open_events(void) {
     g_file_callback = validationFileCallback;
     g_validation_file_path[0] = '\0';
     g_validation_file_saving = YES;
+    g_validation_file_open_count = 0;
     NimculusAppDelegate *delegate = [NimculusAppDelegate new];
-    NSString *finderPath = @"/tmp/nimculus-finder-open.txt";
-    [delegate application:NSApp openFiles:@[finderPath]];
-    BOOL finderValid = !g_validation_file_saving &&
-      [@(g_validation_file_path) isEqualToString:finderPath];
+    NSString *finderPath = @"/tmp/nimculus-日本語-finder-open.txt";
+    NSString *secondFinderPath = @"/tmp/nimculus-emoji-🙂.txt";
+    [delegate application:NSApp openFiles:@[finderPath, secondFinderPath]];
+    BOOL finderValid = !g_validation_file_saving && g_validation_file_open_count == 2 &&
+      [@(g_validation_file_path) isEqualToString:secondFinderPath];
     NSURL *url = [NSURL URLWithString:@"nimculus:///tmp/nimculus-url-open.txt"];
     [delegate application:NSApp openURLs:@[url]];
-    BOOL urlValid = !g_validation_file_saving &&
+    BOOL urlValid = !g_validation_file_saving && g_validation_file_open_count == 3 &&
       [@(g_validation_file_path) isEqualToString:@"/tmp/nimculus-url-open.txt"];
     g_file_callback = previousCallback;
     return finderValid && urlValid;

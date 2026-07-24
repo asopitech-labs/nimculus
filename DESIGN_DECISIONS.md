@@ -3120,3 +3120,23 @@ and emoji-named path and keeps Japanese/emoji content through CRLF conversion,
 atomic replacement, and existing-permission preservation. This covers the
 same storage boundary used by a completed Save Panel callback without
 pretending that an Accessibility-driven panel click was performed.
+
+## M5-026: De-duplicate repeated macOS file-open events by document path
+
+Zed de-duplicates open path sets before routing them to panes. Nimculus had a
+single callback for Finder, Open With, URL, and CLI opens, but always appended
+a new tab. Repeated Apple Events for the same absolute path could therefore
+create divergent views of one buffer.
+
+`EditorSession.tabIndexForPath` now identifies an existing named document.
+The file callback saves the current view, activates the existing tab, restores
+its view state, clears stale IME/syntax state, refreshes native text and
+syntax, updates recent files, and persists the session. A Japanese/emoji path
+test covers the identity lookup and missing-path behavior. Before that lookup,
+all existing open-event paths pass through `expandFilename`, which follows
+symlinks and makes `/tmp`/`/private/tmp`-style aliases one document identity.
+
+The macOS AppDelegate contract also invokes one `openFiles:` event containing
+two paths (Japanese and emoji names) and verifies both callbacks arrive before
+testing the URL route. This keeps the Finder/Open With batch boundary covered
+separately from the editor's tab de-duplication policy.

@@ -83,7 +83,7 @@ suite "M4 editor buffer":
       if dirExists(root): removeDir(root)
     writeFile(source, "echo \"日本語\"")
     let resolved = startupOpenPaths(@["--safe-mode", source, root, source])
-    check resolved == @[absolutePath(source), absolutePath(root)]
+    check resolved == @[canonicalOpenPath(source), canonicalOpenPath(root)]
     writeFile(dashed, "ok")
     let originalDir = getCurrentDir()
     setCurrentDir(root)
@@ -92,6 +92,17 @@ suite "M4 editor buffer":
     let escaped = startupOpenPaths(@["--", "-日本語.txt"])
     check escaped.len == 1
     check sameFile(escaped[0], dashed)
+    check canonicalOpenPath(source) == expandFilename(source)
+
+  test "opening an existing Japanese path resolves its current tab":
+    let path = getTempDir() / "nimculus-日本語-existing-tab🙂.txt"
+    writeFile(path, "日本語")
+    defer:
+      if fileExists(path): removeFile(path)
+    var session: EditorSession
+    session.addTab(openDocument(path))
+    check session.tabIndexForPath(path) == 0
+    check session.tabIndexForPath(path & ".missing") == -1
 
   test "resolves LSP diagnostics from UTF-16 positions to byte ranges":
     let buffer = initPieceTable("A\n😀日本")
