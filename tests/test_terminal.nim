@@ -191,6 +191,25 @@ suite "M10 terminal core":
       check pty.screen.columns == 60
       check pty.screen.rows == 12
 
+    test "macOS PTY drains a bounded multi-chunk output batch per poll":
+      let pty = newTerminalPty("/bin/sh", "/tmp", 40, 8)
+      defer: pty.close()
+      check pty.writeInput("yes x\n") > 0
+      # Wait until the shell accepted the command and echoed the input. The
+      # continuous command output then has a deterministic opportunity to
+      # accumulate beyond one read chunk.
+      var accepted = false
+      for _ in 0 ..< 20:
+        if "yes x" in pty.pollOutput():
+          accepted = true
+          break
+        sleep(10)
+      check accepted
+      sleep(100)
+      let output = pty.pollOutput()
+      check output.len > 8 * 1024
+      check output.len <= 64 * 1024
+
     test "macOS PTY queues a large paste after a partial non-blocking write":
       # `cat` reads complete lines and echoes them to the slave. Without a
       # matching poll, its output blocks and the master must retain the input

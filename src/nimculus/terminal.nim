@@ -2,6 +2,13 @@ import std/os
 import std/strutils
 import std/unicode
 
+const
+  TerminalReadChunkBytes = 8 * 1024
+  ## Keep one Cocoa idle turn bounded while draining substantially more than a
+  ## single kernel read. This prevents a chatty build or terminal command from
+  ## remaining many frames behind its PTY output.
+  MaxTerminalReadBytesPerPoll = 64 * 1024
+
 type
   TerminalColorKind* = enum
     terminalDefaultColor, terminalIndexedColor, terminalRgbColor
@@ -781,14 +788,18 @@ elif defined(macosx):
   proc pollOutput*(pty: TerminalPty): string =
     if pty == nil or pty.closed: return
     discard pty.flushInput()
-    var buffer = newString(8192)
-    let count = posix.read(pty.masterFd, addr buffer[0], buffer.len)
-    if count > 0:
+    var remainingBudget = MaxTerminalReadBytesPerPoll
+    while remainingBudget > 0:
+      let capacity = min(TerminalReadChunkBytes, remainingBudget)
+      var buffer = newString(capacity)
+      let count = posix.read(pty.masterFd, addr buffer[0], buffer.len)
+      if count <= 0: break
       buffer.setLen(count)
       pty.screen.feed(buffer)
       for response in pty.screen.takeResponses():
         discard pty.writeInput(response)
-      result = buffer
+      result.add(buffer)
+      remainingBudget -= count
 
   proc resize*(pty: TerminalPty, columns, rows: int) =
     if pty == nil or pty.closed: return

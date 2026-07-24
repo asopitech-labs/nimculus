@@ -463,6 +463,19 @@ and validates both the executable and requested working directory before
 forking. Invalid settings surface as a normal terminal creation error, while
 configured `zsh`, `bash`, or `fish` names can use the standard shell path.
 
+## M10-008: Drain PTY output to a bounded idle budget
+
+Zed gives terminal I/O its own event loop, while Nimculus polls the macOS PTY
+at the Cocoa idle boundary. One 8 KiB read per tick leaves high-volume build
+output visibly behind. A short non-blocking read is not evidence that the PTY
+has no more data, so stopping after one short chunk is equally incorrect.
+
+`pollOutput` now drains successive reads until EAGAIN or a 64 KiB per-idle
+budget. The budget keeps rendering responsive; the repeated reads prevent a
+short PTY chunk from delaying ready output to later frames. An integration test
+starts continuous output, synchronizes command acceptance, and verifies that
+one poll returns more than a single 8 KiB chunk without exceeding the budget.
+
 ## M10-004: Bound task output like terminal output
 
 Zed applies an explicit byte limit when exposing terminal output and preserves
