@@ -38,6 +38,13 @@ static NSUInteger g_editor_scroll_line = 0;
 static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
 static NSString *g_editor_text = @"";
+// Rebuild these once when committed editor text changes. Text rendering,
+// scrolling, hit-testing, and IME coordinate queries must not repeatedly
+// split or scan a ten-thousand-line document on every frame.
+static NSArray<NSString *> *g_editor_lines = nil;
+static NSUInteger *g_editor_line_utf16_offsets = NULL;
+static NSUInteger *g_editor_line_utf8_offsets = NULL;
+static NSUInteger g_editor_line_count = 0;
 static NSString *g_editor_status = @"Ready";
 static NSArray<NSString *> *g_editor_tab_titles = nil;
 static NSUInteger g_editor_active_tab = 0;
@@ -116,6 +123,59 @@ static void replaceOwnedData(NSData **slot, NSData *value) {
   NSData *previous = *slot;
   *slot = [value copy] ?: [[NSData alloc] init];
   [previous release];
+}
+
+static void rebuildEditorLineIndex(void) {
+  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  replaceOwnedArray(&g_editor_lines, lines);
+  free(g_editor_line_utf16_offsets); g_editor_line_utf16_offsets = NULL;
+  free(g_editor_line_utf8_offsets); g_editor_line_utf8_offsets = NULL;
+  g_editor_line_count = g_editor_lines.count;
+  if (g_editor_line_count == 0) return;
+  g_editor_line_utf16_offsets = calloc(g_editor_line_count, sizeof(NSUInteger));
+  g_editor_line_utf8_offsets = calloc(g_editor_line_count, sizeof(NSUInteger));
+  if (!g_editor_line_utf16_offsets || !g_editor_line_utf8_offsets) {
+    free(g_editor_line_utf16_offsets); g_editor_line_utf16_offsets = NULL;
+    free(g_editor_line_utf8_offsets); g_editor_line_utf8_offsets = NULL;
+    return;
+  }
+  NSUInteger utf16Offset = 0;
+  NSUInteger utf8Offset = 0;
+  for (NSUInteger index = 0; index < g_editor_line_count; index++) {
+    NSString *line = g_editor_lines[index];
+    g_editor_line_utf16_offsets[index] = utf16Offset;
+    g_editor_line_utf8_offsets[index] = utf8Offset;
+    utf16Offset += line.length + 1;
+    utf8Offset += [[line dataUsingEncoding:NSUTF8StringEncoding] length] + 1;
+  }
+}
+
+static NSArray<NSString *> *editorLinesForText(NSString *text) {
+  NSString *value = text ?: @"";
+  if ([value isEqualToString:g_editor_text] && g_editor_lines) return g_editor_lines;
+  return [value componentsSeparatedByString:@"\n"];
+}
+
+static NSUInteger editorLineUTF16Offset(NSUInteger lineIndex,
+                                        NSArray<NSString *> *lines) {
+  if (g_editor_line_utf16_offsets && lines == g_editor_lines &&
+      lineIndex < g_editor_line_count) return g_editor_line_utf16_offsets[lineIndex];
+  NSUInteger offset = 0;
+  for (NSUInteger index = 0; index < lineIndex && index < lines.count; index++) {
+    offset += lines[index].length + 1;
+  }
+  return offset;
+}
+
+static NSUInteger editorLineUTF8Offset(NSUInteger lineIndex,
+                                       NSArray<NSString *> *lines) {
+  if (g_editor_line_utf8_offsets && lines == g_editor_lines &&
+      lineIndex < g_editor_line_count) return g_editor_line_utf8_offsets[lineIndex];
+  NSUInteger offset = 0;
+  for (NSUInteger index = 0; index < lineIndex && index < lines.count; index++) {
+    offset += [[lines[index] dataUsingEncoding:NSUTF8StringEncoding] length] + 1;
+  }
+  return offset;
 }
 
 static NSColor *themeHexColor(NSString *value, NSColor *fallback) {
@@ -269,6 +329,10 @@ static void releasePlatformResources(void) {
   [g_editor_font_name release]; g_editor_font_name = nil;
   [g_terminal_font_name release]; g_terminal_font_name = nil;
   [g_editor_text release]; g_editor_text = nil;
+  [g_editor_lines release]; g_editor_lines = nil;
+  free(g_editor_line_utf16_offsets); g_editor_line_utf16_offsets = NULL;
+  free(g_editor_line_utf8_offsets); g_editor_line_utf8_offsets = NULL;
+  g_editor_line_count = 0;
   [g_editor_status release]; g_editor_status = nil;
   [g_editor_outline_text release]; g_editor_outline_text = nil;
   [g_terminal_text release]; g_terminal_text = nil;
@@ -737,7 +801,7 @@ static NSUInteger editorSoftWrapRowsBeforeLine(NSArray<NSString *> *lines,
 }
 
 static CGPoint editorSoftWrapPointForUTF16Offset(NSUInteger documentOffset) {
-  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   NSUInteger remaining = MIN(documentOffset, g_editor_text.length);
   NSUInteger lineIndex = 0;
   NSString *lineText = lines.count > 0 ? lines[0] : @"";
@@ -778,7 +842,7 @@ static CGPoint editorSoftWrapPointForUTF16Offset(NSUInteger documentOffset) {
 
 static CGPoint editorPointForUTF16Offset(NSUInteger documentOffset) {
   if (g_editor_soft_wrap) return editorSoftWrapPointForUTF16Offset(documentOffset);
-  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   NSUInteger remaining = MIN(documentOffset, g_editor_text.length);
   NSUInteger lineIndex = 0;
   NSString *lineText = lines.count > 0 ? lines[0] : @"";
@@ -798,7 +862,7 @@ static CGPoint editorPointForUTF16Offset(NSUInteger documentOffset) {
 
 static NSUInteger editorDocumentOffsetForLineCharacter(NSUInteger lineIndex,
                                                        NSUInteger character) {
-  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) return 0;
   NSUInteger line = MIN(lineIndex, lines.count - 1);
   NSUInteger offset = 0;
@@ -807,7 +871,7 @@ static NSUInteger editorDocumentOffsetForLineCharacter(NSUInteger lineIndex,
 }
 
 static NSUInteger editorUTF16OffsetAtPoint(double x, double y) {
-  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) return 0;
   CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
   CGFloat fromTop = viewHeight - y - g_editor_rect[1];
@@ -952,18 +1016,13 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]);
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
     (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
-  NSArray<NSString *> *lines = [(text ?: @"") componentsSeparatedByString:@"\n"];
+  NSArray<NSString *> *lines = editorLinesForText(text);
   NSUInteger startLine = MIN(g_editor_scroll_line, lines.count);
   const CGFloat lineHeight = editorLineHeight();
   NSUInteger visibleLines = MIN(lines.count - startLine,
     (NSUInteger)MAX(1.0, ceil(g_editor_rect[3] / lineHeight)));
-  NSUInteger lineStartByte = 0;
-  NSUInteger lineStartUnit = 0;
-  for (NSUInteger index = 0; index < startLine; index++) {
-    NSString *skippedLine = lines[index];
-    lineStartByte += [[skippedLine dataUsingEncoding:NSUTF8StringEncoding] length] + 1;
-    lineStartUnit += skippedLine.length + 1;
-  }
+  NSUInteger lineStartByte = editorLineUTF8Offset(startLine, lines);
+  NSUInteger lineStartUnit = editorLineUTF16Offset(startLine, lines);
   if (g_editor_soft_wrap) {
     NSArray<NSString *> *visible = [lines subarrayWithRange:NSMakeRange(startLine, lines.count - startLine)];
     NSString *wrappedText = [visible componentsJoinedByString:@"\n"];
@@ -1431,15 +1490,12 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
     [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]);
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)baseFont,
     (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
-  NSArray<NSString *> *lines = [(text ?: @"") componentsSeparatedByString:@"\n"];
+  NSArray<NSString *> *lines = editorLinesForText(text);
   NSUInteger startLine = MIN(g_editor_scroll_line, lines.count);
   const CGFloat lineHeight = editorLineHeight();
   NSUInteger visibleLines = MIN(lines.count - startLine,
     (NSUInteger)MAX(1.0, ceil(g_editor_rect[3] / lineHeight)));
-  NSUInteger lineStartByte = 0;
-  for (NSUInteger index = 0; index < startLine; index++) {
-    lineStartByte += [[lines[index] dataUsingEncoding:NSUTF8StringEncoding] length] + 1;
-  }
+  NSUInteger lineStartByte = editorLineUTF8Offset(startLine, lines);
   CGSize editorSize = CGSizeMake(MAX(1.0, g_editor_rect[2]),
                                  MAX(1.0, g_editor_rect[3]));
   CGSize sceneSize = CGSizeMake(MAX((CGFloat)g_metrics.width_points,
@@ -1665,7 +1721,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
-  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) return;
   NSUInteger first = MIN(g_editor_scroll_line, lines.count - 1);
   NSDictionary *attributes = @{
@@ -1694,7 +1750,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
   if (!g_editor_indent_guides) return;
-  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) return;
   CGFloat characterWidth = 7.2;
   NSUInteger indentWidth = MAX((NSUInteger)1, g_editor_indent_width);
@@ -2458,7 +2514,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
 - (CGFloat)fractionOfDistanceThroughGlyphForPoint:(NSPoint)point {
   NSPoint windowPoint = self.window ? [self.window convertScreenToBase:point] : point;
   NSPoint viewPoint = [self convertPoint:windowPoint fromView:nil];
-  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) return 0.0;
   CGFloat fromTop = self.bounds.size.height - viewPoint.y - g_editor_rect[1];
   NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / editorLineHeight()));
@@ -4114,22 +4170,16 @@ void nimculus_platform_set_editor_cursor(double x, double y) {
   markSceneFullyDirty();
 }
 void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t line) {
-  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) return;
   NSUInteger lineIndex = MIN((NSUInteger)line, lines.count - 1);
-  NSUInteger lineStartByte = 0;
-  for (NSUInteger index = 0; index < lineIndex; index++) {
-    lineStartByte += [[lines[index] dataUsingEncoding:NSUTF8StringEncoding] length] + 1;
-  }
+  NSUInteger lineStartByte = editorLineUTF8Offset(lineIndex, lines);
   NSString *lineText = lines[lineIndex];
   NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
   NSUInteger localByte = byte_offset > lineStartByte ? byte_offset - lineStartByte : 0;
   localByte = MIN(localByte, lineLength);
   NSUInteger utf16 = utf16OffsetForUTF8Bytes(lineText, localByte);
-  NSUInteger documentOffset = 0;
-  for (NSUInteger index = 0; index < lineIndex; index++) {
-    documentOffset += lines[index].length + 1;
-  }
+  NSUInteger documentOffset = editorLineUTF16Offset(lineIndex, lines);
   CGPoint point = editorPointForUTF16Offset(documentOffset + utf16);
   g_editor_cursor[0] = point.x;
   g_editor_cursor[1] = point.y;
@@ -4171,7 +4221,7 @@ void nimculus_platform_invalidate_ime_coordinates(void) {
 }
 uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y) {
   if (g_editor_soft_wrap) return (uint32_t)editorUTF16OffsetAtPoint(x, y);
-  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) return 0;
   CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
   CGFloat fromTop = viewHeight - y - g_editor_rect[1];
@@ -4187,10 +4237,7 @@ uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y) {
   CFIndex localIndex = CTLineGetStringIndexForPosition(ctLine,
     CGPointMake(MAX(0.0, x - g_editor_rect[0] - 8.0), 0.0));
   if (localIndex == kCFNotFound) localIndex = (CFIndex)lineText.length;
-  NSUInteger documentIndex = 0;
-  for (NSInteger index = 0; index < lineIndex; index++) {
-    documentIndex += lines[(NSUInteger)index].length + 1;
-  }
+  NSUInteger documentIndex = editorLineUTF16Offset((NSUInteger)lineIndex, lines);
   documentIndex += MIN((NSUInteger)localIndex, lineText.length);
   CFRelease(ctLine);
   [attributed release];
@@ -4202,17 +4249,14 @@ uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y) {
     NSUInteger utf16 = editorUTF16OffsetAtPoint(x, y);
     return (uint32_t)utf8BytesForDocumentUTF16Offset(g_editor_text, utf16);
   }
-  NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) return 0;
   CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
   CGFloat fromTop = viewHeight - y - g_editor_rect[1];
   NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - 4.0) / editorLineHeight()));
   lineIndex = MIN(lineIndex + (NSInteger)g_editor_scroll_line, (NSInteger)lines.count - 1);
   NSString *lineText = lines[(NSUInteger)lineIndex];
-  NSUInteger lineStartByte = 0;
-  for (NSInteger index = 0; index < lineIndex; index++) {
-    lineStartByte += [[lines[(NSUInteger)index] dataUsingEncoding:NSUTF8StringEncoding] length] + 1;
-  }
+  NSUInteger lineStartByte = editorLineUTF8Offset((NSUInteger)lineIndex, lines);
   CTFontRef font = editorFont();
   if (!font) return (uint32_t)lineStartByte;
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
@@ -4460,6 +4504,7 @@ void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_by
 }
 void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
   replaceOwnedUTF8String(&g_editor_text, utf8, length, @"");
+  rebuildEditorLineIndex();
   if (g_active_view) {
     for (NSView *subview in ((NimculusMetalView *)g_active_view).subviews) {
       if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) [subview setNeedsDisplay:YES];

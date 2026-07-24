@@ -3495,6 +3495,22 @@ verifies that the final active attributes still resolve without growing the
 retained tables. The M20 metadata fixture also varies RGB styles alongside its
 1,024 distinct OSC 8 links.
 
+## M3-011: Build native editor line indexes at committed-text boundaries
+
+The macOS Core Text renderer receives committed document text at the platform
+boundary. It previously called `componentsSeparatedByString:` and re-summed
+line prefixes for every scroll, atlas rebuild, text-overlay update, cursor
+placement, and hit-test. That made a deep scroll through a 10,000-line file do
+work proportional to the entire document before shaping even the visible rows.
+
+Nimculus now builds an owned line array plus UTF-8-byte and UTF-16 offsets when
+committed editor text changes. The visible renderer, glyph atlas, line-number
+and indent overlays, cursor placement, Core Text hit-testing, and IME-facing
+position paths share those indexes. Temporary validation strings retain the
+safe local fallback, while normal editor updates avoid document-wide splitting
+and prefix scans. The index is released with the renderer's other persistent
+resources.
+
 ## M20-006: Measure PieceTable edits without materializing the document
 
 The M20 editor-edit loop used `toString().len` only to obtain the logical
