@@ -2949,3 +2949,15 @@ batch itself exceeds the atlas capacity, it clears the batch and uses the
 existing Core Text full-text fallback rather than mixing atlas generations.
 The native platform contract forces the shelf-full path and verifies a valid
 rebuilt batch.
+
+## M5-017: Present external-file changes as asynchronous macOS sheets
+
+External-change polling runs on the AppKit idle path. Calling `NSAlert`'s
+synchronous `runModal` from that callback suspends frame presentation and can
+leave the Metal editor surface blank behind a blocked modal loop.
+
+The notification now uses `beginSheetModalForWindow:completionHandler:` on the
+active Nimculus window. The callback dispatches Reload or Keep Editing only
+after the user responds, while Cocoa keeps the event loop and Metal drawable
+alive. This follows Zed's macOS prompt lifecycle, which begins a sheet and
+returns the answer asynchronously rather than nesting a modal event loop.

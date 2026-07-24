@@ -3159,11 +3159,27 @@ void nimculus_platform_show_external_change(const char *path) {
     alert.informativeText = [NSString stringWithFormat:@"%@ was changed by another application.", filePath];
     [alert addButtonWithTitle:@"Reload"];
     [alert addButtonWithTitle:@"Keep Editing"];
-    if ([alert runModal] == NSAlertFirstButtonReturn) {
-      if (g_command_callback) g_command_callback("reloadExternal");
-    } else {
+    NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+    NSWindow *window = view.window;
+    if (!window) {
+      // This can only occur while a window is closing. A synchronous modal at
+      // that point can strand the main loop, so acknowledge the disk state and
+      // keep the in-memory buffer instead.
+      [alert release];
       if (g_command_callback) g_command_callback("keepExternal");
+      return;
     }
+    // This notification is raised from the recurring idle callback. As in
+    // Zed's macOS prompt implementation, start a non-blocking window sheet;
+    // `runModal` here would suspend Metal frame presentation while waiting for
+    // the user's decision.
+    [alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse response) {
+      if (g_command_callback) {
+        g_command_callback(response == NSAlertFirstButtonReturn
+          ? "reloadExternal" : "keepExternal");
+      }
+    }];
+    [alert release];
   }
 }
 
