@@ -29,7 +29,39 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
                 "workspaceRoots": session.workspaceRoots}
   var tabs = newJArray()
   var savedActive = -1
+  # Keep persistence on the same one-buffer-per-canonical-path invariant as
+  # live document opens. This also repairs an in-memory session produced by
+  # older builds before its next launch. Dirty content wins; active dirty
+  # content wins over another dirty duplicate.
+  var selectedNamedPaths: seq[string]
+  var selectedNamedIndices: seq[int]
+  var selectedNamedPriorities: seq[int]
+  for index, tab in session.tabs:
+    if tab.document.path.len == 0: continue
+    let identityPath = canonicalOpenPath(tab.document.path)
+    let priority = (if tab.document.buffer.isDirty: 2 else: 0) +
+      (if index == session.activeTab: 1 else: 0)
+    var existing = -1
+    for candidate, candidatePath in selectedNamedPaths:
+      if candidatePath == identityPath:
+        existing = candidate
+        break
+    if existing < 0:
+      selectedNamedPaths.add(identityPath)
+      selectedNamedIndices.add(index)
+      selectedNamedPriorities.add(priority)
+    elif priority > selectedNamedPriorities[existing]:
+      selectedNamedIndices[existing] = index
+      selectedNamedPriorities[existing] = priority
   for originalIndex, tab in session.tabs:
+    if tab.document.path.len > 0:
+      let identityPath = canonicalOpenPath(tab.document.path)
+      var selectedIndex = -1
+      for candidate, candidatePath in selectedNamedPaths:
+        if candidatePath == identityPath:
+          selectedIndex = selectedNamedIndices[candidate]
+          break
+      if selectedIndex != originalIndex: continue
     let dirty = tab.document.buffer.isDirty
     # A discarded untitled buffer has no disk path to reopen, so do not carry
     # it into the next session. Clean untitled tabs remain restorable.
@@ -51,6 +83,15 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
       serializedTab["content"] = %tab.document.buffer.toString()
       serializedTab["lineEnding"] = %($tab.document.lineEnding)
     tabs.add(serializedTab)
+  if savedActive < 0 and session.activeTab >= 0 and
+      session.activeTab < session.tabs.len:
+    let activePath = session.tabs[session.activeTab].document.path
+    if activePath.len > 0:
+      let activeIdentity = canonicalOpenPath(activePath)
+      for index, serializedTab in tabs.getElems:
+        if jsonString(serializedTab, "path", "") == activeIdentity:
+          savedActive = index
+          break
   root["activeTab"] = %savedActive
   root["tabs"] = tabs
   atomicWriteFile(path, $root)

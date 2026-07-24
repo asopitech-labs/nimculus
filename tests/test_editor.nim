@@ -417,6 +417,29 @@ suite "M5 editor services":
     removeFile(path)
     removeFile(sessionPath)
 
+  test "session save coalesces duplicate named tabs before writing":
+    let path = getTempDir() / "nimculus-save-duplicate-日本語🙂.txt"
+    let sessionPath = getTempDir() / "nimculus-save-duplicate.json"
+    defer:
+      if fileExists(path): removeFile(path)
+      if fileExists(sessionPath): removeFile(sessionPath)
+    writeFile(path, "on disk")
+    var session: EditorSession
+    session.addTab(openDocument(path))
+    var dirty = openDocument(path)
+    dirty.buffer.edit(Edit(startByte: 0, endByte: 0, text: "dirty "))
+    session.addTab(dirty)
+    session.activeTab = 0
+    session.saveSession(sessionPath)
+    let serialized = parseJson(readFile(sessionPath))
+    check serialized["tabs"].len == 1
+    check serialized["activeTab"].getInt == 0
+    let restored = loadSession(sessionPath)
+    check restored.tabs.len == 1
+    check restored.activeTab == 0
+    check restored.tabs[0].document.buffer.toString() == "dirty on disk"
+    check restored.tabs[0].document.buffer.isDirty
+
   test "session restores dirty named tab after the disk file is deleted":
     let path = getTempDir() / "nimculus-m5-deleted-dirty-session.txt"
     writeFile(path, "on disk")

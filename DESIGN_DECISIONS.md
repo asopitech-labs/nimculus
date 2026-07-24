@@ -3409,4 +3409,5 @@ then prefers the originally active entry between otherwise equivalent choices.
 The persisted active index is remapped to the surviving tab. Untitled tabs
 remain independent, because they have no on-disk identity. The regression test
 uses a Japanese/emoji path and a clean plus dirty duplicate to prove both data
-preservation and single-tab persistence.
+preservation and single-tab persistence. Session writing applies the same
+selection rule, so an in-memory legacy duplicate cannot be serialized again.
