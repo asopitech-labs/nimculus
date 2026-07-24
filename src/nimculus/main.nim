@@ -915,14 +915,12 @@ when defined(macosx):
         editorLspSignatureText.add("\n" & selected.documentation)
       if document != nil:
         let location = document[].buffer.lineColumn(activeEditorCursor())
-        let paneBounds = if editorSession.split and editorSession.splitActivePane == 1:
-          demoSecondaryEditorBounds else: demoEditorBounds
+        let pane = if editorSession.split and editorSession.splitActivePane == 1: 1 else: 0
         let scrollLine = if editorSession.split and editorSession.splitActivePane == 1:
           editorSession.secondaryView.scrollLine else: editorViewState.scrollLine
-        platformSetEditorHoverPosition(
-          float64(float32(paneBounds.origin.x) + float32(location.column) * 7.2'f32),
-          float64(float32(paneBounds.origin.y) +
-            float32(location.line - scrollLine) * 18'f32))
+        platformSetEditorHoverPane(uint32(pane))
+        platformSetEditorHoverPosition(float64(float32(location.column) * 7.2'f32),
+          float64(float32(location.line - scrollLine) * 18'f32))
       syncNativeHover()
       var lines: seq[string]
       for item in signature.signatures:
@@ -3468,8 +3466,11 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
         syncEditorCursor()
       elif kind == pointerMove and not editorPointerDragging and lspBridge != nil:
         lspBridge.scheduleHover(offset)
+        let bounds = if editorPointerPane == 1: demoSecondaryEditorBounds else: demoEditorBounds
+        platformSetEditorHoverPane(uint32(editorPointerPane))
         platformSetEditorHoverPosition(
-          float64(event.x), float64(uiY))
+          float64(float32(event.x) - float32(bounds.origin.x)),
+          float64(uiY - float32(bounds.origin.y)))
         syncNativeHover()
       elif kind == pointerMove and editorPointerDragging:
         if editorPointerPane == 1:

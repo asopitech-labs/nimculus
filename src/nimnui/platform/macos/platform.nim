@@ -101,6 +101,7 @@ proc platformSetTaskOutputText*(text: cstring, length: uint32) {.importc: "nimcu
 proc platformSetEditorCompletions*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_completions", cdecl.}
 proc platformSetEditorHover*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_hover", cdecl.}
 proc platformSetEditorHoverPosition*(x, y: cdouble) {.importc: "nimculus_platform_set_editor_hover_position", cdecl.}
+proc platformSetEditorHoverPane*(pane: uint32) {.importc: "nimculus_platform_set_editor_hover_pane", cdecl.}
 proc platformEditorTextUtf8Length*(): uint32 {.importc: "nimculus_platform_editor_text_utf8_length", cdecl.}
 proc platformSetEditorComposition*(text: cstring) {.importc: "nimculus_platform_set_editor_composition", cdecl.}
 proc platformClearEditorComposition*() {.importc: "nimculus_platform_clear_editor_composition", cdecl.}

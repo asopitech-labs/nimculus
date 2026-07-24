@@ -38,6 +38,10 @@ static NSUInteger g_secondary_editor_selection_start = 0;
 static NSUInteger g_secondary_editor_selection_end = 0;
 static BOOL g_secondary_editor_soft_wrap = NO;
 static NSUInteger g_editor_input_pane = 0;
+static NSUInteger g_editor_hover_pane = 0;
+// updateEditorTextTexture is reused to build both pane textures. Keep the
+// target explicit so transient overlays are emitted only into their owner.
+static BOOL g_rendering_secondary_editor = NO;
 static NimculusPaintCommand *g_paint_commands = NULL;
 static uint32_t g_paint_count = 0;
 static NimculusPaintRegion *g_paint_dirty_regions = NULL;
@@ -1234,7 +1238,9 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     lineStartByte += lineLength + 1;
     lineStartUnit = lineEndUnit + 1;
   }
-  if (g_marked_text.length > 0) {
+  BOOL renderingInputPane = (g_editor_input_pane == 1) == g_rendering_secondary_editor;
+  BOOL renderingHoverPane = (g_editor_hover_pane == 1) == g_rendering_secondary_editor;
+  if (g_marked_text.length > 0 && renderingInputPane) {
     NSDictionary *markedAttributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
       (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor,
       (id)kCTUnderlineStyleAttributeName: @1 };
@@ -1247,7 +1253,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     CFRelease(markedLine);
     [marked release];
   }
-  if (g_editor_completions.length > 0) {
+  if (g_editor_completions.length > 0 && renderingInputPane) {
     NSArray<NSString *> *completionLines = [g_editor_completions componentsSeparatedByString:@"\n"];
     NSUInteger visibleCount = MIN((NSUInteger)6, completionLines.count);
     CGFloat popupTop = logicalHeight - g_editor_cursor[1] - 4.0;
@@ -1269,7 +1275,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       [line release];
     }
   }
-  if (g_editor_hover.length > 0) {
+  if (g_editor_hover.length > 0 && renderingHoverPane) {
     NSArray<NSString *> *hoverLines = [g_editor_hover componentsSeparatedByString:@"\n"];
     NSUInteger visibleCount = MIN((NSUInteger)8, hoverLines.count);
     CGFloat popupTop = logicalHeight - g_editor_hover_position[1] - 4.0;
@@ -1292,13 +1298,15 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       [line release];
     }
   }
-  CGContextSetStrokeColorWithColor(context, [NSColor colorWithCalibratedRed:0.85
-    green:0.90 blue:1.0 alpha:1.0].CGColor);
-  CGContextSetLineWidth(context, 1.0);
-  CGFloat caretY = logicalHeight - g_editor_cursor[1] - 4.0;
-  CGContextMoveToPoint(context, g_editor_cursor[0], caretY);
-  CGContextAddLineToPoint(context, g_editor_cursor[0], caretY + 20.0);
-  CGContextStrokePath(context);
+  if (renderingInputPane) {
+    CGContextSetStrokeColorWithColor(context, [NSColor colorWithCalibratedRed:0.85
+      green:0.90 blue:1.0 alpha:1.0].CGColor);
+    CGContextSetLineWidth(context, 1.0);
+    CGFloat caretY = logicalHeight - g_editor_cursor[1] - 4.0;
+    CGContextMoveToPoint(context, g_editor_cursor[0], caretY);
+    CGContextAddLineToPoint(context, g_editor_cursor[0], caretY + 20.0);
+    CGContextStrokePath(context);
+  }
   CFRelease(font);
   CGContextRelease(context);
   MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
@@ -1335,7 +1343,10 @@ static void rebuildSecondaryEditorTexture(id<MTLDevice> device) {
   g_editor_selection_end = g_secondary_editor_selection_end;
   g_editor_soft_wrap = g_secondary_editor_soft_wrap;
   g_glyph_rendering_available = NO;
+  BOOL previousRenderingSecondary = g_rendering_secondary_editor;
+  g_rendering_secondary_editor = YES;
   updateEditorTextTexture(device, g_editor_text, NO);
+  g_rendering_secondary_editor = previousRenderingSecondary;
   [g_secondary_text_texture release];
   g_secondary_text_texture = [g_text_texture retain];
   [g_text_texture release];
@@ -3516,6 +3527,7 @@ bool nimculus_platform_validate_editor_pane_geometry(void) {
     g_secondary_editor_rect[2], g_secondary_editor_rect[3]};
   BOOL previousVisible = g_secondary_editor_visible;
   NSUInteger previousInputPane = g_editor_input_pane;
+  NSUInteger previousHoverPane = g_editor_hover_pane;
   NSString *previousText = [g_editor_text retain];
   NSUInteger previousPrimaryScroll = g_editor_scroll_line;
   NSUInteger previousSecondaryScroll = g_secondary_editor_scroll_line;
@@ -3526,16 +3538,18 @@ bool nimculus_platform_validate_editor_pane_geometry(void) {
   nimculus_platform_set_editor_scroll_line(0);
   nimculus_platform_set_secondary_editor_scroll_line(2);
   nimculus_platform_set_editor_input_pane(1);
+  nimculus_platform_set_editor_hover_pane(1);
   BOOL valid = nimculus_platform_editor_pane_at_point(40.0, 80.0) == 0 &&
     nimculus_platform_editor_pane_at_point(340.0, 90.0) == UINT32_MAX &&
     nimculus_platform_editor_pane_at_point(348.0, 80.0) == 1 &&
     nimculus_platform_editor_pane_at_point(648.0, 80.0) == UINT32_MAX &&
     nimculus_platform_secondary_editor_byte_offset_at_point(356.0, 556.0) == 9 &&
-    g_editor_input_pane == 1;
+    g_editor_input_pane == 1 && g_editor_hover_pane == 1;
   memcpy(g_editor_rect, previousPrimary, sizeof(previousPrimary));
   memcpy(g_secondary_editor_rect, previousSecondary, sizeof(previousSecondary));
   g_secondary_editor_visible = previousVisible;
   g_editor_input_pane = previousInputPane;
+  g_editor_hover_pane = previousHoverPane;
   nimculus_platform_set_editor_text(previousText.UTF8String, (uint32_t)[previousText lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
   g_editor_scroll_line = previousPrimaryScroll;
   g_secondary_editor_scroll_line = previousSecondaryScroll;
@@ -4456,6 +4470,10 @@ void nimculus_platform_set_editor_rect(double x, double y, double width, double 
 void nimculus_platform_set_secondary_editor_rect(bool visible, double x, double y,
                                                  double width, double height) {
   g_secondary_editor_visible = visible ? YES : NO;
+  if (!g_secondary_editor_visible) {
+    g_editor_input_pane = 0;
+    g_editor_hover_pane = 0;
+  }
   g_secondary_editor_rect[0] = MAX(0.0, x);
   g_secondary_editor_rect[1] = MAX(0.0, y);
   g_secondary_editor_rect[2] = MAX(1.0, width);
@@ -4526,6 +4544,12 @@ void nimculus_platform_set_editor_input_pane(uint32_t pane) {
   }
   NSTextInputContext *inputContext = [NSTextInputContext currentInputContext];
   if (inputContext) [inputContext invalidateCharacterCoordinates];
+  if (g_queue) {
+    updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+    rebuildSecondaryEditorTexture(g_queue.device);
+  }
+  markSceneFullyDirty();
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 uint32_t nimculus_platform_editor_pane_at_point(double x, double y) {
   if (editorRectContains(g_editor_rect, x, y)) return 0;
@@ -4938,20 +4962,38 @@ void nimculus_platform_set_task_output_text(const char *utf8, uint32_t length) {
 void nimculus_platform_set_editor_completions(const char *utf8, uint32_t length) {
   replaceOwnedUTF8String(&g_editor_completions, utf8, length, @"");
   markSceneFullyDirty();
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  if (g_queue) {
+    updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+    rebuildSecondaryEditorTexture(g_queue.device);
+  }
   if (g_active_view) [g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_hover(const char *utf8, uint32_t length) {
   replaceOwnedUTF8String(&g_editor_hover, utf8, length, @"");
   markSceneFullyDirty();
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  if (g_queue) {
+    updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+    rebuildSecondaryEditorTexture(g_queue.device);
+  }
   if (g_active_view) [g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_hover_position(double x, double y) {
   g_editor_hover_position[0] = x;
   g_editor_hover_position[1] = y;
   markSceneFullyDirty();
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  if (g_queue) {
+    updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+    rebuildSecondaryEditorTexture(g_queue.device);
+  }
+  if (g_active_view) [g_active_view drawFrame];
+}
+void nimculus_platform_set_editor_hover_pane(uint32_t pane) {
+  g_editor_hover_pane = pane == 1 && g_secondary_editor_visible ? 1 : 0;
+  markSceneFullyDirty();
+  if (g_queue) {
+    updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+    rebuildSecondaryEditorTexture(g_queue.device);
+  }
   if (g_active_view) [g_active_view drawFrame];
 }
 uint32_t nimculus_platform_editor_text_utf8_length(void) {
