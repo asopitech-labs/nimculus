@@ -29,13 +29,9 @@ jobs:
           NIMCULUS_SOAK_INTERVAL_SECONDS=5 \
           NIMCULUS_SOAK_TIMEOUT_SECONDS=40 \
           bash scripts/benchmark_soak.sh
-      - name: Compile portable platform boundary
-        run: |
-          nim c --compileOnly --os:linux --mm:arc --nimcache="$RUNNER_TEMP/nimculus-linux-compile" --path:src src/nimculus/main.nim
-          nim c --compileOnly --os:windows -d:nimculusPortableOnly --mm:arc --nimcache="$RUNNER_TEMP/nimculus-windows-compile" --path:src src/nimculus/main.nim
       - name: Lint
         run: nimble lint
-      - name: Test
+      - name: Test macOS implementation
         run: nimble test
       - name: Package smoke test
         run: |

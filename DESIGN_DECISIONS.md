@@ -3247,3 +3247,17 @@ then sends `SIGKILL` to the same scope only if bounded reaping expires. The
 macOS integration test starts a pipeline command, closes the PTY, and verifies
 that its process group no longer exists. This keeps Cocoa termination bounded
 without leaving shell descendants running.
+
+## M0-008: Keep the default verification path macOS-only while Windows is frozen
+
+The project target order makes macOS completion the immediate goal; Windows is
+important for later WSL support but must not receive speculative work while the
+macOS milestones remain unverified. The previous default `nimble test` and
+macOS CI compiled or ran Windows-only contracts, making ordinary macOS work
+depend on a platform outside the active scope.
+
+`nimble test` now contains only portable and macOS-relevant verification. The
+Windows-only terminal, platform, and native smoke tests are grouped under
+`nimble testWindows` for a future Windows runner, and the macOS workflow no
+longer cross-compiles Linux or Windows. This preserves the existing Windows
+sources without treating them as part of macOS acceptance.

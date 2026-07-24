@@ -62,7 +62,7 @@ jobs:
           bash scripts/benchmark_soak.sh
       - name: Lint
         run: nimble lint
-      - name: Test
+      - name: Test macOS implementation
         run: nimble test
       - name: Package smoke test
         run: |

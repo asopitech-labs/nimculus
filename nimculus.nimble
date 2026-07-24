@@ -46,9 +46,12 @@ task test, "Run unit and integration tests":
   exec "nim c --mm:arc --nimcache:.nimcache/test_task_service -r --path:src tests/test_task_service.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/test_settings -r --path:src tests/test_settings.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/test_update_service -r --path:src tests/test_update_service.nim"
+  exec "nim c --mm:arc --nimcache:.nimcache/test_workspace_watcher -r --path:src tests/test_workspace_watcher.nim"
+
+task testWindows, "Run Windows-only tests on a Windows runner":
   exec "nim c --mm:arc --nimcache:.nimcache/test_windows_terminal -r --path:src tests/test_windows_terminal.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/test_windows_platform_contract -r --path:src tests/test_windows_platform_contract.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_workspace_watcher -r --path:src tests/test_workspace_watcher.nim"
+  exec "nim c --mm:arc --nimcache:.nimcache/test_windows_native_smoke -r --path:src tests/test_windows_native_smoke.nim"
 
 task benchmark, "Run platform benchmark smoke tests":
   exec "nim c --mm:arc --nimcache:.nimcache/bench_m20 -r --path:src tests/bench_m20.nim"
