@@ -1089,7 +1089,7 @@ when defined(macosx):
       editorTaskJob.cancel()
     editorTaskJob = nil
     if lspBridge != nil:
-      lspBridge.stop()
+      lspBridge.shutdown()
     lspBridge = nil
     closeNativeTerminals()
 

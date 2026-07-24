@@ -635,3 +635,33 @@ proc stop*(bridge: LspEditorBridge) =
   bridge.closeDocument()
   if bridge.session != nil: bridge.session.stop()
   bridge.session = nil
+
+proc shutdown*(bridge: LspEditorBridge) =
+  ## App termination must not write `didClose` or request-cancellation frames:
+  ## a stopped or saturated server pipe could otherwise delay Cocoa shutdown.
+  ## Stop owns the process group directly, then discard UI-only state.
+  if bridge == nil: return
+  if bridge.session != nil: bridge.session.stop()
+  bridge.session = nil
+  bridge.opened = false
+  bridge.path = ""
+  bridge.uri = ""
+  bridge.languageId = ""
+  bridge.lastText = ""
+  bridge.version = 0
+  bridge.completionItems.setLen(0)
+  bridge.completionVisible = false
+  bridge.hoverText = ""
+  bridge.hoverVisible = false
+  bridge.definitionLocations.setLen(0)
+  bridge.formattingEdits.setLen(0)
+  bridge.formattingReady = false
+  bridge.referenceLocations.setLen(0)
+  bridge.symbols.setLen(0)
+  bridge.codeActions.setLen(0)
+  bridge.resolvedCodeAction = LspCodeAction()
+  bridge.commandEdits.setLen(0)
+  bridge.renameEdits.setLen(0)
+  bridge.signatureHelp = LspSignatureHelp()
+  bridge.semanticTokens.setLen(0)
+  bridge.inlayHints.setLen(0)

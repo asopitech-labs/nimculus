@@ -1,11 +1,26 @@
 import std/unittest
 import std/os
+when defined(posix):
+  import std/posix
 import nimculus/editor_buffer
 import nimculus/editor_diagnostics
 import nimculus/lsp
 import nimculus/lsp_editor_bridge
 
 suite "LSP editor bridge":
+  when defined(posix):
+    test "shutdown stops an unresponsive server group without writing didClose":
+      let bridge = newLspEditorBridge("/bin/sh", ["-c", "sleep 30 & wait"])
+      bridge.updateDocument("/tmp/shutdown.nim", "discard")
+      check bridge.session != nil
+      let processGroupId = bridge.session.process.processGroupId
+      check processGroupId > 0
+      sleep(20)
+      bridge.shutdown()
+      check bridge.session == nil
+      check kill(-processGroupId, 0) == -1
+      check errno == ESRCH
+
   test "encodes file URIs and language IDs":
     check fileUri("/tmp/a b.nim") == "file:///tmp/a%20b.nim"
     check filePathFromUri("file:///tmp/a%20b.nim") == "/tmp/a b.nim"

@@ -3368,3 +3368,10 @@ jobs, and task jobs; stops the LSP bridge; and then closes all PTYs. Every
 accepted macOS quit route invokes it before applying an already-verified update,
 so no editor-owned helper remains during DMG installation. A cancelled
 unsaved-changes sheet does not cancel a pending update or other active work.
+
+The quit-only LSP bridge shutdown deliberately does not emit `didClose` or
+`$/cancelRequest`: those are normal document-lifecycle writes, but they can
+block if a failed Language Server no longer drains stdin. It stops the verified
+server process group directly and drops bridge state. The macOS regression test
+uses an unresponsive shell server with a background child and verifies the
+whole group is gone.
