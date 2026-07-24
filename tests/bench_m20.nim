@@ -87,6 +87,19 @@ block terminalMemory:
     "bytes=" & $(payload.len * repetitions) & ";lines=" & $screen.lineCount &
     ";resident_before=" & $before & ";resident_after=" & $after)
 
+block terminalMetadataBounds:
+  let before = platformResidentMemoryBytes()
+  var screen = initTerminalScreen(120, 40, 128)
+  let start = cpuTime()
+  for index in 0 ..< 1024:
+    screen.feed("\e]8;;https://example.com/build/" & $index & "\x07x\r\n")
+  let stats = screen.storageStats()
+  let after = platformResidentMemoryBytes()
+  report("terminal_metadata_bounds", cpuTime() - start,
+    "links=" & $stats.hyperlinkCount & ";link_bytes=" & $stats.hyperlinkBytes &
+    ";lines=" & $screen.lineCount & ";resident_before=" & $before &
+    ";resident_after=" & $after)
+
 block lspMemory:
   let before = platformResidentMemoryBytes()
   let message = encodeLspMessage(%*{"jsonrpc": "2.0", "id": 1, "result": {"ok": true}})

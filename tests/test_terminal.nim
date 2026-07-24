@@ -1,6 +1,7 @@
 import std/unittest
 import std/os
 import std/strutils
+import std/times
 import nimculus/terminal
 
 when defined(macosx):
@@ -126,6 +127,30 @@ suite "M10 terminal core":
     check screen.cellHyperlinkUri(screen.lines[0][3]) == "https://example.com"
     check screen.cellHyperlinkUri(screen.lines[0][5]).len == 0
 
+  test "bounds OSC metadata and reclaims discarded hyperlink values":
+    var screen = initTerminalScreen(8, 1, 2)
+    for index in 0 ..< 64:
+      screen.feed("\x1b]8;;https://example.com/" & $index & "\x07x\r\n")
+    let stats = screen.storageStats()
+    check stats.hyperlinkCount <= screen.scrollbackLimit + screen.rows + 1
+    check stats.hyperlinkBytes < 256
+
+    var oversized = initTerminalScreen(8, 1)
+    oversized.feed("\x1b]8;;https://example.com\x07a")
+    oversized.feed("\x1b]8;;" & repeat("x", MaxTerminalOscBytes + 1) & "\x07b")
+    check oversized.cellHyperlinkUri(oversized.lines[0][0]) == "https://example.com"
+    check oversized.cellHyperlinkUri(oversized.lines[0][1]).len == 0
+    check oversized.storageStats().hyperlinkCount == 1
+
+  test "retains metadata referenced by a saved alternate screen":
+    var screen = initTerminalScreen(8, 1, 2)
+    screen.feed("\x1b]8;;https://example.com/main\x07m")
+    screen.feed("\x1b[?1049h")
+    for index in 0 ..< 8:
+      screen.feed("\x1b]8;;https://example.com/alt/" & $index & "\x07x\r\n")
+    screen.feed("\x1b[?1049l")
+    check screen.cellHyperlinkUri(screen.lines[0][0]) == "https://example.com/main"
+
   test "retains SGR attributes on cells and resets them":
     var screen = initTerminalScreen(8, 1)
     screen.feed("\x1b[1;31;48;2;1;2;3mA\x1b[0mB")
@@ -220,6 +245,23 @@ suite "M10 terminal core":
       pty.close()
       # The shell and its child command share the PTY-owned group. A
       # successful signal probe here would mean a command escaped cleanup.
+      check kill(-childPid, 0) == -1
+      check errno == ESRCH
+
+    test "macOS PTY close remains bounded when its shell ignores SIGTERM":
+      let pty = newTerminalPty("/bin/sh", "/tmp", 40, 8)
+      let childPid = pty.childPid
+      check pty.writeInput("trap '' TERM; sleep 30 & wait\n") > 0
+      var accepted = false
+      for _ in 0 ..< 20:
+        if "sleep 30" in pty.pollOutput():
+          accepted = true
+          break
+        sleep(10)
+      check accepted
+      let started = epochTime()
+      pty.close()
+      check epochTime() - started < 3.0
       check kill(-childPid, 0) == -1
       check errno == ESRCH
 

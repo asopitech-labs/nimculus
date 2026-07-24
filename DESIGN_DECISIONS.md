@@ -3443,3 +3443,35 @@ growth for that fixture, while preserving SGR, OSC 8, UTF-8, combining glyph,
 wide-cell, selection, and native attributed-run behavior. A compact-cell size
 regression test prevents future variable-length data from being reintroduced;
 an additional overwrite test clears a stale wide-glyph continuation cell.
+
+## M10-014: Bound terminal metadata by retained grid lifetime
+
+The scalar terminal-cell design moves hyperlink URIs, combining sequences, and
+styles into screen-level intern tables. Without an explicit lifetime policy,
+discarding old scrollback rows would leave their unique OSC 8 URIs and styles
+allocated indefinitely. This was a second-order retention leak despite compact
+cells.
+
+Following Zed's separation between the retained Alacritty grid and the
+rendering snapshot, Nimculus now compacts intern tables whenever scrollback is
+discarded. It remaps every visible, scrollback, and saved-alternate cell and
+keeps only values still reachable from those cells or the active hyperlink.
+OSC collection is limited to 8 KiB and a retained OSC 8 URI to 2 KiB; malformed
+or oversized links are dropped rather than allowing a stale previous link to
+label later output. The M20 metadata benchmark sends 1,024 distinct links and
+reports retained counts and bytes; it retained 166 links / 4,838 bytes with no
+resident-memory increase, matching the live grid rather than total history.
+
+## M10-015: Never block Cocoa quit in the final PTY reap fallback
+
+The PTY close path already sent TERM and then KILL to the terminal-owned process
+group. Its final `waitpid(..., 0)` still made the Cocoa thread wait without a
+deadline if a malformed session failed to reap after KILL. The full macOS test
+suite reproduced that wait, contradicting the terminal shutdown requirement.
+
+Both TERM and KILL phases now poll `waitpid(..., WNOHANG)` for a one-second
+bounded grace interval. The PTY master is then released regardless, so quitting
+the editor never waits indefinitely in the kernel. The process-group signal and
+direct-child fallback remain unchanged. A macOS regression starts a shell that
+ignores TERM, proves `close` finishes within three seconds, and verifies its
+process group no longer exists.

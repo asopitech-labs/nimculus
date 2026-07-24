@@ -8,6 +8,12 @@ const
   ## single kernel read. This prevents a chatty build or terminal command from
   ## remaining many frames behind its PTY output.
   MaxTerminalReadBytesPerPoll = 64 * 1024
+  ## OSC is terminal metadata, not document content. Keep a malformed or
+  ## hostile control sequence from becoming an unbounded transient buffer.
+  MaxTerminalOscBytes* = 8 * 1024
+  ## OSC 8 URIs survive while a cell is visible or in scrollback. A modest
+  ## per-link limit keeps that retained metadata proportional to the grid.
+  MaxTerminalHyperlinkUriBytes* = 2 * 1024
 
 type
   TerminalColorKind* = enum
@@ -39,6 +45,11 @@ type
   TerminalStyle* = object
     foreground*, background*: TerminalColor
     bold*, dim*, italic*, underline*, inverse*, strikethrough*: bool
+
+  TerminalStorageStats* = object
+    ## Counts exclude the default style and empty link/combining values.
+    styleCount*, hyperlinkCount*, combiningCount*: int
+    hyperlinkBytes*, combiningBytes*: int
 
   TerminalPoint* = object
     row*, column*: int
@@ -73,6 +84,7 @@ type
     parserState*: char
     csiParams*: string
     oscBuffer*: string
+    oscTruncated: bool
     currentHyperlinkUri*: string
     currentHyperlinkIndex: uint32
     styles: seq[TerminalStyle]
@@ -82,6 +94,10 @@ type
 proc blankRow(screen: TerminalScreen): seq[TerminalCell] =
   newSeq(result, max(1, screen.columns))
   for cell in result.mitems: cell.width = 1
+
+proc defaultTerminalStyle(): TerminalStyle =
+  result.foreground.kind = terminalDefaultColor
+  result.background.kind = terminalDefaultColor
 
 proc currentStyle(screen: TerminalScreen): TerminalStyle =
   TerminalStyle(foreground: screen.sgrForeground, background: screen.sgrBackground,
@@ -125,13 +141,86 @@ proc initTerminalScreen*(columns = 80, rows = 24,
   result.cursorVisible = true
   result.scrollTop = 0
   result.scrollBottom = result.rows - 1
-  result.sgrForeground.kind = terminalDefaultColor
-  result.sgrBackground.kind = terminalDefaultColor
-  result.styles.add(result.currentStyle())
+  let defaultStyle = defaultTerminalStyle()
+  result.sgrForeground = defaultStyle.foreground
+  result.sgrBackground = defaultStyle.background
+  result.styles.add(defaultStyle)
   result.lines = newSeq[seq[TerminalCell]](result.rows)
   for row in 0 ..< result.rows: result.lines[row] = result.blankRow()
 
 proc clearCell(screen: var TerminalScreen, row, column: int)
+
+proc compactInternedValues(screen: var TerminalScreen) =
+  ## Zed delegates the grid's cell lifetime to Alacritty. Mirror that ownership
+  ## boundary here: presentation values live only while a visible, scrollback,
+  ## or saved-alternate cell still references them.
+  let oldStyles = screen.styles
+  let oldHyperlinks = screen.hyperlinks
+  let oldCombining = screen.combiningGlyphs
+  var styleMap = newSeq[uint32](oldStyles.len)
+  var hyperlinkMap = newSeq[uint32](oldHyperlinks.len + 1)
+  var combiningMap = newSeq[uint32](oldCombining.len + 1)
+  var styles = @[if oldStyles.len > 0: oldStyles[0] else: defaultTerminalStyle()]
+  var hyperlinks: seq[string]
+  var combiningGlyphs: seq[string]
+
+  proc remapCell(cell: var TerminalCell) =
+    let style = int(cell.styleIndex)
+    if style <= 0 or style >= oldStyles.len:
+      cell.styleIndex = 0
+    else:
+      if styleMap[style] == 0:
+        styleMap[style] = uint32(styles.len)
+        styles.add(oldStyles[style])
+      cell.styleIndex = styleMap[style]
+
+    let hyperlink = int(cell.hyperlinkIndex)
+    if hyperlink <= 0 or hyperlink > oldHyperlinks.len:
+      cell.hyperlinkIndex = 0
+    else:
+      if hyperlinkMap[hyperlink] == 0:
+        hyperlinkMap[hyperlink] = uint32(hyperlinks.len + 1)
+        hyperlinks.add(oldHyperlinks[hyperlink - 1])
+      cell.hyperlinkIndex = hyperlinkMap[hyperlink]
+
+    let combining = int(cell.combiningIndex)
+    if combining <= 0 or combining > oldCombining.len:
+      cell.combiningIndex = 0
+    else:
+      if combiningMap[combining] == 0:
+        combiningMap[combining] = uint32(combiningGlyphs.len + 1)
+        combiningGlyphs.add(oldCombining[combining - 1])
+      cell.combiningIndex = combiningMap[combining]
+
+  proc remapRows(rows: var seq[seq[TerminalCell]]) =
+    for row in rows.mitems:
+      for cell in row.mitems: remapCell(cell)
+
+  remapRows(screen.lines)
+  remapRows(screen.scrollback)
+  remapRows(screen.savedLines)
+  remapRows(screen.savedScrollback)
+
+  let activeLink = int(screen.currentHyperlinkIndex)
+  if activeLink > 0 and activeLink <= oldHyperlinks.len:
+    if hyperlinkMap[activeLink] == 0:
+      hyperlinkMap[activeLink] = uint32(hyperlinks.len + 1)
+      hyperlinks.add(oldHyperlinks[activeLink - 1])
+    screen.currentHyperlinkIndex = hyperlinkMap[activeLink]
+  else:
+    screen.currentHyperlinkIndex = 0
+    screen.currentHyperlinkUri.setLen(0)
+
+  screen.styles = styles
+  screen.hyperlinks = hyperlinks
+  screen.combiningGlyphs = combiningGlyphs
+
+proc storageStats*(screen: TerminalScreen): TerminalStorageStats =
+  result.styleCount = max(0, screen.styles.len - 1)
+  result.hyperlinkCount = screen.hyperlinks.len
+  result.combiningCount = screen.combiningGlyphs.len
+  for uri in screen.hyperlinks: result.hyperlinkBytes += uri.len
+  for glyph in screen.combiningGlyphs: result.combiningBytes += glyph.len
 
 proc clearLine(screen: var TerminalScreen, row: int) =
   if row < 0 or row >= screen.lines.len: return
@@ -143,7 +232,9 @@ proc trimScrollback(screen: var TerminalScreen) =
   ## reserve below the limit and compact in batches, like a deque-backed
   ## terminal history.
   if screen.scrollbackLimit <= 0:
+    let changed = screen.scrollback.len > 0
     screen.scrollback.setLen(0)
+    if changed: screen.compactInternedValues()
     return
   if screen.scrollback.len <= screen.scrollbackLimit: return
   let batch = min(256, max(1, screen.scrollbackLimit div 4))
@@ -153,6 +244,7 @@ proc trimScrollback(screen: var TerminalScreen) =
   else:
     let first = screen.scrollback.len - keep
     screen.scrollback = screen.scrollback[first .. ^1]
+  screen.compactInternedValues()
 
 proc scrollRegionUp(screen: var TerminalScreen, amount = 1) =
   let count = max(1, amount)
@@ -281,12 +373,31 @@ proc applyCurrentStyle(screen: var TerminalScreen, cell: var TerminalCell) =
 proc finishOsc(screen: var TerminalScreen) =
   ## Parse the OSC 8 hyperlink form: OSC 8 ; params ; URI BEL/ST.
   ## Other OSC metadata remains intentionally non-rendering.
-  let parts = screen.oscBuffer.split(';', maxsplit = 2)
-  if parts.len >= 3 and parts[0] == "8":
-    screen.currentHyperlinkUri = parts[2]
-    screen.currentHyperlinkIndex = internString(screen.hyperlinks, parts[2])
+  if screen.oscTruncated:
+    # A truncated OSC 8 must not leave the previous hyperlink active for the
+    # following text. It is safer to drop an oversized link than to mislabel
+    # unrelated terminal output with a stale destination.
+    if screen.oscBuffer.startsWith("8;"):
+      screen.currentHyperlinkUri.setLen(0)
+      screen.currentHyperlinkIndex = 0
+  else:
+    let parts = screen.oscBuffer.split(';', maxsplit = 2)
+    if parts.len >= 3 and parts[0] == "8":
+      if parts[2].len <= MaxTerminalHyperlinkUriBytes:
+        screen.currentHyperlinkUri = parts[2]
+        screen.currentHyperlinkIndex = internString(screen.hyperlinks, parts[2])
+      else:
+        screen.currentHyperlinkUri.setLen(0)
+        screen.currentHyperlinkIndex = 0
   screen.oscBuffer.setLen(0)
+  screen.oscTruncated = false
   screen.parserState = '\0'
+
+proc appendOscByte(screen: var TerminalScreen, byte: char) =
+  if screen.oscBuffer.len < MaxTerminalOscBytes:
+    screen.oscBuffer.add(byte)
+  else:
+    screen.oscTruncated = true
 
 proc enterAlternateScreen(screen: var TerminalScreen) =
   if screen.alternateScreen: return
@@ -567,6 +678,7 @@ proc feed*(screen: var TerminalScreen, data: string) =
         # OSC titles and hyperlinks are metadata; do not leak their payload
         # into the terminal cell stream.
         screen.oscBuffer.setLen(0)
+        screen.oscTruncated = false
         screen.parserState = 'o'
       elif byte == '7':
         screen.savedCursorRow = screen.cursorRow
@@ -588,12 +700,12 @@ proc feed*(screen: var TerminalScreen, data: string) =
     of 'o':
       if byte == '\x07': screen.finishOsc()
       elif byte == '\x1B': screen.parserState = 'O'
-      else: screen.oscBuffer.add(byte)
+      else: screen.appendOscByte(byte)
     of 'O':
       if byte == '\\': screen.finishOsc()
       elif byte != '\x1B':
-        screen.oscBuffer.add('\x1B')
-        screen.oscBuffer.add(byte)
+        screen.appendOscByte('\x1B')
+        screen.appendOscByte(byte)
     else: screen.parserState = '\0'
     inc index
 
@@ -910,13 +1022,18 @@ elif defined(macosx):
   proc reapTerminalChild(pid: Pid) =
     var status: cint
     # Give a shell a short grace period, then force-reap it so closing a
-    # terminal cannot block the Cocoa termination path indefinitely.
+    # terminal cannot block the Cocoa termination path indefinitely. In
+    # particular, never use blocking waitpid after SIGKILL: a malformed PTY
+    # session must not turn app quit into an unbounded kernel wait.
     for _ in 0 ..< 100:
       let waited = waitpid(pid, status, WNOHANG)
       if waited == pid or (waited < 0 and errno == ECHILD): return
       sleep(10)
     terminateTerminalProcessGroup(pid, SIGKILL)
-    discard waitpid(pid, status, 0)
+    for _ in 0 ..< 100:
+      let waited = waitpid(pid, status, WNOHANG)
+      if waited == pid or (waited < 0 and errno == ECHILD): return
+      sleep(10)
 
   proc close*(pty: TerminalPty) =
     if pty == nil or pty.closed: return
