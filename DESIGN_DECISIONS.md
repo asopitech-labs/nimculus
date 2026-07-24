@@ -3015,3 +3015,18 @@ prevents a temporary test window's deferred animation state from contaminating
 unrelated alert contracts in the same process. Both the isolated Save Panel
 contract and the ordinary macOS platform contract are required in local and
 self-hosted macOS CI.
+
+## M5-020: Queue Save All and Quit across asynchronous Save Panels
+
+Save All and Quit can encounter more than one untitled tab. A synchronous
+loop used to prompt for each path serially with `runModal`, but a direct
+replacement with one asynchronous panel would either abandon later tabs or
+attempt to terminate before all writes completed.
+
+The macOS path now records the next tab index and advances it after every
+accepted panel callback. Named documents save immediately; each untitled tab
+becomes active only while its own Save Panel is shown. Completion saves any
+remaining tabs, applies a pending update, closes native terminals, and then
+confirms the deferred application termination. Cancellation emits
+`savePanelCancelled`, clears the pending index, and keeps the application
+open, so a later ordinary Save cannot accidentally resume an abandoned quit.

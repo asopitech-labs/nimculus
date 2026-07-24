@@ -116,6 +116,11 @@ when defined(macosx) or defined(windows):
   var pendingLspCodeActions: seq[LspCodeAction]
   var pendingLspSymbols: seq[LspSymbol]
 
+when defined(macosx):
+  # Index of the next tab to save while an asynchronous Save All and Quit
+  # sequence is waiting for an untitled document's NSSavePanel response.
+  var pendingSaveAllQuitNextTab = -1
+
 proc resetPointerInteractions()
 when defined(macosx):
   proc syncNativeHover()
@@ -1974,6 +1979,46 @@ proc receiveNativeSelection(startByte, endByte: uint32) {.cdecl.} =
   editorViewState.selection.active = floorGraphemeBoundary(text, min(int(endByte), length))
   syncEditorCursor()
 
+when defined(macosx):
+  proc finishSaveAllAndQuit() =
+    pendingSaveAllQuitNextTab = -1
+    if editorSession.hasDirtyTabs():
+      platformSetCloseDecision(false)
+      return
+    applyPendingUpdateAtQuit()
+    closeNativeTerminals()
+    platformSetCloseDecision(true)
+    # applicationShouldTerminate already deferred the first quit request
+    # while an untitled document's Save Panel was open.
+    platformConfirmQuit()
+
+  proc continueSaveAllAndQuit() =
+    while pendingSaveAllQuitNextTab >= 0 and
+        pendingSaveAllQuitNextTab < editorSession.tabs.len:
+      let tabIndex = pendingSaveAllQuitNextTab
+      inc pendingSaveAllQuitNextTab
+      if not editorSession.tabs[tabIndex].document.buffer.isDirty: continue
+      if editorSession.tabs[tabIndex].document.path.len > 0:
+        try:
+          editorSession.tabs[tabIndex].document.save()
+          editorSession.tabs[tabIndex].title =
+            splitFile(editorSession.tabs[tabIndex].document.path).name
+        except CatchableError as error:
+          pendingSaveAllQuitNextTab = -1
+          platformSetCloseDecision(false)
+          editorViewState.statusMessage = "Save all failed: " & error.msg
+          return
+        continue
+      editorSession.saveActiveView(editorViewState)
+      editorSession.activeTab = tabIndex
+      editorSession.loadActiveView(editorViewState)
+      syncEditorCursor()
+      platformShowSavePanel()
+      editorViewState.statusMessage = "Choose a location to save " &
+        editorSession.tabs[tabIndex].title
+      return
+    finishSaveAllAndQuit()
+
 proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
   if path == nil or ($path).len == 0: return
   let filePath = $path
@@ -1998,7 +2043,11 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
         when defined(macosx):
           # The native Save Panel used by close confirmation must only allow
           # termination after the document write has actually succeeded.
-          platformSetCloseDecision(true)
+          if pendingSaveAllQuitNextTab >= 0:
+            platformSetCloseDecision(false)
+            continueSaveAllAndQuit()
+          else:
+            platformSetCloseDecision(true)
       except CatchableError as error:
         editorViewState.statusMessage = "Save failed: " & error.msg
         when defined(macosx):
@@ -2224,6 +2273,16 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         closeWindowsTerminal()
         platformSetCloseDecision(true)
   elif name == "saveAllAndQuit":
+    when defined(macosx):
+      var hasUntitledDirtyTab = false
+      for tab in editorSession.tabs:
+        if tab.document.buffer.isDirty and tab.document.path.len == 0:
+          hasUntitledDirtyTab = true
+          break
+      if hasUntitledDirtyTab:
+        pendingSaveAllQuitNextTab = 0
+        continueSaveAllAndQuit()
+        return
     var success = true
     for tab in editorSession.tabs.mitems:
       if not tab.document.buffer.isDirty: continue
@@ -2246,6 +2305,14 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx): closeNativeTerminals()
       when defined(windows): closeWindowsTerminal()
     platformSetCloseDecision(success and not editorSession.hasDirtyTabs())
+  elif name == "savePanelCancelled":
+    when defined(macosx):
+      if pendingSaveAllQuitNextTab >= 0:
+        pendingSaveAllQuitNextTab = -1
+        platformSetCloseDecision(false)
+        editorViewState.statusMessage = "Save all cancelled"
+      else:
+        editorViewState.statusMessage = "Save cancelled"
   elif name == "discardAllAndQuit":
     suppressRecoveryWrite = true
     discardDirtyOnExit = true

@@ -3464,11 +3464,21 @@ bool nimculus_platform_validate_open_panel_sheet(void) {
   }
 }
 
+static uint32_t g_validation_save_panel_cancel_count = 0;
+
+static void validationSavePanelCommandCallback(const char *command) {
+  if (command && strcmp(command, "savePanelCancelled") == 0) {
+    g_validation_save_panel_cancel_count++;
+  }
+}
+
 bool nimculus_platform_validate_save_panel_sheet(void) {
   NimculusPlatformMetrics previousMetrics = g_metrics;
   BOOL previousCloseDecision = g_close_decision;
   @autoreleasepool {
     id previousView = g_active_view;
+    NimculusCommandCallback previousCommandCallback = g_command_callback;
+    g_validation_save_panel_cancel_count = 0;
     NSWindow *window = [[NSWindow alloc]
       initWithContentRect:NSMakeRect(160.0, 180.0, 640.0, 480.0)
       styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
@@ -3482,6 +3492,7 @@ bool nimculus_platform_validate_save_panel_sheet(void) {
     }
     window.contentView = view;
     g_active_view = view;
+    g_command_callback = validationSavePanelCommandCallback;
     [window makeKeyAndOrderFront:nil];
     nimculus_platform_show_save_panel();
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
@@ -3494,13 +3505,14 @@ bool nimculus_platform_validate_save_panel_sheet(void) {
     // Do not tear down the test window while that animation still owns it.
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
     g_active_view = previousView;
+    g_command_callback = previousCommandCallback;
     g_close_decision = previousCloseDecision;
     [window orderOut:nil];
     [window close];
     [view release];
     [window release];
     g_metrics = previousMetrics;
-    return attached && detached;
+    return attached && detached && g_validation_save_panel_cancel_count == 1;
   }
 }
 
@@ -4175,8 +4187,12 @@ void nimculus_platform_show_save_panel(void) {
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   NSWindow *window = view.window;
   void (^complete)(NSModalResponse) = ^(NSModalResponse response) {
-    if (response == NSModalResponseOK && g_file_callback) {
-      g_file_callback(panel.URL.path.UTF8String, true);
+    if (response == NSModalResponseOK) {
+      if (g_file_callback) g_file_callback(panel.URL.path.UTF8String, true);
+    } else if (g_command_callback) {
+      // A pending Save All and Quit sequence must be able to abandon its
+      // asynchronous queue when this ordinary Save Panel is cancelled.
+      g_command_callback("savePanelCancelled");
     }
   };
   if (window) [panel beginSheetModalForWindow:window completionHandler:complete];
