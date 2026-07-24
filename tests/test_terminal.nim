@@ -151,6 +151,12 @@ suite "M10 terminal core":
     check not screen.mouseReporting
 
   when defined(macosx):
+    test "macOS PTY rejects missing shell and working directory before fork":
+      expect IOError:
+        discard newTerminalPty("nimculus-missing-shell", "/tmp", 40, 8)
+      expect IOError:
+        discard newTerminalPty("/bin/sh", "/tmp/nimculus-missing-directory", 40, 8)
+
     test "multiple PTYs keep independent screen state":
       let first = newTerminalPty("/bin/sh", "/tmp", 32, 4)
       let second = newTerminalPty("/bin/sh", "/tmp", 32, 4)

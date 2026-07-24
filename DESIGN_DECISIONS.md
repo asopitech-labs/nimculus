@@ -450,6 +450,19 @@ protocol responses use the same queue. The queue is cleared during close, and
 the native PTY integration test verifies that a large Japanese paste retains a
 non-empty pending tail rather than being dropped.
 
+## M10-007: Validate terminal launch configuration before fork
+
+Zed resolves its shell command from the configured environment before it
+creates the terminal subprocess. Nimculus previously let `chdir` and `execl`
+fail only in the forked child. An invalid directory silently inherited the
+editor process directory; a bare configured shell name such as `fish` could
+also fail because `execl` does not search `PATH`.
+
+The macOS PTY constructor now resolves non-absolute shell names with `PATH`
+and validates both the executable and requested working directory before
+forking. Invalid settings surface as a normal terminal creation error, while
+configured `zsh`, `bash`, or `fish` names can use the standard shell path.
+
 ## M10-004: Bound task output like terminal output
 
 Zed applies an explicit byte limit when exposing terminal output and preserves

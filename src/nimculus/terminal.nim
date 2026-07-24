@@ -728,6 +728,14 @@ elif defined(macosx):
 
   proc newTerminalPty*(shell = "/bin/zsh", workingDirectory = "",
                        columns = 80, rows = 24): TerminalPty =
+    ## Resolve configuration errors in the parent. A failed `chdir` or `execl`
+    ## in the forked child otherwise looks like a briefly opened, empty
+    ## terminal and can silently inherit the editor's working directory.
+    let resolvedShell = if shell.isAbsolute: shell else: findExe(shell)
+    if resolvedShell.len == 0 or not fileExists(resolvedShell):
+      raise newException(IOError, "terminal shell not found: " & shell)
+    if workingDirectory.len > 0 and not dirExists(workingDirectory):
+      raise newException(IOError, "terminal working directory not found: " & workingDirectory)
     new(result)
     result.screen = initTerminalScreen(columns, rows)
     var size = TerminalWinSize(rows: cushort(rows), columns: cushort(columns),
@@ -739,7 +747,7 @@ elif defined(macosx):
     result.childPid = pid
     if pid == 0:
       if workingDirectory.len > 0: discard chdir(workingDirectory.cstring)
-      discard execl(shell.cstring, shell.cstring, "-l".cstring, nil)
+      discard execl(resolvedShell.cstring, resolvedShell.cstring, "-l".cstring, nil)
       quit(127)
     discard fcntl(result.masterFd, F_SETFL, fcntl(result.masterFd, F_GETFL) or O_NONBLOCK)
 
