@@ -14,16 +14,31 @@ suite "M6 workspace":
     test "FSEvents loss flags request a root rescan":
       check validateWorkspaceWatcherRescanFlags()
 
-    test "FSEvents watcher can stop before its workspace is released":
-      let root = getTempDir() / "nimculus-m6-watcher-stop"
+  test "FSEvents watcher can stop before its workspace is released":
+    let root = getTempDir() / "nimculus-m6-watcher-stop"
+    if dirExists(root): removeDir(root)
+    createDir(root)
+    defer: removeDir(root)
+    let workspace = openWorkspace(root)
+    workspace.startWatching()
+    check workspace.isWatching
+    workspace.stopWatching()
+    check not workspace.isWatching
+
+  test "workspace roots coalesce symlink aliases before watcher registration":
+    let root = getTempDir() / "nimculus-m6-root-identity-日本語🙂"
+    let alias = getTempDir() / "nimculus-m6-root-identity-alias"
+    if symlinkExists(alias): removeFile(alias)
+    if dirExists(root): removeDir(root)
+    createDir(root)
+    defer:
+      if symlinkExists(alias): removeFile(alias)
       if dirExists(root): removeDir(root)
-      createDir(root)
-      defer: removeDir(root)
-      let workspace = openWorkspace(root)
-      workspace.startWatching()
-      check workspace.isWatching
-      workspace.stopWatching()
-      check not workspace.isWatching
+    when defined(posix):
+      createSymlink(root, alias)
+      let workspace = openWorkspace(alias)
+      workspace.addRoot(root)
+      check workspace.rootPaths == @[canonicalWorkspaceRoot(root)]
 
   test "lazy tree honors gitignore and enumerates files":
     let root = getTempDir() / "nimculus-m6-workspace"
