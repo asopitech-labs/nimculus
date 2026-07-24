@@ -1,8 +1,10 @@
 name: Windows
 
 on:
-  push:
-  pull_request:
+  # Windows implementation is frozen until the macOS completion gates pass.
+  # Keep this workflow available for the explicit M13 restart only; do not
+  # spend CI capacity or perform Windows trial-and-error on ordinary pushes.
+  workflow_dispatch:
 
 jobs:
   build:

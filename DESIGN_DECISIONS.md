@@ -3345,3 +3345,11 @@ only after `getpgid` verification. Timeout and cancellation send TERM, then
 bounded-wait KILL, to the verified group, with direct-process fallback if the
 group cannot be verified. The macOS update test starts a fake curl with a
 background child and verifies the group is gone after cancellation.
+
+## M13-010: Keep Windows CI dormant during the macOS-first phase
+
+The project currently accepts macOS behavior, packaging, and GUI gates before
+resuming M13. Running the Windows workflow on every main push contradicts that
+order and creates Windows trial-and-error work without advancing the active
+target. The workflow is therefore manual-dispatch only until the documented
+macOS completion gates allow the Windows milestone to resume.
