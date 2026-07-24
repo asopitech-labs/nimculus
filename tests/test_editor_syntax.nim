@@ -10,6 +10,8 @@ suite "M7 editor syntax integration":
     check state.tree != nil
     check state.tree.source == "def main():\n  return 2"
     state.close()
+    check state.tree.handle == nil
+    check state.parser.handle == nil
 
   test "unsupported files remain plain text":
     check newEditorSyntax("notes.txt", "plain") == nil

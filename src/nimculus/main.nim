@@ -1103,6 +1103,12 @@ when defined(macosx):
       lspBridge.shutdown()
     lspBridge = nil
     closeNativeTerminals()
+    # Tree-sitter owns C parser/tree allocations outside Nim's ARC heap.
+    # The active document normally replaces these on tab changes, but quit
+    # must release the final pair explicitly as well.
+    if syntaxState != nil:
+      syntaxState.close()
+    syntaxState = nil
 
   proc resizeNativeTerminals() =
     if editorTerminals.len == 0: return

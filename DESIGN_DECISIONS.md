@@ -3382,3 +3382,16 @@ replacement already used this order; applying it to termination prevents an
 asynchronous watcher callback from observing partially released editor state.
 It snapshots the workspace roots into the editor session first, because the
 AppKit termination callback persists that session after services are released.
+
+## M7-017: Release the final Tree-sitter state on macOS quit
+
+Tree-sitter parsers and trees are C allocations, not ARC-managed Nim memory.
+Document switches already close the replaced syntax state, but an editor which
+quits while its final supported document remains open previously left that
+parser/tree pair to process teardown.
+
+The accepted macOS quit boundary now closes and clears `syntaxState` after
+stopping process-backed services. This is deliberately part of the same
+idempotent shutdown path so every confirmed quit route has identical ownership
+semantics. The editor-syntax regression test asserts that closing a state
+clears both underlying C handles.
