@@ -3,7 +3,7 @@ import std/strutils
 import std/os
 import std/times
 when defined(posix):
-  import std/envvars
+  import std/[envvars, posix]
 import nimculus/update_service
 
 suite "M11 update service":
@@ -70,7 +70,7 @@ suite "M11 update service":
       let fakeCurl = root / "curl"
       let destination = root / "Nimculus-update.dmg"
       createDir(root)
-      writeFile(fakeCurl, "#!/bin/sh\nexec sleep 10\n")
+      writeFile(fakeCurl, "#!/bin/sh\nsleep 30 & wait\n")
       setFilePermissions(fakeCurl, {fpUserRead, fpUserWrite, fpUserExec})
       let previousPath = getEnv("PATH")
       putEnv("PATH", root & ":" & previousPath)
@@ -84,10 +84,14 @@ suite "M11 update service":
         sha256: repeat("0", 64))
       let job = startUpdateDownload(release, destination)
       check not job.done
+      check job.processGroupId > 0
       let started = epochTime()
+      let processGroupId = job.processGroupId
       job.cancelUpdateDownload()
       check epochTime() - started < 3.0
       check job.done
       check not job.success
       check not fileExists(destination)
       check not fileExists(destination & ".part")
+      check kill(-processGroupId, 0) == -1
+      check errno == ESRCH

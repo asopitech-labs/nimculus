@@ -3333,3 +3333,15 @@ cannot be verified, it falls back to the direct Git process so it can never
 signal the editor's group. The macOS regression test places a background child
 behind a fake Git command and verifies that the entire group is absent after
 cancellation.
+
+## M11-015: Bound update helper lifetime to a verified macOS process group
+
+Update download, signature verification, and DMG installation cross an
+external-tool boundary (`curl`, `codesign`, `hdiutil`, and `rsync`). A timeout
+or application quit must not leave a helper child running after the direct
+tool has been terminated. Following Zed's Unix process ownership model, these
+tools now receive a child-side POSIX process group and that group is retained
+only after `getpgid` verification. Timeout and cancellation send TERM, then
+bounded-wait KILL, to the verified group, with direct-process fallback if the
+group cannot be verified. The macOS update test starts a fake curl with a
+background child and verifies the group is gone after cancellation.
