@@ -83,23 +83,32 @@ when defined(macosx):
 proc newCancelToken*(): CancelToken = CancelToken(cancelled: false)
 proc cancel*(token: CancelToken) = token.cancelled = true
 
+proc canonicalWorkspaceRoot*(root: string): string =
+  ## A workspace root may arrive from Finder, a symlink, a session file, or
+  ## the shell. Resolve existing roots once so aliases cannot create duplicate
+  ## trees, ignore stacks, or filesystem watchers.
+  try:
+    result = expandFilename(root)
+  except OSError:
+    result = absolutePath(root)
+
 proc isIgnored(workspace: Workspace, root, relative: string, isDir: bool): bool =
   if relative == ".git" or relative.startsWith(".git/"): return true
   if root notin workspace.ignoreStacksByRoot: return false
   workspace.ignoreStacksByRoot[root].isIgnored(relative, isDir)
 
 proc openWorkspace*(root: string): Workspace =
-  result = Workspace(root: absolutePath(root))
+  result = Workspace(root: canonicalWorkspaceRoot(root))
   initLock(result.changesLock)
   result.roots = @[result.root]
   result.ignoreStacksByRoot = initTable[string, IgnoreStack]()
   result.ignoreStacksByRoot[result.root] = newIgnoreStack(result.root)
 
 proc addRoot*(workspace: Workspace, root: string) =
-  let absolute = absolutePath(root)
-  if absolute notin workspace.roots:
-    workspace.roots.add(absolute)
-    workspace.ignoreStacksByRoot[absolute] = newIgnoreStack(absolute)
+  let canonical = canonicalWorkspaceRoot(root)
+  if canonical notin workspace.roots:
+    workspace.roots.add(canonical)
+    workspace.ignoreStacksByRoot[canonical] = newIgnoreStack(canonical)
 
 proc rootPaths*(workspace: Workspace): seq[string] = workspace.roots
 
@@ -172,9 +181,9 @@ proc enumerateFiles*(workspace: Workspace, token: CancelToken = nil): seq[Worksp
           result.add(normalized)
 
 proc normalizedWorkspaceRoot(workspace: Workspace, root: string): string =
-  let absolute = absolutePath(root)
+  let canonical = canonicalWorkspaceRoot(root)
   for registeredRoot in workspace.roots:
-    if normalizedPath(registeredRoot) == normalizedPath(absolute): return normalizedPath(registeredRoot)
+    if normalizedPath(registeredRoot) == normalizedPath(canonical): return normalizedPath(registeredRoot)
   raise newException(ValueError, "root is not registered in workspace: " & root)
 
 proc resolvePathAt*(workspace: Workspace, root, relative: string): string =
@@ -192,7 +201,7 @@ proc splitWorkspacePath*(workspace: Workspace, path: string): tuple[root, relati
   ## silently to the primary root.
   if not isAbsolute(path):
     return (root: workspace.root, relative: path)
-  let candidate = normalizedPath(path)
+  let candidate = boundaryPath(path)
   for root in workspace.roots:
     let normalizedRoot = normalizedPath(root)
     if candidate == normalizedRoot:
@@ -328,7 +337,7 @@ proc invalidateEntryCache(workspace: Workspace, path: string) =
   ## Remove the changed path and descendants before a subsequent tree scan;
   ## this handles deletes and renames where the path no longer exists.
   if workspace == nil or workspace.entries.len == 0: return
-  let normalized = normalizedPath(path)
+  let normalized = boundaryPath(path)
   var stale: seq[string]
   for key in workspace.entries.keys:
     let candidate = normalizedPath(key)
@@ -634,7 +643,7 @@ proc changedPaths*(workspace: Workspace): seq[string] =
     # same coalesced, normalized change-set contract as Zed's UpdatedEntriesSet.
     var seen = initTable[string, bool]()
     for path in workspace.changes:
-      let normalized = normalizedPath(path)
+      let normalized = boundaryPath(path)
       if normalized notin seen:
         seen[normalized] = true
         result.add(normalized)

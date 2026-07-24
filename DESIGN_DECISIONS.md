@@ -3411,3 +3411,17 @@ remain independent, because they have no on-disk identity. The regression test
 uses a Japanese/emoji path and a clean plus dirty duplicate to prove both data
 preservation and single-tab persistence. Session writing applies the same
 selection rule, so an in-memory legacy duplicate cannot be serialized again.
+
+## M6-011: Canonicalize persisted workspace roots and recent paths
+
+Workspace roots previously used absolute-string comparison. A symlink alias
+therefore survived session restore as a second root and could allocate another
+ignore stack and FSEvents watcher for the same directory. Recent files had the
+same stale-path duplication risk in the Open Recent menu.
+
+Existing persisted paths now use the canonical path boundary already used for
+documents: recent paths are retained even when their leaf is gone, workspace
+roots are retained only when they are existing directories, and both lists are
+deduplicated on load and save. `Workspace.open/addRoot` use the same canonical
+root identity, so Finder, shell, and session aliases share exactly one watcher.
+The regression test covers a Japanese/emoji directory and a symlink alias.

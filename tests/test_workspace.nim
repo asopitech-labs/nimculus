@@ -118,8 +118,8 @@ suite "M6 workspace":
     workspace.changes.add(root / "b.txt")
     let changed = workspace.changedPaths()
     check changed.len == 2
-    check changed[0] == normalizedPath(filePath)
-    check changed[1] == normalizedPath(root / "b.txt")
+    check changed[0] == canonicalWorkspaceRoot(filePath)
+    check changed[1] == canonicalWorkspaceRoot(root) / "b.txt"
     check workspace.changedPaths().len == 0
     removeFile(filePath); removeDir(root)
 
@@ -176,13 +176,14 @@ suite "M6 workspace":
     check workspace.enumerateFiles().allIt(not it.relativePath.endsWith("secret.txt"))
     check workspace.createFileAt(second, "src/secondary.nim", "discard").endsWith("src/secondary.nim")
     let secondaryLocation = workspace.splitWorkspacePath(second / "src/secondary.nim")
-    check secondaryLocation.root == absolutePath(second)
+    check secondaryLocation.root == canonicalWorkspaceRoot(second)
     check secondaryLocation.relative == "src/secondary.nim"
     expect ValueError:
       discard workspace.splitWorkspacePath(getTempDir() / "outside-workspace.txt")
-    check workspace.enumerateFiles().anyIt(it.rootPath == absolutePath(second) and
+    check workspace.enumerateFiles().anyIt(it.rootPath == canonicalWorkspaceRoot(second) and
       it.relativePath == "src/secondary.nim")
-    check workspace.searchWorkspace("discard").anyIt(it.path == second / "src/secondary.nim")
+    check workspace.searchWorkspace("discard").anyIt(
+      it.path == canonicalWorkspaceRoot(second) / "src/secondary.nim")
     check workspace.renameEntryAt(second, "src/secondary.nim", "src/renamed.nim").endsWith("src/renamed.nim")
     workspace.deleteEntryAt(second, "src/renamed.nim")
     check not fileExists(second / "src" / "renamed.nim")

@@ -336,7 +336,7 @@ suite "M5 editor services":
       check not fileExists(candidate)
     let restored = loadSession(sessionPath)
     check restored.tabs.len == 1
-    check restored.workspaceRoots == @[getTempDir()]
+    check restored.workspaceRoots == @[canonicalOpenPath(getTempDir())]
     check restored.tabs[0].view.cursor == 3
     check restored.tabs[0].view.scrollLine == 2
     check restored.splitDirection == splitHorizontal
@@ -439,6 +439,28 @@ suite "M5 editor services":
     check restored.activeTab == 0
     check restored.tabs[0].document.buffer.toString() == "dirty on disk"
     check restored.tabs[0].document.buffer.isDirty
+
+  test "session canonicalizes duplicate recent files and workspace roots":
+    let root = getTempDir() / "nimculus-session-workspace-日本語🙂"
+    let alias = getTempDir() / "nimculus-session-workspace-alias"
+    let recent = root / "recent.txt"
+    let sessionPath = getTempDir() / "nimculus-session-workspace.json"
+    defer:
+      if symlinkExists(alias): removeFile(alias)
+      if dirExists(root): removeDir(root)
+      if fileExists(sessionPath): removeFile(sessionPath)
+    if symlinkExists(alias): removeFile(alias)
+    if dirExists(root): removeDir(root)
+    createDir(root)
+    writeFile(recent, "recent")
+    createSymlink(root, alias)
+    var session: EditorSession
+    session.recentFiles = @[recent, alias / "recent.txt", recent]
+    session.workspaceRoots = @[root, alias, root]
+    session.saveSession(sessionPath)
+    let restored = loadSession(sessionPath)
+    check restored.recentFiles == @[canonicalOpenPath(recent)]
+    check restored.workspaceRoots == @[canonicalOpenPath(root)]
 
   test "session restores dirty named tab after the disk file is deleted":
     let path = getTempDir() / "nimculus-m5-deleted-dirty-session.txt"

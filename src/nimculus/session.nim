@@ -22,11 +22,23 @@ proc jsonString(node: JsonNode, key, fallback: string): string =
   except CatchableError: discard
   fallback
 
+proc normalizedSessionPaths(paths: openArray[string], directoriesOnly = false): seq[string] =
+  ## Session data predates the canonical identity boundary used by Finder,
+  ## Save As, and workspace roots. Preserve non-existent recent files, but
+  ## omit invalid workspace roots and never retain aliases twice.
+  for path in paths:
+    if path.len == 0 or (directoriesOnly and not dirExists(path)): continue
+    let identityPath = canonicalOpenPath(path)
+    if identityPath.len > 0 and identityPath notin result:
+      result.add(identityPath)
+
 proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
+  let recentFiles = normalizedSessionPaths(session.recentFiles)
+  let workspaceRoots = normalizedSessionPaths(session.workspaceRoots, directoriesOnly = true)
   var root = %*{"activeTab": -1, "split": session.split,
                 "splitDirection": $session.splitDirection,
-                "recentFiles": session.recentFiles,
-                "workspaceRoots": session.workspaceRoots}
+                "recentFiles": recentFiles,
+                "workspaceRoots": workspaceRoots}
   var tabs = newJArray()
   var savedActive = -1
   # Keep persistence on the same one-buffer-per-canonical-path invariant as
@@ -113,10 +125,14 @@ proc loadSession*(path: string): EditorSession =
   result.splitDirection = if direction == "splitHorizontal": splitHorizontal else: splitVertical
   if root.hasKey("recentFiles") and root["recentFiles"].kind == JArray:
     for item in root["recentFiles"].getElems:
-      if item.kind == JString: result.recentFiles.add(item.getStr)
+      if item.kind == JString:
+        let path = canonicalOpenPath(item.getStr)
+        if path.len > 0 and path notin result.recentFiles: result.recentFiles.add(path)
   if root.hasKey("workspaceRoots") and root["workspaceRoots"].kind == JArray:
     for item in root["workspaceRoots"].getElems:
-      if item.kind == JString and dirExists(item.getStr): result.workspaceRoots.add(item.getStr)
+      if item.kind == JString and dirExists(item.getStr):
+        let path = canonicalOpenPath(item.getStr)
+        if path.len > 0 and path notin result.workspaceRoots: result.workspaceRoots.add(path)
   if not root.hasKey("tabs") or root["tabs"].kind != JArray: return
   # Older builds could serialize the same named document more than once.  Keep
   # restore on the same one-buffer-per-canonical-path invariant as Finder,
