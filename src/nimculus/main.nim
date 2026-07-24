@@ -2033,9 +2033,20 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
     if document != nil:
       let existingTab = editorSession.tabIndexForSaveTarget(inputPath)
       if existingTab >= 0 and existingTab != editorSession.activeTab:
-        editorViewState.statusMessage = "Save As cancelled: destination is already open"
         when defined(macosx):
+          # An untitled tab in Save All / Quit uses this same panel callback.
+          # Do not leave its asynchronous queue armed after rejecting a
+          # conflicting destination, or a later ordinary Save could resume a
+          # stale termination sequence.
+          let wasSavingAllAndQuitting = pendingSaveAllQuitNextTab >= 0
+          pendingSaveAllQuitNextTab = -1
           platformSetCloseDecision(false)
+          editorViewState.statusMessage = if wasSavingAllAndQuitting:
+            "Save all cancelled: destination is already open"
+          else:
+            "Save As cancelled: destination is already open"
+        else:
+          editorViewState.statusMessage = "Save As cancelled: destination is already open"
         return
       try:
         document[].save(inputPath)

@@ -3158,6 +3158,11 @@ Save As checks that canonical destination before writing and rejects it if a
 different tab already owns the document. Successful Save As updates Open
 Recent and the persisted session from the canonical path.
 
+The same asynchronous Save Panel is used while Save All and Quit assigns a
+path to an untitled tab. A conflicting destination cancels that pending queue
+and the deferred termination decision, rather than allowing a later ordinary
+Save callback to resume a stale quit operation.
+
 Atomic replacement resolves an existing symlink before it creates the
 temporary replacement. This writes the linked target and keeps the symlink
 itself intact; replacing the link pathname would be a destructive surprise for
