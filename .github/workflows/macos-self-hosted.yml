@@ -64,6 +64,14 @@ jobs:
         run: nimble lint
       - name: Test macOS implementation
         run: nimble test
+      - name: M20 scale benchmark smoke
+        run: |
+          nim c --mm:arc --nimcache="$RUNNER_TEMP/nimculus-bench-m20" \
+            -r --path:src tests/bench_m20.nim
+          nim c --mm:arc --nimcache="$RUNNER_TEMP/nimculus-bench-large-editor" \
+            -r --path:src tests/bench_large_editor.nim
+          nim c --mm:arc --nimcache="$RUNNER_TEMP/nimculus-bench-workspace" \
+            -r --path:src tests/bench_workspace.nim
       - name: Package smoke test
         run: |
           NIMCULUS_ALLOW_ADHOC=1 \
