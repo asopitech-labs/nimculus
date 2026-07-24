@@ -3371,11 +3371,17 @@ bool nimculus_platform_validate_main_menu(void) {
 
 static char g_validation_file_path[PATH_MAX];
 static BOOL g_validation_file_saving = YES;
+static char g_validation_command[64];
 
 static void validationFileCallback(const char *path, bool saving) {
   strncpy(g_validation_file_path, path ?: "", sizeof(g_validation_file_path) - 1);
   g_validation_file_path[sizeof(g_validation_file_path) - 1] = '\0';
   g_validation_file_saving = saving;
+}
+
+static void validationCommandCallback(const char *command) {
+  strncpy(g_validation_command, command ?: "", sizeof(g_validation_command) - 1);
+  g_validation_command[sizeof(g_validation_command) - 1] = '\0';
 }
 
 bool nimculus_platform_validate_file_open_events(void) {
@@ -3395,6 +3401,50 @@ bool nimculus_platform_validate_file_open_events(void) {
       [@(g_validation_file_path) isEqualToString:@"/tmp/nimculus-url-open.txt"];
     g_file_callback = previousCallback;
     return finderValid && urlValid;
+  }
+}
+
+bool nimculus_platform_validate_external_change_sheet(void) {
+  NimculusPlatformMetrics previousMetrics = g_metrics;
+  @autoreleasepool {
+    NSApplication *application = [NSApplication sharedApplication];
+    (void)application;
+    id previousView = g_active_view;
+    NimculusCommandCallback previousCallback = g_command_callback;
+    g_validation_command[0] = '\0';
+    NSWindow *window = [[NSWindow alloc]
+      initWithContentRect:NSMakeRect(160.0, 180.0, 640.0, 480.0)
+      styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+    NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
+      NSMakeRect(0.0, 0.0, 640.0, 480.0)];
+    if (!window || !view) {
+      [view release];
+      [window release];
+      g_metrics = previousMetrics;
+      return false;
+    }
+    window.contentView = view;
+    g_active_view = view;
+    g_command_callback = validationCommandCallback;
+    [window makeKeyAndOrderFront:nil];
+    nimculus_platform_show_external_change("/tmp/nimculus-external-change.txt");
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    NSWindow *sheet = window.attachedSheet;
+    BOOL attached = sheet != nil;
+    if (sheet) [window endSheet:sheet returnCode:NSAlertFirstButtonReturn];
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    BOOL reloaded = strcmp(g_validation_command, "reloadExternal") == 0;
+    g_command_callback = previousCallback;
+    g_active_view = previousView;
+    [window orderOut:nil];
+    [window close];
+    [view release];
+    [window release];
+    // Temporary view attachment updates shared drawable metrics. Restore them
+    // so later platform contracts observe the same global state as production
+    // code does after a sheet closes.
+    g_metrics = previousMetrics;
+    return attached && reloaded;
   }
 }
 

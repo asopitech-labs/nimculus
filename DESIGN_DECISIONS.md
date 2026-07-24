@@ -2961,3 +2961,7 @@ active Nimculus window. The callback dispatches Reload or Keep Editing only
 after the user responds, while Cocoa keeps the event loop and Metal drawable
 alive. This follows Zed's macOS prompt lifecycle, which begins a sheet and
 returns the answer asynchronously rather than nesting a modal event loop.
+
+The native GUI contract creates a temporary Cocoa window, verifies that the
+sheet attaches without nesting the run loop, programmatically completes its
+Reload response, and checks that the command callback fires afterward.

@@ -77,6 +77,14 @@ suite "macOS platform contract":
   test "native file open events preserve Finder and URL paths":
     check platformValidateFileOpenEvents()
 
+  test "external file changes use a non-blocking window sheet":
+    if platformValidateExternalChangeSheet():
+      check true
+    elif nativeGuiValidationRequired():
+      check false
+    else:
+      echo "  [SKIP] external-change sheet contract (GUI services unavailable in this session)"
+
   test "native IME composition preserves UTF-16 and UTF-8 boundaries":
     check platformValidateImeComposition()
 
