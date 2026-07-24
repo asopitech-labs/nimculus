@@ -247,6 +247,7 @@ static id<MTLRenderPipelineState> g_glyph_pipeline = nil;
 static id<MTLRenderPipelineState> g_image_pipeline = nil;
 static id<MTLCommandQueue> g_queue = nil;
 static id<MTLTexture> g_text_texture = nil;
+static id<MTLTexture> g_secondary_text_texture = nil;
 static CGFloat g_text_texture_scale = 1.0;
 static id<MTLTexture> g_glyph_atlas_texture = nil;
 static CGFloat g_glyph_atlas_scale = 0.0;
@@ -309,6 +310,7 @@ static void releasePlatformResources(void) {
   g_active_view = nil;
   [g_scene_texture release]; g_scene_texture = nil;
   [g_text_texture release]; g_text_texture = nil;
+  [g_secondary_text_texture release]; g_secondary_text_texture = nil;
   [g_glyph_atlas_texture release]; g_glyph_atlas_texture = nil;
   [g_image_textures release]; g_image_textures = nil;
   [g_glyph_atlas_entries release]; g_glyph_atlas_entries = nil;
@@ -1298,6 +1300,29 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   [g_text_texture replaceRegion:MTLRegionMake2D(0, 0, width, height)
     mipmapLevel:0 withBytes:pixels.bytes bytesPerRow:width * 4];
   g_text_texture_scale = scale;
+}
+
+static void rebuildSecondaryEditorTexture(id<MTLDevice> device) {
+  if (!device || !g_secondary_editor_visible) {
+    [g_secondary_text_texture release]; g_secondary_text_texture = nil;
+    return;
+  }
+  // Keep primary GPU glyphs untouched. The secondary pane starts with the
+  // complete Core Text fallback; its independent atlas is introduced only
+  // once pane-local styling and invalidation are fully separated.
+  double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
+    g_editor_rect[2], g_editor_rect[3]};
+  BOOL previousGlyphRendering = g_glyph_rendering_available;
+  id<MTLTexture> primaryTexture = [g_text_texture retain];
+  memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
+  g_glyph_rendering_available = NO;
+  updateEditorTextTexture(device, g_editor_text, NO);
+  [g_secondary_text_texture release];
+  g_secondary_text_texture = [g_text_texture retain];
+  [g_text_texture release];
+  g_text_texture = primaryTexture;
+  g_glyph_rendering_available = previousGlyphRendering;
+  memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
 }
 
 static void resetGlyphVertices(void) {
@@ -2322,6 +2347,21 @@ static void applyTerminalRuns(NSTextView *terminal) {
         }
       }
       [textBuffer release];
+    }
+    if (g_text_pipeline && g_secondary_text_texture && g_secondary_editor_visible) {
+      const float left = (float)(g_secondary_editor_rect[0] / logicalSize.width * 2.0 - 1.0);
+      const float right = (float)((g_secondary_editor_rect[0] + g_secondary_editor_rect[2]) / logicalSize.width * 2.0 - 1.0);
+      const float top = (float)(1.0 - g_secondary_editor_rect[1] / logicalSize.height * 2.0);
+      const float bottom = (float)(1.0 - (g_secondary_editor_rect[1] + g_secondary_editor_rect[3]) / logicalSize.height * 2.0);
+      const float vertices[] = {left, top, 0, 0, right, top, 1, 0, left, bottom, 0, 1, right, bottom, 1, 1};
+      id<MTLBuffer> buffer = [drawable.texture.device newBufferWithBytes:vertices length:sizeof(vertices) options:MTLResourceStorageModeShared];
+      [encoder setRenderPipelineState:g_text_pipeline];
+      [encoder setVertexBuffer:buffer offset:0 atIndex:0];
+      [encoder setFragmentTexture:g_secondary_text_texture atIndex:0];
+      MTLScissorRect scissor = {0, 0, scene.width, scene.height};
+      [encoder setScissorRect:scissor];
+      [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+      [buffer release];
     }
     [encoder endEncoding];
     g_scene_initialized = YES;
@@ -4194,7 +4234,7 @@ void nimculus_platform_set_idle_callback(NimculusIdleCallback callback) { g_idle
 void nimculus_platform_set_editor_cursor(double x, double y) {
   g_editor_cursor[0] = x;
   g_editor_cursor[1] = y;
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, NO); rebuildSecondaryEditorTexture(g_queue.device); }
   markSceneFullyDirty();
 }
 void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t line) {
@@ -4217,7 +4257,7 @@ void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t lin
 void nimculus_platform_set_editor_font_size(double size) {
   g_editor_font_size = MIN(96.0, MAX(6.0, size > 0.0 ? size : 14.0));
   g_editor_line_height = MAX(12.0, ceil(g_editor_font_size * 1.2857142857));
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
+  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
   markSceneFullyDirty();
   if (g_active_view) {
     for (NSView *subview in ((NimculusMetalView *)g_active_view).subviews) {
@@ -4328,6 +4368,9 @@ void nimculus_platform_set_secondary_editor_rect(bool visible, double x, double 
   g_secondary_editor_rect[1] = MAX(0.0, y);
   g_secondary_editor_rect[2] = MAX(1.0, width);
   g_secondary_editor_rect[3] = MAX(1.0, height);
+  if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
+  markSceneFullyDirty();
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 uint32_t nimculus_platform_editor_pane_at_point(double x, double y) {
   if (editorRectContains(g_editor_rect, x, y)) return 0;
