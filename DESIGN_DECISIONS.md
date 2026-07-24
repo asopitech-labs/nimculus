@@ -3728,3 +3728,16 @@ The native IME contract now creates distinct primary and secondary editor
 rectangles, switches the input pane, and verifies the UTF-16 range's screen
 rectangle moves into the secondary pane. The temporary state restores both
 pane geometry, scroll state, and input focus afterwards.
+
+## M3-030: Cancel marked text before split-pane focus changes
+
+Zed assigns its platform input handler to the focused editor, so marked text
+never survives as state owned by a previously focused editor. Nimculus keeps a
+single AppKit responder for both split panes; without an explicit boundary, a
+click could move the native input pane while the Nim composition still
+described the old view.
+
+Before activating a different split pane, Nimculus now clears both the Nim IME
+state and the native `markedText`/`markedTextRange`. The shared document is not
+edited or discarded: only uncommitted composition is cancelled, matching the
+normal focus-change behavior of a macOS text input client.

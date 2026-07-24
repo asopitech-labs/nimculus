@@ -3429,7 +3429,12 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       splitPointerHandled = true
     elif document != nil and kind == pointerDown and demoSplitEnabled:
       let pane = platformEditorPaneAtPoint(event.x, cdouble(uiY))
-      if pane <= 1'u32 and editorSession.activateSplitPane(int(pane)):
+      let targetPane = int(pane)
+      if pane <= 1'u32 and targetPane != editorSession.splitActivePane:
+        # One NSTextInputClient is reused for both views. Do not carry AppKit
+        # marked text into a different view state when a click changes focus.
+        resetImeState()
+      if pane <= 1'u32 and editorSession.activateSplitPane(targetPane):
         # Zed resolves pointer location to a specific pane before turning it
         # into an editor anchor. Preserve that pane through a drag so a
         # selection cannot cross into the other viewport mid-gesture.
