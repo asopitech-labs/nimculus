@@ -732,6 +732,7 @@ elif defined(macosx):
       {.importc, header: "<util.h>".}
   proc execl(path, arg0: cstring): cint {.varargs, importc, header: "<unistd.h>".}
   proc chdir(path: cstring): cint {.importc, header: "<unistd.h>".}
+  proc setpgid(pid, pgid: Pid): cint {.importc, header: "<unistd.h>".}
 
   proc newTerminalPty*(shell = "/bin/zsh", workingDirectory = "",
                        columns = 80, rows = 24): TerminalPty =
@@ -753,6 +754,10 @@ elif defined(macosx):
     result.masterFd = master
     result.childPid = pid
     if pid == 0:
+      # Keep every command started by this terminal in a group distinct from
+      # the editor.  `forkpty` normally establishes this already, but doing it
+      # explicitly makes the close contract independent of shell behaviour.
+      discard setpgid(0, 0)
       if workingDirectory.len > 0: discard chdir(workingDirectory.cstring)
       discard execl(resolvedShell.cstring, resolvedShell.cstring, "-l".cstring, nil)
       quit(127)
@@ -808,6 +813,15 @@ elif defined(macosx):
     discard terminalIoctl(pty.masterFd, terminalSetWindowSize, addr size)
     pty.screen.resize(columns, rows)
 
+  proc terminateTerminalProcessGroup(pid: Pid, signal: cint) =
+    ## A shell can leave a pipeline running after it receives SIGTERM.  The
+    ## terminal owns the whole child group, so signal that group as well as
+    ## the leader.  The second call is a safe fallback if a platform's
+    ## forkpty/session setup did not retain the expected group id.
+    if pid <= 0: return
+    discard kill(-pid, signal)
+    discard kill(pid, signal)
+
   proc reapTerminalChild(pid: Pid) =
     var status: cint
     # Give a shell a short grace period, then force-reap it so closing a
@@ -816,12 +830,12 @@ elif defined(macosx):
       let waited = waitpid(pid, status, WNOHANG)
       if waited == pid or (waited < 0 and errno == ECHILD): return
       sleep(10)
-    discard kill(pid, SIGKILL)
+    terminateTerminalProcessGroup(pid, SIGKILL)
     discard waitpid(pid, status, 0)
 
   proc close*(pty: TerminalPty) =
     if pty == nil or pty.closed: return
-    discard kill(pty.childPid, SIGTERM)
+    terminateTerminalProcessGroup(pty.childPid, SIGTERM)
     reapTerminalChild(pty.childPid)
     discard posix.close(pty.masterFd)
     pty.pendingInput.setLen(0)

@@ -3232,3 +3232,18 @@ The lookup rejects an empty path so an invalid file-bearing request can never
 select an Untitled tab. The session loader applies the same canonicalization to
 old dirty/deleted recovery entries; this migrates pre-normalization `/tmp`
 paths without requiring a schema version or risking the user's unsaved text.
+
+## M10-009: Close macOS PTYs by process group
+
+Zed treats a terminal session as the owner of the spawned process tree, rather
+than only the initial shell. Nimculus previously sent `SIGTERM` only to that
+shell. A shell command such as `yes x` could therefore outlive the terminal
+test or application close and retain the PTY resources.
+
+The `forkpty` child now establishes a dedicated process group before it
+executes the configured shell. Terminal close signals the group and the leader
+for compatibility with the platform session setup, waits for the direct child,
+then sends `SIGKILL` to the same scope only if bounded reaping expires. The
+macOS integration test starts a pipeline command, closes the PTY, and verifies
+that its process group no longer exists. This keeps Cocoa termination bounded
+without leaving shell descendants running.
