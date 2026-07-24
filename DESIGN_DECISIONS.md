@@ -3318,3 +3318,18 @@ clears transport streams and the process-group ID, and preserves only the
 configuration required for a future restart. The protocol test runs a server
 that exits normally and verifies it reaches stopped/non-running state without
 an explicit stop call.
+
+## M9-008: Cancel macOS Git hooks and helpers by verified process group
+
+Git commands can start hooks, credential helpers, and external diff tools. As
+with Zed's Unix process wrapper, GitJob must own that whole descendant tree;
+terminating only the Git leader can leave a hook running after the editor says
+that cancellation completed.
+
+Git jobs now request Nim's child-side POSIX spawn process-group setup and store
+the group ID only after `getpgid` verifies it. Cancellation sends TERM, then
+after a one-second bounded wait sends KILL, to that verified group. If setup
+cannot be verified, it falls back to the direct Git process so it can never
+signal the editor's group. The macOS regression test places a background child
+behind a fake Git command and verifies that the entire group is absent after
+cancellation.

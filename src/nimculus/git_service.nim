@@ -52,6 +52,9 @@ type
   GitJob* = ref object
     process: Process
     output: Stream
+    ## Set only after verifying the POSIX spawn-created child group. This
+    ## prevents cancellation from ever signaling the editor's own group.
+    processGroupId*: Pid
     done*: bool
     cancelled*: bool
     result*: GitResult
@@ -113,16 +116,39 @@ proc poll*(job: GitJob): bool
 proc startGitJobInput*(repository: GitRepository, args: openArray[string],
                        input: string): GitJob
 
+when defined(posix):
+  proc getpgid(pid: Pid): Pid {.importc, header: "<unistd.h>".}
+
+proc gitProcessOptions(): set[ProcessOption] =
+  result = {poUsePath, poStdErrToStdOut}
+  when defined(posix):
+    ## Nim maps poDaemon to POSIX_SPAWN_SETPGROUP. Establish the ownership
+    ## boundary in the child before exec, rather than racing setpgid here.
+    result.incl(poDaemon)
+
+proc configureGitProcessGroup(job: GitJob) =
+  ## Git hooks and credential helpers are descendants of this job. Verify the
+  ## child-side group before using kill(-pid), so a failed setup is harmless.
+  when defined(posix):
+    if job == nil or job.process == nil: return
+    let pid = Pid(processID(job.process))
+    if pid > 0 and getpgid(pid) == pid:
+      job.processGroupId = pid
+
+proc newGitJob(process: Process): GitJob =
+  result = GitJob(process: process, output: process.peekableOutputStream())
+  result.configureGitProcessGroup()
+
 proc newGitRepository*(root: string): GitRepository =
   let absolute = absolutePath(root)
   if not dirExists(absolute): return nil
   var probe: Process
   try:
     probe = startProcess("git", "", @["-C", absolute, "rev-parse", "--show-toplevel"],
-      options = {poUsePath, poStdErrToStdOut})
+      options = gitProcessOptions())
   except CatchableError:
     return nil
-  let job = GitJob(process: probe, output: probe.peekableOutputStream())
+  let job = newGitJob(probe)
   let startedAt = epochTime()
   while not job.poll():
     if (epochTime() - startedAt) * 1_000.0 >= float64(GitProbeTimeoutMs):
@@ -140,8 +166,8 @@ proc runGit*(repository: GitRepository, args: openArray[string]): GitResult =
   var commandArgs = @["-C", repository.root]
   commandArgs.add(args)
   let process = startProcess("git", "", commandArgs,
-    options = {poUsePath, poStdErrToStdOut})
-  var job = GitJob(process: process, output: process.peekableOutputStream())
+    options = gitProcessOptions())
+  var job = newGitJob(process)
   while not job.poll():
     sleep(1)
   result = job.result
@@ -161,8 +187,8 @@ proc startGitJob*(repository: GitRepository, args: openArray[string]): GitJob =
   var commandArgs = @["-C", repository.root]
   commandArgs.add(args)
   let process = startProcess("git", "", commandArgs,
-    options = {poUsePath, poStdErrToStdOut})
-  result = GitJob(process: process, output: process.peekableOutputStream())
+    options = gitProcessOptions())
+  result = newGitJob(process)
 
 proc startGitJobInput*(repository: GitRepository, args: openArray[string],
                        input: string): GitJob =
@@ -181,13 +207,27 @@ proc cancel*(job: GitJob) =
   if job == nil or job.done: return
   job.cancelled = true
   if job.process != nil and job.process.running:
-    job.process.terminate()
+    when defined(posix):
+      if job.processGroupId > 0:
+        discard kill(-job.processGroupId, SIGTERM)
+      else:
+        job.process.terminate()
+    else:
+      job.process.terminate()
     let exitCode = job.process.waitForExit(1_000)
     if exitCode < 0:
-      job.process.kill()
+      when defined(posix):
+        if job.processGroupId > 0:
+          discard kill(-job.processGroupId, SIGKILL)
+        else:
+          job.process.kill()
+      else:
+        job.process.kill()
       discard job.process.waitForExit(1_000)
-  job.process.close()
-  job.result = GitResult(exitCode: -1, output: "cancelled")
+  job.absorbOutput()
+  if job.process != nil: job.process.close()
+  job.result.exitCode = -1
+  if job.result.output.len == 0: job.result.output = "cancelled"
   job.done = true
 
 proc poll*(job: GitJob): bool =
