@@ -478,6 +478,9 @@ proc resetImeState() =
     platformClearEditorComposition()
 
 proc activeDocument(): ptr FileDocument
+proc activeEditorCursor(): int
+proc activeEditorSelection(): tuple[startByte, endByte: int]
+proc moveActiveEditorCursor(offset: int, selecting = false)
 proc refreshWorkspacePreview()
 proc refreshEditorSyntax()
 
@@ -783,7 +786,7 @@ when defined(macosx):
 
   proc lspSelectionRange(document: ptr FileDocument): LspRange =
     if document == nil: return
-    let selection = editorViewState.selectedRange()
+    let selection = activeEditorSelection()
     let start = document[].buffer.utf16Position(selection.startByte)
     let finish = document[].buffer.utf16Position(selection.endByte)
     LspRange(start: LspPosition(line: start.line, character: start.character),
@@ -1514,6 +1517,27 @@ proc activeDocument(): ptr FileDocument =
       editorSession.activeTab >= editorSession.tabs.len: return nil
   addr editorSession.tabs[editorSession.activeTab].document
 
+proc activeEditorCursor(): int =
+  ## A split owns two independent views over the same document. Position-based
+  ## commands must use the focused view rather than the primary view by
+  ## default, matching Zed's active-pane command boundary.
+  if editorSession.split and editorSession.splitActivePane == 1:
+    editorSession.secondaryView.cursor
+  else:
+    editorViewState.cursor
+
+proc activeEditorSelection(): tuple[startByte, endByte: int] =
+  if editorSession.split and editorSession.splitActivePane == 1:
+    editorSession.secondaryView.selectedRange()
+  else:
+    editorViewState.selectedRange()
+
+proc moveActiveEditorCursor(offset: int, selecting = false) =
+  if editorSession.split and editorSession.splitActivePane == 1:
+    editorSession.secondaryView.moveCursor(offset, selecting)
+  else:
+    editorViewState.moveCursor(offset, selecting)
+
 proc syncEditorCursor() =
   when defined(macosx):
     let document = activeDocument()
@@ -1661,7 +1685,7 @@ when defined(macosx):
     if document == nil or lspBridge == nil:
       platformSetEditorCompletions("".cstring, 0)
       return
-    if lspBridge.requestCompletion(document[].buffer, editorViewState.cursor):
+    if lspBridge.requestCompletion(document[].buffer, activeEditorCursor()):
       platformSetEditorCompletions("".cstring, 0)
     else:
       platformSetEditorCompletions("".cstring, 0)
@@ -2236,7 +2260,7 @@ when defined(macosx):
     if document == nil: return
     let location = locations[0].range.start
     let byteOffset = document[].buffer.byteOffsetAtUtf16Position(location.line, location.character)
-    editorViewState.moveCursor(byteOffset)
+    moveActiveEditorCursor(byteOffset)
     editorViewState.statusMessage = "LSP: definition"
     syncEditorCursor()
     refreshEditorSyntax()
@@ -2845,7 +2869,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx):
         if document == nil or lspBridge == nil:
           editorViewState.statusMessage = "LSP definition unavailable"
-        elif lspBridge.requestDefinition(document[].buffer, editorViewState.cursor):
+        elif lspBridge.requestDefinition(document[].buffer, activeEditorCursor()):
           editorViewState.statusMessage = "LSP: finding definition"
         else:
           editorViewState.statusMessage = "LSP definition unavailable"
@@ -2853,7 +2877,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx):
         if document == nil or lspBridge == nil:
           editorViewState.statusMessage = "LSP references unavailable"
-        elif lspBridge.requestReferences(document[].buffer, editorViewState.cursor):
+        elif lspBridge.requestReferences(document[].buffer, activeEditorCursor()):
           editorViewState.statusMessage = "LSP: finding references"
         else:
           editorViewState.statusMessage = "LSP references unavailable"
@@ -2867,7 +2891,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         else:
           let newName = rawCommand[7 .. ^1].strip
           if newName.len == 0 or not lspBridge.requestRename(document[].buffer,
-              editorViewState.cursor, newName):
+              activeEditorCursor(), newName):
             editorViewState.statusMessage = "LSP rename unavailable"
           else:
             editorViewState.statusMessage = "LSP: preparing rename"
@@ -2891,7 +2915,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
               let symbol = pendingLspSymbols[index]
               let target = document[].buffer.byteOffsetAtUtf16Position(
                 symbol.range.start.line, symbol.range.start.character)
-              editorViewState.moveCursor(target)
+              moveActiveEditorCursor(target)
               syncEditorCursor()
               refreshEditorSyntax()
               editorViewState.statusMessage = "LSP: " & symbol.name
@@ -2967,7 +2991,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         editorLspSignatureText = ""
         platformSetEditorHover("".cstring, 0)
         if document == nil or lspBridge == nil or
-            not lspBridge.requestSignatureHelp(document[].buffer, editorViewState.cursor):
+            not lspBridge.requestSignatureHelp(document[].buffer, activeEditorCursor()):
           editorViewState.statusMessage = "LSP signature help unavailable"
         else:
           editorViewState.statusMessage = "LSP: loading signature help"
@@ -3071,7 +3095,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         if repository == nil or document == nil or relative.len == 0:
           editorViewState.statusMessage = "Git repository not found"
         else:
-          let line = document[].buffer.lineColumn(editorViewState.cursor).line
+          let line = document[].buffer.lineColumn(activeEditorCursor()).line
           startNativeGitHunkAction(repository, relative,
             if dispatchCommand == "__git_stage_hunk__": "stage hunk" else: "unstage hunk",
             line)
@@ -3219,7 +3243,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     let query = payload[0 ..< separator]
     let replacement = if separator + 1 < payload.len: payload[separator + 1 .. ^1] else: ""
     let count = document[].replaceAll(query, replacement)
-    editorViewState.clampSelectionToText(document[].buffer.toString())
+    let text = document[].buffer.toString()
+    editorViewState.clampSelectionToText(text)
+    if editorSession.split:
+      editorSession.secondaryView.clampSelectionToText(text)
     editorViewState.statusMessage = "Replaced " & $count & " matches"
     syncEditorCursor()
     refreshEditorSyntax()

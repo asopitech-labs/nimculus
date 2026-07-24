@@ -3671,3 +3671,18 @@ opening, closing, saving, and restoring a tab save/load both views, while only
 transient UI state (IME remainder and derived symbols) is reset. The session
 stores `splitView` per tab and imports the old root-level
 `splitSecondaryView` into the active tab for backward compatibility.
+
+## M5-036: Route position-based commands through the focused split view
+
+Zed resolves commands from the active pane/editor rather than from a global
+primary editor.  In Nimculus, ordinary Cocoa editing selectors already use the
+focused split view, but LSP requests, Git hunk actions, definition navigation,
+and replacement cleanup still read the primary cursor or selection.
+
+Nimculus now exposes a small focused-view boundary for cursor movement and
+selection lookup. LSP completion, definition, references, rename, signature
+help, code-action/inlay ranges, definition navigation, and Git hunk actions
+use that boundary. A whole-document replace clamps both persisted views after
+the shared buffer changes. This keeps OS-independent command semantics at the
+editor layer while leaving Cocoa-specific rendering and IME integration in the
+macOS platform layer.
