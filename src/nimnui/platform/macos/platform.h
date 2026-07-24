@@ -3,6 +3,7 @@
 bool nimculus_platform_run(void);
 bool nimculus_platform_validate_native(void);
 bool nimculus_platform_validate_window_lifecycle(void);
+bool nimculus_platform_validate_editor_pane_geometry(void);
 bool nimculus_platform_validate_damage_rebuild(void);
 bool nimculus_platform_validate_main_menu(void);
 bool nimculus_platform_validate_shortcut_dispatch(void);
@@ -49,6 +50,9 @@ uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y);
 uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y);
 void nimculus_platform_set_editor_scroll_line(uint32_t line);
 void nimculus_platform_set_editor_rect(double x, double y, double width, double height);
+void nimculus_platform_set_secondary_editor_rect(bool visible, double x, double y,
+                                                 double width, double height);
+uint32_t nimculus_platform_editor_pane_at_point(double x, double y);
 void nimculus_platform_set_editor_dirty(bool dirty);
 void nimculus_platform_set_editor_indent_guides(bool visible, uint32_t indent_width);
 void nimculus_platform_set_editor_line_numbers(bool visible);

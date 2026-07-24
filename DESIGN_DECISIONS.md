@@ -3580,3 +3580,16 @@ direction, ratio, and active-pane index. Legacy sessions get the default view
 and an even divider. Native dual-pane rendering and input routing remain the
 next required vertical slice, so this state model is intentionally not marked
 as completed split display.
+
+## M5-030: Establish disjoint native pane geometry before dual rendering
+
+The existing macOS text and IME API assumes one editor rectangle. Before two
+Core Text/Metal render states can be attached, pointer routing must have an
+unambiguous native answer for which pane owns a coordinate. Zed's pane group
+likewise resolves a pane from geometry before forwarding an item event.
+
+Nimculus now keeps primary and optional secondary editor rectangles separately
+and exposes a half-open hit-test (`[origin, origin + size)`) that returns pane
+0, pane 1, or no pane. The native regression covers left/top inclusion and
+right-edge exclusion, including the divider gap. Drawing and editing the
+secondary pane remain the next required vertical slice.

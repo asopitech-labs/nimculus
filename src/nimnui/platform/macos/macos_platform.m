@@ -24,6 +24,11 @@ static NimculusCommandCallback g_command_callback = NULL;
 static NimculusIdleCallback g_idle_callback = NULL;
 static double g_ui_rect[4] = {360.0, 260.0, 240.0, 120.0};
 static double g_editor_rect[4] = {48.0, 128.0, 828.0, 432.0};
+// The primary renderer remains the active editing surface.  Keep the second
+// pane's geometry separately so input dispatch can select it before the
+// independent Core Text/Metal resources are attached.
+static double g_secondary_editor_rect[4] = {0.0, 0.0, 0.0, 0.0};
+static BOOL g_secondary_editor_visible = NO;
 static NimculusPaintCommand *g_paint_commands = NULL;
 static uint32_t g_paint_count = 0;
 static NimculusPaintRegion *g_paint_dirty_regions = NULL;
@@ -3399,6 +3404,29 @@ bool nimculus_platform_validate_window_lifecycle(void) {
   return valid;
 }
 
+static BOOL editorRectContains(const double rect[4], double x, double y) {
+  return x >= rect[0] && y >= rect[1] && x < rect[0] + rect[2] &&
+    y < rect[1] + rect[3];
+}
+
+bool nimculus_platform_validate_editor_pane_geometry(void) {
+  double previousPrimary[4] = {g_editor_rect[0], g_editor_rect[1],
+    g_editor_rect[2], g_editor_rect[3]};
+  double previousSecondary[4] = {g_secondary_editor_rect[0], g_secondary_editor_rect[1],
+    g_secondary_editor_rect[2], g_secondary_editor_rect[3]};
+  BOOL previousVisible = g_secondary_editor_visible;
+  nimculus_platform_set_editor_rect(40.0, 80.0, 300.0, 240.0);
+  nimculus_platform_set_secondary_editor_rect(true, 348.0, 80.0, 300.0, 240.0);
+  BOOL valid = nimculus_platform_editor_pane_at_point(40.0, 80.0) == 0 &&
+    nimculus_platform_editor_pane_at_point(340.0, 90.0) == UINT32_MAX &&
+    nimculus_platform_editor_pane_at_point(348.0, 80.0) == 1 &&
+    nimculus_platform_editor_pane_at_point(648.0, 80.0) == UINT32_MAX;
+  memcpy(g_editor_rect, previousPrimary, sizeof(previousPrimary));
+  memcpy(g_secondary_editor_rect, previousSecondary, sizeof(previousSecondary));
+  g_secondary_editor_visible = previousVisible;
+  return valid;
+}
+
 bool nimculus_platform_validate_damage_rebuild(void) {
   // A new retained target must ignore a stale/partial damage list. Only an
   // initialized scene with at least one damage region may take the partial
@@ -4292,6 +4320,19 @@ void nimculus_platform_set_editor_rect(double x, double y, double width, double 
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+void nimculus_platform_set_secondary_editor_rect(bool visible, double x, double y,
+                                                 double width, double height) {
+  g_secondary_editor_visible = visible ? YES : NO;
+  g_secondary_editor_rect[0] = MAX(0.0, x);
+  g_secondary_editor_rect[1] = MAX(0.0, y);
+  g_secondary_editor_rect[2] = MAX(1.0, width);
+  g_secondary_editor_rect[3] = MAX(1.0, height);
+}
+uint32_t nimculus_platform_editor_pane_at_point(double x, double y) {
+  if (editorRectContains(g_editor_rect, x, y)) return 0;
+  if (g_secondary_editor_visible && editorRectContains(g_secondary_editor_rect, x, y)) return 1;
+  return UINT32_MAX;
 }
 void nimculus_platform_set_editor_dirty(bool dirty) { g_editor_dirty = dirty ? YES : NO; }
 void nimculus_platform_set_editor_indent_guides(bool visible, uint32_t indent_width) {

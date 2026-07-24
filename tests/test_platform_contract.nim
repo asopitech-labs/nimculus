@@ -74,6 +74,9 @@ suite "macOS platform contract":
     else:
       echo "  [SKIP] native window lifecycle (GUI services unavailable in this session)"
 
+  test "native split pane geometry keeps hit regions disjoint":
+    check platformValidateEditorPaneGeometry()
+
   test "native retained scene rebuilds fully for a new target":
     check platformValidateDamageRebuild()
 
