@@ -436,6 +436,20 @@ Instead, history now retains the newest rows and compacts in batches below the
 configured limit. This keeps memory bounded and avoids repeatedly shifting the
 whole sequence with `delete(0)` during long-running terminal sessions.
 
+## M10-006: Queue partial non-blocking PTY writes
+
+Zed sends terminal input through an asynchronous PTY channel, so a short
+kernel write cannot discard the remaining bytes. Nimculus set the macOS PTY
+master to non-blocking but previously returned the first `write` count and the
+UI discarded it; a large paste could therefore lose its tail under backpressure.
+
+Each macOS `TerminalPty` now owns a pending input buffer and byte offset.
+`writeInput` accepts the full payload, drains immediately when possible, and
+`pollOutput` drains the remaining tail on subsequent idle ticks. Terminal
+protocol responses use the same queue. The queue is cleared during close, and
+the native PTY integration test verifies that a large Japanese paste retains a
+non-empty pending tail rather than being dropped.
+
 ## M10-004: Bound task output like terminal output
 
 Zed applies an explicit byte limit when exposing terminal output and preserves

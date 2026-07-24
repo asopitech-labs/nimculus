@@ -714,6 +714,11 @@ elif defined(macosx):
       masterFd*: cint
       childPid*: Pid
       screen*: TerminalScreen
+      ## The PTY master is non-blocking. Preserve an unwritten tail instead
+      ## of dropping it when a large paste only partially fits in the kernel
+      ## buffer.
+      pendingInput: string
+      pendingInputOffset: int
       closed*: bool
 
   proc forkpty(amaster: ptr cint, name: cstring, termp, winp: pointer): Pid
@@ -738,19 +743,43 @@ elif defined(macosx):
       quit(127)
     discard fcntl(result.masterFd, F_SETFL, fcntl(result.masterFd, F_GETFL) or O_NONBLOCK)
 
+  proc pendingInputBytes*(pty: TerminalPty): int =
+    if pty == nil or pty.closed: return 0
+    max(0, pty.pendingInput.len - pty.pendingInputOffset)
+
+  proc flushInput(pty: TerminalPty): int =
+    ## Drain as much queued input as the kernel currently accepts. EAGAIN and
+    ## other write failures leave the tail queued for the next idle poll.
+    if pty == nil or pty.closed: return 0
+    while pty.pendingInputOffset < pty.pendingInput.len:
+      let remaining = pty.pendingInput.len - pty.pendingInputOffset
+      let written = posix.write(pty.masterFd,
+        unsafeAddr pty.pendingInput[pty.pendingInputOffset], remaining)
+      if written <= 0: break
+      pty.pendingInputOffset += written
+      result += written
+    if pty.pendingInputOffset >= pty.pendingInput.len:
+      pty.pendingInput.setLen(0)
+      pty.pendingInputOffset = 0
+
   proc writeInput*(pty: TerminalPty, input: string): int =
+    ## Return accepted bytes, not merely the first non-blocking kernel write.
+    ## The pending tail is drained by `pollOutput` on following UI idle ticks.
     if pty == nil or pty.closed or input.len == 0: return 0
-    posix.write(pty.masterFd, input.cstring, input.len)
+    pty.pendingInput.add(input)
+    result = input.len
+    discard pty.flushInput()
 
   proc pollOutput*(pty: TerminalPty): string =
     if pty == nil or pty.closed: return
+    discard pty.flushInput()
     var buffer = newString(8192)
     let count = posix.read(pty.masterFd, addr buffer[0], buffer.len)
     if count > 0:
       buffer.setLen(count)
       pty.screen.feed(buffer)
       for response in pty.screen.takeResponses():
-        discard posix.write(pty.masterFd, response.cstring, response.len)
+        discard pty.writeInput(response)
       result = buffer
 
   proc resize*(pty: TerminalPty, columns, rows: int) =
@@ -776,4 +805,6 @@ elif defined(macosx):
     discard kill(pty.childPid, SIGTERM)
     reapTerminalChild(pty.childPid)
     discard posix.close(pty.masterFd)
+    pty.pendingInput.setLen(0)
+    pty.pendingInputOffset = 0
     pty.closed = true

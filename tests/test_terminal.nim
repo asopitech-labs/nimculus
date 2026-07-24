@@ -184,3 +184,15 @@ suite "M10 terminal core":
       pty.resize(60, 12)
       check pty.screen.columns == 60
       check pty.screen.rows == 12
+
+    test "macOS PTY queues a large paste after a partial non-blocking write":
+      # `cat` reads complete lines and echoes them to the slave. Without a
+      # matching poll, its output blocks and the master must retain the input
+      # tail instead of relying on a short write to mean success.
+      let pty = newTerminalPty("/bin/cat", "/tmp", 40, 8)
+      defer: pty.close()
+      let paste = repeat("日本\n", 512 * 1024)
+      check pty.writeInput(paste) == paste.len
+      # A PTY may accept a prefix immediately, but any remainder must be
+      # retained instead of being silently lost.
+      check pty.pendingInputBytes > 0
