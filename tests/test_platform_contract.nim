@@ -55,6 +55,9 @@ suite "macOS platform contract":
   test "native main menu exposes macOS standard command shortcuts":
     check platformValidateMainMenu()
 
+  test "native Command shortcuts dispatch through the Metal view":
+    check platformValidateShortcutDispatch()
+
   test "native window supports fullscreen, minimize, zoom, and monitor bounds":
     if platformValidateWindowLifecycle():
       check true

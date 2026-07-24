@@ -1565,9 +1565,16 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   const BOOL hasKeyCode = event.type == NSEventTypeKeyDown ||
     event.type == NSEventTypeKeyUp || event.type == NSEventTypeFlagsChanged;
   const unsigned short keyCode = hasKeyCode ? event.keyCode : 0;
+  // deltaX/deltaY and hasPreciseScrollingDeltas are defined only for scroll
+  // wheel events. AppKit raises NSInternalInconsistencyException when a
+  // synthetic or live key event is asked for scrolling properties.
+  const BOOL isScrollWheel = event.type == NSEventTypeScrollWheel;
+  const CGFloat deltaX = isScrollWheel ? event.deltaX : 0.0;
+  const CGFloat deltaY = isScrollWheel ? event.deltaY : 0.0;
+  const BOOL preciseScrolling = isScrollWheel && event.hasPreciseScrollingDeltas;
   NSLog(@"Nimculus input kind=%@ keyCode=%hu modifiers=0x%lx x=%.1f y=%.1f dx=%.1f dy=%.1f",
         kind, keyCode, event.modifierFlags, location.x, location.y,
-        event.deltaX, event.deltaY);
+        deltaX, deltaY);
   if (g_input_callback) {
     NimculusInputEvent input = {
       .type = (uint32_t)event.type,
@@ -1575,8 +1582,8 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
       .modifiers = (uint32_t)event.modifierFlags,
       .button = mouseButtonForEvent(event),
       .x = location.x, .y = location.y,
-      .delta_x = event.deltaX, .delta_y = event.deltaY,
-      .precise_scrolling = event.hasPreciseScrollingDeltas == YES,
+      .delta_x = deltaX, .delta_y = deltaY,
+      .precise_scrolling = preciseScrolling,
     };
     if (event.type == NSEventTypeKeyDown && g_shortcut_callback &&
         g_shortcut_callback(&input)) {
@@ -3365,6 +3372,53 @@ bool nimculus_platform_validate_main_menu(void) {
     BOOL valid = topLevel && settings && open && save && close && palette &&
       fullScreen && minimize && zoom && shortcuts && windowActions;
     [application setMainMenu:previousMenu];
+    return valid;
+  }
+}
+
+static uint32_t g_validation_shortcut_count = 0;
+static uint32_t g_validation_shortcut_input_count = 0;
+
+static void validationShortcutInputCallback(const NimculusInputEvent *event) {
+  if (event && event->type == NSEventTypeKeyDown && event->key_code == 35 &&
+      (event->modifiers & NSEventModifierFlagCommand) != 0 &&
+      (event->modifiers & NSEventModifierFlagShift) != 0) {
+    g_validation_shortcut_input_count++;
+  }
+}
+
+static bool validationShortcutCallback(const NimculusInputEvent *event) {
+  if (!event || event->type != NSEventTypeKeyDown || event->key_code != 35) return false;
+  if ((event->modifiers & NSEventModifierFlagCommand) == 0 ||
+      (event->modifiers & NSEventModifierFlagShift) == 0) return false;
+  g_validation_shortcut_count++;
+  return true;
+}
+
+bool nimculus_platform_validate_shortcut_dispatch(void) {
+  // Standard menu equivalents are resolved by AppKit before this view sees
+  // keyDown:. This contract covers the complementary application shortcut
+  // path, matching Zed's separation of key-equivalent and key-down events.
+  @autoreleasepool {
+    NimculusInputCallback previousInputCallback = g_input_callback;
+    NimculusShortcutCallback previousShortcutCallback = g_shortcut_callback;
+    g_validation_shortcut_count = 0;
+    g_validation_shortcut_input_count = 0;
+    g_input_callback = validationShortcutInputCallback;
+    g_shortcut_callback = validationShortcutCallback;
+    NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
+      NSMakeRect(0.0, 0.0, 640.0, 480.0)];
+    NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSMakePoint(32.0, 24.0)
+      modifierFlags:NSEventModifierFlagCommand | NSEventModifierFlagShift
+      timestamp:0.0 windowNumber:0 context:nil characters:@"P"
+      charactersIgnoringModifiers:@"p" isARepeat:NO keyCode:35];
+    if (view && event) [view keyDown:event];
+    BOOL valid = g_validation_shortcut_input_count == 0 &&
+      g_validation_shortcut_count == 1;
+    g_input_callback = previousInputCallback;
+    g_shortcut_callback = previousShortcutCallback;
+    [view release];
     return valid;
   }
 }

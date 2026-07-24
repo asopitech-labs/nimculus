@@ -2965,3 +2965,17 @@ returns the answer asynchronously rather than nesting a modal event loop.
 The native GUI contract creates a temporary Cocoa window, verifies that the
 sheet attaches without nesting the run loop, programmatically completes its
 Reload response, and checks that the command callback fires afterward.
+
+## M2-023: Verify Command shortcut routing at the AppKit view boundary
+
+Zed separates AppKit menu key equivalents from ordinary `keyDown:` delivery
+and prevents a key equivalent from being processed a second time as a key-down
+event. Nimculus likewise lets the native macOS menu own standard equivalents,
+while its application command registry receives unclaimed shortcuts through
+`NimculusMetalView.keyDown:`.
+
+The platform contract now synthesizes `Command-Shift-P` and sends it to the
+Metal view. It verifies normalized modifier flags at the shortcut callback,
+that the shortcut is consumed exactly once, and that it is not forwarded to
+ordinary input or text interpretation. This tests the live Cocoa
+dispatch boundary rather than only the menu metadata or a Nim-only registry.

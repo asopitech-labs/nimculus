@@ -11,6 +11,7 @@ proc platformValidateWindowLifecycle*(): bool {.importc: "nimculus_platform_vali
 proc platformValidateDamageRebuild*(): bool {.importc: "nimculus_platform_validate_damage_rebuild", cdecl.}
 proc platformValidateSceneTextureReplacement*(): bool {.importc: "nimculus_platform_validate_scene_texture_replacement", cdecl.}
 proc platformValidateMainMenu*(): bool {.importc: "nimculus_platform_validate_main_menu", cdecl.}
+proc platformValidateShortcutDispatch*(): bool {.importc: "nimculus_platform_validate_shortcut_dispatch", cdecl.}
 proc platformValidateVisibleTextAssets*(): bool {.importc: "nimculus_platform_validate_visible_text_assets", cdecl.}
 proc platformValidateFileOpenEvents*(): bool {.importc: "nimculus_platform_validate_file_open_events", cdecl.}
 proc platformValidateExternalChangeSheet*(): bool {.importc: "nimculus_platform_validate_external_change_sheet", cdecl.}
