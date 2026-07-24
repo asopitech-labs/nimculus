@@ -103,6 +103,9 @@ suite "M4 editor buffer":
     session.addTab(openDocument(path))
     check session.tabIndexForPath(canonicalOpenPath(path)) == 0
     check session.tabIndexForPath(canonicalOpenPath(path & ".missing")) == -1
+    var untitledSession: EditorSession
+    untitledSession.addTab(newDocument())
+    check untitledSession.tabIndexForPath("") == -1
 
   test "Save As canonicalizes identity and detects an open destination":
     let source = getTempDir() / "nimculus-save-as-日本語-source🙂.txt"
@@ -398,6 +401,18 @@ suite "M5 editor services":
     check readFile(path) == "recover me"
     removeFile(path)
     removeFile(sessionPath)
+
+  test "legacy deleted session paths are canonicalized before recovery":
+    let sessionPath = getTempDir() / "nimculus-m5-legacy-deleted-session.json"
+    let legacyPath = "/tmp/nimculus-legacy-日本語-deleted.txt"
+    writeFile(sessionPath, "{\"activeTab\":0,\"tabs\":[{\"path\":\"" & legacyPath &
+      "\",\"dirty\":true,\"content\":\"recover🙂\",\"lineEnding\":\"lf\"}]}")
+    defer: removeFile(sessionPath)
+    let restored = loadSession(sessionPath)
+    check restored.tabs.len == 1
+    check restored.tabs[0].document.path == canonicalOpenPath(legacyPath)
+    check restored.tabs[0].document.buffer.toString() == "recover🙂"
+    check restored.tabs[0].document.buffer.isDirty
 
   test "session restores dirty named tab when its path becomes a directory":
     let path = getTempDir() / "nimculus-m5-directory-dirty-session.txt"

@@ -3187,3 +3187,8 @@ the deleted-file session-recovery case.
 perform it. LSP workspace edits and definition navigation therefore update or
 activate the existing symlink-backed tab, instead of reading a second buffer
 and applying an edit only to that temporary copy.
+
+The lookup rejects an empty path so an invalid file-bearing request can never
+select an Untitled tab. The session loader applies the same canonicalization to
+old dirty/deleted recovery entries; this migrates pre-normalization `/tmp`
+paths without requiring a schema version or risking the user's unsaved text.

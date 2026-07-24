@@ -104,7 +104,10 @@ proc loadSession*(path: string): EditorSession =
         # later Save can recreate it, matching Zed's Deleted disk state rather
         # than silently dropping the user's only dirty copy.
         document = newDocument()
-        document.path = filePath
+        # Older sessions can contain a pre-canonical `/tmp` or symlink path.
+        # Keep recovery documents on the same identity boundary as freshly
+        # opened documents, even though their leaf no longer exists.
+        document.path = canonicalOpenPath(filePath)
         document.buffer = initPieceTable(item["content"].getStr)
         document.lineEnding = if jsonString(item, "lineEnding", "lf") == "crlf": crlf else: lf
         document.buffer.markDirty()

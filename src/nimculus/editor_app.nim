@@ -159,6 +159,7 @@ proc tabIndexForPath*(session: EditorSession, path: string): int =
   ## identify a document the same way. Keep one buffer for symlink and macOS
   ## path aliases, rather than requiring every caller to normalize first.
   let identityPath = canonicalOpenPath(path)
+  if identityPath.len == 0: return -1
   for index, tab in session.tabs:
     if tab.document.path == identityPath: return index
   -1
