@@ -42,6 +42,9 @@ jobs:
           nim c --mm:arc --nimcache="$RUNNER_TEMP/nimculus-native-modal-sheets" \
             -r --path:src tests/test_macos_modal_sheets.nim
           NIMCULUS_REQUIRE_NATIVE_GUI=1 \
+          nim c --mm:arc --nimcache="$RUNNER_TEMP/nimculus-native-application-alert-sheet" \
+            -r --path:src tests/test_macos_application_alert_sheet.nim
+          NIMCULUS_REQUIRE_NATIVE_GUI=1 \
           nim c --mm:arc --nimcache="$RUNNER_TEMP/nimculus-platform-contract" \
             -r --path:src tests/test_platform_contract.nim
       - name: Cocoa and Metal cold-start smoke

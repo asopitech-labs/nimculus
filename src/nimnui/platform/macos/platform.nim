@@ -15,6 +15,7 @@ proc platformValidateShortcutDispatch*(): bool {.importc: "nimculus_platform_val
 proc platformValidateOpenPanelSheet*(): bool {.importc: "nimculus_platform_validate_open_panel_sheet", cdecl.}
 proc platformValidateSavePanelSheet*(): bool {.importc: "nimculus_platform_validate_save_panel_sheet", cdecl.}
 proc platformValidateUnsavedCloseSheet*(): bool {.importc: "nimculus_platform_validate_unsaved_close_sheet", cdecl.}
+proc platformValidateApplicationAlertSheet*(): bool {.importc: "nimculus_platform_validate_application_alert_sheet", cdecl.}
 proc platformValidateVisibleTextAssets*(): bool {.importc: "nimculus_platform_validate_visible_text_assets", cdecl.}
 proc platformValidateFileOpenEvents*(): bool {.importc: "nimculus_platform_validate_file_open_events", cdecl.}
 proc platformValidateExternalChangeSheet*(): bool {.importc: "nimculus_platform_validate_external_change_sheet", cdecl.}

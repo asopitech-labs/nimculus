@@ -2491,6 +2491,8 @@ static void applyTerminalRuns(NSTextView *terminal) {
 @property(nonatomic, strong) NimculusMetalView *view;
 @property(nonatomic, strong) NSTimer *workspaceSearchTimer;
 - (void)setupMainMenu;
+- (void)presentAlertSheet:(NSAlert *)alert
+               completion:(void (^)(NSModalResponse response))completion;
 @end
 
 @implementation NimculusAppDelegate
@@ -2502,21 +2504,12 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
 - (BOOL)confirmClose {
   if (!g_editor_dirty) return YES;
-  g_close_decision = NO;
-  NSAlert *alert = [[NSAlert alloc] init];
-  alert.messageText = @"Unsaved Changes";
-  alert.informativeText = @"The current document has unsaved changes.";
-  [alert addButtonWithTitle:@"Save"];
-  [alert addButtonWithTitle:@"Don’t Save"];
-  [alert addButtonWithTitle:@"Cancel"];
-  NSInteger response = [alert runModal];
-  if (response == NSAlertSecondButtonReturn) {
-    g_close_decision = YES;
-    if (g_command_callback) g_command_callback("discardSession");
-  } else if (response == NSAlertFirstButtonReturn && g_command_callback) {
-    g_command_callback("saveAndClose");
-  }
-  return g_close_decision;
+  // Window closing must not enter a nested AppKit loop. Normal application
+  // startup always installs the command callback, which routes to the
+  // asynchronous quit sheet below. Without that bridge, reject the close
+  // rather than silently discarding data or blocking Metal presentation.
+  if (g_command_callback) g_command_callback("quitRequest");
+  return NO;
 }
 
 - (BOOL)windowShouldClose:(NSWindow *)window {
@@ -2526,6 +2519,13 @@ static void applyTerminalRuns(NSTextView *terminal) {
     return NO;
   }
   return [self confirmClose];
+}
+
+- (void)presentAlertSheet:(NSAlert *)alert
+               completion:(void (^)(NSModalResponse response))completion {
+  NSWindow *window = self.window;
+  if (window) [alert beginSheetModalForWindow:window completionHandler:completion];
+  else [alert beginWithCompletionHandler:completion];
 }
 
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)application {
@@ -2710,11 +2710,13 @@ static void applyTerminalRuns(NSTextView *terminal) {
   alert.accessoryView = fields;
   [alert addButtonWithTitle:@"Apply"];
   [alert addButtonWithTitle:@"Cancel"];
-  if ([alert runModal] != NSAlertFirstButtonReturn || !g_command_callback) return;
-  NSString *command = [NSString stringWithFormat:@"settingsApply:%@\x1f%@\x1f%@\x1f%@\x1f%@",
-    themePopup.titleOfSelectedItem ?: @"system", editorSize.stringValue ?: @"14",
-    terminalSize.stringValue ?: @"12", font.stringValue ?: @"Menlo", shellField.stringValue ?: @"/bin/zsh"];
-  g_command_callback(command.UTF8String);
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (response != NSAlertFirstButtonReturn || !g_command_callback) return;
+    NSString *command = [NSString stringWithFormat:@"settingsApply:%@\x1f%@\x1f%@\x1f%@\x1f%@",
+      themePopup.titleOfSelectedItem ?: @"system", editorSize.stringValue ?: @"14",
+      terminalSize.stringValue ?: @"12", font.stringValue ?: @"Menlo", shellField.stringValue ?: @"/bin/zsh"];
+    g_command_callback(command.UTF8String);
+  }];
 }
 
 - (void)previousTab:(id)sender {
@@ -2737,10 +2739,12 @@ static void applyTerminalRuns(NSTextView *terminal) {
   alert.accessoryView = field;
   [alert addButtonWithTitle:@"Find"];
   [alert addButtonWithTitle:@"Cancel"];
-  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
-    NSString *command = [NSString stringWithFormat:@"workspaceSearch:%@", field.stringValue];
-    g_command_callback(command.UTF8String);
-  }
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (response == NSAlertFirstButtonReturn && g_command_callback) {
+      NSString *command = [NSString stringWithFormat:@"workspaceSearch:%@", field.stringValue];
+      g_command_callback(command.UTF8String);
+    }
+  }];
 }
 
 - (void)findInDocument:(id)sender {
@@ -2752,10 +2756,12 @@ static void applyTerminalRuns(NSTextView *terminal) {
   alert.accessoryView = field;
   [alert addButtonWithTitle:@"Find"];
   [alert addButtonWithTitle:@"Cancel"];
-  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
-    NSString *command = [NSString stringWithFormat:@"findDocument:%@", field.stringValue];
-    g_command_callback(command.UTF8String);
-  }
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (response == NSAlertFirstButtonReturn && g_command_callback) {
+      NSString *command = [NSString stringWithFormat:@"findDocument:%@", field.stringValue];
+      g_command_callback(command.UTF8String);
+    }
+  }];
 }
 
 - (void)replaceInDocument:(id)sender {
@@ -2774,13 +2780,15 @@ static void applyTerminalRuns(NSTextView *terminal) {
   alert.accessoryView = fields;
   [alert addButtonWithTitle:@"Replace All"];
   [alert addButtonWithTitle:@"Cancel"];
-  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
-    // Unit Separator is not valid in normal text input and keeps this ABI
-    // independent of colons/newlines in either field.
-    NSString *command = [NSString stringWithFormat:@"replaceDocument:%@\x1f%@",
-      query.stringValue, replacement.stringValue];
-    g_command_callback(command.UTF8String);
-  }
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (response == NSAlertFirstButtonReturn && g_command_callback) {
+      // Unit Separator is not valid in normal text input and keeps this ABI
+      // independent of colons/newlines in either field.
+      NSString *command = [NSString stringWithFormat:@"replaceDocument:%@\x1f%@",
+        query.stringValue, replacement.stringValue];
+      g_command_callback(command.UTF8String);
+    }
+  }];
 }
 
 - (void)goToLine:(id)sender {
@@ -2792,10 +2800,12 @@ static void applyTerminalRuns(NSTextView *terminal) {
   alert.accessoryView = field;
   [alert addButtonWithTitle:@"Go"];
   [alert addButtonWithTitle:@"Cancel"];
-  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
-    NSString *command = [NSString stringWithFormat:@"goToLine:%@", field.stringValue];
-    g_command_callback(command.UTF8String);
-  }
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (response == NSAlertFirstButtonReturn && g_command_callback) {
+      NSString *command = [NSString stringWithFormat:@"goToLine:%@", field.stringValue];
+      g_command_callback(command.UTF8String);
+    }
+  }];
 }
 
 - (void)openCommandPalette:(id)sender {
@@ -2807,10 +2817,12 @@ static void applyTerminalRuns(NSTextView *terminal) {
   alert.accessoryView = field;
   [alert addButtonWithTitle:@"Run"];
   [alert addButtonWithTitle:@"Cancel"];
-  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
-    NSString *command = [NSString stringWithFormat:@"commandPalette:%@", field.stringValue];
-    g_command_callback(command.UTF8String);
-  }
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (response == NSAlertFirstButtonReturn && g_command_callback) {
+      NSString *command = [NSString stringWithFormat:@"commandPalette:%@", field.stringValue];
+      g_command_callback(command.UTF8String);
+    }
+  }];
 }
 
 - (void)cancelWorkspaceSearch:(id)sender {
@@ -2846,7 +2858,9 @@ static void applyTerminalRuns(NSTextView *terminal) {
   if (g_recent_files.count == 0) {
     alert.informativeText = @"No recent files.";
     [alert addButtonWithTitle:@"OK"];
-    [alert runModal];
+    [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+      (void)response;
+    }];
     return;
   }
   NSPopUpButton *popup = [[[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 360, 26)
@@ -2855,10 +2869,12 @@ static void applyTerminalRuns(NSTextView *terminal) {
   alert.accessoryView = popup;
   [alert addButtonWithTitle:@"Open"];
   [alert addButtonWithTitle:@"Cancel"];
-  if ([alert runModal] == NSAlertFirstButtonReturn && g_file_callback) {
-    NSString *path = popup.selectedItem.title;
-    if (path.length > 0) g_file_callback(path.UTF8String, false);
-  }
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (response == NSAlertFirstButtonReturn && g_file_callback) {
+      NSString *path = popup.selectedItem.title;
+      if (path.length > 0) g_file_callback(path.UTF8String, false);
+    }
+  }];
 }
 
 - (void)addWorkspaceFolder:(id)sender {
@@ -2886,10 +2902,12 @@ static void applyTerminalRuns(NSTextView *terminal) {
   alert.accessoryView = field;
   [alert addButtonWithTitle:@"Search"];
   [alert addButtonWithTitle:@"Cancel"];
-  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
-    NSString *command = [NSString stringWithFormat:@"quickOpen:%@", field.stringValue];
-    g_command_callback(command.UTF8String);
-  }
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (response == NSAlertFirstButtonReturn && g_command_callback) {
+      NSString *command = [NSString stringWithFormat:@"quickOpen:%@", field.stringValue];
+      g_command_callback(command.UTF8String);
+    }
+  }];
 }
 
 - (void)newDocument:(id)sender {
@@ -2911,10 +2929,12 @@ static void applyTerminalRuns(NSTextView *terminal) {
   alert.accessoryView = field;
   [alert addButtonWithTitle:@"Create"];
   [alert addButtonWithTitle:@"Cancel"];
-  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
-    NSString *command = [NSString stringWithFormat:@"workspaceCreateFile:%@", field.stringValue];
-    g_command_callback(command.UTF8String);
-  }
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (response == NSAlertFirstButtonReturn && g_command_callback) {
+      NSString *command = [NSString stringWithFormat:@"workspaceCreateFile:%@", field.stringValue];
+      g_command_callback(command.UTF8String);
+    }
+  }];
 }
 
 - (void)createWorkspaceDirectory:(id)sender {
@@ -2925,10 +2945,12 @@ static void applyTerminalRuns(NSTextView *terminal) {
   alert.accessoryView = field;
   [alert addButtonWithTitle:@"Create"];
   [alert addButtonWithTitle:@"Cancel"];
-  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
-    NSString *command = [NSString stringWithFormat:@"workspaceCreateDirectory:%@", field.stringValue];
-    g_command_callback(command.UTF8String);
-  }
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (response == NSAlertFirstButtonReturn && g_command_callback) {
+      NSString *command = [NSString stringWithFormat:@"workspaceCreateDirectory:%@", field.stringValue];
+      g_command_callback(command.UTF8String);
+    }
+  }];
 }
 
 - (void)renameWorkspaceEntry:(id)sender {
@@ -2945,11 +2967,13 @@ static void applyTerminalRuns(NSTextView *terminal) {
   alert.accessoryView = fields;
   [alert addButtonWithTitle:@"Rename"];
   [alert addButtonWithTitle:@"Cancel"];
-  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
-    NSString *command = [NSString stringWithFormat:@"workspaceRename:%@\x1f%@",
-      oldField.stringValue, newField.stringValue];
-    g_command_callback(command.UTF8String);
-  }
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (response == NSAlertFirstButtonReturn && g_command_callback) {
+      NSString *command = [NSString stringWithFormat:@"workspaceRename:%@\x1f%@",
+        oldField.stringValue, newField.stringValue];
+      g_command_callback(command.UTF8String);
+    }
+  }];
 }
 
 - (void)deleteWorkspaceEntry:(id)sender {
@@ -2962,10 +2986,12 @@ static void applyTerminalRuns(NSTextView *terminal) {
   [alert addButtonWithTitle:@"Delete"];
   [alert addButtonWithTitle:@"Cancel"];
   alert.alertStyle = NSAlertStyleWarning;
-  if ([alert runModal] == NSAlertFirstButtonReturn && g_command_callback) {
-    NSString *command = [NSString stringWithFormat:@"workspaceDelete:%@", field.stringValue];
-    g_command_callback(command.UTF8String);
-  }
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (response == NSAlertFirstButtonReturn && g_command_callback) {
+      NSString *command = [NSString stringWithFormat:@"workspaceDelete:%@", field.stringValue];
+      g_command_callback(command.UTF8String);
+    }
+  }];
 }
 
 - (void)saveDocument:(id)sender {
@@ -3571,6 +3597,47 @@ static void validationFileCallback(const char *path, bool saving) {
 static void validationCommandCallback(const char *command) {
   strncpy(g_validation_command, command ?: "", sizeof(g_validation_command) - 1);
   g_validation_command[sizeof(g_validation_command) - 1] = '\0';
+}
+
+bool nimculus_platform_validate_application_alert_sheet(void) {
+  NimculusPlatformMetrics previousMetrics = g_metrics;
+  @autoreleasepool {
+    NSApplication *application = [NSApplication sharedApplication];
+    (void)application;
+    NimculusCommandCallback previousCallback = g_command_callback;
+    NSWindow *window = [[NSWindow alloc]
+      initWithContentRect:NSMakeRect(160.0, 180.0, 640.0, 480.0)
+      styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+    NimculusAppDelegate *delegate = [NimculusAppDelegate new];
+    if (!window || !delegate) {
+      [delegate release];
+      [window release];
+      g_metrics = previousMetrics;
+      return false;
+    }
+    delegate.window = window;
+    g_command_callback = validationCommandCallback;
+    g_validation_command[0] = '\0';
+    [window makeKeyAndOrderFront:nil];
+    [delegate findInDocument:nil];
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    NSWindow *sheet = window.attachedSheet;
+    BOOL attached = sheet != nil;
+    if (sheet) [window endSheet:sheet returnCode:NSAlertFirstButtonReturn];
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    BOOL dispatched = strcmp(g_validation_command, "findDocument:") == 0;
+    BOOL detached = window.attachedSheet == nil;
+    // Let the AppKit sheet transform release before tearing down the
+    // temporary parent window, as in the Open/Save sheet contracts.
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
+    g_command_callback = previousCallback;
+    [window orderOut:nil];
+    [window close];
+    [delegate release];
+    [window release];
+    g_metrics = previousMetrics;
+    return attached && dispatched && detached;
+  }
 }
 
 bool nimculus_platform_validate_file_open_events(void) {
@@ -4775,17 +4842,10 @@ bool nimculus_platform_validate_clipboard_roundtrip(void) {
   }
 }
 
-static const char *runFilePanel(BOOL save) {
-  @autoreleasepool {
-    NSSavePanel *savePanel = save ? [NSSavePanel savePanel] : nil;
-    NSOpenPanel *openPanel = save ? nil : [NSOpenPanel openPanel];
-    NSInteger response = save ? [savePanel runModal] : [openPanel runModal];
-    if (response != NSModalResponseOK) { g_dialog_path[0] = '\0'; return g_dialog_path; }
-    NSString *path = save ? savePanel.URL.path : openPanel.URL.path;
-    strncpy(g_dialog_path, path.UTF8String ?: "", sizeof(g_dialog_path) - 1);
-    g_dialog_path[sizeof(g_dialog_path) - 1] = '\0';
-    return g_dialog_path;
-  }
-}
-const char *nimculus_choose_open_file(void) { return runFilePanel(NO); }
-const char *nimculus_choose_save_file(void) { return runFilePanel(YES); }
+// macOS panels must be presented through the AppDelegate's completion-handler
+// based sheet APIs. The historical synchronous ABI remains only so a stale
+// third-party caller links successfully; Nimculus itself never calls it.
+// Returning an empty selection makes an accidental use fail safely instead of
+// entering a nested AppKit run loop that pauses Metal presentation.
+const char *nimculus_choose_open_file(void) { g_dialog_path[0] = '\0'; return g_dialog_path; }
+const char *nimculus_choose_save_file(void) { g_dialog_path[0] = '\0'; return g_dialog_path; }

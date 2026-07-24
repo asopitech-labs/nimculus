@@ -3046,3 +3046,25 @@ success. The quit sheet confirms termination immediately only for a synchronous
 discard or an all-named Save All; an untitled Save All is confirmed by the
 queue's final completion. A dedicated macOS GUI contract verifies the actual
 unsaved-close sheet attaches and detaches without nesting a modal loop.
+
+## M5-022: Keep every application-owned macOS alert on the sheet lifecycle
+
+After file and unsaved-change prompts moved to asynchronous sheets, utility
+alerts (find, replace, Go to Line, command palette, settings, recent files,
+and workspace create/rename/delete actions) still used `NSAlert.runModal`.
+Those paths can be opened while the Metal view is presenting, so a remaining
+nested loop is just as disruptive as a synchronous file panel.
+
+Zed's `gpui_macos` platform presents both path prompts and confirmation
+alerts with `beginSheetModalForWindow:` and receives the response in a
+completion handler. Nimculus now has one AppDelegate alert presenter that
+uses the active window's sheet lifecycle (with AppKit's non-window fallback
+only during teardown). Every application-owned alert dispatches its Nim
+command from that completion handler. The obsolete synchronous file-panel ABI
+now returns an empty selection on macOS rather than starting a nested loop.
+
+The native GUI contract opens the real Find in Document alert, verifies that
+it attaches to a Cocoa window, dismisses it programmatically, and verifies
+that `findDocument:` is dispatched only afterwards. It runs in its own test
+process because AppKit sheet transform teardown can outlive a response
+callback.
