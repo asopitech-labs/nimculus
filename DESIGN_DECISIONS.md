@@ -80,6 +80,19 @@ the bundle cold-start probe against the mounted executable, and detaches the
 volume in a cleanup trap. This follows the distribution boundary used by the
 packaging workflow and keeps writable application state in a temporary HOME.
 
+## M11-007: Keep the cold-start runner compatible with macOS Bash 3.2
+
+The normal macOS CI cold-start job supplies a startup path, while mounted-DMG
+verification intentionally launches without one. Bash 3.2 with `set -u` treats
+an empty array expansion as an unset variable, so representing that optional
+argument as `startup_args=()` made the package verifier fail before it launched
+the application.
+
+The benchmark now invokes the executable through explicit startup-path and
+no-path branches. This covers both CI paths without requiring a newer
+user-installed shell. The ad-hoc package verifier now reaches a rendered
+Cocoa/Metal frame from the read-only mounted DMG before it detaches it.
+
 ## M20-012: Keep settings application out of the idle render loop
 
 Zed applies settings changes through explicit settings updates rather than

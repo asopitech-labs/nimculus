@@ -66,14 +66,18 @@ if [[ ! -x "$RUN_BINARY" ]]; then
 fi
 
 for run in $(seq 1 "$RUNS"); do
-  startup_args=()
-  if [[ -n "$STARTUP_PATH" ]]; then
-    startup_args+=("$STARTUP_PATH")
-  fi
   set +e
-  output="$(HOME="$HOME_DIR" NIMCULUS_BENCH_COLD_START=1 \
-    /usr/bin/perl -e 'alarm shift; exec @ARGV' "$TIMEOUT_SECONDS" "$RUN_BINARY" \
-      "${startup_args[@]}" 2>&1)"
+  if [[ -n "$STARTUP_PATH" ]]; then
+    output="$(HOME="$HOME_DIR" NIMCULUS_BENCH_COLD_START=1 \
+      /usr/bin/perl -e 'alarm shift; exec @ARGV' "$TIMEOUT_SECONDS" "$RUN_BINARY" \
+        "$STARTUP_PATH" 2>&1)"
+  else
+    # macOS ships Bash 3.2. Under `set -u`, expanding an empty array through
+    # `${items[@]}` aborts the script there, so do not model this optional
+    # argument as an empty array.
+    output="$(HOME="$HOME_DIR" NIMCULUS_BENCH_COLD_START=1 \
+      /usr/bin/perl -e 'alarm shift; exec @ARGV' "$TIMEOUT_SECONDS" "$RUN_BINARY" 2>&1)"
+  fi
   status=$?
   set -e
   if [[ "$status" -ne 0 ]]; then
