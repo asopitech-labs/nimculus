@@ -3476,6 +3476,25 @@ direct-child fallback remain unchanged. A macOS regression starts a shell that
 ignores TERM, proves `close` finishes within three seconds, and verifies its
 process group no longer exists.
 
+## M10-016: Index terminal presentation intern tables without extending their lifetime
+
+Zed's terminal stores its cell payload in Alacritty's compact grid and uses
+separate shared ownership for hyperlink metadata. Nimculus likewise keeps the
+cell's style, link, and combining data as numeric IDs, but its initial intern
+lookup walked the retained sequence linearly. A terminal command that emits a
+distinct truecolor SGR value or OSC 8 URI per line would consequently turn
+parsing into quadratic work even though scrollback compaction bounded memory.
+
+`TerminalScreen` now maintains private hash indexes from each presentation
+value to its existing scalar ID. The ordered sequences remain the sole ID
+storage used by cells, so this changes lookup cost without changing the compact
+cell ABI or retention policy. Every scrollback compaction first drops
+unreachable values, then rebuilds the indexes from the newly retained
+sequences. A regression emits 512 unique RGB/link pairs, forces compaction, and
+verifies that the final active attributes still resolve without growing the
+retained tables. The M20 metadata fixture also varies RGB styles alongside its
+1,024 distinct OSC 8 links.
+
 ## M20-006: Measure PieceTable edits without materializing the document
 
 The M20 editor-edit loop used `toString().len` only to obtain the logical

@@ -92,11 +92,14 @@ block terminalMetadataBounds:
   var screen = initTerminalScreen(120, 40, 128)
   let start = cpuTime()
   for index in 0 ..< 1024:
+    let red = index mod 256
+    let green = index div 256
+    screen.feed("\e[38;2;" & $red & ";" & $green & ";127m")
     screen.feed("\e]8;;https://example.com/build/" & $index & "\x07x\r\n")
   let stats = screen.storageStats()
   let after = platformResidentMemoryBytes()
   report("terminal_metadata_bounds", cpuTime() - start,
-    "links=" & $stats.hyperlinkCount & ";link_bytes=" & $stats.hyperlinkBytes &
+    "styles=" & $stats.styleCount & ";links=" & $stats.hyperlinkCount & ";link_bytes=" & $stats.hyperlinkBytes &
     ";lines=" & $screen.lineCount & ";resident_before=" & $before &
     ";resident_after=" & $after)
 

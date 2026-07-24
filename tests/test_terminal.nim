@@ -142,6 +142,24 @@ suite "M10 terminal core":
     check oversized.cellHyperlinkUri(oversized.lines[0][1]).len == 0
     check oversized.storageStats().hyperlinkCount == 1
 
+  test "rebuilds intern indexes after discarding unique styles and links":
+    var screen = initTerminalScreen(8, 1, 2)
+    for index in 0 ..< 512:
+      let red = index mod 256
+      let green = index div 256
+      screen.feed("\x1b[38;2;" & $red & ";" & $green & ";127m")
+      screen.feed("\x1b]8;;https://example.com/" & $index & "\x07x\r\n")
+    let stats = screen.storageStats()
+    check stats.styleCount <= screen.scrollbackLimit + screen.rows + 1
+    check stats.hyperlinkCount <= screen.scrollbackLimit + screen.rows + 1
+    # The active attributes must still resolve through indexes rebuilt by the
+    # scrollback compaction, rather than duplicating their retained values.
+    screen.feed("z")
+    let cell = screen.lines[0][0]
+    check screen.cellHyperlinkUri(cell) == "https://example.com/511"
+    check screen.cellStyle(cell).foreground.red == 255'u8
+    check screen.cellStyle(cell).foreground.green == 1'u8
+
   test "retains metadata referenced by a saved alternate screen":
     var screen = initTerminalScreen(8, 1, 2)
     screen.feed("\x1b]8;;https://example.com/main\x07m")

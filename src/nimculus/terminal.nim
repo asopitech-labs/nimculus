@@ -1,5 +1,7 @@
 import std/os
 import std/strutils
+import std/hashes
+import std/tables
 import std/unicode
 
 const
@@ -90,6 +92,31 @@ type
     styles: seq[TerminalStyle]
     hyperlinks: seq[string]
     combiningGlyphs: seq[string]
+    ## These indexes keep attribute interning O(1) for tools that emit a
+    ## distinct RGB style or OSC 8 URI for each output line. The sequences
+    ## remain the stable, compact IDs stored in TerminalCell.
+    styleIndices: Table[TerminalStyle, uint32]
+    hyperlinkIndices: Table[string, uint32]
+    combiningIndices: Table[string, uint32]
+
+proc hash(color: TerminalColor): Hash =
+  var value = hash(ord(color.kind))
+  value = value !& hash(color.index)
+  value = value !& hash(color.red)
+  value = value !& hash(color.green)
+  value = value !& hash(color.blue)
+  result = !$value
+
+proc hash(style: TerminalStyle): Hash =
+  var value = hash(style.foreground)
+  value = value !& hash(style.background)
+  value = value !& hash(style.bold)
+  value = value !& hash(style.dim)
+  value = value !& hash(style.italic)
+  value = value !& hash(style.underline)
+  value = value !& hash(style.inverse)
+  value = value !& hash(style.strikethrough)
+  result = !$value
 
 proc blankRow(screen: TerminalScreen): seq[TerminalCell] =
   newSeq(result, max(1, screen.columns))
@@ -107,17 +134,18 @@ proc currentStyle(screen: TerminalScreen): TerminalStyle =
 
 proc internStyle(screen: var TerminalScreen): uint32 =
   let style = screen.currentStyle()
-  for index, existing in screen.styles:
-    if existing == style: return uint32(index)
+  if screen.styleIndices.hasKey(style): return screen.styleIndices[style]
   screen.styles.add(style)
-  uint32(screen.styles.high)
+  result = uint32(screen.styles.high)
+  screen.styleIndices[style] = result
 
-proc internString(values: var seq[string], value: string): uint32 =
+proc internString(values: var seq[string], indices: var Table[string, uint32],
+                  value: string): uint32 =
   if value.len == 0: return 0
-  for index, existing in values:
-    if existing == value: return uint32(index + 1)
+  if indices.hasKey(value): return indices[value]
   values.add(value)
-  uint32(values.len)
+  result = uint32(values.len)
+  indices[value] = result
 
 proc cellText*(screen: TerminalScreen, cell: TerminalCell): string =
   if cell.glyph == 0: return " "
@@ -145,6 +173,7 @@ proc initTerminalScreen*(columns = 80, rows = 24,
   result.sgrForeground = defaultStyle.foreground
   result.sgrBackground = defaultStyle.background
   result.styles.add(defaultStyle)
+  result.styleIndices[defaultStyle] = 0
   result.lines = newSeq[seq[TerminalCell]](result.rows)
   for row in 0 ..< result.rows: result.lines[row] = result.blankRow()
 
@@ -214,6 +243,15 @@ proc compactInternedValues(screen: var TerminalScreen) =
   screen.styles = styles
   screen.hyperlinks = hyperlinks
   screen.combiningGlyphs = combiningGlyphs
+  screen.styleIndices.clear()
+  screen.hyperlinkIndices.clear()
+  screen.combiningIndices.clear()
+  for index, style in screen.styles:
+    screen.styleIndices[style] = uint32(index)
+  for index, uri in screen.hyperlinks:
+    screen.hyperlinkIndices[uri] = uint32(index + 1)
+  for index, glyph in screen.combiningGlyphs:
+    screen.combiningIndices[glyph] = uint32(index + 1)
 
 proc storageStats*(screen: TerminalScreen): TerminalStorageStats =
   result.styleCount = max(0, screen.styles.len - 1)
@@ -385,7 +423,8 @@ proc finishOsc(screen: var TerminalScreen) =
     if parts.len >= 3 and parts[0] == "8":
       if parts[2].len <= MaxTerminalHyperlinkUriBytes:
         screen.currentHyperlinkUri = parts[2]
-        screen.currentHyperlinkIndex = internString(screen.hyperlinks, parts[2])
+        screen.currentHyperlinkIndex = internString(screen.hyperlinks,
+          screen.hyperlinkIndices, parts[2])
       else:
         screen.currentHyperlinkUri.setLen(0)
         screen.currentHyperlinkIndex = 0
@@ -620,7 +659,8 @@ proc putGlyph(screen: var TerminalScreen, glyph: string) =
       let cell = addr screen.lines[screen.cursorRow][screen.cursorColumn - 1]
       let previous = if cell[].combiningIndex == 0: "" else:
         screen.combiningGlyphs[int(cell[].combiningIndex) - 1]
-      cell[].combiningIndex = internString(screen.combiningGlyphs, previous & glyph)
+      cell[].combiningIndex = internString(screen.combiningGlyphs,
+        screen.combiningIndices, previous & glyph)
     return
   if screen.cursorColumn >= screen.columns or (width == 2 and screen.cursorColumn ==
       screen.columns - 1):
