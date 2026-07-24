@@ -2031,14 +2031,23 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
   if saving:
     let document = activeDocument()
     if document != nil:
+      let existingTab = editorSession.tabIndexForSaveTarget(inputPath)
+      if existingTab >= 0 and existingTab != editorSession.activeTab:
+        editorViewState.statusMessage = "Save As cancelled: destination is already open"
+        when defined(macosx):
+          platformSetCloseDecision(false)
+        return
       try:
         document[].save(inputPath)
         if editorSession.activeTab >= 0 and editorSession.activeTab < editorSession.tabs.len:
-          editorSession.tabs[editorSession.activeTab].title = splitFile(inputPath).name
+          editorSession.tabs[editorSession.activeTab].title =
+            splitFile(document[].path).name
         externalAlertShown = false
         editorSession.saveActiveView(editorViewState)
+        editorSession.recordRecent(document[].path)
+        syncRecentFiles()
         persistSession()
-        editorViewState.statusMessage = "Saved " & inputPath
+        editorViewState.statusMessage = "Saved " & document[].path
         syncEditorCursor()
         when defined(macosx):
           # The native Save Panel used by close confirmation must only allow

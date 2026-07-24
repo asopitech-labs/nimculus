@@ -43,12 +43,29 @@ proc fileStamp(path: string): tuple[identity: string, size: int64, modified: Tim
    size: info.size,
    modified: info.lastWriteTime)
 
+proc canonicalOpenPath*(path: string): string =
+  ## Existing paths may arrive through `/tmp`, a symlink, Finder, URL events,
+  ## or a shell. Follow symlinks so one on-disk document has one tab identity.
+  if path.len == 0: return ""
+  try:
+    result = expandFilename(path)
+  except OSError:
+    # `expandFilename` cannot resolve a deleted leaf. Resolve its existing
+    # parent instead so a recovery entry under `/tmp` keeps the same identity
+    # as the live document under macOS's `/private/tmp` backing directory.
+    let leaf = extractFilename(path)
+    try:
+      result = expandFilename(parentDir(path)) / leaf
+    except OSError:
+      result = absolutePath(path)
+
 proc openDocument*(path: string): FileDocument =
-  let raw = readFile(path)
-  result.path = path
+  let identityPath = canonicalOpenPath(path)
+  let raw = readFile(identityPath)
+  result.path = identityPath
   result.lineEnding = if raw.contains("\r\n"): crlf else: lf
   result.buffer = initPieceTable(raw.replace("\r\n", "\n"))
-  let stamp = fileStamp(path)
+  let stamp = fileStamp(identityPath)
   result.externalExists = true
   result.externalIdentity = stamp.identity
   result.externalSize = stamp.size
@@ -58,15 +75,6 @@ proc openDocument*(path: string): FileDocument =
 proc newDocument*(): FileDocument =
   result.buffer = initPieceTable()
   result.buffer.markSaved()
-
-proc canonicalOpenPath*(path: string): string =
-  ## Existing paths may arrive through `/tmp`, a symlink, Finder, URL events,
-  ## or a shell. Follow symlinks so one on-disk document has one tab identity.
-  if path.len == 0: return ""
-  try:
-    result = expandFilename(path)
-  except OSError:
-    result = absolutePath(path)
 
 proc startupOpenPaths*(arguments: openArray[string]): seq[string] =
   ## Resolve positional startup paths before the native event loop begins.
@@ -90,8 +98,10 @@ proc save*(document: var FileDocument, path = "") =
   var content = document.buffer.toString()
   if document.lineEnding == crlf: content = content.replace("\n", "\r\n")
   atomicWriteFile(targetPath, content)
-  document.path = targetPath
-  let stamp = fileStamp(targetPath)
+  # Keep a canonical path identity after Save As so later Finder / URL / CLI
+  # opens select this tab rather than creating a second view of the file.
+  document.path = canonicalOpenPath(targetPath)
+  let stamp = fileStamp(document.path)
   document.externalExists = true
   document.externalIdentity = stamp.identity
   document.externalSize = stamp.size
@@ -150,6 +160,12 @@ proc tabIndexForPath*(session: EditorSession, path: string): int =
   for index, tab in session.tabs:
     if tab.document.path == path: return index
   -1
+
+proc tabIndexForSaveTarget*(session: EditorSession, path: string): int =
+  ## Save As must not make two independently editable tabs represent one
+  ## document. Normalize the prospective destination before comparing it to
+  ## current tab identities; this also handles symlink aliases.
+  session.tabIndexForPath(canonicalOpenPath(path))
 
 proc saveActiveView*(session: var EditorSession, view: EditorViewState) =
   if session.activeTab >= 0 and session.activeTab < session.tabs.len:

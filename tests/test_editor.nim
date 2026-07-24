@@ -101,8 +101,43 @@ suite "M4 editor buffer":
       if fileExists(path): removeFile(path)
     var session: EditorSession
     session.addTab(openDocument(path))
-    check session.tabIndexForPath(path) == 0
-    check session.tabIndexForPath(path & ".missing") == -1
+    check session.tabIndexForPath(canonicalOpenPath(path)) == 0
+    check session.tabIndexForPath(canonicalOpenPath(path & ".missing")) == -1
+
+  test "Save As canonicalizes identity and detects an open destination":
+    let source = getTempDir() / "nimculus-save-as-日本語-source🙂.txt"
+    let destination = getTempDir() / "nimculus-save-as-日本語-destination🙂.txt"
+    writeFile(source, "source")
+    writeFile(destination, "destination")
+    defer:
+      if fileExists(source): removeFile(source)
+      if fileExists(destination): removeFile(destination)
+    var session: EditorSession
+    session.addTab(openDocument(source))
+    session.addTab(openDocument(destination))
+    check session.tabIndexForSaveTarget(destination) == 1
+    check session.tabIndexForSaveTarget(source) == 0
+    var document = newDocument()
+    document.buffer.edit(Edit(startByte: 0, endByte: 0, text: "saved🙂"))
+    document.save(destination)
+    check document.path == canonicalOpenPath(destination)
+    check readFile(destination) == "saved🙂"
+
+  when defined(macosx):
+    test "atomic save preserves a document symlink":
+      let target = getTempDir() / "nimculus-save-symlink-target.txt"
+      let link = getTempDir() / "nimculus-save-symlink-link.txt"
+      writeFile(target, "before")
+      if symlinkExists(link): removeFile(link)
+      createSymlink(target, link)
+      defer:
+        if symlinkExists(link): removeFile(link)
+        if fileExists(target): removeFile(target)
+      var document = openDocument(link)
+      document.buffer.edit(Edit(startByte: 0, endByte: 6, text: "after"))
+      document.save()
+      check symlinkExists(link)
+      check readFile(target) == "after"
 
   test "resolves LSP diagnostics from UTF-16 positions to byte ranges":
     let buffer = initPieceTable("A\n😀日本")
@@ -191,7 +226,7 @@ suite "M5 editor services":
     let invalidPath = getTempDir() / "nimculus-m5-missing-dir" / "target.txt"
     expect IOError:
       document.save(invalidPath)
-    check document.path == path
+    check document.path == canonicalOpenPath(path)
     removeFile(path)
     check document.externallyChanged
 
@@ -331,7 +366,7 @@ suite "M5 editor services":
     session.saveSession(sessionPath)
     let restored = loadSession(sessionPath)
     check restored.tabs.len == 1
-    check restored.tabs[0].document.path == path
+    check restored.tabs[0].document.path == canonicalOpenPath(path)
     check restored.tabs[0].document.buffer.toString() == "unsaved🙂"
     check restored.tabs[0].document.buffer.isDirty
     check readFile(path) == "on disk"
@@ -351,7 +386,7 @@ suite "M5 editor services":
     removeFile(path)
     let restored = loadSession(sessionPath)
     check restored.tabs.len == 1
-    check restored.tabs[0].document.path == path
+    check restored.tabs[0].document.path == canonicalOpenPath(path)
     check restored.tabs[0].document.buffer.toString() == "recover me"
     check restored.tabs[0].document.buffer.isDirty
     var writable = restored.tabs[0].document
@@ -374,7 +409,7 @@ suite "M5 editor services":
     createDir(path)
     let restored = loadSession(sessionPath)
     check restored.tabs.len == 1
-    check restored.tabs[0].document.path == path
+    check restored.tabs[0].document.path == canonicalOpenPath(path)
     check restored.tabs[0].document.buffer.toString() == "recover me"
     check restored.tabs[0].document.buffer.isDirty
     removeDir(path)
@@ -394,7 +429,7 @@ suite "M5 editor services":
     session.saveSession(sessionPath, preserveDirty = false)
     let restored = loadSession(sessionPath)
     check restored.tabs.len == 1
-    check restored.tabs[0].document.path == namedPath
+    check restored.tabs[0].document.path == canonicalOpenPath(namedPath)
     check restored.tabs[0].document.buffer.toString() == "on disk"
     check not restored.tabs[0].document.buffer.isDirty
     removeFile(namedPath)

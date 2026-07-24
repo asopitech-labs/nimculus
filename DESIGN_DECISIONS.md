@@ -3140,3 +3140,27 @@ The macOS AppDelegate contract also invokes one `openFiles:` event containing
 two paths (Japanese and emoji names) and verifies both callbacks arrive before
 testing the URL route. This keeps the Finder/Open With batch boundary covered
 separately from the editor's tab de-duplication policy.
+
+## M5-027: Preserve document identity across Save As, symlinks, and recovery
+
+Zed identifies singleton project items before opening or activating them, so a
+pane never holds independent editable views for the same project entry.
+Nimculus initially applied that policy only to open events. A Save As callback
+could target a file already represented by another tab; it would overwrite the
+file and leave two divergent buffers. It also kept the raw Save Panel pathname,
+allowing a subsequent Finder event through a symlink or macOS `/tmp` alias to
+miss the existing tab.
+
+Every opened and saved named document now stores `canonicalOpenPath`: an
+existing leaf is resolved with `expandFilename`, while a deleted leaf resolves
+its parent first so crash recovery retains the same `/private/tmp` identity.
+Save As checks that canonical destination before writing and rejects it if a
+different tab already owns the document. Successful Save As updates Open
+Recent and the persisted session from the canonical path.
+
+Atomic replacement resolves an existing symlink before it creates the
+temporary replacement. This writes the linked target and keeps the symlink
+itself intact; replacing the link pathname would be a destructive surprise for
+an editor. The editor test suite covers Japanese/emoji Save As identities,
+already-open destination detection, and macOS symlink preservation, including
+the deleted-file session-recovery case.
