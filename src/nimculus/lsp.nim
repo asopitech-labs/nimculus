@@ -44,6 +44,9 @@ type
     args*: seq[string]
     workingDir*: string
     state*: LspProcessState
+    ## Set only after the POSIX spawn-created group is verified. A missing
+    ## value keeps shutdown on the direct child and never risks the editor.
+    processGroupId*: Pid
     process: Process
     input: Stream
     output: Stream
@@ -609,6 +612,36 @@ proc expireRequests*(tracker: var LspRequestTracker, now: int64,
 proc cancelJson*(id: int): JsonNode =
   %*{"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": id}}
 
+when defined(posix):
+  proc getpgid(pid: Pid): Pid {.importc, header: "<unistd.h>".}
+
+proc lspProcessOptions(): set[ProcessOption] =
+  result = {poUsePath, poInteractive}
+  when defined(posix):
+    ## POSIX_SPAWN_SETPGROUP is performed in the child before exec, avoiding
+    ## a parent-side process-group race for short-lived language servers.
+    result.incl(poDaemon)
+
+proc configureLspProcessGroup(client: LspProcess) =
+  when defined(posix):
+    if client == nil or client.process == nil: return
+    let pid = Pid(processID(client.process))
+    if pid > 0 and getpgid(pid) == pid:
+      client.processGroupId = pid
+
+proc releaseLspProcess(client: LspProcess, exitCode: int) =
+  ## A server can end without an explicit workspace restart. Release its pipe
+  ## handles immediately so an exited server is not retained until a later
+  ## application shutdown. The command configuration remains for restart.
+  if client == nil: return
+  if client.process != nil:
+    client.process.close()
+  client.process = nil
+  client.input = nil
+  client.output = nil
+  client.processGroupId = 0
+  client.state = if exitCode == 0: lspStopped else: lspFailed
+
 proc startLspProcess*(command: string, args: openArray[string] = [],
                       workingDir = ""): LspProcess =
   if command.len == 0: raise protocolError("LSP command is empty")
@@ -616,10 +649,11 @@ proc startLspProcess*(command: string, args: openArray[string] = [],
   ## diagnostic logging must never corrupt it. poInteractive keeps the pipe
   ## responsive for language servers that flush after each response.
   let process = startProcess(command, workingDir, args,
-    options = {poUsePath, poInteractive})
+    options = lspProcessOptions())
   result = LspProcess(command: command, args: @args, workingDir: workingDir,
     state: lspRunning, process: process, input: process.inputStream,
     output: process.peekableOutputStream())
+  result.configureLspProcessGroup()
 
 proc isRunning*(client: LspProcess): bool =
   client != nil and client.state == lspRunning and client.process != nil and
@@ -667,7 +701,7 @@ proc readMessages*(client: LspProcess): seq[JsonNode] =
     # diagnostics notifications.
     let exitCode = client.process.peekExitCode()
     if exitCode >= 0:
-      client.state = if exitCode == 0: lspStopped else: lspFailed
+      client.releaseLspProcess(exitCode)
     return
   when defined(posix):
     let stream = cast[NimculusFileStream](client.output)
@@ -686,12 +720,12 @@ proc readMessages*(client: LspProcess): seq[JsonNode] =
         copyMem(addr chunk[oldLength], addr bytes[0], count)
       elif count == 0:
         let exitCode = client.process.peekExitCode()
-        client.state = if exitCode == 0: lspStopped else: lspFailed
+        client.releaseLspProcess(exitCode)
         break
       elif errno == EAGAIN or errno == EWOULDBLOCK:
         break
       else:
-        client.state = lspFailed
+        client.releaseLspProcess(-1)
         break
     if chunk.len > 0:
       result.add(client.decoder.feed(chunk, MaxLspMessagesPerPoll - result.len))
@@ -705,24 +739,37 @@ proc readMessages*(client: LspProcess): seq[JsonNode] =
 proc stop*(client: LspProcess, terminate = true): int =
   if client == nil or client.process == nil: return -1
   if client.process.running and terminate:
-    client.process.terminate()
+    when defined(posix):
+      if client.processGroupId > 0:
+        discard kill(-client.processGroupId, SIGTERM)
+      else:
+        client.process.terminate()
+    else:
+      client.process.terminate()
   # A language server may ignore SIGTERM or be blocked in a child process.
   # Keep shutdown bounded so closing a workspace cannot hang the macOS UI.
   result = client.process.waitForExit(if terminate: 1_000 else: -1)
   if result < 0:
-    client.process.kill()
+    when defined(posix):
+      if client.processGroupId > 0:
+        discard kill(-client.processGroupId, SIGKILL)
+      else:
+        client.process.kill()
+    else:
+      client.process.kill()
     result = client.process.waitForExit(1_000)
-  client.process.close()
-  client.state = if result == 0: lspStopped else: lspFailed
+  client.releaseLspProcess(result)
 
 proc restart*(client: LspProcess) =
   if client == nil: return
   discard client.stop()
   let process = startProcess(client.command, client.workingDir, client.args,
-    options = {poUsePath, poInteractive})
+    options = lspProcessOptions())
   client.process = process
   client.input = process.inputStream
   client.output = process.peekableOutputStream()
+  client.processGroupId = 0
+  client.configureLspProcessGroup()
   client.decoder = LspFrameDecoder()
   client.state = lspRunning
 

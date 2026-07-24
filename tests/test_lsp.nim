@@ -4,6 +4,9 @@ import std/strutils
 import std/unittest
 import nimculus/lsp
 
+when defined(macosx):
+  import std/posix
+
 suite "M8 LSP protocol foundation":
   test "encodes Content-Length as UTF-8 byte length":
     let payload = %*{"jsonrpc": "2.0", "method": "window/logMessage", "params": {"message": "日本語"}}
@@ -90,6 +93,25 @@ suite "M8 LSP protocol foundation":
     check messages.len == 1
     check messages[0]["method"].getStr == "initialized"
     check messages[0]["params"]["message"].getStr == "日本語"
+
+  when defined(macosx):
+    test "stops a language server process group with its descendants":
+      let client = startLspProcess("/bin/sh", ["-c", "sleep 30 & wait"])
+      check client.processGroupId > 0
+      sleep(20)
+      let processGroupId = client.processGroupId
+      discard client.stop()
+      check kill(-processGroupId, 0) == -1
+      check errno == ESRCH
+
+  test "releases an exited language server before restart":
+    let client = startLspProcess("/bin/sh", ["-c", "exit 0"])
+    for _ in 0 ..< 100:
+      discard client.readMessages()
+      if client.state != lspRunning: break
+      sleep(10)
+    check client.state == lspStopped
+    check not client.isRunning
 
   test "builds initialize, synchronization, and feature requests":
     let position = LspPosition(line: 3, character: 5)

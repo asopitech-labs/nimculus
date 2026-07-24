@@ -3292,3 +3292,29 @@ safely falls back to terminating only the direct process rather than risking
 the editor's group. Partial output is drained and retained before the process
 closes. The macOS test starts a shell with a background child, cancels it, and
 verifies the whole group disappears.
+
+## M8-012: Stop macOS Language Servers by verified process group
+
+Language Servers commonly launch helper processes (for example Node workers or
+indexers). Zed's Unix process wrapper owns process groups specifically so an
+editor restart or shutdown cannot leave those helpers alive. Nimculus stopped
+only the direct server process, which was insufficient for that lifecycle.
+
+The LSP launcher now uses the same child-side POSIX spawn group boundary as
+macOS tasks, records it only after `getpgid` verification, and sends TERM then
+bounded-wait KILL to the group on stop. Restart creates and verifies a fresh
+group. The macOS protocol test starts a shell server with a background child
+and verifies the entire group disappears after stop.
+
+## M8-013: Release LSP handles after natural server exit
+
+A Language Server can stop on its own due to configuration failure or an
+update. Merely changing its visible state leaves the stdout pipe and process
+handle owned by the editor until a later restart, which is both a resource leak
+and an ambiguous lifecycle boundary.
+
+Every LSP exit path now uses one release operation: it closes the process,
+clears transport streams and the process-group ID, and preserves only the
+configuration required for a future restart. The protocol test runs a server
+that exits normally and verifies it reaches stopped/non-running state without
+an explicit stop call.
