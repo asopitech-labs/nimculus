@@ -1,4 +1,4 @@
-import std/[os, unittest]
+import std/[os, strutils, unittest]
 import nimnui/platform/macos/platform
 
 proc nativeGuiValidationRequired(): bool =
@@ -185,6 +185,18 @@ suite "macOS platform contract":
     let nulText = "A\0B"
     platformSetEditorText(nulText.cstring, uint32(nulText.len))
     check platformEditorTextUtf8Length() == uint32(nulText.len)
+    platformSetEditorText("".cstring, 0)
+
+  test "native line index resolves a deep ten-thousand-line cursor position":
+    let lineCount = 10_000
+    let text = "x\n".repeat(lineCount - 1) & "終"
+    platformSetEditorRect(48.0, 128.0, 400.0, 300.0)
+    platformSetEditorText(text.cstring, uint32(text.len))
+    platformSetEditorScrollLine(uint32(lineCount - 1))
+    let finalLineByteOffset = uint32((lineCount - 1) * 2)
+    check platformEditorByteOffsetAtPoint(56.0, 512.0) == finalLineByteOffset
+    check platformEditorUtf16OffsetAtPoint(56.0, 512.0) == finalLineByteOffset
+    platformSetEditorScrollLine(0)
     platformSetEditorText("".cstring, 0)
 
   test "editor cursor and selection refresh the native text overlay":
