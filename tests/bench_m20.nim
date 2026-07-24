@@ -59,6 +59,27 @@ block textPositionBenchmark:
   discard textPositions(source)
   report("text_position", cpuTime() - start, "bytes=" & $source.len)
 
+block nativeTextPositionBenchmark:
+  ## Exercise the macOS Core Text/IME coordinate boundary at a deep line.
+  ## The editor-native line index must make this independent of the number of
+  ## preceding lines, rather than re-splitting and re-scanning the document.
+  let lineCount = 10_000
+  let nativeSource = "x\n".repeat(lineCount - 1) & "終"
+  platformSetEditorRect(48.0, 128.0, 400.0, 300.0)
+  platformSetEditorText(nativeSource.cstring, uint32(nativeSource.len))
+  platformSetEditorScrollLine(uint32(lineCount - 1))
+  let start = cpuTime()
+  var byteOffset = 0'u32
+  var utf16Offset = 0'u32
+  for _ in 0 ..< 1_000:
+    byteOffset = platformEditorByteOffsetAtPoint(56.0, 512.0)
+    utf16Offset = platformEditorUtf16OffsetAtPoint(56.0, 512.0)
+  report("native_text_position", cpuTime() - start,
+    "lines=" & $lineCount & ";byte_offset=" & $byteOffset &
+    ";utf16_offset=" & $utf16Offset)
+  platformSetEditorScrollLine(0)
+  platformSetEditorText("".cstring, 0)
+
 block syntax:
   let syntaxSource = source.replace("0123456789abcdef", "proc render(value: int): int = value")
   let start = cpuTime()

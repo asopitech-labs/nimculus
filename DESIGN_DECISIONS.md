@@ -3511,6 +3511,19 @@ safe local fallback, while normal editor updates avoid document-wide splitting
 and prefix scans. The index is released with the renderer's other persistent
 resources.
 
+## M20-015: Keep a deep native text-position measurement in the standard benchmark
+
+The pure-Nim Unicode position benchmark does not cover the macOS boundary where
+Core Text hit-testing, the editor's UTF-8 model, and `NSTextInputClient`'s
+UTF-16 coordinates meet. A regression in the native line index could therefore
+pass the generic benchmark while making deep scrolling slow or incorrect.
+
+M20 now sets a 10,000-line document, scrolls to its final line, and performs
+1,000 native byte/UTF-16 hit-tests. It emits both resolved offsets as well as
+elapsed time. On Apple Silicon this returned offset 19,998 for both coordinate
+systems in 0.014 seconds, providing a repeatable guard for the visible-text
+and IME position path without launching a persistent application window.
+
 ## M20-006: Measure PieceTable edits without materializing the document
 
 The M20 editor-edit loop used `toString().len` only to obtain the logical
