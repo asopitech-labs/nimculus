@@ -40,7 +40,9 @@ proc sourceText(table: PieceTable, piece: Piece): string =
   let source = if piece.source == original: table.original else: table.additions
   source.substr(piece.start, piece.start + piece.length - 1)
 
-proc contentLength(table: PieceTable): int =
+proc contentLength*(table: PieceTable): int =
+  ## Query logical document size without materializing the piece table. This is
+  ## the safe length boundary for large-file callers and benchmarks.
   for piece in table.pieces:
     result += piece.length
 

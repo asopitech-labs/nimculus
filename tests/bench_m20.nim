@@ -50,7 +50,7 @@ block editorEdit:
   var buffer = initPieceTable(source)
   let start = cpuTime()
   for index in 0 ..< 100:
-    let offset = min(buffer.toString().len, 100 + index * 17)
+    let offset = min(buffer.contentLength, 100 + index * 17)
     buffer.edit(Edit(startByte: offset, endByte: offset, text: "x"))
   report("editor_edit", cpuTime() - start, "edits=100")
 

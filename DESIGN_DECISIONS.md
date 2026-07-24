@@ -3475,3 +3475,15 @@ the editor never waits indefinitely in the kernel. The process-group signal and
 direct-child fallback remain unchanged. A macOS regression starts a shell that
 ignores TERM, proves `close` finishes within three seconds, and verifies its
 process group no longer exists.
+
+## M20-006: Measure PieceTable edits without materializing the document
+
+The M20 editor-edit loop used `toString().len` only to obtain the logical
+document length. For a large file that allocates and copies the complete piece
+table before every edit, making the benchmark primarily measure accidental
+string reconstruction rather than PieceTable editing.
+
+`contentLength` is now a public, non-materializing logical-size query and M20
+uses it for edit offsets. The editor-buffer regression verifies its value across
+a Unicode replacement. The standard Apple Silicon M20 edit workload completes
+100 edits in 0.375 seconds without those full-document copies.

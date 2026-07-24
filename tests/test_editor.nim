@@ -15,7 +15,9 @@ import nimculus/atomic_io
 suite "M4 editor buffer":
   test "piece table edits and undo redo preserve content":
     var buffer = initPieceTable("hello\n世界")
+    check buffer.contentLength == "hello\n世界".len
     buffer.edit(Edit(startByte: 6, endByte: 12, text: "Nimculus"))
+    check buffer.contentLength == "hello\nNimculus".len
     check buffer.toString() == "hello\nNimculus"
     check buffer.isDirty
     check buffer.undo()
