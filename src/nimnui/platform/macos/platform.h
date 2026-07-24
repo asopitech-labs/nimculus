@@ -6,6 +6,7 @@ bool nimculus_platform_validate_window_lifecycle(void);
 bool nimculus_platform_validate_damage_rebuild(void);
 bool nimculus_platform_validate_main_menu(void);
 bool nimculus_platform_validate_shortcut_dispatch(void);
+bool nimculus_platform_validate_open_panel_sheet(void);
 bool nimculus_platform_validate_file_open_events(void);
 bool nimculus_platform_validate_external_change_sheet(void);
 bool nimculus_platform_validate_ime_composition(void);

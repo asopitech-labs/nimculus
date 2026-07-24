@@ -58,6 +58,14 @@ suite "macOS platform contract":
   test "native Command shortcuts dispatch through the Metal view":
     check platformValidateShortcutDispatch()
 
+  test "native Open panel uses a non-blocking window sheet":
+    if platformValidateOpenPanelSheet():
+      check true
+    elif nativeGuiValidationRequired():
+      check false
+    else:
+      echo "  [SKIP] Open panel sheet contract (GUI services unavailable in this session)"
+
   test "native window supports fullscreen, minimize, zoom, and monitor bounds":
     if platformValidateWindowLifecycle():
       check true

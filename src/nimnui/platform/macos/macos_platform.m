@@ -2825,12 +2825,18 @@ static void applyTerminalRuns(NSTextView *terminal) {
 }
 
 - (void)openDocument:(id)sender {
+  (void)sender;
   NSOpenPanel *panel = [NSOpenPanel openPanel];
   panel.canChooseFiles = YES;
   panel.canChooseDirectories = YES;
-  if ([panel runModal] == NSModalResponseOK) {
-    if (g_file_callback) g_file_callback(panel.URL.path.UTF8String, false);
-  }
+  // Keep AppKit and Metal presentation live while the user chooses a file.
+  // Zed uses the same completion-handler based panel API rather than a
+  // nested runModal loop for application-owned file prompts.
+  [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response) {
+    if (response == NSModalResponseOK && g_file_callback) {
+      g_file_callback(panel.URL.path.UTF8String, false);
+    }
+  }];
 }
 
 - (void)openRecent:(id)sender {
@@ -2861,12 +2867,14 @@ static void applyTerminalRuns(NSTextView *terminal) {
   panel.canChooseFiles = NO;
   panel.canChooseDirectories = YES;
   panel.allowsMultipleSelection = YES;
-  if ([panel runModal] == NSModalResponseOK && g_command_callback) {
-    for (NSURL *url in panel.URLs) {
-      NSString *command = [NSString stringWithFormat:@"workspaceAddRoot:%@", url.path];
-      g_command_callback(command.UTF8String);
+  [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response) {
+    if (response == NSModalResponseOK && g_command_callback) {
+      for (NSURL *url in panel.URLs) {
+        NSString *command = [NSString stringWithFormat:@"workspaceAddRoot:%@", url.path];
+        g_command_callback(command.UTF8String);
+      }
     }
-  }
+  }];
 }
 
 - (void)quickOpen:(id)sender {
@@ -3420,6 +3428,35 @@ bool nimculus_platform_validate_shortcut_dispatch(void) {
     g_shortcut_callback = previousShortcutCallback;
     [view release];
     return valid;
+  }
+}
+
+bool nimculus_platform_validate_open_panel_sheet(void) {
+  @autoreleasepool {
+    NSApplication *application = [NSApplication sharedApplication];
+    (void)application;
+    NSWindow *window = [[NSWindow alloc]
+      initWithContentRect:NSMakeRect(160.0, 180.0, 640.0, 480.0)
+      styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
+    NimculusAppDelegate *delegate = [NimculusAppDelegate new];
+    if (!window || !delegate) {
+      [delegate release];
+      [window release];
+      return false;
+    }
+    delegate.window = window;
+    [window makeKeyAndOrderFront:nil];
+    [delegate openDocument:nil];
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    NSWindow *sheet = window.attachedSheet;
+    BOOL attached = [sheet isKindOfClass:[NSOpenPanel class]];
+    if (sheet) [window endSheet:sheet returnCode:NSModalResponseCancel];
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    BOOL detached = window.attachedSheet == nil;
+    [window orderOut:nil];
+    [delegate release];
+    [window release];
+    return attached && detached;
   }
 }
 

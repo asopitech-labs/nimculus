@@ -2979,3 +2979,18 @@ Metal view. It verifies normalized modifier flags at the shortcut callback,
 that the shortcut is consumed exactly once, and that it is not forwarded to
 ordinary input or text interpretation. This tests the live Cocoa
 dispatch boundary rather than only the menu metadata or a Nim-only registry.
+
+## M5-018: Use asynchronous sheets for application-owned Open Panels
+
+The File menu's Open action and workspace-folder picker previously used
+`runModal`. That works functionally but nests an AppKit modal loop while a
+Metal-backed application window is active. Zed creates macOS path prompts
+with completion handlers instead, allowing the foreground event loop to keep
+running.
+
+Nimculus now starts `NSOpenPanel` with `beginSheetModalForWindow:` for its
+main window. Open and Add Workspace Folder deliver file or root callbacks
+only after an accepted response; cancellation leaves application state
+untouched. The native GUI contract attaches the actual File/Open action to a
+temporary Cocoa window, verifies the `NSOpenPanel` sheet, dismisses it, and
+checks that the sheet detaches without a nested modal loop.
