@@ -3686,3 +3686,17 @@ use that boundary. A whole-document replace clamps both persisted views after
 the shared buffer changes. This keeps OS-independent command semantics at the
 editor layer while leaving Cocoa-specific rendering and IME integration in the
 macOS platform layer.
+
+## M5-037: Treat LSP hover as a pane-local query with a window-local popup
+
+Zed maps pointer input to the pane under the pointer before asking the active
+editor for semantic information. The same rule applies to hover: the UTF-16
+position must use the viewport and layout of the pane being pointed at, while
+the resulting popup is drawn in window coordinates.
+
+Nimculus therefore tracks the hovered pane without changing keyboard focus,
+uses that pane for the text hit-test supplied to LSP, and passes top-origin
+window coordinates to the macOS tooltip renderer. Signature help derives its
+position from the focused pane's bounds and scroll line. This avoids both the
+secondary-pane hover omission and the former offset tooltip position in either
+pane.

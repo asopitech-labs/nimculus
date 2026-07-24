@@ -914,9 +914,15 @@ when defined(macosx):
       if selected.documentation.len > 0:
         editorLspSignatureText.add("\n" & selected.documentation)
       if document != nil:
-        let location = document[].buffer.lineColumn(editorViewState.cursor)
-        platformSetEditorHoverPosition(float64(float32(location.column) * 7.2'f32),
-          float64(float32(location.line - editorViewState.scrollLine) * 18'f32))
+        let location = document[].buffer.lineColumn(activeEditorCursor())
+        let paneBounds = if editorSession.split and editorSession.splitActivePane == 1:
+          demoSecondaryEditorBounds else: demoEditorBounds
+        let scrollLine = if editorSession.split and editorSession.splitActivePane == 1:
+          editorSession.secondaryView.scrollLine else: editorViewState.scrollLine
+        platformSetEditorHoverPosition(
+          float64(float32(paneBounds.origin.x) + float32(location.column) * 7.2'f32),
+          float64(float32(paneBounds.origin.y) +
+            float32(location.line - scrollLine) * 18'f32))
       syncNativeHover()
       var lines: seq[string]
       for item in signature.signatures:
@@ -3430,6 +3436,13 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
         # into an editor anchor. Preserve that pane through a drag so a
         # selection cannot cross into the other viewport mid-gesture.
         editorPointerPane = int(pane)
+    elif document != nil and kind == pointerMove and not editorPointerDragging and
+        demoSplitEnabled:
+      # Hover does not activate a pane, but it must use the pane-local text
+      # layout before asking LSP for a UTF-16 position.
+      let pane = platformEditorPaneAtPoint(event.x, cdouble(uiY))
+      if pane <= 1'u32:
+        editorPointerPane = int(pane)
     if kind == pointerDown and workspacePreviewMode == "quickOpen" and
         workspacePreviewEntries.len > 0:
       openWorkspaceEntryAtPoint(event.y)
@@ -3453,12 +3466,10 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
         else:
           editorViewState.moveCursor(offset)
         syncEditorCursor()
-      elif kind == pointerMove and not editorPointerDragging and lspBridge != nil and
-          editorPointerPane == 0:
+      elif kind == pointerMove and not editorPointerDragging and lspBridge != nil:
         lspBridge.scheduleHover(offset)
         platformSetEditorHoverPosition(
-          float64(float32(event.x) - float32(demoEditorBounds.origin.x)),
-          float64(uiY - float32(demoEditorBounds.origin.y)))
+          float64(event.x), float64(uiY))
         syncNativeHover()
       elif kind == pointerMove and editorPointerDragging:
         if editorPointerPane == 1:
