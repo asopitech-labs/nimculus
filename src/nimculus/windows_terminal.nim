@@ -53,29 +53,31 @@ when defined(windows):
     for rowIndex, row in windowsTerminal.screen.lines:
       for columnIndex, cell in row:
         if cell.width == 0: continue
-        let cellText = if cell.text.len == 0: " " else: cell.text
+        let cellText = windowsTerminal.screen.cellText(cell)
+        let style = windowsTerminal.screen.cellStyle(cell)
+        let hyperlink = windowsTerminal.screen.cellHyperlinkUri(cell)
         let endByte = byteOffset + cellText.len
-        let flags = (if cell.bold: 1'u32 else: 0'u32) or
-          (if cell.dim: 2'u32 else: 0'u32) or
-          (if cell.italic: 4'u32 else: 0'u32) or
-          (if cell.underline: 8'u32 else: 0'u32) or
-          (if cell.inverse: 16'u32 else: 0'u32) or
-          (if cell.strikethrough: 32'u32 else: 0'u32)
+        let flags = (if style.bold: 1'u32 else: 0'u32) or
+          (if style.dim: 2'u32 else: 0'u32) or
+          (if style.italic: 4'u32 else: 0'u32) or
+          (if style.underline: 8'u32 else: 0'u32) or
+          (if style.inverse: 16'u32 else: 0'u32) or
+          (if style.strikethrough: 32'u32 else: 0'u32)
         runs.add(NativeTerminalRun(startByte: uint32(byteOffset),
           endByte: uint32(endByte), flags: flags,
           row: uint32(rowIndex), column: uint32(columnIndex),
           cellWidth: uint32(max(1, cell.width)),
-          foregroundKind: uint32(ord(cell.foreground.kind)),
-          foregroundIndex: uint32(max(0, cell.foreground.index)),
-          foregroundRed: uint32(cell.foreground.red),
-          foregroundGreen: uint32(cell.foreground.green),
-          foregroundBlue: uint32(cell.foreground.blue),
-          backgroundKind: uint32(ord(cell.background.kind)),
-          backgroundIndex: uint32(max(0, cell.background.index)),
-          backgroundRed: uint32(cell.background.red),
-          backgroundGreen: uint32(cell.background.green),
-          backgroundBlue: uint32(cell.background.blue),
-          hyperlinkUri: if cell.hyperlinkUri.len > 0: cell.hyperlinkUri.cstring else: nil))
+          foregroundKind: uint32(ord(style.foreground.kind)),
+          foregroundIndex: uint32(max(0, style.foreground.index)),
+          foregroundRed: uint32(style.foreground.red),
+          foregroundGreen: uint32(style.foreground.green),
+          foregroundBlue: uint32(style.foreground.blue),
+          backgroundKind: uint32(ord(style.background.kind)),
+          backgroundIndex: uint32(max(0, style.background.index)),
+          backgroundRed: uint32(style.background.red),
+          backgroundGreen: uint32(style.background.green),
+          backgroundBlue: uint32(style.background.blue),
+          hyperlinkUri: if hyperlink.len > 0: hyperlink.cstring else: nil))
         byteOffset = endByte
       byteOffset += 1
     if runs.len > 0:

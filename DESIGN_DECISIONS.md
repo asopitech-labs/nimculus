@@ -3425,3 +3425,21 @@ roots are retained only when they are existing directories, and both lists are
 deduplicated on load and save. `Workspace.open/addRoot` use the same canonical
 root identity, so Finder, shell, and session aliases share exactly one watcher.
 The regression test covers a Japanese/emoji directory and a symlink alias.
+
+## M10-013: Keep terminal cells scalar and intern shared presentation data
+
+Zed's terminal delegates its compact cell-grid representation to Alacritty:
+the grid records a glyph and attributes by value/reference, while larger data
+is owned outside each cell. Nimculus had instead retained UTF-8 strings, color
+objects, booleans, and hyperlink strings in every visible and scrollback cell.
+That multiplied ARC allocations and retained roughly 184 MiB of resident memory
+while parsing the standard 1 MB M20 terminal-output fixture.
+
+`TerminalCell` now stores only scalar glyph, combining-glyph, hyperlink, and
+style identifiers plus display width. `TerminalScreen` interns styles,
+hyperlinks, and combining sequences and reconstructs text/presentation at the
+native-overlay boundary. The same benchmark now shows about 4.5 MiB resident
+growth for that fixture, while preserving SGR, OSC 8, UTF-8, combining glyph,
+wide-cell, selection, and native attributed-run behavior. A compact-cell size
+regression test prevents future variable-length data from being reintroduced;
+an additional overwrite test clears a stale wide-glyph continuation cell.

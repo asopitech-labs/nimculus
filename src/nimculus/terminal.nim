@@ -25,13 +25,19 @@ type
     terminalMousePress, terminalMouseRelease, terminalMouseMove, terminalMouseScroll
 
   TerminalCell* = object
-    text*: string
+    ## Keep the hot grid compact like Zed/Alacritty: ordinary glyphs and
+    ## style/link references are scalar IDs. Variable UTF-8 data lives once
+    ## per distinct combining sequence or hyperlink on TerminalScreen.
+    glyph*: uint32
+    combiningIndex*: uint32
+    hyperlinkIndex*: uint32
+    styleIndex*: uint32
     ## 0 is a continuation cell, 1 is a normal cell, and 2 is the leading
     ## cell of a double-width glyph. This follows the cell model used by Zed.
     width*: int
+
+  TerminalStyle* = object
     foreground*, background*: TerminalColor
-    ## OSC 8 URI active while this cell was written. Empty means no link.
-    hyperlinkUri*: string
     bold*, dim*, italic*, underline*, inverse*, strikethrough*: bool
 
   TerminalPoint* = object
@@ -68,10 +74,48 @@ type
     csiParams*: string
     oscBuffer*: string
     currentHyperlinkUri*: string
+    currentHyperlinkIndex: uint32
+    styles: seq[TerminalStyle]
+    hyperlinks: seq[string]
+    combiningGlyphs: seq[string]
 
 proc blankRow(screen: TerminalScreen): seq[TerminalCell] =
   newSeq(result, max(1, screen.columns))
   for cell in result.mitems: cell.width = 1
+
+proc currentStyle(screen: TerminalScreen): TerminalStyle =
+  TerminalStyle(foreground: screen.sgrForeground, background: screen.sgrBackground,
+    bold: screen.sgrBold, dim: screen.sgrDim, italic: screen.sgrItalic,
+    underline: screen.sgrUnderline, inverse: screen.sgrInverse,
+    strikethrough: screen.sgrStrikethrough)
+
+proc internStyle(screen: var TerminalScreen): uint32 =
+  let style = screen.currentStyle()
+  for index, existing in screen.styles:
+    if existing == style: return uint32(index)
+  screen.styles.add(style)
+  uint32(screen.styles.high)
+
+proc internString(values: var seq[string], value: string): uint32 =
+  if value.len == 0: return 0
+  for index, existing in values:
+    if existing == value: return uint32(index + 1)
+  values.add(value)
+  uint32(values.len)
+
+proc cellText*(screen: TerminalScreen, cell: TerminalCell): string =
+  if cell.glyph == 0: return " "
+  result = $Rune(cell.glyph)
+  if cell.combiningIndex > 0 and int(cell.combiningIndex) <= screen.combiningGlyphs.len:
+    result.add(screen.combiningGlyphs[int(cell.combiningIndex) - 1])
+
+proc cellStyle*(screen: TerminalScreen, cell: TerminalCell): TerminalStyle =
+  if int(cell.styleIndex) < screen.styles.len:
+    result = screen.styles[int(cell.styleIndex)]
+
+proc cellHyperlinkUri*(screen: TerminalScreen, cell: TerminalCell): string =
+  if cell.hyperlinkIndex > 0 and int(cell.hyperlinkIndex) <= screen.hyperlinks.len:
+    result = screen.hyperlinks[int(cell.hyperlinkIndex) - 1]
 
 proc initTerminalScreen*(columns = 80, rows = 24,
                          scrollbackLimit = 10_000): TerminalScreen =
@@ -83,8 +127,11 @@ proc initTerminalScreen*(columns = 80, rows = 24,
   result.scrollBottom = result.rows - 1
   result.sgrForeground.kind = terminalDefaultColor
   result.sgrBackground.kind = terminalDefaultColor
+  result.styles.add(result.currentStyle())
   result.lines = newSeq[seq[TerminalCell]](result.rows)
   for row in 0 ..< result.rows: result.lines[row] = result.blankRow()
+
+proc clearCell(screen: var TerminalScreen, row, column: int)
 
 proc clearLine(screen: var TerminalScreen, row: int) =
   if row < 0 or row >= screen.lines.len: return
@@ -227,16 +274,9 @@ proc applySgr(screen: var TerminalScreen, raw: string) =
     else: discard
     inc index
 
-proc applyCurrentStyle(screen: TerminalScreen, cell: var TerminalCell) =
-  cell.foreground = screen.sgrForeground
-  cell.background = screen.sgrBackground
-  cell.bold = screen.sgrBold
-  cell.dim = screen.sgrDim
-  cell.italic = screen.sgrItalic
-  cell.underline = screen.sgrUnderline
-  cell.inverse = screen.sgrInverse
-  cell.strikethrough = screen.sgrStrikethrough
-  cell.hyperlinkUri = screen.currentHyperlinkUri
+proc applyCurrentStyle(screen: var TerminalScreen, cell: var TerminalCell) =
+  cell.styleIndex = screen.internStyle()
+  cell.hyperlinkIndex = screen.currentHyperlinkIndex
 
 proc finishOsc(screen: var TerminalScreen) =
   ## Parse the OSC 8 hyperlink form: OSC 8 ; params ; URI BEL/ST.
@@ -244,6 +284,7 @@ proc finishOsc(screen: var TerminalScreen) =
   let parts = screen.oscBuffer.split(';', maxsplit = 2)
   if parts.len >= 3 and parts[0] == "8":
     screen.currentHyperlinkUri = parts[2]
+    screen.currentHyperlinkIndex = internString(screen.hyperlinks, parts[2])
   screen.oscBuffer.setLen(0)
   screen.parserState = '\0'
 
@@ -374,7 +415,7 @@ proc handleCsi*(screen: var TerminalScreen, finalByte: char) =
       screen.clearLine(screen.cursorRow)
     elif screen.cursorRow >= 0 and screen.cursorRow < screen.rows:
       for column in screen.cursorColumn ..< screen.columns:
-        screen.lines[screen.cursorRow][column].text = " "
+        screen.clearCell(screen.cursorRow, column)
   of 'm': screen.applySgr(rawParams)
   of 'r':
     screen.scrollTop = max(0, min(screen.rows - 1, (if params.len > 0: params[0] else: 1) - 1))
@@ -398,18 +439,18 @@ proc handleCsi*(screen: var TerminalScreen, finalByte: char) =
       for column in countdown(screen.columns - 1, screen.cursorColumn + count):
         screen.lines[screen.cursorRow][column] = screen.lines[screen.cursorRow][column - count]
       for column in screen.cursorColumn ..< screen.cursorColumn + count:
-        screen.lines[screen.cursorRow][column] = TerminalCell(text: " ", width: 1)
+        screen.clearCell(screen.cursorRow, column)
   of 'P':
     let count = min(params[0], screen.columns - screen.cursorColumn)
     if count > 0:
       for column in screen.cursorColumn ..< screen.columns - count:
         screen.lines[screen.cursorRow][column] = screen.lines[screen.cursorRow][column + count]
       for column in screen.columns - count ..< screen.columns:
-        screen.lines[screen.cursorRow][column] = TerminalCell(text: " ", width: 1)
+        screen.clearCell(screen.cursorRow, column)
   of 'X':
     let count = min(params[0], screen.columns - screen.cursorColumn)
     for column in screen.cursorColumn ..< screen.cursorColumn + count:
-      screen.lines[screen.cursorRow][column] = TerminalCell(text: " ", width: 1)
+      screen.clearCell(screen.cursorRow, column)
   of 'h':
     if rawParams == "4": screen.insertMode = true
     if rawParams == "20": screen.lineFeedNewLine = true
@@ -456,7 +497,7 @@ proc runeDisplayWidth(rune: Rune): int =
 
 proc clearCell(screen: var TerminalScreen, row, column: int) =
   if row < 0 or row >= screen.lines.len or column < 0 or column >= screen.columns: return
-  screen.lines[row][column] = TerminalCell(text: " ", width: 1)
+  screen.lines[row][column] = TerminalCell(glyph: uint32(ord(' ')), width: 1)
 
 proc putGlyph(screen: var TerminalScreen, glyph: string) =
   if screen.cursorRow > screen.scrollBottom:
@@ -465,7 +506,10 @@ proc putGlyph(screen: var TerminalScreen, glyph: string) =
   let width = runeDisplayWidth(runeAt(glyph, 0))
   if width == 0:
     if screen.cursorColumn > 0:
-      screen.lines[screen.cursorRow][screen.cursorColumn - 1].text.add(glyph)
+      let cell = addr screen.lines[screen.cursorRow][screen.cursorColumn - 1]
+      let previous = if cell[].combiningIndex == 0: "" else:
+        screen.combiningGlyphs[int(cell[].combiningIndex) - 1]
+      cell[].combiningIndex = internString(screen.combiningGlyphs, previous & glyph)
     return
   if screen.cursorColumn >= screen.columns or (width == 2 and screen.cursorColumn ==
       screen.columns - 1):
@@ -480,7 +524,11 @@ proc putGlyph(screen: var TerminalScreen, glyph: string) =
       screen.lines[screen.cursorRow][column] = screen.lines[screen.cursorRow][column - count]
   if screen.cursorColumn > 0 and screen.lines[screen.cursorRow][screen.cursorColumn].width == 0:
     screen.clearCell(screen.cursorRow, screen.cursorColumn - 1)
-  screen.lines[screen.cursorRow][screen.cursorColumn].text = glyph
+  if screen.lines[screen.cursorRow][screen.cursorColumn].width == 2 and
+      screen.cursorColumn + 1 < screen.columns:
+    screen.clearCell(screen.cursorRow, screen.cursorColumn + 1)
+  screen.lines[screen.cursorRow][screen.cursorColumn].glyph = uint32(runeAt(glyph, 0))
+  screen.lines[screen.cursorRow][screen.cursorColumn].combiningIndex = 0
   screen.lines[screen.cursorRow][screen.cursorColumn].width = width
   screen.applyCurrentStyle(screen.lines[screen.cursorRow][screen.cursorColumn])
   if width == 2:
@@ -599,7 +647,7 @@ proc lineText*(screen: TerminalScreen, row: int): string =
   if row < 0 or row >= screen.lines.len: return
   for cell in screen.lines[row]:
     if cell.width != 0:
-      result.add(if cell.text.len == 0: " " else: cell.text)
+      result.add(screen.cellText(cell))
   if result.strip.len == 0: result = ""
   else: result = result.strip(leading = false, trailing = true)
 
@@ -613,7 +661,7 @@ proc gridText*(screen: TerminalScreen): string =
     if row > 0: result.add('\n')
     for cell in screen.lines[row]:
       if cell.width != 0:
-        result.add(if cell.text.len == 0: " " else: cell.text)
+        result.add(screen.cellText(cell))
 
 proc lineCount*(screen: TerminalScreen): int =
   screen.scrollback.len + screen.lines.len
@@ -650,7 +698,7 @@ proc selectedText*(screen: TerminalScreen,
     var line = ""
     for column in first ..< min(last, cells.len):
       if cells[column].width != 0:
-        line.add(if cells[column].text.len == 0: " " else: cells[column].text)
+        line.add(screen.cellText(cells[column]))
     result.add(line.strip(leading = false, trailing = true))
     if row < range.active.row: result.add("\n")
 

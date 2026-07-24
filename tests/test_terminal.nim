@@ -23,7 +23,7 @@ suite "M10 terminal core":
     screen.feed("1\r\n2\r\n3\r\n4\r\n5\r\n6")
     check screen.scrollback.len <= 4
     check screen.scrollback.len == 3
-    check screen.scrollback[0][0].text == "3"
+    check screen.cellText(screen.scrollback[0][0]) == "3"
 
   test "keeps UTF-8 glyphs in screen cells":
     var screen = initTerminalScreen(8, 1)
@@ -43,6 +43,18 @@ suite "M10 terminal core":
     let selection = TerminalSelection(anchor: TerminalPoint(row: 0, column: 1),
       active: TerminalPoint(row: 0, column: 3))
     check screen.selectedText(selection) == "界"
+
+  test "clears a wide glyph continuation when overwriting its leading cell":
+    var screen = initTerminalScreen(4, 1)
+    screen.feed("界\rA")
+    check screen.lineText(0) == "A"
+    check screen.lines[0][1].width == 1
+
+  test "keeps terminal cells compact while preserving shared style data":
+    check sizeof(TerminalCell) <= 32
+    var screen = initTerminalScreen(4, 1)
+    screen.feed("\x1b[31mAA")
+    check screen.cellStyle(screen.lines[0][0]) == screen.cellStyle(screen.lines[0][1])
 
   test "resize preserves visible content and clamps cursor":
     var screen = initTerminalScreen(8, 2)
@@ -110,21 +122,21 @@ suite "M10 terminal core":
   test "tracks OSC 8 hyperlinks on cells and closes them":
     var screen = initTerminalScreen(16, 1)
     screen.feed("\x1b]8;;https://example.com\x07link\x1b]8;;\x07 plain")
-    check screen.lines[0][0].hyperlinkUri == "https://example.com"
-    check screen.lines[0][3].hyperlinkUri == "https://example.com"
-    check screen.lines[0][5].hyperlinkUri.len == 0
+    check screen.cellHyperlinkUri(screen.lines[0][0]) == "https://example.com"
+    check screen.cellHyperlinkUri(screen.lines[0][3]) == "https://example.com"
+    check screen.cellHyperlinkUri(screen.lines[0][5]).len == 0
 
   test "retains SGR attributes on cells and resets them":
     var screen = initTerminalScreen(8, 1)
     screen.feed("\x1b[1;31;48;2;1;2;3mA\x1b[0mB")
-    check screen.lines[0][0].text == "A"
-    check screen.lines[0][0].bold
-    check screen.lines[0][0].foreground.kind == terminalIndexedColor
-    check screen.lines[0][0].foreground.index == 1
-    check screen.lines[0][0].background.kind == terminalRgbColor
-    check screen.lines[0][0].background.red == 1'u8
-    check not screen.lines[0][1].bold
-    check screen.lines[0][1].foreground.kind == terminalDefaultColor
+    check screen.cellText(screen.lines[0][0]) == "A"
+    check screen.cellStyle(screen.lines[0][0]).bold
+    check screen.cellStyle(screen.lines[0][0]).foreground.kind == terminalIndexedColor
+    check screen.cellStyle(screen.lines[0][0]).foreground.index == 1
+    check screen.cellStyle(screen.lines[0][0]).background.kind == terminalRgbColor
+    check screen.cellStyle(screen.lines[0][0]).background.red == 1'u8
+    check not screen.cellStyle(screen.lines[0][1]).bold
+    check screen.cellStyle(screen.lines[0][1]).foreground.kind == terminalDefaultColor
 
   test "supports scroll regions and insert/delete character CSI":
     var screen = initTerminalScreen(6, 4)
