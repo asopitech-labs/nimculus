@@ -2439,6 +2439,18 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       syncEditorCursor()
     except CatchableError as error:
       editorViewState.statusMessage = "Save failed: " & error.msg
+  elif name == "saveAs" and document != nil:
+    when defined(macosx):
+      let suggestedName = if document[].path.len > 0:
+        splitFile(document[].path).name & splitFile(document[].path).ext
+      elif editorSession.activeTab >= 0 and editorSession.activeTab < editorSession.tabs.len:
+        editorSession.tabs[editorSession.activeTab].title
+      else:
+        "Untitled"
+      platformShowSaveAsPanel(suggestedName.cstring)
+      editorViewState.statusMessage = "Choose a new location to save"
+    else:
+      discard
   elif name == "saveSession":
     persistSession()
   elif name == "discardSession":

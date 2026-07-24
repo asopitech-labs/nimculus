@@ -58,6 +58,7 @@ void nimculus_platform_set_editor_status(const char *utf8);
 void nimculus_platform_set_close_decision(bool allow);
 void nimculus_platform_request_close_tab(void);
 void nimculus_platform_show_save_panel(void);
+void nimculus_platform_show_save_as_panel(const char *suggested_name);
 void nimculus_platform_show_save_panel_and_close_tab(void);
 void nimculus_platform_request_quit(void);
 void nimculus_platform_confirm_quit(void);

@@ -3068,3 +3068,18 @@ it attaches to a Cocoa window, dismisses it programmatically, and verifies
 that `findDocument:` is dispatched only afterwards. It runs in its own test
 process because AppKit sheet transform teardown can outlive a response
 callback.
+
+## M5-023: Make Save As an explicit asynchronous macOS command
+
+The initial macOS File menu exposed Save but did not expose the roadmap's
+required Save As operation. Reusing the synchronous compatibility ABI would
+also reintroduce a nested AppKit run loop.
+
+File > Save As… and Command-Shift-S now dispatch a dedicated `saveAs`
+command. Nimculus supplies the active file name (or Untitled tab title) as an
+`NSSavePanel` suggested name; the accepted path returns through the existing
+save callback, which performs the atomic write, changes the document path,
+updates the tab title, and persists the session. The native panel contract
+checks that this is a window-attached sheet and that a Japanese suggested name
+reaches the actual AppKit panel. The main-menu contract verifies the standard
+Command-Shift-S key equivalent.

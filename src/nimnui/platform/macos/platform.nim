@@ -69,6 +69,7 @@ proc platformSetEditorStatus*(text: cstring) {.importc: "nimculus_platform_set_e
 proc platformSetCloseDecision*(allow: bool) {.importc: "nimculus_platform_set_close_decision", cdecl.}
 proc platformRequestCloseTab*() {.importc: "nimculus_platform_request_close_tab", cdecl.}
 proc platformShowSavePanel*() {.importc: "nimculus_platform_show_save_panel", cdecl.}
+proc platformShowSaveAsPanel*(suggestedName: cstring) {.importc: "nimculus_platform_show_save_as_panel", cdecl.}
 proc platformShowSavePanelAndCloseTab*() {.importc: "nimculus_platform_show_save_panel_and_close_tab", cdecl.}
 proc platformRequestQuit*() {.importc: "nimculus_platform_request_quit", cdecl.}
 proc platformConfirmQuit*() {.importc: "nimculus_platform_confirm_quit", cdecl.}

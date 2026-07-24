@@ -2567,12 +2567,15 @@ static void applyTerminalRuns(NSTextView *terminal) {
   NSMenuItem *newDocument = [[NSMenuItem alloc] initWithTitle:@"New" action:@selector(newDocument:) keyEquivalent:@"n"];
   NSMenuItem *open = [[NSMenuItem alloc] initWithTitle:@"Open…" action:@selector(openDocument:) keyEquivalent:@"o"];
   NSMenuItem *save = [[NSMenuItem alloc] initWithTitle:@"Save" action:@selector(saveDocument:) keyEquivalent:@"s"];
+  NSMenuItem *saveAs = [[NSMenuItem alloc] initWithTitle:@"Save As…" action:@selector(saveAsDocument:) keyEquivalent:@"S"];
   NSMenuItem *close = [[NSMenuItem alloc] initWithTitle:@"Close Tab" action:@selector(closeDocument:) keyEquivalent:@"w"];
   newDocument.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   open.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   save.keyEquivalentModifierMask = NSEventModifierFlagCommand;
+  saveAs.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
   close.keyEquivalentModifierMask = NSEventModifierFlagCommand;
-  [fileMenu addItem:newDocument]; [fileMenu addItem:open]; [fileMenu addItem:save]; [fileMenu addItem:close];
+  [fileMenu addItem:newDocument]; [fileMenu addItem:open]; [fileMenu addItem:save];
+  [fileMenu addItem:saveAs]; [fileMenu addItem:close];
   [fileMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Open Recent…"
     action:@selector(openRecent:) keyEquivalent:@""]];
   [fileMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Add Workspace Folder…"
@@ -3001,6 +3004,11 @@ static void applyTerminalRuns(NSTextView *terminal) {
   if (g_command_callback) g_command_callback("save");
 }
 
+- (void)saveAsDocument:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("saveAs");
+}
+
 - (void)closeDocument:(id)sender {
   (void)sender;
   if (g_command_callback) g_command_callback("closeTabRequest");
@@ -3382,6 +3390,7 @@ bool nimculus_platform_validate_main_menu(void) {
     NSMenuItem *settings = menuItemWithTitle(appItem.submenu, @"Settings…");
     NSMenuItem *open = menuItemWithTitle(fileItem.submenu, @"Open…");
     NSMenuItem *save = menuItemWithTitle(fileItem.submenu, @"Save");
+    NSMenuItem *saveAs = menuItemWithTitle(fileItem.submenu, @"Save As…");
     NSMenuItem *close = menuItemWithTitle(fileItem.submenu, @"Close Tab");
     NSMenuItem *palette = menuItemWithTitle(editItem.submenu, @"Command Palette…");
     NSMenuItem *fullScreen = menuItemWithTitle(viewItem.submenu, @"Enter Full Screen");
@@ -3393,6 +3402,9 @@ bool nimculus_platform_validate_main_menu(void) {
       [open.keyEquivalent isEqualToString:@"o"] &&
       save.keyEquivalentModifierMask == NSEventModifierFlagCommand &&
       [save.keyEquivalent isEqualToString:@"s"] &&
+      saveAs.keyEquivalentModifierMask ==
+        (NSEventModifierFlagCommand | NSEventModifierFlagShift) &&
+      [saveAs.keyEquivalent isEqualToString:@"S"] &&
       close.keyEquivalentModifierMask == NSEventModifierFlagCommand &&
       [close.keyEquivalent isEqualToString:@"w"] &&
       palette.keyEquivalentModifierMask == (NSEventModifierFlagCommand | NSEventModifierFlagShift);
@@ -3403,7 +3415,7 @@ bool nimculus_platform_validate_main_menu(void) {
       fullScreen.keyEquivalentModifierMask ==
         (NSEventModifierFlagCommand | NSEventModifierFlagControl) &&
       minimize.keyEquivalentModifierMask == NSEventModifierFlagCommand;
-    BOOL valid = topLevel && settings && open && save && close && palette &&
+    BOOL valid = topLevel && settings && open && save && saveAs && close && palette &&
       fullScreen && minimize && zoom && shortcuts && windowActions;
     [application setMainMenu:previousMenu];
     return valid;
@@ -3520,10 +3532,11 @@ bool nimculus_platform_validate_save_panel_sheet(void) {
     g_active_view = view;
     g_command_callback = validationSavePanelCommandCallback;
     [window makeKeyAndOrderFront:nil];
-    nimculus_platform_show_save_panel();
+    nimculus_platform_show_save_as_panel("日本語の候補名.nim");
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
     NSWindow *sheet = window.attachedSheet;
-    BOOL attached = [sheet isKindOfClass:[NSSavePanel class]];
+    BOOL attached = [sheet isKindOfClass:[NSSavePanel class]] &&
+      [((NSSavePanel *)sheet).nameFieldStringValue isEqualToString:@"日本語の候補名.nim"];
     if (sheet) [window endSheet:sheet returnCode:NSModalResponseCancel];
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
     BOOL detached = window.attachedSheet == nil;
@@ -4291,8 +4304,11 @@ void nimculus_platform_set_editor_status(const char *utf8) {
   }
 }
 void nimculus_platform_set_close_decision(bool allow) { g_close_decision = allow ? YES : NO; }
-void nimculus_platform_show_save_panel(void) {
+static void showSavePanelWithSuggestedName(const char *suggestedName) {
   NSSavePanel *panel = [NSSavePanel savePanel];
+  if (suggestedName && suggestedName[0] != '\0') {
+    panel.nameFieldStringValue = [NSString stringWithUTF8String:suggestedName];
+  }
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   NSWindow *window = view.window;
   void (^complete)(NSModalResponse) = ^(NSModalResponse response) {
@@ -4306,6 +4322,10 @@ void nimculus_platform_show_save_panel(void) {
   };
   if (window) [panel beginSheetModalForWindow:window completionHandler:complete];
   else [panel beginWithCompletionHandler:complete];
+}
+void nimculus_platform_show_save_panel(void) { showSavePanelWithSuggestedName(NULL); }
+void nimculus_platform_show_save_as_panel(const char *suggested_name) {
+  showSavePanelWithSuggestedName(suggested_name);
 }
 void nimculus_platform_request_close_tab(void) {
   if (!g_editor_dirty) {

@@ -5,7 +5,7 @@ proc nativeGuiValidationRequired(): bool =
   getEnv("CI").len > 0 or getEnv("NIMCULUS_REQUIRE_NATIVE_GUI") == "1"
 
 suite "macOS file panel contracts":
-  test "Save panel uses a non-blocking window sheet and reports cancellation":
+  test "Save As uses a non-blocking window sheet with the suggested file name":
     if platformValidateSavePanelSheet():
       check true
     elif nativeGuiValidationRequired():
