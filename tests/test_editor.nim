@@ -1,4 +1,5 @@
 import std/unittest
+import std/json
 import std/os
 when defined(posix):
   import std/files
@@ -376,6 +377,42 @@ suite "M5 editor services":
     check restored.tabs[0].document.path == canonicalOpenPath(path)
     check restored.tabs[0].document.buffer.toString() == "unsaved🙂"
     check restored.tabs[0].document.buffer.isDirty
+
+  test "session restore coalesces duplicate named tabs without losing dirty active content":
+    let path = getTempDir() / "nimculus-session-duplicate-日本語🙂.txt"
+    let sessionPath = getTempDir() / "nimculus-session-duplicate.json"
+    defer:
+      if fileExists(path): removeFile(path)
+      if fileExists(sessionPath): removeFile(sessionPath)
+    writeFile(path, "on disk")
+    writeFile(sessionPath, $(%*{
+      "activeTab": 1,
+      "split": false,
+      "splitDirection": "splitVertical",
+      "recentFiles": newJArray(),
+      "workspaceRoots": newJArray(),
+      "tabs": [
+        {"path": path, "title": "clean", "dirty": false,
+         "view": {"anchor": 0, "active": 0, "scrollLine": 0}},
+        {"path": canonicalOpenPath(path), "title": "dirty", "dirty": true,
+         "content": "unsaved 日本語🙂",
+         "lineEnding": "lf",
+         "view": {"anchor": 9, "active": 9, "scrollLine": 0}},
+        {"path": path, "title": "stale clean", "dirty": false,
+         "view": {"anchor": 0, "active": 0, "scrollLine": 0}}
+      ]
+    }))
+    let restored = loadSession(sessionPath)
+    check restored.tabs.len == 1
+    check restored.activeTab == 0
+    check restored.tabs[0].document.path == canonicalOpenPath(path)
+    check restored.tabs[0].document.buffer.toString() == "unsaved 日本語🙂"
+    check restored.tabs[0].document.buffer.isDirty
+    check restored.tabs[0].title == "dirty"
+    check restored.tabs[0].view.selection.active == 8
+    restored.saveSession(sessionPath)
+    let serialized = parseJson(readFile(sessionPath))
+    check serialized["tabs"].len == 1
     check readFile(path) == "on disk"
     removeFile(path)
     removeFile(sessionPath)

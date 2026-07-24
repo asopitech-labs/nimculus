@@ -3395,3 +3395,18 @@ stopping process-backed services. This is deliberately part of the same
 idempotent shutdown path so every confirmed quit route has identical ownership
 semantics. The editor-syntax regression test asserts that closing a state
 clears both underlying C handles.
+
+## M5-019: Coalesce legacy duplicate named tabs during session restore
+
+The active editor prevents duplicate named tabs at every live open boundary,
+but older session files can still contain repeated paths. Restoring each entry
+blindly reintroduced duplicate tabs and could preserve a stale clean buffer
+beside the actual dirty recovery content.
+
+Session restore now applies the same canonical path identity as normal opens.
+It keeps one named tab per path, prefers dirty content over clean content, and
+then prefers the originally active entry between otherwise equivalent choices.
+The persisted active index is remapped to the surviving tab. Untitled tabs
+remain independent, because they have no on-disk identity. The regression test
+uses a Japanese/emoji path and a clean plus dirty duplicate to prove both data
+preservation and single-tab persistence.

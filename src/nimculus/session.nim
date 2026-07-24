@@ -77,7 +77,14 @@ proc loadSession*(path: string): EditorSession =
     for item in root["workspaceRoots"].getElems:
       if item.kind == JString and dirExists(item.getStr): result.workspaceRoots.add(item.getStr)
   if not root.hasKey("tabs") or root["tabs"].kind != JArray: return
-  for item in root["tabs"].getElems:
+  # Older builds could serialize the same named document more than once.  Keep
+  # restore on the same one-buffer-per-canonical-path invariant as Finder,
+  # URL, CLI, and Save As opens.  Dirty content wins over a clean duplicate;
+  # an active dirty duplicate wins over any other duplicate.
+  let requestedActive = result.activeTab
+  var restoredActive = -1
+  var restorePriority: seq[int]
+  for originalIndex, item in root["tabs"].getElems:
     if item.kind != JObject or not item.hasKey("path"): continue
     let filePath = jsonString(item, "path", "")
     let savedDirty = jsonBool(item, "dirty", false)
@@ -120,11 +127,28 @@ proc loadSession*(path: string): EditorSession =
         if jsonBool(item, "dirty", false): document.buffer.markDirty()
         canRestore = true
       if canRestore:
-        result.addTab(document)
-        let tabIndex = result.tabs.high
-        let savedTitle = jsonString(item, "title", "")
-        if savedTitle.len > 0: result.tabs[tabIndex].title = savedTitle
-        if item.hasKey("view") and item["view"].kind == JObject:
+        let priority = (if savedDirty: 2 else: 0) +
+          (if originalIndex == requestedActive: 1 else: 0)
+        var tabIndex = if document.path.len > 0:
+          result.tabIndexForPath(document.path)
+        else:
+          -1
+        let replaceExisting = tabIndex >= 0 and priority > restorePriority[tabIndex]
+        var adopted = false
+        if tabIndex < 0:
+          result.addTab(document)
+          tabIndex = result.tabs.high
+          restorePriority.add(priority)
+          adopted = true
+        elif replaceExisting:
+          result.tabs[tabIndex].document = document
+          restorePriority[tabIndex] = priority
+          adopted = true
+        if originalIndex == requestedActive: restoredActive = tabIndex
+        if adopted:
+          let savedTitle = jsonString(item, "title", "")
+          if savedTitle.len > 0: result.tabs[tabIndex].title = savedTitle
+        if adopted and item.hasKey("view") and item["view"].kind == JObject:
           let view = item["view"]
           let tabView = addr result.tabs[tabIndex].view
           let text = result.tabs[tabIndex].document.buffer.toString()
@@ -138,7 +162,9 @@ proc loadSession*(path: string): EditorSession =
           tabView[].indentWidth = max(1, jsonInt(view, "indentWidth", 2))
     except CatchableError: discard
   if result.tabs.len == 0: result.activeTab = -1
-  else: result.activeTab = max(0, min(result.activeTab, result.tabs.high))
+  else:
+    result.activeTab = if restoredActive >= 0: restoredActive
+      else: max(0, min(requestedActive, result.tabs.high))
 
 proc writeRecovery*(document: FileDocument, path: string) =
   atomicWriteFile(path, document.buffer.toString())
