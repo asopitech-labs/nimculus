@@ -3702,3 +3702,18 @@ hovered pane, while IME marked text, completion, and caret are emitted only
 into the focused input pane. Signature help uses the focused pane's local
 cursor position. This prevents duplicate overlays and keeps every transient
 surface aligned in either pane.
+
+## M3-028: Keep native text validation on the committed-text cache boundary
+
+The macOS renderer deliberately caches committed document lines and their
+UTF-8/UTF-16 offsets. Native validators that assign a temporary string without
+rebuilding that cache silently measure the old document: this made IME
+candidate rectangles collapse to one position and made the Retina validation
+shape an empty line after earlier tests.
+
+Temporary native validation now rebuilds the same line index used by normal
+`set_editor_text` updates both after installing and after restoring its test
+document. `editorFont` also supplies the standard Menlo/14-point fallback
+after renderer teardown. This makes the GUI-required candidate-rectangle and
+1x/2x glyph-atlas checks independent of test order, while preserving the
+production committed-text boundary.

@@ -700,9 +700,11 @@ static void highlightColor(uint32_t kind, CGFloat *r, CGFloat *g, CGFloat *b) {
 }
 
 static CTFontRef editorFont(void) {
-  CTFontRef font = CTFontCreateWithName((__bridge CFStringRef)g_editor_font_name,
-                                        g_editor_font_size, NULL);
-  if (!font) font = CTFontCreateUIFontForLanguage(kCTFontSystemFontType, g_editor_font_size, NULL);
+  NSString *fontName = g_editor_font_name.length > 0 ? g_editor_font_name : @"Menlo";
+  CGFloat size = isfinite(g_editor_font_size) && g_editor_font_size > 0.0
+    ? g_editor_font_size : 14.0;
+  CTFontRef font = CTFontCreateWithName((__bridge CFStringRef)fontName, size, NULL);
+  if (!font) font = CTFontCreateUIFontForLanguage(kCTFontSystemFontType, size, NULL);
   return font;
 }
 
@@ -767,7 +769,19 @@ static CGFloat editorTextOffset(NSString *line, NSUInteger utf16Index) {
   NSString *value = line ?: @"";
   NSAttributedString *attributed = [[NSAttributedString alloc] initWithString:value attributes:attributes];
   CTLineRef ctLine = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
-  CGFloat offset = CTLineGetOffsetForStringIndex(ctLine, MIN(utf16Index, value.length), NULL);
+  NSUInteger index = MIN(utf16Index, value.length);
+  CGFloat offset = CTLineGetOffsetForStringIndex(ctLine, index, NULL);
+  // Some fallback-font runs report a zero string-index offset at their run
+  // boundary. Measuring the prefix keeps NSTextInputClient candidate windows
+  // and pointer hit testing aligned with the visible Core Text layout.
+  if (index > 0 && offset <= 0.0) {
+    NSAttributedString *prefix = [[NSAttributedString alloc]
+      initWithString:[value substringToIndex:index] attributes:attributes];
+    CTLineRef prefixLine = CTLineCreateWithAttributedString((CFAttributedStringRef)prefix);
+    offset = (CGFloat)CTLineGetTypographicBounds(prefixLine, NULL, NULL, NULL);
+    CFRelease(prefixLine);
+    [prefix release];
+  }
   CFRelease(ctLine);
   [attributed release];
   CFRelease(font);
@@ -1612,10 +1626,10 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
       CTRunGetPositions(run, CFRangeMake(0, glyphCount), positions);
       CTRunGetStringIndices(run, CFRangeMake(0, glyphCount), stringIndices);
       for (CFIndex glyphIndex = 0; glyphIndex < glyphCount; glyphIndex++) {
-        if (fontIsColorEmoji(font) ||
-            (stringIndices[glyphIndex] != kCFNotFound &&
-             colorEmojiAtUTF16Index(lineText,
-               (NSUInteger)stringIndices[glyphIndex], NULL))) continue;
+        BOOL colorEmojiGlyph = stringIndices[glyphIndex] != kCFNotFound
+          ? colorEmojiAtUTF16Index(lineText, (NSUInteger)stringIndices[glyphIndex], NULL)
+          : fontIsColorEmoji(font);
+        if (colorEmojiGlyph) continue;
         CGFloat scaledX = positions[glyphIndex].x * scale;
         CGFloat scaledY = (baselineY + positions[glyphIndex].y) * scale;
         CGFloat quantizedX = round(scaledX * NIMCULUS_SUBPIXEL_VARIANTS_X) /
@@ -4041,7 +4055,13 @@ bool nimculus_platform_validate_ime_candidate_rect(void) {
     NSUInteger previousScrollLine = g_editor_scroll_line;
     CGFloat previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
       g_editor_rect[2], g_editor_rect[3]};
+    CGFloat previousSecondaryRect[4] = {g_secondary_editor_rect[0],
+      g_secondary_editor_rect[1], g_secondary_editor_rect[2],
+      g_secondary_editor_rect[3]};
+    BOOL previousSecondaryVisible = g_secondary_editor_visible;
+    NSUInteger previousInputPane = g_editor_input_pane;
     g_editor_text = @"A日本語\nB";
+    rebuildEditorLineIndex();
     g_editor_selection_start = 0;
     g_editor_selection_end = 0;
     g_editor_scroll_line = 0;
@@ -4049,13 +4069,23 @@ bool nimculus_platform_validate_ime_candidate_rect(void) {
     g_editor_rect[1] = 80.0;
     g_editor_rect[2] = 400.0;
     g_editor_rect[3] = 300.0;
+    // This validation exercises the primary responder. A previous split-pane
+    // test must not route firstRectForCharacterRange: through a stale
+    // secondary rectangle.
+    g_secondary_editor_visible = NO;
+    g_editor_input_pane = 0;
     NSWindow *window = [[NSWindow alloc]
       initWithContentRect:NSMakeRect(120.0, 160.0, 640.0, 480.0)
       styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
     NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
       NSMakeRect(0.0, 0.0, 640.0, 480.0)];
     if (window && view) {
+      NSApplication *application = [NSApplication sharedApplication];
+      [application activateIgnoringOtherApps:YES];
       window.contentView = view;
+      [window makeKeyAndOrderFront:nil];
+      NSDate *until = [NSDate dateWithTimeIntervalSinceNow:0.02];
+      [[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:until];
       [view layoutSubtreeIfNeeded];
       NSRange actualFirst = NSMakeRange(NSNotFound, 0);
       NSRange actualSecond = NSMakeRange(NSNotFound, 0);
@@ -4069,9 +4099,14 @@ bool nimculus_platform_validate_ime_candidate_rect(void) {
         second.origin.x > first.origin.x && isfinite(first.origin.x) &&
         isfinite(first.origin.y) && isfinite(second.origin.x) &&
         isfinite(second.origin.y);
+      [window orderOut:nil];
+      window.contentView = nil;
+      [view release];
       [window close];
+      [window release];
     }
     g_editor_text = previousText;
+    rebuildEditorLineIndex();
     g_editor_selection_start = previousSelectionStart;
     g_editor_selection_end = previousSelectionEnd;
     g_editor_scroll_line = previousScrollLine;
@@ -4079,6 +4114,9 @@ bool nimculus_platform_validate_ime_candidate_rect(void) {
     g_editor_rect[1] = previousRect[1];
     g_editor_rect[2] = previousRect[2];
     g_editor_rect[3] = previousRect[3];
+    memcpy(g_secondary_editor_rect, previousSecondaryRect, sizeof(previousSecondaryRect));
+    g_secondary_editor_visible = previousSecondaryVisible;
+    g_editor_input_pane = previousInputPane;
   }
   // AppKit may detach the temporary view while the autorelease pool drains.
   // Restore the shared resize metrics after that boundary, as in the native
@@ -4170,11 +4208,17 @@ bool nimculus_platform_validate_retina_text_scaling(void) {
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (device && ensureGlyphValidationPipeline(device)) {
       g_editor_text = @"A日本語🙂";
+      rebuildEditorLineIndex();
       g_editor_scroll_line = 0;
       g_editor_rect[0] = 0.0;
       g_editor_rect[1] = 0.0;
       g_editor_rect[2] = 320.0;
       g_editor_rect[3] = 180.0;
+
+      // Prior atlas-eviction validation intentionally fills the current
+      // atlas. Start this scale-transition test with a fresh atlas instead
+      // of making its result depend on test order.
+      g_glyph_atlas_scale = -1.0;
 
       g_metrics.scale_factor = 1.0;
       updateEditorTextTexture(device, g_editor_text, YES);
@@ -4203,6 +4247,7 @@ bool nimculus_platform_validate_retina_text_scaling(void) {
       valid = oneXValid && twoXValid && twoXReused && oneXRestored;
     }
     g_editor_text = previousText;
+    rebuildEditorLineIndex();
     g_editor_scroll_line = previousScrollLine;
     g_editor_rect[0] = previousRect[0];
     g_editor_rect[1] = previousRect[1];
