@@ -285,9 +285,12 @@ suite "M5 editor services":
     session.saveActiveView(view)
     session.addTab(newDocument())
     check session.tabs[1].view.cursor == 5
-    session.splitEditor(splitVertical)
+    session.splitEditor(splitVertical, 0.72)
     check session.tabs.len == 3
     check session.split
+    check abs(session.effectiveSplitRatio - 0.72'f32) < 0.001'f32
+    session.setSplitRatio(4.0)
+    check abs(session.effectiveSplitRatio - 0.9'f32) < 0.001'f32
     check session.closeActiveTab()
     check session.tabs.len == 2
 
@@ -330,7 +333,7 @@ suite "M5 editor services":
     session.addTab(openDocument(path))
     session.tabs[0].view.moveCursor(3)
     session.tabs[0].view.scrollLine = 2
-    session.splitEditor(splitHorizontal)
+    session.splitEditor(splitHorizontal, 0.31)
     session.workspaceRoots = @[getTempDir()]
     let sessionPath = getTempDir() / "nimculus-m5-session.json"
     session.saveSession(sessionPath)
@@ -342,6 +345,7 @@ suite "M5 editor services":
     check restored.tabs[0].view.cursor == 3
     check restored.tabs[0].view.scrollLine == 2
     check restored.splitDirection == splitHorizontal
+    check abs(restored.effectiveSplitRatio - 0.31'f32) < 0.001'f32
     restored.tabs[0].document.writeRecovery(recoveryPath)
     for candidate in walkFiles(recoveryPath & ".tmp." & $getCurrentProcessId() & ".*"):
       check not fileExists(candidate)
@@ -582,5 +586,6 @@ suite "M5 editor services":
     let malformed = loadSession(malformedPath)
     check malformed.activeTab == -1
     check not malformed.split
+    check abs(malformed.effectiveSplitRatio - 0.5'f32) < 0.001'f32
     check malformed.tabs.len == 0
     removeFile(malformedPath)

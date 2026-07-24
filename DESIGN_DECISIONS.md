@@ -3549,3 +3549,19 @@ string reconstruction rather than PieceTable editing.
 uses it for edit offsets. The editor-buffer regression verifies its value across
 a Unicode replacement. The standard Apple Silicon M20 edit workload completes
 100 edits in 0.375 seconds without those full-document copies.
+
+## M5-028: Treat split geometry as session state, not a completed split editor
+
+The old `EditorSession.split` flag and the UI divider's process-global ratio
+could disagree after a relaunch. More importantly, the flag was not evidence
+of a usable multi-pane editor: the native renderer still owns one editor
+rectangle and one selection/scroll state.
+
+Zed's `PaneGroup` creates a new pane, retains pane-local item state, and places
+both panes into a split tree. Nimculus now at least stores the current divider
+ratio with the split direction in the session, clamps it to leave both sides
+usable, restores legacy sessions to an even split, and persists a drag
+immediately. The roadmap deliberately keeps actual independent panes, native
+rendering, input routing, and pane-local view state unchecked until that
+vertical slice exists; a divider alone must not be represented as completed
+split display.

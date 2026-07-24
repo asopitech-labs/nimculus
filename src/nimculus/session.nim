@@ -22,6 +22,14 @@ proc jsonString(node: JsonNode, key, fallback: string): string =
   except CatchableError: discard
   fallback
 
+proc jsonFloat(node: JsonNode, key: string, fallback: float32): float32 =
+  if node == nil or node.kind != JObject or not node.hasKey(key): return fallback
+  try:
+    if node[key].kind in {JFloat, JInt}: return float32(node[key].getFloat)
+  except CatchableError:
+    discard
+  fallback
+
 proc normalizedSessionPaths(paths: openArray[string], directoriesOnly = false): seq[string] =
   ## Session data predates the canonical identity boundary used by Finder,
   ## Save As, and workspace roots. Preserve non-existent recent files, but
@@ -37,6 +45,7 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
   let workspaceRoots = normalizedSessionPaths(session.workspaceRoots, directoriesOnly = true)
   var root = %*{"activeTab": -1, "split": session.split,
                 "splitDirection": $session.splitDirection,
+                "splitRatio": session.effectiveSplitRatio,
                 "recentFiles": recentFiles,
                 "workspaceRoots": workspaceRoots}
   var tabs = newJArray()
@@ -123,6 +132,7 @@ proc loadSession*(path: string): EditorSession =
   result.split = jsonBool(root, "split", false)
   let direction = jsonString(root, "splitDirection", "splitVertical")
   result.splitDirection = if direction == "splitHorizontal": splitHorizontal else: splitVertical
+  result.splitRatio = normalizedSplitRatio(jsonFloat(root, "splitRatio", 0.5'f32))
   if root.hasKey("recentFiles") and root["recentFiles"].kind == JArray:
     for item in root["recentFiles"].getElems:
       if item.kind == JString:

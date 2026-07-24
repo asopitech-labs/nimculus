@@ -34,6 +34,9 @@ type
     activeTab*: int
     split*: bool
     splitDirection*: SplitDirection
+    ## The divider is session state, not transient UI state.  Keeping it here
+    ## makes resize and relaunch preserve the user's pane allocation.
+    splitRatio*: float32
     recentFiles*: seq[string]
     workspaceRoots*: seq[string]
 
@@ -219,9 +222,23 @@ proc reloadActiveDocument*(session: var EditorSession, view: var EditorViewState
   view.scrollLine = min(max(0, view.scrollLine), max(0, reloaded.buffer.lineStarts.high))
   true
 
-proc splitEditor*(session: var EditorSession, direction: SplitDirection) =
+proc normalizedSplitRatio*(ratio: float32): float32 =
+  ## Reserve usable space for both sides.  Zed's PaneGroup likewise constrains
+  ## split geometry instead of letting a drag collapse a pane to zero.
+  min(0.9'f32, max(0.1'f32, ratio))
+
+proc splitEditor*(session: var EditorSession, direction: SplitDirection,
+                  ratio = 0.5'f32) =
   session.split = true
   session.splitDirection = direction
+  session.splitRatio = normalizedSplitRatio(ratio)
+
+proc setSplitRatio*(session: var EditorSession, ratio: float32) =
+  session.splitRatio = normalizedSplitRatio(ratio)
+
+proc effectiveSplitRatio*(session: EditorSession): float32 =
+  ## Sessions written before split ratios existed deserialize as zero.
+  if session.splitRatio <= 0'f32: 0.5'f32 else: normalizedSplitRatio(session.splitRatio)
 
 proc recordRecent*(session: var EditorSession, path: string) =
   session.recentFiles = session.recentFiles.filterIt(it != path)

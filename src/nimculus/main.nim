@@ -1250,6 +1250,7 @@ proc restoreSession() =
     except CatchableError:
       discard
   editorSession.loadActiveView(editorViewState)
+  demoSplitRatio = editorSession.effectiveSplitRatio
 
 proc reloadWorkspaceSettings(root: string) =
   when defined(macosx) or defined(windows):
@@ -3181,12 +3182,16 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     elif demoSplitDragging and kind == pointerMove:
       let editorBounds = demoTree.node(demoScrollNode).bounds
       let width = max(1'f32, float32(editorBounds.size.width))
-      demoSplitRatio = min(0.9'f32, max(0.1'f32,
-        (float32(event.x) - float32(editorBounds.origin.x)) / width))
+      editorSession.setSplitRatio(
+        (float32(event.x) - float32(editorBounds.origin.x)) / width)
+      demoSplitRatio = editorSession.effectiveSplitRatio
       setupDemoUi()
       splitPointerHandled = true
     elif demoSplitDragging and kind == pointerUp:
       demoSplitDragging = false
+      # Persist the settled divider once.  Writing an atomic session for every
+      # pointer sample would create avoidable I/O and cache churn while dragging.
+      persistSession()
       splitPointerHandled = true
     if kind == pointerDown and workspacePreviewMode == "quickOpen" and
         workspacePreviewEntries.len > 0:
