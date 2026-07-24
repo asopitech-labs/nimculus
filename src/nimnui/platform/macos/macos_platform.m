@@ -29,6 +29,13 @@ static double g_editor_rect[4] = {48.0, 128.0, 828.0, 432.0};
 // independent Core Text/Metal resources are attached.
 static double g_secondary_editor_rect[4] = {0.0, 0.0, 0.0, 0.0};
 static BOOL g_secondary_editor_visible = NO;
+// Split panes share one document, but not a viewport or selection.  Keep the
+// secondary Core Text fallback state separate from the active NSTextInputClient
+// state used by the primary editing surface.
+static double g_secondary_editor_cursor[2] = {8.0, 12.0};
+static NSUInteger g_secondary_editor_scroll_line = 0;
+static NSUInteger g_secondary_editor_selection_start = 0;
+static NSUInteger g_secondary_editor_selection_end = 0;
 static NimculusPaintCommand *g_paint_commands = NULL;
 static uint32_t g_paint_count = 0;
 static NimculusPaintRegion *g_paint_dirty_regions = NULL;
@@ -1312,9 +1319,17 @@ static void rebuildSecondaryEditorTexture(id<MTLDevice> device) {
   // once pane-local styling and invalidation are fully separated.
   double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
     g_editor_rect[2], g_editor_rect[3]};
+  double previousCursor[2] = {g_editor_cursor[0], g_editor_cursor[1]};
+  NSUInteger previousScrollLine = g_editor_scroll_line;
+  NSUInteger previousSelectionStart = g_editor_selection_start;
+  NSUInteger previousSelectionEnd = g_editor_selection_end;
   BOOL previousGlyphRendering = g_glyph_rendering_available;
   id<MTLTexture> primaryTexture = [g_text_texture retain];
   memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
+  memcpy(g_editor_cursor, g_secondary_editor_cursor, sizeof(g_editor_cursor));
+  g_editor_scroll_line = g_secondary_editor_scroll_line;
+  g_editor_selection_start = g_secondary_editor_selection_start;
+  g_editor_selection_end = g_secondary_editor_selection_end;
   g_glyph_rendering_available = NO;
   updateEditorTextTexture(device, g_editor_text, NO);
   [g_secondary_text_texture release];
@@ -1323,6 +1338,10 @@ static void rebuildSecondaryEditorTexture(id<MTLDevice> device) {
   g_text_texture = primaryTexture;
   g_glyph_rendering_available = previousGlyphRendering;
   memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
+  memcpy(g_editor_cursor, previousCursor, sizeof(g_editor_cursor));
+  g_editor_scroll_line = previousScrollLine;
+  g_editor_selection_start = previousSelectionStart;
+  g_editor_selection_end = previousSelectionEnd;
 }
 
 static void resetGlyphVertices(void) {
@@ -3455,15 +3474,27 @@ bool nimculus_platform_validate_editor_pane_geometry(void) {
   double previousSecondary[4] = {g_secondary_editor_rect[0], g_secondary_editor_rect[1],
     g_secondary_editor_rect[2], g_secondary_editor_rect[3]};
   BOOL previousVisible = g_secondary_editor_visible;
+  NSString *previousText = [g_editor_text retain];
+  NSUInteger previousPrimaryScroll = g_editor_scroll_line;
+  NSUInteger previousSecondaryScroll = g_secondary_editor_scroll_line;
   nimculus_platform_set_editor_rect(40.0, 80.0, 300.0, 240.0);
   nimculus_platform_set_secondary_editor_rect(true, 348.0, 80.0, 300.0, 240.0);
+  const char *sample = "zero\none\ntwo";
+  nimculus_platform_set_editor_text(sample, (uint32_t)strlen(sample));
+  nimculus_platform_set_editor_scroll_line(0);
+  nimculus_platform_set_secondary_editor_scroll_line(2);
   BOOL valid = nimculus_platform_editor_pane_at_point(40.0, 80.0) == 0 &&
     nimculus_platform_editor_pane_at_point(340.0, 90.0) == UINT32_MAX &&
     nimculus_platform_editor_pane_at_point(348.0, 80.0) == 1 &&
-    nimculus_platform_editor_pane_at_point(648.0, 80.0) == UINT32_MAX;
+    nimculus_platform_editor_pane_at_point(648.0, 80.0) == UINT32_MAX &&
+    nimculus_platform_secondary_editor_byte_offset_at_point(356.0, 556.0) == 9;
   memcpy(g_editor_rect, previousPrimary, sizeof(previousPrimary));
   memcpy(g_secondary_editor_rect, previousSecondary, sizeof(previousSecondary));
   g_secondary_editor_visible = previousVisible;
+  nimculus_platform_set_editor_text(previousText.UTF8String, (uint32_t)[previousText lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
+  g_editor_scroll_line = previousPrimaryScroll;
+  g_secondary_editor_scroll_line = previousSecondaryScroll;
+  [previousText release];
   return valid;
 }
 
@@ -4269,7 +4300,7 @@ void nimculus_platform_set_editor_font_size(double size) {
 void nimculus_platform_set_editor_font_name(const char *name) {
   NSString *requested = name ? [NSString stringWithUTF8String:name] : nil;
   replaceOwnedString(&g_editor_font_name, requested.length > 0 ? requested : @"Menlo");
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
+  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
   markSceneFullyDirty();
   if (g_active_view) {
     for (NSView *subview in ((NimculusMetalView *)g_active_view).subviews) {
@@ -4340,6 +4371,18 @@ uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y) {
   CFRelease(font);
   return (uint32_t)(lineStartByte + localByte);
 }
+uint32_t nimculus_platform_secondary_editor_byte_offset_at_point(double x, double y) {
+  if (!g_secondary_editor_visible) return 0;
+  double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
+    g_editor_rect[2], g_editor_rect[3]};
+  NSUInteger previousScrollLine = g_editor_scroll_line;
+  memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
+  g_editor_scroll_line = g_secondary_editor_scroll_line;
+  uint32_t result = nimculus_platform_editor_byte_offset_at_point(x, y);
+  memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
+  g_editor_scroll_line = previousScrollLine;
+  return result;
+}
 void nimculus_platform_set_editor_scroll_line(uint32_t line) {
   g_editor_scroll_line = line;
   if (g_active_view) {
@@ -4348,7 +4391,7 @@ void nimculus_platform_set_editor_scroll_line(uint32_t line) {
     }
   }
   markSceneFullyDirty();
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
+  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_rect(double x, double y, double width, double height) {
@@ -4357,7 +4400,7 @@ void nimculus_platform_set_editor_rect(double x, double y, double width, double 
   g_editor_rect[2] = MAX(1.0, width);
   g_editor_rect[3] = MAX(1.0, height);
   if (g_active_view) [(NimculusMetalView *)g_active_view updateTerminalFrame];
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
+  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
@@ -4368,6 +4411,42 @@ void nimculus_platform_set_secondary_editor_rect(bool visible, double x, double 
   g_secondary_editor_rect[1] = MAX(0.0, y);
   g_secondary_editor_rect[2] = MAX(1.0, width);
   g_secondary_editor_rect[3] = MAX(1.0, height);
+  if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
+  markSceneFullyDirty();
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+void nimculus_platform_set_secondary_editor_cursor_byte(uint32_t byte_offset, uint32_t line) {
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
+  if (lines.count == 0) return;
+  NSUInteger lineIndex = MIN((NSUInteger)line, lines.count - 1);
+  NSUInteger lineStartByte = editorLineUTF8Offset(lineIndex, lines);
+  NSString *lineText = lines[lineIndex];
+  NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
+  NSUInteger localByte = byte_offset > lineStartByte ? byte_offset - lineStartByte : 0;
+  localByte = MIN(localByte, lineLength);
+  NSUInteger utf16 = utf16OffsetForUTF8Bytes(lineText, localByte);
+  NSUInteger documentOffset = editorLineUTF16Offset(lineIndex, lines);
+  NSUInteger previousScrollLine = g_editor_scroll_line;
+  g_editor_scroll_line = g_secondary_editor_scroll_line;
+  CGPoint point = editorPointForUTF16Offset(documentOffset + utf16);
+  g_editor_scroll_line = previousScrollLine;
+  g_secondary_editor_cursor[0] = point.x;
+  g_secondary_editor_cursor[1] = point.y;
+  if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
+  markSceneFullyDirty();
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+void nimculus_platform_set_secondary_editor_selection(uint32_t start_byte, uint32_t end_byte) {
+  NSUInteger start = utf16OffsetForUTF8Bytes(g_editor_text ?: @"", start_byte);
+  NSUInteger end = utf16OffsetForUTF8Bytes(g_editor_text ?: @"", end_byte);
+  g_secondary_editor_selection_start = MIN(start, end);
+  g_secondary_editor_selection_end = MAX(start, end);
+  if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
+  markSceneFullyDirty();
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+void nimculus_platform_set_secondary_editor_scroll_line(uint32_t line) {
+  g_secondary_editor_scroll_line = line;
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
@@ -4413,7 +4492,7 @@ void nimculus_platform_set_editor_soft_wrap(bool enabled) {
     }
   }
   markSceneFullyDirty();
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
+  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_tabs(const char *utf8, uint32_t length, uint32_t active_index) {
@@ -4595,7 +4674,7 @@ void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
     }
   }
   markSceneFullyDirty();
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
+  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
   if (g_active_view) [g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_outline(const char *utf8, uint32_t length,

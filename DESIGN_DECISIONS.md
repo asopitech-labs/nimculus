@@ -3607,3 +3607,24 @@ both with the macOS platform. A click in the secondary rectangle activates its
 pane state but suppresses primary-editor editing until the secondary renderer
 and pane-local text input path are available. This preserves user data while
 the remaining rendering slice is implemented.
+
+## M5-032: Keep secondary Core Text state independent of the active input client
+
+Zed's `PaneGroup::pane_at_pixel_position` selects a pane before its editor
+converts the point into an anchor.  Applying that boundary to Nimculus means a
+secondary pane cannot borrow the primary viewport while calculating a byte
+offset or drawing a selection.
+
+The macOS platform now stores a secondary rectangle, scroll line, cursor, and
+UTF-16 selection separately.  Rebuilding the secondary Core Text texture
+temporarily installs only that state, then restores the primary
+`NSTextInputClient` state.  Pointer hit testing selects the pane before byte
+offset conversion; secondary drag selection and wheel scrolling mutate the
+persisted secondary `EditorViewState`.  The native contract checks that the
+same screen point resolves using the secondary scroll offset.
+
+The shared document buffer remains intentional.  Keyboard editing and IME
+composition still target the primary input client until focus can atomically
+switch the full text-input bridge, including the candidate rectangle.  This
+keeps the remaining gap explicit instead of presenting partial input routing
+as a finished split editor.

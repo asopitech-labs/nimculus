@@ -92,6 +92,8 @@ when defined(macosx) or defined(windows):
     false
 
 proc syncEditorCursor()
+when defined(macosx):
+  proc syncSecondaryEditorView()
 proc persistSession()
 
 var demoTree = newUiTree()
@@ -410,6 +412,7 @@ var workspacePreviewEntries: seq[WorkspaceEntry]
 var workspacePreviewMode = ""
 var externalAlertShown = false
 var editorPointerDragging = false
+var editorPointerPane = 0
 var editorScrollRemainder = 0'f32
 var sessionFilePath = ""
 var recoveryFilePath = ""
@@ -457,6 +460,7 @@ proc resetEditorViewState() =
 proc resetPointerInteractions() =
   demoSplitDragging = false
   editorPointerDragging = false
+  editorPointerPane = 0
   if activePointerNode != NodeId(0):
     demoTree.setActive(activePointerNode, false)
     activePointerNode = NodeId(0)
@@ -1535,6 +1539,7 @@ proc syncEditorCursor() =
     let status = if document != nil: editorViewState.statusBarText(document[].buffer)
       else: editorViewState.statusMessage
     platformSetEditorStatus(status.cstring)
+    syncSecondaryEditorView()
   elif defined(windows):
     let document = activeDocument()
     if document != nil:
@@ -1573,9 +1578,25 @@ proc syncEditorCursor() =
       uint32(max(0, editorSession.activeTab)))
 
 when defined(macosx):
-  proc editorOffsetAtPoint(document: ptr FileDocument, x, y: cdouble): int =
+  proc syncSecondaryEditorView() =
+    if not editorSession.split: return
+    let document = activeDocument()
+    if document == nil: return
+    let text = document[].buffer.toString()
+    editorSession.secondaryView.clampSelectionToText(text)
+    let location = document[].buffer.lineColumn(editorSession.secondaryView.cursor)
+    let selection = editorSession.secondaryView.selectedRange()
+    platformSetSecondaryEditorScrollLine(uint32(max(0, editorSession.secondaryView.scrollLine)))
+    platformSetSecondaryEditorCursorByte(uint32(editorSession.secondaryView.cursor),
+      uint32(max(0, location.line)))
+    platformSetSecondaryEditorSelection(uint32(selection.startByte), uint32(selection.endByte))
+
+  proc editorOffsetAtPoint(document: ptr FileDocument, x, y: cdouble, pane = 0): int =
     if document == nil: return 0
-    int(platformEditorByteOffsetAtPoint(x, y))
+    if pane == 1:
+      int(platformSecondaryEditorByteOffsetAtPoint(x, y))
+    else:
+      int(platformEditorByteOffsetAtPoint(x, y))
 
   proc syncNativeDiagnostics(document: ptr FileDocument) =
     if lspBridge == nil or document == nil:
@@ -3197,7 +3218,13 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       let delta = scrollLineDelta(editorScrollRemainder, float32(event.deltaY),
         event.preciseScrolling)
       let maxScroll = max(0, document[].buffer.lineStarts.len - editorVisibleLineCount())
-      editorViewState.scrollLine = max(0, min(maxScroll, editorViewState.scrollLine + delta))
+      let pane = if demoSplitEnabled:
+        int(platformEditorPaneAtPoint(event.x, cdouble(uiY))) else: 0
+      if pane == 1:
+        editorSession.secondaryView.scrollLine = max(0, min(maxScroll,
+          editorSession.secondaryView.scrollLine + delta))
+      else:
+        editorViewState.scrollLine = max(0, min(maxScroll, editorViewState.scrollLine + delta))
       syncEditorCursor()
       refreshEditorSyntax()
     if document != nil and kind == pointerDown and inEditor and
@@ -3229,10 +3256,10 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     elif document != nil and kind == pointerDown and demoSplitEnabled:
       let pane = platformEditorPaneAtPoint(event.x, cdouble(uiY))
       if pane <= 1'u32 and editorSession.activateSplitPane(int(pane)):
-        # Selection/IME routing follows in the dual-rendering slice.  Record
-        # focus now so a secondary-pane click cannot be interpreted as a
-        # primary-pane edit with incorrect coordinates.
-        splitPointerHandled = pane == 1'u32
+        # Zed resolves pointer location to a specific pane before turning it
+        # into an editor anchor. Preserve that pane through a drag so a
+        # selection cannot cross into the other viewport mid-gesture.
+        editorPointerPane = int(pane)
     if kind == pointerDown and workspacePreviewMode == "quickOpen" and
         workspacePreviewEntries.len > 0:
       openWorkspaceEntryAtPoint(event.y)
@@ -3244,29 +3271,40 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     if document != nil and not splitPointerHandled and not demoSplitDragging and
         workspacePreviewMode != "quickOpen" and (inEditor or editorPointerDragging) and
         kind in {pointerDown, pointerMove, pointerUp}:
-      let offset = editorOffsetAtPoint(document, event.x, event.y)
+      let offset = editorOffsetAtPoint(document, event.x, event.y, editorPointerPane)
       if kind == pointerDown:
         if lspBridge != nil:
           lspBridge.hideHover()
           editorLspSignatureText = ""
           syncNativeHover()
         editorPointerDragging = true
-        editorViewState.moveCursor(offset)
+        if editorPointerPane == 1:
+          editorSession.secondaryView.moveCursor(offset)
+        else:
+          editorViewState.moveCursor(offset)
         syncEditorCursor()
-      elif kind == pointerMove and not editorPointerDragging and lspBridge != nil:
+      elif kind == pointerMove and not editorPointerDragging and lspBridge != nil and
+          editorPointerPane == 0:
         lspBridge.scheduleHover(offset)
         platformSetEditorHoverPosition(
           float64(float32(event.x) - float32(demoEditorBounds.origin.x)),
           float64(uiY - float32(demoEditorBounds.origin.y)))
         syncNativeHover()
       elif kind == pointerMove and editorPointerDragging:
-        editorViewState.moveCursor(offset, selecting = true)
+        if editorPointerPane == 1:
+          editorSession.secondaryView.moveCursor(offset, selecting = true)
+        else:
+          editorViewState.moveCursor(offset, selecting = true)
         syncEditorCursor()
       elif kind == pointerUp:
         if editorPointerDragging:
-          editorViewState.moveCursor(offset, selecting = true)
+          if editorPointerPane == 1:
+            editorSession.secondaryView.moveCursor(offset, selecting = true)
+          else:
+            editorViewState.moveCursor(offset, selecting = true)
           syncEditorCursor()
         editorPointerDragging = false
+        editorPointerPane = 0
   when defined(windows):
     let document = activeDocument()
     let inEditor = demoEditorBounds.contains(point)

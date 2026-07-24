@@ -47,11 +47,17 @@ void nimculus_platform_set_editor_font_name(const char *name);
 double nimculus_platform_editor_line_height(void);
 void nimculus_platform_invalidate_ime_coordinates(void);
 uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y);
+uint32_t nimculus_platform_secondary_editor_byte_offset_at_point(double x, double y);
 uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y);
 void nimculus_platform_set_editor_scroll_line(uint32_t line);
 void nimculus_platform_set_editor_rect(double x, double y, double width, double height);
 void nimculus_platform_set_secondary_editor_rect(bool visible, double x, double y,
                                                  double width, double height);
+void nimculus_platform_set_secondary_editor_cursor_byte(uint32_t byte_offset,
+                                                        uint32_t line);
+void nimculus_platform_set_secondary_editor_selection(uint32_t start_byte,
+                                                      uint32_t end_byte);
+void nimculus_platform_set_secondary_editor_scroll_line(uint32_t line);
 uint32_t nimculus_platform_editor_pane_at_point(double x, double y);
 void nimculus_platform_set_editor_dirty(bool dirty);
 void nimculus_platform_set_editor_indent_guides(bool visible, uint32_t indent_width);
