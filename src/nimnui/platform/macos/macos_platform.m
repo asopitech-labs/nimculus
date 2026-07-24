@@ -4060,6 +4060,7 @@ bool nimculus_platform_validate_ime_candidate_rect(void) {
       g_secondary_editor_rect[3]};
     BOOL previousSecondaryVisible = g_secondary_editor_visible;
     NSUInteger previousInputPane = g_editor_input_pane;
+    NSUInteger previousSecondaryScrollLine = g_secondary_editor_scroll_line;
     g_editor_text = @"A日本語\nB";
     rebuildEditorLineIndex();
     g_editor_selection_start = 0;
@@ -4089,16 +4090,29 @@ bool nimculus_platform_validate_ime_candidate_rect(void) {
       [view layoutSubtreeIfNeeded];
       NSRange actualFirst = NSMakeRange(NSNotFound, 0);
       NSRange actualSecond = NSMakeRange(NSNotFound, 0);
+      NSRange actualSecondary = NSMakeRange(NSNotFound, 0);
       NSRect first = [view firstRectForCharacterRange:NSMakeRange(0, 0)
         actualRange:&actualFirst];
       NSRect second = [view firstRectForCharacterRange:NSMakeRange(1, 0)
         actualRange:&actualSecond];
+      g_secondary_editor_rect[0] = 472.0;
+      g_secondary_editor_rect[1] = 80.0;
+      g_secondary_editor_rect[2] = 320.0;
+      g_secondary_editor_rect[3] = 300.0;
+      g_secondary_editor_visible = YES;
+      g_secondary_editor_scroll_line = 0;
+      g_editor_input_pane = 1;
+      NSRect secondary = [view firstRectForCharacterRange:NSMakeRange(1, 0)
+        actualRange:&actualSecondary];
       valid = actualFirst.location == 0 && actualFirst.length == 0 &&
         actualSecond.location == 1 && actualSecond.length == 0 &&
+        actualSecondary.location == 1 && actualSecondary.length == 0 &&
         first.size.height > 0.0 && second.size.height > 0.0 &&
-        second.origin.x > first.origin.x && isfinite(first.origin.x) &&
+        secondary.size.height > 0.0 && second.origin.x > first.origin.x &&
+        secondary.origin.x > second.origin.x && isfinite(first.origin.x) &&
         isfinite(first.origin.y) && isfinite(second.origin.x) &&
-        isfinite(second.origin.y);
+        isfinite(second.origin.y) && isfinite(secondary.origin.x) &&
+        isfinite(secondary.origin.y);
       [window orderOut:nil];
       window.contentView = nil;
       [view release];
@@ -4117,6 +4131,7 @@ bool nimculus_platform_validate_ime_candidate_rect(void) {
     memcpy(g_secondary_editor_rect, previousSecondaryRect, sizeof(previousSecondaryRect));
     g_secondary_editor_visible = previousSecondaryVisible;
     g_editor_input_pane = previousInputPane;
+    g_secondary_editor_scroll_line = previousSecondaryScrollLine;
   }
   // AppKit may detach the temporary view while the autorelease pool drains.
   // Restore the shared resize metrics after that boundary, as in the native

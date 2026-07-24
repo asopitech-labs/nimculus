@@ -3717,3 +3717,14 @@ document. `editorFont` also supplies the standard Menlo/14-point fallback
 after renderer teardown. This makes the GUI-required candidate-rectangle and
 1x/2x glyph-atlas checks independent of test order, while preserving the
 production committed-text boundary.
+
+## M3-029: Verify candidate rectangles for both focused split panes
+
+One `NSTextInputClient` serves both Nimculus split panes. A primary-only
+candidate-rectangle test could therefore pass while the focused secondary pane
+still returned coordinates for the wrong text surface.
+
+The native IME contract now creates distinct primary and secondary editor
+rectangles, switches the input pane, and verifies the UTF-16 range's screen
+rectangle moves into the secondary pane. The temporary state restores both
+pane geometry, scroll state, and input focus afterwards.
