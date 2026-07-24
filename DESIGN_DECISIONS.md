@@ -3383,6 +3383,20 @@ asynchronous watcher callback from observing partially released editor state.
 It snapshots the workspace roots into the editor session first, because the
 AppKit termination callback persists that session after services are released.
 
+## M11-016: Defer Developer ID approval without blocking macOS functionality
+
+Developer ID certificates and App Store Connect credentials are external
+release approvals, not prerequisites for editor, UI, text, terminal, or
+workspace functionality. Waiting for those credentials must not turn the
+macOS-first plan into an implementation pause.
+
+The packaging pipeline remains fail-closed when strict notarization is
+requested, and its ad-hoc package, DMG, mounted-app, and cold-start checks
+remain part of macOS CI. The Developer ID/notarization release gate is recorded
+as pending until the credentials are available; meanwhile work continues only
+on the documented macOS functionality and its tests. This does not authorize
+Windows, WSL, or Linux work ahead of their milestones.
+
 ## M7-017: Release the final Tree-sitter state on macOS quit
 
 Tree-sitter parsers and trees are C allocations, not ARC-managed Nim memory.

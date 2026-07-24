@@ -21,10 +21,11 @@
 WSL は Windows 版の完成後に着手する。macOS の完成度を下げて他プラットフォームを先行させない。
 
 この環境での当面の実装対象は macOS のみとする。M1〜M12 の macOS 完了条件、GUI
-実機検証、Apple Silicon 向け配布、Developer ID 署名、notarization、stapling、
-性能・安定性の受け入れ計測が完了するまで、Windows、WSL、Linux、SSH の新規実装や
-トライアンドエラーを開始しない。Windows 用コードのコンパイル確認がCIに残っていても、
-macOS完了の代替とはみなさない。
+実機検証、Apple Silicon 向け配布、性能・安定性の受け入れ計測が完了するまで、Windows、
+WSL、Linux、SSH の新規実装やトライアンドエラーを開始しない。Developer ID 署名、
+notarization、staplingは配布承認の外部ゲートであり、資格情報の保留だけを理由にmacOS
+機能の実装・テスト・性能改善を停止しない。Windows 用コードのコンパイル確認がCIに残って
+いても、macOS完了の代替とはみなさない。
 
 ### 2.2 Apple Silicon を基準環境とする
 
