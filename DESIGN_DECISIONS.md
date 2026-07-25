@@ -19,9 +19,13 @@ now exercises the same transition with a temporary Cocoa/Metal window, waiting
 for `NSWindowDidEnterFullScreenNotification` / `NSWindowDidExitFullScreenNotification`
 as well as the corresponding `NSWindowStyleMaskFullScreen` state. Fullscreen
 temporarily changes the active GUI space, so this contract is opt-in through
-`NIMCULUS_REQUIRE_FULLSCREEN_TRANSITION=1` and is enabled only by the manually
-dispatched self-hosted macOS GUI workflow. Normal local and push-triggered
-tests never change the developer's workspace.
+`NIMCULUS_REQUIRE_FULLSCREEN_TRANSITION=1`. The self-hosted Actions runner is
+a GUI-login service but does not reliably receive Mission Control space
+transitions: runs [30141031600](https://github.com/asopitech-labs/nimculus/actions/runs/30141031600)
+and [30141147508](https://github.com/asopitech-labs/nimculus/actions/runs/30141147508)
+did not receive the enter notification. It therefore remains disabled in CI
+and is reserved for an interactive macOS session. Normal local and
+push-triggered tests never change the developer's workspace.
 
 ## M2-014: Verify viewport clipping at the Metal backing-pixel boundary
 
