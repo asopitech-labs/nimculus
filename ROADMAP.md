@@ -87,7 +87,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 - [x] `viewDidChangeBackingProperties`によるディスプレイ移動時のdrawable・文字テクスチャ再生成
 - [x] ウィンドウリサイズ
 - [x] リサイズ時のNimNUIレイアウト・PaintList・hit-test再計算
-- [ ] フルスクリーンの実機検証
+- [x] フルスクリーンの実機検証（GUIログイン済みself-hosted Apple Silicon runnerで、一時Cocoa/Metal windowの`toggleFullScreen:`によるenter/exitを実遷移・style state復帰まで確認。run [30105819330](https://github.com/asopitech-labs/nimculus/actions/runs/30105819330)）
 - [x] 最小化
 - [x] 最大化相当動作（標準ウィンドウ機能）
 - [x] フルスクリーン capability、最小化・最大化相当action、接続済みモニター境界のnative contract
@@ -128,7 +128,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 - [x] リサイズ後も描画を維持する（GUIログイン済みApple Silicon runnerで、実NSWindow resize・Metal scene texture replacement・cold-start/soakを確認。run [30082259791](https://github.com/asopitech-labs/nimculus/actions/runs/30082259791)）
 - [x] Retina スケールが正しく反映される（同runnerでNSWindow backing scale、drawable size、Core Text/glyph atlasの1x/2x再構築を確認）
 - [x] キーボードとポインター入力を取得できる（同runnerでAppKit mouse/key/scroll/flags eventのnative callback contractを確認）
-- [ ] フルスクリーン、複数モニター、トラックパッドの個別実機検証
+- [ ] 複数モニター、トラックパッドの個別実機検証（フルスクリーンはGUIログイン済みself-hosted Apple Silicon runnerで実遷移・復帰を確認済み）
 
 ### M2：NimNUI 基礎 UI システム
 
