@@ -129,7 +129,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 - [x] リサイズ後も描画を維持する（GUIログイン済みApple Silicon runnerで、実NSWindow resize・Metal scene texture replacement・cold-start/soakを確認。run [30082259791](https://github.com/asopitech-labs/nimculus/actions/runs/30082259791)）
 - [x] Retina スケールが正しく反映される（同runnerでNSWindow backing scale、drawable size、Core Text/glyph atlasの1x/2x再構築を確認）
 - [x] キーボードとポインター入力を取得できる（同runnerでAppKit mouse/key/scroll/flags eventのnative callback contractを確認）
-- [ ] 複数モニター、トラックパッドの個別実機検証（フルスクリーンはGUIログイン済みself-hosted Apple Silicon runnerで実遷移・復帰を確認済み）
+- [ ] フルスクリーン、複数モニター、トラックパッドの個別実機検証
 
 ### M2：NimNUI 基礎 UI システム
 
