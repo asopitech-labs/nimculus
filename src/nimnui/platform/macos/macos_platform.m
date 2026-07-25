@@ -3587,6 +3587,14 @@ static BOOL waitForFullscreenStyle(NSWindow *window, BOOL expected, NSTimeInterv
   return ((window.styleMask & NSWindowStyleMaskFullScreen) != 0) == expected;
 }
 
+static BOOL waitForFullscreenNotification(BOOL *received, NSTimeInterval timeout) {
+  NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeout];
+  while (!*received && [deadline timeIntervalSinceNow] > 0.0) {
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+  }
+  return *received;
+}
+
 bool nimculus_platform_validate_fullscreen_transition(void) {
   // A real fullscreen transition changes the active GUI workspace. Keep this
   // opt-in and run it only on the dedicated, manually dispatched GUI runner.
@@ -3606,27 +3614,51 @@ bool nimculus_platform_validate_fullscreen_transition(void) {
     NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
       NSMakeRect(0.0, 0.0, 640.0, 480.0)];
     if (application && window && view) {
+      __block BOOL didEnterFullscreen = NO;
+      __block BOOL didExitFullscreen = NO;
+      NSNotificationCenter *notifications = [NSNotificationCenter defaultCenter];
+      id enterObserver = [notifications addObserverForName:NSWindowDidEnterFullScreenNotification
+        object:window queue:nil usingBlock:^(NSNotification *notification) {
+          (void)notification;
+          didEnterFullscreen = YES;
+        }];
+      id exitObserver = [notifications addObserverForName:NSWindowDidExitFullScreenNotification
+        object:window queue:nil usingBlock:^(NSNotification *notification) {
+          (void)notification;
+          didExitFullscreen = YES;
+        }];
       window.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
       window.contentView = view;
       [window makeKeyAndOrderFront:nil];
       [application activateIgnoringOtherApps:YES];
       [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.10]];
       [window toggleFullScreen:nil];
-      BOOL entered = waitForFullscreenStyle(window, YES, 5.0);
+      // The fullscreen style bit is set before AppKit completes its space
+      // transition. Do not request exit during that intermediate state: Zed
+      // likewise uses the native enter/exit lifecycle callbacks to separate
+      // its restore work from the toggle request.
+      BOOL entered = waitForFullscreenNotification(&didEnterFullscreen, 5.0) &&
+        waitForFullscreenStyle(window, YES, 1.0);
       BOOL exited = NO;
       if (entered) {
         [window toggleFullScreen:nil];
-        exited = waitForFullscreenStyle(window, NO, 5.0);
+        exited = waitForFullscreenNotification(&didExitFullscreen, 5.0) &&
+          waitForFullscreenStyle(window, NO, 1.0);
       }
       valid = entered && exited;
       // Do not leave the runner in fullscreen after a timeout or an AppKit
       // transition error. A close must happen only after a best-effort exit.
       if (!exited && (window.styleMask & NSWindowStyleMaskFullScreen) != 0) {
         [window toggleFullScreen:nil];
-        (void)waitForFullscreenStyle(window, NO, 5.0);
+        (void)waitForFullscreenNotification(&didExitFullscreen, 5.0);
+        (void)waitForFullscreenStyle(window, NO, 1.0);
       }
-      [window orderOut:nil];
-      [window close];
+      [notifications removeObserver:enterObserver];
+      [notifications removeObserver:exitObserver];
+      if ((window.styleMask & NSWindowStyleMaskFullScreen) == 0) {
+        [window orderOut:nil];
+        [window close];
+      }
     }
     [view release];
     [window release];

@@ -16,7 +16,8 @@ callback bindings and the resulting drawable-size refresh.
 Zed invokes AppKit's asynchronous `toggleFullScreen:` and tracks the entered
 and restored fullscreen states through the native window lifecycle. Nimculus
 now exercises the same transition with a temporary Cocoa/Metal window, waiting
-for the `NSWindowStyleMaskFullScreen` state both on entry and exit. Fullscreen
+for `NSWindowDidEnterFullScreenNotification` / `NSWindowDidExitFullScreenNotification`
+as well as the corresponding `NSWindowStyleMaskFullScreen` state. Fullscreen
 temporarily changes the active GUI space, so this contract is opt-in through
 `NIMCULUS_REQUIRE_FULLSCREEN_TRANSITION=1` and is enabled only by the manually
 dispatched self-hosted macOS GUI workflow. Normal local and push-triggered
