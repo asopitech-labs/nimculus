@@ -2657,7 +2657,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
 
 @end
 
-@interface NimculusAppDelegate : NSObject <NSApplicationDelegate>
+@interface NimculusAppDelegate : NSObject <NSApplicationDelegate, NSWindowDelegate>
 @property(nonatomic, strong) NSWindow *window;
 @property(nonatomic, strong) NimculusMetalView *view;
 @property(nonatomic, strong) NSTimer *workspaceSearchTimer;
@@ -2690,6 +2690,15 @@ static void applyTerminalRuns(NSTextView *terminal) {
     return NO;
   }
   return [self confirmClose];
+}
+
+- (void)windowDidChangeScreen:(NSNotification *)notification {
+  // Zed refreshes its display link, scale factor, and drawable whenever
+  // AppKit assigns a window to a new screen. Nimculus does not own a display
+  // link, but it must still refresh the CAMetalLayer and text resources even
+  // when the window bounds did not change (for example, between two Retina
+  // displays with a different backing scale).
+  if (notification.object == self.window) [self.view updateBackingScale];
 }
 
 - (void)presentAlertSheet:(NSAlert *)alert
@@ -3353,6 +3362,7 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
   self.window.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
   self.window.title = @"Nimculus";
   self.window.acceptsMouseMovedEvents = YES;
+  self.window.delegate = self;
   [self setupMainMenu];
   self.view = [[NimculusMetalView alloc] initWithFrame:frame];
   g_active_view = self.view;
@@ -3525,6 +3535,44 @@ bool nimculus_platform_validate_window_lifecycle(void) {
   }
   // AppKit may deliver the final view-detachment callback while the pool is
   // draining, so restore the observable metrics only after that boundary.
+  g_metrics = previousMetrics;
+  return valid;
+}
+
+bool nimculus_platform_validate_window_delegate(void) {
+  NimculusPlatformMetrics previousMetrics = g_metrics;
+  BOOL valid = NO;
+  @autoreleasepool {
+    NSWindow *window = [[NSWindow alloc]
+      initWithContentRect:NSMakeRect(0.0, 0.0, 640.0, 480.0)
+      styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                 NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
+      backing:NSBackingStoreBuffered defer:NO];
+    NimculusAppDelegate *delegate = [NimculusAppDelegate new];
+    NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
+      NSMakeRect(0.0, 0.0, 640.0, 480.0)];
+    if (window && delegate && view) {
+      delegate.window = window;
+      delegate.view = view;
+      window.contentView = view;
+      window.delegate = delegate;
+      [view updateBackingScale];
+      CGFloat scale = window.backingScaleFactor;
+      [delegate windowDidChangeScreen:[NSNotification notificationWithName:
+        NSWindowDidChangeScreenNotification object:window]];
+      BOOL refreshed = scale > 0.0 &&
+        fabs(view.metalLayer.drawableSize.width - view.bounds.size.width * scale) < 0.5 &&
+        fabs(view.metalLayer.drawableSize.height - view.bounds.size.height * scale) < 0.5;
+      valid = window.delegate == delegate &&
+        [delegate respondsToSelector:@selector(windowShouldClose:)] &&
+        [delegate respondsToSelector:@selector(windowDidChangeScreen:)] && refreshed;
+      window.delegate = nil;
+      [window close];
+    }
+    [view release];
+    [delegate release];
+    [window release];
+  }
   g_metrics = previousMetrics;
   return valid;
 }

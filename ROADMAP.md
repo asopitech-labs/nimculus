@@ -83,6 +83,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 **実装範囲：**
 
 - [x] macOS プラットフォーム層：Objective-C Runtime 連携、`NSApplication`、`NSWindow`、`NSView`、`CAMetalLayer`、イベントループ
+- [x] `NSWindowDelegate`による未保存変更のclose確認とscreen-change後のdrawable／文字テクスチャ更新
 - [x] Retina scale factor
 - [x] `viewDidChangeBackingProperties`によるディスプレイ移動時のdrawable・文字テクスチャ再生成
 - [x] ウィンドウリサイズ

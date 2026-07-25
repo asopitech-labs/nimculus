@@ -1,5 +1,16 @@
 # Design Decisions
 
+## M1-017: Bind window lifecycle callbacks to the application delegate
+
+Zed registers macOS window callbacks for both close handling and display
+changes, refreshing its drawable when AppKit moves the window to another
+screen. Nimculus already implemented `windowShouldClose:` but had not assigned
+the application delegate as the `NSWindow` delegate. The main window now binds
+that delegate, so dirty-document close confirmation is reached in normal use.
+`windowDidChangeScreen:` refreshes the Metal layer, metrics, and scale-bound
+text resources even when no resize occurs. The native contract verifies both
+callback bindings and the resulting drawable-size refresh.
+
 ## M1-016: Restrict real fullscreen transitions to the dedicated GUI runner
 
 Zed invokes AppKit's asynchronous `toggleFullScreen:` and tracks the entered

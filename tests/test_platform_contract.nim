@@ -79,6 +79,14 @@ suite "macOS platform contract":
     else:
       echo "  [SKIP] native window lifecycle (GUI services unavailable in this session)"
 
+  test "native app delegate receives close and screen-change window callbacks":
+    if platformValidateWindowDelegate():
+      check true
+    elif nativeGuiValidationRequired():
+      check false
+    else:
+      echo "  [SKIP] native window delegate (GUI services unavailable in this session)"
+
   test "native window enters and exits macOS fullscreen":
     if fullscreenTransitionValidationRequired():
       check platformValidateFullscreenTransition()
