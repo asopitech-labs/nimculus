@@ -280,6 +280,16 @@ proc activateSplitPane*(session: var EditorSession, pane: int): bool =
   session.splitActivePane = pane
   true
 
+proc moveActivePaneCursor*(session: var EditorSession,
+                           primaryView: var EditorViewState, offset: int,
+                           selecting = false) =
+  ## Keep all position-based operations in the pane that owns focus.  The
+  ## document is shared by a split, but each pane owns its cursor and anchor.
+  if session.split and session.splitActivePane == 1:
+    session.secondaryView.moveCursor(offset, selecting)
+  else:
+    primaryView.moveCursor(offset, selecting)
+
 proc closeSplit*(session: var EditorSession) =
   session.split = false
   session.splitActivePane = 0

@@ -293,6 +293,9 @@ suite "M5 editor services":
     session.secondaryView.scrollLine = 4
     check session.activateSplitPane(1)
     check session.splitActivePane == 1
+    session.moveActivePaneCursor(view, 4)
+    check session.secondaryView.cursor == 4
+    check view.cursor == 5
     var secondary = session.secondaryView
     check session.switchTab(view, secondary, -1)
     check session.activeTab == 1
@@ -301,7 +304,7 @@ suite "M5 editor services":
     secondary.scrollLine = 6
     check session.switchTab(view, secondary, 1)
     check session.activeTab == 2
-    check secondary.cursor == 1
+    check secondary.cursor == 4
     check secondary.scrollLine == 4
     session.closeSplit()
     check not session.split

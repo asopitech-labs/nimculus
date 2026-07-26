@@ -1472,6 +1472,15 @@ tested separately from PTY I/O, so a visible terminal cannot mutate the editor
 through an unhandled Option/Control selector. Option-left/right use readline's
 `ESC b` / `ESC f` word-motion sequences, alongside the Option-delete mappings.
 
+## M8-027: Apply accepted completion cursor state to the focused split pane
+
+LSP completion requests already use the focused pane's cursor, but completion
+acceptance previously advanced the primary editor view unconditionally. With a
+shared document buffer this edits the correct bytes while leaving the focused
+secondary pane's cursor stale. Completion acceptance now uses the existing
+active-pane cursor helper, so replacement, cursor geometry, candidate rects,
+and the next LSP request all remain in the pane that owned the request.
+
 ## M1-005: Initialize the Metal drawable on first window attachment
 
 `viewDidMoveToWindow` calls the same backing-scale update used by layout and

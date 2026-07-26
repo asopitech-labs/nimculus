@@ -1539,10 +1539,7 @@ proc activeEditorSelection(): tuple[startByte, endByte: int] =
     editorViewState.selectedRange()
 
 proc moveActiveEditorCursor(offset: int, selecting = false) =
-  if editorSession.split and editorSession.splitActivePane == 1:
-    editorSession.secondaryView.moveCursor(offset, selecting)
-  else:
-    editorViewState.moveCursor(offset, selecting)
+  editorSession.moveActivePaneCursor(editorViewState, offset, selecting)
 
 proc syncEditorCursor() =
   when defined(macosx):
@@ -1908,7 +1905,7 @@ when defined(macosx):
     if edit.endByte <= edit.startByte and edit.text.len == 0: return
     document[].buffer.edit(Edit(startByte: edit.startByte, endByte: edit.endByte,
       text: edit.text))
-    editorViewState.moveCursor(edit.startByte + edit.text.len)
+    moveActiveEditorCursor(edit.startByte + edit.text.len)
     lspBridge.hideCompletion()
     platformSetEditorCompletions("".cstring, 0)
     syncEditorCursor()
