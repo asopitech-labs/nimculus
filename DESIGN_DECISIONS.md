@@ -1460,6 +1460,17 @@ the PieceTable line index.  This keeps Option-delete, Control-K/U-style line
 deletion, and Command-Shift document selection in the same keymap/IME fallback
 path as existing editor commands, without adding Cocoa APIs to the core.
 
+## M10-024: Consume editor selectors while the integrated terminal owns input
+
+The native Metal view remains the AppKit text-input client while the terminal
+overlay is visible. Therefore an AppKit selector not explicitly handled by the
+terminal used to fall through and edit the active source file. The terminal now
+owns a pure semantic-command mapping: arrows, Home/End, page movement and
+editing operations emit conventional VT/readline sequences; selection and
+history-only editor commands are consumed with no bytes. The mapping is unit
+tested separately from PTY I/O, so a visible terminal cannot mutate the editor
+through an unhandled Option/Control selector.
+
 ## M1-005: Initialize the Metal drawable on first window attachment
 
 `viewDidMoveToWindow` calls the same backing-scale update used by layout and

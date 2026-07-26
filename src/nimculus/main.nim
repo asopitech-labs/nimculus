@@ -2468,40 +2468,25 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   when defined(macosx):
     if editorTerminalVisible and editorTerminal != nil:
       case name
-      of "insertNewline": writeNativeTerminalInput("\r")
-      of "insertTab": writeNativeTerminalInput("\t")
-      of "deleteBackward": writeNativeTerminalInput("\x7f")
-      of "moveLeft": writeNativeTerminalInput(
-        if editorTerminal.screen.applicationCursorKeys: "\x1bOD" else: "\x1b[D")
-      of "moveRight": writeNativeTerminalInput(
-        if editorTerminal.screen.applicationCursorKeys: "\x1bOC" else: "\x1b[C")
-      of "moveUp": writeNativeTerminalInput(
-        if editorTerminal.screen.applicationCursorKeys: "\x1bOA" else: "\x1b[A")
-      of "moveDown": writeNativeTerminalInput(
-        if editorTerminal.screen.applicationCursorKeys: "\x1bOB" else: "\x1b[B")
-      of "moveToBeginningOfLine": writeNativeTerminalInput(
-        if editorTerminal.screen.applicationCursorKeys: "\x1bOH" else: "\x1b[H")
-      of "moveToEndOfLine": writeNativeTerminalInput(
-        if editorTerminal.screen.applicationCursorKeys: "\x1bOF" else: "\x1b[F")
-      of "pageUp": writeNativeTerminalInput("\x1b[5~")
-      of "pageDown": writeNativeTerminalInput("\x1b[6~")
-      of "cancel": writeNativeTerminalInput("\x03")
       of "copy":
         let copied = editorTerminal.screen.selectedText(editorTerminalSelection)
         if copied.len > 0: clipboardSet(copied.cstring, uint32(copied.len))
+        return
       of "selectAll":
         editorTerminalSelection = TerminalSelection(
           anchor: TerminalPoint(row: 0, column: 0),
           active: TerminalPoint(row: max(0, editorTerminal.screen.lineCount() - 1),
             column: editorTerminal.screen.columns))
         syncNativeTerminalSelection()
-      of "paste": writeNativeTerminalInput(clipboardGet(), paste = true)
-      else: discard
-      if name in ["insertNewline", "insertTab", "deleteBackward", "moveLeft",
-                  "moveRight", "moveUp", "moveDown", "moveToBeginningOfLine",
-                  "moveToEndOfLine", "pageUp", "pageDown", "cancel", "copy",
-                  "selectAll", "paste"]:
         return
+      of "paste":
+        writeNativeTerminalInput(clipboardGet(), paste = true)
+        return
+      else:
+        let terminalInput = terminalCommandInput(editorTerminal.screen, name)
+        if terminalInput.handled:
+          if terminalInput.input.len > 0: writeNativeTerminalInput(terminalInput.input)
+          return
   let document = activeDocument()
   when defined(macosx):
     if handleSecondaryEditorCommand(name, document): return

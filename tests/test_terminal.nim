@@ -8,6 +8,18 @@ when defined(macosx):
   import std/posix
 
 suite "M10 terminal core":
+  test "routes macOS editing commands to the terminal without editor fallback":
+    var screen = initTerminalScreen()
+    check terminalCommandInput(screen, "moveLeft") == (true, "\x1b[D")
+    check terminalCommandInput(screen, "deleteWordBackward") == (true, "\x1b\x7f")
+    check terminalCommandInput(screen, "deleteWordForward") == (true, "\x1bd")
+    check terminalCommandInput(screen, "deleteToBeginningOfLine") == (true, "\x15")
+    check terminalCommandInput(screen, "deleteToEndOfLine") == (true, "\x0b")
+    check terminalCommandInput(screen, "selectToEndOfDocument") == (true, "")
+    check terminalCommandInput(screen, "unknown") == (false, "")
+    screen.applicationCursorKeys = true
+    check terminalCommandInput(screen, "moveLeft") == (true, "\x1bOD")
+
   test "parses ANSI cursor movement and scrollback":
     var screen = initTerminalScreen(6, 2, 4)
     screen.feed("one\r\ntwo\r\nthree")

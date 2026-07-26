@@ -177,6 +177,40 @@ proc initTerminalScreen*(columns = 80, rows = 24,
   result.lines = newSeq[seq[TerminalCell]](result.rows)
   for row in 0 ..< result.rows: result.lines[row] = result.blankRow()
 
+proc terminalCommandInput*(screen: TerminalScreen, command: string):
+    tuple[handled: bool, input: string] =
+  ## Map AppKit's semantic editing commands to conventional terminal input.
+  ## Returning `handled` without bytes is deliberate for editor-only selection
+  ## and history commands: a visible terminal must never let them mutate the
+  ## underlying editor document.
+  case command
+  of "insertNewline": (true, "\r")
+  of "insertTab": (true, "\t")
+  of "deleteBackward": (true, "\x7f")
+  of "deleteForward": (true, "\x1b[3~")
+  of "deleteWordBackward": (true, "\x1b\x7f")
+  of "deleteWordForward": (true, "\x1bd")
+  of "deleteToBeginningOfLine": (true, "\x15")
+  of "deleteToEndOfLine": (true, "\x0b")
+  of "moveLeft": (true, if screen.applicationCursorKeys: "\x1bOD" else: "\x1b[D")
+  of "moveRight": (true, if screen.applicationCursorKeys: "\x1bOC" else: "\x1b[C")
+  of "moveUp": (true, if screen.applicationCursorKeys: "\x1bOA" else: "\x1b[A")
+  of "moveDown": (true, if screen.applicationCursorKeys: "\x1bOB" else: "\x1b[B")
+  of "moveToBeginningOfLine": (true,
+    if screen.applicationCursorKeys: "\x1bOH" else: "\x1b[H")
+  of "moveToEndOfLine": (true,
+    if screen.applicationCursorKeys: "\x1bOF" else: "\x1b[F")
+  of "pageUp": (true, "\x1b[5~")
+  of "pageDown": (true, "\x1b[6~")
+  of "cancel": (true, "\x03")
+  of "selectLeft", "selectRight", "selectUp", "selectDown",
+      "selectToBeginningOfLine", "selectToEndOfLine",
+      "moveToBeginningOfDocument", "moveToEndOfDocument",
+      "selectToBeginningOfDocument", "selectToEndOfDocument",
+      "selectWordLeft", "selectWordRight", "undo", "redo", "cut":
+    (true, "")
+  else: (false, "")
+
 proc clearCell(screen: var TerminalScreen, row, column: int)
 
 proc compactInternedValues(screen: var TerminalScreen) =
