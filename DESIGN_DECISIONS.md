@@ -1449,6 +1449,17 @@ cancel dispatch independently, then verifies that composition remains pending
 until `unmarkText`. This makes IME fallback testable without claiming that a
 physical Japanese input source has been exercised in CI.
 
+## M12-034: Preserve the useful AppKit editing-selector set at the editor boundary
+
+`NSStandardKeyBindingResponding` supplies selectors beyond simple arrow-key
+movement.  In particular, AppKit defines forward word deletion, deletion to a
+line boundary, and document-boundary movement with selection extension.  The
+macOS bridge maps those selectors to semantic commands, and both primary and
+secondary editor views apply them using UTF-8/grapheme-safe word boundaries and
+the PieceTable line index.  This keeps Option-delete, Control-K/U-style line
+deletion, and Command-Shift document selection in the same keymap/IME fallback
+path as existing editor commands, without adding Cocoa APIs to the core.
+
 ## M1-005: Initialize the Metal drawable on first window attachment
 
 `viewDidMoveToWindow` calls the same backing-scale update used by layout and

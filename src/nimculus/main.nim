@@ -342,9 +342,11 @@ proc setupShortcutRegistry() =
       "moveToBeginningOfLine", "moveToEndOfLine",
       "selectToBeginningOfLine", "selectToEndOfLine",
       "moveToBeginningOfDocument", "moveToEndOfDocument",
+      "selectToBeginningOfDocument", "selectToEndOfDocument",
       "insertNewline", "insertTab", "moveWordLeft", "moveWordRight",
       "selectWordLeft", "selectWordRight", "deleteBackward", "deleteForward",
-      "deleteWordBackward", "cancel", "toggleSoftWrap"]:
+      "deleteWordBackward", "deleteWordForward", "deleteToBeginningOfLine",
+      "deleteToEndOfLine", "cancel", "toggleSoftWrap"]:
     var action: proc() {.closure.}
     if name == "openSettings":
       when defined(macosx):
@@ -2364,16 +2366,24 @@ proc handleSecondaryEditorCommand(name: string, document: ptr FileDocument): boo
     view.moveCursor(lineEndOffset(document, location.line), selecting = name.startsWith("select"))
   of "moveToBeginningOfDocument": view.moveCursor(0)
   of "moveToEndOfDocument": view.moveCursor(text.len)
+  of "selectToBeginningOfDocument": view.moveCursor(0, selecting = true)
+  of "selectToEndOfDocument": view.moveCursor(text.len, selecting = true)
   of "moveWordLeft": view.moveCursor(previousWordBoundary(text, view.cursor))
   of "selectWordLeft": view.moveCursor(previousWordBoundary(text, view.cursor), selecting = true)
   of "moveWordRight": view.moveCursor(nextWordBoundary(text, view.cursor))
   of "selectWordRight": view.moveCursor(nextWordBoundary(text, view.cursor), selecting = true)
-  of "deleteBackward", "deleteForward", "deleteWordBackward":
+  of "deleteBackward", "deleteForward", "deleteWordBackward", "deleteWordForward",
+      "deleteToBeginningOfLine", "deleteToEndOfLine":
     let selected = view.selectedRange()
     var start = selected.startByte
     var finish = selected.endByte
     if start == finish:
       if name == "deleteWordBackward": start = previousWordBoundary(text, start)
+      elif name == "deleteWordForward": finish = nextWordBoundary(text, finish)
+      elif name == "deleteToBeginningOfLine":
+        start = document[].buffer.lineStarts[document[].buffer.lineColumn(start).line]
+      elif name == "deleteToEndOfLine":
+        finish = lineEndOffset(document, document[].buffer.lineColumn(finish).line)
       elif name == "deleteBackward": start = previousBoundary(text, start)
       else: finish = nextBoundary(text, finish)
     if finish > start:
@@ -3291,6 +3301,12 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "moveToEndOfDocument" and document != nil:
     editorViewState.moveCursor(document[].buffer.toString().len)
     syncEditorCursor()
+  elif name == "selectToBeginningOfDocument" and document != nil:
+    editorViewState.moveCursor(0, selecting = true)
+    syncEditorCursor()
+  elif name == "selectToEndOfDocument" and document != nil:
+    editorViewState.moveCursor(document[].buffer.toString().len, selecting = true)
+    syncEditorCursor()
   elif name == "insertNewline" and document != nil:
     receiveNativeText("\n".cstring, false)
   elif name == "insertTab" and document != nil:
@@ -3315,12 +3331,18 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     editorViewState.moveCursor(nextWordBoundary(document[].buffer.toString(),
         editorViewState.cursor), selecting = true)
     syncEditorCursor()
-  elif name in ["deleteBackward", "deleteForward", "deleteWordBackward"] and document != nil:
+  elif name in ["deleteBackward", "deleteForward", "deleteWordBackward", "deleteWordForward",
+                "deleteToBeginningOfLine", "deleteToEndOfLine"] and document != nil:
     let selected = editorViewState.selectedRange()
     var start = selected.startByte
     var finish = selected.endByte
     if start == finish:
       if name == "deleteWordBackward": start = previousWordBoundary(document[].buffer.toString(), start)
+      elif name == "deleteWordForward": finish = nextWordBoundary(document[].buffer.toString(), finish)
+      elif name == "deleteToBeginningOfLine":
+        start = document[].buffer.lineStarts[document[].buffer.lineColumn(start).line]
+      elif name == "deleteToEndOfLine":
+        finish = lineEndOffset(document, document[].buffer.lineColumn(finish).line)
       elif name == "deleteBackward": start = previousBoundary(document[].buffer.toString(), start)
       else: finish = nextBoundary(document[].buffer.toString(), finish)
     if finish > start:

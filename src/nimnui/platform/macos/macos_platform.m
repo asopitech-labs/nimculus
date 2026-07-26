@@ -2566,6 +2566,8 @@ static void applyTerminalRuns(NSTextView *terminal) {
   else if ([name isEqualToString:@"moveToEndOfLineAndModifySelection:"]) { if (g_command_callback) g_command_callback("selectToEndOfLine"); }
   else if ([name isEqualToString:@"moveToBeginningOfDocument:"]) { if (g_command_callback) g_command_callback("moveToBeginningOfDocument"); }
   else if ([name isEqualToString:@"moveToEndOfDocument:"]) { if (g_command_callback) g_command_callback("moveToEndOfDocument"); }
+  else if ([name isEqualToString:@"moveToBeginningOfDocumentAndModifySelection:"]) { if (g_command_callback) g_command_callback("selectToBeginningOfDocument"); }
+  else if ([name isEqualToString:@"moveToEndOfDocumentAndModifySelection:"]) { if (g_command_callback) g_command_callback("selectToEndOfDocument"); }
   else if ([name isEqualToString:@"insertNewline:"]) { if (g_command_callback) g_command_callback("insertNewline"); }
   else if ([name isEqualToString:@"insertTab:"]) { if (g_command_callback) g_command_callback("insertTab"); }
   else if ([name isEqualToString:@"moveWordLeft:"]) { if (g_command_callback) g_command_callback("moveWordLeft"); }
@@ -2575,6 +2577,9 @@ static void applyTerminalRuns(NSTextView *terminal) {
   else if ([name isEqualToString:@"deleteBackward:"]) { if (g_command_callback) g_command_callback("deleteBackward"); }
   else if ([name isEqualToString:@"deleteForward:"]) { if (g_command_callback) g_command_callback("deleteForward"); }
   else if ([name isEqualToString:@"deleteWordBackward:"]) { if (g_command_callback) g_command_callback("deleteWordBackward"); }
+  else if ([name isEqualToString:@"deleteWordForward:"]) { if (g_command_callback) g_command_callback("deleteWordForward"); }
+  else if ([name isEqualToString:@"deleteToBeginningOfLine:"]) { if (g_command_callback) g_command_callback("deleteToBeginningOfLine"); }
+  else if ([name isEqualToString:@"deleteToEndOfLine:"]) { if (g_command_callback) g_command_callback("deleteToEndOfLine"); }
   else if ([name isEqualToString:@"cancelOperation:"]) { if (g_command_callback) g_command_callback("cancel"); }
 }
 - (void)undo:(id)sender { if (g_command_callback) g_command_callback("undo"); }
@@ -4316,6 +4321,18 @@ bool nimculus_platform_validate_ime_command_dispatch(void) {
     BOOL deleted = strcmp(g_validation_command, "deleteBackward") == 0 && view.hasMarkedText;
     [view doCommandBySelector:@selector(cancelOperation:)];
     BOOL cancelled = strcmp(g_validation_command, "cancel") == 0 && view.hasMarkedText;
+    [view doCommandBySelector:@selector(moveToBeginningOfDocumentAndModifySelection:)];
+    BOOL selectDocumentStart = strcmp(g_validation_command, "selectToBeginningOfDocument") == 0 &&
+      view.hasMarkedText;
+    [view doCommandBySelector:@selector(moveToEndOfDocumentAndModifySelection:)];
+    BOOL selectDocumentEnd = strcmp(g_validation_command, "selectToEndOfDocument") == 0 &&
+      view.hasMarkedText;
+    [view doCommandBySelector:@selector(deleteWordForward:)];
+    BOOL wordForward = strcmp(g_validation_command, "deleteWordForward") == 0 && view.hasMarkedText;
+    [view doCommandBySelector:@selector(deleteToBeginningOfLine:)];
+    BOOL lineStart = strcmp(g_validation_command, "deleteToBeginningOfLine") == 0 && view.hasMarkedText;
+    [view doCommandBySelector:@selector(deleteToEndOfLine:)];
+    BOOL lineEnd = strcmp(g_validation_command, "deleteToEndOfLine") == 0 && view.hasMarkedText;
     [view unmarkText];
     BOOL unmarked = !view.hasMarkedText && view.markedRange.location == NSNotFound;
 
@@ -4323,7 +4340,8 @@ bool nimculus_platform_validate_ime_command_dispatch(void) {
     g_text_callback = previousTextCallback;
     g_selection_callback = previousSelectionCallback;
     g_command_callback = previousCommandCallback;
-    return moved && deleted && cancelled && unmarked;
+    return moved && deleted && cancelled && selectDocumentStart && selectDocumentEnd &&
+      wordForward && lineStart && lineEnd && unmarked;
   }
 }
 
