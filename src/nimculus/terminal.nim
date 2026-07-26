@@ -194,6 +194,8 @@ proc terminalCommandInput*(screen: TerminalScreen, command: string):
   of "deleteToEndOfLine": (true, "\x0b")
   of "moveLeft": (true, if screen.applicationCursorKeys: "\x1bOD" else: "\x1b[D")
   of "moveRight": (true, if screen.applicationCursorKeys: "\x1bOC" else: "\x1b[C")
+  of "moveWordLeft": (true, "\x1bb")
+  of "moveWordRight": (true, "\x1bf")
   of "moveUp": (true, if screen.applicationCursorKeys: "\x1bOA" else: "\x1b[A")
   of "moveDown": (true, if screen.applicationCursorKeys: "\x1bOB" else: "\x1b[B")
   of "moveToBeginningOfLine": (true,

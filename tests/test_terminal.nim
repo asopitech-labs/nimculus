@@ -11,6 +11,8 @@ suite "M10 terminal core":
   test "routes macOS editing commands to the terminal without editor fallback":
     var screen = initTerminalScreen()
     check terminalCommandInput(screen, "moveLeft") == (true, "\x1b[D")
+    check terminalCommandInput(screen, "moveWordLeft") == (true, "\x1bb")
+    check terminalCommandInput(screen, "moveWordRight") == (true, "\x1bf")
     check terminalCommandInput(screen, "deleteWordBackward") == (true, "\x1b\x7f")
     check terminalCommandInput(screen, "deleteWordForward") == (true, "\x1bd")
     check terminalCommandInput(screen, "deleteToBeginningOfLine") == (true, "\x15")

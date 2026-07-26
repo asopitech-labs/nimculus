@@ -1469,7 +1469,8 @@ owns a pure semantic-command mapping: arrows, Home/End, page movement and
 editing operations emit conventional VT/readline sequences; selection and
 history-only editor commands are consumed with no bytes. The mapping is unit
 tested separately from PTY I/O, so a visible terminal cannot mutate the editor
-through an unhandled Option/Control selector.
+through an unhandled Option/Control selector. Option-left/right use readline's
+`ESC b` / `ESC f` word-motion sequences, alongside the Option-delete mappings.
 
 ## M1-005: Initialize the Metal drawable on first window attachment
 
