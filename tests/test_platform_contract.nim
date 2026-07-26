@@ -129,6 +129,9 @@ suite "macOS platform contract":
   test "native IME composition preserves UTF-16 and UTF-8 boundaries":
     check platformValidateImeComposition()
 
+  test "IME command fallback dispatches native editor commands":
+    check platformValidateImeCommandDispatch()
+
   test "native IME candidate rect follows the UTF-16 cursor position":
     if platformValidateImeCandidateRect():
       check true

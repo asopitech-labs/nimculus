@@ -17,6 +17,7 @@ bool nimculus_platform_validate_application_alert_sheet(void);
 bool nimculus_platform_validate_file_open_events(void);
 bool nimculus_platform_validate_external_change_sheet(void);
 bool nimculus_platform_validate_ime_composition(void);
+bool nimculus_platform_validate_ime_command_dispatch(void);
 bool nimculus_platform_validate_input_event_fields(void);
 bool nimculus_platform_validate_clipboard_roundtrip(void);
 bool nimculus_platform_validate_glyph_atlas(void);

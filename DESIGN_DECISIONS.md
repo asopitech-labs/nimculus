@@ -1436,6 +1436,19 @@ marked text from committed buffer edits while keeping the AppKit marked-text
 surface and editor document state independent. The smoke restores all global
 callbacks and editor selection state before returning.
 
+## M3-031: Return unhandled IME commands through AppKit selector dispatch
+
+Zed's macOS window gives its input handler the first chance to consume keys
+while composition is active or an IME input source owns a printable key. If the
+handler does not consume the key, AppKit invokes `doCommandBySelector:` so it
+can be resolved by the editor's normal keybinding path. Nimculus keeps the same
+boundary: `NimculusMetalView` maps AppKit selectors to semantic editor commands
+without committing or cancelling `markedText`. The native contract starts a
+Japanese marked-text composition, checks left movement, backward deletion, and
+cancel dispatch independently, then verifies that composition remains pending
+until `unmarkText`. This makes IME fallback testable without claiming that a
+physical Japanese input source has been exercised in CI.
+
 ## M1-005: Initialize the Metal drawable on first window attachment
 
 `viewDidMoveToWindow` calls the same backing-scale update used by layout and

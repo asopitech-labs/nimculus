@@ -24,6 +24,7 @@ proc platformValidateVisibleTextAssets*(): bool {.importc: "nimculus_platform_va
 proc platformValidateFileOpenEvents*(): bool {.importc: "nimculus_platform_validate_file_open_events", cdecl.}
 proc platformValidateExternalChangeSheet*(): bool {.importc: "nimculus_platform_validate_external_change_sheet", cdecl.}
 proc platformValidateImeComposition*(): bool {.importc: "nimculus_platform_validate_ime_composition", cdecl.}
+proc platformValidateImeCommandDispatch*(): bool {.importc: "nimculus_platform_validate_ime_command_dispatch", cdecl.}
 proc platformValidateImeCandidateRect*(): bool {.importc: "nimculus_platform_validate_ime_candidate_rect", cdecl.}
 proc platformValidateInputEventFields*(): bool {.importc: "nimculus_platform_validate_input_event_fields", cdecl.}
 proc platformValidateClipboardRoundtrip*(): bool {.importc: "nimculus_platform_validate_clipboard_roundtrip", cdecl.}

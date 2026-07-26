@@ -4287,6 +4287,46 @@ bool nimculus_platform_validate_ime_composition(void) {
   }
 }
 
+bool nimculus_platform_validate_ime_command_dispatch(void) {
+  @autoreleasepool {
+    NimculusTextCallback previousTextCallback = g_text_callback;
+    NimculusSelectionCallback previousSelectionCallback = g_selection_callback;
+    NimculusCommandCallback previousCommandCallback = g_command_callback;
+    g_text_callback = NULL;
+    g_selection_callback = NULL;
+    g_command_callback = validationCommandCallback;
+    g_validation_command[0] = '\0';
+    NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
+      NSMakeRect(0.0, 0.0, 640.0, 480.0)];
+    if (!view) {
+      g_text_callback = previousTextCallback;
+      g_selection_callback = previousSelectionCallback;
+      g_command_callback = previousCommandCallback;
+      return false;
+    }
+
+    // Zed gives an active input handler the first opportunity to consume a
+    // key. When it declines, AppKit calls doCommandBySelector:, which must
+    // return the editor command without committing or cancelling marked text.
+    [view setMarkedText:@"かな" selectedRange:NSMakeRange(1, 0)
+      replacementRange:NSMakeRange(NSNotFound, 0)];
+    [view doCommandBySelector:@selector(moveLeft:)];
+    BOOL moved = strcmp(g_validation_command, "moveLeft") == 0 && view.hasMarkedText;
+    [view doCommandBySelector:@selector(deleteBackward:)];
+    BOOL deleted = strcmp(g_validation_command, "deleteBackward") == 0 && view.hasMarkedText;
+    [view doCommandBySelector:@selector(cancelOperation:)];
+    BOOL cancelled = strcmp(g_validation_command, "cancel") == 0 && view.hasMarkedText;
+    [view unmarkText];
+    BOOL unmarked = !view.hasMarkedText && view.markedRange.location == NSNotFound;
+
+    [view release];
+    g_text_callback = previousTextCallback;
+    g_selection_callback = previousSelectionCallback;
+    g_command_callback = previousCommandCallback;
+    return moved && deleted && cancelled && unmarked;
+  }
+}
+
 bool nimculus_platform_validate_ime_candidate_rect(void) {
   NimculusPlatformMetrics previousMetrics = g_metrics;
   BOOL valid = NO;

@@ -215,6 +215,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 - [x] `setMarkedText`のreplacement rangeをUTF-16からUTF-8 byte選択へ変換して編集コアへ通知
 - [x] `insertText`のreplacement rangeもUTF-16からUTF-8 byte選択へ変換し、サロゲートペア途中を境界にしない
 - [x] `setMarkedText` → committed `insertText` → `unmarkText` のコールバック順序と、日本語のUTF-16/UTF-8境界をnative contractで検証（実機IME接続は未確認）
+- [x] IMEが処理しない移動・削除・cancel selectorを通常のeditor commandへ戻し、marked textを維持するnative contractを検証
 - [x] エディタのUTF-8 byte選択範囲をNSTextInputClientのUTF-16 selectedRangeへ変換
 - [x] ネイティブから返る選択位置をgrapheme boundaryへクランプ
 - [x] Zed/AppKit契約を確認し、`NSTextInputClient`に存在しない`setSelectedRange:`は追加せず、Nim→nativeの選択同期とIME replacement callbackを分離
