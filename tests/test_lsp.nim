@@ -7,6 +7,8 @@ import nimculus/lsp
 when defined(macosx):
   import std/posix
 
+  proc getpgid(pid: Pid): Pid {.importc, header: "<unistd.h>".}
+
 suite "M8 LSP protocol foundation":
   test "encodes Content-Length as UTF-8 byte length":
     let payload = %*{"jsonrpc": "2.0", "method": "window/logMessage", "params": {"message": "日本語"}}
@@ -96,13 +98,32 @@ suite "M8 LSP protocol foundation":
 
   when defined(macosx):
     test "stops a language server process group with its descendants":
-      let client = startLspProcess("/bin/sh", ["-c", "sleep 30 & wait"])
+      let childPidPath = "/tmp/nimculus-test-lsp-child-pid"
+      let childTermPath = "/tmp/nimculus-test-lsp-child-term"
+      if fileExists(childPidPath): removeFile(childPidPath)
+      if fileExists(childTermPath): removeFile(childTermPath)
+      defer:
+        if fileExists(childPidPath): removeFile(childPidPath)
+        if fileExists(childTermPath): removeFile(childTermPath)
+      # The child writes an acknowledgement only from its TERM trap. This
+      # verifies that stop signals the entire verified process group, without
+      # confusing an already-dead zombie with a live helper process.
+      let client = startLspProcess("/bin/sh", ["-c",
+        "trap '' TERM; (trap 'echo term > " & childTermPath &
+        "; exit' TERM; while :; do sleep 1; done) & child=$!; echo $child > " &
+        childPidPath & "; wait"])
       check client.processGroupId > 0
-      sleep(20)
-      let processGroupId = client.processGroupId
+      for _ in 0 ..< 20:
+        if fileExists(childPidPath): break
+        sleep(10)
+      check fileExists(childPidPath)
+      let childPid = Pid(parseInt(readFile(childPidPath).strip))
+      check getpgid(childPid) == client.processGroupId
       discard client.stop()
-      check kill(-processGroupId, 0) == -1
-      check errno == ESRCH
+      for _ in 0 ..< 100:
+        if fileExists(childTermPath): break
+        sleep(10)
+      check fileExists(childTermPath)
 
   test "releases an exited language server before restart":
     let client = startLspProcess("/bin/sh", ["-c", "exit 0"])

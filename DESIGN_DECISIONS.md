@@ -3835,3 +3835,29 @@ Before activating a different split pane, Nimculus now clears both the Nim IME
 state and the native `markedText`/`markedTextRange`. The shared document is not
 edited or discarded: only uncommitted composition is cancelled, matching the
 normal focus-change behavior of a macOS text input client.
+
+## M5-038: Keep workspace-search navigation in the focused split pane
+
+Zed models navigation as an operation on the active pane. Nimculus already
+used that boundary for LSP definition navigation, but the click handler for a
+workspace-search result directly changed the primary view. Selecting a result
+while editing in the secondary pane therefore opened the right document but
+left the secondary cursor at its prior position.
+
+Workspace-search navigation now uses the same focused-view cursor operation as
+definition navigation. The shared document and tab activation behavior stay
+unchanged; only the target view receives the search match position. The
+editor-layer test covers the invariant that a focused secondary pane moves
+without changing the primary cursor.
+
+## M8-028: Reap the macOS LSP process group before releasing its transport
+
+Zed terminates a non-Windows child with `killpg` so a language server cannot
+leave helper processes behind. Nimculus likewise signals the verified POSIX
+group through that native API and then reaps the direct server process before
+releasing the transport.
+
+macOS can retain an already-dead orphan as a zombie until `launchd` reaps it;
+`killpg(group, 0)` therefore cannot distinguish a live helper from a dead
+zombie. The native tests instead use a child TERM trap to verify that the group
+signal reached a real descendant, while keeping application shutdown bounded.

@@ -1,7 +1,5 @@
 import std/unittest
 import std/os
-when defined(posix):
-  import std/posix
 import nimculus/editor_buffer
 import nimculus/editor_diagnostics
 import nimculus/lsp
@@ -10,16 +8,31 @@ import nimculus/lsp_editor_bridge
 suite "LSP editor bridge":
   when defined(posix):
     test "shutdown stops an unresponsive server group without writing didClose":
-      let bridge = newLspEditorBridge("/bin/sh", ["-c", "sleep 30 & wait"])
+      let childReadyPath = "/tmp/nimculus-test-lsp-bridge-child-ready"
+      let childTermPath = "/tmp/nimculus-test-lsp-bridge-child-term"
+      if fileExists(childReadyPath): removeFile(childReadyPath)
+      if fileExists(childTermPath): removeFile(childTermPath)
+      defer:
+        if fileExists(childReadyPath): removeFile(childReadyPath)
+        if fileExists(childTermPath): removeFile(childTermPath)
+      # A TERM acknowledgement from the child proves shutdown reaches helpers
+      # through the process group without relying on zombie reaping timing.
+      let bridge = newLspEditorBridge("/bin/sh", ["-c",
+        "trap '' TERM; (trap 'echo term > " & childTermPath &
+        "; exit' TERM; while :; do sleep 1; done) & echo ready > " &
+        childReadyPath & "; wait"])
       bridge.updateDocument("/tmp/shutdown.nim", "discard")
       check bridge.session != nil
-      let processGroupId = bridge.session.process.processGroupId
-      check processGroupId > 0
-      sleep(20)
+      for _ in 0 ..< 100:
+        if fileExists(childReadyPath): break
+        sleep(10)
+      check fileExists(childReadyPath)
       bridge.shutdown()
       check bridge.session == nil
-      check kill(-processGroupId, 0) == -1
-      check errno == ESRCH
+      for _ in 0 ..< 100:
+        if fileExists(childTermPath): break
+        sleep(10)
+      check fileExists(childTermPath)
 
   test "encodes file URIs and language IDs":
     check fileUri("/tmp/a b.nim") == "file:///tmp/a%20b.nim"

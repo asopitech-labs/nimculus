@@ -2314,7 +2314,11 @@ when defined(macosx):
     if document != nil:
       let lineIndex = max(0, match.line - 1)
       let lineStart = document[].buffer.byteOffsetAtLineColumn(lineIndex, 0)
-      editorViewState.moveCursor(min(document[].buffer.toString().len,
+      # Workspace results are a position-based navigation command. Opening a
+      # result must move the pane that owns keyboard focus, just like LSP
+      # definition navigation; otherwise a secondary-pane search silently
+      # moves the hidden primary cursor.
+      moveActiveEditorCursor(min(document[].buffer.toString().len,
         lineStart + max(0, match.column - 1)))
       syncEditorCursor()
       refreshEditorSyntax()

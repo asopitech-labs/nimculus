@@ -326,6 +326,20 @@ suite "M5 editor services":
     check secondary.scrollLine == 1
     check primary.scrollLine == 3
 
+  test "focused split pane owns navigation destinations":
+    var session: EditorSession
+    var primary = newEditorView()
+    session.addTab(newDocument())
+    session.splitEditor(splitVertical)
+    primary.moveCursor(2)
+    session.secondaryView.moveCursor(1)
+    check session.activateSplitPane(1)
+    # Workspace search and LSP definition use this editor-layer boundary.
+    # Navigation must not move the primary cursor when the secondary is focused.
+    session.moveActivePaneCursor(primary, 7)
+    check primary.cursor == 2
+    check session.secondaryView.cursor == 7
+
   test "dirty tab close requires an explicit discard":
     var session: EditorSession
     var document = newDocument()

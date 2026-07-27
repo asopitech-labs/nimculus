@@ -614,6 +614,7 @@ proc cancelJson*(id: int): JsonNode =
 
 when defined(posix):
   proc getpgid(pid: Pid): Pid {.importc, header: "<unistd.h>".}
+  proc killpg(processGroupId: Pid, signal: cint): cint {.importc, header: "<signal.h>".}
 
 proc lspProcessOptions(): set[ProcessOption] =
   result = {poUsePath, poInteractive}
@@ -741,7 +742,7 @@ proc stop*(client: LspProcess, terminate = true): int =
   if client.process.running and terminate:
     when defined(posix):
       if client.processGroupId > 0:
-        discard kill(-client.processGroupId, SIGTERM)
+        discard killpg(client.processGroupId, SIGTERM)
       else:
         client.process.terminate()
     else:
@@ -752,7 +753,7 @@ proc stop*(client: LspProcess, terminate = true): int =
   if result < 0:
     when defined(posix):
       if client.processGroupId > 0:
-        discard kill(-client.processGroupId, SIGKILL)
+        discard killpg(client.processGroupId, SIGKILL)
       else:
         client.process.kill()
     else:
