@@ -120,6 +120,22 @@ suite "M10 terminal core":
     check screen.rows == 3
     check screen.columns == 4
 
+  test "resize normalizes truncated wide cells and saved alternate grids":
+    var screen = initTerminalScreen(4, 1)
+    screen.feed("界")
+    screen.resize(1, 1)
+    check screen.lines[0].len == 1
+    check screen.lines[0][0].width == 1
+    check screen.lineText(0) == "界"
+
+    var alternate = initTerminalScreen(4, 1)
+    alternate.feed("main")
+    alternate.feed("\x1b[?1049halt")
+    alternate.resize(2, 1)
+    alternate.feed("\x1b[?1049l")
+    check alternate.lines[0].len == 2
+    check alternate.lineText(0) == "ma"
+
   test "copies a normalized selection across visible lines and scrollback":
     var screen = initTerminalScreen(8, 2, 8)
     screen.feed("first\r\nsecond\r\nthird")

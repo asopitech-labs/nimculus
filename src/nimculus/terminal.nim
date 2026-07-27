@@ -406,22 +406,48 @@ proc scrollRegionDownAt(screen: var TerminalScreen, row: int) =
     screen.lines[line] = screen.lines[line - 1]
   screen.lines[row] = screen.blankRow()
 
+proc normalizeTerminalRow(row: var seq[TerminalCell]) =
+  ## Resizing can truncate the continuation of a double-width glyph. Keep
+  ## every retained row structurally valid so a later presentation or
+  ## alternate-screen restore never observes a dangling continuation.
+  for column in 0 ..< row.len:
+    case row[column].width
+    of 0:
+      if column == 0 or row[column - 1].width != 2:
+        row[column] = TerminalCell(width: 1)
+    of 1: discard
+    of 2:
+      if column + 1 >= row.len:
+        # The trailing half was truncated. Retain the glyph but make it a
+        # one-cell fallback rather than leaving an invalid two-cell lead.
+        row[column].width = 1
+      else:
+        row[column + 1] = TerminalCell(width: 0,
+          styleIndex: row[column].styleIndex,
+          hyperlinkIndex: row[column].hyperlinkIndex)
+    else:
+      row[column].width = 1
+
+proc resizeTerminalRows(rows: var seq[seq[TerminalCell]], columns: int) =
+  for row in rows.mitems:
+    let oldLength = row.len
+    row.setLen(columns)
+    if columns > oldLength:
+      for column in oldLength ..< columns:
+        row[column].width = 1
+    normalizeTerminalRow(row)
+
 proc resize*(screen: var TerminalScreen, columns, rows: int) =
   let nextColumns = max(1, columns)
   let nextRows = max(1, rows)
   if nextColumns != screen.columns:
-    for row in screen.lines.mitems:
-      let oldLength = row.len
-      row.setLen(nextColumns)
-      if nextColumns > oldLength:
-        for column in oldLength ..< nextColumns:
-          row[column].width = 1
-    for row in screen.scrollback.mitems:
-      let oldLength = row.len
-      row.setLen(nextColumns)
-      if nextColumns > oldLength:
-        for column in oldLength ..< nextColumns:
-          row[column].width = 1
+    resizeTerminalRows(screen.lines, nextColumns)
+    resizeTerminalRows(screen.scrollback, nextColumns)
+    # An alternate screen owns a saved normal grid. Keep it at the same cell
+    # width as the active grid so DEC 1049 restore cannot resurrect rows with
+    # the previous column count.
+    resizeTerminalRows(screen.savedLines, nextColumns)
+    resizeTerminalRows(screen.savedScrollback, nextColumns)
   if nextRows > screen.lines.len:
     for _ in screen.lines.len ..< nextRows: screen.lines.add(screen.blankRow())
   elif nextRows < screen.lines.len:

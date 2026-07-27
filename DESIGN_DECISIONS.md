@@ -4008,3 +4008,16 @@ selection by the discarded count before mapping it to viewport-local AppKit
 coordinates. A selection crossing the retention boundary keeps its surviving
 suffix; one entirely evicted is cleared. The terminal-core tests cover both
 the retention counter and selection behavior.
+
+## M10-026: Keep all terminal grids structurally valid across resize
+
+The active screen, scrollback, and the normal screen saved for DEC 1049 are
+all cell grids. Resizing only the visible rows leaves the saved grid at its old
+column count; restoring it later violates the terminal's column contract.
+Shrinking an active row can also cut off the continuation cell of a wide glyph.
+
+Nimculus now resizes and normalizes every retained grid. A dangling wide lead
+at the new right edge becomes a one-cell fallback, orphan continuations become
+blank cells, and valid wide pairs retain shared style/link metadata. This
+follows the grid-invariant discipline used by Zed's Alacritty terminal state.
+Terminal tests cover both CJK truncation and alternate-screen restoration.
