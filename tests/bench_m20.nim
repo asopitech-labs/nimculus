@@ -40,6 +40,15 @@ block allocationCount:
     "kind=live_blocks;before=" & $before & ";after=" & $after &
     ";workload=" & $allocationWorkload.len)
 
+block inputLatencyStats:
+  var stats: InputLatencyStats
+  let start = cpuTime()
+  platformGetInputLatencyStats(addr stats)
+  report("input_latency_stats", cpuTime() - start,
+    "samples=" & $stats.sampleCount & ";recent_samples=" & $stats.recentSampleCount &
+    ";input_events=" & $stats.inputEventCount & ";average_ms=" & $stats.averageMs &
+    ";p95_ms=" & $stats.p95Ms & ";max_ms=" & $stats.maxMs)
+
 block editorLoad:
   let start = cpuTime()
   var buffer = initPieceTable(source)

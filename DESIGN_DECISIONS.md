@@ -606,13 +606,14 @@ finite internal default.
 ## M20-003: Measure input latency through the next presented frame
 
 Zed's input-latency tracker records the first input received in a frame
-interval and measures from that input until the next frame is presented.
-Nimculus follows the same boundary: macOS records the first event with
-mach_absolute_time and Windows records the first event with QPC, then both
-backends publish the elapsed value after a successful frame submission and
-reset the pending timestamp. This avoids reporting the time of an input that
-arrived after the frame's input interval and keeps the metric tied to a
-presented frame.
+interval, counts coalesced events, and reports a distribution instead of only
+the final value. Nimculus records the first macOS event with
+`mach_absolute_time`, samples it when the resulting Metal frame is committed
+for presentation, and resets the pending timestamp. The macOS backend keeps a
+fixed 256-sample ring: it exposes sample/event counts plus recent average,
+p95, and maximum without allocating during normal interaction. This avoids
+reporting input received after the frame's input interval, preserves a useful
+regression signal, and bounds the metric's memory cost.
 
 ## M20-002: Measure resident memory at the platform boundary
 

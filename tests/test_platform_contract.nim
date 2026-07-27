@@ -44,6 +44,18 @@ suite "macOS platform contract":
     let after = platformInputCount()
     check after >= before
 
+  test "input latency retains a bounded recent distribution":
+    check platformValidateInputLatencyTracking()
+    check uint32(sizeof(InputLatencyStats)) == platformInputLatencyStatsSize()
+    var stats: InputLatencyStats
+    platformGetInputLatencyStats(addr stats)
+    check stats.recentSampleCount <= 256'u64
+    check stats.sampleCount >= stats.recentSampleCount
+    check stats.inputEventCount >= stats.sampleCount
+    check stats.averageMs >= 0.0
+    check stats.p95Ms >= 0.0
+    check stats.maxMs >= stats.p95Ms
+
   test "IME coordinate invalidation is safe without an active input context":
     platformInvalidateImeCoordinates()
     platformClearEditorComposition()

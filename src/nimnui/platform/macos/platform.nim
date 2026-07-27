@@ -27,6 +27,7 @@ proc platformValidateImeComposition*(): bool {.importc: "nimculus_platform_valid
 proc platformValidateImeCommandDispatch*(): bool {.importc: "nimculus_platform_validate_ime_command_dispatch", cdecl.}
 proc platformValidateImeCandidateRect*(): bool {.importc: "nimculus_platform_validate_ime_candidate_rect", cdecl.}
 proc platformValidateInputEventFields*(): bool {.importc: "nimculus_platform_validate_input_event_fields", cdecl.}
+proc platformValidateInputLatencyTracking*(): bool {.importc: "nimculus_platform_validate_input_latency_tracking", cdecl.}
 proc platformValidateClipboardRoundtrip*(): bool {.importc: "nimculus_platform_validate_clipboard_roundtrip", cdecl.}
 proc platformValidateGlyphAtlas*(): bool {.importc: "nimculus_platform_validate_glyph_atlas", cdecl.}
 proc platformValidateGlyphAtlasEviction*(): bool {.importc: "nimculus_platform_validate_glyph_atlas_eviction", cdecl.}
@@ -36,6 +37,16 @@ proc platformValidateColorEmojiFallback*(): bool {.importc: "nimculus_platform_v
 proc platformValidateColorEmojiSequences*(): bool {.importc: "nimculus_platform_validate_color_emoji_sequences", cdecl.}
 proc platformValidateTerminalOverlayRuns*(): bool {.importc: "nimculus_platform_validate_terminal_overlay_runs", cdecl.}
 proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
+type
+  InputLatencyStats* {.bycopy.} = object
+    sampleCount*: uint64
+    recentSampleCount*: uint64
+    inputEventCount*: uint64
+    averageMs*: cdouble
+    p95Ms*: cdouble
+    maxMs*: cdouble
+proc platformGetInputLatencyStats*(stats: ptr InputLatencyStats) {.importc: "nimculus_platform_get_input_latency_stats", cdecl.}
+proc platformInputLatencyStatsSize*(): uint32 {.importc: "nimculus_platform_input_latency_stats_size", cdecl.}
 proc platformResidentMemoryBytes*(): uint64 {.importc: "nimculus_platform_resident_memory_bytes", cdecl.}
 proc platformLiveAllocationCount*(): uint64 {.importc: "nimculus_platform_live_allocation_count", cdecl.}
 proc platformInputCount*(): uint64 {.importc: "nimculus_platform_input_count", cdecl.}
