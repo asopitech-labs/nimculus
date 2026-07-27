@@ -1544,21 +1544,15 @@ proc moveActiveEditorCursor(offset: int, selecting = false) =
 proc syncEditorCursor() =
   when defined(macosx):
     let document = activeDocument()
+    let visibleLines = editorVisibleLineCount()
     if document != nil:
       # Undo/redo and external reload can shorten or reshape the buffer
       # without passing through the normal movement commands. Normalize both
       # endpoints before deriving line/UTF-16 positions or sending them to
-      # NSTextInputClient, so a selection never lands inside a grapheme.
-      editorViewState.clampSelectionToText(document[].buffer.toString())
-    let visibleLines = editorVisibleLineCount()
+      # NSTextInputClient, and keep the focused position in its pane viewport.
+      editorViewState.ensureCursorVisible(document[].buffer, visibleLines)
     let location = if document == nil: (line: 0, column: 0) else:
       document[].buffer.lineColumn(editorViewState.cursor)
-    if document != nil:
-      let lastVisibleLine = max(0, document[].buffer.lineStarts.len - visibleLines)
-      if location.line < editorViewState.scrollLine:
-        editorViewState.scrollLine = location.line
-      elif location.line >= editorViewState.scrollLine + visibleLines:
-        editorViewState.scrollLine = min(lastVisibleLine, location.line - visibleLines + 1)
     platformSetEditorScrollLine(uint32(max(0, editorViewState.scrollLine)))
     platformSetEditorCursorByte(uint32(editorViewState.cursor), uint32(max(0, location.line)))
     let selection = if document == nil: (startByte: 0, endByte: 0) else:
@@ -1617,8 +1611,7 @@ when defined(macosx):
     if not editorSession.split: return
     let document = activeDocument()
     if document == nil: return
-    let text = document[].buffer.toString()
-    editorSession.secondaryView.clampSelectionToText(text)
+    editorSession.secondaryView.ensureCursorVisible(document[].buffer, editorVisibleLineCount())
     let location = document[].buffer.lineColumn(editorSession.secondaryView.cursor)
     let selection = editorSession.secondaryView.selectedRange()
     platformSetSecondaryEditorScrollLine(uint32(max(0, editorSession.secondaryView.scrollLine)))

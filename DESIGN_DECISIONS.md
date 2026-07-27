@@ -1481,6 +1481,16 @@ secondary pane's cursor stale. Completion acceptance now uses the existing
 active-pane cursor helper, so replacement, cursor geometry, candidate rects,
 and the next LSP request all remain in the pane that owned the request.
 
+## M3-032: Keep cursor visibility local to each split-pane viewport
+
+Primary and secondary editor panes share a PieceTable but not a viewport. A
+completion, definition, or go-to-line operation in the secondary pane must
+therefore adjust only that pane's scroll line. `ensureCursorVisible` now
+combines grapheme-safe selection clamping with the line-index visibility rule,
+and native synchronization applies it separately to both panes. This prevents
+a valid secondary cursor from remaining outside its displayed viewport while
+leaving the primary pane's reading position unchanged.
+
 ## M1-005: Initialize the Metal drawable on first window attachment
 
 `viewDidMoveToWindow` calls the same backing-scale update used by layout and

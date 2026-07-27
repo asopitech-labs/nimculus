@@ -313,6 +313,19 @@ suite "M5 editor services":
     check session.closeActiveTab()
     check session.tabs.len == 2
 
+  test "each split pane keeps its own cursor visible":
+    let buffer = initPieceTable("zero\none\ntwo\nthree\nfour")
+    var primary = newEditorView()
+    primary.moveCursor(buffer.lineStarts[4])
+    primary.ensureCursorVisible(buffer, 2)
+    check primary.scrollLine == 3
+    var secondary = newEditorView()
+    secondary.moveCursor(buffer.lineStarts[1])
+    secondary.scrollLine = 3
+    secondary.ensureCursorVisible(buffer, 2)
+    check secondary.scrollLine == 1
+    check primary.scrollLine == 3
+
   test "dirty tab close requires an explicit discard":
     var session: EditorSession
     var document = newDocument()

@@ -290,6 +290,23 @@ proc moveActivePaneCursor*(session: var EditorSession,
   else:
     primaryView.moveCursor(offset, selecting)
 
+proc ensureCursorVisible*(view: var EditorViewState, buffer: PieceTable,
+                          visibleLines: int) =
+  ## Cursor ownership and viewport ownership are both per pane.  Keep a
+  ## position-based operation (completion, definition, go-to-line) visible
+  ## without moving the sibling pane's viewport.
+  let text = buffer.toString()
+  view.clampSelectionToText(text)
+  let lineCount = buffer.lineStarts.len
+  if lineCount == 0: return
+  let viewportLines = max(1, visibleLines)
+  let location = buffer.lineColumn(view.cursor)
+  let lastScrollLine = max(0, lineCount - viewportLines)
+  if location.line < view.scrollLine:
+    view.scrollLine = location.line
+  elif location.line >= view.scrollLine + viewportLines:
+    view.scrollLine = min(lastScrollLine, location.line - viewportLines + 1)
+
 proc closeSplit*(session: var EditorSession) =
   session.split = false
   session.splitActivePane = 0
