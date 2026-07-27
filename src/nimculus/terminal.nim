@@ -213,6 +213,11 @@ proc terminalCommandInput*(screen: TerminalScreen, command: string):
     (true, "")
   else: (false, "")
 
+proc terminalOwnsInput*(visible, focused: bool): bool {.inline.} =
+  ## Terminal visibility and keyboard ownership are separate. A visible panel
+  ## must yield input when the user clicks an editor pane.
+  visible and focused
+
 proc clearCell(screen: var TerminalScreen, row, column: int)
 
 proc compactInternedValues(screen: var TerminalScreen) =

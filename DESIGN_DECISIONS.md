@@ -3874,3 +3874,17 @@ submits the primary range and, when split, the secondary range. Overlapping
 ranges are merged while distant ranges remain separate, preserving viewport
 bounded highlighting for large files. The editor-syntax test verifies that no
 spans are pulled from the gap between two split viewports.
+
+## M10-018: Separate terminal visibility from keyboard ownership
+
+Zed associates terminal input with the terminal's focus handle, not merely
+with whether its panel is visible. Nimculus previously routed committed text
+and Cocoa editing selectors to any visible terminal. Clicking an editor pane
+while the terminal stayed open therefore still typed into the shell.
+
+The macOS integration now tracks terminal input focus independently. Opening,
+switching, or clicking a terminal gives it ownership; any pointer-down outside
+the terminal returns ownership to the editor. The pure terminal contract test
+captures this visibility-versus-focus boundary, while existing command mapping
+tests continue to verify that a focused terminal never falls through to editor
+selectors.

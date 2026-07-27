@@ -447,6 +447,7 @@ when defined(macosx):
   var editorTerminals: seq[TerminalPty]
   var editorTerminalIndex = -1
   var editorTerminalVisible = false
+  var editorTerminalFocused = false
   var editorTerminalSelection = TerminalSelection()
   var editorTerminalSelecting = false
   var editorUpdateJob: UpdateDownloadJob
@@ -752,6 +753,7 @@ when defined(macosx):
       return
     if editorTerminalVisible:
       editorTerminalVisible = false
+      editorTerminalFocused = false
       platformSetTerminalVisible(false)
     editorTaskOutputVisible = true
     platformSetTaskOutputVisible(true)
@@ -765,6 +767,7 @@ when defined(macosx):
     platformSetTaskOutputText(editorTaskOutput.cstring, uint32(editorTaskOutput.len))
     if editorTerminalVisible:
       editorTerminalVisible = false
+      editorTerminalFocused = false
       platformSetTerminalVisible(false)
     editorTaskOutputVisible = true
     platformSetTaskOutputVisible(true)
@@ -1012,6 +1015,7 @@ when defined(macosx):
       editorTaskOutputVisible = false
       platformSetTaskOutputVisible(false)
       editorTerminalVisible = true
+      editorTerminalFocused = true
       platformSetTerminalVisible(true)
       syncNativeTerminal()
       editorViewState.statusMessage = "Terminal " &
@@ -1057,6 +1061,8 @@ when defined(macosx):
                              deltaY: float32): bool =
     if not editorTerminalVisible or editorTerminal == nil or
         not terminalContains(x, y): return false
+    if kind == pointerDown:
+      editorTerminalFocused = true
     let point = terminalPointAt(x, y)
     if editorTerminal.screen.mouseReporting:
       let mouseKind = case kind
@@ -1088,6 +1094,7 @@ when defined(macosx):
   proc toggleNativeTerminal() =
     if editorTerminalVisible:
       editorTerminalVisible = false
+      editorTerminalFocused = false
       platformSetTerminalVisible(false)
       return
     if editorTerminal == nil or editorTerminal.closed:
@@ -1096,6 +1103,7 @@ when defined(macosx):
       editorTaskOutputVisible = false
       platformSetTaskOutputVisible(false)
       editorTerminalVisible = true
+      editorTerminalFocused = true
       platformSetTerminalVisible(true)
       syncNativeTerminal()
       editorViewState.statusMessage = "Terminal " &
@@ -1111,6 +1119,7 @@ when defined(macosx):
     if index < 0: index += editorTerminals.len
     activateNativeTerminal(index)
     editorTerminalVisible = true
+    editorTerminalFocused = true
     platformSetTerminalVisible(true)
 
   proc closeNativeTerminals() =
@@ -2064,7 +2073,8 @@ when defined(windows):
 
 proc receiveNativeTextValue(value: string, composing: bool) =
   when defined(macosx):
-    if editorTerminalVisible and editorTerminal != nil and not composing:
+    if terminalOwnsInput(editorTerminalVisible, editorTerminalFocused) and
+        editorTerminal != nil and not composing:
       if value.len > 0: writeNativeTerminalInput(value)
       return
   when defined(windows):
@@ -2465,7 +2475,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         return
       else: discard
   when defined(macosx):
-    if editorTerminalVisible and editorTerminal != nil:
+    if terminalOwnsInput(editorTerminalVisible, editorTerminalFocused) and
+        editorTerminal != nil:
       case name
       of "copy":
         let copied = editorTerminal.screen.selectedText(editorTerminalSelection)
@@ -3391,6 +3402,8 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
         handleTerminalPointer(kind, float32(event.x), uiY, event.button,
           event.modifiers, float32(event.deltaY)):
       return
+    if kind == pointerDown:
+      editorTerminalFocused = false
     if not inEditor and lspBridge != nil:
       lspBridge.hideHover()
       syncNativeHover()

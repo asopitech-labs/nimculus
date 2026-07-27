@@ -21,6 +21,9 @@ suite "M10 terminal core":
     check terminalCommandInput(screen, "unknown") == (false, "")
     screen.applicationCursorKeys = true
     check terminalCommandInput(screen, "moveLeft") == (true, "\x1bOD")
+    check terminalOwnsInput(true, true)
+    check not terminalOwnsInput(true, false)
+    check not terminalOwnsInput(false, true)
 
   test "parses ANSI cursor movement and scrollback":
     var screen = initTerminalScreen(6, 2, 4)
