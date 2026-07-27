@@ -4048,3 +4048,17 @@ screen retained its old height while DEC 1049 was active. Resize now sets the
 new column count before allocating rows and resizes/trims the saved normal
 grid alongside the active one. Cursor validation permits the conventional
 wrap-pending position one cell past the right margin.
+
+## M10-028: Preserve wide-cell invariants during CSI line editing
+
+Zed's terminal renderer explicitly skips Alacritty's wide-character spacer
+cells. That representation assumes every spacer immediately follows a
+double-width leading cell. Nimculus previously normalized rows on resize but
+CSI erase-character, insert-character, and delete-character could address or
+shift only one half of a wide glyph.
+
+`clearCell` now clears both halves when either cell of a valid pair is
+addressed. After CSI insert/delete shifts a row, Nimculus normalizes it before
+returning to the parser. This preserves a valid compact cell grid even when a
+cursor lands on a CJK/emoji continuation column. Terminal regressions exercise
+erase, insert, and delete at that boundary.

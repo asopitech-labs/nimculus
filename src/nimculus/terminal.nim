@@ -744,6 +744,10 @@ proc handleCsi*(screen: var TerminalScreen, finalByte: char) =
         screen.lines[screen.cursorRow][column] = screen.lines[screen.cursorRow][column - count]
       for column in screen.cursorColumn ..< screen.cursorColumn + count:
         screen.clearCell(screen.cursorRow, column)
+      # A character-cell shift can start or end between the two cells of a
+      # double-width glyph. Normalize once after the operation so subsequent
+      # rendering, selection, and CSI edits always see valid pairs.
+      normalizeTerminalRow(screen.lines[screen.cursorRow])
   of 'P':
     let count = min(params[0], screen.columns - screen.cursorColumn)
     if count > 0:
@@ -751,6 +755,7 @@ proc handleCsi*(screen: var TerminalScreen, finalByte: char) =
         screen.lines[screen.cursorRow][column] = screen.lines[screen.cursorRow][column + count]
       for column in screen.columns - count ..< screen.columns:
         screen.clearCell(screen.cursorRow, column)
+      normalizeTerminalRow(screen.lines[screen.cursorRow])
   of 'X':
     let count = min(params[0], screen.columns - screen.cursorColumn)
     for column in screen.cursorColumn ..< screen.cursorColumn + count:
@@ -801,6 +806,16 @@ proc runeDisplayWidth(rune: Rune): int =
 
 proc clearCell(screen: var TerminalScreen, row, column: int) =
   if row < 0 or row >= screen.lines.len or column < 0 or column >= screen.columns: return
+  # A wide glyph is one logical character represented by a leading cell and a
+  # zero-width continuation. CSI erase commands are allowed to address either
+  # column, so clearing just one half would leave a malformed grid for the
+  # Metal presenter or later edits to observe.
+  if screen.lines[row][column].width == 0 and column > 0 and
+      screen.lines[row][column - 1].width == 2:
+    screen.lines[row][column - 1] = TerminalCell(width: 1)
+  elif screen.lines[row][column].width == 2 and column + 1 < screen.columns and
+      screen.lines[row][column + 1].width == 0:
+    screen.lines[row][column + 1] = TerminalCell(width: 1)
   screen.lines[row][column] = TerminalCell(glyph: uint32(ord(' ')), width: 1)
 
 proc putGlyph(screen: var TerminalScreen, glyph: string) =

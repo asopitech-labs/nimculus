@@ -128,6 +128,24 @@ suite "M10 terminal core":
     check screen.lineText(0) == "A"
     check screen.lines[0][1].width == 1
 
+  test "CSI line edits preserve wide glyph cell pairs":
+    # Zed/Alacritty presentation treats a wide glyph's second cell solely as a
+    # spacer. Addressing that spacer with CSI must not leave a dangling lead
+    # or continuation in Nimculus's compact grid.
+    var erase = initTerminalScreen(6, 1)
+    erase.feed("A界B\x1b[1;3H\x1b[1X")
+    checkGridInvariant(erase)
+    check erase.lines[0][1].width == 1
+    check erase.lines[0][2].width == 1
+
+    var insert = initTerminalScreen(6, 1)
+    insert.feed("A界B\x1b[1;3H\x1b[1@")
+    checkGridInvariant(insert)
+
+    var delete = initTerminalScreen(6, 1)
+    delete.feed("A界B\x1b[1;3H\x1b[1P")
+    checkGridInvariant(delete)
+
   test "keeps terminal cells compact while preserving shared style data":
     check sizeof(TerminalCell) <= 32
     var screen = initTerminalScreen(4, 1)
