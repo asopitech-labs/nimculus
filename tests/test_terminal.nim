@@ -36,6 +36,17 @@ suite "M10 terminal core":
     check terminalScrollOffset(5, 40, 8, 100) == 32
     check terminalScrollOffset(5, 40, 8, -100) == 0
 
+  test "scrollback serial advances even when history compaction changes its length":
+    var screen = initTerminalScreen(8, 2, 2)
+    screen.feed("one\ntwo\nthree\nfour\nfive\nsix\n")
+    let serialBefore = screen.scrollbackSerial
+    let linesBefore = screen.lineCount()
+    screen.feed("seven\n")
+    check screen.scrollbackSerial > serialBefore
+    check screen.lineCount() <= linesBefore
+    check terminalScrollOffset(1, screen.lineCount(), screen.rows,
+      int(screen.scrollbackSerial - serialBefore)) >= 1
+
   test "parses ANSI cursor movement and scrollback":
     var screen = initTerminalScreen(6, 2, 4)
     screen.feed("one\r\ntwo\r\nthree")

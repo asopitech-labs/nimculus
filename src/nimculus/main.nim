@@ -1226,11 +1226,13 @@ when defined(macosx):
   proc pollNativeTerminal() =
     for index, session in editorTerminals:
       if session == nil or session.closed: continue
-      let lineCountBefore = session.screen.lineCount()
+      let scrollbackSerialBefore = session.screen.scrollbackSerial
       let output = session.pollOutput()
       if index == editorTerminalIndex and output.len > 0 and editorTerminalVisible:
         if editorTerminalScrollOffset > 0:
-          editorTerminalScrollOffset += max(0, session.screen.lineCount() - lineCountBefore)
+          let appendedRows = session.screen.scrollbackSerial - scrollbackSerialBefore
+          editorTerminalScrollOffset = terminalScrollOffset(editorTerminalScrollOffset,
+            session.screen.lineCount(), session.screen.rows, int(appendedRows))
         syncNativeTerminal()
         # Native selection ranges are viewport-relative. Reproject any active
         # terminal selection after output changes the visible scrollback rows.

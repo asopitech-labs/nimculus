@@ -3978,3 +3978,18 @@ two-cell Japanese glyph, inverse/strikethrough styling, and a cross-row cell
 selection. This follows Zed's separation of terminal-grid state from native
 text presentation while testing the conversion boundary rather than either
 side in isolation.
+
+## M10-024: Preserve a bounded scrollback reader position during compaction
+
+Scrollback length is not a reliable measure of new terminal output: once the
+history limit is reached, batch compaction can leave it unchanged or shorter
+even though one or more new normal-screen rows displaced the reader's view.
+Using length deltas consequently caused a scrolled-up terminal to drift toward
+the live bottom under sustained output.
+
+`TerminalScreen` now records a monotonic normal-screen history serial whenever
+a row enters scrollback. The macOS presentation layer uses its delta to advance
+the local offset before clamping to the current bounded history. This matches
+Zed's display-offset ownership: the reader remains on the same logical output
+until retention necessarily evicts it. The terminal-core test covers the
+compaction case where history length is not monotonic.

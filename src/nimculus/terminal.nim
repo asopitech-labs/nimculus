@@ -65,6 +65,10 @@ type
     scrollbackLimit*: int
     lines*: seq[seq[TerminalCell]]
     scrollback*: seq[seq[TerminalCell]]
+    ## Monotonic count of rows appended to normal-screen history. Presentation
+    ## uses this rather than history length because bounded compaction can make
+    ## the latter stay flat (or shrink) while new output is still arriving.
+    scrollbackSerial*: uint64
     cursorRow*, cursorColumn*: int
     cursorVisible*: bool
     alternateScreen*: bool
@@ -351,6 +355,7 @@ proc scrollRegionUp(screen: var TerminalScreen, amount = 1) =
     if screen.scrollTop == 0 and screen.scrollBottom == screen.rows - 1 and
         not screen.alternateScreen:
       screen.scrollback.add(screen.lines[screen.scrollTop])
+      inc screen.scrollbackSerial
       screen.trimScrollback()
     for row in screen.scrollTop ..< screen.scrollBottom:
       screen.lines[row] = screen.lines[row + 1]
@@ -397,6 +402,7 @@ proc resize*(screen: var TerminalScreen, columns, rows: int) =
     let removed = screen.lines.len - nextRows
     for _ in 0 ..< removed:
       screen.scrollback.add(screen.lines[0])
+      inc screen.scrollbackSerial
       screen.lines.delete(0)
     screen.trimScrollback()
   screen.columns = nextColumns
