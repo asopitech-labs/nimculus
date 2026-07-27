@@ -28,7 +28,7 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | M17〜M19：拡張・AI・DAP | ⚪ 未着手 | 拡張API、CLIエージェント、DAPクライアントを順次実装する |
 | M20〜M21：安定化・v1.0 | 🟡 M20計測基盤一部実装・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録し、Zedのreliability heartbeatを参考に`benchmark_soak.sh`で8時間計測を実行できる。cold-startはidle到達だけでなくMetal frame/drawableを必須化し、soakもrendered-frame sampleを必須化する。macOS `.app`境界で20秒soak（5秒間隔、4 samples、timeoutなし）を確認済み、同条件をmacOS CIのidle soak smokeへ追加済み。8時間実機実行、remote latency、全対応プラットフォームの性能計測、正式配布は未完了 |
 
-チェック済み項目は、コード実装とローカル検証の両方を確認できたものを示す。CIの実行成功、実機での個別入力、未実装のAPIは未チェックのまま残す。
+チェック済み項目は、コード実装とローカル検証の両方を確認できたものを示す。CIの実行成功、実機での個別入力、未実装のAPIは未チェックのまま残す。物理入力機器・日本語入力ソース・複数ディスプレイを必要とする最終ゲートは[`docs/MACOS_MANUAL_ACCEPTANCE.md`](./docs/MACOS_MANUAL_ACCEPTANCE.md)に手順と証跡要件を定義する。
 
 ## 基本方針
 
