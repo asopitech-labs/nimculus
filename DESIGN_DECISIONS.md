@@ -3861,3 +3861,16 @@ macOS can retain an already-dead orphan as a zombie until `launchd` reaps it;
 `killpg(group, 0)` therefore cannot distinguish a live helper from a dead
 zombie. The native tests instead use a child TERM trap to verify that the group
 signal reached a real descendant, while keeping application shutdown bounded.
+
+## M7-012: Collect syntax spans for both visible split-pane ranges
+
+Zed gives each editor pane its own visible display range. Nimculus renders a
+secondary Metal text texture with an independent scroll position, but the
+syntax bridge originally submitted spans only for the primary viewport. A
+secondary pane scrolled far from the primary therefore rendered unstyled text.
+
+The syntax layer now accepts and merges disjoint half-open byte ranges. macOS
+submits the primary range and, when split, the secondary range. Overlapping
+ranges are merged while distant ranges remain separate, preserving viewport
+bounded highlighting for large files. The editor-syntax test verifies that no
+spans are pulled from the gap between two split viewports.

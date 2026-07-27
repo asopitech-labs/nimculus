@@ -1,3 +1,4 @@
+import std/algorithm
 import nimculus/tree_sitter
 import nimculus/syntax
 
@@ -6,6 +7,8 @@ type
     parser*: TreeSitterParser
     tree*: SyntaxTree
     grammar*: GrammarKind
+
+  HighlightByteRange* = tuple[firstByte, lastByte: uint32]
 
 proc utf8Continuation(value: char): bool = (ord(value) and 0xC0) == 0x80
 
@@ -60,6 +63,30 @@ proc update*(state: EditorSyntaxState, source: string) =
 proc visibleHighlights*(state: EditorSyntaxState, firstByte, lastByte: uint32): seq[HighlightSpan] =
   if state != nil and state.tree != nil:
     return state.tree.highlightVisible(firstByte, lastByte)
+
+proc visibleHighlights*(state: EditorSyntaxState,
+                        ranges: openArray[HighlightByteRange]): seq[HighlightSpan] =
+  ## Split editors can have disjoint visible byte ranges. Merge overlapping
+  ## requests first so each pane gets its syntax spans without expanding work
+  ## to the bytes between two distant viewports.
+  if state == nil or state.tree == nil: return
+  var requested: seq[HighlightByteRange]
+  for byteRange in ranges:
+    if byteRange.lastByte > byteRange.firstByte:
+      requested.add(byteRange)
+  requested.sort(proc(a, b: HighlightByteRange): int =
+    let firstOrder = cmp(a.firstByte, b.firstByte)
+    if firstOrder != 0: firstOrder else: cmp(a.lastByte, b.lastByte))
+  var merged: seq[HighlightByteRange]
+  for byteRange in requested:
+    if merged.len > 0 and byteRange.firstByte <= merged[^1].lastByte:
+      merged[^1].lastByte = max(merged[^1].lastByte, byteRange.lastByte)
+    else:
+      merged.add(byteRange)
+  var spans: seq[HighlightSpan]
+  for byteRange in merged:
+    spans.add(state.tree.highlightVisible(byteRange.firstByte, byteRange.lastByte))
+  result = spans
 
 proc close*(state: EditorSyntaxState) =
   if state == nil: return

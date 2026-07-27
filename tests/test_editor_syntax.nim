@@ -1,4 +1,5 @@
 import std/unittest
+import std/strutils
 import nimculus/editor_syntax
 
 suite "M7 editor syntax integration":
@@ -15,3 +16,23 @@ suite "M7 editor syntax integration":
 
   test "unsupported files remain plain text":
     check newEditorSyntax("notes.txt", "plain") == nil
+
+  test "collects syntax spans for disjoint split viewports":
+    let source = "def first():\n  return 1\n\ndef second():\n  return 2\n"
+    let state = newEditorSyntax("main.py", source)
+    let secondStart = source.find("def second")
+    let ranges = [
+      (firstByte: 0'u32, lastByte: 10'u32),
+      (firstByte: uint32(secondStart), lastByte: uint32(source.len))]
+    let highlights = state.visibleHighlights(ranges)
+    var firstViewport = false
+    var secondViewport = false
+    var gapViewport = false
+    for span in highlights:
+      if span.startByte < 10'u32: firstViewport = true
+      elif span.startByte >= uint32(secondStart): secondViewport = true
+      else: gapViewport = true
+    check firstViewport
+    check secondViewport
+    check not gapViewport
+    state.close()
