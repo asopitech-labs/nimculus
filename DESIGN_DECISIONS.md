@@ -3927,3 +3927,26 @@ terminal drawing and pointer input. Applying terminal settings and resizing the
 window recompute that grid; a PTY resize is emitted only when rows or columns
 actually change. The terminal-core test covers normal and degenerate viewport
 calculations.
+
+## M12-035: Keep terminal font configuration independent in the macOS settings UI
+
+Zed exposes terminal `font_family` independently from the editor font. Nimculus
+already modeled and validated `terminal.fontFamily`, but its macOS settings
+panel offered one ambiguous font-family field and only saved it to the editor.
+
+The settings panel now presents separate editor and terminal font-family fields
+and carries both values through its native command payload into the global
+settings file. This preserves the existing layered settings model and lets the
+terminal's fixed-pitch safety boundary choose from the user's terminal setting.
+
+## M8-029: Do not classify a pre-reap stdout EOF as an LSP failure
+
+On macOS, an LSP stdout pipe can report EOF just before the direct child is
+reapable through `waitpid`. Nimculus immediately released the transport using
+the temporary `peekExitCode == -1`, converting a clean `exit 0` into
+`lspFailed` and making restart readiness nondeterministic.
+
+The LSP reader now retains an EOF transport until `peekExitCode` yields a real
+exit status on a subsequent idle poll. It remains non-blocking and never waits
+in the UI path; the existing exited-server test verifies it converges to
+`lspStopped`.

@@ -720,8 +720,12 @@ proc readMessages*(client: LspProcess): seq[JsonNode] =
         chunk.setLen(oldLength + count)
         copyMem(addr chunk[oldLength], addr bytes[0], count)
       elif count == 0:
+        # EOF can become readable a moment before waitpid can reap the direct
+        # child on macOS. Do not classify that short race as a failed server;
+        # retain the transport until a later idle poll obtains its exit code.
         let exitCode = client.process.peekExitCode()
-        client.releaseLspProcess(exitCode)
+        if exitCode >= 0:
+          client.releaseLspProcess(exitCode)
         break
       elif errno == EAGAIN or errno == EWOULDBLOCK:
         break

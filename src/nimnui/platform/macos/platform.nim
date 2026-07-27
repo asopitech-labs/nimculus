@@ -126,7 +126,7 @@ proc platformShowFindDocument*() {.importc: "nimculus_platform_show_find_documen
 proc platformShowWorkspaceSearch*() {.importc: "nimculus_platform_show_workspace_search", cdecl.}
 proc platformShowCommandPalette*() {.importc: "nimculus_platform_show_command_palette", cdecl.}
 proc platformShowSettingsPanel*(theme, editorFontSize, terminalFontSize,
-                                fontFamily, shell: cstring) {.importc: "nimculus_platform_show_settings_panel", cdecl.}
+                                editorFontFamily, terminalFontFamily, shell: cstring) {.importc: "nimculus_platform_show_settings_panel", cdecl.}
 proc platformSetUiRectangle*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_ui_rectangle", cdecl.}
 proc clipboardSet*(text: cstring, length: uint32) {.importc: "nimculus_clipboard_set", cdecl.}
 proc clipboardUtf8Length*(): uint32 {.importc: "nimculus_clipboard_utf8_length", cdecl.}

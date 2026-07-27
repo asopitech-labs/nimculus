@@ -2895,12 +2895,13 @@ static void applyTerminalRuns(NSTextView *terminal) {
 }
 
 - (void)showSettingsPanelWithTheme:(NSString *)theme editorFontSize:(NSString *)editorFontSize
-                 terminalFontSize:(NSString *)terminalFontSize fontFamily:(NSString *)fontFamily
-                              shell:(NSString *)shell {
+                 terminalFontSize:(NSString *)terminalFontSize
+                  editorFontFamily:(NSString *)editorFontFamily
+                terminalFontFamily:(NSString *)terminalFontFamily shell:(NSString *)shell {
   NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"Nimculus Settings";
   alert.informativeText = @"Changes are written to the global settings file and applied immediately.";
-  NSStackView *fields = [[[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 420, 132)] autorelease];
+  NSStackView *fields = [[[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 420, 160)] autorelease];
   fields.orientation = NSUserInterfaceLayoutOrientationVertical;
   fields.alignment = NSLayoutAttributeWidth;
   fields.spacing = 8.0;
@@ -2927,23 +2928,27 @@ static void applyTerminalRuns(NSTextView *terminal) {
   editorSize.identifier = @"editorFontSize";
   NSTextField *terminalSize = [NSTextField textFieldWithString:terminalFontSize ?: @"12"];
   terminalSize.identifier = @"terminalFontSize";
-  NSTextField *font = [NSTextField textFieldWithString:fontFamily ?: @"Menlo"];
-  font.identifier = @"fontFamily";
+  NSTextField *editorFont = [NSTextField textFieldWithString:editorFontFamily ?: @"Menlo"];
+  editorFont.identifier = @"editorFontFamily";
+  NSTextField *terminalFont = [NSTextField textFieldWithString:terminalFontFamily ?: @"Menlo"];
+  terminalFont.identifier = @"terminalFontFamily";
   NSTextField *shellField = [NSTextField textFieldWithString:shell ?: @"/bin/zsh"];
   shellField.identifier = @"shell";
   [fields addArrangedSubview:row(@"Appearance", themePopup)];
   [fields addArrangedSubview:row(@"Editor font size", editorSize)];
   [fields addArrangedSubview:row(@"Terminal font size", terminalSize)];
-  [fields addArrangedSubview:row(@"Font family", font)];
+  [fields addArrangedSubview:row(@"Editor font family", editorFont)];
+  [fields addArrangedSubview:row(@"Terminal font family", terminalFont)];
   [fields addArrangedSubview:row(@"Terminal shell", shellField)];
   alert.accessoryView = fields;
   [alert addButtonWithTitle:@"Apply"];
   [alert addButtonWithTitle:@"Cancel"];
   [self presentAlertSheet:alert completion:^(NSModalResponse response) {
     if (response != NSAlertFirstButtonReturn || !g_command_callback) return;
-    NSString *command = [NSString stringWithFormat:@"settingsApply:%@\x1f%@\x1f%@\x1f%@\x1f%@",
+    NSString *command = [NSString stringWithFormat:@"settingsApply:%@\x1f%@\x1f%@\x1f%@\x1f%@\x1f%@",
       themePopup.titleOfSelectedItem ?: @"system", editorSize.stringValue ?: @"14",
-      terminalSize.stringValue ?: @"12", font.stringValue ?: @"Menlo", shellField.stringValue ?: @"/bin/zsh"];
+      terminalSize.stringValue ?: @"12", editorFont.stringValue ?: @"Menlo",
+      terminalFont.stringValue ?: @"Menlo", shellField.stringValue ?: @"/bin/zsh"];
     g_command_callback(command.UTF8String);
   }];
 }
@@ -3492,13 +3497,15 @@ void nimculus_platform_show_command_palette(void) {
 
 void nimculus_platform_show_settings_panel(const char *theme, const char *editor_font_size,
                                            const char *terminal_font_size,
-                                           const char *font_family, const char *shell) {
+                                           const char *editor_font_family,
+                                           const char *terminal_font_family, const char *shell) {
   id delegate = [NSApp delegate];
-  if ([delegate respondsToSelector:@selector(showSettingsPanelWithTheme:editorFontSize:terminalFontSize:fontFamily:shell:)]) {
+  if ([delegate respondsToSelector:@selector(showSettingsPanelWithTheme:editorFontSize:terminalFontSize:editorFontFamily:terminalFontFamily:shell:)]) {
     [delegate showSettingsPanelWithTheme:theme ? [NSString stringWithUTF8String:theme] : @"system"
       editorFontSize:editor_font_size ? [NSString stringWithUTF8String:editor_font_size] : @"14"
       terminalFontSize:terminal_font_size ? [NSString stringWithUTF8String:terminal_font_size] : @"12"
-      fontFamily:font_family ? [NSString stringWithUTF8String:font_family] : @"Menlo"
+      editorFontFamily:editor_font_family ? [NSString stringWithUTF8String:editor_font_family] : @"Menlo"
+      terminalFontFamily:terminal_font_family ? [NSString stringWithUTF8String:terminal_font_family] : @"Menlo"
       shell:shell ? [NSString stringWithUTF8String:shell] : @"/bin/zsh"];
   }
 }

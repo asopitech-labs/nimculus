@@ -2774,16 +2774,18 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       let theme = if appSettings != nil: appSettings.stringSetting("theme", "system") else: "system"
       let editorSize = if appSettings != nil: $appSettings.intSetting("editor.fontSize", 14) else: "14"
       let terminalSize = if appSettings != nil: $appSettings.intSetting("terminal.fontSize", 12) else: "12"
-      let font = if appSettings != nil: appSettings.stringSetting("editor.fontFamily",
+      let editorFont = if appSettings != nil: appSettings.stringSetting("editor.fontFamily",
+          "Menlo") else: "Menlo"
+      let terminalFont = if appSettings != nil: appSettings.stringSetting("terminal.fontFamily",
           "Menlo") else: "Menlo"
       let shell = if appSettings != nil: appSettings.stringSetting("terminal.shell",
           "/bin/zsh") else: "/bin/zsh"
       platformShowSettingsPanel(theme.cstring, editorSize.cstring, terminalSize.cstring,
-        font.cstring, shell.cstring)
+        editorFont.cstring, terminalFont.cstring, shell.cstring)
   elif name.startsWith("settingsApply:"):
     let payload = name["settingsApply:".len .. ^1]
     let fields = payload.split('\x1f')
-    if fields.len != 5 or settingsFilePath.len == 0:
+    if fields.len != 6 or settingsFilePath.len == 0:
       editorViewState.statusMessage = "Settings panel: invalid values"
       return
     var editorSize, terminalSize: int
@@ -2805,7 +2807,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     root["editor"]["fontSize"] = %editorSize
     root["editor"]["fontFamily"] = %fields[3]
     root["terminal"]["fontSize"] = %terminalSize
-    root["terminal"]["shell"] = %fields[4]
+    root["terminal"]["fontFamily"] = %fields[4]
+    root["terminal"]["shell"] = %fields[5]
     try:
       writeFile(settingsFilePath, pretty(root) & "\n")
       when defined(macosx) or defined(windows):
