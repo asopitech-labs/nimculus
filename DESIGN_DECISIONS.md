@@ -3914,3 +3914,16 @@ soft wrapping so PTY rows remain rows, and exposes its cell advance, line
 height, and text inset to Nim. Pointer conversion uses those exact values.
 The native platform contract verifies that increasing the terminal font size
 also increases the exported grid metrics.
+
+## M10-021: Resize PTYs only when the metric-derived grid changes
+
+Zed derives a terminal's dimensions from its viewport, cell width, line height,
+and insets, then avoids forwarding pixel-only changes to the PTY. Nimculus
+still used fixed constants for this separate resize path, and a terminal font
+setting update changed rendering without changing the PTY grid.
+
+Nimculus now calculates rows and columns from the same native metrics used by
+terminal drawing and pointer input. Applying terminal settings and resizing the
+window recompute that grid; a PTY resize is emitted only when rows or columns
+actually change. The terminal-core test covers normal and degenerate viewport
+calculations.

@@ -25,6 +25,10 @@ suite "M10 terminal core":
     check not terminalOwnsInput(true, false)
     check not terminalOwnsInput(false, true)
 
+  test "derives the PTY grid from viewport font metrics and text insets":
+    check terminalGridSize(100'f32, 60'f32, 10'f32, 15'f32, 5'f32, 3'f32) == (9, 3)
+    check terminalGridSize(4'f32, 4'f32, 0'f32, 0'f32, 8'f32, 8'f32) == (1, 1)
+
   test "parses ANSI cursor movement and scrollback":
     var screen = initTerminalScreen(6, 2, 4)
     screen.feed("one\r\ntwo\r\nthree")

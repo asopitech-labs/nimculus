@@ -370,6 +370,9 @@ proc applySettingsKeymap() =
         if shortcutRegistry.commands[index].name == binding.command:
           shortcutRegistry.commands[index].shortcut = shortcut
 
+when defined(macosx):
+  proc resizeNativeTerminals()
+
 proc applySettingsTheme() =
   when defined(macosx) or defined(windows):
     if appSettings == nil: return
@@ -386,6 +389,7 @@ proc applySettingsTheme() =
       platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily", "Menlo").cstring)
       platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize", 12)))
       platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily", "Menlo").cstring)
+      resizeNativeTerminals()
       if customBackground.len == 0 and themeName in ["light", "dark", "system"]:
         let dark = if themeName == "system": platformIsDarkAppearance() else: themeName == "dark"
         if dark:
@@ -1176,10 +1180,14 @@ when defined(macosx):
   proc resizeNativeTerminals() =
     if editorTerminals.len == 0: return
     let bounds = terminalOverlayBounds()
-    let columns = max(1, int(floor(bounds.width / 7.2'f32)) - 2)
-    let rows = max(1, int(floor(bounds.height / 18'f32)) - 1)
+    let dimensions = terminalGridSize(bounds.width, bounds.height,
+      float32(platformTerminalCellWidth()), float32(platformTerminalLineHeight()),
+      float32(platformTerminalInsetX()), float32(platformTerminalInsetY()))
     for session in editorTerminals:
-      if session != nil and not session.closed: session.resize(columns, rows)
+      if session != nil and not session.closed and
+          (session.screen.columns != dimensions.columns or
+           session.screen.rows != dimensions.rows):
+        session.resize(dimensions.columns, dimensions.rows)
     if editorTerminalVisible:
       syncNativeTerminal()
 

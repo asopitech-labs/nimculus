@@ -1,4 +1,5 @@
 import std/os
+import std/math
 import std/strutils
 import std/hashes
 import std/tables
@@ -217,6 +218,15 @@ proc terminalOwnsInput*(visible, focused: bool): bool {.inline.} =
   ## Terminal visibility and keyboard ownership are separate. A visible panel
   ## must yield input when the user clicks an editor pane.
   visible and focused
+
+proc terminalGridSize*(width, height, cellWidth, lineHeight, insetX, insetY: float32):
+    tuple[columns, rows: int] =
+  ## Translate an overlay viewport into PTY grid dimensions. Drawing and input
+  ## must use the same font metrics and text insets as this calculation.
+  let usableWidth = max(0'f32, width - insetX * 2'f32)
+  let usableHeight = max(0'f32, height - insetY * 2'f32)
+  result.columns = max(1, int(floor(usableWidth / max(1'f32, cellWidth))))
+  result.rows = max(1, int(floor(usableHeight / max(1'f32, lineHeight))))
 
 proc clearCell(screen: var TerminalScreen, row, column: int)
 
