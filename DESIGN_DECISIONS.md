@@ -4062,3 +4062,18 @@ addressed. After CSI insert/delete shifts a row, Nimculus normalizes it before
 returning to the parser. This preserves a valid compact cell grid even when a
 cursor lands on a CJK/emoji continuation column. Terminal regressions exercise
 erase, insert, and delete at that boundary.
+
+## M1-020: Forward AppKit's canonical trackpad scroll deltas
+
+Zed's macOS event adapter distinguishes line and pixel scrolling using
+`hasPreciseScrollingDeltas`. Apple documents `scrollingDeltaX/Y` as the
+preferred values for scroll-wheel events: coarse devices are interpreted in
+line units, while precise devices provide pixel deltas. Nimculus previously
+read `deltaX/Y`, which are generic mouse/drag/swipe properties and are not the
+recommended scroll input surface.
+
+The macOS adapter now forwards `scrollingDeltaX/Y` with the existing precision
+flag, preserving the current NimNUI residual line conversion without a
+platform-wide ABI change. The native contract captures the callback payload
+from a pixel scroll event and verifies both delta values and its precision flag
+against the originating `NSEvent`.

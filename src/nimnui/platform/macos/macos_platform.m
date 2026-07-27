@@ -1704,8 +1704,11 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   // wheel events. AppKit raises NSInternalInconsistencyException when a
   // synthetic or live key event is asked for scrolling properties.
   const BOOL isScrollWheel = event.type == NSEventTypeScrollWheel;
-  const CGFloat deltaX = isScrollWheel ? event.deltaX : 0.0;
-  const CGFloat deltaY = isScrollWheel ? event.deltaY : 0.0;
+  // AppKit's scrollingDelta values are the canonical scroll-wheel values.
+  // For ordinary wheels they are line-oriented; for trackpads they preserve
+  // the precise pixel delta advertised by hasPreciseScrollingDeltas.
+  const CGFloat deltaX = isScrollWheel ? event.scrollingDeltaX : 0.0;
+  const CGFloat deltaY = isScrollWheel ? event.scrollingDeltaY : 0.0;
   const BOOL preciseScrolling = isScrollWheel && event.hasPreciseScrollingDeltas;
   NSLog(@"Nimculus input kind=%@ keyCode=%hu modifiers=0x%lx x=%.1f y=%.1f dx=%.1f dy=%.1f",
         kind, keyCode, event.modifierFlags, location.x, location.y,
@@ -3992,6 +3995,14 @@ bool nimculus_platform_validate_main_menu(void) {
 
 static uint32_t g_validation_shortcut_count = 0;
 static uint32_t g_validation_shortcut_input_count = 0;
+static BOOL g_validation_scroll_seen = NO;
+static NimculusInputEvent g_validation_scroll_event;
+
+static void validationScrollInputCallback(const NimculusInputEvent *event) {
+  if (!event || event->type != NSEventTypeScrollWheel) return;
+  g_validation_scroll_event = *event;
+  g_validation_scroll_seen = YES;
+}
 
 static void validationShortcutInputCallback(const NimculusInputEvent *event) {
   if (event && event->type == NSEventTypeKeyDown && event->key_code == 35 &&
@@ -4547,6 +4558,10 @@ bool nimculus_platform_validate_input_event_fields(void) {
       windowNumber:0 context:nil eventNumber:2 trackingNumber:1 userData:nil];
     if (!mouseMoved || !keyDown || !flagsChanged || !scrollWheel ||
         !mouseEntered || !mouseExited) return false;
+    NimculusInputCallback previousInputCallback = g_input_callback;
+    g_validation_scroll_seen = NO;
+    memset(&g_validation_scroll_event, 0, sizeof(g_validation_scroll_event));
+    g_input_callback = validationScrollInputCallback;
     uint64_t before = g_input_count;
     logInput(@"validationMouseMoved", mouseMoved);
     logInput(@"validationKeyDown", keyDown);
@@ -4554,7 +4569,14 @@ bool nimculus_platform_validate_input_event_fields(void) {
     logInput(@"validationScrollWheel", scrollWheel);
     logInput(@"validationMouseEntered", mouseEntered);
     logInput(@"validationMouseExited", mouseExited);
-    return g_input_count == before + 6;
+    g_input_callback = previousInputCallback;
+    // Keep the trackpad/pixel path on AppKit's canonical scrollingDelta API.
+    // This tests the exact value and precision flag forwarded to NimNUI, not
+    // merely that a scroll event happened to be logged.
+    return g_input_count == before + 6 && g_validation_scroll_seen &&
+      fabs(g_validation_scroll_event.delta_x - scrollWheel.scrollingDeltaX) < 0.001 &&
+      fabs(g_validation_scroll_event.delta_y - scrollWheel.scrollingDeltaY) < 0.001 &&
+      g_validation_scroll_event.precise_scrolling == scrollWheel.hasPreciseScrollingDeltas;
   }
 }
 
