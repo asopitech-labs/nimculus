@@ -59,6 +59,18 @@ suite "M10 terminal core":
     check terminalScrollOffset(5, 40, 8, 100) == 32
     check terminalScrollOffset(5, 40, 8, -100) == 0
 
+  test "normalizes line-wheel and pixel-trackpad terminal scrolling":
+    var trackpadRemainder = 0'f32
+    check terminalScrollLineDelta(trackpadRemainder, 9'f32, true, 18'f32) == 0
+    check terminalScrollLineDelta(trackpadRemainder, 9'f32, true, 18'f32) == -1
+    check trackpadRemainder == 0'f32
+
+    var wheelRemainder = 0'f32
+    # A conventional wheel already reports logical lines and must not be
+    # divided by the terminal font height.
+    check terminalScrollLineDelta(wheelRemainder, -3'f32, false, 18'f32) == 3
+    check wheelRemainder == 0'f32
+
   test "scrollback serial advances even when history compaction changes its length":
     var screen = initTerminalScreen(8, 2, 2)
     screen.feed("one\ntwo\nthree\nfour\nfive\nsix\n")

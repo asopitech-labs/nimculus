@@ -4077,3 +4077,17 @@ flag, preserving the current NimNUI residual line conversion without a
 platform-wide ABI change. The native contract captures the callback payload
 from a pixel scroll event and verifies both delta values and its precision flag
 against the originating `NSEvent`.
+
+## M10-029: Normalize local terminal scrollback as pixel or line input
+
+Zed's terminal scrollback converts `ScrollDelta::Pixels` using its terminal
+line height, but applies `ScrollDelta::Lines` directly. Nimculus's local
+terminal scrollback previously divided every event by the terminal line height
+and used the opposite sign from the editor path. Consequently an ordinary
+mouse wheel could require many ticks to move one history row.
+
+`terminalScrollLineDelta` now shares the same signed residual model as editor
+scrolling: precise trackpad pixels accumulate against the terminal font line
+height; ordinary wheel values are immediate logical rows. The terminal pointer
+path uses this helper before updating its bounded scrollback offset, and unit
+tests cover both device classes.

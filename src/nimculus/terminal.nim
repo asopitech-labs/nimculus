@@ -249,6 +249,17 @@ proc terminalScrollOffset*(offset, totalLines, rows, deltaRows: int): int {.inli
   let maximum = max(0, totalLines - max(1, rows))
   max(0, min(maximum, offset + deltaRows))
 
+proc terminalScrollLineDelta*(remainder: var float32, deltaY: float32,
+                              precise: bool, lineHeight: float32): int =
+  ## AppKit supplies line units for ordinary wheels and pixel units for
+  ## trackpads. Preserve sub-line pixel motion while keeping line-wheel input
+  ## direct, matching the editor and Zed's ScrollDelta distinction.
+  let units = if precise: -deltaY / max(1'f32, lineHeight) else: -deltaY
+  remainder += units
+  let whole = if remainder >= 0'f32: floor(remainder) else: ceil(remainder)
+  result = int(whole)
+  remainder -= float32(result)
+
 proc terminalSelectionAfterScrollbackDiscard*(selection: TerminalSelection,
     discardedRows, totalLines, columns: int): TerminalSelection =
   ## Rebase a selection expressed in absolute history rows after bounded

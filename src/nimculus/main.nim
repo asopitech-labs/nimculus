@@ -1087,7 +1087,7 @@ when defined(macosx):
 
   proc handleTerminalPointer(kind: UiEventKind, x, y: float32,
                              button: uint32, modifiers: uint32,
-                             deltaY: float32): bool =
+                             deltaY: float32, preciseScrolling: bool): bool =
     if not editorTerminalVisible or editorTerminal == nil or
         not terminalContains(x, y): return false
     if kind == pointerDown:
@@ -1106,9 +1106,8 @@ when defined(macosx):
         writeNativeTerminalInput(report)
       return true
     if kind == scroll:
-      editorTerminalScrollRemainder += deltaY / max(1'f32,
-        float32(platformTerminalLineHeight()))
-      let rows = int(editorTerminalScrollRemainder)
+      let rows = terminalScrollLineDelta(editorTerminalScrollRemainder, deltaY,
+        preciseScrolling, float32(platformTerminalLineHeight()))
       if rows != 0:
         editorTerminalScrollOffset = terminalScrollOffset(editorTerminalScrollOffset,
           editorTerminal.screen.lineCount(), editorTerminal.screen.rows, rows)
@@ -3465,7 +3464,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     var splitPointerHandled = false
     if editorTerminalVisible and kind in {pointerDown, pointerMove, pointerUp, scroll} and
         handleTerminalPointer(kind, float32(event.x), uiY, event.button,
-          event.modifiers, float32(event.deltaY)):
+          event.modifiers, float32(event.deltaY), event.preciseScrolling):
       return
     if kind == pointerDown:
       editorTerminalFocused = false
