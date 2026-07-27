@@ -4021,3 +4021,30 @@ at the new right edge becomes a one-cell fallback, orphan continuations become
 blank cells, and valid wide pairs retain shared style/link metadata. This
 follows the grid-invariant discipline used by Zed's Alacritty terminal state.
 Terminal tests cover both CJK truncation and alternate-screen restoration.
+
+## M10-027: Exercise grid invariants across representative VT transitions
+
+Single-feature parser tests cannot expose a malformed grid introduced only by
+the interaction of cursor motion, scroll regions, alternate screens, OSC/SGR
+metadata, partial escape sequences, and repeated resize. Zed delegates this
+state machine to Alacritty, whose presentation assumes every row remains a
+well-formed cell grid.
+
+Nimculus adds a deterministic representative VT trace that performs those
+transitions repeatedly. After each input and resize it validates line widths,
+cursor and scroll-region bounds, and the two-cell lead/continuation invariant
+for wide glyphs. This is deterministic rather than a nondiagnosable random
+fuzzer, so a failure identifies the exact protocol trace while covering the
+state combinations most likely to cause a terminal crash.
+
+The trace exposed a one-column resize edge case: a double-width glyph was
+correctly wrapped but then still wrote a nonexistent continuation cell. A
+one-column grid now renders such glyphs as a one-cell fallback, and the
+dedicated regression test prevents this crash from returning.
+
+It also exposed two alternate-screen resize omissions: newly added active rows
+used the old width when both dimensions changed together, and a saved normal
+screen retained its old height while DEC 1049 was active. Resize now sets the
+new column count before allocating rows and resizes/trims the saved normal
+grid alongside the active one. Cursor validation permits the conventional
+wrap-pending position one cell past the right margin.

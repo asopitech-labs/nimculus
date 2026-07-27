@@ -7,6 +7,29 @@ import nimculus/terminal
 when defined(macosx):
   import std/posix
 
+proc checkGridInvariant(screen: TerminalScreen) =
+  check screen.columns >= 1
+  check screen.rows >= 1
+  check screen.lines.len == screen.rows
+  check screen.cursorRow >= 0 and screen.cursorRow < screen.rows
+  # A terminal keeps the cursor one cell beyond the right margin until the
+  # next printable glyph triggers wrap-pending handling.
+  check screen.cursorColumn >= 0 and screen.cursorColumn <= screen.columns
+  check screen.scrollTop >= 0 and screen.scrollTop < screen.rows
+  check screen.scrollBottom >= screen.scrollTop and screen.scrollBottom < screen.rows
+  for row in screen.lines:
+    check row.len == screen.columns
+    for column, cell in row:
+      check cell.width in {0, 1, 2}
+      if cell.width == 0:
+        check column > 0
+        check row[column - 1].width == 2
+      elif cell.width == 2:
+        check column + 1 < row.len
+        check row[column + 1].width == 0
+  for row in screen.scrollback:
+    check row.len == screen.columns
+
 suite "M10 terminal core":
   test "routes macOS editing commands to the terminal without editor fallback":
     var screen = initTerminalScreen()
@@ -135,6 +158,29 @@ suite "M10 terminal core":
     alternate.feed("\x1b[?1049l")
     check alternate.lines[0].len == 2
     check alternate.lineText(0) == "ma"
+
+  test "one-column grids accept wide glyphs without a continuation cell":
+    var screen = initTerminalScreen(1, 1)
+    screen.feed("界")
+    check screen.lineText(0) == "界"
+    check screen.lines[0][0].width == 1
+
+  test "representative VT traces retain terminal grid invariants":
+    var screen = initTerminalScreen(12, 4, 8)
+    let trace = [
+      "plain 日本語 text", "\r\n", "\x1b[2;5H界", "\x1b[2K",
+      "\x1b[2;3r", "\x1b[2;1H\x1b[1L", "\x1b[1M", "\x1b[3S",
+      "\x1b[?1049h", "alternate\r\n界", "\x1b[?1049l", "\x1b[?25l",
+      "\x1b[?25h", "\x1b]8;;https://example.invalid\x07link\x1b]8;;\x07",
+      "\x1b[38;2;10;20;30mcolor\x1b[0m", "\x1b", "[?2004h", "\x1b[?2004l"
+    ]
+    for index in 0 ..< 256:
+      screen.feed(trace[index mod trace.len])
+      if index mod 7 == 0:
+        let columns = 1 + (index mod 12)
+        let rows = 1 + ((index div 7) mod 4)
+        screen.resize(columns, rows)
+      checkGridInvariant(screen)
 
   test "copies a normalized selection across visible lines and scrollback":
     var screen = initTerminalScreen(8, 2, 8)

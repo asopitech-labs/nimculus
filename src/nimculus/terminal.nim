@@ -127,9 +127,12 @@ proc hash(style: TerminalStyle): Hash =
   value = value !& hash(style.strikethrough)
   result = !$value
 
-proc blankRow(screen: TerminalScreen): seq[TerminalCell] =
-  newSeq(result, max(1, screen.columns))
+proc blankTerminalRow(columns: int): seq[TerminalCell] =
+  newSeq(result, max(1, columns))
   for cell in result.mitems: cell.width = 1
+
+proc blankRow(screen: TerminalScreen): seq[TerminalCell] =
+  blankTerminalRow(screen.columns)
 
 proc defaultTerminalStyle(): TerminalStyle =
   result.foreground.kind = terminalDefaultColor
@@ -437,6 +440,35 @@ proc resizeTerminalRows(rows: var seq[seq[TerminalCell]], columns: int) =
         row[column].width = 1
     normalizeTerminalRow(row)
 
+proc trimSavedScrollback(screen: var TerminalScreen) =
+  if screen.scrollbackLimit <= 0:
+    screen.savedScrollback.setLen(0)
+  elif screen.savedScrollback.len > screen.scrollbackLimit:
+    let batch = min(256, max(1, screen.scrollbackLimit div 4))
+    let keep = max(0, screen.scrollbackLimit - batch)
+    if keep == 0:
+      screen.savedScrollback.setLen(0)
+    else:
+      let first = screen.savedScrollback.len - keep
+      screen.savedScrollback = screen.savedScrollback[first .. ^1]
+  screen.compactInternedValues()
+
+proc resizeSavedTerminalRows(screen: var TerminalScreen, rows: int) =
+  ## DEC 1049 retains a normal-screen grid while the alternate grid is active.
+  ## Keep its height in lockstep so restore cannot resurrect stale dimensions.
+  if not screen.alternateScreen: return
+  if rows > screen.savedLines.len:
+    for _ in screen.savedLines.len ..< rows:
+      screen.savedLines.add(blankTerminalRow(screen.columns))
+  elif rows < screen.savedLines.len:
+    let removed = screen.savedLines.len - rows
+    for _ in 0 ..< removed:
+      screen.savedScrollback.add(screen.savedLines[0])
+      screen.savedLines.delete(0)
+    screen.trimSavedScrollback()
+  screen.savedCursorRow = min(max(0, screen.savedCursorRow), max(0, rows - 1))
+  screen.savedCursorColumn = min(max(0, screen.savedCursorColumn), screen.columns)
+
 proc resize*(screen: var TerminalScreen, columns, rows: int) =
   let nextColumns = max(1, columns)
   let nextRows = max(1, rows)
@@ -448,6 +480,9 @@ proc resize*(screen: var TerminalScreen, columns, rows: int) =
     # the previous column count.
     resizeTerminalRows(screen.savedLines, nextColumns)
     resizeTerminalRows(screen.savedScrollback, nextColumns)
+  # New rows below must use the new width even when both dimensions change in
+  # one PTY resize notification.
+  screen.columns = nextColumns
   if nextRows > screen.lines.len:
     for _ in screen.lines.len ..< nextRows: screen.lines.add(screen.blankRow())
   elif nextRows < screen.lines.len:
@@ -457,7 +492,7 @@ proc resize*(screen: var TerminalScreen, columns, rows: int) =
       inc screen.scrollbackSerial
       screen.lines.delete(0)
     screen.trimScrollback()
-  screen.columns = nextColumns
+  screen.resizeSavedTerminalRows(nextRows)
   screen.rows = nextRows
   screen.scrollTop = min(screen.scrollTop, screen.rows - 1)
   screen.scrollBottom = min(max(screen.scrollTop, screen.scrollBottom), screen.rows - 1)
@@ -772,7 +807,11 @@ proc putGlyph(screen: var TerminalScreen, glyph: string) =
   if screen.cursorRow > screen.scrollBottom:
     screen.scrollRegionUp()
     screen.cursorRow = screen.scrollBottom
-  let width = runeDisplayWidth(runeAt(glyph, 0))
+  var width = runeDisplayWidth(runeAt(glyph, 0))
+  # A one-column PTY grid cannot represent a leading/continuation pair. This
+  # can occur transiently while a window is being resized; retain the glyph as
+  # a safe one-cell fallback instead of indexing a nonexistent continuation.
+  if width == 2 and screen.columns < 2: width = 1
   if width == 0:
     if screen.cursorColumn > 0:
       let cell = addr screen.lines[screen.cursorRow][screen.cursorColumn - 1]
