@@ -3964,3 +3964,17 @@ reporting remains routed to the PTY. Pointer selection is translated between
 viewport-local and absolute rows, so copy continues to include scrollback.
 New output preserves an existing scrollback position rather than snapping the
 reader to the bottom. Terminal-core tests cover viewport and offset bounds.
+
+## M10-023: Verify terminal cells at the macOS presentation boundary
+
+The terminal core test suite verifies VT parsing and cell selection, but the
+macOS overlay previously had only a clear-state contract. That did not prove
+that UTF-8 run offsets, wide-cell coordinates, terminal decorations, links,
+and row/column selections survived the conversion into AppKit attributes.
+
+The native contract now creates representative terminal runs and validates the
+attributed text boundary directly: bold text, an underlined OSC-8 link on a
+two-cell Japanese glyph, inverse/strikethrough styling, and a cross-row cell
+selection. This follows Zed's separation of terminal-grid state from native
+text presentation while testing the conversion boundary rather than either
+side in isolation.

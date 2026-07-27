@@ -175,6 +175,9 @@ suite "macOS platform contract":
     platformSetTerminalFontSize(13.0)
     check true
 
+  test "terminal cell runs preserve style links wide cells and selection":
+    check platformValidateTerminalOverlayRuns()
+
   test "native glyph atlas uploads and reuses visible glyphs":
     if platformValidateGlyphAtlas():
       check true

@@ -24,6 +24,7 @@ bool nimculus_platform_validate_glyph_atlas(void);
 bool nimculus_platform_validate_glyph_atlas_eviction(void);
 bool nimculus_platform_validate_color_emoji_fallback(void);
 bool nimculus_platform_validate_color_emoji_sequences(void);
+bool nimculus_platform_validate_terminal_overlay_runs(void);
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics);
 uint64_t nimculus_platform_resident_memory_bytes(void);
 uint64_t nimculus_platform_live_allocation_count(void);

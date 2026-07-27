@@ -34,6 +34,7 @@ proc platformValidateRetinaTextScaling*(): bool {.importc: "nimculus_platform_va
 proc platformValidateResourceTeardown*(): bool {.importc: "nimculus_platform_validate_resource_teardown", cdecl.}
 proc platformValidateColorEmojiFallback*(): bool {.importc: "nimculus_platform_validate_color_emoji_fallback", cdecl.}
 proc platformValidateColorEmojiSequences*(): bool {.importc: "nimculus_platform_validate_color_emoji_sequences", cdecl.}
+proc platformValidateTerminalOverlayRuns*(): bool {.importc: "nimculus_platform_validate_terminal_overlay_runs", cdecl.}
 proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
 proc platformResidentMemoryBytes*(): uint64 {.importc: "nimculus_platform_resident_memory_bytes", cdecl.}
 proc platformLiveAllocationCount*(): uint64 {.importc: "nimculus_platform_live_allocation_count", cdecl.}

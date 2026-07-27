@@ -2081,6 +2081,48 @@ static void applyTerminalRuns(NSTextView *terminal) {
   [attributed release];
 }
 
+bool nimculus_platform_validate_terminal_overlay_runs(void) {
+  // Keep the cell-grid and AppKit text boundaries coupled: a terminal run
+  // carries UTF-8 ranges for styling but row/column/cell-width coordinates
+  // for selection. This mirrors Zed's separation of terminal cells from the
+  // native text presentation layer.
+  @autoreleasepool {
+    const char *text = "A\xE6\x97\xA5\nB";
+    const char *link = "https://example.invalid/terminal";
+    NimculusTerminalRun runs[3] = {
+      { .start_byte = 0, .end_byte = 1, .flags = 1, .row = 0, .column = 0,
+        .cell_width = 1, .foreground_kind = 1, .foreground_index = 9 },
+      { .start_byte = 1, .end_byte = 4, .flags = 8, .row = 0, .column = 1,
+        .cell_width = 2, .foreground_kind = 2, .foreground_red = 12,
+        .foreground_green = 160, .foreground_blue = 220, .hyperlink_uri = link },
+      { .start_byte = 5, .end_byte = 6, .flags = 16 | 32, .row = 1, .column = 0,
+        .cell_width = 1, .background_kind = 1, .background_index = 4 }
+    };
+    nimculus_platform_set_terminal_runs(text, 6, runs, 3);
+    nimculus_platform_set_terminal_selection(0, 1, 1, 1);
+    NimculusTerminalOverlay *terminal = [[NimculusTerminalOverlay alloc]
+      initWithFrame:NSMakeRect(0, 0, 320, 120)];
+    terminal.editable = NO;
+    terminal.selectable = YES;
+    applyTerminalRuns(terminal);
+    NSAttributedString *storage = terminal.textStorage;
+    NSDictionary *wideAttributes = [storage attributesAtIndex:1 effectiveRange:NULL];
+    NSDictionary *lastAttributes = [storage attributesAtIndex:3 effectiveRange:NULL];
+    NSFont *firstFont = [storage attribute:NSFontAttributeName atIndex:0 effectiveRange:NULL];
+    BOOL bold = (firstFont.fontDescriptor.symbolicTraits & NSFontBoldTrait) != 0;
+    BOOL linked = [[wideAttributes objectForKey:NSLinkAttributeName] isEqualToString:@(link)];
+    BOOL underlined = [[wideAttributes objectForKey:NSUnderlineStyleAttributeName] integerValue] != 0;
+    BOOL stricken = [[lastAttributes objectForKey:NSStrikethroughStyleAttributeName] integerValue] != 0;
+    BOOL selected = NSEqualRanges(terminal.selectedRange, NSMakeRange(1, 3));
+    BOOL valid = [storage.string isEqualToString:@"A日\nB"] && bold && linked && underlined &&
+      stricken && selected;
+    [terminal release];
+    nimculus_platform_set_terminal_runs("", 0, NULL, 0);
+    nimculus_platform_set_terminal_selection(0, 0, 0, 0);
+    return valid;
+  }
+}
+
 @implementation NimculusMetalView
 
 + (Class)layerClass { return [CAMetalLayer class]; }
