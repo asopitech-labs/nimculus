@@ -47,6 +47,21 @@ suite "M10 terminal core":
     check terminalScrollOffset(1, screen.lineCount(), screen.rows,
       int(screen.scrollbackSerial - serialBefore)) >= 1
 
+  test "scrollback discard rebases surviving terminal selection rows":
+    let selection = TerminalSelection(anchor: TerminalPoint(row: 1, column: 3),
+      active: TerminalPoint(row: 4, column: 2))
+    let rebased = terminalSelectionAfterScrollbackDiscard(selection, 2, 6, 8)
+    check rebased.anchor == TerminalPoint(row: 0, column: 0)
+    check rebased.active == TerminalPoint(row: 2, column: 2)
+    let evicted = terminalSelectionAfterScrollbackDiscard(selection, 5, 4, 8)
+    check evicted.anchor == TerminalPoint()
+    check evicted.active == TerminalPoint()
+
+  test "scrollback compaction records discarded history rows":
+    var screen = initTerminalScreen(8, 2, 2)
+    screen.feed("one\ntwo\nthree\nfour\nfive\nsix\n")
+    check screen.scrollbackDiscardedSerial > 0
+
   test "parses ANSI cursor movement and scrollback":
     var screen = initTerminalScreen(6, 2, 4)
     screen.feed("one\r\ntwo\r\nthree")

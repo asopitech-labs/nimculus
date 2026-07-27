@@ -3993,3 +3993,18 @@ the local offset before clamping to the current bounded history. This matches
 Zed's display-offset ownership: the reader remains on the same logical output
 until retention necessarily evicts it. The terminal-core test covers the
 compaction case where history length is not monotonic.
+
+## M10-025: Rebase terminal selections after scrollback retention evicts rows
+
+Terminal selections are stored in absolute rows across history and the live
+grid. When bounded retention removes front rows, leaving those coordinates
+unchanged silently retargets a selected range to later output. That makes a
+subsequent copy return unrelated text while the reader is looking at the same
+viewport.
+
+The screen now exposes a monotonic discard serial in addition to its append
+serial. On each PTY poll, the macOS terminal presentation rebases its active
+selection by the discarded count before mapping it to viewport-local AppKit
+coordinates. A selection crossing the retention boundary keeps its surviving
+suffix; one entirely evicted is cleared. The terminal-core tests cover both
+the retention counter and selection behavior.

@@ -1227,8 +1227,15 @@ when defined(macosx):
     for index, session in editorTerminals:
       if session == nil or session.closed: continue
       let scrollbackSerialBefore = session.screen.scrollbackSerial
+      let scrollbackDiscardedBefore = session.screen.scrollbackDiscardedSerial
       let output = session.pollOutput()
       if index == editorTerminalIndex and output.len > 0 and editorTerminalVisible:
+        let discardedRows = session.screen.scrollbackDiscardedSerial -
+          scrollbackDiscardedBefore
+        if discardedRows > 0:
+          editorTerminalSelection = terminalSelectionAfterScrollbackDiscard(
+            editorTerminalSelection, int(discardedRows), session.screen.lineCount(),
+            session.screen.columns)
         if editorTerminalScrollOffset > 0:
           let appendedRows = session.screen.scrollbackSerial - scrollbackSerialBefore
           editorTerminalScrollOffset = terminalScrollOffset(editorTerminalScrollOffset,

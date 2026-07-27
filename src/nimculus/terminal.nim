@@ -69,6 +69,10 @@ type
     ## uses this rather than history length because bounded compaction can make
     ## the latter stay flat (or shrink) while new output is still arriving.
     scrollbackSerial*: uint64
+    ## Monotonic count of rows discarded from the front of normal-screen
+    ## history. Consumers holding absolute history rows must rebase when it
+    ## advances.
+    scrollbackDiscardedSerial*: uint64
     cursorRow*, cursorColumn*: int
     cursorVisible*: bool
     alternateScreen*: bool
@@ -242,6 +246,24 @@ proc terminalScrollOffset*(offset, totalLines, rows, deltaRows: int): int {.inli
   let maximum = max(0, totalLines - max(1, rows))
   max(0, min(maximum, offset + deltaRows))
 
+proc terminalSelectionAfterScrollbackDiscard*(selection: TerminalSelection,
+    discardedRows, totalLines, columns: int): TerminalSelection =
+  ## Rebase a selection expressed in absolute history rows after bounded
+  ## scrollback discards rows at the front. Retain the surviving suffix of a
+  ## cross-boundary selection; clear a selection that was entirely evicted.
+  if discardedRows <= 0: return selection
+  let maxRow = max(0, totalLines - 1)
+  proc rebase(point: TerminalPoint): TerminalPoint =
+    if point.row < discardedRows:
+      TerminalPoint(row: 0, column: 0)
+    else:
+      TerminalPoint(row: min(maxRow, point.row - discardedRows),
+        column: min(max(0, columns), max(0, point.column)))
+  if selection.anchor.row < discardedRows and selection.active.row < discardedRows:
+    return TerminalSelection()
+  result.anchor = rebase(selection.anchor)
+  result.active = rebase(selection.active)
+
 proc clearCell(screen: var TerminalScreen, row, column: int)
 
 proc compactInternedValues(screen: var TerminalScreen) =
@@ -335,18 +357,22 @@ proc trimScrollback(screen: var TerminalScreen) =
   ## reserve below the limit and compact in batches, like a deque-backed
   ## terminal history.
   if screen.scrollbackLimit <= 0:
-    let changed = screen.scrollback.len > 0
+    let discarded = screen.scrollback.len
+    let changed = discarded > 0
     screen.scrollback.setLen(0)
+    if discarded > 0: screen.scrollbackDiscardedSerial += uint64(discarded)
     if changed: screen.compactInternedValues()
     return
   if screen.scrollback.len <= screen.scrollbackLimit: return
   let batch = min(256, max(1, screen.scrollbackLimit div 4))
   let keep = max(0, screen.scrollbackLimit - batch)
+  let discarded = screen.scrollback.len - keep
   if keep == 0:
     screen.scrollback.setLen(0)
   else:
     let first = screen.scrollback.len - keep
     screen.scrollback = screen.scrollback[first .. ^1]
+  screen.scrollbackDiscardedSerial += uint64(discarded)
   screen.compactInternedValues()
 
 proc scrollRegionUp(screen: var TerminalScreen, amount = 1) =
