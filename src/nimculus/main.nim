@@ -1128,6 +1128,9 @@ when defined(macosx):
     editorTerminals.setLen(0)
     editorTerminal = nil
     editorTerminalIndex = -1
+    editorTerminalVisible = false
+    editorTerminalFocused = false
+    platformSetTerminalVisible(false)
 
   proc shutdownNativeServices() =
     ## Run only after the macOS close/quit decision has been accepted. The

@@ -3888,3 +3888,15 @@ the terminal returns ownership to the editor. The pure terminal contract test
 captures this visibility-versus-focus boundary, while existing command mapping
 tests continue to verify that a focused terminal never falls through to editor
 selectors.
+
+## M10-019: Clear terminal presentation state during service shutdown
+
+Closing PTY sessions releases their process groups, but the macOS presentation
+state is owned separately by the AppKit overlay. Leaving its visibility or
+keyboard-ownership flags set while clearing the active session could make a
+subsequent lifecycle callback observe a terminal that no longer exists.
+
+The terminal shutdown boundary now clears the active session, visibility, and
+focus together, and explicitly hides the native overlay. This keeps the
+terminal's session and focus lifecycles aligned, as in Zed where a panel's
+focus handle cannot outlive the panel it belongs to.
