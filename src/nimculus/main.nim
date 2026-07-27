@@ -454,6 +454,8 @@ when defined(macosx):
   var editorTerminalFocused = false
   var editorTerminalSelection = TerminalSelection()
   var editorTerminalSelecting = false
+  var editorTerminalScrollOffset = 0
+  var editorTerminalScrollRemainder = 0'f32
   var editorUpdateJob: UpdateDownloadJob
   var editorUpdatePath = ""
 
@@ -954,13 +956,18 @@ when defined(macosx):
   proc syncNativeTerminal() =
     if editorTerminal == nil: return
     let screen = editorTerminal.screen
-    let text = screen.gridText()
+    let viewportStart = terminalViewportStart(screen.lineCount(), screen.rows,
+      editorTerminalScrollOffset)
+    var text = ""
     var runs: seq[NativeTerminalRun]
     var byteOffset = 0
-    for rowIndex, row in screen.lines:
+    for rowIndex in 0 ..< screen.rows:
+      if rowIndex > 0: text.add('\n')
+      let row = screen.lineAt(viewportStart + rowIndex)
       for columnIndex, cell in row:
         if cell.width == 0: continue
         let cellText = screen.cellText(cell)
+        text.add(cellText)
         let style = screen.cellStyle(cell)
         let hyperlink = screen.cellHyperlinkUri(cell)
         let endByte = byteOffset + cellText.len
@@ -986,7 +993,7 @@ when defined(macosx):
           backgroundBlue: uint32(style.background.blue),
           hyperlinkUri: if hyperlink.len > 0: hyperlink.cstring else: nil))
         byteOffset = endByte
-      byteOffset += 1
+      if rowIndex + 1 < screen.rows: inc byteOffset
     if runs.len > 0:
       platformSetTerminalRuns(text.cstring, uint32(text.len), addr runs[0], uint32(runs.len))
     else:
@@ -997,6 +1004,8 @@ when defined(macosx):
     editorTerminalIndex = index
     editorTerminal = editorTerminals[index]
     editorTerminalSelection = TerminalSelection()
+    editorTerminalScrollOffset = 0
+    editorTerminalScrollRemainder = 0'f32
     if editorTerminalVisible:
       platformSetTerminalSelection(0, 0, 0, 0)
       syncNativeTerminal()
@@ -1039,8 +1048,10 @@ when defined(macosx):
     let lineHeight = max(1'f32, float32(platformTerminalLineHeight()))
     let insetX = max(0'f32, float32(platformTerminalInsetX()))
     let insetY = max(0'f32, float32(platformTerminalInsetY()))
+    let viewportStart = terminalViewportStart(editorTerminal.screen.lineCount(),
+      editorTerminal.screen.rows, editorTerminalScrollOffset)
     TerminalPoint(
-      row: max(0, min(editorTerminal.screen.rows - 1,
+      row: viewportStart + max(0, min(editorTerminal.screen.rows - 1,
         int(floor((y - bounds.y - insetY) / lineHeight)))),
       column: max(0, min(editorTerminal.screen.columns,
         int(floor((x - bounds.x - insetX) / cellWidth)))))
@@ -1052,10 +1063,20 @@ when defined(macosx):
 
   proc syncNativeTerminalSelection() =
     if editorTerminal == nil: return
-    let selection = editorTerminal.screen.normalizedSelection(editorTerminalSelection)
-    platformSetTerminalSelection(uint32(selection.anchor.row),
-      uint32(selection.anchor.column), uint32(selection.active.row),
-      uint32(selection.active.column))
+    let screen = editorTerminal.screen
+    let selection = screen.normalizedSelection(editorTerminalSelection)
+    let viewportStart = terminalViewportStart(screen.lineCount(), screen.rows,
+      editorTerminalScrollOffset)
+    let viewportEnd = viewportStart + screen.rows - 1
+    if selection.active.row < viewportStart or selection.anchor.row > viewportEnd:
+      platformSetTerminalSelection(0, 0, 0, 0)
+      return
+    let startRow = max(selection.anchor.row, viewportStart)
+    let endRow = min(selection.active.row, viewportEnd)
+    let startColumn = if startRow == selection.anchor.row: selection.anchor.column else: 0
+    let endColumn = if endRow == selection.active.row: selection.active.column else: screen.columns
+    platformSetTerminalSelection(uint32(startRow - viewportStart), uint32(startColumn),
+      uint32(endRow - viewportStart), uint32(endColumn))
 
   proc writeNativeTerminalInput(input: string, paste = false) =
     if editorTerminal == nil or editorTerminal.closed: return
@@ -1083,6 +1104,17 @@ when defined(macosx):
         point.column, point.row, deltaY, modifiers)
       if report.len > 0:
         writeNativeTerminalInput(report)
+      return true
+    if kind == scroll:
+      editorTerminalScrollRemainder += deltaY / max(1'f32,
+        float32(platformTerminalLineHeight()))
+      let rows = int(editorTerminalScrollRemainder)
+      if rows != 0:
+        editorTerminalScrollOffset = terminalScrollOffset(editorTerminalScrollOffset,
+          editorTerminal.screen.lineCount(), editorTerminal.screen.rows, rows)
+        editorTerminalScrollRemainder -= float32(rows)
+        syncNativeTerminal()
+        syncNativeTerminalSelection()
       return true
     if kind == pointerDown:
       editorTerminalSelection.anchor = terminalPointAt(x, y)
@@ -1194,9 +1226,15 @@ when defined(macosx):
   proc pollNativeTerminal() =
     for index, session in editorTerminals:
       if session == nil or session.closed: continue
+      let lineCountBefore = session.screen.lineCount()
       let output = session.pollOutput()
       if index == editorTerminalIndex and output.len > 0 and editorTerminalVisible:
+        if editorTerminalScrollOffset > 0:
+          editorTerminalScrollOffset += max(0, session.screen.lineCount() - lineCountBefore)
         syncNativeTerminal()
+        # Native selection ranges are viewport-relative. Reproject any active
+        # terminal selection after output changes the visible scrollback rows.
+        syncNativeTerminalSelection()
 
   proc scheduleNativeGitHunks(document: ptr FileDocument) =
     if editorGitDiffJob != nil:

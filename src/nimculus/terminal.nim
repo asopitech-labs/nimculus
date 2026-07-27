@@ -228,6 +228,16 @@ proc terminalGridSize*(width, height, cellWidth, lineHeight, insetX, insetY: flo
   result.columns = max(1, int(floor(usableWidth / max(1'f32, cellWidth))))
   result.rows = max(1, int(floor(usableHeight / max(1'f32, lineHeight))))
 
+proc terminalViewportStart*(totalLines, rows, scrollOffset: int): int {.inline.} =
+  ## scrollOffset is measured in rows above the live bottom viewport.
+  max(0, totalLines - max(1, rows) - max(0, scrollOffset))
+
+proc terminalScrollOffset*(offset, totalLines, rows, deltaRows: int): int {.inline.} =
+  ## Clamp local scrollback navigation without changing the terminal's PTY
+  ## viewport. A positive delta moves toward older scrollback rows.
+  let maximum = max(0, totalLines - max(1, rows))
+  max(0, min(maximum, offset + deltaRows))
+
 proc clearCell(screen: var TerminalScreen, row, column: int)
 
 proc compactInternedValues(screen: var TerminalScreen) =
@@ -869,7 +879,7 @@ proc gridText*(screen: TerminalScreen): string =
 proc lineCount*(screen: TerminalScreen): int =
   screen.scrollback.len + screen.lines.len
 
-proc lineAt(screen: TerminalScreen, absoluteRow: int): seq[TerminalCell] =
+proc lineAt*(screen: TerminalScreen, absoluteRow: int): seq[TerminalCell] =
   if absoluteRow < 0: return
   if absoluteRow < screen.scrollback.len: return screen.scrollback[absoluteRow]
   let row = absoluteRow - screen.scrollback.len

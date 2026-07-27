@@ -3950,3 +3950,17 @@ The LSP reader now retains an EOF transport until `peekExitCode` yields a real
 exit status on a subsequent idle poll. It remains non-blocking and never waits
 in the UI path; the existing exited-server test verifies it converges to
 `lspStopped`.
+
+## M10-022: Keep terminal scrollback navigation out of the editor scroll path
+
+Zed keeps a terminal-local scroll position and sends wheel input to the PTY
+only while a terminal application has enabled mouse reporting. Nimculus stored
+scrollback rows but always rendered the live grid; ordinary terminal wheel
+events therefore fell through to the editor.
+
+The macOS terminal overlay now renders a bounded scrollback viewport using
+absolute screen rows. Ordinary wheel input moves that viewport while mouse
+reporting remains routed to the PTY. Pointer selection is translated between
+viewport-local and absolute rows, so copy continues to include scrollback.
+New output preserves an existing scrollback position rather than snapping the
+reader to the bottom. Terminal-core tests cover viewport and offset bounds.

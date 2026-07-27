@@ -29,6 +29,13 @@ suite "M10 terminal core":
     check terminalGridSize(100'f32, 60'f32, 10'f32, 15'f32, 5'f32, 3'f32) == (9, 3)
     check terminalGridSize(4'f32, 4'f32, 0'f32, 0'f32, 8'f32, 8'f32) == (1, 1)
 
+  test "navigates a bounded scrollback viewport without changing the PTY grid":
+    check terminalViewportStart(40, 8, 0) == 32
+    check terminalViewportStart(40, 8, 7) == 25
+    check terminalScrollOffset(0, 40, 8, 5) == 5
+    check terminalScrollOffset(5, 40, 8, 100) == 32
+    check terminalScrollOffset(5, 40, 8, -100) == 0
+
   test "parses ANSI cursor movement and scrollback":
     var screen = initTerminalScreen(6, 2, 4)
     screen.feed("one\r\ntwo\r\nthree")
