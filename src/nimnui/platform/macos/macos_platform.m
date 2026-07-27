@@ -2016,11 +2016,34 @@ static NSColor *terminalColor(uint32_t kind, uint32_t index,
   return [NSColor colorWithCalibratedRed:r green:g blue:b alpha:1.0];
 }
 
+static NSFont *terminalBaseFont(void) {
+  NSFont *font = [NSFont fontWithName:g_terminal_font_name size:g_terminal_font_size];
+  // A terminal is a cell grid. A proportional user selection cannot preserve
+  // the PTY's column coordinates, so retain the requested font only when it
+  // is fixed pitch and otherwise fall back to AppKit's fixed-pitch face.
+  if (!font || !font.isFixedPitch) {
+    font = [NSFont monospacedSystemFontOfSize:g_terminal_font_size
+                                       weight:NSFontWeightRegular];
+  }
+  return font;
+}
+
+static CGFloat terminalCellWidth(void) {
+  return MAX(1.0, terminalBaseFont().maximumAdvancement.width);
+}
+
+static CGFloat terminalLineHeight(void) {
+  NSLayoutManager *layoutManager = [[NSLayoutManager alloc] init];
+  CGFloat height = [layoutManager defaultLineHeightForFont:terminalBaseFont()];
+  [layoutManager release];
+  return MAX(1.0, height);
+}
+
 static void applyTerminalRuns(NSTextView *terminal) {
   if (!terminal) return;
   NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
     initWithString:g_terminal_text ?: @"" attributes:@{
-      NSFontAttributeName: [NSFont fontWithName:g_terminal_font_name size:g_terminal_font_size] ?: [NSFont monospacedSystemFontOfSize:g_terminal_font_size weight:NSFontWeightRegular],
+      NSFontAttributeName: terminalBaseFont(),
       NSForegroundColorAttributeName: terminalColor(0, 0, 0, 0, 0, YES),
       NSBackgroundColorAttributeName: terminalColor(0, 0, 0, 0, 0, NO)
     }];
@@ -2035,7 +2058,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
     NSColor *background = terminalColor(run.background_kind, run.background_index,
       run.background_red, run.background_green, run.background_blue, NO);
     if (run.flags & 16) { NSColor *swap = foreground; foreground = background; background = swap; }
-    NSFont *font = [NSFont fontWithName:g_terminal_font_name size:g_terminal_font_size] ?: [NSFont monospacedSystemFontOfSize:g_terminal_font_size weight:NSFontWeightRegular];
+    NSFont *font = terminalBaseFont();
     if (run.flags & 1) font = [[NSFontManager sharedFontManager] convertFont:font toHaveTrait:NSBoldFontMask] ?: font;
     if (run.flags & 4) font = [[NSFontManager sharedFontManager] convertFont:font toHaveTrait:NSItalicFontMask] ?: font;
     NSRange range = NSMakeRange(start, end - start);
@@ -2123,8 +2146,15 @@ static void applyTerminalRuns(NSTextView *terminal) {
       [NSColor colorWithCalibratedRed:0.025 green:0.030 blue:0.045 alpha:1.0]) colorWithAlphaComponent:0.98];
     terminal.textColor = themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]);
-    terminal.font = [NSFont fontWithName:g_terminal_font_name size:g_terminal_font_size] ?: [NSFont monospacedSystemFontOfSize:g_terminal_font_size weight:NSFontWeightRegular];
+    terminal.font = terminalBaseFont();
     terminal.textContainerInset = NSMakeSize(8.0, 6.0);
+    // Preserve the PTY's explicit row breaks. The terminal grid owns columns;
+    // NSTextView must not silently reflow rows when the overlay is resized.
+    terminal.textContainer.lineFragmentPadding = 0.0;
+    terminal.textContainer.widthTracksTextView = NO;
+    terminal.textContainer.containerSize = NSMakeSize(CGFLOAT_MAX, CGFLOAT_MAX);
+    terminal.horizontallyResizable = YES;
+    terminal.verticallyResizable = NO;
     terminal.hidden = YES;
     [self addSubview:terminal];
     NimculusTaskOutputOverlay *taskOutput = [[NimculusTaskOutputOverlay alloc]
@@ -5243,8 +5273,7 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
 static void updateTerminalFonts(void) {
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
-  NSFont *font = [NSFont fontWithName:g_terminal_font_name size:g_terminal_font_size] ?:
-    [NSFont monospacedSystemFontOfSize:g_terminal_font_size weight:NSFontWeightRegular];
+  NSFont *font = terminalBaseFont();
   for (NSView *subview in view.subviews) {
     if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) {
       NSTextView *terminal = (NSTextView *)subview;
@@ -5266,6 +5295,18 @@ void nimculus_platform_set_terminal_font_name(const char *name) {
   NSString *requested = name ? [NSString stringWithUTF8String:name] : nil;
   replaceOwnedString(&g_terminal_font_name, requested.length > 0 ? requested : @"Menlo");
   updateTerminalFonts();
+}
+double nimculus_platform_terminal_cell_width(void) {
+  return terminalCellWidth();
+}
+double nimculus_platform_terminal_line_height(void) {
+  return terminalLineHeight();
+}
+double nimculus_platform_terminal_inset_x(void) {
+  return 8.0;
+}
+double nimculus_platform_terminal_inset_y(void) {
+  return 6.0;
 }
 void nimculus_platform_set_terminal_selection(uint32_t start_row, uint32_t start_column,
                                               uint32_t end_row, uint32_t end_column) {

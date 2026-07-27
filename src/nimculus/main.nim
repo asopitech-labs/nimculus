@@ -1031,11 +1031,15 @@ when defined(macosx):
 
   proc terminalPointAt(x, y: float32): TerminalPoint =
     let bounds = terminalOverlayBounds()
+    let cellWidth = max(1'f32, float32(platformTerminalCellWidth()))
+    let lineHeight = max(1'f32, float32(platformTerminalLineHeight()))
+    let insetX = max(0'f32, float32(platformTerminalInsetX()))
+    let insetY = max(0'f32, float32(platformTerminalInsetY()))
     TerminalPoint(
       row: max(0, min(editorTerminal.screen.rows - 1,
-        int(floor((y - bounds.y) / 18'f32)))),
+        int(floor((y - bounds.y - insetY) / lineHeight)))),
       column: max(0, min(editorTerminal.screen.columns,
-        int(floor((x - bounds.x) / 7.2'f32)))))
+        int(floor((x - bounds.x - insetX) / cellWidth)))))
 
   proc terminalContains(x, y: float32): bool =
     let bounds = terminalOverlayBounds()

@@ -92,6 +92,10 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
                                         const char *border);
 void nimculus_platform_set_terminal_font_size(double size);
 void nimculus_platform_set_terminal_font_name(const char *name);
+double nimculus_platform_terminal_cell_width(void);
+double nimculus_platform_terminal_line_height(void);
+double nimculus_platform_terminal_inset_x(void);
+double nimculus_platform_terminal_inset_y(void);
 bool nimculus_platform_is_dark_appearance(void);
 void nimculus_platform_install_crash_handler(const char *path);
 void nimculus_platform_set_terminal_selection(uint32_t start_row, uint32_t start_column,

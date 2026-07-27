@@ -129,6 +129,18 @@ suite "macOS platform contract":
   test "native IME composition preserves UTF-16 and UTF-8 boundaries":
     check platformValidateImeComposition()
 
+  test "terminal cell metrics follow the selected fixed-pitch font":
+    let defaultWidth = platformTerminalCellWidth()
+    let defaultHeight = platformTerminalLineHeight()
+    check defaultWidth > 0.0
+    check defaultHeight > 0.0
+    check platformTerminalInsetX() >= 0.0
+    check platformTerminalInsetY() >= 0.0
+    platformSetTerminalFontSize(24.0)
+    check platformTerminalCellWidth() > defaultWidth
+    check platformTerminalLineHeight() > defaultHeight
+    platformSetTerminalFontSize(12.0)
+
   test "IME command fallback dispatches native editor commands":
     check platformValidateImeCommandDispatch()
 

@@ -3900,3 +3900,17 @@ The terminal shutdown boundary now clears the active session, visibility, and
 focus together, and explicitly hides the native overlay. This keeps the
 terminal's session and focus lifecycles aligned, as in Zed where a panel's
 focus handle cannot outlive the panel it belongs to.
+
+## M10-020: Share terminal cell metrics between drawing and pointer input
+
+Zed derives terminal mouse coordinates from the same `cell_width` and
+`line_height` used to lay out its terminal grid. Nimculus previously rendered
+the configured AppKit terminal font but converted pointer coordinates with
+fixed 7.2/18-point constants, so a terminal font-size change made selection
+and mouse reporting address the wrong cells.
+
+The macOS bridge now resolves a fixed-pitch terminal font, disables NSTextView
+soft wrapping so PTY rows remain rows, and exposes its cell advance, line
+height, and text inset to Nim. Pointer conversion uses those exact values.
+The native platform contract verifies that increasing the terminal font size
+also increases the exported grid metrics.
