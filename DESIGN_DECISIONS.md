@@ -4142,5 +4142,13 @@ did not repaint after macOS changed Light/Dark mode.
 The Metal view now emits an `appearanceChanged` command from AppKit's native
 appearance notification. The settings layer resolves system Light/Dark colors
 as a pure operation, with unit coverage for both appearances and explicit
-background overrides. The app reapplies only a system theme when that command
-arrives; explicit light, dark, and user background choices remain unchanged.
+background overrides. A native platform contract invokes the AppKit view
+override and verifies that it dispatches that exact command without replacing
+the application's existing callback. The app reapplies only a system theme
+when that command arrives; explicit light, dark, and user background choices
+remain unchanged.
+
+`bestMatchFromAppearancesWithNames:` returns an appearance-name `NSString`,
+not an `NSAppearance`. The platform boundary stores that exact return type and
+compares it directly, preventing a cold-start crash caused by sending `name` to
+an NSString.

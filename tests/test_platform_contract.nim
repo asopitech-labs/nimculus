@@ -83,6 +83,9 @@ suite "macOS platform contract":
     else:
       echo "  [SKIP] native Metal layer contract (no Metal device in this session)"
 
+  test "native appearance changes dispatch a system-theme command":
+    check platformValidateAppearanceCallback()
+
   test "native main menu exposes macOS standard command shortcuts":
     check platformValidateMainMenu()
 

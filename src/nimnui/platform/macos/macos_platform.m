@@ -36,6 +36,12 @@ static NimculusSelectionCallback g_selection_callback = NULL;
 static NimculusFileCallback g_file_callback = NULL;
 static NimculusCommandCallback g_command_callback = NULL;
 static NimculusIdleCallback g_idle_callback = NULL;
+static BOOL g_validation_appearance_command_received = NO;
+
+static void validateAppearanceCommand(const char *command) {
+  g_validation_appearance_command_received = command &&
+    strcmp(command, "appearanceChanged") == 0;
+}
 static double g_ui_rect[4] = {360.0, 260.0, 240.0, 120.0};
 static double g_editor_rect[4] = {48.0, 128.0, 828.0, 432.0};
 // The primary renderer remains the active editing surface.  Keep the second
@@ -3620,6 +3626,25 @@ bool nimculus_platform_validate_native(void) {
     layer.drawableSize.height == 800.0;
 }
 
+bool nimculus_platform_validate_appearance_callback(void) {
+  // Exercise the same NSView override AppKit invokes when the effective
+  // appearance changes. The test callback stays entirely inside the native
+  // boundary and restores the application callback before returning.
+  BOOL valid = NO;
+  @autoreleasepool {
+    NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
+      NSMakeRect(0.0, 0.0, 1.0, 1.0)];
+    NimculusCommandCallback previous = g_command_callback;
+    g_validation_appearance_command_received = NO;
+    g_command_callback = validateAppearanceCommand;
+    [view viewDidChangeEffectiveAppearance];
+    valid = g_validation_appearance_command_received;
+    g_command_callback = previous;
+    [view release];
+  }
+  return valid;
+}
+
 bool nimculus_platform_validate_window_lifecycle(void) {
   NimculusPlatformMetrics previousMetrics = g_metrics;
   BOOL valid = NO;
@@ -5577,9 +5602,9 @@ void nimculus_platform_set_terminal_selection(uint32_t start_row, uint32_t start
 bool nimculus_platform_is_dark_appearance(void) {
   NSApplication *app = [NSApplication sharedApplication];
   NSAppearance *appearance = app.effectiveAppearance;
-  NSAppearance *match = [appearance bestMatchFromAppearancesWithNames:@[
+  NSString *match = [appearance bestMatchFromAppearancesWithNames:@[
     NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
-  return [match.name isEqualToString:NSAppearanceNameDarkAqua];
+  return [match isEqualToString:NSAppearanceNameDarkAqua];
 }
 
 void nimculus_platform_install_crash_handler(const char *path) {

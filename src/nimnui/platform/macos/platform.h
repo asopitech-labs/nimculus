@@ -2,6 +2,7 @@
 
 bool nimculus_platform_run(void);
 bool nimculus_platform_validate_native(void);
+bool nimculus_platform_validate_appearance_callback(void);
 bool nimculus_platform_validate_window_lifecycle(void);
 bool nimculus_platform_validate_window_delegate(void);
 bool nimculus_platform_validate_fullscreen_transition(void);
