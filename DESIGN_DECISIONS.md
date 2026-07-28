@@ -4291,3 +4291,16 @@ Before a synchronous service switch, Git validates the ref with
 tracking a remote branch. After a successful switch Nimculus reloads only
 clean documents inside that repository and preserves dirty buffers, so editor
 state remains user-owned while Git itself refuses an unsafe worktree switch.
+
+## M9-024: Resolve Git from the document before giving up on a workspace root
+
+Zed resolves a repository for each buffer path and selects the most specific
+matching worktree. A Nimculus restored session could have an active workspace
+whose roots did not include a subsequently opened document; the previous
+lookup returned `nil` immediately in that case, making Git commands unavailable
+even though the document lived inside a repository.
+
+Git lookup now falls back to `git rev-parse --show-toplevel` from the
+document's parent directory. The matching relative path uses the same fallback
+instead of returning an empty path. A nested-file regression test confirms the
+resolved root is the enclosing repository.

@@ -510,8 +510,8 @@ when defined(macosx):
         let location = activeWorkspace.splitWorkspacePath(document[].path)
         return newGitRepository(location.root)
       except CatchableError:
-        return nil
-    newGitRepository(splitFile(absolutePath(document[].path)).dir)
+        discard
+    repositoryForPath(document[].path)
 
   proc gitRelativePathForDocument(document: ptr FileDocument,
                                   repository: GitRepository): string =
@@ -519,9 +519,10 @@ when defined(macosx):
     if activeWorkspace != nil:
       try:
         let location = activeWorkspace.splitWorkspacePath(document[].path)
-        return location.relative
+        result = location.relative
+        return
       except CatchableError:
-        return ""
+        discard
     let absoluteDocumentPath = absolutePath(document[].path)
     let prefix = repository.root & DirSep
     if absoluteDocumentPath.startsWith(prefix):

@@ -165,6 +165,15 @@ proc newGitRepository*(root: string): GitRepository =
   try: GitRepository(root: absolutePath(resolved))
   except CatchableError: nil
 
+proc repositoryForPath*(path: string): GitRepository =
+  ## Resolve a repository from the document's own location. This remains
+  ## correct when a restored session opens a file outside the active workspace
+  ## roots, and `git rev-parse --show-toplevel` selects the enclosing worktree.
+  if path.len == 0: return nil
+  let absolute = absolutePath(path)
+  let probe = if dirExists(absolute): absolute else: splitFile(absolute).dir
+  newGitRepository(probe)
+
 proc runGit*(repository: GitRepository, args: openArray[string]): GitResult =
   if repository == nil: return GitResult(exitCode: -1, output: "not a git repository")
   var commandArgs = @["-C", repository.root]

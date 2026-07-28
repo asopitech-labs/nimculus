@@ -57,6 +57,11 @@ suite "M9 Git service":
     writeFile(root / "main.nim", "one\n")
     let repository = newGitRepository(root)
     check repository != nil
+    let nested = root / "nested"
+    createDir(nested)
+    let nestedRepository = repositoryForPath(nested / "outside-workspace.nim")
+    check nestedRepository != nil
+    check nestedRepository.root == repository.root
     check repository.currentBranch().len > 0
     check repository.status().anyIt(it.path == "main.nim")
     check repository.stage(["main.nim"]).exitCode == 0
