@@ -642,7 +642,7 @@ when defined(macosx):
       editorViewState.statusMessage = "Git: " & $entries.len &
         " changed file(s), " & $conflicts & " conflict(s)"
     elif action == "log":
-      let commits = parseLog(job.result.output, 5)
+      let commits = parseLog(job.result.output, 100)
       renderNativeGitHistory(commits)
       editorViewState.statusMessage = if commits.len == 0:
         "Git log: no commits" else: "Git log: " & commits[0].subject
@@ -3231,7 +3231,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "Git repository not found"
         else:
           startNativeGitAction(repository, "log", "", [
-            "log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00", "-n", "5"])
+            "log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00", "-n", "100"])
     of "git blame":
       when defined(macosx):
         let repository = gitRepositoryForDocument(document)

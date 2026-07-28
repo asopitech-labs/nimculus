@@ -77,6 +77,27 @@ suite "M9 Git service":
     check renamed.len == 1
     check renamed[0].originalPath == "main.nim"
 
+  test "returns newest-first bounded commit history for the Git sidebar":
+    let root = getTempDir() / "nimculus-m9-history"
+    if dirExists(root): removeDir(root)
+    createDir(root)
+    defer: removeDir(root)
+    discard git(root, "init", "-q")
+    discard git(root, "config", "user.name", "Nimculus Test")
+    discard git(root, "config", "user.email", "test@nimculus.invalid")
+    writeFile(root / "history.nim", "first\n")
+    let repository = newGitRepository(root)
+    check repository.stage(["history.nim"]).exitCode == 0
+    check repository.commit("first commit").exitCode == 0
+    writeFile(root / "history.nim", "second\n")
+    check repository.stage(["history.nim"]).exitCode == 0
+    check repository.commit("second commit").exitCode == 0
+    let commits = repository.log(100)
+    check commits.len == 2
+    check commits[0].subject == "second commit"
+    check commits[1].subject == "first commit"
+    check repository.log(1).len == 1
+
   test "cancels a running git job":
     let root = getTempDir() / "nimculus-m9-job"
     if dirExists(root): removeDir(root)
