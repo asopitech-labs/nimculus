@@ -4250,3 +4250,16 @@ trackpad, multi-monitor behavior, real-LSP interaction, multi-hour stability,
 or Developer ID notarization. Those require their respective available
 hardware, tools, duration, or credentials and are recorded as separate
 release-acceptance coverage.
+
+## M20-021: Give formal soaks an explicit job budget and live evidence
+
+The release-candidate workflow originally inherited GitHub Actions' 360-minute
+job default, which cannot prove the roadmap's eight-hour stability target.
+The self-hosted runner's documented execution limit is five days, so the
+manual-only E2E job now sets a nine-hour budget: eight hours for the soak and
+enough bounded time for build, package verification, and cleanup.
+
+The soak wrapper previously buffered every heartbeat until the process exited.
+It now tees the child output to a temporary log while retaining that log for
+the completion and memory-growth checks. This makes a long run observable in
+the Actions log without retaining cache or package artifacts after the run.

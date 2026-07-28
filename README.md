@@ -26,6 +26,15 @@ acceptanceでは`NIMCULUS_E2E_SOAK_SECONDS=28800`を指定する。
 nimble macosE2E
 ```
 
+GitHub Actionsでは、8時間受け入れを次のように起動する。self-hosted runnerのジョブ上限は
+9時間で、build・package・cleanupの余白を確保する。長時間実行ではログを抑制しすぎないよう、
+soakのheartbeatを60秒間隔で記録する。
+
+```sh
+gh workflow run "macOS Release Candidate E2E" --ref main \
+  -f soak_seconds=28800 -f soak_interval_seconds=60 -f cold_start_runs=3
+```
+
 macOSの実アプリ起動から初回ready/idle到達までを測る場合は、専用の一時
 `.app` bundle、ビルドキャッシュ、HOMEを使う次の計測を実行する。raw
 executableを`NIMCULUS_BINARY`で指定した場合も、LaunchServicesのbundle

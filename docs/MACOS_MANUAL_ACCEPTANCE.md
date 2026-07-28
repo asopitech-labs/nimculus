@@ -38,6 +38,9 @@ nimble macosE2E
 `macosE2E`は全test、native Cocoa/Metal contract、benchmark、3回cold-start、短いsoak、
 adhoc署名DMGのmount後起動を一つのログとして実行する。release acceptanceでは
 `NIMCULUS_E2E_SOAK_SECONDS=28800 nimble macosE2E`を使い、同じE2E記録へ長時間結果を残す。
+GitHub Actionsでは`soak_seconds=28800`と`soak_interval_seconds=60`を指定して起動する。
+workflowはself-hosted runnerで9時間まで実行でき、build・package・cleanupを含む8時間受け入れの
+余白を確保する。soak heartbeatは実行中にログへストリームされる。
 
 配布候補では、資格情報が利用可能な場合に`NIMCULUS_REQUIRE_NOTARIZATION=1`でパッケージ
 検証も実行する。Developer ID / notarizationは機能E2Eとは別のrelease acceptanceである。

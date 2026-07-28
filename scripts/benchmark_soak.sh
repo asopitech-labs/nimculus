@@ -10,6 +10,7 @@ HOME_DIR="${NIMCULUS_BENCH_HOME:-$TMP_ROOT/home}"
 APP_DIR="$TMP_ROOT/Nimculus.app"
 APP_BINARY="$APP_DIR/Contents/MacOS/Nimculus"
 RUN_BINARY="$APP_BINARY"
+OUTPUT_PATH="$TMP_ROOT/soak.log"
 
 cleanup() {
   rm -rf "$TMP_ROOT"
@@ -69,18 +70,24 @@ if [[ ! -x "$RUN_BINARY" ]]; then
 fi
 
 set +e
-output="$(HOME="$HOME_DIR" NIMCULUS_BENCH_SOAK=1 \
+HOME="$HOME_DIR" NIMCULUS_BENCH_SOAK=1 \
   NIMCULUS_SOAK_SECONDS="$DURATION_SECONDS" \
   NIMCULUS_SOAK_INTERVAL_SECONDS="$INTERVAL_SECONDS" \
-  /usr/bin/perl -e 'alarm shift; exec @ARGV' "$TIMEOUT_SECONDS" "$RUN_BINARY" 2>&1)"
-status=$?
+  /usr/bin/perl -e 'alarm shift; exec @ARGV' "$TIMEOUT_SECONDS" "$RUN_BINARY" 2>&1 | \
+  tee "$OUTPUT_PATH"
+pipeline_status=("${PIPESTATUS[@]}")
+status="${pipeline_status[0]}"
+tee_status="${pipeline_status[1]}"
 set -e
-printf '%s\n' "$output"
+if [[ "$tee_status" -ne 0 ]]; then
+  echo "failed to persist soak output" >&2
+  exit "$tee_status"
+fi
 if [[ "$status" -ne 0 ]]; then
   echo "soak run failed with exit code $status" >&2
   exit "$status"
 fi
-if ! printf '%s\n' "$output" | awk -F '\t' \
+if ! awk -F '\t' \
   -v max_resident_growth="$MAX_RESIDENT_GROWTH_BYTES" \
   -v max_live_block_growth="$MAX_LIVE_BLOCK_GROWTH" \
   '$1 == "soak_sample" {
@@ -116,7 +123,7 @@ if ! printf '%s\n' "$output" | awk -F '\t' \
      valid = valid && resident_growth <= max_resident_growth && block_growth <= max_live_block_growth
      if (!valid) printf "soak summary: samples=%d frames=%d resident_growth=%d live_block_growth=%d latency_diagnostics=%d frame_diagnostics=%d\\n", samples, max_frames, resident_growth, block_growth, have_latency_diagnostics, have_frame_diagnostics > "/dev/stderr"
      exit(valid ? 0 : 1)
-   }'; then
+   }' "$OUTPUT_PATH"; then
   echo "soak run violated frame/completion or memory-growth contract" >&2
   exit 1
 fi
