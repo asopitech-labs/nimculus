@@ -1819,21 +1819,23 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (NSView *)hitTest:(NSPoint)point {
   return NSPointInRect(point, self.bounds) ? self : nil;
 }
-- (void)mouseDown:(NSEvent *)event {
-  if (g_editor_outline_symbol_count == 0 || !g_command_callback) return;
-  NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
-  NSUInteger index = [self characterIndexForInsertionAtPoint:point];
-  NSUInteger line = 0;
-  for (NSUInteger offset = 0; offset < MIN(index, self.string.length); offset++) {
-    if ([self.string characterAtIndex:offset] == '\n') line++;
-  }
-  if (line < 2) return;
+- (void)dispatchSidebarLine:(NSUInteger)line {
+  if (g_editor_outline_symbol_count == 0 || !g_command_callback || line < 2) return;
   NSUInteger symbolIndex = line - 2;
   if (symbolIndex >= g_editor_outline_symbol_count) return;
   NSString *command = g_editor_sidebar_mode == 0 ?
     [NSString stringWithFormat:@"commandPalette:open symbol %lu", (unsigned long)symbolIndex + 1] :
     [NSString stringWithFormat:@"sidebarItem:%lu", (unsigned long)symbolIndex];
   g_command_callback(command.UTF8String);
+}
+- (void)mouseDown:(NSEvent *)event {
+  NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+  NSUInteger index = [self characterIndexForInsertionAtPoint:point];
+  NSUInteger line = 0;
+  for (NSUInteger offset = 0; offset < MIN(index, self.string.length); offset++) {
+    if ([self.string characterAtIndex:offset] == '\n') line++;
+  }
+  [self dispatchSidebarLine:line];
 }
 @end
 
@@ -4260,6 +4262,27 @@ static void validationFileCallback(const char *path, bool saving) {
 static void validationCommandCallback(const char *command) {
   strncpy(g_validation_command, command ?: "", sizeof(g_validation_command) - 1);
   g_validation_command[sizeof(g_validation_command) - 1] = '\0';
+}
+
+bool nimculus_platform_validate_sidebar_dispatch(void) {
+  @autoreleasepool {
+    NimculusCommandCallback previousCallback = g_command_callback;
+    uint32_t previousMode = g_editor_sidebar_mode;
+    uint32_t previousCount = g_editor_outline_symbol_count;
+    g_validation_command[0] = '\0';
+    g_command_callback = validationCommandCallback;
+    g_editor_sidebar_mode = 1;
+    g_editor_outline_symbol_count = 2;
+    NimculusOutlineOverlay *sidebar = [[NimculusOutlineOverlay alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 180.0, 100.0)];
+    [sidebar dispatchSidebarLine:3];
+    BOOL valid = strcmp(g_validation_command, "sidebarItem:1") == 0;
+    [sidebar release];
+    g_editor_outline_symbol_count = previousCount;
+    g_editor_sidebar_mode = previousMode;
+    g_command_callback = previousCallback;
+    return valid;
+  }
 }
 
 bool nimculus_platform_validate_application_alert_sheet(void) {

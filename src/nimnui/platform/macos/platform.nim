@@ -38,6 +38,7 @@ proc platformValidateResourceTeardown*(): bool {.importc: "nimculus_platform_val
 proc platformValidateColorEmojiFallback*(): bool {.importc: "nimculus_platform_validate_color_emoji_fallback", cdecl.}
 proc platformValidateColorEmojiSequences*(): bool {.importc: "nimculus_platform_validate_color_emoji_sequences", cdecl.}
 proc platformValidateTerminalOverlayRuns*(): bool {.importc: "nimculus_platform_validate_terminal_overlay_runs", cdecl.}
+proc platformValidateSidebarDispatch*(): bool {.importc: "nimculus_platform_validate_sidebar_dispatch", cdecl.}
 proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
 type
   InputLatencyStats* {.bycopy.} = object

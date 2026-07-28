@@ -333,6 +333,9 @@ suite "macOS platform contract":
     platformSetEditorSidebar(history.cstring, uint32(history.len), 1, 2)
     check true
 
+  test "sidebar rows dispatch a stable item index to Nim":
+    check platformValidateSidebarDispatch()
+
   # This must remain last: it releases global Metal, AppKit bridge, and CPU
   # resources exactly as applicationWillTerminate does.
   test "native platform teardown releases retained renderer resources":
