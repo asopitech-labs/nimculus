@@ -43,6 +43,37 @@ suite "LSP editor bridge":
     check languageIdForPath("README.md") == "markdown"
     check languageIdForPath("notes.txt") == "plaintext"
 
+  when defined(posix):
+    test "opens TSX documents with the TypeScript React wire language ID":
+      let markerPath = "/tmp/nimculus-test-lsp-tsx-language-id"
+      if fileExists(markerPath): removeFile(markerPath)
+      defer:
+        if fileExists(markerPath): removeFile(markerPath)
+      let server = "import sys,json,time\n" &
+        "def frame(x):\n" &
+        "    b=json.dumps(x,separators=(',',':')).encode()\n" &
+        "    return ('Content-Length: '+str(len(b))+'\\r\\n\\r\\n').encode()+b\n" &
+        "init={'jsonrpc':'2.0','id':1,'result':{'capabilities':{}}}\n" &
+        "sys.stdout.buffer.write(frame(init)); sys.stdout.buffer.flush()\n" &
+        "data=b''\n" &
+        "while True:\n" &
+        "    chunk=sys.stdin.buffer.read(1)\n" &
+        "    if not chunk: break\n" &
+        "    data += chunk\n" &
+        "    if b'\\\"languageId\\\":\\\"typescriptreact\\\"' in data:\n" &
+        "        open('" & markerPath & "','w').write('typescriptreact'); break\n" &
+        "time.sleep(2)\n"
+      let bridge = newLspEditorBridge("python3", ["-u", "-c", server])
+      defer: bridge.stop()
+      for _ in 0 ..< 40:
+        bridge.updateDocument("/tmp/component.tsx", "export const Component = () => <main />")
+        discard bridge.poll()
+        if fileExists(markerPath): break
+        sleep(10)
+      check bridge.opened
+      check fileExists(markerPath)
+      if fileExists(markerPath): check readFile(markerPath) == "typescriptreact"
+
   test "opens the active document and exposes server diagnostics":
     let server = "import sys,json,time\n" &
       "def frame(x):\n" &
