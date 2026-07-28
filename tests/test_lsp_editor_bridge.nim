@@ -38,6 +38,8 @@ suite "LSP editor bridge":
     check fileUri("/tmp/a b.nim") == "file:///tmp/a%20b.nim"
     check filePathFromUri("file:///tmp/a%20b.nim") == "/tmp/a b.nim"
     check languageIdForPath("main.rs") == "rust"
+    check languageIdForPath("component.tsx") == "typescriptreact"
+    check languageIdForPath("module.mts") == "typescript"
     check languageIdForPath("README.md") == "markdown"
     check languageIdForPath("notes.txt") == "plaintext"
 

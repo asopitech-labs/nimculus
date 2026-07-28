@@ -4177,3 +4177,13 @@ selects a fresh validated settings snapshot whenever that ID changes. Theme and
 icon registries are rebuilt at the same boundary, so a removed language overlay
 cannot retain stale values. Tests switch Nim → Rust → plain text without a
 settings-file change and verify every effective value.
+
+## M8-030: Send TSX documents to TypeScript LSPs as `typescriptreact`
+
+Zed keeps TSX as a distinct grammar and maps it to the standard
+`typescriptreact` language ID for both its TypeScript Language Server and
+vtsls adapters. Nimculus now follows the same protocol boundary: `.tsx` sends
+`typescriptreact`, while `.ts`, `.mts`, and `.cts` send `typescript`. This
+keeps JSX-aware semantic analysis aligned with Tree-sitter's grammar selection
+without conflating user settings IDs (`tsx`) with LSP wire IDs
+(`typescriptreact`).

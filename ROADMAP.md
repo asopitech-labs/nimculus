@@ -373,7 +373,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 
 **進捗：** 🟡 プロトコル・stdio・要求/応答アダプタ・主要LSP UIを実装済み・GUI実機検証待ち
 
-**初期対象：** Nim、Rust、TypeScript、Python。
+**初期対象：** Nim、Rust、TypeScript（`.ts` / `.mts` / `.cts`）、TSX（`.tsx`）、Python。
 
 **実装範囲：** JSON-RPC、stdio transport、cancellation、timeout、lifecycle、restart、diagnostics、completion、hover、definition、references、symbols、rename、formatting、code action、signature help、semantic tokens、inlay hints。
 

@@ -99,7 +99,8 @@ proc languageIdForPath*(path: string): string =
   case splitFile(path).ext.toLowerAscii
   of ".nim": "nim"
   of ".rs": "rust"
-  of ".ts": "typescript"
+  of ".ts", ".mts", ".cts": "typescript"
+  of ".tsx": "typescriptreact"
   of ".py": "python"
   of ".json": "json"
   of ".md", ".markdown": "markdown"
