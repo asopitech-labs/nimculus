@@ -229,6 +229,18 @@ requires at least one sample with a rendered frame before accepting
 `soak_complete`. This keeps the reliability gates aligned with M1's actual
 Metal rendering requirement.
 
+## M20-016: Emit frame and input latency diagnostics from real soak runs
+
+Zed keeps input latency as a separate distribution so a reliability run can
+distinguish memory growth from an interaction regression. Nimculus's macOS
+soak samples now carry the last frame duration and input-to-presentation
+latency alongside the bounded distribution's sample count, p95 latency, and
+p95 coalesced events per frame. `benchmark_soak.sh` requires these fields to
+be present while allowing idle runs to report zero input samples. They are
+therefore guaranteed diagnostics rather than a synthetic-input performance
+gate; the existing rendered-frame and memory-growth requirements remain the
+soak acceptance contract.
+
 ## M11-011: Validate distribution containers at every packaging boundary
 
 Zed's macOS bundle flow treats the DMG as a release artifact that must remain

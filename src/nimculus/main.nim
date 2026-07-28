@@ -74,11 +74,20 @@ when defined(macosx) or defined(windows):
     if now >= soakBenchmarkNextSampleAt:
       var metrics: PlatformMetrics
       platformGetMetrics(addr metrics)
+      var latencyDetails = ""
+      when defined(macosx):
+        var latency: InputLatencyStats
+        platformGetInputLatencyStats(addr latency)
+        latencyDetails = "\tlast_frame_ms=" & formatFloat(metrics.lastFrameTimeMs, ffDecimal, 3) &
+          "\tlast_input_ms=" & formatFloat(metrics.lastInputLatencyMs, ffDecimal, 3) &
+          "\tlatency_samples=" & $latency.sampleCount &
+          "\tlatency_p95_ms=" & formatFloat(latency.p95Ms, ffDecimal, 3) &
+          "\tcoalesced_events_p95=" & $latency.p95EventsPerFrame
       echo "soak_sample\t", formatFloat(now - soakBenchmarkStartedAt, ffDecimal, 3),
         "\tseconds\tresident=", platformResidentMemoryBytes(),
         "\tlive_blocks=", platformLiveAllocationCount(),
         "\tframes=", metrics.frameCount,
-        "\tinput=", platformInputCount()
+        "\tinput=", platformInputCount(), latencyDetails
       soakBenchmarkNextSampleAt = now + float64(soakBenchmarkIntervalSeconds)
     if now - soakBenchmarkStartedAt >= float64(soakBenchmarkDurationSeconds):
       soakBenchmarkPending = false
