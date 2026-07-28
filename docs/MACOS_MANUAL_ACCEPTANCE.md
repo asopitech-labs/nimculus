@@ -8,6 +8,19 @@ Apple Silicon macOSのGUIログインセッションで一度に実施する、m
 macOS CIを完了条件とする。物理入力機器・日本語入力ソース・複数ディスプレイが必要な確認は、
 後続の実装を止める個別ゲートにしない。
 
+## 自動E2E証跡
+
+2026-07-28に、Apple SiliconのGUIログイン済みself-hosted runnerで、commit
+[`a3b1d1c`](https://github.com/asopitech-labs/nimculus/commit/a3b1d1c79fba37af6f6456828936c862277c7438)
+の[macOS Release Candidate E2E](https://github.com/asopitech-labs/nimculus/actions/runs/30345469642)
+が成功した。この実行は、全test、native Cocoa/Metal contract、benchmark、3回のcold-start、
+20秒soak、adhoc署名DMGをmountした内部`.app`の起動を一つのself-hosted GUI実行で確認した。
+
+この証跡は自動化できるrelease-candidate基準を満たす。一方で、物理日本語IME、trackpad、
+複数ディスプレイ、実Language Serverの対話操作、2時間/8時間の連続利用、Developer ID署名・
+notarizationは、この成功結果から完了とは主張しない。それらは利用可能な環境または資格情報で
+同じ受け入れ記録へ追加する。
+
 ## 実行条件
 
 - 対象はM12とM20の自動検証が成功した最新release candidateの`.app`またはDMG。

@@ -4236,3 +4236,17 @@ asynchronously loads its `git show --stat` details into the output panel. The ed
 selection, IME state, and split panes are not modified by either sidebar mode.
 This is deliberately a macOS presentation boundary; a future platform only
 shares the sidebar behaviour contract after it needs the same interaction.
+
+## M20-020: Treat a self-hosted E2E run as evidence, not hardware acceptance
+
+The release-candidate workflow now has a successful Apple Silicon GUI-runner
+record for commit `a3b1d1c`: build, native Cocoa/Metal contracts, all tests,
+benchmarks, three cold starts, a short soak, and mounted adhoc-DMG launch all
+completed in one execution. Recording that immutable workflow URL in the
+roadmap and acceptance guide makes the automated baseline auditable.
+
+The result must not be inflated into a claim about physical Japanese IME,
+trackpad, multi-monitor behavior, real-LSP interaction, multi-hour stability,
+or Developer ID notarization. Those require their respective available
+hardware, tools, duration, or credentials and are recorded as separate
+release-acceptance coverage.

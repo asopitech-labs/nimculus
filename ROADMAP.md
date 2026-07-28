@@ -9,15 +9,15 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | マイルストーン | 状態 | 備考 |
 |---|---|---|
 | M0：モノレポ基盤 | ✅ 完了 | Apple Silicon のローカル build / test / benchmark / lint、およびmacOS CI（run 29635844053）を確認済み |
-| M1：macOS ウィンドウと Metal 描画 | 🟡 自動検証済み・E2E対象 | Cocoa / Metal / Retina / 基本入力を実装済み。物理hardware確認はM12後のmacOS E2Eへ集約 |
-| M2：NimNUI 基礎 UI システム | 🟡 自動検証済み・E2E対象 | UIツリー、レイアウト、状態、イベント、PaintList、macOS入力を実装。個別GUI操作はM12後のmacOS E2Eへ集約 |
-| M3：macOS テキスト描画と IME | 🟡 自動検証済み・E2E対象 | Core Text、glyph atlas、動的Metal文字描画、Tree-sitter構文色、marked text表示、IME、候補位置、clipboardを実装。日本語IMEの対話確認はE2Eへ集約 |
+| M1：macOS ウィンドウと Metal 描画 | 🟡 自動E2E済み・実機確認対象 | Cocoa / Metal / Retina / 基本入力を実装。自動E2Eでnative contract、起動、描画境界を確認済み。物理hardware確認は受け入れ記録へ集約 |
+| M2：NimNUI 基礎 UI システム | 🟡 自動E2E済み・実機確認対象 | UIツリー、レイアウト、状態、イベント、PaintList、macOS入力を実装。自動E2Eで統合基準を確認済み。個別GUI操作は受け入れ記録へ集約 |
+| M3：macOS テキスト描画と IME | 🟡 自動E2E済み・実機確認対象 | Core Text、glyph atlas、動的Metal文字描画、Tree-sitter構文色、marked text表示、IME、候補位置、clipboardを実装。日本語IMEの対話確認は受け入れ記録へ集約 |
 | M4：エディタバッファと編集コア | ✅ 完了 | Piece Table、原子的編集、Undo/Redo、複数カーソル、位置変換、fuzz、候補構造比較を実装・検証済み |
-| M5：macOS 最小実用エディタ | 🟡 自動検証済み・E2E対象 | 編集サービス、plain-text fallbackを含む動的文書表示、構文色、macOSメニュー/IME/Finder接続、Application Supportへのsession復元・crash recovery、`Cmd+,`の設定パネル導線を実装。二paneの対話操作はE2Eへ集約 |
-| M6：macOS プロジェクト・ワークスペース | 🟡 自動検証済み・E2E対象 | workspace、FSEvents、検索、Worktree、10万ファイル計測を実装。ZedのProject Panelと同様に、複数rootを個別に展開できるファイルツリーを編集本文から分離したmacOSサイドバーへ表示 |
+| M5：macOS 最小実用エディタ | 🟡 自動E2E済み・実機確認対象 | 編集サービス、plain-text fallbackを含む動的文書表示、構文色、macOSメニュー/IME/Finder接続、Application Supportへのsession復元・crash recovery、`Cmd+,`の設定パネル導線を実装。二paneの対話操作は受け入れ記録へ集約 |
+| M6：macOS プロジェクト・ワークスペース | 🟡 自動E2E済み・実機確認対象 | workspace、FSEvents、検索、Worktree、10万ファイル計測を実装。ZedのProject Panelと同様に、複数rootを個別に展開できるファイルツリーを編集本文から分離したmacOSサイドバーへ表示 |
 | M7：Tree-sitter | 🟡 自動検証済み・E2E対象 | Nim/Rust/TypeScript/TSX/Python/JSON/MarkdownのFFI、増分解析、構文状態、可視範囲ハイライト、RGBA Metalテクスチャ接続を実装 |
 | M8：LSPクライアント | 🟡 自動検証済み・E2E対象 | JSON-RPC、stdio、stale response破棄、主要LSP UIを実装。実Language Serverとの一連操作はE2Eで確認 |
-| M9：macOS Git統合 | 🟡 自動検証済み・E2E対象 | 非同期status/diff、gutter、hunk stage/unstage、commit/log/blame/checkoutを実装。Git履歴はスクロール可能な専用サイドバーへ最新100件を表示し、選択したcommit詳細は出力パネルへ表示 |
+| M9：macOS Git統合 | 🟡 自動E2E済み・実機確認対象 | 非同期status/diff、gutter、hunk stage/unstage、commit/log/blame/checkoutを実装。Git履歴はスクロール可能な専用サイドバーへ最新100件を表示し、選択したcommit詳細は出力パネルへ表示 |
 | M10：macOSターミナル・タスク | 🟡 自動検証済み・E2E対象 | PTY、VT/ANSI、複数session、task/cancel/problem matcher/output panelを実装。連続利用はE2Eで確認 |
 | M11：macOS配布基盤 | 🟡 機能実装済み・Developer ID承認待ち | `.app`、生成アイコン、署名、hardened runtime、ZIP/DMG、notarization/stapling、更新検証、crash reportを実装。Zedのbundle工程を参考に、ZIP/DMG生成直後とnotarization後の再生成時に非空検証と`hdiutil verify`を行う。`scripts/verify_macos_package.sh`でDMGをreadonly mountし、内部`.app`の署名検証と実アプリcold-startまでCIで確認する。`NIMCULUS_REQUIRE_NOTARIZATION=1`ではstaplerとGatekeeperをapp/DMG双方へ適用する。`.github/workflows/macos-release.yml`は手動実行時にrunner一時keychainへDeveloper ID証明書を導入し、App Store Connect API keyでnotarytool→stapling→strict verificationを行う。ICNS生成のSwift module cacheも各package runの一時cacheへ固定してユーザー領域へ残さない。notarytoolはkeychain profileまたはApp Store Connect API keyを優先し、従来のApple ID方式も後方互換で利用できる。更新成果物を1 GiBに制限し、`.part`へダウンロードしてサイズ/SHA-256検証後にdestinationへ移動、非同期中のサイズ超過を停止・削除、更新ツール出力を64 KiB上限の非ブロッキングrunnerで消費、更新helperは検証済み専用process group単位で停止、DMGのmount root・検証対象・detach対象を一致させ、処理後にmount directory/DMGをcleanupする。adhoc署名による`.app`・icon・ZIP/DMG・mount後cold-startスモークは成功。Developer IDとApple資格情報による承認は保留し、macOS機能の実装・検証は継続する |
 | M12：設定・テーマ・キーバインド | 🟡 自動検証済み・E2E準備完了 | 階層設定、schema、live reload、keymap、theme/icon theme、font・terminal・LSP設定、AppKit外観通知によるsystem appearance連動を実装。ここでmacOS E2Eを開始する |
@@ -26,13 +26,13 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | M15：Linux対応 | ⚪ 未着手 | WSL基盤の後にWayland優先、X11 fallback、IME、PTY、packagingを実装する |
 | M16：SSHリモート | ⚪ 未着手 | WSLプロトコルを一般化し、SSH agentとremote開発を実装する |
 | M17〜M19：拡張・AI・DAP | ⚪ 未着手 | 拡張API、CLIエージェント、DAPクライアントを順次実装する |
-| M20〜M21：安定化・v1.0 | 🟡 M20計測基盤一部実装・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録する。入力からMetal presentation submitまでのレイテンシは、Zedと同様にフレームごとの最初の未描画入力を集約し、固定256件の最近値から平均・p95・最大を取得できる。同じリングにフレームあたりの集約入力数も記録する。cold-startはidle到達だけでなくMetal frame/drawableを必須化し、soakもrendered-frame sampleを必須化する。macOS `.app`境界で20秒soak（5秒間隔、4 samples、timeoutなし）を確認済み、同条件をmacOS CIのidle soak smokeへ追加済み。8時間実機実行、remote latency、正式配布は未完了 |
+| M20〜M21：安定化・v1.0 | 🟡 M20自動E2E済み・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録する。2026-07-28の[release-candidate E2E成功](https://github.com/asopitech-labs/nimculus/actions/runs/30345469642)で、全test、native contract、benchmark、3回cold-start、20秒soak、adhoc DMG起動を確認済み。8時間実機実行、remote latency、正式配布は未完了 |
 
 各マイルストーンはunit/integration test、native Cocoa/Metal contract、self-hosted macOS CIで進める。個別のGUI実機確認は完了ゲートにしない。M12とM20の自動基準がそろったrelease candidateで、物理入力機器・日本語入力ソース・複数ディスプレイを含む確認を[`docs/MACOS_MANUAL_ACCEPTANCE.md`](./docs/MACOS_MANUAL_ACCEPTANCE.md)の一回のmacOS E2E受け入れとして実施する。
 
 ## macOS E2E 受け入れの実行時点
 
-E2EはM1/M2/M3/M5だけの個別操作では開始しない。M12までのeditor、workspace、Tree-sitter、LSP、Git、terminal/task、settingsが一つの`.app`で利用可能になり、M20のcold-start/soak/benchmarkが自動成功したrelease candidateで実行する。`nimble macosE2E`は全test、native contract、benchmark、3回cold-start、soak、adhoc署名DMGのmount後起動を一つの自動ゲートへ集約し、`.github/workflows/macos-e2e.yml`から手動起動できる。E2E失敗はissueと自動regression testへ還元し、個別マイルストーンの手作業チェックリストを増やさない。
+E2EはM1/M2/M3/M5だけの個別操作では開始しない。M12までのeditor、workspace、Tree-sitter、LSP、Git、terminal/task、settingsが一つの`.app`で利用可能になり、M20のcold-start/soak/benchmarkが自動成功したrelease candidateで実行する。`nimble macosE2E`は全test、native contract、benchmark、3回cold-start、soak、adhoc署名DMGのmount後起動を一つの自動ゲートへ集約し、`.github/workflows/macos-e2e.yml`から手動起動できる。2026-07-28にはcommit [`a3b1d1c`](https://github.com/asopitech-labs/nimculus/commit/a3b1d1c79fba37af6f6456828936c862277c7438)でこの[自動E2Eが成功](https://github.com/asopitech-labs/nimculus/actions/runs/30345469642)した。これは自動基準の達成を示すものであり、物理IME/trackpad/複数画面、実Language Server操作、長時間利用、Developer ID承認を完了とみなさない。E2E失敗はissueと自動regression testへ還元し、個別マイルストーンの手作業チェックリストを増やさない。
 
 ## 基本方針
 
