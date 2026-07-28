@@ -283,6 +283,18 @@ proc reload*(store: SettingsStore): bool =
   store.workspaceStamp = workspaceStamp
   true
 
+proc setLanguageId*(store: SettingsStore, languageId: string): bool =
+  ## A document language change must rebuild the merged snapshot even when no
+  ## settings file changed. This also removes overlays from the prior language.
+  if store == nil or store.languageId == languageId: return false
+  store.languageId = languageId
+  store.settings = loadSettings(store.globalPath, store.workspacePath, languageId)
+  store.themeRegistry.clear()
+  store.iconThemeRegistry.clear()
+  store.registerBuiltinThemes()
+  store.registerConfiguredThemes()
+  true
+
 proc values*(store: SettingsStore): JsonNode =
   if store != nil: store.settings.values else: objectNode()
 

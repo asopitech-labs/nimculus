@@ -4152,3 +4152,17 @@ remain unchanged.
 not an `NSAppearance`. The platform boundary stores that exact return type and
 compares it directly, preventing a cold-start crash caused by sending `name` to
 an NSString.
+
+## M12-036: Re-resolve language settings when the active document changes
+
+Zed resolves language settings for each buffer and refreshes the applicable
+snapshot when the active language changes. Nimculus already had language-layer
+merging, but its application kept the settings store's `languageId` at its
+initial value. Language blocks were therefore a loader feature rather than an
+active-editor feature.
+
+The active document now maps through the supported Tree-sitter grammar IDs and
+selects a fresh validated settings snapshot whenever that ID changes. Theme and
+icon registries are rebuilt at the same boundary, so a removed language overlay
+cannot retain stale values. Tests switch Nim → Rust → plain text without a
+settings-file change and verify every effective value.

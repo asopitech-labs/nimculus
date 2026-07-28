@@ -79,6 +79,27 @@ suite "M12 settings foundation":
     removeFile(secondPath)
     removeDir(root)
 
+  test "switches the language overlay without a file change":
+    let root = getTempDir() / "nimculus-settings-language-switch"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{
+      "editor":{"tabSize":2},
+      "languages":{
+        "nim":{"editor":{"tabSize":4}},
+        "rust":{"editor":{"tabSize":8}}
+      }
+    }""")
+    let store = newSettingsStore(path, "", "nim")
+    check store.intSetting("editor.tabSize", 0) == 4
+    check store.setLanguageId("rust")
+    check store.intSetting("editor.tabSize", 0) == 8
+    check store.setLanguageId("")
+    check store.intSetting("editor.tabSize", 0) == 2
+    check not store.setLanguageId("")
+    removeFile(path)
+    removeDir(root)
+
   test "ignores malformed keymap entries without raising":
     let root = getTempDir() / "nimculus-settings-keymap-types"
     createDir(root)

@@ -494,6 +494,7 @@ proc activeEditorSelection(): tuple[startByte, endByte: int]
 proc moveActiveEditorCursor(offset: int, selecting = false)
 proc refreshWorkspacePreview()
 proc refreshEditorSyntax()
+proc refreshDocumentLanguageSettings()
 
 when defined(macosx):
   proc gitRepositoryForDocument(document: ptr FileDocument): GitRepository =
@@ -1595,6 +1596,22 @@ proc activeDocument(): ptr FileDocument =
       editorSession.activeTab >= editorSession.tabs.len: return nil
   addr editorSession.tabs[editorSession.activeTab].document
 
+proc refreshDocumentLanguageSettings() =
+  ## Follow Zed's per-buffer settings boundary: document activation chooses a
+  ## language overlay without waiting for a settings-file reload.
+  when defined(macosx) or defined(windows):
+    if appSettings == nil: return
+    let document = activeDocument()
+    var languageId = ""
+    if document != nil and document[].path.len > 0:
+      try:
+        languageId = $grammarForPath(document[].path)
+      except ValueError:
+        discard
+    if appSettings.setLanguageId(languageId):
+      applySettingsKeymap()
+      applySettingsTheme()
+
 proc activeEditorCursor(): int =
   ## A split owns two independent views over the same document. Position-based
   ## commands must use the focused view rather than the primary view by
@@ -1825,6 +1842,7 @@ when defined(windows):
       refreshEditorSyntax()
 
 proc refreshEditorSyntax() =
+  refreshDocumentLanguageSettings()
   let document = activeDocument()
   if document == nil:
     when defined(macosx):
