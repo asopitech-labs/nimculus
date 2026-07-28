@@ -19,8 +19,10 @@ static uint64_t g_first_input_time = 0;
 // not just the last completed sample.
 #define NIMCULUS_INPUT_LATENCY_HISTORY 256
 static double g_input_latency_history[NIMCULUS_INPUT_LATENCY_HISTORY];
+static uint64_t g_input_events_per_frame_history[NIMCULUS_INPUT_LATENCY_HISTORY];
 static uint64_t g_input_latency_sample_count = 0;
 static uint64_t g_input_latency_event_count = 0;
+static uint64_t g_pending_input_event_count = 0;
 static NimculusPlatformMetrics g_metrics = {1.0, 0, 0, 0, 0, 0.0, 0, 0.0};
 static NimculusInputCallback g_input_callback = NULL;
 static NimculusShortcutCallback g_shortcut_callback = NULL;
@@ -1694,10 +1696,11 @@ static double millisecondsSince(uint64_t start) {
   return (double)nanos / 1000000.0;
 }
 
-static void recordInputLatencySample(double milliseconds) {
+static void recordInputLatencySample(double milliseconds, uint64_t eventCount) {
   if (milliseconds < 0.0) return;
   uint64_t index = g_input_latency_sample_count % NIMCULUS_INPUT_LATENCY_HISTORY;
   g_input_latency_history[index] = milliseconds;
+  g_input_events_per_frame_history[index] = eventCount;
   g_input_latency_sample_count++;
 }
 
@@ -1705,6 +1708,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   if (g_first_input_time == 0) g_first_input_time = mach_absolute_time();
   g_input_count++;
   g_input_latency_event_count++;
+  g_pending_input_event_count++;
   NSPoint location = event.locationInWindow;
   if (g_active_view) {
     location = [(NSView *)g_active_view convertPoint:event.locationInWindow fromView:nil];
@@ -2519,8 +2523,9 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   g_metrics.last_frame_time_ms = millisecondsSince(start);
   if (g_first_input_time != 0) {
     g_metrics.last_input_latency_ms = millisecondsSince(g_first_input_time);
-    recordInputLatencySample(g_metrics.last_input_latency_ms);
+    recordInputLatencySample(g_metrics.last_input_latency_ms, g_pending_input_event_count);
     g_first_input_time = 0;
+    g_pending_input_event_count = 0;
   }
   g_metrics.frame_count++;
 }
@@ -4749,6 +4754,12 @@ static int compareLatencySamples(const void *left, const void *right) {
   return (a > b) - (a < b);
 }
 
+static int compareEventCounts(const void *left, const void *right) {
+  const uint64_t a = *(const uint64_t *)left;
+  const uint64_t b = *(const uint64_t *)right;
+  return (a > b) - (a < b);
+}
+
 void nimculus_platform_get_input_latency_stats(NimculusInputLatencyStats *stats) {
   if (!stats) return;
   memset(stats, 0, sizeof(*stats));
@@ -4759,18 +4770,28 @@ void nimculus_platform_get_input_latency_stats(NimculusInputLatencyStats *stats)
   if (recent == 0) return;
 
   double ordered[NIMCULUS_INPUT_LATENCY_HISTORY];
+  uint64_t orderedEventCounts[NIMCULUS_INPUT_LATENCY_HISTORY];
   uint64_t first = g_input_latency_sample_count - recent;
   double total = 0.0;
+  uint64_t eventTotal = 0;
   for (uint64_t index = 0; index < recent; index++) {
-    double sample = g_input_latency_history[(first + index) % NIMCULUS_INPUT_LATENCY_HISTORY];
+    uint64_t historyIndex = (first + index) % NIMCULUS_INPUT_LATENCY_HISTORY;
+    double sample = g_input_latency_history[historyIndex];
     ordered[index] = sample;
+    uint64_t eventCount = g_input_events_per_frame_history[historyIndex];
+    orderedEventCounts[index] = eventCount;
     total += sample;
+    eventTotal += eventCount;
   }
   qsort(ordered, (size_t)recent, sizeof(double), compareLatencySamples);
+  qsort(orderedEventCounts, (size_t)recent, sizeof(uint64_t), compareEventCounts);
   stats->average_ms = total / (double)recent;
   stats->max_ms = ordered[recent - 1];
   uint64_t p95 = (uint64_t)ceil((double)recent * 0.95);
   stats->p95_ms = ordered[MAX((uint64_t)1, p95) - 1];
+  stats->average_events_per_frame = (double)eventTotal / (double)recent;
+  stats->p95_events_per_frame = orderedEventCounts[MAX((uint64_t)1, p95) - 1];
+  stats->max_events_per_frame = orderedEventCounts[recent - 1];
 }
 
 uint32_t nimculus_platform_input_latency_stats_size(void) {
@@ -4779,25 +4800,35 @@ uint32_t nimculus_platform_input_latency_stats_size(void) {
 
 bool nimculus_platform_validate_input_latency_tracking(void) {
   double previousHistory[NIMCULUS_INPUT_LATENCY_HISTORY];
+  uint64_t previousEventHistory[NIMCULUS_INPUT_LATENCY_HISTORY];
   memcpy(previousHistory, g_input_latency_history, sizeof(previousHistory));
+  memcpy(previousEventHistory, g_input_events_per_frame_history, sizeof(previousEventHistory));
   uint64_t previousSamples = g_input_latency_sample_count;
   uint64_t previousEvents = g_input_latency_event_count;
+  uint64_t previousPendingEvents = g_pending_input_event_count;
 
   memset(g_input_latency_history, 0, sizeof(g_input_latency_history));
+  memset(g_input_events_per_frame_history, 0, sizeof(g_input_events_per_frame_history));
   g_input_latency_sample_count = 0;
   g_input_latency_event_count = 6;
-  recordInputLatencySample(2.0);
-  recordInputLatencySample(8.0);
-  recordInputLatencySample(20.0);
+  g_pending_input_event_count = 0;
+  recordInputLatencySample(2.0, 1);
+  recordInputLatencySample(8.0, 3);
+  recordInputLatencySample(20.0, 2);
   NimculusInputLatencyStats stats;
   nimculus_platform_get_input_latency_stats(&stats);
   bool valid = stats.sample_count == 3 && stats.recent_sample_count == 3 &&
     stats.input_event_count == 6 && fabs(stats.average_ms - 10.0) < 0.001 &&
-    fabs(stats.p95_ms - 20.0) < 0.001 && fabs(stats.max_ms - 20.0) < 0.001;
+    fabs(stats.p95_ms - 20.0) < 0.001 && fabs(stats.max_ms - 20.0) < 0.001 &&
+    fabs(stats.average_events_per_frame - 2.0) < 0.001 &&
+    stats.p95_events_per_frame == 3 && stats.max_events_per_frame == 3;
 
   memcpy(g_input_latency_history, previousHistory, sizeof(g_input_latency_history));
+  memcpy(g_input_events_per_frame_history, previousEventHistory,
+    sizeof(g_input_events_per_frame_history));
   g_input_latency_sample_count = previousSamples;
   g_input_latency_event_count = previousEvents;
+  g_pending_input_event_count = previousPendingEvents;
   return valid;
 }
 

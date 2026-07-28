@@ -47,7 +47,10 @@ block inputLatencyStats:
   report("input_latency_stats", cpuTime() - start,
     "samples=" & $stats.sampleCount & ";recent_samples=" & $stats.recentSampleCount &
     ";input_events=" & $stats.inputEventCount & ";average_ms=" & $stats.averageMs &
-    ";p95_ms=" & $stats.p95Ms & ";max_ms=" & $stats.maxMs)
+    ";p95_ms=" & $stats.p95Ms & ";max_ms=" & $stats.maxMs &
+    ";average_events_per_frame=" & $stats.averageEventsPerFrame &
+    ";p95_events_per_frame=" & $stats.p95EventsPerFrame &
+    ";max_events_per_frame=" & $stats.maxEventsPerFrame)
 
 block editorLoad:
   let start = cpuTime()

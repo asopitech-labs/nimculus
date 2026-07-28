@@ -609,11 +609,12 @@ Zed's input-latency tracker records the first input received in a frame
 interval, counts coalesced events, and reports a distribution instead of only
 the final value. Nimculus records the first macOS event with
 `mach_absolute_time`, samples it when the resulting Metal frame is committed
-for presentation, and resets the pending timestamp. The macOS backend keeps a
-fixed 256-sample ring: it exposes sample/event counts plus recent average,
-p95, and maximum without allocating during normal interaction. This avoids
-reporting input received after the frame's input interval, preserves a useful
-regression signal, and bounds the metric's memory cost.
+for presentation, and resets the pending timestamp. The macOS backend keeps
+fixed 256-sample rings for both latency and events coalesced per frame. It
+exposes sample/event counts plus recent average, p95, and maximum without
+allocating during normal interaction. This avoids reporting input received
+after the frame's input interval, preserves a useful regression signal, and
+bounds the metric's memory cost.
 
 ## M20-002: Measure resident memory at the platform boundary
 

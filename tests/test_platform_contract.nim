@@ -55,6 +55,8 @@ suite "macOS platform contract":
     check stats.averageMs >= 0.0
     check stats.p95Ms >= 0.0
     check stats.maxMs >= stats.p95Ms
+    check stats.averageEventsPerFrame >= 0.0
+    check stats.p95EventsPerFrame <= stats.maxEventsPerFrame
 
   test "IME coordinate invalidation is safe without an active input context":
     platformInvalidateImeCoordinates()

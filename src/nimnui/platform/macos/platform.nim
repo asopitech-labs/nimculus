@@ -45,6 +45,9 @@ type
     averageMs*: cdouble
     p95Ms*: cdouble
     maxMs*: cdouble
+    averageEventsPerFrame*: cdouble
+    p95EventsPerFrame*: uint64
+    maxEventsPerFrame*: uint64
 proc platformGetInputLatencyStats*(stats: ptr InputLatencyStats) {.importc: "nimculus_platform_get_input_latency_stats", cdecl.}
 proc platformInputLatencyStatsSize*(): uint32 {.importc: "nimculus_platform_input_latency_stats_size", cdecl.}
 proc platformResidentMemoryBytes*(): uint64 {.importc: "nimculus_platform_resident_memory_bytes", cdecl.}

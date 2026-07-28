@@ -34,6 +34,9 @@ typedef struct NimculusInputLatencyStats {
   double average_ms;
   double p95_ms;
   double max_ms;
+  double average_events_per_frame;
+  uint64_t p95_events_per_frame;
+  uint64_t max_events_per_frame;
 } NimculusInputLatencyStats;
 void nimculus_platform_get_input_latency_stats(NimculusInputLatencyStats *stats);
 uint32_t nimculus_platform_input_latency_stats_size(void);
