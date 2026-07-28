@@ -58,6 +58,18 @@ suite "macOS platform contract":
     check stats.averageEventsPerFrame >= 0.0
     check stats.p95EventsPerFrame <= stats.maxEventsPerFrame
 
+  test "frame timing retains a bounded recent distribution":
+    check platformValidateFrameTimingTracking()
+    check uint32(sizeof(FrameTimingStats)) == platformFrameTimingStatsSize()
+    var stats: FrameTimingStats
+    platformGetFrameTimingStats(addr stats)
+    check stats.recentSampleCount <= 256'u64
+    check stats.sampleCount >= stats.recentSampleCount
+    check stats.over30HzBudgetCount <= stats.over60HzBudgetCount
+    check stats.averageMs >= 0.0
+    check stats.p95Ms >= 0.0
+    check stats.maxMs >= stats.p95Ms
+
   test "IME coordinate invalidation is safe without an active input context":
     platformInvalidateImeCoordinates()
     platformClearEditorComposition()

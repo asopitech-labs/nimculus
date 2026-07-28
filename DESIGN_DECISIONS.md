@@ -241,6 +241,17 @@ therefore guaranteed diagnostics rather than a synthetic-input performance
 gate; the existing rendered-frame and memory-growth requirements remain the
 soak acceptance contract.
 
+## M20-017: Retain bounded frame-time percentiles for macOS rendering
+
+Zed's frame profiler retains a bounded timing history rather than allowing a
+single last-frame value to hide a render spike. Nimculus now records the CPU
+render-through-Metal-submit duration for the most recent 256 rendered frames.
+The macOS contract exposes sample count, average, p95, maximum, and counts
+over 16.667 ms and 33.333 ms. These are explicitly CPU submission timings,
+not display-vsync intervals; their purpose is to identify renderer work that
+would threaten the 60Hz/30Hz frame budgets. Soak output requires the frame
+diagnostics while preserving its existing memory-growth gate.
+
 ## M11-011: Validate distribution containers at every packaging boundary
 
 Zed's macOS bundle flow treats the DMG as a release artifact that must remain

@@ -165,12 +165,19 @@ block layoutTime:
 
 block platformFrameMetrics:
   var metrics: PlatformMetrics
+  var frameTiming: FrameTimingStats
   let start = cpuTime()
   for _ in 0 ..< 1000:
     platformGetMetrics(addr metrics)
+    platformGetFrameTimingStats(addr frameTiming)
   report("frame_metrics_read", cpuTime() - start,
     "frames=" & $metrics.frameCount & ";last_frame_ms=" & $metrics.lastFrameTimeMs &
-    ";last_input_ms=" & $metrics.lastInputLatencyMs)
+    ";last_input_ms=" & $metrics.lastInputLatencyMs &
+    ";frame_samples=" & $frameTiming.sampleCount &
+    ";frame_p95_ms=" & $frameTiming.p95Ms &
+    ";frame_max_ms=" & $frameTiming.maxMs &
+    ";frame_over_60hz_budget=" & $frameTiming.over60HzBudgetCount &
+    ";frame_over_30hz_budget=" & $frameTiming.over30HzBudgetCount)
 
 block workspaceLoad:
   let root = getTempDir() / ("nimculus-m20-" & $getCurrentProcessId())

@@ -23,6 +23,11 @@ static uint64_t g_input_events_per_frame_history[NIMCULUS_INPUT_LATENCY_HISTORY]
 static uint64_t g_input_latency_sample_count = 0;
 static uint64_t g_input_latency_event_count = 0;
 static uint64_t g_pending_input_event_count = 0;
+// Frame timing uses the same bounded history as input latency. It measures
+// CPU-side render-through-submit time, not display-vsync interval.
+#define NIMCULUS_FRAME_TIMING_HISTORY 256
+static double g_frame_timing_history[NIMCULUS_FRAME_TIMING_HISTORY];
+static uint64_t g_frame_timing_sample_count = 0;
 static NimculusPlatformMetrics g_metrics = {1.0, 0, 0, 0, 0, 0.0, 0, 0.0};
 static NimculusInputCallback g_input_callback = NULL;
 static NimculusShortcutCallback g_shortcut_callback = NULL;
@@ -1704,6 +1709,13 @@ static void recordInputLatencySample(double milliseconds, uint64_t eventCount) {
   g_input_latency_sample_count++;
 }
 
+static void recordFrameTimingSample(double milliseconds) {
+  if (milliseconds < 0.0) return;
+  uint64_t index = g_frame_timing_sample_count % NIMCULUS_FRAME_TIMING_HISTORY;
+  g_frame_timing_history[index] = milliseconds;
+  g_frame_timing_sample_count++;
+}
+
 static BOOL logInput(NSString *kind, NSEvent *event) {
   if (g_first_input_time == 0) g_first_input_time = mach_absolute_time();
   g_input_count++;
@@ -2521,6 +2533,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   [command presentDrawable:drawable];
   [command commit];
   g_metrics.last_frame_time_ms = millisecondsSince(start);
+  recordFrameTimingSample(g_metrics.last_frame_time_ms);
   if (g_first_input_time != 0) {
     g_metrics.last_input_latency_ms = millisecondsSince(g_first_input_time);
     recordInputLatencySample(g_metrics.last_input_latency_ms, g_pending_input_event_count);
@@ -4796,6 +4809,57 @@ void nimculus_platform_get_input_latency_stats(NimculusInputLatencyStats *stats)
 
 uint32_t nimculus_platform_input_latency_stats_size(void) {
   return (uint32_t)sizeof(NimculusInputLatencyStats);
+}
+
+void nimculus_platform_get_frame_timing_stats(NimculusFrameTimingStats *stats) {
+  if (!stats) return;
+  memset(stats, 0, sizeof(*stats));
+  stats->sample_count = g_frame_timing_sample_count;
+  uint64_t recent = MIN(g_frame_timing_sample_count, (uint64_t)NIMCULUS_FRAME_TIMING_HISTORY);
+  stats->recent_sample_count = recent;
+  if (recent == 0) return;
+
+  double ordered[NIMCULUS_FRAME_TIMING_HISTORY];
+  uint64_t first = g_frame_timing_sample_count - recent;
+  double total = 0.0;
+  for (uint64_t index = 0; index < recent; index++) {
+    double sample = g_frame_timing_history[(first + index) % NIMCULUS_FRAME_TIMING_HISTORY];
+    ordered[index] = sample;
+    total += sample;
+    if (sample > 16.667) stats->over_60hz_budget_count++;
+    if (sample > 33.333) stats->over_30hz_budget_count++;
+  }
+  qsort(ordered, (size_t)recent, sizeof(double), compareLatencySamples);
+  stats->average_ms = total / (double)recent;
+  stats->max_ms = ordered[recent - 1];
+  uint64_t p95 = (uint64_t)ceil((double)recent * 0.95);
+  stats->p95_ms = ordered[MAX((uint64_t)1, p95) - 1];
+}
+
+uint32_t nimculus_platform_frame_timing_stats_size(void) {
+  return (uint32_t)sizeof(NimculusFrameTimingStats);
+}
+
+bool nimculus_platform_validate_frame_timing_tracking(void) {
+  double previousHistory[NIMCULUS_FRAME_TIMING_HISTORY];
+  memcpy(previousHistory, g_frame_timing_history, sizeof(previousHistory));
+  uint64_t previousSamples = g_frame_timing_sample_count;
+
+  memset(g_frame_timing_history, 0, sizeof(g_frame_timing_history));
+  g_frame_timing_sample_count = 0;
+  recordFrameTimingSample(2.0);
+  recordFrameTimingSample(8.0);
+  recordFrameTimingSample(20.0);
+  NimculusFrameTimingStats stats;
+  nimculus_platform_get_frame_timing_stats(&stats);
+  bool valid = stats.sample_count == 3 && stats.recent_sample_count == 3 &&
+    stats.over_60hz_budget_count == 1 && stats.over_30hz_budget_count == 0 &&
+    fabs(stats.average_ms - 10.0) < 0.001 && fabs(stats.p95_ms - 20.0) < 0.001 &&
+    fabs(stats.max_ms - 20.0) < 0.001;
+
+  memcpy(g_frame_timing_history, previousHistory, sizeof(g_frame_timing_history));
+  g_frame_timing_sample_count = previousSamples;
+  return valid;
 }
 
 bool nimculus_platform_validate_input_latency_tracking(void) {

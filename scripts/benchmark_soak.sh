@@ -97,6 +97,9 @@ if ! printf '%s\n' "$output" | awk -F '\t' \
          last_blocks = value[2]
        }
        if (value[1] == "last_frame_ms") have_last_frame = 1
+       if (value[1] == "frame_samples") have_frame_samples = 1
+       if (value[1] == "frame_p95_ms") have_frame_p95 = 1
+       if (value[1] == "frame_over_60hz_budget") have_frame_budget = 1
        if (value[1] == "last_input_ms") have_last_input = 1
        if (value[1] == "latency_samples") have_latency_samples = 1
        if (value[1] == "latency_p95_ms") have_latency_p95 = 1
@@ -108,9 +111,10 @@ if ! printf '%s\n' "$output" | awk -F '\t' \
      resident_growth = last_resident - first_resident
      block_growth = last_blocks - first_blocks
      have_latency_diagnostics = have_last_frame && have_last_input && have_latency_samples && have_latency_p95 && have_coalesced_p95
-     valid = complete && samples > 0 && max_frames > 0 && have_resident && have_blocks && have_latency_diagnostics
+     have_frame_diagnostics = have_frame_samples && have_frame_p95 && have_frame_budget
+     valid = complete && samples > 0 && max_frames > 0 && have_resident && have_blocks && have_latency_diagnostics && have_frame_diagnostics
      valid = valid && resident_growth <= max_resident_growth && block_growth <= max_live_block_growth
-     if (!valid) printf "soak summary: samples=%d frames=%d resident_growth=%d live_block_growth=%d latency_diagnostics=%d\\n", samples, max_frames, resident_growth, block_growth, have_latency_diagnostics > "/dev/stderr"
+     if (!valid) printf "soak summary: samples=%d frames=%d resident_growth=%d live_block_growth=%d latency_diagnostics=%d frame_diagnostics=%d\\n", samples, max_frames, resident_growth, block_growth, have_latency_diagnostics, have_frame_diagnostics > "/dev/stderr"
      exit(valid ? 0 : 1)
    }'; then
   echo "soak run violated frame/completion or memory-growth contract" >&2

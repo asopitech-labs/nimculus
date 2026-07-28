@@ -20,6 +20,7 @@ bool nimculus_platform_validate_ime_composition(void);
 bool nimculus_platform_validate_ime_command_dispatch(void);
 bool nimculus_platform_validate_input_event_fields(void);
 bool nimculus_platform_validate_input_latency_tracking(void);
+bool nimculus_platform_validate_frame_timing_tracking(void);
 bool nimculus_platform_validate_clipboard_roundtrip(void);
 bool nimculus_platform_validate_glyph_atlas(void);
 bool nimculus_platform_validate_glyph_atlas_eviction(void);
@@ -40,6 +41,17 @@ typedef struct NimculusInputLatencyStats {
 } NimculusInputLatencyStats;
 void nimculus_platform_get_input_latency_stats(NimculusInputLatencyStats *stats);
 uint32_t nimculus_platform_input_latency_stats_size(void);
+typedef struct NimculusFrameTimingStats {
+  uint64_t sample_count;
+  uint64_t recent_sample_count;
+  uint64_t over_60hz_budget_count;
+  uint64_t over_30hz_budget_count;
+  double average_ms;
+  double p95_ms;
+  double max_ms;
+} NimculusFrameTimingStats;
+void nimculus_platform_get_frame_timing_stats(NimculusFrameTimingStats *stats);
+uint32_t nimculus_platform_frame_timing_stats_size(void);
 uint64_t nimculus_platform_resident_memory_bytes(void);
 uint64_t nimculus_platform_live_allocation_count(void);
 uint64_t nimculus_platform_input_count(void);

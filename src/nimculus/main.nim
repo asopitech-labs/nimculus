@@ -77,8 +77,13 @@ when defined(macosx) or defined(windows):
       var latencyDetails = ""
       when defined(macosx):
         var latency: InputLatencyStats
+        var frameTiming: FrameTimingStats
         platformGetInputLatencyStats(addr latency)
+        platformGetFrameTimingStats(addr frameTiming)
         latencyDetails = "\tlast_frame_ms=" & formatFloat(metrics.lastFrameTimeMs, ffDecimal, 3) &
+          "\tframe_samples=" & $frameTiming.sampleCount &
+          "\tframe_p95_ms=" & formatFloat(frameTiming.p95Ms, ffDecimal, 3) &
+          "\tframe_over_60hz_budget=" & $frameTiming.over60HzBudgetCount &
           "\tlast_input_ms=" & formatFloat(metrics.lastInputLatencyMs, ffDecimal, 3) &
           "\tlatency_samples=" & $latency.sampleCount &
           "\tlatency_p95_ms=" & formatFloat(latency.p95Ms, ffDecimal, 3) &

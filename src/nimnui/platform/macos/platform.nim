@@ -28,6 +28,7 @@ proc platformValidateImeCommandDispatch*(): bool {.importc: "nimculus_platform_v
 proc platformValidateImeCandidateRect*(): bool {.importc: "nimculus_platform_validate_ime_candidate_rect", cdecl.}
 proc platformValidateInputEventFields*(): bool {.importc: "nimculus_platform_validate_input_event_fields", cdecl.}
 proc platformValidateInputLatencyTracking*(): bool {.importc: "nimculus_platform_validate_input_latency_tracking", cdecl.}
+proc platformValidateFrameTimingTracking*(): bool {.importc: "nimculus_platform_validate_frame_timing_tracking", cdecl.}
 proc platformValidateClipboardRoundtrip*(): bool {.importc: "nimculus_platform_validate_clipboard_roundtrip", cdecl.}
 proc platformValidateGlyphAtlas*(): bool {.importc: "nimculus_platform_validate_glyph_atlas", cdecl.}
 proc platformValidateGlyphAtlasEviction*(): bool {.importc: "nimculus_platform_validate_glyph_atlas_eviction", cdecl.}
@@ -50,6 +51,17 @@ type
     maxEventsPerFrame*: uint64
 proc platformGetInputLatencyStats*(stats: ptr InputLatencyStats) {.importc: "nimculus_platform_get_input_latency_stats", cdecl.}
 proc platformInputLatencyStatsSize*(): uint32 {.importc: "nimculus_platform_input_latency_stats_size", cdecl.}
+type
+  FrameTimingStats* {.bycopy.} = object
+    sampleCount*: uint64
+    recentSampleCount*: uint64
+    over60HzBudgetCount*: uint64
+    over30HzBudgetCount*: uint64
+    averageMs*: cdouble
+    p95Ms*: cdouble
+    maxMs*: cdouble
+proc platformGetFrameTimingStats*(stats: ptr FrameTimingStats) {.importc: "nimculus_platform_get_frame_timing_stats", cdecl.}
+proc platformFrameTimingStatsSize*(): uint32 {.importc: "nimculus_platform_frame_timing_stats_size", cdecl.}
 proc platformResidentMemoryBytes*(): uint64 {.importc: "nimculus_platform_resident_memory_bytes", cdecl.}
 proc platformLiveAllocationCount*(): uint64 {.importc: "nimculus_platform_live_allocation_count", cdecl.}
 proc platformInputCount*(): uint64 {.importc: "nimculus_platform_input_count", cdecl.}
