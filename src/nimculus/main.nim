@@ -3333,8 +3333,12 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
             if repository == nil:
               editorViewState.statusMessage = "Git repository not found"
             else:
-              startNativeGitAction(repository, "show", "", ["show", "--stat",
-                "--oneline", editorGitHistory[index].hash])
+              # Zed presents commit metadata separately from the loaded diff.
+              # Keep the same bounded async Git job boundary here, but include
+              # the patch so a history entry is useful without a shell escape
+              # or repository-provided external diff driver.
+              startNativeGitAction(repository, "show", "", ["show", "--format=fuller",
+                "--stat", "--patch", "--no-ext-diff", editorGitHistory[index].hash])
         of sidebarOutline: discard
       except ValueError:
         editorViewState.statusMessage = "Invalid sidebar item"

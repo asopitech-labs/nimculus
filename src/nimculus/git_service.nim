@@ -393,6 +393,17 @@ proc log*(repository: GitRepository, limit = 50): seq[GitCommit] =
     "-n", $max(1, limit)])
   if output.exitCode == 0: result = parseLog(output.output, limit)
 
+proc showCommit*(repository: GitRepository, revision: string): GitResult =
+  ## Return bounded, self-contained commit metadata and its patch for the
+  ## history panel. Disable external diff drivers: opening a history entry
+  ## must not execute repository-configured tools from the editor process.
+  if repository == nil:
+    return GitResult(exitCode: -1, output: "Git repository not found")
+  if revision.strip.len == 0:
+    return GitResult(exitCode: -1, output: "Git revision is empty")
+  repository.runGit(["show", "--format=fuller", "--stat", "--patch",
+    "--no-ext-diff", revision])
+
 proc parseBlame*(output: string): seq[GitBlameLine] =
   var current = GitBlameLine()
   var haveHeader = false

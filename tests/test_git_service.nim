@@ -97,6 +97,12 @@ suite "M9 Git service":
     check commits[0].subject == "second commit"
     check commits[1].subject == "first commit"
     check repository.log(1).len == 1
+    let details = repository.showCommit(commits[0].hash)
+    check details.exitCode == 0
+    check details.output.contains("second commit")
+    check details.output.contains("-first")
+    check details.output.contains("+second")
+    check repository.showCommit("").exitCode == -1
 
   test "cancels a running git job":
     let root = getTempDir() / "nimculus-m9-job"

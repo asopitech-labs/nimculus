@@ -4263,3 +4263,16 @@ The soak wrapper previously buffered every heartbeat until the process exited.
 It now tees the child output to a temporary log while retaining that log for
 the completion and memory-growth checks. This makes a long run observable in
 the Actions log without retaining cache or package artifacts after the run.
+
+## M9-022: Show a commit patch without delegating to repository diff drivers
+
+Zed treats commit metadata and the loaded commit diff as explicit Git-panel
+data, rather than opening a shell-owned viewer. A Nimculus Git History entry
+now asks Git for fuller metadata, statistics, and the patch in the existing
+bounded asynchronous job, then presents that text through the output panel.
+
+The command includes `--no-ext-diff`. Repository configuration can otherwise
+redirect `git show` to an arbitrary external diff program, which is unsuitable
+for an editor action and would weaken the cancellation/process-group boundary.
+The service-level operation rejects empty revisions and has a regression test
+covering metadata and both sides of a changed line.
