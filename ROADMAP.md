@@ -361,13 +361,13 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 
 **進捗：** 🟡 実装済み・計測/GUI検証待ち
 
-**初期対象：** Nim、Rust、TypeScript、Python、JSON、Markdown。
+**初期対象：** Nim、Rust、TypeScript（`.ts` / `.mts` / `.cts`）、TSX（`.tsx`）、Python、JSON、Markdown。
 
 **実装範囲：** Tree-sitter FFI、静的grammar loader、incremental parse、構文ノード収集、syntax highlighting、bracket matching、folding、outline（宣言シンボル名抽出）、indentation、selection expansion、syntax node navigationの基盤。各生成文法は独立C翻訳単位でビルドする。
 
 **CI再現性：** macOS/Windows CIは`actions/checkout`でsubmoduleをrecursiveに取得し、ローカルだけに存在する`references/`のgrammar checkoutへ依存しない。
 
-**完了条件：** [x] UTF-8境界を含む編集差分から`TSInputEdit`を生成してincremental parse、[x] 初期6文法のロード、[x] 構文ノードから表示・構造サービスを生成、[x] 実エディタの可視範囲ハイライトとRGBA Metalテクスチャへ接続、[x] 1MB級大規模ファイルのparse/可視範囲計測、[x] 文法追加手順を文書化、[x] 確定したmacOS終了経路で最終Tree-sitter parser/treeを明示解放。GUI実機での色表示確認が残る。
+**完了条件：** [x] UTF-8境界を含む編集差分から`TSInputEdit`を生成してincremental parse、[x] 初期7文法のロード、[x] `.tsx`をJSX対応の独立Tree-sitter文法へルーティング、[x] 構文ノードから表示・構造サービスを生成、[x] 実エディタの可視範囲ハイライトとRGBA Metalテクスチャへ接続、[x] 1MB級大規模ファイルのparse/可視範囲計測、[x] 文法追加手順を文書化、[x] 確定したmacOS終了経路で最終Tree-sitter parser/treeを明示解放。GUI実機での色表示確認が残る。
 
 ### M8：LSP クライアント — `v0.3.0-alpha`
 

@@ -1786,6 +1786,17 @@ Tree-sitter row/byte-column points, applies `TSInputEdit`, and parses with the
 previous tree. This keeps the buffer API independent of Tree-sitter while
 making the actual editor update path incremental.
 
+## M7-018: Use the dedicated TSX grammar for `.tsx` documents
+
+Zed registers TypeScript and TSX as separate languages, while sharing their
+language-server context.  Nimculus follows that parser boundary: `.ts`, `.mts`,
+and `.cts` select `typescript`, whereas `.tsx` selects the generated `tsx`
+grammar.  The two generated grammars are compiled in independent C translation
+units, so JSX parsing is available without weakening the plain-TypeScript
+parser or introducing a runtime grammar loader.  The resulting grammar ID is
+also the settings language ID, allowing a `languages.tsx` override to remain
+separate from `languages.typescript`.
+
 ## M6-015: Use the bounded text surface for initial Quick Open
 
 Quick Open sends its query through the native command callback and reuses the

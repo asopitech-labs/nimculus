@@ -7,6 +7,7 @@ const TSLanguage *tree_sitter_json(void);
 const TSLanguage *tree_sitter_python(void);
 const TSLanguage *tree_sitter_rust(void);
 const TSLanguage *tree_sitter_typescript(void);
+const TSLanguage *tree_sitter_tsx(void);
 const TSLanguage *tree_sitter_markdown(void);
 const TSLanguage *tree_sitter_nim(void);
 
@@ -18,6 +19,7 @@ static const TSLanguage *languageForName(const char *name) {
   if (strcmp(name, "python") == 0) return tree_sitter_python();
   if (strcmp(name, "rust") == 0) return tree_sitter_rust();
   if (strcmp(name, "typescript") == 0) return tree_sitter_typescript();
+  if (strcmp(name, "tsx") == 0) return tree_sitter_tsx();
   if (strcmp(name, "markdown") == 0) return tree_sitter_markdown();
   if (strcmp(name, "nim") == 0) return tree_sitter_nim();
   return NULL;

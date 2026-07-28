@@ -1,4 +1,5 @@
 import std/unittest
+import std/sequtils
 import nimculus/tree_sitter
 
 suite "M7 Tree-sitter":
@@ -20,4 +21,15 @@ suite "M7 Tree-sitter":
     check updated.rootType == "document"
     tree.close()
     updated.close()
+    parser.close()
+
+  test "routes TSX files to the JSX-aware TypeScript grammar":
+    check grammarForPath("Component.tsx") == grammarTsx
+    check grammarForPath("module.mts") == grammarTypescript
+    let parser = newTreeSitterParser(grammarTsx)
+    var tree = parser.parse("export const Component = () => <main aria-label=\"example\">Hello</main>;")
+    check tree.rootType == "program"
+    check not tree.hasError
+    check tree.nodes.anyIt(it.kind == "jsx_element")
+    tree.close()
     parser.close()

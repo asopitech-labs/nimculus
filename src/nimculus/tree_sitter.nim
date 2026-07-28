@@ -6,6 +6,7 @@ import std/strutils
 {.compile: "tree_sitter_python.c".}
 {.compile: "tree_sitter_rust.c".}
 {.compile: "tree_sitter_typescript.c".}
+{.compile: "tree_sitter_tsx.c".}
 {.compile: "tree_sitter_markdown.c".}
 {.compile: "tree_sitter_nim.c".}
 {.compile: "tree_sitter_bridge.c".}
@@ -13,8 +14,8 @@ import std/strutils
 
 type
   GrammarKind* = enum grammarJson = "json", grammarPython = "python",
-    grammarRust = "rust", grammarTypescript = "typescript", grammarMarkdown = "markdown",
-    grammarNim = "nim"
+    grammarRust = "rust", grammarTypescript = "typescript", grammarTsx = "tsx",
+    grammarMarkdown = "markdown", grammarNim = "nim"
   SyntaxNode* = object
     startByte*, endByte*: uint32
     kind*: string
@@ -45,13 +46,15 @@ proc newTreeSitterParser*(grammar: GrammarKind): TreeSitterParser =
   if result.handle == nil: raise newException(ValueError, "Tree-sitter grammar unavailable: " & $grammar)
 
 proc availableGrammars*(): seq[GrammarKind] =
-  @[grammarNim, grammarRust, grammarTypescript, grammarPython, grammarJson, grammarMarkdown]
+  @[grammarNim, grammarRust, grammarTypescript, grammarTsx, grammarPython, grammarJson,
+    grammarMarkdown]
 
 proc grammarForPath*(path: string): GrammarKind =
   case path.splitFile.ext.toLowerAscii
   of ".nim": grammarNim
   of ".rs": grammarRust
-  of ".ts": grammarTypescript
+  of ".ts", ".mts", ".cts": grammarTypescript
+  of ".tsx": grammarTsx
   of ".py": grammarPython
   of ".json": grammarJson
   of ".md", ".markdown": grammarMarkdown

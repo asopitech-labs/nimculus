@@ -12,6 +12,7 @@ suite "M7 syntax services":
         of grammarPython: "def sample():\n  return 1"
         of grammarRust: "fn sample() { 1; }"
         of grammarTypescript: "function sample() { return 1; }"
+        of grammarTsx: "const sample = () => <main>Hello</main>;"
         of grammarMarkdown: "# title\n\ntext"
         of grammarNim: "proc sample() = discard"
       var tree = parser.parse(source)
