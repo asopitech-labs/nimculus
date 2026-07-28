@@ -326,6 +326,13 @@ suite "macOS platform contract":
     platformSetEditorOutline(outline.cstring, uint32(outline.len), 1)
     check true
 
+  test "sidebar contract accepts project files and Git history without changing editor text":
+    let files = "Files: /tmp/project\n────────\nsrc\nmain.nim"
+    platformSetEditorSidebar(files.cstring, uint32(files.len), 2, 1)
+    let history = "Git History\n────────\n12345678  Initial commit — Nimculus"
+    platformSetEditorSidebar(history.cstring, uint32(history.len), 1, 2)
+    check true
+
   # This must remain last: it releases global Metal, AppKit bridge, and CPU
   # resources exactly as applicationWillTerminate does.
   test "native platform teardown releases retained renderer resources":

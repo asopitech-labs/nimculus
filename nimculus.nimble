@@ -64,3 +64,6 @@ task benchmark, "Run platform benchmark smoke tests":
 
 task packageMacos, "Build, sign, and package the macOS application":
   exec "bash scripts/package_macos.sh"
+
+task macosE2E, "Run the consolidated macOS release-candidate E2E gate":
+  exec "bash scripts/test_macos_e2e.sh"

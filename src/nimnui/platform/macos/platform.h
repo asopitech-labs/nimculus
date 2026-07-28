@@ -110,7 +110,9 @@ void nimculus_platform_show_save_panel_and_close(void);
 void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_byte);
 void nimculus_platform_set_editor_text(const char *utf8, uint32_t length);
 void nimculus_platform_set_editor_outline(const char *utf8, uint32_t length,
-                                           uint32_t symbol_count);
+                                          uint32_t symbol_count);
+void nimculus_platform_set_editor_sidebar(const char *utf8, uint32_t length,
+                                          uint32_t item_count, uint32_t mode);
 void nimculus_platform_set_terminal_visible(bool visible);
 void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length);
 void nimculus_platform_set_terminal_runs(const char *utf8, uint32_t length,

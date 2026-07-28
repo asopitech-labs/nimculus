@@ -93,6 +93,8 @@ static BOOL g_editor_soft_wrap = NO;
 static NSString *g_terminal_text = @"";
 static NSString *g_editor_outline_text = @"Outline\n────────\nNo symbols";
 static uint32_t g_editor_outline_symbol_count = 0;
+// mode 0 is the document outline, 1 the project files, and 2 Git history.
+static uint32_t g_editor_sidebar_mode = 0;
 static NSString *g_theme_background = @"#1f2329";
 static NSString *g_theme_foreground = @"#d7dae0";
 static NSString *g_theme_accent = @"#4daafc";
@@ -1828,8 +1830,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   if (line < 2) return;
   NSUInteger symbolIndex = line - 2;
   if (symbolIndex >= g_editor_outline_symbol_count) return;
-  NSString *command = [NSString stringWithFormat:@"commandPalette:open symbol %lu",
-    (unsigned long)symbolIndex + 1];
+  NSString *command = g_editor_sidebar_mode == 0 ?
+    [NSString stringWithFormat:@"commandPalette:open symbol %lu", (unsigned long)symbolIndex + 1] :
+    [NSString stringWithFormat:@"sidebarItem:%lu", (unsigned long)symbolIndex];
   g_command_callback(command.UTF8String);
 }
 @end
@@ -5441,9 +5444,26 @@ void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
 }
 void nimculus_platform_set_editor_outline(const char *utf8, uint32_t length,
                                           uint32_t symbol_count) {
+  g_editor_sidebar_mode = 0;
   replaceOwnedUTF8String(&g_editor_outline_text, utf8, length,
     @"Outline\n────────\nNo symbols");
   g_editor_outline_symbol_count = symbol_count;
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusOutlineOverlay class]]) {
+      ((NimculusOutlineOverlay *)subview).string = g_editor_outline_text;
+      break;
+    }
+  }
+  [view updateTerminalFrame];
+}
+void nimculus_platform_set_editor_sidebar(const char *utf8, uint32_t length,
+                                          uint32_t item_count, uint32_t mode) {
+  g_editor_sidebar_mode = mode;
+  replaceOwnedUTF8String(&g_editor_outline_text, utf8, length,
+    @"Project\n────────\nNo items");
+  g_editor_outline_symbol_count = item_count;
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
   for (NSView *subview in view.subviews) {

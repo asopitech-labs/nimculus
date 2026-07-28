@@ -1,0 +1,46 @@
+name: macOS Release Candidate E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      soak_seconds:
+        description: "E2E soak duration in seconds"
+        required: false
+        default: "20"
+      cold_start_runs:
+        description: "Number of packaged cold-start runs"
+        required: false
+        default: "3"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nimculus-macos-release-candidate-e2e
+  cancel-in-progress: false
+
+jobs:
+  release-candidate-e2e:
+    # This is deliberately manual: a GUI-capable personal Mac must not run
+    # untrusted PR code, and E2E is a release-candidate gate rather than a
+    # per-commit diagnostic workflow.
+    runs-on: [self-hosted, nimculus-local]
+    env:
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+      NIMCULUS_E2E_SKIP_DEPS: "1"
+      NIMCULUS_E2E_SOAK_SECONDS: ${{ inputs.soak_seconds }}
+      NIMCULUS_E2E_COLD_START_RUNS: ${{ inputs.cold_start_runs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Verify local toolchain
+        run: |
+          nim --version
+          nimble --version
+          xcodebuild -version
+      - name: Install Nim dependencies
+        run: nimble install --depsOnly -y
+        working-directory: ci
+      - name: Run consolidated macOS E2E gate
+        run: nimble macosE2E

@@ -3,7 +3,6 @@ import std/json
 import std/math
 import std/os
 import std/strutils
-import std/tables
 import std/times
 import std/unicode except splitWhitespace
 import nimnui/nimnui
@@ -418,6 +417,9 @@ var workspaceSearchCancelled = false
 var workspaceQuickOpenQuery = ""
 var workspacePreviewEntries: seq[WorkspaceEntry]
 var workspacePreviewMode = ""
+type EditorSidebarMode = enum
+  sidebarOutline, sidebarFiles, sidebarGitHistory
+var editorSidebarMode = sidebarOutline
 var externalAlertShown = false
 var editorPointerDragging = false
 var editorPointerPane = 0
@@ -444,6 +446,7 @@ when defined(macosx):
   var editorGitActionLine = -1
   var editorGitRepository: GitRepository
   var editorGitPath = ""
+  var editorGitHistory: seq[GitCommit]
   var editorTaskJob: TaskJob
   var editorTaskCommand = ""
   var editorTaskOutput = ""
@@ -521,6 +524,8 @@ when defined(macosx):
     if absoluteDocumentPath.startsWith(prefix):
       result = absoluteDocumentPath[prefix.len .. ^1]
 
+  proc showNativeLspPanel(title: string, lines: seq[string])
+
   proc cancelNativeGitAction() =
     if editorGitActionJob != nil and not editorGitActionJob.done:
       editorGitActionJob.cancel()
@@ -565,6 +570,20 @@ when defined(macosx):
     diffArgs.add(path)
     editorGitActionJob = repository.startGitJob(diffArgs)
     editorViewState.statusMessage = "Git: " & action & "…"
+
+  proc renderNativeGitHistory(commits: seq[GitCommit]) =
+    editorSidebarMode = sidebarGitHistory
+    editorGitHistory = commits
+    var lines = @["Git History", "────────"]
+    if commits.len == 0:
+      lines.add("No commits")
+    else:
+      for commit in commits:
+        let shortHash = if commit.hash.len > 8: commit.hash[0 .. 7] else: commit.hash
+        lines.add(shortHash & "  " & commit.subject & " — " & commit.author)
+    let text = lines.join("\n")
+    platformSetEditorSidebar(text.cstring, uint32(text.len), uint32(commits.len),
+      uint32(sidebarGitHistory))
 
   proc pollNativeGitAction() =
     if editorGitActionJob == nil or not editorGitActionJob.poll(): return
@@ -623,8 +642,12 @@ when defined(macosx):
         " changed file(s), " & $conflicts & " conflict(s)"
     elif action == "log":
       let commits = parseLog(job.result.output, 5)
+      renderNativeGitHistory(commits)
       editorViewState.statusMessage = if commits.len == 0:
         "Git log: no commits" else: "Git log: " & commits[0].subject
+    elif action == "show":
+      showNativeLspPanel("Git Commit", job.result.output.splitLines())
+      editorViewState.statusMessage = "Git: commit details"
     elif action == "blame":
       let blameLines = parseBlame(job.result.output)
       let location = if not sameDocument: -1
@@ -782,6 +805,7 @@ when defined(macosx):
     platformSetTaskOutputVisible(true)
 
   proc syncNativeSymbolTree() =
+    if editorSidebarMode != sidebarOutline: return
     var lines = @[
       "Outline",
       "────────"
@@ -1413,8 +1437,9 @@ proc refreshWorkspacePreview() =
     # initialize settings before the first normal workspace refresh below.
     if activeWorkspace == nil or appSettings == nil: return
     workspacePreviewMode = "tree"
+    editorSidebarMode = sidebarFiles
     workspacePreviewEntries.setLen(0)
-    var lines = @["Workspace: " & activeWorkspace.root]
+    var lines = @["Files: " & activeWorkspace.root, "────────"]
     # Keep the preview bounded, but walk beyond the root directory so the
     # workspace surface is a real lazy tree rather than a flat root listing.
     # The filesystem is still enumerated incrementally by the workspace API;
@@ -1423,13 +1448,13 @@ proc refreshWorkspacePreview() =
     for rootIndex in countdown(activeWorkspace.rootPaths.high, 0):
       let root = activeWorkspace.rootPaths[rootIndex]
       pending.add((root: root, relative: "", depth: 0))
-    while pending.len > 0 and lines.len < 12:
+    while pending.len > 0 and workspacePreviewEntries.len < 192:
       let directory = pending.pop()
       var children = activeWorkspace.listChildrenAt(directory.root, directory.relative)
       children.sort(proc(a, b: WorkspaceEntry): int = cmp(a.relativePath, b.relativePath))
       for childIndex in countdown(children.high, 0):
         let entry = children[childIndex]
-        if lines.len >= 12: break
+        if workspacePreviewEntries.len >= 192: break
         workspacePreviewEntries.add(entry)
         let icon = appSettings.iconForPath(entry.path,
           entry.kind == WorkspaceFileKind.directory)
@@ -1438,18 +1463,9 @@ proc refreshWorkspacePreview() =
         if entry.kind == WorkspaceFileKind.directory:
           pending.add((root: directory.root, relative: entry.relativePath,
             depth: directory.depth + 1))
-    let states = activeWorkspace.gitWorktreeStates()
-    for root, state in states:
-      if lines.len >= 12: break
-      let shortHead = if state.head.len > 8: state.head[0 .. 7] else: state.head
-      lines.add("[G] " & state.branch & " " & shortHead)
-    platformSetEditorHighlights(nil, 0)
-    platformSetEditorComposition("".cstring)
-    platformSetEditorScrollLine(0)
-    platformSetEditorCursorByte(0, 0)
-    platformSetEditorSelection(0, 0)
     let text = lines.join("\n")
-    platformSetEditorText(text.cstring, uint32(text.len))
+    platformSetEditorSidebar(text.cstring, uint32(text.len),
+      uint32(workspacePreviewEntries.len), uint32(sidebarFiles))
 
 proc refreshWorkspaceAfterMutation(message: string) =
   when defined(macosx) or defined(windows):
@@ -2933,6 +2949,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command in ["close split", "unsplit"]: "closeSplit"
       elif command.startsWith("workspace search "): "__workspace_search__"
       elif command.startsWith("quick open "): "__quick_open__"
+      elif command in ["show files", "show explorer", "show project"]: "__show_files__"
+      elif command in ["show outline", "show symbols"]: "__show_outline__"
       elif command == "open settings": "openSettings"
       elif command in ["toggle soft wrap", "toggle word wrap"]: "toggleSoftWrap"
       elif command == "check for updates": "__check_updates__"
@@ -3163,6 +3181,16 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx):
         platformShowWorkspaceSearch()
     of "cancel search": cancelWorkspaceSearch()
+    of "__show_files__":
+      when defined(macosx):
+        if activeWorkspace == nil:
+          editorViewState.statusMessage = "Workspace not open"
+        else:
+          refreshWorkspacePreview()
+    of "__show_outline__":
+      when defined(macosx):
+        editorSidebarMode = sidebarOutline
+        syncNativeSymbolTree()
     of "git status":
       when defined(macosx):
         let repository = gitRepositoryForDocument(document)
@@ -3264,6 +3292,30 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "keepExternal" and document != nil:
     document[].acceptExternalState()
     externalAlertShown = false
+  elif name.startsWith("sidebarItem:"):
+    when defined(macosx):
+      let payload = name[12 .. ^1]
+      try:
+        let index = parseInt(payload)
+        case editorSidebarMode
+        of sidebarFiles:
+          if index >= 0 and index < workspacePreviewEntries.len:
+            let entry = workspacePreviewEntries[index]
+            if entry.kind == WorkspaceFileKind.directory:
+              openActiveWorkspace(entry.path)
+            else:
+              receiveNativeFile(entry.path.cstring, false)
+        of sidebarGitHistory:
+          if index >= 0 and index < editorGitHistory.len:
+            let repository = gitRepositoryForDocument(activeDocument())
+            if repository == nil:
+              editorViewState.statusMessage = "Git repository not found"
+            else:
+              startNativeGitAction(repository, "show", "", ["show", "--stat",
+                "--oneline", editorGitHistory[index].hash])
+        of sidebarOutline: discard
+      except ValueError:
+        editorViewState.statusMessage = "Invalid sidebar item"
   elif name.startsWith("workspaceSearch:"):
     showWorkspaceSearch(name[16 .. ^1])
   elif name.startsWith("quickOpen:"):

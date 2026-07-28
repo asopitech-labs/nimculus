@@ -19,12 +19,12 @@ macOS CIを完了条件とする。物理入力機器・日本語入力ソース
 事前に自動証跡を確認する。
 
 ```sh
-nimble build
-nimble test
-nimble benchmark
-NIMCULUS_COLD_START_RUNS=3 bash scripts/benchmark_cold_start.sh
-bash scripts/benchmark_soak.sh
+nimble macosE2E
 ```
+
+`macosE2E`は全test、native Cocoa/Metal contract、benchmark、3回cold-start、短いsoak、
+adhoc署名DMGのmount後起動を一つのログとして実行する。release acceptanceでは
+`NIMCULUS_E2E_SOAK_SECONDS=28800 nimble macosE2E`を使い、同じE2E記録へ長時間結果を残す。
 
 配布候補では、資格情報が利用可能な場合に`NIMCULUS_REQUIRE_NOTARIZATION=1`でパッケージ
 検証も実行する。Developer ID / notarizationは機能E2Eとは別のrelease acceptanceである。

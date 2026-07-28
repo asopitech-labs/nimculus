@@ -17,6 +17,15 @@ nimble test
 nimble benchmark
 ```
 
+M12以降のrelease candidateでは、個別のGUI手順ではなく次の一括E2Eゲートを使う。
+unit/integration test、native Cocoa/Metal contract、cold start、soak、パッケージ化した
+DMGのmount後起動を一つのログで検証する。既定のsoakはCI向け20秒であり、release
+acceptanceでは`NIMCULUS_E2E_SOAK_SECONDS=28800`を指定する。
+
+```sh
+nimble macosE2E
+```
+
 macOSの実アプリ起動から初回ready/idle到達までを測る場合は、専用の一時
 `.app` bundle、ビルドキャッシュ、HOMEを使う次の計測を実行する。raw
 executableを`NIMCULUS_BINARY`で指定した場合も、LaunchServicesのbundle

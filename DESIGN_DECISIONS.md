@@ -4202,3 +4202,33 @@ exercises the integrated editor, split panes, IME, workspace, Tree-sitter,
 LSP, Git, terminal/tasks, settings, and available hardware variants in a
 single realistic session. Failures are turned into issues and automated
 regressions rather than multiplying isolated manual checklists.
+
+## M20-019: Make the release-candidate macOS E2E gate reproducible
+
+The E2E policy needs an executable baseline before an operator adds the
+physical-hardware and real-IME portion. `nimble macosE2E` therefore runs the
+same release-candidate evidence in one ordered log: build, native contracts,
+unit/integration tests, benchmarks, repeated cold starts, soak, and a mounted
+adhoc-signed DMG cold start. The manual self-hosted E2E workflow runs this
+single command only after checkout and dependency installation.
+
+The short soak default keeps the gate usable for a release candidate. The same
+command accepts a 8-hour soak duration for formal acceptance, and its
+temporary package/native caches are removed unless artifact retention is
+explicitly requested.
+
+## M6/M9-021: Keep project navigation and Git history outside the editor buffer
+
+Zed's Project Panel is a dedicated dock, not a temporary document. The prior
+Nimculus workspace preview rendered a bounded file list by replacing the
+active editor text, so opening a folder could hide a document and made the
+filer unsuitable for normal editing.
+
+The existing macOS sidebar overlay now has explicit modes for document
+outline, workspace files, and Git history. File and commit rows dispatch a
+small indexed command back to Nim; file rows open the selected document and a
+commit row asynchronously loads its `git show --stat` details into the output
+panel. The editor text texture, selection, IME state, and split panes are not
+modified by either sidebar mode. This is deliberately a macOS presentation
+boundary; a future platform only shares the sidebar behaviour contract after
+it needs the same interaction.
