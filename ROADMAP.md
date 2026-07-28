@@ -412,7 +412,7 @@ macOS PTY outputはCocoa idleごとにEAGAINまで読み、1回64 KiBの上限�
 - ターミナル：macOS PTY、zsh / bash / fish、ANSI/VT parser、screen buffer、scrollback、選択、copy/paste、resize、複数セッション
 - タスク：build、test、run、working directory、環境変数、cancellation、background task、problem matcher、output panel
 
-**完了条件：** zsh を安定実行し、ターミナルリサイズ、複数セッション切替、長時間タスクの停止が機能する。
+**完了条件：** zsh を安定実行し、ターミナルリサイズ、複数セッション切替、長時間タスクの停止が機能する。macOS統合テストでは既定のzshログインシェルが指定作業ディレクトリで起動し、zsh固有状態をPTy越しに取得できることを確認する。
 
 Task出力のproblem matcherは、標準的な`path:line:column: message`と`path:line: message`を`TaskProblem`へ変換し、終了ステータス表示へ問題件数を反映する。
 

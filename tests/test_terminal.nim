@@ -395,6 +395,25 @@ suite "M10 terminal core":
       check pty.screen.columns == 60
       check pty.screen.rows == 12
 
+    test "macOS PTY default zsh login shell keeps its requested directory":
+      # The macOS default is intentionally zsh, launched as a login shell.
+      # Exercise zsh-specific state rather than assuming /bin/sh coverage
+      # proves the configured default works.
+      let pty = newTerminalPty(workingDirectory = "/tmp", columns = 40, rows = 8)
+      defer: pty.close()
+      # Terminal Enter is carriage return. zsh's line editor does not treat a
+      # bare line feed as the user command-submission key.
+      check pty.writeInput("print -r -- nimculus-zsh:$ZSH_VERSION; pwd\r") > 0
+      var received = ""
+      # Login-shell startup may load the user's normal macOS profile. Keep a
+      # bounded readiness window without imposing a fixed delay on success.
+      for _ in 0 ..< 500:
+        received.add(pty.pollOutput())
+        if "nimculus-zsh:" in received and "/tmp" in received: break
+        sleep(10)
+      check "nimculus-zsh:" in received
+      check "/tmp" in received
+
     test "macOS PTY close terminates its command process group":
       let pty = newTerminalPty("/bin/sh", "/tmp", 40, 8)
       let childPid = pty.childPid

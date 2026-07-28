@@ -4116,3 +4116,18 @@ scrolling: precise trackpad pixels accumulate against the terminal font line
 height; ordinary wheel values are immediate logical rows. The terminal pointer
 path uses this helper before updating its bounded scrollback offset, and unit
 tests cover both device classes.
+
+## M10-030: Verify the configured macOS login shell, not just sh compatibility
+
+Zed models the selected shell as an explicit program with shell-specific launch
+arguments and tests those semantics. Nimculus likewise defaults its macOS PTY
+to `/bin/zsh` and launches it as a login shell, but its integration coverage
+previously only exercised `/bin/sh`. That did not prove the user-facing default
+shell or its requested working directory was usable.
+
+The macOS PTY integration suite now opens the default shell in `/tmp`, sends a
+small zsh command followed by the terminal Enter byte (`CR`) through the PTY,
+and waits (with a bounded readiness window) for both the zsh-only
+`$ZSH_VERSION` marker and `pwd` output. This keeps the test independent of
+prompt formatting while verifying the actual default launch contract and the
+same Enter encoding used by the terminal UI.
