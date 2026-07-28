@@ -32,6 +32,10 @@ type
     timestamp*: int64
     subject*: string
 
+  GitBranch* = object
+    name*: string
+    current*: bool
+
   GitBlameLine* = object
     hash*: string
     author*: string
@@ -371,6 +375,45 @@ proc currentBranch*(repository: GitRepository): string =
   let output = repository.runGit(["symbolic-ref", "--quiet", "--short", "HEAD"])
   if output.exitCode == 0: result = output.output.strip()
   else: result = "(detached)"
+
+proc parseBranches*(output: string): seq[GitBranch] =
+  ## `git branch --format=%(HEAD)%(refname:short)` is one branch per line.
+  ## The leading HEAD marker is `*` for the active local branch and a space
+  ## otherwise; parsing this stable, machine-oriented format avoids terminal
+  ## coloring and localization.
+  for line in output.splitLines:
+    if line.len < 2: continue
+    let name = line[1 .. ^1].strip()
+    if name.len > 0:
+      result.add(GitBranch(name: name, current: line[0] == '*'))
+
+proc branches*(repository: GitRepository): seq[GitBranch] =
+  if repository == nil: return
+  let output = repository.runGit(["branch", "--format=%(HEAD)%(refname:short)"])
+  if output.exitCode == 0: result = parseBranches(output.output)
+
+proc isSafeBranchName*(branch: string): bool =
+  ## Reject option-looking and control-character input before constructing a
+  ## Git command. Git still performs its authoritative ref-format validation.
+  let name = branch.strip()
+  if name.len == 0 or name.startsWith('-'): return false
+  for character in name:
+    if ord(character) < 32 or ord(character) == 127: return false
+  true
+
+proc switchBranch*(repository: GitRepository, branch: string): GitResult =
+  ## Switch only to an existing local branch. `--no-guess` prevents an editor
+  ## command from implicitly creating/tracking a remote branch, and Git's
+  ## normal safety checks refuse a switch that would lose worktree changes.
+  let name = branch.strip()
+  if repository == nil:
+    return GitResult(exitCode: -1, output: "Git repository not found")
+  if not isSafeBranchName(name):
+    return GitResult(exitCode: -1, output: "Git branch name is invalid")
+  let validation = repository.runGit(["check-ref-format", "--branch", name])
+  if validation.exitCode != 0:
+    return GitResult(exitCode: -1, output: "Git branch name is invalid")
+  repository.runGit(["switch", "--no-guess", name])
 
 proc head*(repository: GitRepository): string =
   let output = repository.runGit(["rev-parse", "HEAD"])

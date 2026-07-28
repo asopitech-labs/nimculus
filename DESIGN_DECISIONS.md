@@ -4276,3 +4276,18 @@ redirect `git show` to an arbitrary external diff program, which is unsuitable
 for an editor action and would weaken the cancellation/process-group boundary.
 The service-level operation rejects empty revisions and has a regression test
 covering metadata and both sides of a changed line.
+
+## M9-023: Switch only validated local branches and retain dirty editor state
+
+Zed's branch picker separates list loading from the switch action and lets Git
+enforce worktree safety. Nimculus adds the corresponding minimum vertical
+slice: `git branches` loads local branches in a stable, uncolored format, and
+`git switch <branch>` invokes `git switch --no-guess` through the existing
+bounded asynchronous process boundary.
+
+Before a synchronous service switch, Git validates the ref with
+`check-ref-format --branch`; the UI also rejects option-looking/control input.
+`--no-guess` prevents a command-palette typo from implicitly creating or
+tracking a remote branch. After a successful switch Nimculus reloads only
+clean documents inside that repository and preserves dirty buffers, so editor
+state remains user-owned while Git itself refuses an unsafe worktree switch.

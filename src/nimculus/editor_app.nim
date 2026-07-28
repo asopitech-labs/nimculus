@@ -251,6 +251,35 @@ proc reloadActiveDocument*(session: var EditorSession, view: var EditorViewState
   view.scrollLine = min(max(0, view.scrollLine), max(0, reloaded.buffer.lineStarts.high))
   true
 
+proc reloadCleanDocumentsUnder*(session: var EditorSession, root: string): int =
+  ## Refresh clean tabs after an external operation (such as `git switch`)
+  ## updates one worktree. Dirty tabs stay entirely user-owned; their on-disk
+  ## counterpart may be refreshed later through normal external-change
+  ## resolution. Tab-owned primary and secondary views are clamped before the
+  ## caller restores the active pane state.
+  let canonicalRoot = canonicalOpenPath(root)
+  if canonicalRoot.len == 0: return
+  let prefix = canonicalRoot & DirSep
+  for index in 0 ..< session.tabs.len:
+    let document = session.tabs[index].document
+    if document.path.len == 0 or document.buffer.isDirty or
+        not document.path.startsWith(prefix) or not fileExists(document.path):
+      continue
+    try:
+      let reloaded = openDocument(document.path)
+      session.tabs[index].document = reloaded
+      session.tabs[index].view.clampSelectionToText(reloaded.buffer.toString())
+      session.tabs[index].secondaryView.clampSelectionToText(reloaded.buffer.toString())
+      session.tabs[index].view.scrollLine = min(
+        max(0, session.tabs[index].view.scrollLine),
+        max(0, reloaded.buffer.lineStarts.high))
+      session.tabs[index].secondaryView.scrollLine = min(
+        max(0, session.tabs[index].secondaryView.scrollLine),
+        max(0, reloaded.buffer.lineStarts.high))
+      inc result
+    except CatchableError:
+      discard
+
 proc normalizedSplitRatio*(ratio: float32): float32 =
   ## Reserve usable space for both sides.  Zed's PaneGroup likewise constrains
   ## split geometry instead of letting a drag collapse a pane to zero.

@@ -614,6 +614,26 @@ suite "M5 editor services":
     check view.softWrap
     removeFile(path)
 
+  test "branch-style refresh reloads clean tabs and retains dirty tabs":
+    let root = getTempDir() / "nimculus-editor-branch-refresh"
+    if dirExists(root): removeDir(root)
+    createDir(root)
+    defer: removeDir(root)
+    let cleanPath = root / "clean.nim"
+    let dirtyPath = root / "dirty.nim"
+    writeFile(cleanPath, "before clean\n")
+    writeFile(dirtyPath, "before dirty\n")
+    var session: EditorSession
+    session.addTab(openDocument(cleanPath))
+    session.addTab(openDocument(dirtyPath))
+    session.tabs[1].document.buffer.edit(Edit(startByte: 0, endByte: 0, text: "local "))
+    writeFile(cleanPath, "after clean\n")
+    writeFile(dirtyPath, "after dirty\n")
+    check session.reloadCleanDocumentsUnder(root) == 1
+    check session.tabs[0].document.buffer.toString() == "after clean\n"
+    check session.tabs[1].document.buffer.toString() == "local before dirty\n"
+    check session.tabs[1].document.buffer.isDirty
+
   test "session loader tolerates partial metadata":
     let path = getTempDir() / "nimculus-m5-partial-session.json"
     writeFile(path, "{\"tabs\": []}")

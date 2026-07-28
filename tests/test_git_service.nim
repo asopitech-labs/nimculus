@@ -104,6 +104,28 @@ suite "M9 Git service":
     check details.output.contains("+second")
     check repository.showCommit("").exitCode == -1
 
+  test "lists and safely switches local branches":
+    let root = getTempDir() / "nimculus-m9-branches"
+    if dirExists(root): removeDir(root)
+    createDir(root)
+    defer: removeDir(root)
+    discard git(root, "init", "-q")
+    discard git(root, "config", "user.name", "Nimculus Test")
+    discard git(root, "config", "user.email", "test@nimculus.invalid")
+    writeFile(root / "branches.nim", "base\n")
+    let repository = newGitRepository(root)
+    check repository.stage(["branches.nim"]).exitCode == 0
+    check repository.commit("initial").exitCode == 0
+    discard git(root, "branch", "feature")
+    let listed = repository.branches()
+    check listed.len == 2
+    check listed.anyIt(it.current)
+    check listed.anyIt(it.name == "feature" and not it.current)
+    check repository.switchBranch("feature").exitCode == 0
+    check repository.currentBranch() == "feature"
+    check repository.switchBranch("--discard-changes").exitCode == -1
+    check repository.switchBranch("not a valid branch").exitCode == -1
+
   test "cancels a running git job":
     let root = getTempDir() / "nimculus-m9-job"
     if dirExists(root): removeDir(root)

@@ -501,6 +501,8 @@ proc refreshEditorSyntax()
 proc refreshDocumentLanguageSettings()
 
 when defined(macosx):
+  proc scheduleNativeGitHunks(document: ptr FileDocument)
+
   proc gitRepositoryForDocument(document: ptr FileDocument): GitRepository =
     if document == nil or document[].path.len == 0: return nil
     if activeWorkspace != nil:
@@ -586,6 +588,18 @@ when defined(macosx):
     platformSetEditorSidebar(text.cstring, uint32(text.len), uint32(commits.len),
       uint32(sidebarGitHistory))
 
+  proc reloadCleanDocumentsForBranch(repository: GitRepository): int =
+    ## Git switches update the working tree atomically from the editor's point
+    ## of view. Reload only clean tabs under the switched repository; dirty
+    ## buffers remain user-owned and Git itself has already refused unsafe
+    ## worktree changes. Preserve both split panes' item-local view state.
+    if repository == nil: return
+    editorSession.saveActiveView(editorViewState)
+    editorSession.saveSecondaryActiveView(editorSession.secondaryView)
+    result = editorSession.reloadCleanDocumentsUnder(repository.root)
+    editorSession.loadActiveView(editorViewState)
+    editorSession.loadSecondaryActiveView()
+
   proc pollNativeGitAction() =
     if editorGitActionJob == nil or not editorGitActionJob.poll(): return
     let job = editorGitActionJob
@@ -646,6 +660,25 @@ when defined(macosx):
       renderNativeGitHistory(commits)
       editorViewState.statusMessage = if commits.len == 0:
         "Git log: no commits" else: "Git log: " & commits[0].subject
+    elif action == "branches":
+      let branches = parseBranches(job.result.output)
+      var lines: seq[string] = @[]
+      for branch in branches:
+        lines.add((if branch.current: "* " else: "  ") & branch.name)
+      showNativeLspPanel("Git Branches", lines)
+      editorViewState.statusMessage = if branches.len == 0:
+        "Git: no local branches" else: "Git: " & $branches.len & " local branch(es)"
+    elif action == "switch branch":
+      let reloaded = reloadCleanDocumentsForBranch(editorGitRepository)
+      if activeWorkspace != nil: refreshWorkspacePreview()
+      resetImeState()
+      if syntaxState != nil:
+        syntaxState.close()
+        syntaxState = nil
+      refreshEditorSyntax()
+      scheduleNativeGitHunks(activeDocument())
+      editorViewState.statusMessage = "Git: switched to " & editorGitActionSource &
+        " (reloaded " & $reloaded & " clean tab(s))"
     elif action == "show":
       showNativeLspPanel("Git Commit", job.result.output.splitLines())
       editorViewState.statusMessage = "Git: commit details"
@@ -2948,6 +2981,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     let dispatchCommand =
       if command.startsWith("git commit "): "__git_commit__"
       elif command.startsWith("git checkout "): "__git_checkout__"
+      elif command.startsWith("git switch "): "__git_switch__"
+      elif command == "git branches": "__git_branches__"
       elif command == "git stage hunk": "__git_stage_hunk__"
       elif command == "git unstage hunk": "__git_unstage_hunk__"
       elif command == "toggle terminal": "__toggle_terminal__"
@@ -3245,6 +3280,14 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         else:
           startNativeGitAction(repository, "log", "", [
             "log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00", "-n", "100"])
+    of "__git_branches__":
+      when defined(macosx):
+        let repository = gitRepositoryForDocument(document)
+        if repository == nil:
+          editorViewState.statusMessage = "Git repository not found"
+        else:
+          startNativeGitAction(repository, "branches", "", [
+            "branch", "--format=%(HEAD)%(refname:short)"])
     of "git blame":
       when defined(macosx):
         let repository = gitRepositoryForDocument(document)
@@ -3276,6 +3319,19 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         else:
           startNativeGitAction(repository, "checkout", relative,
             ["checkout", source, "--", relative], source = source)
+    of "__git_switch__":
+      when defined(macosx):
+        let repository = gitRepositoryForDocument(document)
+        let branch = if rawCommand.len > 11: rawCommand[11 .. ^1].strip else: ""
+        if repository == nil:
+          editorViewState.statusMessage = "Git repository not found"
+        elif not isSafeBranchName(branch):
+          editorViewState.statusMessage = "Git branch name is invalid"
+        else:
+          # `switchBranch` validates with `check-ref-format`; the UI keeps the
+          # same Git process asynchronous and lets Git reject unknown branches.
+          startNativeGitAction(repository, "switch branch", "",
+            ["switch", "--no-guess", branch], source = branch)
     else: editorViewState.statusMessage = "Unknown command: " & command
   elif name == "saveAndClose":
     let document = activeDocument()
