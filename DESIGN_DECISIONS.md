@@ -4131,3 +4131,16 @@ and waits (with a bounded readiness window) for both the zsh-only
 `$ZSH_VERSION` marker and `pwd` output. This keeps the test independent of
 prompt formatting while verifying the actual default launch contract and the
 same Enter encoding used by the terminal UI.
+
+## M12-035: Apply system themes from AppKit appearance notifications
+
+Zed connects `viewDidChangeEffectiveAppearance` to its window appearance
+observers rather than waiting for a settings-file change. Nimculus previously
+read `effectiveAppearance` only while applying settings, so `theme: "system"`
+did not repaint after macOS changed Light/Dark mode.
+
+The Metal view now emits an `appearanceChanged` command from AppKit's native
+appearance notification. The settings layer resolves system Light/Dark colors
+as a pure operation, with unit coverage for both appearances and explicit
+background overrides. The app reapplies only a system theme when that command
+arrives; explicit light, dark, and user background choices remain unchanged.

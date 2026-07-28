@@ -109,3 +109,20 @@ suite "M12 settings foundation":
     check store.iconForPath("src", true) == "DIR"
     removeFile(path)
     removeDir(root)
+
+  test "resolves the system theme without reloading settings":
+    let root = getTempDir() / "nimculus-settings-system-theme"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, "{\"theme\":\"system\"}")
+    let store = newSettingsStore(path, "", "")
+    check store.resolvedTheme(false).background == "#ffffff"
+    check store.resolvedTheme(false).foreground == "#1f2329"
+    check store.resolvedTheme(true).background == "#1f2329"
+    check store.resolvedTheme(true).foreground == "#d7dae0"
+    writeFile(path, "{\"theme\":\"system\",\"themeColors\":{\"background\":\"#123456\"}}")
+    check store.reload()
+    check store.resolvedTheme(false).background == "#123456"
+    check store.resolvedTheme(true).background == "#123456"
+    removeFile(path)
+    removeDir(root)

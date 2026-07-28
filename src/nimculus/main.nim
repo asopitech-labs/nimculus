@@ -396,24 +396,12 @@ proc applySettingsTheme() =
       platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize", 12)))
       platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily", "Consolas").cstring)
     elif defined(macosx):
-      var colors = appSettings.theme()
-      let themeName = appSettings.stringSetting("theme", "dark").toLowerAscii
-      let customBackground = appSettings.stringSetting("themeColors.background", "")
+      let colors = appSettings.resolvedTheme(platformIsDarkAppearance())
       platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize", 14)))
       platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily", "Menlo").cstring)
       platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize", 12)))
       platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily", "Menlo").cstring)
       resizeNativeTerminals()
-      if customBackground.len == 0 and themeName in ["light", "dark", "system"]:
-        let dark = if themeName == "system": platformIsDarkAppearance() else: themeName == "dark"
-        if dark:
-          colors.background = "#1f2329"
-          colors.foreground = "#d7dae0"
-          colors.accent = "#4daafc"
-        else:
-          colors.background = "#ffffff"
-          colors.foreground = "#1f2329"
-          colors.accent = "#007aff"
       platformSetThemeColors(colors.background.cstring, colors.foreground.cstring,
         colors.accent.cstring, colors.selection.cstring, colors.border.cstring)
 
@@ -2585,6 +2573,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     if activeDocument() != nil: refreshEditorSyntax()
   elif name == "windowFocusLost":
     resetPointerInteractions()
+  elif name == "appearanceChanged":
+    when defined(macosx):
+      if appSettings != nil and appSettings.stringSetting("theme", "dark").toLowerAscii == "system":
+        applySettingsTheme()
   elif name == "splitEditor":
     if document == nil:
       editorViewState.statusMessage = "Open a document before splitting"

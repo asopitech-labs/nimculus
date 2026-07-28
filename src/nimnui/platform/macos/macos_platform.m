@@ -2378,6 +2378,13 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   [self updateBackingScale];
 }
 
+- (void)viewDidChangeEffectiveAppearance {
+  [super viewDidChangeEffectiveAppearance];
+  // Match Zed's native appearance callback: a system theme must repaint as
+  // soon as AppKit changes this window's effective Light/Dark appearance.
+  if (g_command_callback) g_command_callback("appearanceChanged");
+}
+
 - (void)drawFrame {
   uint64_t start = mach_absolute_time();
   id<CAMetalDrawable> drawable = [self.metalLayer nextDrawable];

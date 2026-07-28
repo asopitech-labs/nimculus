@@ -319,6 +319,23 @@ proc theme*(store: SettingsStore): ThemeColors =
   if overrides != nil and overrides.kind == JObject:
     result = configuredThemeColors(overrides, result)
 
+proc resolvedTheme*(store: SettingsStore, systemDark: bool): ThemeColors =
+  ## Resolve the system theme at the settings boundary so a platform appearance
+  ## notification can repaint without reloading settings from disk.
+  result = store.theme()
+  let requested = store.stringSetting("theme", "dark").toLowerAscii
+  let customBackground = store.stringSetting("themeColors.background", "")
+  if customBackground.len > 0 or requested notin ["light", "dark", "system"]: return
+  let dark = if requested == "system": systemDark else: requested == "dark"
+  if dark:
+    result.background = "#1f2329"
+    result.foreground = "#d7dae0"
+    result.accent = "#4daafc"
+  else:
+    result.background = "#ffffff"
+    result.foreground = "#1f2329"
+    result.accent = "#007aff"
+
 proc themeNames*(store: SettingsStore): seq[string] =
   if store == nil: return
   for name in store.themeRegistry.keys: result.add(name)
