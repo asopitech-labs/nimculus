@@ -160,6 +160,11 @@ Silicon macOSビルドの証拠と突き合わせたレビュー記録である�
 - M6 multi-root ownership: Zedの`ProjectPath { worktree_id, path }`に合わせ、`WorkspaceEntry.rootPath`で所有rootを保持し、検索結果の絶対pathとroot相対relativePathを分離。root指定の作成・削除・改名APIを追加し、secondary rootへ誤ってprimary rootの操作を適用しない回帰テストを追加。
 - M7: 6文法の独立C翻訳単位、FFI、増分parse、構文ノード、highlight/folding/outline/indentation/selection/navigation基盤、エディタ可視範囲からRGBA Metalテクスチャまでのunit test/build確認。
 - M7 incremental editor path: `EditorSyntaxState.update`で旧ソースとの差分からUTF-8境界・行列を計算し、`SyntaxTree.edit`後に旧treeを渡して再parseする経路を追加。
+- M8: JSON-RPC/LSP stdio transport、timeout/cancellation/restart、diagnostics、completion、hover、definition、references、rename、formatting、code action、signature help、semantic tokens、inlay hintsをエディタbridgeとmacOS表示へ接続。応答世代・cursor snapshot・process groupを検証する回帰テストを追加。
+- M9: bounded/cancellable Git CLIサービスと、status、diff、stage/unstage、hunk stage/unstage、commit、log/history、patch表示、blame、checkout、validated local branch switchをmacOS command paletteとsidebarへ接続。Worktreeごとの状態分離、hook/helperを含むprocess group cancellation、dirty tabを保持するbranch refreshをテストした。
+- M10: macOS PTY、VT screen/scrollback/selection/copy-paste/resize、複数terminal、build/test/run task、環境変数・working directory・problem matcher・output panel・cancelを実装。PTY/taskおよび終了時のprocess group回収、bounded output/scrollbackを回帰テストした。
+- M11: `.app`、Info.plist、icon、file association、URL scheme、DMG/ZIP、update/crash/session recoveryの配布基盤を実装。ad-hoc package、mounted DMGからの起動、container整合性を自動検証し、Developer ID/notarizationは資格情報を必要とする別release gateとして保留した。
+- M12: global/workspace/language settings、schema validation、live reload、keymap/command registry、theme/icon/font/terminal/LSP settings、AppKit appearance連動を実装。Command中心のmacOS keymapとOption単語移動を回帰テストした。
 
 ## 修正済みの問題
 
@@ -206,4 +211,4 @@ GUI実機での日本語IME、カーソル・選択・文字描画、実ファ�
 Open With、リサイズ・複数モニターの操作確認は、ヘッドレスunit testや
 コンパイルだけでは証明できないため完了扱いにしていない。M6の10万ファイル
 計測、Worktree状態分離、構文色のRGBA Metalテクスチャ接続、ネイティブスモークは
-完了したが、`Cmd+,`設定画面、Git diff/stage等の高度なUI、IMEの実機操作、カーソル/選択/文字表示のGUI確認は残っている。native glyph atlas接続は実装済みだが、GUIでの描画結果は未確認である。
+完了したが、IMEの実機操作、カーソル/選択/文字表示のGUI確認は残っている。native glyph atlas接続は実装済みだが、GUIでの描画結果は未確認である。
