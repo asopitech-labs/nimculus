@@ -416,6 +416,7 @@ var workspaceSearchResults: seq[SearchResult]
 var workspaceSearchCancelled = false
 var workspaceQuickOpenQuery = ""
 var workspacePreviewEntries: seq[WorkspaceEntry]
+var workspaceExpandedDirectories: seq[string]
 var workspacePreviewMode = ""
 type EditorSidebarMode = enum
   sidebarOutline, sidebarFiles, sidebarGitHistory
@@ -1422,6 +1423,7 @@ proc openActiveWorkspace(path: string) =
     if workspaceQuickOpenJob != nil: workspaceQuickOpenJob.cancelFuzzySearch()
     workspaceQuickOpenJob = nil
     activeWorkspace = openWorkspace(path)
+    workspaceExpandedDirectories = activeWorkspace.rootPaths
     reloadWorkspaceSettings(activeWorkspace.root)
     activeWorkspace.startWatching()
     workspaceSearchQuery = ""
@@ -1440,29 +1442,27 @@ proc refreshWorkspacePreview() =
     editorSidebarMode = sidebarFiles
     workspacePreviewEntries.setLen(0)
     var lines = @["Files: " & activeWorkspace.root, "────────"]
-    # Keep the preview bounded, but walk beyond the root directory so the
-    # workspace surface is a real lazy tree rather than a flat root listing.
-    # The filesystem is still enumerated incrementally by the workspace API;
-    # this view only asks for enough entries to fill its visible preview.
-    var pending: seq[tuple[root, relative: string, depth: int]]
-    for rootIndex in countdown(activeWorkspace.rootPaths.high, 0):
-      let root = activeWorkspace.rootPaths[rootIndex]
-      pending.add((root: root, relative: "", depth: 0))
-    while pending.len > 0 and workspacePreviewEntries.len < 192:
-      let directory = pending.pop()
-      var children = activeWorkspace.listChildrenAt(directory.root, directory.relative)
+    # Follow Zed's Project Panel ordering: expanded children are emitted
+    # directly below their directory, while traversal remains lazy and bounded.
+    proc appendDirectory(root, relative: string, depth: int) =
+      if workspacePreviewEntries.len >= 192: return
+      var children = activeWorkspace.listChildrenAt(root, relative)
       children.sort(proc(a, b: WorkspaceEntry): int = cmp(a.relativePath, b.relativePath))
-      for childIndex in countdown(children.high, 0):
-        let entry = children[childIndex]
+      for entry in children:
         if workspacePreviewEntries.len >= 192: break
         workspacePreviewEntries.add(entry)
         let icon = appSettings.iconForPath(entry.path,
           entry.kind == WorkspaceFileKind.directory)
         let relativeName = entry.path.extractFilename
-        lines.add(repeat("  ", directory.depth) & icon & " " & relativeName)
-        if entry.kind == WorkspaceFileKind.directory:
-          pending.add((root: directory.root, relative: entry.relativePath,
-            depth: directory.depth + 1))
+        let expanded = entry.kind == WorkspaceFileKind.directory and
+          entry.path in workspaceExpandedDirectories
+        let marker = if entry.kind == WorkspaceFileKind.directory:
+          if expanded: "▾" else: "▸" else: icon
+        lines.add(repeat("  ", depth) & marker & " " & relativeName)
+        if expanded:
+          appendDirectory(root, entry.relativePath, depth + 1)
+    for root in activeWorkspace.rootPaths:
+      appendDirectory(root, "", 0)
     let text = lines.join("\n")
     platformSetEditorSidebar(text.cstring, uint32(text.len),
       uint32(workspacePreviewEntries.len), uint32(sidebarFiles))
@@ -3302,7 +3302,16 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           if index >= 0 and index < workspacePreviewEntries.len:
             let entry = workspacePreviewEntries[index]
             if entry.kind == WorkspaceFileKind.directory:
-              openActiveWorkspace(entry.path)
+              var expandedIndex = -1
+              for candidateIndex, candidate in workspaceExpandedDirectories:
+                if candidate == entry.path:
+                  expandedIndex = candidateIndex
+                  break
+              if expandedIndex >= 0:
+                workspaceExpandedDirectories.delete(expandedIndex)
+              else:
+                workspaceExpandedDirectories.add(entry.path)
+              refreshWorkspacePreview()
             else:
               receiveNativeFile(entry.path.cstring, false)
         of sidebarGitHistory:
