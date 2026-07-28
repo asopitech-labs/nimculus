@@ -1464,8 +1464,14 @@ proc refreshWorkspacePreview() =
     for root in activeWorkspace.rootPaths:
       appendDirectory(root, "", 0)
     let text = lines.join("\n")
-    platformSetEditorSidebar(text.cstring, uint32(text.len),
-      uint32(workspacePreviewEntries.len), uint32(sidebarFiles))
+    when defined(macosx):
+      platformSetEditorSidebar(text.cstring, uint32(text.len),
+        uint32(workspacePreviewEntries.len), uint32(sidebarFiles))
+    else:
+      # The macOS sidebar is intentionally native-only until another platform
+      # needs the same interaction contract. Keep the established Win32
+      # preview functional rather than leaking AppKit's sidebar ABI into it.
+      platformSetEditorText(text.cstring, uint32(text.len))
 
 proc refreshWorkspaceAfterMutation(message: string) =
   when defined(macosx) or defined(windows):
