@@ -1978,6 +1978,20 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 }
 @end
 
+static NimculusOutlineOverlay *outlineOverlayForView(NSView *view) {
+  if (!view) return nil;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusOutlineOverlay class]]) {
+      return (NimculusOutlineOverlay *)subview;
+    }
+    if ([subview isKindOfClass:[NSScrollView class]] &&
+        [((NSScrollView *)subview).documentView isKindOfClass:[NimculusOutlineOverlay class]]) {
+      return (NimculusOutlineOverlay *)((NSScrollView *)subview).documentView;
+    }
+  }
+  return nil;
+}
+
 static NSUInteger terminalUTF16OffsetForCell(uint32_t row, uint32_t column) {
   NSData *utf8 = [g_terminal_text dataUsingEncoding:NSUTF8StringEncoding];
   const uint8_t *bytes = utf8.bytes;
@@ -2198,8 +2212,19 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     outline.font = [NSFont fontWithName:g_editor_font_name size:g_editor_font_size] ?:
       [NSFont monospacedSystemFontOfSize:g_editor_font_size weight:NSFontWeightRegular];
     outline.textContainerInset = NSMakeSize(8.0, 8.0);
+    outline.horizontallyResizable = NO;
+    outline.verticallyResizable = YES;
+    outline.textContainer.widthTracksTextView = YES;
     outline.string = g_editor_outline_text;
-    [self addSubview:outline];
+    NSScrollView *outlineScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
+    outlineScroll.borderType = NSNoBorder;
+    outlineScroll.drawsBackground = NO;
+    outlineScroll.hasVerticalScroller = YES;
+    outlineScroll.autohidesScrollers = YES;
+    outlineScroll.documentView = outline;
+    [self addSubview:outlineScroll];
+    [outlineScroll release];
+    [outline release];
     NimculusLineNumberOverlay *lineNumbers = [[NimculusLineNumberOverlay alloc]
       initWithFrame:NSZeroRect];
     [self addSubview:lineNumbers];
@@ -2315,7 +2340,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 }
 
 - (void)updateTerminalFrame {
-  NimculusOutlineOverlay *outline = nil;
+  NimculusOutlineOverlay *outline = outlineOverlayForView(self);
   NimculusLineNumberOverlay *lineNumbers = nil;
   NimculusIndentGuideOverlay *indentGuides = nil;
   NimculusTabBarOverlay *tabs = nil;
@@ -2324,7 +2349,6 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusTaskOutputOverlay *taskOutput = nil;
   NimculusEditorAnnotationOverlay *annotations = nil;
   for (NSView *subview in self.subviews) {
-    if ([subview isKindOfClass:[NimculusOutlineOverlay class]]) outline = (NimculusOutlineOverlay *)subview;
     if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) lineNumbers = (NimculusLineNumberOverlay *)subview;
     if ([subview isKindOfClass:[NimculusIndentGuideOverlay class]]) indentGuides = (NimculusIndentGuideOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTabBarOverlay class]]) tabs = (NimculusTabBarOverlay *)subview;
@@ -2335,8 +2359,18 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
   if (outline) {
     CGFloat width = MAX(180.0, g_editor_rect[0] - 12.0);
-    outline.frame = NSMakeRect(8.0, g_editor_rect[1], width, g_editor_rect[3]);
-    outline.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
+    NSScrollView *scroll = outline.enclosingScrollView;
+    if (scroll) {
+      scroll.frame = NSMakeRect(8.0, g_editor_rect[1], width, g_editor_rect[3]);
+      scroll.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
+      outline.textContainer.containerSize = NSMakeSize(MAX(1.0, width - 16.0), CGFLOAT_MAX);
+      [outline.layoutManager ensureLayoutForTextContainer:outline.textContainer];
+      CGFloat contentHeight = ceil([outline.layoutManager usedRectForTextContainer:outline.textContainer].size.height) + 16.0;
+      outline.frame = NSMakeRect(0.0, 0.0, width, MAX(g_editor_rect[3], contentHeight));
+    } else {
+      outline.frame = NSMakeRect(8.0, g_editor_rect[1], width, g_editor_rect[3]);
+      outline.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
+    }
   }
   if (lineNumbers) {
     lineNumbers.hidden = !g_editor_line_numbers;
@@ -4285,6 +4319,18 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
   }
 }
 
+bool nimculus_platform_validate_sidebar_scroll_container(void) {
+  @autoreleasepool {
+    NimculusMetalView *view = [[NimculusMetalView alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 480.0)];
+    NimculusOutlineOverlay *sidebar = outlineOverlayForView(view);
+    BOOL valid = sidebar && sidebar.enclosingScrollView &&
+      sidebar.enclosingScrollView.hasVerticalScroller;
+    [view release];
+    return valid;
+  }
+}
+
 bool nimculus_platform_validate_application_alert_sheet(void) {
   NimculusPlatformMetrics previousMetrics = g_metrics;
   @autoreleasepool {
@@ -5473,12 +5519,8 @@ void nimculus_platform_set_editor_outline(const char *utf8, uint32_t length,
   g_editor_outline_symbol_count = symbol_count;
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
-  for (NSView *subview in view.subviews) {
-    if ([subview isKindOfClass:[NimculusOutlineOverlay class]]) {
-      ((NimculusOutlineOverlay *)subview).string = g_editor_outline_text;
-      break;
-    }
-  }
+  NimculusOutlineOverlay *outline = outlineOverlayForView(view);
+  if (outline) outline.string = g_editor_outline_text;
   [view updateTerminalFrame];
 }
 void nimculus_platform_set_editor_sidebar(const char *utf8, uint32_t length,
@@ -5489,12 +5531,8 @@ void nimculus_platform_set_editor_sidebar(const char *utf8, uint32_t length,
   g_editor_outline_symbol_count = item_count;
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
-  for (NSView *subview in view.subviews) {
-    if ([subview isKindOfClass:[NimculusOutlineOverlay class]]) {
-      ((NimculusOutlineOverlay *)subview).string = g_editor_outline_text;
-      break;
-    }
-  }
+  NimculusOutlineOverlay *outline = outlineOverlayForView(view);
+  if (outline) outline.string = g_editor_outline_text;
   [view updateTerminalFrame];
 }
 void nimculus_platform_set_terminal_visible(bool visible) {
@@ -5574,14 +5612,15 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
           [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
           colorWithAlphaComponent:0.65]
       };
-    } else if ([subview isKindOfClass:[NimculusOutlineOverlay class]]) {
-      NSTextView *outline = (NSTextView *)subview;
-      outline.backgroundColor = [themeHexColor(g_theme_background,
-        [NSColor colorWithCalibratedRed:0.045 green:0.055 blue:0.075 alpha:1.0])
-        colorWithAlphaComponent:0.96];
-      outline.textColor = themeHexColor(g_theme_foreground,
-        [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]);
     }
+  }
+  NimculusOutlineOverlay *outline = outlineOverlayForView(view);
+  if (outline) {
+    outline.backgroundColor = [themeHexColor(g_theme_background,
+      [NSColor colorWithCalibratedRed:0.045 green:0.055 blue:0.075 alpha:1.0])
+      colorWithAlphaComponent:0.96];
+    outline.textColor = themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]);
   }
   [view drawFrame];
 }
@@ -5596,10 +5635,12 @@ static void updateTerminalFonts(void) {
       if (g_terminal_run_count > 0) applyTerminalRuns(terminal);
     } else if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) {
       ((NSTextView *)subview).font = font;
-    } else if ([subview isKindOfClass:[NimculusOutlineOverlay class]]) {
-      ((NSTextView *)subview).font = [NSFont fontWithName:g_editor_font_name size:g_editor_font_size] ?:
-        [NSFont monospacedSystemFontOfSize:g_editor_font_size weight:NSFontWeightRegular];
     }
+  }
+  NimculusOutlineOverlay *outline = outlineOverlayForView(view);
+  if (outline) {
+    outline.font = [NSFont fontWithName:g_editor_font_name size:g_editor_font_size] ?:
+      [NSFont monospacedSystemFontOfSize:g_editor_font_size weight:NSFontWeightRegular];
   }
 }
 void nimculus_platform_set_terminal_font_size(double size) {

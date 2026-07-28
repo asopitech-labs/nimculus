@@ -336,6 +336,9 @@ suite "macOS platform contract":
   test "sidebar rows dispatch a stable item index to Nim":
     check platformValidateSidebarDispatch()
 
+  test "sidebar supports scrolling long file and Git history lists":
+    check platformValidateSidebarScrollContainer()
+
   # This must remain last: it releases global Metal, AppKit bridge, and CPU
   # resources exactly as applicationWillTerminate does.
   test "native platform teardown releases retained renderer resources":
