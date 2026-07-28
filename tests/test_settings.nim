@@ -87,13 +87,16 @@ suite "M12 settings foundation":
       "editor":{"tabSize":2},
       "languages":{
         "nim":{"editor":{"tabSize":4}},
-        "rust":{"editor":{"tabSize":8}}
+        "rust":{"editor":{"tabSize":8}},
+        "tsx":{"editor":{"tabSize":6}}
       }
     }""")
     let store = newSettingsStore(path, "", "nim")
     check store.intSetting("editor.tabSize", 0) == 4
     check store.setLanguageId("rust")
     check store.intSetting("editor.tabSize", 0) == 8
+    check store.setLanguageId("tsx")
+    check store.intSetting("editor.tabSize", 0) == 6
     check store.setLanguageId("")
     check store.intSetting("editor.tabSize", 0) == 2
     check not store.setLanguageId("")
