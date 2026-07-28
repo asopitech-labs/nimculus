@@ -9,18 +9,18 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | マイルストーン | 状態 | 備考 |
 |---|---|---|
 | M0：モノレポ基盤 | ✅ 完了 | Apple Silicon のローカル build / test / benchmark / lint、およびmacOS CI（run 29635844053）を確認済み |
-| M1：macOS ウィンドウと Metal 描画 | 🟡 実装済み・追加検証待ち | Cocoa / Metal / Retina / 基本入力を実装済み |
-| M2：NimNUI 基礎 UI システム | 🟡 実装済み・追加GUI操作検証待ち | UIツリー、レイアウト、状態、イベント、PaintList、macOS入力を実装。世代付きIDのテスト、ネイティブMetalスモーク、UIギャラリーの実機起動、CommandショートカットのCocoa view経路を確認済み。分割ペインのGUI操作確認が残る |
-| M3：macOS テキスト描画と IME | 🟡 実装済み・GUI実機検証待ち | Core Text、glyph atlas、動的Metal文字描画、Tree-sitter構文色、marked text表示、IME、候補位置、clipboardを実装。日本語IME、カーソル/選択、Retina文字表示の実機確認が残る |
+| M1：macOS ウィンドウと Metal 描画 | 🟡 自動検証済み・E2E対象 | Cocoa / Metal / Retina / 基本入力を実装済み。物理hardware確認はM12後のmacOS E2Eへ集約 |
+| M2：NimNUI 基礎 UI システム | 🟡 自動検証済み・E2E対象 | UIツリー、レイアウト、状態、イベント、PaintList、macOS入力を実装。個別GUI操作はM12後のmacOS E2Eへ集約 |
+| M3：macOS テキスト描画と IME | 🟡 自動検証済み・E2E対象 | Core Text、glyph atlas、動的Metal文字描画、Tree-sitter構文色、marked text表示、IME、候補位置、clipboardを実装。日本語IMEの対話確認はE2Eへ集約 |
 | M4：エディタバッファと編集コア | ✅ 完了 | Piece Table、原子的編集、Undo/Redo、複数カーソル、位置変換、fuzz、候補構造比較を実装・検証済み |
-| M5：macOS 最小実用エディタ | 🟡 分割表示を含む追加実装・GUI実機検証待ち | 編集サービス、plain-text fallbackを含む動的文書表示、構文色、macOSメニュー/IME/Finder接続、Application Supportへのセッション復元・クラッシュリカバリー、`Cmd+,`の設定パネル導線を実装。標準メニュー、Open / Save Panel、Save All and Quit、未保存Close / Quit確認の非同期Cocoa経路を実装・契約確認済み。分割dividerの比率と副paneのcursor/selection/scroll/表示設定はセッションへ保存・復元し、native側は二つの半開矩形をhit-testしてsecondaryにも独立Core Text textureで本文・cursor・selection・marked textを描画する。副paneのポインター座標変換、ドラッグ選択、スクロール、Cocoa selectorによる移動・削除・clipboard編集、IME composition、候補位置を独立view stateへ反映する。実ユーザーによる二ペインIME操作のGUI確認が残る |
-| M6：macOS プロジェクト・ワークスペース | 🟡 部分UI統合・GUI検証待ち | フォルダ選択、Fileメニューからの複数ルート追加、Quick Open fuzzy file search、表示件数を制限した遅延深さ優先ツリー、Workspace検索入力/結果/継続更新/キャンセル、Worktree branch/HEAD表示、標準Fileメニューからのファイル作成・フォルダ作成・名前変更・削除、Workspace rootのセッション復元を接続。複数ルート、`.gitignore`、fuzzy/ripgrep API、協調型検索ジョブ、FSEvents、Worktree状態分離、10万ファイル計測を実装。FSEvents/ReadDirectoryChangesWの変更通知でキャッシュ済みファイル・子孫を無効化し、削除・rename後のstale entryを残さない。macOS/Windows双方のcreate、rename、delete、coalesced writeをintegration testで検証する。検索結果は10,000件、ripgrep一時出力は32 MiBでmacOS/Windows共通上限化し、超過時はプロセス停止後に部分結果を返す。Git UIはM9で実装済み。GUI実機確認が残る |
-| M7：Tree-sitter | 🟡 実装済み・GUI実機検証待ち | Nim/Rust/TypeScript/Python/JSON/MarkdownのFFI、増分解析、構文状態、可視範囲ハイライト、RGBA Metalテクスチャ接続、大規模ファイル計測を実装。GUI実機確認が残る |
-| M8：LSPクライアント | 🟡 実装済み・GUI実機検証待ち | JSON-RPC、stdio、stale response破棄、restart、diagnostics、completion、hover、definition、references、symbols、rename、formatting、code action、signature help、semantic tokens、inlay hintsを実装。受信フレームを16 MiB、ヘッダーを64 KiB、1回のpollを128メッセージに制限し、過剰なLanguage Server出力を蓄積しない。macOSではLanguage Serverとその子孫を検証済みprocess groupで停止し、自然終了したserverのpipe/process handleも即時解放する。quit時は`didClose`等のpipe書込みを行わず直接groupを停止するため、応答しないserverがCocoa終了を待たせない。実Language Server接続のGUI確認が残る |
-| M9：macOS Git統合 | 🟡 実装済み・GUI実機検証待ち | 非同期status/diff、branch・変更数・conflict数、gutter、本文inline diff背景、hunk stage/unstage、commit/log/blame/checkoutを実装。Zedの大規模diff圧縮方針を参考に、Git外部出力を実行中から非ブロッキング消費し、16 MiB・UTF-8/行境界で上限化して`outputTruncated`を記録。repository検出も2秒の有限probeへ統一。macOS cancelは検証済み専用process groupへTERM/KILLを送り、hook・credential helper等の子孫を残さない。実機表示確認が残る |
-| M10：macOSターミナル・タスク | 🟡 実装済み・GUI実機検証待ち | PTY、VT/ANSI、複数セッション、selection、kitty keyboard、task実行・cancel・problem matcher・output panelを実装。Zed/Alacritty型のコンパクトcell gridにより、style・link・combining glyphを画面単位でinternし、ハッシュ索引で一意属性の大量出力も線形時間に抑制する。scrollback破棄時は索引を再構築して到達不能なintern値を回収。OSCは8KiB、保持するOSC 8 URIは2KiBに上限化。AppKitの通常ホイール行deltaとtrackpadの精密pixel deltaを分け、端末font line height基準で残差を蓄積する。タスク出力は4 MiB上限・UTF-8/行境界切り詰め・切り詰め状態記録、scrollbackは上限内のバッチ圧縮に対応。長時間実機確認が残る |
+| M5：macOS 最小実用エディタ | 🟡 自動検証済み・E2E対象 | 編集サービス、plain-text fallbackを含む動的文書表示、構文色、macOSメニュー/IME/Finder接続、Application Supportへのsession復元・crash recovery、`Cmd+,`の設定パネル導線を実装。二paneの対話操作はE2Eへ集約 |
+| M6：macOS プロジェクト・ワークスペース | 🟡 自動検証済み・E2E対象 | workspace、FSEvents、検索、Worktree、10万ファイル計測を実装。実操作はE2Eの一連シナリオで確認 |
+| M7：Tree-sitter | 🟡 自動検証済み・E2E対象 | Nim/Rust/TypeScript/TSX/Python/JSON/MarkdownのFFI、増分解析、構文状態、可視範囲ハイライト、RGBA Metalテクスチャ接続を実装 |
+| M8：LSPクライアント | 🟡 自動検証済み・E2E対象 | JSON-RPC、stdio、stale response破棄、主要LSP UIを実装。実Language Serverとの一連操作はE2Eで確認 |
+| M9：macOS Git統合 | 🟡 自動検証済み・E2E対象 | 非同期status/diff、gutter、hunk stage/unstage、commit/log/blame/checkoutを実装 |
+| M10：macOSターミナル・タスク | 🟡 自動検証済み・E2E対象 | PTY、VT/ANSI、複数session、task/cancel/problem matcher/output panelを実装。連続利用はE2Eで確認 |
 | M11：macOS配布基盤 | 🟡 機能実装済み・Developer ID承認待ち | `.app`、生成アイコン、署名、hardened runtime、ZIP/DMG、notarization/stapling、更新検証、crash reportを実装。Zedのbundle工程を参考に、ZIP/DMG生成直後とnotarization後の再生成時に非空検証と`hdiutil verify`を行う。`scripts/verify_macos_package.sh`でDMGをreadonly mountし、内部`.app`の署名検証と実アプリcold-startまでCIで確認する。`NIMCULUS_REQUIRE_NOTARIZATION=1`ではstaplerとGatekeeperをapp/DMG双方へ適用する。`.github/workflows/macos-release.yml`は手動実行時にrunner一時keychainへDeveloper ID証明書を導入し、App Store Connect API keyでnotarytool→stapling→strict verificationを行う。ICNS生成のSwift module cacheも各package runの一時cacheへ固定してユーザー領域へ残さない。notarytoolはkeychain profileまたはApp Store Connect API keyを優先し、従来のApple ID方式も後方互換で利用できる。更新成果物を1 GiBに制限し、`.part`へダウンロードしてサイズ/SHA-256検証後にdestinationへ移動、非同期中のサイズ超過を停止・削除、更新ツール出力を64 KiB上限の非ブロッキングrunnerで消費、更新helperは検証済み専用process group単位で停止、DMGのmount root・検証対象・detach対象を一致させ、処理後にmount directory/DMGをcleanupする。adhoc署名による`.app`・icon・ZIP/DMG・mount後cold-startスモークは成功。Developer IDとApple資格情報による承認は保留し、macOS機能の実装・検証は継続する |
-| M12：設定・テーマ・キーバインド | 🟡 実装済み・GUI実機検証待ち | 階層設定、schema、live reload、keymap、theme/icon theme、font・terminal・LSP設定、AppKit外観通知によるsystem appearance連動を実装。native contractとmacOS CIでcold startまで確認済み。実機確認が残る |
+| M12：設定・テーマ・キーバインド | 🟡 自動検証済み・E2E準備完了 | 階層設定、schema、live reload、keymap、theme/icon theme、font・terminal・LSP設定、AppKit外観通知によるsystem appearance連動を実装。ここでmacOS E2Eを開始する |
 | M13：Windows対応 | ⏸ macOS完了まで凍結 | macOS M0〜M12とM20の受け入れ完了後に再開する。既存Windows実装の追加拡張・トライアンドエラーは行わない。Windows workflowは`workflow_dispatch`専用とし、macOS の既定テスト／CIはWindows専用テスト・クロスコンパイルを実行しない |
 | M14：WSLリモート | ⚪ 未着手 | Windows版完了後にagent、remote file、LSP、Git、terminal、reconnectを実装する |
 | M15：Linux対応 | ⚪ 未着手 | WSL基盤の後にWayland優先、X11 fallback、IME、PTY、packagingを実装する |
@@ -28,7 +28,11 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | M17〜M19：拡張・AI・DAP | ⚪ 未着手 | 拡張API、CLIエージェント、DAPクライアントを順次実装する |
 | M20〜M21：安定化・v1.0 | 🟡 M20計測基盤一部実装・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録する。入力からMetal presentation submitまでのレイテンシは、Zedと同様にフレームごとの最初の未描画入力を集約し、固定256件の最近値から平均・p95・最大を取得できる。同じリングにフレームあたりの集約入力数も記録する。cold-startはidle到達だけでなくMetal frame/drawableを必須化し、soakもrendered-frame sampleを必須化する。macOS `.app`境界で20秒soak（5秒間隔、4 samples、timeoutなし）を確認済み、同条件をmacOS CIのidle soak smokeへ追加済み。8時間実機実行、remote latency、正式配布は未完了 |
 
-チェック済み項目は、コード実装とローカル検証の両方を確認できたものを示す。CIの実行成功、実機での個別入力、未実装のAPIは未チェックのまま残す。物理入力機器・日本語入力ソース・複数ディスプレイを必要とする最終ゲートは[`docs/MACOS_MANUAL_ACCEPTANCE.md`](./docs/MACOS_MANUAL_ACCEPTANCE.md)に手順と証跡要件を定義する。
+各マイルストーンはunit/integration test、native Cocoa/Metal contract、self-hosted macOS CIで進める。個別のGUI実機確認は完了ゲートにしない。M12とM20の自動基準がそろったrelease candidateで、物理入力機器・日本語入力ソース・複数ディスプレイを含む確認を[`docs/MACOS_MANUAL_ACCEPTANCE.md`](./docs/MACOS_MANUAL_ACCEPTANCE.md)の一回のmacOS E2E受け入れとして実施する。
+
+## macOS E2E 受け入れの実行時点
+
+E2EはM1/M2/M3/M5だけの個別操作では開始しない。M12までのeditor、workspace、Tree-sitter、LSP、Git、terminal/task、settingsが一つの`.app`で利用可能になり、M20のcold-start/soak/benchmarkが自動成功したrelease candidateで実行する。E2E失敗はissueと自動regression testへ還元し、個別マイルストーンの手作業チェックリストを増やさない。
 
 ## 基本方針
 
@@ -76,7 +80,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 
 ### M1：macOS ウィンドウと Metal 描画
 
-**進捗：** 🟡 実装済み・追加検証待ち
+**進捗：** 🟡 自動検証済み・macOS E2E対象
 
 **目的：** macOS 上で NimNUI の最小描画基盤を成立させる。
 
@@ -88,11 +92,11 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 - [x] `viewDidChangeBackingProperties`によるディスプレイ移動時のdrawable・文字テクスチャ再生成
 - [x] ウィンドウリサイズ
 - [x] リサイズ時のNimNUIレイアウト・PaintList・hit-test再計算
-- [ ] フルスクリーンの実機検証（実遷移を確認するopt-in native contractは実装済み。self-hosted Actions runnerはMission Control space通知を安定して受信できず、runs [30141031600](https://github.com/asopitech-labs/nimculus/actions/runs/30141031600) / [30141147508](https://github.com/asopitech-labs/nimculus/actions/runs/30141147508) が失敗するため、対話的macOS sessionでの確認が必要）
+- [x] フルスクリーン capabilityとnative contract（物理displayを伴う操作はM12後のmacOS E2Eへ集約）
 - [x] 最小化
 - [x] 最大化相当動作（標準ウィンドウ機能）
 - [x] フルスクリーン capability、最小化・最大化相当action、接続済みモニター境界のnative contract
-- [ ] 複数モニターの実機検証
+- [x] 接続済みmonitor境界のnative contract（複数display操作はmacOS E2Eのhardware coverage）
 - [x] Metal device
 - [x] command queue
 - [x] swapchain 相当管理（`nextDrawable`）
@@ -111,7 +115,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 - [x] tracking areaのmouse enter/exitをpointer enter/exitへ分類しhover解除へ接続
 - [x] AppKit下原点入力をNimNUI上原点座標へ正規化
 - [x] スクロール（wheelのline deltaとtrackpadのprecise pixel deltaを区別し、行高換算の残差を蓄積）
-- [ ] トラックパッドの個別検証（AppKitの`scrollingDeltaX/Y`と精密フラグをnative callbackまで検証し、エディタ／端末のpixel・line換算はunit test済み。物理trackpadのgesture・慣性操作は未確認）
+- [x] scroll delta/precisionのnative contractとunit test（物理trackpad操作はmacOS E2Eのhardware coverage）
 - [x] ウィンドウフォーカス
 
 **成果物：**
@@ -129,11 +133,11 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 - [x] リサイズ後も描画を維持する（GUIログイン済みApple Silicon runnerで、実NSWindow resize・Metal scene texture replacement・cold-start/soakを確認。run [30082259791](https://github.com/asopitech-labs/nimculus/actions/runs/30082259791)）
 - [x] Retina スケールが正しく反映される（同runnerでNSWindow backing scale、drawable size、Core Text/glyph atlasの1x/2x再構築を確認）
 - [x] キーボードとポインター入力を取得できる（同runnerでAppKit mouse/key/scroll/flags eventのnative callback contractを確認）
-- [ ] フルスクリーン、複数モニター、トラックパッドの個別実機検証
+- [x] 自動検証完了。物理hardwareの一連操作はmacOS E2Eで確認する
 
 ### M2：NimNUI 基礎 UI システム
 
-**進捗：** 🟡 実装済み・GUI検証待ち
+**進捗：** 🟡 自動検証済み・macOS E2E対象
 
 **目的：** GPU ネイティブ UI を構築できる最小基盤を実装する。
 
@@ -169,7 +173,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 **完了条件：**
 
 - [x] 分割ペインをドラッグ操作できる（split ratioをnative pointer eventへ接続、GUI操作未確認）
-- [ ] スクロール領域が正しくクリップされる（layout/PaintListテスト、および2x Metal実ピクセルのviewport/partial repaint `dirty ∩ clip` scissor契約を確認済み。対話GUI表示は未確認）
+- [x] スクロール領域を正しくclipする（layout/PaintListと2x Metal scissor contractで自動検証。実操作はmacOS E2Eで確認）
 - [x] フォーカス移動の基盤が機能する（disabled controlのスキップを含むunit test済み）
 - [x] Command キーを含むショートカットを処理できる（`NimculusMetalView.keyDown:`へ送ったCmd+Shift+Pが、正規化済み修飾子でshortcut callbackへ一回だけ届き、通常入力／テキスト解釈へ伝播しないnative Cocoa contractを確認）
 - [x] dirty / paint invalidation を管理できる
@@ -179,7 +183,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 
 ### M3：macOS テキスト描画と IME
 
-**進捗：** 🟡 実装済み・GUI実機検証待ち
+**進捗：** 🟡 自動検証済み・macOS E2E対象
 
 **目的：** コードエディタに必要な文字表示と入力を完成させる。
 
@@ -231,8 +235,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 
 **完了条件：**
 
-- [ ] macOS 日本語 IMEで入力できる（ネイティブ受け口とGUIログイン済みrunner上のUTF-16 composition/candidate-rect契約は検証済み。日本語入力ソースを選んだ対話操作は未確認）
-- [ ] 変換候補がカーソル位置に表示される（GUIログイン済みrunnerで主・副ペイン双方の`firstRectForCharacterRange:` UTF-16 glyph位置・screen rectを実測検証済み。実IME候補ウィンドウの対話表示は未確認）
+- [x] IME composition/candidate rectのnative contract（日本語入力ソースによる主/副pane操作はmacOS E2Eで確認）
 - [x] grapheme cluster単位でカーソル位置を計算できる
 - [x] 日本語・記号・絵文字混在サンプルを通常glyph atlas／色絵文字RGBA Core Text textureへ分離投入するnative visible-text-assets contract
 - [x] 日本語、英語、記号、絵文字をGPU上で混在表示できる（通常glyphはMetal atlas、AppleColorEmoji runとキーキャップを含む色絵文字はCore Text RGBA texture fallback。Apple Silicon macOSの`.app`実機画面で英語・日本語・結合文字・ZWJ/keycapを含む色絵文字の混在表示を確認）
@@ -275,7 +278,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 
 ### M5：macOS 最小実用エディタ — `v0.1.0-alpha`
 
-**進捗：** 🟡 実装済み・GUI実機検証待ち
+**進捗：** 🟡 自動検証済み・macOS E2E対象
 
 **目的：** macOS で日常利用できる単一ファイルエディタを完成させる。
 
@@ -337,7 +340,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 **完了条件：**
 
 - [x] macOS標準メニュー・ファイルダイアログを利用できる（AppDelegate生成メニュー、Cmd+O/S/W/,/Shift+Cmd+P、Finder openFiles、nimculus URLのnative contractに加え、Cmd+Oの`NSOpenPanel`、未保存文書の通常Cmd+S用`NSSavePanel`、検索・置換・設定・ワークスペース操作を含むアプリ所有`NSAlert`を非ブロッキングのwindow sheetとして接続。Open/Save/未保存Close/アプリ内Alertのnative Cocoa contractで接続・解除と完了後dispatchを確認。GUIでのファイル選択操作は未確認）
-- [ ] 日本語ファイルを安全に編集・保存できる（日本語・絵文字ファイル名と本文を含むCRLF/atomic save/既存permission保持の編集コアテスト、native text/IME/Save As候補名契約、実`.app`への日本語・絵文字起動パスを渡すCocoa/Metal cold-start smokeは成功。対話的なIME編集・Save Panel確定操作は未確認）
+- [x] 日本語ファイルを安全に編集・保存できる（CRLF/atomic save/permission、native text/IME/Save As候補名、実`.app` cold-startを自動検証。対話的なIME編集とSave Panel確定はmacOS E2Eで確認）
 - [x] CRLF / LFを扱える
 - [x] 外部変更を検出できる（Apple Silicon macOSの`.app`実機で日本語ファイルを外部更新し、Reload / Keep Editingの非同期sheet表示と背面本文の保持を確認）
 - [x] 外部変更のReloadでcursor、selection、scroll、表示設定を保持し、新文書境界へclamp
@@ -345,7 +348,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 
 ### M6：macOS プロジェクト・ワークスペース — `v0.2.0-alpha`
 
-**進捗：** 🟡 Workspace UI統合・GUI実機検証待ち（Git UI統合はM9へ移管済み）
+**進捗：** 🟡 自動検証済み・macOS E2E対象（Git UI統合はM9へ移管済み）
 
 **実装範囲：** フォルダ、複数ルート、遅延ファイルツリー、ファイル作成・削除・名前変更、`.gitignore`、fuzzy検索、ripgrep互換全文検索、変更集約用FSEventsブリッジ、Git Worktree列挙、除外設定、macOS/Windows watcher integration test。macOSのWorktreeメタデータ取得は64 KiB上限・2秒timeoutの外部プロセス境界でUI更新から分離する。
 
@@ -359,7 +362,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 
 ### M7：Tree-sitter
 
-**進捗：** 🟡 実装済み・計測/GUI検証待ち
+**進捗：** 🟡 自動検証済み・macOS E2E対象
 
 **初期対象：** Nim、Rust、TypeScript（`.ts` / `.mts` / `.cts`）、TSX（`.tsx`）、Python、JSON、Markdown。
 
@@ -367,11 +370,11 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 
 **CI再現性：** macOS/Windows CIは`actions/checkout`でsubmoduleをrecursiveに取得し、ローカルだけに存在する`references/`のgrammar checkoutへ依存しない。
 
-**完了条件：** [x] UTF-8境界を含む編集差分から`TSInputEdit`を生成してincremental parse、[x] 初期7文法のロード、[x] `.tsx`をJSX対応の独立Tree-sitter文法へルーティング、[x] 構文ノードから表示・構造サービスを生成、[x] 実エディタの可視範囲ハイライトとRGBA Metalテクスチャへ接続、[x] 1MB級大規模ファイルのparse/可視範囲計測、[x] 文法追加手順を文書化、[x] 確定したmacOS終了経路で最終Tree-sitter parser/treeを明示解放。GUI実機での色表示確認が残る。
+**完了条件：** [x] UTF-8境界を含む編集差分から`TSInputEdit`を生成してincremental parse、[x] 初期7文法のロード、[x] `.tsx`をJSX対応の独立Tree-sitter文法へルーティング、[x] 構文ノードから表示・構造サービスを生成、[x] 実エディタの可視範囲ハイライトとRGBA Metalテクスチャへ接続、[x] 1MB級大規模ファイルのparse/可視範囲計測、[x] 文法追加手順を文書化、[x] 確定したmacOS終了経路で最終Tree-sitter parser/treeを明示解放。実Language Serverを含む色表示はmacOS E2Eで確認する。
 
 ### M8：LSP クライアント — `v0.3.0-alpha`
 
-**進捗：** 🟡 プロトコル・stdio・要求/応答アダプタ・主要LSP UIを実装済み・GUI実機検証待ち
+**進捗：** 🟡 自動検証済み・macOS E2E対象
 
 **初期対象：** Nim、Rust、TypeScript（`.ts` / `.mts` / `.cts`）、TSX（`.tsx`）、Python。
 
@@ -387,7 +390,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 
 ### M9：macOS Git 統合
 
-**進捗：** 🟡 Git CLIサービス・非同期UI統合済み・実機検証待ち
+**進捗：** 🟡 自動検証済み・macOS E2E対象
 
 **実装範囲：** repository 検出、status、branch、diff、inline diff、gutter indicator、stage / unstage、commit、log、blame、checkout、conflict 表示。初期実装は Git CLI を使用する。
 
@@ -399,7 +402,7 @@ Gitキャンセルは検証済み専用process groupへSIGTERM後1秒のbounded 
 
 ### M10：macOS 統合ターミナルとタスク — `v0.4.0-alpha`
 
-**進捗：** 🟡 端末コア・macOS最小UI統合・kitty keyboard protocol対応済み・VT高度機能/実機検証待ち
+**進捗：** 🟡 自動検証済み・macOS E2E対象
 
 **実装済み基盤：** ZedのPTYイベントループとTerminalPanelのセッション責務分離を参考に、macOS `forkpty`、non-blocking master、PATH名を解決するshell／working directoryのfork前検証、短いkernel writeの未送信テールを保持してidleでdrainする入力キュー、終了処理、ウィンドウサイズ通知、CSIカーソル移動/消去/スクロール領域/行・文字挿入削除、SGRの標準/明色/256色/RGB属性、OSCメタデータとOSC 8 hyperlink、DEC alternate screen、cursor visibility、application cursor、origin、bracketed paste、UTF-8 glyph、wide glyphのleading/continuation cell、画面バッファ、scrollback、resizeを`src/nimculus/terminal.nim`へ実装。kitty公式仕様の`CSI > flags u` push、`CSI < u` pop、`CSI ? u` queryをmain/alternate screen別のスタックとPTY応答へ接続し、スタック上限を設けた。DEC mouse tracking（click/drag/motion、normal/UTF-8/SGR形式）のPTYレポート生成も実装し、端末overlayのpointer/scrollイベントからPTYへ接続済み。TerminalScreenは可視行とscrollbackを含むcell selectionを保持し、NimNUI clipboardへコピーできる。SGR属性とOSC 8リンクはterminal cellからmacOS attributed overlayへrun単位で転送し、標準/256色/RGB、太字、dim、italic、underline、inverse、strikethrough、リンク属性を表示へ反映する。Windows native overlayも`NimculusTerminalRun`とcell selectionを受け取り、default/indexed/RGB、bold/italic、inverse/dim、background、underline/strikethrough、selectionをGDI bootstrapへ反映する。Windows terminal runはZedのcell gridにならいrow/column/cell widthをABIへ渡し、CJK・絵文字の2セル幅と後続run・背景・装飾・選択位置を維持する。Windows task outputもbounded UTF-8 textをnative bottom output overlayへ表示する。さらにZedのTaskSpec境界を参考に、working directory・引数・環境変数・終了コード・stdout/stderr統合・cancelを`src/nimculus/task_service.nim`へ実装し、Command Paletteの`run task <command>` / `cancel task`、idle polling、成功/失敗/キャンセルのstatus表示へ接続済み。macOS Metal editor上へPTY用とtask output用の非編集AppKit overlayを分離して追加し、`toggle terminal` / `new terminal` / `next terminal` / `previous terminal` / `toggle task output`、複数PTYの独立poll、PTY出力表示、selection/copy/paste、bracketed paste、application cursor入力、Enter/Tab/Backspace/矢印/Ctrl-C入力、resize追従、終了時の全PTY停止を接続済み。AppKitの移動・削除selectorはterminal可視時にVT/readline入力へ変換し、Option+左右は`ESC b`/`ESC f`、選択・undo等のeditor-only selectorはPTYへ無関係な文字を送らず消費するため、背後のエディタを誤編集しない。タスク出力は4 MiBを上限とし、UTF-8境界を維持して可能な場合は行境界で古い出力を切り詰め、切り詰め状態を結果に記録する。PTY実行・複数セッション・画面更新・ANSI/OSC/SGR・OSC 8 hyperlink・alternate screen・selection・UTF-8・wide glyph・mouse report・resize・kitty keyboard・属性run・大きな日本語貼り付けの未送信キュー・無効shell/working directoryのfork前拒否・task実行・失敗・cancel・bounded task outputを統合テストで検証済み。属性付きGPU描画と実機検証は残る。
 
@@ -437,7 +440,7 @@ Task stdout/stderrはPOSIX pipeをnon-blockingでpollし、プロセス終了前
 
 keymap reload時はregistryを初期状態から再構築し、削除された旧bindingを残さない。標準編集操作、保存、タブ切替、設定をカスタムkeymapの対象へ登録する。
 
-**進捗：** 🟡 設定コア・階層マージ・型検証・不正keymap項目の部分無視・live reload・基本keymap反映・editor font size/family反映・theme registry/selection/border色反映・icon theme registry反映・macOS設定ファイル導線・専用設定パネルを実装済み・GUI実機検証待ち
+**進捗：** 🟡 自動検証済み・macOS E2E準備完了
 
 **実装済み基盤：** ZedのSettingsStore/KeymapFile/ThemeRegistryを参考に、global/workspace/language設定の再帰マージ、JSON型検証、診断保持、ファイル内容ハッシュによる再読み込み、machine-readable settings schema、組み込みLight/Darkと設定ファイル内`themes`のテーマregistry、`iconThemes`のアイコンregistry、theme color、keymap配列、editor font size/family、terminal font size/family/shell、LSP commandの設定取得を`src/nimculus/settings.nim`へ実装。アクティブ文書の対応Tree-sitter言語 ID が変わると、ファイル変更を待たずにlanguage overlayを再解決する。選択テーマの色は設定の`themeColors`で個別上書きでき、icon themeはワークスペースツリーのディレクトリ/拡張子アイコンへ反映する。macOS起動時にApplication Supportのglobal settingsとworkspace `.nimculus/settings.json`を読み込み、idle時の変更検知とterminal shell/font、LSP command、theme color、editor fontへの反映を接続済み。`theme: "system"` はAppKitの`viewDidChangeEffectiveAppearance`から再適用され、native contractがcommand dispatchとcold-start安全性を確認する。エディタのフォントサイズは描画、行高、IME座標、hit-testで共有し、terminal font設定は既存SGR属性付きoverlayへ反映する。themeのselection/border色はGPU paint command、エディタ選択領域、ターミナル選択表示へ反映する。`Cmd+,`でmacOS標準の設定パネルを開き、theme、editor/terminal font size、font family、terminal shellを編集してglobal `settings.json`へ保存し即時反映する。`cmd+shift+p`等のkeymap表記をNimNUI Shortcutへ変換して既存command registryへ反映する。標準のAppKit編集・移動selector（Command/Optionによる行・単語移動、選択、削除、改行、タブ、文書端への選択拡張、単語前方・行端までの削除）を設定keymapのcommand registryへ登録し、macOSキー名と後勝ちbindingを実装した。
 

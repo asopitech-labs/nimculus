@@ -4187,3 +4187,18 @@ vtsls adapters. Nimculus now follows the same protocol boundary: `.tsx` sends
 keeps JSX-aware semantic analysis aligned with Tree-sitter's grammar selection
 without conflating user settings IDs (`tsx`) with LSP wire IDs
 (`typescriptreact`).
+
+## M20-018: Aggregate manual macOS checks into a release-candidate E2E pass
+
+Individual fullscreen, trackpad, multi-monitor, and IME interactions are poor
+per-milestone gates: they require hardware or a selected macOS input source,
+while the editor surface is still changing. Nimculus therefore uses unit and
+integration tests, native Cocoa/Metal contracts, and self-hosted macOS CI as
+the implementation gates for M0 through M12.
+
+After M12 and the M20 automated cold-start, soak, and benchmark criteria are
+available, a release candidate runs one macOS E2E acceptance pass. That pass
+exercises the integrated editor, split panes, IME, workspace, Tree-sitter,
+LSP, Git, terminal/tasks, settings, and available hardware variants in a
+single realistic session. Failures are turned into issues and automated
+regressions rather than multiplying isolated manual checklists.
