@@ -1441,7 +1441,7 @@ proc refreshWorkspacePreview() =
     workspacePreviewMode = "tree"
     editorSidebarMode = sidebarFiles
     workspacePreviewEntries.setLen(0)
-    var lines = @["Files: " & activeWorkspace.root, "────────"]
+    var lines = @["Files", "────────"]
     # Follow Zed's Project Panel ordering: expanded children are emitted
     # directly below their directory, while traversal remains lazy and bounded.
     proc appendDirectory(root, relative: string, depth: int) =
@@ -1462,7 +1462,14 @@ proc refreshWorkspacePreview() =
         if expanded:
           appendDirectory(root, entry.relativePath, depth + 1)
     for root in activeWorkspace.rootPaths:
-      appendDirectory(root, "", 0)
+      if workspacePreviewEntries.len >= 192: break
+      let rootName = if root.extractFilename.len > 0: root.extractFilename else: root
+      let expanded = root in workspaceExpandedDirectories
+      workspacePreviewEntries.add(WorkspaceEntry(path: root, relativePath: "",
+        kind: WorkspaceFileKind.directory))
+      lines.add((if expanded: "▾" else: "▸") & " " & rootName)
+      if expanded:
+        appendDirectory(root, "", 1)
     let text = lines.join("\n")
     when defined(macosx):
       platformSetEditorSidebar(text.cstring, uint32(text.len),

@@ -14,7 +14,7 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | M3：macOS テキスト描画と IME | 🟡 自動検証済み・E2E対象 | Core Text、glyph atlas、動的Metal文字描画、Tree-sitter構文色、marked text表示、IME、候補位置、clipboardを実装。日本語IMEの対話確認はE2Eへ集約 |
 | M4：エディタバッファと編集コア | ✅ 完了 | Piece Table、原子的編集、Undo/Redo、複数カーソル、位置変換、fuzz、候補構造比較を実装・検証済み |
 | M5：macOS 最小実用エディタ | 🟡 自動検証済み・E2E対象 | 編集サービス、plain-text fallbackを含む動的文書表示、構文色、macOSメニュー/IME/Finder接続、Application Supportへのsession復元・crash recovery、`Cmd+,`の設定パネル導線を実装。二paneの対話操作はE2Eへ集約 |
-| M6：macOS プロジェクト・ワークスペース | 🟡 自動検証済み・E2E対象 | workspace、FSEvents、検索、Worktree、10万ファイル計測を実装。ZedのProject Panelと同様に、ファイル一覧を編集本文から分離したmacOSサイドバーへ表示 |
+| M6：macOS プロジェクト・ワークスペース | 🟡 自動検証済み・E2E対象 | workspace、FSEvents、検索、Worktree、10万ファイル計測を実装。ZedのProject Panelと同様に、複数rootを個別に展開できるファイルツリーを編集本文から分離したmacOSサイドバーへ表示 |
 | M7：Tree-sitter | 🟡 自動検証済み・E2E対象 | Nim/Rust/TypeScript/TSX/Python/JSON/MarkdownのFFI、増分解析、構文状態、可視範囲ハイライト、RGBA Metalテクスチャ接続を実装 |
 | M8：LSPクライアント | 🟡 自動検証済み・E2E対象 | JSON-RPC、stdio、stale response破棄、主要LSP UIを実装。実Language Serverとの一連操作はE2Eで確認 |
 | M9：macOS Git統合 | 🟡 自動検証済み・E2E対象 | 非同期status/diff、gutter、hunk stage/unstage、commit/log/blame/checkoutを実装。Git履歴は最新100件を専用サイドバーへ表示し、選択したcommit詳細は出力パネルへ表示 |

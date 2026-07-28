@@ -4225,10 +4225,12 @@ active editor text, so opening a folder could hide a document and made the
 filer unsuitable for normal editing.
 
 The existing macOS sidebar overlay now has explicit modes for document
-outline, workspace files, and Git history. File and commit rows dispatch a
-small indexed command back to Nim; file rows open the selected document and a
-commit row asynchronously loads its `git show --stat` details into the output
-panel. The editor text texture, selection, IME state, and split panes are not
-modified by either sidebar mode. This is deliberately a macOS presentation
-boundary; a future platform only shares the sidebar behaviour contract after
-it needs the same interaction.
+outline, workspace files, and Git history. Every workspace root is a
+first-class expandable row; its children are emitted immediately below it in a
+bounded lazy traversal, so multiple roots never merge into an ambiguous flat
+list. File and commit rows dispatch a small indexed command back to Nim; file
+rows open the selected document and a commit row asynchronously loads its
+`git show --stat` details into the output panel. The editor text texture,
+selection, IME state, and split panes are not modified by either sidebar mode.
+This is deliberately a macOS presentation boundary; a future platform only
+shares the sidebar behaviour contract after it needs the same interaction.
