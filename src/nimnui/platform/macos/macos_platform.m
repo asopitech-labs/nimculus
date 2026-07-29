@@ -3942,12 +3942,14 @@ bool nimculus_platform_validate_editor_pane_geometry(void) {
   NSUInteger previousInputPane = g_editor_input_pane;
   NSUInteger previousHoverPane = g_editor_hover_pane;
   NSString *previousText = [g_editor_text retain];
+  NSString *previousSecondaryText = [g_secondary_editor_text retain];
   NSUInteger previousPrimaryScroll = g_editor_scroll_line;
   NSUInteger previousSecondaryScroll = g_secondary_editor_scroll_line;
   nimculus_platform_set_editor_rect(40.0, 80.0, 300.0, 240.0);
   nimculus_platform_set_secondary_editor_rect(true, 348.0, 80.0, 300.0, 240.0);
   const char *sample = "zero\none\ntwo";
   nimculus_platform_set_editor_text(sample, (uint32_t)strlen(sample));
+  nimculus_platform_set_secondary_editor_text(sample, (uint32_t)strlen(sample));
   nimculus_platform_set_editor_scroll_line(0);
   nimculus_platform_set_secondary_editor_scroll_line(2);
   nimculus_platform_set_editor_input_pane(1);
@@ -3964,9 +3966,12 @@ bool nimculus_platform_validate_editor_pane_geometry(void) {
   g_editor_input_pane = previousInputPane;
   g_editor_hover_pane = previousHoverPane;
   nimculus_platform_set_editor_text(previousText.UTF8String, (uint32_t)[previousText lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
+  nimculus_platform_set_secondary_editor_text(previousSecondaryText.UTF8String,
+    (uint32_t)[previousSecondaryText lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
   g_editor_scroll_line = previousPrimaryScroll;
   g_secondary_editor_scroll_line = previousSecondaryScroll;
   [previousText release];
+  [previousSecondaryText release];
   return valid;
 }
 
