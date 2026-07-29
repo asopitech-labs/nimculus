@@ -102,9 +102,17 @@ for test_name in test_macos_file_panels test_macos_modal_sheets \
     test_macos_application_alert_sheet test_platform_contract; do
   (
     cd "$ROOT_DIR"
-    NIMCULUS_REQUIRE_NATIVE_GUI=1 \
+    if [[ "$NIMCULUS_SKIP_NATIVE_SHEET_CONTRACTS" == "1" ]]; then
+      # Isolated jobs intentionally omit AppKit's auxiliary XPC services.
+      # The test suite skips only the sheet/physical-IME/Metal contracts in
+      # that mode; forcing NIMCULUS_REQUIRE_NATIVE_GUI would contradict it.
       nim c --mm:arc --nimcache:"$TMP_ROOT/$test_name" \
         -r --path:src "tests/$test_name.nim"
+    else
+      NIMCULUS_REQUIRE_NATIVE_GUI=1 \
+        nim c --mm:arc --nimcache:"$TMP_ROOT/$test_name" \
+          -r --path:src "tests/$test_name.nim"
+    fi
   )
 done
 

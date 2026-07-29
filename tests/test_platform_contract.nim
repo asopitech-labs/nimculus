@@ -184,7 +184,12 @@ suite "macOS platform contract":
     check platformValidateImeCommandDispatch()
 
   test "native IME candidate rect follows the UTF-16 cursor position":
-    if platformValidateImeCandidateRect():
+    ## `firstRectForCharacterRange:` requires the same HIServices auxiliary
+    ## process as a real IME candidate window. The dedicated GUI runner keeps
+    ## this strict; the combined isolated E2E must not start that service.
+    if skipNativeSheetService():
+      echo "  [SKIP] native IME candidate rect (auxiliary GUI service excluded)"
+    elif platformValidateImeCandidateRect():
       check true
     elif nativeGuiValidationRequired():
       check false
