@@ -669,6 +669,20 @@ when defined(macosx):
       showNativeLspPanel("Git Branches", lines)
       editorViewState.statusMessage = if branches.len == 0:
         "Git: no local branches" else: "Git: " & $branches.len & " local branch(es)"
+    elif action == "commit" or action == "amend":
+      # A Git panel must not keep displaying the old HEAD after a successful
+      # write. Refresh through the same cancellable job boundary rather than
+      # synchronously reading history on the UI thread.
+      scheduleNativeGitHunks(activeDocument())
+      startNativeGitAction(editorGitRepository, "refresh history", "", [
+        "log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00", "-n", "100"],
+        source = action)
+      return
+    elif action == "refresh history":
+      let commits = parseLog(job.result.output, 100)
+      renderNativeGitHistory(commits)
+      editorViewState.statusMessage = "Git: " & editorGitActionSource &
+        " complete — history refreshed"
     elif action == "switch branch":
       let reloaded = reloadCleanDocumentsForBranch(editorGitRepository)
       if activeWorkspace != nil: refreshWorkspacePreview()

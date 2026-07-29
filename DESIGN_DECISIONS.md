@@ -4332,3 +4332,15 @@ therefore produces a failed Actions job.
 This is a measurement-harness correction, not an implementation gate: a
 long-soak result is stability evidence and does not block macOS editor feature
 development.
+
+## M9-026: Refresh history after a Git write without blocking the editor
+
+Zed refreshes its Git panel after commit operations, so the current HEAD and
+changed-file state do not remain stale. Nimculus now chains a successful
+`commit` or explicit `amend` to its existing asynchronous history job. The
+write first updates the active document's hunk markers, then the bounded Git
+log job redraws the sidebar.
+
+The chain deliberately avoids a synchronous `git log` in the main event loop.
+It remains cancellable, uses the same 100-entry history bound, and records
+whether the refresh follows a normal commit or an amend in the final status.
