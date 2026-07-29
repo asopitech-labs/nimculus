@@ -5116,3 +5116,17 @@ expands to `Commit…` when the dock is wide enough.
 **Consequences.** The primary Git navigation remains scannable at practical
 sidebar sizes without removing commit from the UI or forcing users into the
 command palette.
+
+## UI-034: Git status has one primary presentation
+
+**Context.** macOS visual review showed that status refresh rendered the same
+Git Status list in both the left panel and the output overlay. The duplicate
+overlay covered the editor despite the sidebar already providing scrolling,
+selection, opening, and stage/unstage context actions.
+
+**Decision.** Render Git Status only in the Git sidebar. Keep the output
+panel for user-requested details: commit patches, blame, task output, and LSP
+results.
+
+**Consequences.** A status refresh preserves document context and leaves the
+Git panel as the unambiguous place to review and act on changes.

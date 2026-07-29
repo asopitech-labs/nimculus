@@ -743,9 +743,11 @@ when defined(macosx):
       lines.add(label & path)
     if entries.len > MaxPanelEntries:
       lines.add("… " & $(entries.len - MaxPanelEntries) & " additional entry(s) omitted")
-    showNativeLspPanel("Git Status", lines)
-    # Reuse the native scrollable sidebar so each status entry can open its
-    # file. Keep exactly the same ordering and cap as the textual panel.
+    # Status is the primary Git sidebar surface, not an editor/output result.
+    # Rendering the same list into the output panel duplicated its title and
+    # obscured the document after every refresh. Reserve that panel for an
+    # explicit detail action such as commit show, blame, task output, or LSP.
+    # The scrollable sidebar owns the complete status list and file actions.
     editorSidebarMode = sidebarGitStatus
     editorGitStatusEntries = conflicts & ordinary
     editorGitEntriesGeneration = editorGitStatusGeneration

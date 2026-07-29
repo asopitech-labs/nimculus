@@ -560,6 +560,10 @@ Zedのnarrow dockではprimary navigationのlabelがactionより優先される�
 Changes / History / Branchesを常にtextで可読にし、幅が足りない場合だけCommit actionをcheckmark
 buttonへcompactする。tooltipとaccessibility labelは常に `Commit staged changes` を維持する。
 
+ZedではGit StatusはGit panelのprimary listとして表示され、editorを覆う汎用output panelへ同じlistを
+複製しない。NimculusもStatusはsidebarのみが所有し、output panelはcommit patch、blame、task、LSPの
+詳細表示に限定する。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel
