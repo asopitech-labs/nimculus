@@ -2409,8 +2409,9 @@ when defined(windows):
     let resultIndex = line - 1
     if resultIndex < 0 or resultIndex >= workspaceSearchResults.len: return
     let match = workspaceSearchResults[resultIndex]
-    receiveNativeFile(match.path.cstring, false)
-    let document = activeDocument()
+    openFilesDockEntry(match.path)
+    let document = if editorSession.split and editorSession.splitActivePane == 1:
+      secondaryPaneDocument() else: activeDocument()
     if document != nil:
       let lineIndex = max(0, match.line - 1)
       let lineStart = document[].buffer.byteOffsetAtLineColumn(lineIndex, 0)
@@ -3100,7 +3101,7 @@ when defined(macosx):
     if entry.kind == WorkspaceFileKind.directory:
       openActiveWorkspace(entry.path)
     else:
-      receiveNativeFile(entry.path.cstring, false)
+      openFilesDockEntry(entry.path)
 
   proc openWorkspaceSearchResultAtPoint(y: cdouble) =
     if activeWorkspace == nil or workspaceSearchResults.len == 0: return
@@ -3112,8 +3113,9 @@ when defined(macosx):
     let resultIndex = line - 1
     if resultIndex < 0 or resultIndex >= workspaceSearchResults.len: return
     let match = workspaceSearchResults[resultIndex]
-    receiveNativeFile(match.path.cstring, false)
-    let document = activeDocument()
+    openFilesDockEntry(match.path)
+    let document = if editorSession.split and editorSession.splitActivePane == 1:
+      secondaryPaneDocument() else: activeDocument()
     if document != nil:
       let lineIndex = max(0, match.line - 1)
       let lineStart = document[].buffer.byteOffsetAtLineColumn(lineIndex, 0)
