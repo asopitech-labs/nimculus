@@ -4701,3 +4701,19 @@ Project rather than an editor buffer (`crates/git_ui/src/git_panel.rs`).
 project UI before opening a file. Multi-root behavior remains deterministic;
 the first Git-backed root is selected until an explicit document provides a
 more specific worktree.
+
+## M5-011: Preserve Finder open events during application startup
+
+**Context.** LaunchServices can invoke `application:openFiles:` before Nim's
+file callback has been installed. Dropping that event leaves a Finder-opened
+folder on the welcome page, despite the app having received the request.
+
+**Decision.** The Cocoa bridge queues file URLs received before callback
+registration and flushes them in delivery order when Nim installs the callback.
+The queue is copied before delivery to make a callback-triggered nested open
+safe, and is released with the other platform-owned resources.
+
+**Consequences.** Finder/Open With, `open -a Nimculus <path>`, and cold-start
+file associations retain their original path—including Unicode paths—without
+requiring a retry. The registered callback remains the single routing boundary
+for files and directories.

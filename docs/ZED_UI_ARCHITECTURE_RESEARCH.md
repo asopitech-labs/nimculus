@@ -391,6 +391,14 @@ untitled/no-document 状態では workspace roots を順番に検査して最初
 これにより welcome から Open Folder した直後でも Git history を開け、複数 root でも選択規則が
 安定する。
 
+## 追加監査: Finder 起動時の file-open event（2026-07-29）
+
+macOS の LaunchServices は app 起動中に `application:openFiles:` を先行して配送できる。
+Zed のような workspace host では、platform event を workspace の復元完了後に routing する必要が
+ある。Nimculus は Cocoa bridge に pending path queue を置き、Nim 側の file callback 登録後に受信順で
+flush する。file と directory の区別は queue では行わず、既存の `receiveNativeFile` が directory を
+workspace open、file を document open として一元的に扱う。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

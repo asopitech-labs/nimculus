@@ -23,6 +23,7 @@ proc platformValidateUnsavedCloseSheet*(): bool {.importc: "nimculus_platform_va
 proc platformValidateApplicationAlertSheet*(): bool {.importc: "nimculus_platform_validate_application_alert_sheet", cdecl.}
 proc platformValidateVisibleTextAssets*(): bool {.importc: "nimculus_platform_validate_visible_text_assets", cdecl.}
 proc platformValidateFileOpenEvents*(): bool {.importc: "nimculus_platform_validate_file_open_events", cdecl.}
+proc platformValidateDeferredFileOpenEvents*(): bool {.importc: "nimculus_platform_validate_deferred_file_open_events", cdecl.}
 proc platformValidateExternalChangeSheet*(): bool {.importc: "nimculus_platform_validate_external_change_sheet", cdecl.}
 proc platformValidateImeComposition*(): bool {.importc: "nimculus_platform_validate_ime_composition", cdecl.}
 proc platformValidateImeCommandDispatch*(): bool {.importc: "nimculus_platform_validate_ime_command_dispatch", cdecl.}

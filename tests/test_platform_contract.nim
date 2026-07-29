@@ -147,6 +147,9 @@ suite "macOS platform contract":
   test "native file open events preserve Finder and URL paths":
     check platformValidateFileOpenEvents()
 
+  test "Finder launch events wait for the Nim file callback":
+    check platformValidateDeferredFileOpenEvents()
+
   test "external file changes use a non-blocking window sheet":
     if platformValidateExternalChangeSheet():
       check true

@@ -16,6 +16,7 @@ bool nimculus_platform_validate_save_panel_sheet(void);
 bool nimculus_platform_validate_unsaved_close_sheet(void);
 bool nimculus_platform_validate_application_alert_sheet(void);
 bool nimculus_platform_validate_file_open_events(void);
+bool nimculus_platform_validate_deferred_file_open_events(void);
 bool nimculus_platform_validate_external_change_sheet(void);
 bool nimculus_platform_validate_ime_composition(void);
 bool nimculus_platform_validate_ime_command_dispatch(void);

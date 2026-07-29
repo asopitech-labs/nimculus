@@ -34,6 +34,11 @@ static NimculusShortcutCallback g_shortcut_callback = NULL;
 static NimculusTextCallback g_text_callback = NULL;
 static NimculusSelectionCallback g_selection_callback = NULL;
 static NimculusFileCallback g_file_callback = NULL;
+// LaunchServices may deliver Finder/Open With events while NSApplication is
+// starting, before Nim has installed its callback. Retain those paths until
+// the application layer is ready instead of silently losing the initial
+// workspace or document.
+static NSMutableArray<NSString *> *g_pending_file_open_paths = nil;
 static NimculusCommandCallback g_command_callback = NULL;
 static NimculusIdleCallback g_idle_callback = NULL;
 static BOOL g_validation_appearance_command_received = NO;
@@ -148,6 +153,27 @@ static void replaceOwnedObject(id *slot, id value) {
   id previous = *slot;
   *slot = [value retain];
   [previous release];
+}
+
+static void dispatchOrQueueFileOpenPath(NSString *path) {
+  if (path.length == 0) return;
+  if (g_file_callback) {
+    g_file_callback(path.UTF8String, false);
+    return;
+  }
+  if (!g_pending_file_open_paths) {
+    g_pending_file_open_paths = [[NSMutableArray alloc] init];
+  }
+  [g_pending_file_open_paths addObject:path];
+}
+
+static void flushPendingFileOpenPaths(void) {
+  if (!g_file_callback || g_pending_file_open_paths.count == 0) return;
+  NSArray<NSString *> *paths = [[g_pending_file_open_paths copy] autorelease];
+  [g_pending_file_open_paths removeAllObjects];
+  for (NSString *path in paths) {
+    g_file_callback(path.UTF8String, false);
+  }
 }
 
 static void replaceOwnedString(NSString **slot, NSString *value) {
@@ -398,6 +424,7 @@ static void releasePlatformResources(void) {
   [g_editor_tab_titles release]; g_editor_tab_titles = nil;
   [g_secondary_editor_tab_titles release]; g_secondary_editor_tab_titles = nil;
   [g_recent_files release]; g_recent_files = nil;
+  [g_pending_file_open_paths release]; g_pending_file_open_paths = nil;
   [g_clipboard_utf8_data release]; g_clipboard_utf8_data = nil;
   [g_editor_font_name release]; g_editor_font_name = nil;
   [g_terminal_font_name release]; g_terminal_font_name = nil;
@@ -437,6 +464,7 @@ bool nimculus_platform_validate_resource_teardown(void) {
     g_paint_commands == NULL && g_paint_dirty_regions == NULL &&
     g_highlights == NULL && g_diagnostics == NULL && g_git_hunks == NULL &&
     g_terminal_runs == NULL && g_editor_annotations == NULL &&
+    g_pending_file_open_paths == nil &&
     g_glyph_vertex_count == 0 && g_paint_count == 0 &&
     g_paint_dirty_count == 0 && g_highlight_count == 0 &&
     g_diagnostic_count == 0 && g_git_hunk_count == 0 &&
@@ -3804,7 +3832,7 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
 - (void)application:(NSApplication *)application openFiles:(NSArray<NSString *> *)filenames {
   (void)application;
   for (NSString *path in filenames) {
-    if (g_file_callback) g_file_callback(path.UTF8String, false);
+    dispatchOrQueueFileOpenPath(path);
   }
 }
 - (void)application:(NSApplication *)application openURLs:(NSArray<NSURL *> *)urls {
@@ -3825,7 +3853,7 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
         }
       }
     }
-    if (path.length > 0 && g_file_callback) g_file_callback(path.UTF8String, false);
+    dispatchOrQueueFileOpenPath(path);
   }
 }
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender { return YES; }
@@ -4677,6 +4705,35 @@ bool nimculus_platform_validate_file_open_events(void) {
   }
 }
 
+bool nimculus_platform_validate_deferred_file_open_events(void) {
+  @autoreleasepool {
+    NimculusFileCallback previousCallback = g_file_callback;
+    NSMutableArray<NSString *> *previousPending = [g_pending_file_open_paths retain];
+    [g_pending_file_open_paths release];
+    g_pending_file_open_paths = nil;
+    g_file_callback = NULL;
+    g_validation_file_path[0] = '\0';
+    g_validation_file_saving = YES;
+    g_validation_file_open_count = 0;
+    NimculusAppDelegate *delegate = [NimculusAppDelegate new];
+    NSString *folder = @"/tmp/nimculus-finder-project";
+    NSString *file = @"/tmp/nimculus-日本語-finder-file.txt";
+    [delegate application:NSApp openFiles:@[folder, file]];
+    BOOL queued = g_pending_file_open_paths.count == 2 &&
+      [g_pending_file_open_paths[0] isEqualToString:folder] &&
+      [g_pending_file_open_paths[1] isEqualToString:file];
+    nimculus_platform_set_file_callback(validationFileCallback);
+    BOOL delivered = !g_validation_file_saving && g_validation_file_open_count == 2 &&
+      [@(g_validation_file_path) isEqualToString:file] &&
+      g_pending_file_open_paths.count == 0;
+    [delegate release];
+    g_file_callback = previousCallback;
+    [g_pending_file_open_paths release];
+    g_pending_file_open_paths = previousPending;
+    return queued && delivered;
+  }
+}
+
 bool nimculus_platform_validate_external_change_sheet(void) {
   NimculusPlatformMetrics previousMetrics = g_metrics;
   @autoreleasepool {
@@ -5349,7 +5406,10 @@ void nimculus_platform_set_input_callback(NimculusInputCallback callback) { g_in
 void nimculus_platform_set_shortcut_callback(NimculusShortcutCallback callback) { g_shortcut_callback = callback; }
 void nimculus_platform_set_text_callback(NimculusTextCallback callback) { g_text_callback = callback; }
 void nimculus_platform_set_selection_callback(NimculusSelectionCallback callback) { g_selection_callback = callback; }
-void nimculus_platform_set_file_callback(NimculusFileCallback callback) { g_file_callback = callback; }
+void nimculus_platform_set_file_callback(NimculusFileCallback callback) {
+  g_file_callback = callback;
+  flushPendingFileOpenPaths();
+}
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback) { g_command_callback = callback; }
 void nimculus_platform_set_idle_callback(NimculusIdleCallback callback) { g_idle_callback = callback; }
 void nimculus_platform_set_editor_cursor(double x, double y) {
