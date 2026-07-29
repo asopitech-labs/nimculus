@@ -51,3 +51,11 @@ suite "workspace UI state":
     state.selectTab(2)
     check state.center.first.pane.activeTabIndex == 2
     check state.center.second.pane.activeTabIndex == 2
+
+  test "split ratio and close remain pane tree operations":
+    var state = initWorkspaceUi(tabCount = 1)
+    discard state.splitFocusedPane(paneHorizontal, 0.4)
+    check state.setRootSplitRatio(0.7)
+    check abs(state.center.ratio - 0.7'f32) < 0.001'f32
+    check state.closeRootSplit()
+    check state.center.kind == paneLeaf

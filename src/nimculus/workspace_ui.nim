@@ -237,6 +237,20 @@ proc splitFocusedPane*(state: var WorkspaceUiState, axis: PaneAxis,
   state.focusedRegion = regionCenter
   true
 
+proc setRootSplitRatio*(state: var WorkspaceUiState, ratio: float32): bool =
+  ## The current editor bridge supports one split pair. Keep its divider
+  ## ownership in the PaneTree now, so recursive pane layout can replace the
+  ## bridge without another state migration.
+  if state.center.isNil or state.center.kind != paneSplit: return false
+  state.center.ratio = normalizedRatio(ratio)
+  true
+
+proc closeRootSplit*(state: var WorkspaceUiState): bool =
+  if state.center.isNil or state.center.kind != paneSplit: return false
+  state.center = state.center.first
+  state.focusedRegion = regionCenter
+  true
+
 proc validate*(state: WorkspaceUiState): bool =
   if state.leftDock.minimumSize <= 0 or state.bottomDock.minimumSize <= 0: return false
   if not panelBelongsTo(state.leftDock.activePanel, dockLeft): return false

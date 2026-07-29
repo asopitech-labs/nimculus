@@ -2903,7 +2903,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "closeSplit":
     if editorSession.split:
       editorSession.closeSplit()
-      editorWorkspaceUi = initWorkspaceUi(editorSession.tabs.len, editorSession.activeTab)
+      if not editorWorkspaceUi.closeRootSplit():
+        editorWorkspaceUi = initWorkspaceUi(editorSession)
       demoSplitEnabled = false
       editorPointerPane = 0
       editorPointerDragging = false
@@ -4050,6 +4051,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       editorSession.setSplitRatio(
         (float32(event.x) - float32(editorBounds.origin.x)) / width)
       demoSplitRatio = editorSession.effectiveSplitRatio
+      discard editorWorkspaceUi.setRootSplitRatio(demoSplitRatio)
       setupDemoUi()
       splitPointerHandled = true
     elif demoSplitDragging and kind == pointerUp:
