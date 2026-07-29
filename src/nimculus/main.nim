@@ -213,7 +213,10 @@ proc setupDemoUi() =
   # composition boundary authoritative: the dock owns its width and the
   # center receives the remainder.
   let editorWidth = max(0'f32, float32(workspaceLayout.center.size.width) - 112'f32)
-  let editorHeight = max(0'f32, viewportHeight - 208'f32)
+  # The center rect already excludes the status and an open bottom dock. Keep
+  # the established tab/header allowance (186pt) but no longer reserve a
+  # hidden terminal area unconditionally.
+  let editorHeight = max(0'f32, float32(workspaceLayout.center.size.height) - 186'f32)
   let editor = Rect(origin: Point(x: px(leftDockWidth + 28'f32), y: px(128)),
     size: Size(width: px(editorWidth), height: px(editorHeight)))
   var primaryEditor = editor

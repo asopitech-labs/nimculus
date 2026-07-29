@@ -28,6 +28,16 @@ suite "workspace UI state":
     check layout.regionAt(Point(x: px(10), y: px(10))) == regionLeftDock
     check layout.regionAt(Point(x: px(500), y: px(590))) == regionStatus
 
+  test "bottom dock takes space from the center instead of overlaying it":
+    var state = initWorkspaceUi()
+    let closed = state.layout(Size(width: px(960), height: px(640)))
+    state.openPanel(panelTerminal)
+    let opened = state.layout(Size(width: px(960), height: px(640)))
+    check float32(opened.bottomDock.size.height) == DefaultBottomDockHeight
+    check float32(opened.center.size.height) < float32(closed.center.size.height)
+    check float32(opened.center.size.height) + float32(opened.bottomDock.size.height) +
+      float32(opened.status.size.height) == 640'f32
+
   test "root split duplicates viewport ownership without duplicating tabs":
     var state = initWorkspaceUi(tabCount = 2, activeTab = 0)
     check state.splitFocusedPane(paneVertical)
