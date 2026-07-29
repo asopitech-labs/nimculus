@@ -384,6 +384,12 @@ suite "M5 editor services":
     session.secondaryView.scrollLine = 1
     discard session.activateSplitPane(1)
     session.workspaceRoots = @[getTempDir()]
+    session.workspaceLeftDockOpen = false
+    session.workspaceLeftDockSize = 312'f32
+    session.workspaceLeftPanel = 2
+    session.workspaceBottomDockOpen = true
+    session.workspaceBottomDockSize = 284'f32
+    session.workspaceBottomPanel = 4
     let sessionPath = getTempDir() / "nimculus-m5-session.json"
     session.saveSession(sessionPath)
     for candidate in walkFiles(sessionPath & ".tmp." & $getCurrentProcessId() & ".*"):
@@ -400,6 +406,12 @@ suite "M5 editor services":
     check restored.secondaryView.scrollLine == 1
     check restored.tabs[0].secondaryView.cursor == 2
     check restored.tabs[0].secondaryView.scrollLine == 1
+    check not restored.workspaceLeftDockOpen
+    check restored.workspaceLeftDockSize == 312'f32
+    check restored.workspaceLeftPanel == 2
+    check restored.workspaceBottomDockOpen
+    check restored.workspaceBottomDockSize == 284'f32
+    check restored.workspaceBottomPanel == 4
     restored.tabs[0].document.writeRecovery(recoveryPath)
     for candidate in walkFiles(recoveryPath & ".tmp." & $getCurrentProcessId() & ".*"):
       check not fileExists(candidate)

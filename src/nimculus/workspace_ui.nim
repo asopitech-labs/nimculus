@@ -5,6 +5,7 @@
 ## and focus in one place, as Zed's Workspace does.
 
 import nimnui/geometry
+import nimculus/editor_app
 
 type
   WorkspaceRegion* = enum
@@ -84,6 +85,32 @@ proc initWorkspaceUi*(tabCount = 0, activeTab = -1): WorkspaceUiState =
   result.center = newPane(1, tabs, activeTab)
   result.focusedRegion = regionCenter
   result.nextPaneId = 2
+
+proc panelFromOrdinal(value: int, fallback: PanelKind): PanelKind =
+  if value >= ord(low(PanelKind)) and value <= ord(high(PanelKind)):
+    PanelKind(value) else: fallback
+
+proc initWorkspaceUi*(session: EditorSession): WorkspaceUiState =
+  result = initWorkspaceUi(session.tabs.len, session.activeTab)
+  # A zero size identifies sessions written before workspace composition was
+  # persisted. Keep their default Files dock instead of treating `false` as a
+  # deliberate close.
+  if session.workspaceLeftDockSize > 0:
+    result.leftDock.isOpen = session.workspaceLeftDockOpen
+    result.leftDock.size = max(result.leftDock.minimumSize, session.workspaceLeftDockSize)
+    result.leftDock.activePanel = panelFromOrdinal(session.workspaceLeftPanel, panelFiles)
+  if session.workspaceBottomDockSize > 0:
+    result.bottomDock.isOpen = session.workspaceBottomDockOpen
+    result.bottomDock.size = max(result.bottomDock.minimumSize, session.workspaceBottomDockSize)
+    result.bottomDock.activePanel = panelFromOrdinal(session.workspaceBottomPanel, panelTerminal)
+
+proc saveWorkspaceUi*(state: WorkspaceUiState, session: var EditorSession) =
+  session.workspaceLeftDockOpen = state.leftDock.isOpen
+  session.workspaceBottomDockOpen = state.bottomDock.isOpen
+  session.workspaceLeftDockSize = state.leftDock.size
+  session.workspaceBottomDockSize = state.bottomDock.size
+  session.workspaceLeftPanel = ord(state.leftDock.activePanel)
+  session.workspaceBottomPanel = ord(state.bottomDock.activePanel)
 
 proc dock*(state: WorkspaceUiState, side: DockSide): DockState =
   if side == dockLeft: state.leftDock else: state.bottomDock

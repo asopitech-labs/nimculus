@@ -66,7 +66,13 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
                 "splitActivePane": session.splitActivePane,
                 "splitSecondaryView": serializedView(session.secondaryView),
                 "recentFiles": recentFiles,
-                "workspaceRoots": workspaceRoots}
+                "workspaceRoots": workspaceRoots,
+                "workspaceLeftDockOpen": session.workspaceLeftDockOpen,
+                "workspaceBottomDockOpen": session.workspaceBottomDockOpen,
+                "workspaceLeftDockSize": session.workspaceLeftDockSize,
+                "workspaceBottomDockSize": session.workspaceBottomDockSize,
+                "workspaceLeftPanel": session.workspaceLeftPanel,
+                "workspaceBottomPanel": session.workspaceBottomPanel}
   var tabs = newJArray()
   var savedActive = -1
   # Keep persistence on the same one-buffer-per-canonical-path invariant as
@@ -146,6 +152,12 @@ proc loadSession*(path: string): EditorSession =
   result.splitDirection = if direction == "splitHorizontal": splitHorizontal else: splitVertical
   result.splitRatio = normalizedSplitRatio(jsonFloat(root, "splitRatio", 0.5'f32))
   result.splitActivePane = min(1, max(0, jsonInt(root, "splitActivePane", 0)))
+  result.workspaceLeftDockOpen = jsonBool(root, "workspaceLeftDockOpen", true)
+  result.workspaceBottomDockOpen = jsonBool(root, "workspaceBottomDockOpen", false)
+  result.workspaceLeftDockSize = max(0'f32, jsonFloat(root, "workspaceLeftDockSize", 0'f32))
+  result.workspaceBottomDockSize = max(0'f32, jsonFloat(root, "workspaceBottomDockSize", 0'f32))
+  result.workspaceLeftPanel = max(0, jsonInt(root, "workspaceLeftPanel", 0))
+  result.workspaceBottomPanel = max(0, jsonInt(root, "workspaceBottomPanel", 3))
   if root.hasKey("recentFiles") and root["recentFiles"].kind == JArray:
     for item in root["recentFiles"].getElems:
       if item.kind == JString:

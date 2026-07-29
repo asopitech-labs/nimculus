@@ -1565,6 +1565,7 @@ proc persistSession() =
     editorSession.saveActiveView(editorViewState)
     editorSession.saveSecondaryActiveView(editorSession.secondaryView)
     if activeWorkspace != nil: editorSession.workspaceRoots = activeWorkspace.rootPaths
+    editorWorkspaceUi.saveWorkspaceUi(editorSession)
     saveSession(editorSession, sessionFilePath, preserveDirty = not discardDirtyOnExit)
     let document = activeDocument()
     if not suppressRecoveryWrite and document != nil and document[].buffer.isDirty:
@@ -1605,7 +1606,7 @@ proc restoreSession() =
   demoSplitRatio = editorSession.effectiveSplitRatio
   demoSplitEnabled = editorSession.split
   demoSplitDirection = editorSession.splitDirection
-  editorWorkspaceUi = initWorkspaceUi(editorSession.tabs.len, editorSession.activeTab)
+  editorWorkspaceUi = initWorkspaceUi(editorSession)
   if editorSession.split:
     discard editorWorkspaceUi.splitFocusedPane(if editorSession.splitDirection == splitVertical:
       paneVertical else: paneHorizontal, editorSession.effectiveSplitRatio)
