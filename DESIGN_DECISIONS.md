@@ -5290,7 +5290,9 @@ left an independently selected secondary document without diff feedback.
 **Decision.** Give the secondary pane its own cancellable `git diff` job,
 path guard, and Metal hunk buffer. Completion applies only if that same path
 is still visible in the secondary pane; closing the split or removing its
-document clears the buffer.
+document clears the buffer. Its gutter hit test also converts the click using
+that pane's bounds and scroll state before starting stage/unstage.
 
 **Consequences.** Two files can display correct independent diff decorations
-without coupling the Git sidebar/status job to secondary-pane presentation.
+and hunk actions without coupling the Git sidebar/status job to
+secondary-pane presentation.

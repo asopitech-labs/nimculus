@@ -933,14 +933,14 @@ when defined(macosx):
       refreshEditorSyntax()
     cancelNativeGitAction()
 
-  proc handleGitGutterClick(document: ptr FileDocument, uiY: float32,
-                            modifiers: uint32): bool =
+  proc handleGitGutterClick(document: ptr FileDocument, bounds: Rect,
+                            scrollLine: int, uiY: float32, modifiers: uint32): bool =
     if document == nil or document[].path.len == 0: return false
     let repository = gitRepositoryForDocument(document)
     let relative = gitRelativePathForDocument(document, repository)
     if repository == nil or relative.len == 0: return false
-    let line = max(0, int(floor((uiY - float32(demoEditorBounds.origin.y) - 4'f32) /
-      18'f32)) + editorViewState.scrollLine)
+    let line = max(0, int(floor((uiY - float32(bounds.origin.y) - 4'f32) /
+      18'f32)) + scrollLine)
     # Option-click follows the standard staged-diff convention and reverses
     # the operation against the index; a normal click stages the worktree hunk.
     let unstage = (modifiers and (1'u32 shl 19)) != 0'u32
@@ -1539,6 +1539,9 @@ when defined(macosx):
     if editorGitDiffJob != nil and not editorGitDiffJob.done:
       editorGitDiffJob.cancel()
     editorGitDiffJob = nil
+    if editorSecondaryGitDiffJob != nil and not editorSecondaryGitDiffJob.done:
+      editorSecondaryGitDiffJob.cancel()
+    editorSecondaryGitDiffJob = nil
     if editorGitStatusJob != nil and not editorGitStatusJob.done:
       editorGitStatusJob.cancel()
     editorGitStatusJob = nil
@@ -4707,10 +4710,18 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
         editorViewState.scrollLine = max(0, min(maxScroll, editorViewState.scrollLine + delta))
       syncEditorCursor()
       refreshEditorSyntax()
-    if document != nil and kind == pointerDown and inEditor and
-        float32(event.x) - float32(demoEditorBounds.origin.x) < 8'f32 and
-        handleGitGutterClick(document, uiY, event.modifiers):
-      return
+    if document != nil and kind == pointerDown and inEditor:
+      let gutterPane = if demoSplitEnabled:
+          editorWorkspaceUi.paneIndexAt(demoTree.node(demoScrollNode).bounds, point)
+        else: 0
+      let gutterDocument = if gutterPane == 1: secondaryPaneDocument() else: document
+      let gutterBounds = if gutterPane == 1: demoSecondaryEditorBounds else: demoEditorBounds
+      let gutterScrollLine = if gutterPane == 1:
+          editorSession.secondaryView.scrollLine else: editorViewState.scrollLine
+      if gutterDocument != nil and float32(event.x) - float32(gutterBounds.origin.x) < 8'f32 and
+          handleGitGutterClick(gutterDocument, gutterBounds, gutterScrollLine,
+            uiY, event.modifiers):
+        return
     if kind == pointerDown and hit == demoSplitNode:
       if not editorSession.split:
         editorSession.splitEditor(splitVertical, demoSplitRatio)
