@@ -364,6 +364,9 @@ suite "macOS platform contract":
   test "Files sidebar exposes New File and New Folder actions":
     check platformValidateFilesSidebarActions()
 
+  test "workspace toolbar exposes primary panel actions":
+    check platformValidateWorkspaceToolbar()
+
   test "sidebar supports scrolling long file and Git history lists":
     check platformValidateSidebarScrollContainer()
 

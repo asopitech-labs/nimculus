@@ -490,6 +490,14 @@ renderする。NimculusもGit status/log/branches commandでrepositoryを解決�
 Git sidebarをplaceholderへ置換する。Open Folder rowはFilesと同じnon-blocking `NSOpenPanel` を呼び、Git用の
 別経路を作らない。
 
+## 追加監査: Workspace chrome の tab-bar actions（2026-07-29）
+
+Zed の `Pane::configure_tab_bar_start` はtab barを作るとき、workspace/action側が提供する左・右の
+tab-bar buttonを恒常的に組み込む。TerminalPanelもこのextension pointへNew Terminalなどを置く。Nimculusの
+editor rect上部には既にchrome用の高さが確保されていたため、Files / Outline / Git / Terminalをnative toolbar
+として配置し、既存のcommand dispatcherへだけ接続する。これにより空白を増やさず、UI actionとbackend stateを
+重複させない。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

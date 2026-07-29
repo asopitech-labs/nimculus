@@ -4931,3 +4931,19 @@ when its active repository is absent.
 
 **Consequences.** Git navigation remains a coherent UI state before a
 repository exists, without inventing a special Git workspace loader.
+
+## UI-024: The workspace header contains real navigation
+
+**Context.** The editor layout reserved a top chrome band above document tabs,
+but the band was empty. It consumed vertical space without providing an
+editor, Files, Git, or terminal workflow.
+
+**Decision.** Put native Files, Outline, Git, and Terminal controls in that
+workspace header. They dispatch existing commands and do not own duplicate
+panel, Git, or PTY state.
+
+**Evidence.** Zed configures persistent tab-bar buttons as part of the Pane
+chrome and lets panel-specific code add workspace actions there.
+
+**Consequences.** The previously blank region now anchors primary navigation,
+while all functional ownership stays in the existing workspace command paths.
