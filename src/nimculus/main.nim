@@ -2658,6 +2658,40 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
     except CatchableError:
       discard
 
+proc openFilesDockEntry(path: string) =
+  ## Project-panel activation targets the focused native Pane. Finder and Open
+  ## panels deliberately keep using receiveNativeFile, whose primary-session
+  ## activation semantics are part of the macOS application contract.
+  if path.len == 0:
+    return
+  let filePath = canonicalOpenPath(path)
+  if filePath.len == 0 or dirExists(filePath) or not editorSession.split or
+      editorWorkspaceUi.center == nil or editorWorkspaceUi.center.kind != paneSplit or
+      editorWorkspaceUi.focusedPane != editorWorkspaceUi.center.second.pane.id:
+    receiveNativeFile(path.cstring, false)
+    return
+  try:
+    var tab = editorSession.tabIndexForPath(filePath)
+    if tab < 0:
+      tab = editorSession.addBackgroundTab(openDocument(filePath))
+      syncWorkspaceUiTabs()
+    if not editorWorkspaceUi.selectPaneTab(editorWorkspaceUi.center.second.pane.id, tab):
+      return
+    # The legacy session field remains the focused-secondary bridge during the
+    # migration. Keep it aligned with the tab owned by the secondary Pane;
+    # syncSecondaryEditorView reads the Pane selection as the source of truth.
+    editorSession.secondaryView = editorSession.tabs[tab].secondaryView
+    resetImeState()
+    resetEditorTransientState()
+    externalAlertShown = false
+    editorSession.recordRecent(filePath)
+    syncRecentFiles()
+    syncEditorCursor()
+    refreshEditorSyntax()
+    persistSession()
+  except CatchableError as error:
+    editorViewState.statusMessage = "Open failed: " & error.msg
+
 when defined(macosx):
   proc navigateToDefinition() =
     if lspBridge == nil: return
@@ -3770,7 +3804,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
                 workspaceExpandedDirectories.add(entry.path)
               refreshWorkspacePreview()
             else:
-              receiveNativeFile(entry.path.cstring, false)
+              openFilesDockEntry(entry.path)
         of sidebarGitHistory:
           if index >= 0 and index < editorGitHistory.len:
             let repository = gitRepositoryForDocument(activeDocument())

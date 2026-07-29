@@ -173,6 +173,15 @@ proc addTab*(session: var EditorSession, document: FileDocument) =
     secondaryView: view))
   session.activeTab = session.tabs.high
 
+proc addBackgroundTab*(session: var EditorSession, document: FileDocument): int =
+  ## A secondary Pane can display a newly opened document without changing the
+  ## primary session activation. The document remains in the shared tab store;
+  ## only the caller's Pane selection decides where it becomes visible.
+  let active = session.activeTab
+  session.addTab(document)
+  result = session.activeTab
+  session.activeTab = active
+
 proc tabIndexForPath*(session: EditorSession, path: string): int =
   ## Every file-bearing feature (Finder, Save As, LSP, and navigation) must
   ## identify a document the same way. Keep one buffer for symlink and macOS

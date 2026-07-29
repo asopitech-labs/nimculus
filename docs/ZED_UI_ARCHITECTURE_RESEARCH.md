@@ -302,3 +302,24 @@ Metal renderer へ投影して presenter だけを置換する。
 
 この縦切りにより、ファイラと Git は「クリック時だけ動く文字列」ではなく、ユーザーが
 現在位置を見て、キーボードとポインターを併用できる UI になる。
+
+### 追加確認: ファイルを開く Pane の決定
+
+`ProjectPanel::open_internal` は選択 entry を `open_entry` または `split_entry` event として
+Workspace に渡す。Zed の Pane は active item を自身で所有するため、Project Panel からの
+open は「グローバル active tab を切り替える」操作ではなく、対象 Pane の item を更新する。
+
+Nimculus の `receiveNativeFile` は Finder、Open dialog、recent file、sidebar の共通 callback
+として実装され、現在は `EditorSession.activeTab` を常に更新する。これをそのまま sidebar
+から使うと、secondary pane をフォーカスして Files Dock から開いても primary が変わる。
+
+採用する境界は次のとおりである。
+
+1. Finder／Open dialog／Apple Event は既存どおり primary session activation を使用する。
+2. Files Dock は `WorkspaceUiState.focusedPane` を target とする専用 open action を使う。
+3. 既存 tab ならその Pane の selected tab を切り替え、新規 file なら document store へ一度だけ
+   追加して target Pane の selected tab にする。
+4. primary session active tab は secondary-pane open の副作用で変えない。secondary の text、
+   selection、IME context は既存の focused-pane presenter 同期を通す。
+
+これにより、Pane を表示だけ別にするのではなく、ファイラ操作の結果まで Pane-local にする。

@@ -4581,3 +4581,24 @@ usable macOS UI. The source audit is in `docs/ZED_UI_ARCHITECTURE_RESEARCH.md`.
 selected entry. Up, Down, Home, and End operate through the same state and show
 selection feedback. A future GPU text renderer can replace Cocoa rendering
 without changing workspace behavior.
+
+## UI-007: Files Dock opens into the focused pane
+
+**Context.** `receiveNativeFile` is the shared callback for Finder, Open panels,
+and workspace UI. Its historical behavior activates `EditorSession.activeTab`,
+which is correct for an application open event but wrong when the secondary pane
+has keyboard focus and the user activates a Project Panel file.
+
+**Decision.** Keep platform file-open events on the primary session path, and
+introduce a Files-Dock-specific action that selects the target tab in
+`WorkspaceUiState.focusedPane`. Reusing an existing document does not duplicate
+its buffer; adding a new document preserves the primary active tab when the
+target is secondary.
+
+**Evidence.** Zed's Project Panel turns an entry selection into a Pane-targeted
+open or split event rather than directly changing a global active editor. The
+source-path audit is recorded in `docs/ZED_UI_ARCHITECTURE_RESEARCH.md`.
+
+**Consequences.** Opening a file from Files while the secondary pane is focused
+changes that pane's document, viewport, selection, and IME context without
+silently replacing the primary editor.

@@ -313,6 +313,16 @@ suite "M5 editor services":
     check session.closeActiveTab()
     check session.tabs.len == 2
 
+  test "background tab preserves primary session activation":
+    var session: EditorSession
+    session.addTab(newDocument())
+    session.addTab(newDocument())
+    check session.activeTab == 1
+    let background = session.addBackgroundTab(newDocument())
+    check background == 2
+    check session.tabs.len == 3
+    check session.activeTab == 1
+
   test "each split pane keeps its own cursor visible":
     let buffer = initPieceTable("zero\none\ntwo\nthree\nfour")
     var primary = newEditorView()
