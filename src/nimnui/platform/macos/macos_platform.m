@@ -2210,6 +2210,86 @@ static NimculusOutlineOverlay *outlineOverlayForView(NSView *view) {
   return nil;
 }
 
+// The project, outline, and Git presenters currently share an NSTextView so
+// keyboard navigation and selection keep one native contract. Give that
+// compact presenter the same information hierarchy as a panel rather than
+// rendering the workspace as an editor-sized block of plain text.
+static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
+  if (!outline) return;
+  NSString *text = g_editor_outline_text ?: @"";
+  NSColor *foreground = themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedWhite:0.84 alpha:1.0]);
+  NSMutableAttributedString *presented = [[NSMutableAttributedString alloc]
+    initWithString:text attributes:@{
+      NSFontAttributeName: [NSFont systemFontOfSize:13.0],
+      NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.88]
+    }];
+  NSUInteger cursor = 0;
+  NSUInteger line = 0;
+  while (cursor < text.length) {
+    NSRange newline = [text rangeOfString:@"\n" options:0
+      range:NSMakeRange(cursor, text.length - cursor)];
+    NSUInteger end = newline.location == NSNotFound ? text.length : newline.location;
+    NSRange range = NSMakeRange(cursor, end - cursor);
+    NSString *content = range.length > 0 ? [text substringWithRange:range] : @"";
+    if (line == 0) {
+      [presented addAttributes:@{
+        NSFontAttributeName: [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold],
+        NSForegroundColorAttributeName: foreground
+      } range:range];
+    } else if (line == 1) {
+      [presented addAttribute:NSForegroundColorAttributeName
+        value:[themeHexColor(g_theme_border,
+          [NSColor colorWithCalibratedWhite:0.30 alpha:1.0]) colorWithAlphaComponent:0.70]
+        range:range];
+    } else if (g_editor_sidebar_mode == 1) {
+      // Project rows retain their textual disclosure markers, but make them
+      // read as a hierarchy affordance instead of part of a file name.
+      NSRange expanded = [content rangeOfString:@"▾"];
+      NSRange collapsed = [content rangeOfString:@"▸"];
+      NSRange marker = expanded.location != NSNotFound ? expanded : collapsed;
+      if (marker.location != NSNotFound) {
+        marker.location += range.location;
+        [presented addAttributes:@{
+          NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold],
+          NSForegroundColorAttributeName: [themeHexColor(g_theme_accent,
+            [NSColor colorWithCalibratedRed:0.31 green:0.66 blue:0.97 alpha:1.0])
+            colorWithAlphaComponent:0.90]
+        } range:marker];
+      }
+    } else if (g_editor_sidebar_mode == 3) {
+      // Surface conflicts and Git's two-column porcelain status separately
+      // from the file path, following the Git panel's status-first scan.
+      NSUInteger prefixLength = [content hasPrefix:@"CONFLICT "] ? 8 :
+        MIN((NSUInteger)2, content.length);
+      if (prefixLength > 0) {
+        NSColor *stateColor = [content hasPrefix:@"CONFLICT "]
+          ? [NSColor systemRedColor]
+          : themeHexColor(g_theme_accent,
+              [NSColor colorWithCalibratedRed:0.31 green:0.66 blue:0.97 alpha:1.0]);
+        [presented addAttributes:@{
+          NSFontAttributeName: [NSFont monospacedSystemFontOfSize:12.0 weight:NSFontWeightSemibold],
+          NSForegroundColorAttributeName: stateColor
+        } range:NSMakeRange(range.location, prefixLength)];
+      }
+    } else if (g_editor_sidebar_mode == 2 && content.length >= 8) {
+      // Commit hashes are stable scan anchors; distinguish them from the
+      // subject/author without making history rows multi-line and ambiguous.
+      [presented addAttributes:@{
+        NSFontAttributeName: [NSFont monospacedSystemFontOfSize:12.0 weight:NSFontWeightMedium],
+        NSForegroundColorAttributeName: [themeHexColor(g_theme_accent,
+          [NSColor colorWithCalibratedRed:0.31 green:0.66 blue:0.97 alpha:1.0])
+          colorWithAlphaComponent:0.92]
+      } range:NSMakeRange(range.location, MIN((NSUInteger)8, range.length))];
+    }
+    if (newline.location == NSNotFound) break;
+    cursor = NSMaxRange(newline);
+    line++;
+  }
+  [outline.textStorage setAttributedString:presented];
+  [presented release];
+}
+
 static NSUInteger terminalUTF16OffsetForCell(uint32_t row, uint32_t column) {
   NSData *utf8 = [g_terminal_text dataUsingEncoding:NSUTF8StringEncoding];
   const uint8_t *bytes = utf8.bytes;
@@ -2427,13 +2507,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       colorWithAlphaComponent:0.96];
     outline.textColor = themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]);
-    outline.font = [NSFont fontWithName:g_editor_font_name size:g_editor_font_size] ?:
-      [NSFont monospacedSystemFontOfSize:g_editor_font_size weight:NSFontWeightRegular];
+    outline.font = [NSFont systemFontOfSize:13.0];
     outline.textContainerInset = NSMakeSize(8.0, 8.0);
     outline.horizontallyResizable = NO;
     outline.verticallyResizable = YES;
     outline.textContainer.widthTracksTextView = YES;
-    outline.string = g_editor_outline_text;
+    applySidebarPresentation(outline);
     NSScrollView *outlineScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     outlineScroll.borderType = NSNoBorder;
     outlineScroll.drawsBackground = NO;
@@ -5930,7 +6009,7 @@ void nimculus_platform_set_editor_outline(const char *utf8, uint32_t length,
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
   NimculusOutlineOverlay *outline = outlineOverlayForView(view);
-  if (outline) outline.string = g_editor_outline_text;
+  if (outline) applySidebarPresentation(outline);
   [view updateTerminalFrame];
 }
 void nimculus_platform_set_editor_sidebar(const char *utf8, uint32_t length,
@@ -5943,7 +6022,7 @@ void nimculus_platform_set_editor_sidebar(const char *utf8, uint32_t length,
   if (!view) return;
   NimculusOutlineOverlay *outline = outlineOverlayForView(view);
   if (outline) {
-    outline.string = g_editor_outline_text;
+    applySidebarPresentation(outline);
     nimculus_platform_set_editor_sidebar_selection(
       g_editor_sidebar_selected_index == NSNotFound ? UINT32_MAX :
       (uint32_t)g_editor_sidebar_selected_index);

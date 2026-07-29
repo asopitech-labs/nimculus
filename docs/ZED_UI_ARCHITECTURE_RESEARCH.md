@@ -399,6 +399,14 @@ Zed のような workspace host では、platform event を workspace の復元�
 flush する。file と directory の区別は queue では行わず、既存の `receiveNativeFile` が directory を
 workspace open、file を document open として一元的に扱う。
 
+## 追加監査: Project/Git panel の情報階層（2026-07-29）
+
+Zed の Project/Git panel は keyboard selection を保ったまま、header、tree disclosure、Git status、
+commit hash を異なる typography/color で見せる。Nimculus は現在 shared `NSTextView` presenter を使うが、
+行を複数化すると sidebar item index と click routing が崩れる。そのため row を一行のまま保ち、attributed
+text で title/divider/disclosure/status/hash を分離する。これにより UI の情報設計を改善しつつ、既存の
+Files / Git history の action contract を維持する。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

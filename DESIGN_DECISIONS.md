@@ -4717,3 +4717,22 @@ safe, and is released with the other platform-owned resources.
 file associations retain their original path—including Unicode paths—without
 requiring a retry. The registered callback remains the single routing boundary
 for files and directories.
+
+## UI-012: Shared native sidebar keeps panel-level visual hierarchy
+
+**Context.** Files, outline, and Git history had correct interaction routing
+but were all presented as editor-sized plain text. This hid panel headings,
+directory disclosure, status, and commit identity in the same visual weight as
+file content.
+
+**Decision.** Keep the shared `NSTextView` presenter while applying attributed
+panel typography: a compact title, subdued divider, 13pt rows, accented project
+disclosures, explicit Git status prefixes, and short commit hashes. Rows remain
+single-line so the existing selection/index contract stays exact.
+
+**Evidence.** Zed's Project/Git panels distinguish headers, tree affordances,
+and status/commit anchors while retaining keyboard-selectable logical entries.
+
+**Consequences.** The core file and Git workflows become legible as panels
+without introducing a second selection implementation or changing panel item
+identity semantics.
