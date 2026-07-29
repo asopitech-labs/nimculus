@@ -38,6 +38,9 @@ jobs:
       NIMCULUS_E2E_SOAK_SECONDS: ${{ inputs.soak_seconds }}
       NIMCULUS_E2E_COLD_START_RUNS: ${{ inputs.cold_start_runs }}
       NIMCULUS_E2E_SOAK_INTERVAL_SECONDS: ${{ inputs.soak_interval_seconds }}
+      # The release-candidate runner is GUI logged-in and can exercise the
+      # public AppKit workspace destinations through Accessibility.
+      NIMCULUS_E2E_GUI_WORKFLOWS: "1"
     steps:
       - uses: actions/checkout@v4
         with:

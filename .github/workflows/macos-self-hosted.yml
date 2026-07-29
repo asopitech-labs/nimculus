@@ -60,6 +60,12 @@ jobs:
           NIMCULUS_SOAK_INTERVAL_SECONDS=5 \
           NIMCULUS_SOAK_TIMEOUT_SECONDS=40 \
           bash scripts/benchmark_soak.sh
+      - name: GUI workspace workflow E2E
+        # This runner is registered from a GUI-login macOS session with
+        # Accessibility permission. Exercise the visible Files, Git, and
+        # Terminal destinations rather than treating native contracts as a
+        # replacement for user-facing workspace navigation.
+        run: bash scripts/test_macos_gui_workflows.sh
       - name: Lint
         run: nimble lint
       - name: Test macOS implementation

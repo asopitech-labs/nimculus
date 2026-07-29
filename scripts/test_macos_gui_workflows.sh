@@ -47,16 +47,19 @@ nimble build
 APP_PID=$!
 
 for _ in $(seq 1 40); do
-  if osascript -e 'tell application "System Events" to tell process "Nimculus" to get name of every button of window 1' 2>/dev/null | grep -q 'Files'; then
+  # Do not select an arbitrary already-running Nimculus instance by name.
+  # A developer can keep the packaged app open while this test runs; the
+  # workflow must inspect the executable it launched.
+  if osascript -e "tell application \"System Events\" to tell (first process whose unix id is $APP_PID) to get name of every button of window 1" 2>/dev/null | grep -q 'Files'; then
     break
   fi
   sleep 0.25
 done
 
-osascript <<'APPLESCRIPT'
-tell application "Nimculus" to activate
+osascript -e "set targetPid to $APP_PID" <<'APPLESCRIPT'
 tell application "System Events"
-  tell process "Nimculus"
+  tell (first process whose unix id is targetPid)
+    set frontmost to true
     if not (exists window 1) then error "Nimculus window did not open"
     repeat with title in {"Files", "Git", "Terminal"}
       if not (exists button (contents of title) of window 1) then error "Missing workspace action: " & (contents of title)
