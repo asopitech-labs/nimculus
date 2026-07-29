@@ -4377,3 +4377,14 @@ bar.
 The list is capped at 500 lines. This preserves a useful whole-file view for
 ordinary sources without turning a large generated file into a blocking native
 text update.
+
+## M9-030: Separate conflicted Git status entries before ordinary changes
+
+Zed gives unresolved conflicts their own section and avoids sweeping them into
+bulk staging operations. Nimculus' `git status` now renders a bounded output
+list with conflicts first and a `CONFLICT` marker; renamed paths retain their
+old-to-new relationship. It remains display-only, so status inspection cannot
+silently resolve an unmerged file.
+
+The list is capped at 1,000 entries to preserve responsiveness in large
+workspaces, while the status bar retains total change and conflict counts.

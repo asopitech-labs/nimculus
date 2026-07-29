@@ -608,6 +608,27 @@ when defined(macosx):
       lines.add("… " & $(entries.len - shown) & " additional line(s) omitted")
     showNativeLspPanel("Git Blame", lines)
 
+  proc renderNativeGitStatus(entries: seq[GitStatusEntry]) =
+    ## Keep conflicts explicit and ahead of ordinary changes. As in Zed's
+    ## separate conflict section, this is informational only: bulk stage or
+    ## unstage actions must not silently resolve or discard an unmerged file.
+    const MaxPanelEntries = 1_000
+    var lines = @["Git Status", "────────"]
+    var conflicts: seq[GitStatusEntry]
+    var ordinary: seq[GitStatusEntry]
+    for entry in entries:
+      if entry.conflict: conflicts.add(entry) else: ordinary.add(entry)
+    for entry in conflicts & ordinary:
+      if lines.len - 2 >= MaxPanelEntries: break
+      let state = $entry.indexStatus & $entry.worktreeStatus
+      let label = if entry.conflict: "CONFLICT " else: state & " "
+      let path = if entry.originalPath.len > 0:
+        entry.originalPath & " → " & entry.path else: entry.path
+      lines.add(label & path)
+    if entries.len > MaxPanelEntries:
+      lines.add("… " & $(entries.len - MaxPanelEntries) & " additional entry(s) omitted")
+    showNativeLspPanel("Git Status", lines)
+
   proc reloadCleanDocumentsForBranch(repository: GitRepository): int =
     ## Git switches update the working tree atomically from the editor's point
     ## of view. Reload only clean tabs under the switched repository; dirty
@@ -673,6 +694,7 @@ when defined(macosx):
       var conflicts = 0
       for entry in entries:
         if entry.conflict: inc conflicts
+      renderNativeGitStatus(entries)
       editorViewState.statusMessage = "Git: " & $entries.len &
         " changed file(s), " & $conflicts & " conflict(s)"
     elif action == "log":
