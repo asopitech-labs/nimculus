@@ -5240,3 +5240,8 @@ commands keep their pane-local selection.
 **Consequences.** A primary and secondary document survive session recovery as
 the same two-pane workspace rather than collapsing into a duplicate primary
 document.
+
+The restored `splitActivePane` also restores `WorkspaceUiState.focusedPane`.
+Without that final focus handoff, the native input responder could target the
+secondary pane while Files-panel opens and pane-local commands still target the
+primary pane.

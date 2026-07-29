@@ -1738,6 +1738,8 @@ proc restoreSession() =
     if editorSession.effectiveSplitSecondaryTab() >= 0:
       discard editorWorkspaceUi.selectPaneTab(editorWorkspaceUi.center.second.pane.id,
         editorSession.effectiveSplitSecondaryTab())
+    if editorSession.splitActivePane == 1:
+      discard editorWorkspaceUi.focusPane(editorWorkspaceUi.center.second.pane.id)
 
 proc reloadWorkspaceSettings(root: string) =
   when defined(macosx) or defined(windows):
