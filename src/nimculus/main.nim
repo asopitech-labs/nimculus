@@ -4329,7 +4329,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
               openFilesDockEntry(entry.path)
         of sidebarGitHistory:
           if index >= 0 and index < editorGitHistory.len:
-            let repository = gitRepositoryForDocument(activeDocument())
+            # A history list belongs to the repository that produced it, not
+            # to whichever document happened to gain focus while it remained
+            # visible. This matches Zed's project-path history target.
+            let repository = editorGitRepository
             if repository == nil:
               editorViewState.statusMessage = "Git repository not found"
             else:
@@ -4465,7 +4468,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
             clipboardSet(hash.cstring, uint32(hash.len))
             editorViewState.statusMessage = "Git: commit SHA copied"
           elif parts[1] == "open":
-            let repository = gitRepositoryForDocument(activeDocument())
+            let repository = editorGitRepository
             if repository == nil:
               editorViewState.statusMessage = "Git repository not found"
             else:

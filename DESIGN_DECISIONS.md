@@ -5311,3 +5311,15 @@ failure, cancellation, or destination conflict.
 **Consequences.** Cmd+S and Save As work for an untitled secondary-pane
 document without changing which pane owns keyboard focus or overloading the
 native panel API with pane-specific state.
+
+## UI-046: Keep Git history bound to its source repository
+
+**Context.** A history sidebar remains visible while users open documents from
+other workspace roots. Looking up the active document when a commit is
+selected can therefore show the SHA from a different repository.
+
+**Decision.** Use the repository retained by the asynchronous history job for
+both row activation and its context-menu detail action.
+
+**Consequences.** Commit metadata and patches stay attached to the history
+list's original project even as editor focus changes.
