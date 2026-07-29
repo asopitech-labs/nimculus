@@ -120,6 +120,7 @@ proc platformConfirmQuit*() {.importc: "nimculus_platform_confirm_quit", cdecl.}
 proc platformShowSavePanelAndClose*() {.importc: "nimculus_platform_show_save_panel_and_close", cdecl.}
 proc platformSetEditorSelection*(startByte, endByte: uint32) {.importc: "nimculus_platform_set_editor_selection", cdecl.}
 proc platformSetEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_text", cdecl.}
+proc platformSetSecondaryEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_secondary_editor_text", cdecl.}
 proc platformSetEditorOutline*(text: cstring, length, symbolCount: uint32) {.importc: "nimculus_platform_set_editor_outline", cdecl.}
 proc platformSetEditorSidebar*(text: cstring, length, itemCount, mode: uint32) {.importc: "nimculus_platform_set_editor_sidebar", cdecl.}
 proc platformSetEditorSidebarVisible*(visible: bool) {.importc: "nimculus_platform_set_editor_sidebar_visible", cdecl.}

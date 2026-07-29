@@ -80,6 +80,7 @@ static NSUInteger g_editor_scroll_line = 0;
 static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
 static NSString *g_editor_text = @"";
+static NSString *g_secondary_editor_text = @"";
 // Rebuild these once when committed editor text changes. Text rendering,
 // scrolling, hit-testing, and IME coordinate queries must not repeatedly
 // split or scan a ten-thousand-line document on every frame.
@@ -87,6 +88,10 @@ static NSArray<NSString *> *g_editor_lines = nil;
 static NSUInteger *g_editor_line_utf16_offsets = NULL;
 static NSUInteger *g_editor_line_utf8_offsets = NULL;
 static NSUInteger g_editor_line_count = 0;
+static NSArray<NSString *> *g_secondary_editor_lines = nil;
+static NSUInteger *g_secondary_editor_line_utf16_offsets = NULL;
+static NSUInteger *g_secondary_editor_line_utf8_offsets = NULL;
+static NSUInteger g_secondary_editor_line_count = 0;
 static NSString *g_editor_status = @"Ready";
 static NSArray<NSString *> *g_editor_tab_titles = nil;
 static NSUInteger g_editor_active_tab = 0;
@@ -195,6 +200,20 @@ static void rebuildEditorLineIndex(void) {
     utf16Offset += line.length + 1;
     utf8Offset += [[line dataUsingEncoding:NSUTF8StringEncoding] length] + 1;
   }
+}
+
+static void swapEditorTextState(void) {
+  NSString *text = g_editor_text; g_editor_text = g_secondary_editor_text; g_secondary_editor_text = text;
+  NSArray *lines = g_editor_lines; g_editor_lines = g_secondary_editor_lines; g_secondary_editor_lines = lines;
+  NSUInteger *utf16 = g_editor_line_utf16_offsets; g_editor_line_utf16_offsets = g_secondary_editor_line_utf16_offsets; g_secondary_editor_line_utf16_offsets = utf16;
+  NSUInteger *utf8 = g_editor_line_utf8_offsets; g_editor_line_utf8_offsets = g_secondary_editor_line_utf8_offsets; g_secondary_editor_line_utf8_offsets = utf8;
+  NSUInteger count = g_editor_line_count; g_editor_line_count = g_secondary_editor_line_count; g_secondary_editor_line_count = count;
+}
+
+static void rebuildSecondaryEditorLineIndex(void) {
+  swapEditorTextState();
+  rebuildEditorLineIndex();
+  swapEditorTextState();
 }
 
 static NSArray<NSString *> *editorLinesForText(NSString *text) {
@@ -378,10 +397,15 @@ static void releasePlatformResources(void) {
   [g_editor_font_name release]; g_editor_font_name = nil;
   [g_terminal_font_name release]; g_terminal_font_name = nil;
   [g_editor_text release]; g_editor_text = nil;
+  [g_secondary_editor_text release]; g_secondary_editor_text = nil;
   [g_editor_lines release]; g_editor_lines = nil;
   free(g_editor_line_utf16_offsets); g_editor_line_utf16_offsets = NULL;
   free(g_editor_line_utf8_offsets); g_editor_line_utf8_offsets = NULL;
   g_editor_line_count = 0;
+  [g_secondary_editor_lines release]; g_secondary_editor_lines = nil;
+  free(g_secondary_editor_line_utf16_offsets); g_secondary_editor_line_utf16_offsets = NULL;
+  free(g_secondary_editor_line_utf8_offsets); g_secondary_editor_line_utf8_offsets = NULL;
+  g_secondary_editor_line_count = 0;
   [g_editor_status release]; g_editor_status = nil;
   [g_editor_outline_text release]; g_editor_outline_text = nil;
   [g_terminal_text release]; g_terminal_text = nil;
@@ -1412,7 +1436,9 @@ static void rebuildSecondaryEditorTexture(id<MTLDevice> device) {
   g_glyph_rendering_available = NO;
   BOOL previousRenderingSecondary = g_rendering_secondary_editor;
   g_rendering_secondary_editor = YES;
+  swapEditorTextState();
   updateEditorTextTexture(device, g_editor_text, NO);
+  swapEditorTextState();
   g_rendering_secondary_editor = previousRenderingSecondary;
   [g_secondary_text_texture release];
   g_secondary_text_texture = [g_text_texture retain];
@@ -5557,6 +5583,13 @@ void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
   }
   markSceneFullyDirty();
   if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
+  if (g_active_view) [g_active_view drawFrame];
+}
+void nimculus_platform_set_secondary_editor_text(const char *utf8, uint32_t length) {
+  replaceOwnedUTF8String(&g_secondary_editor_text, utf8, length, @"");
+  rebuildSecondaryEditorLineIndex();
+  if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
+  markSceneFullyDirty();
   if (g_active_view) [g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_outline(const char *utf8, uint32_t length,

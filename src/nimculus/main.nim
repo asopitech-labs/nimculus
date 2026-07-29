@@ -1876,6 +1876,15 @@ proc activeDocument(): ptr FileDocument =
       editorSession.activeTab >= editorSession.tabs.len: return nil
   addr editorSession.tabs[editorSession.activeTab].document
 
+proc secondaryPaneDocument(): ptr FileDocument =
+  ## The second native presenter is the second leaf of the current PaneTree.
+  ## Its selected item is independent from the primary session tab.
+  if editorWorkspaceUi.center.isNil or editorWorkspaceUi.center.kind != paneSplit:
+    return nil
+  let tab = editorWorkspaceUi.center.second.pane.activeTabIndex
+  if tab < 0 or tab >= editorSession.tabs.len: return nil
+  addr editorSession.tabs[tab].document
+
 proc refreshDocumentLanguageSettings() =
   ## Follow Zed's per-buffer settings boundary: document activation chooses a
   ## language overlay without waiting for a settings-file reload.
@@ -1978,14 +1987,19 @@ proc syncEditorCursor() =
 when defined(macosx):
   proc syncSecondaryEditorView() =
     if not editorSession.split: return
-    let document = activeDocument()
+    let document = secondaryPaneDocument()
     if document == nil: return
-    editorSession.secondaryView.ensureCursorVisible(document[].buffer, editorVisibleLineCount())
-    let location = document[].buffer.lineColumn(editorSession.secondaryView.cursor)
-    let selection = editorSession.secondaryView.selectedRange()
-    platformSetSecondaryEditorScrollLine(uint32(max(0, editorSession.secondaryView.scrollLine)))
-    platformSetSecondaryEditorSoftWrap(editorSession.secondaryView.softWrap)
-    platformSetSecondaryEditorCursorByte(uint32(editorSession.secondaryView.cursor),
+    let tab = editorWorkspaceUi.center.second.pane.activeTabIndex
+    var view = editorSession.tabs[tab].secondaryView
+    view.ensureCursorVisible(document[].buffer, editorVisibleLineCount())
+    editorSession.tabs[tab].secondaryView = view
+    let location = document[].buffer.lineColumn(view.cursor)
+    let selection = view.selectedRange()
+    let text = document[].buffer.toString()
+    platformSetSecondaryEditorText(text.cstring, uint32(text.len))
+    platformSetSecondaryEditorScrollLine(uint32(max(0, view.scrollLine)))
+    platformSetSecondaryEditorSoftWrap(view.softWrap)
+    platformSetSecondaryEditorCursorByte(uint32(view.cursor),
       uint32(max(0, location.line)))
     platformSetSecondaryEditorSelection(uint32(selection.startByte), uint32(selection.endByte))
 
