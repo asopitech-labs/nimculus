@@ -4736,3 +4736,24 @@ and status/commit anchors while retaining keyboard-selectable logical entries.
 **Consequences.** The core file and Git workflows become legible as panels
 without introducing a second selection implementation or changing panel item
 identity semantics.
+
+## UI-013: Files panel owns contextual workspace actions
+
+**Context.** Workspace create, rename, delete, and Finder reveal already had
+safe backend commands and menu-bar entry points, but a user working in Files
+had to leave the selected row to invoke them.
+
+**Decision.** A right click on a Files row first preserves the normal panel
+selection, then opens a native context menu for that exact workspace entry.
+It exposes Open (files), Reveal in Finder, New File, New Folder, Rename, and
+Delete. The Cocoa presenter owns only the selected absolute path and prompts;
+all mutation commands continue through the Nim workspace path-validation
+boundary.
+
+**Evidence.** Zed's Project Panel deploys a context menu from a selected entry
+and keeps the panel focus/selection as the action context.
+
+**Consequences.** File management is reachable at the point of use while
+preserving keyboard routing and the existing symlink/workspace-root safety
+checks. Directories remain subject to the current empty-directory deletion
+rule.

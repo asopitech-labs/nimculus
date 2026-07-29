@@ -40,6 +40,7 @@ proc platformValidateColorEmojiFallback*(): bool {.importc: "nimculus_platform_v
 proc platformValidateColorEmojiSequences*(): bool {.importc: "nimculus_platform_validate_color_emoji_sequences", cdecl.}
 proc platformValidateTerminalOverlayRuns*(): bool {.importc: "nimculus_platform_validate_terminal_overlay_runs", cdecl.}
 proc platformValidateSidebarDispatch*(): bool {.importc: "nimculus_platform_validate_sidebar_dispatch", cdecl.}
+proc platformValidateSidebarContextDispatch*(): bool {.importc: "nimculus_platform_validate_sidebar_context_dispatch", cdecl.}
 proc platformValidateSidebarScrollContainer*(): bool {.importc: "nimculus_platform_validate_sidebar_scroll_container", cdecl.}
 proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
 type
@@ -84,6 +85,7 @@ proc platformSetShortcutCallback*(callback: ShortcutCallback) {.importc: "nimcul
 proc platformSetTextCallback*(callback: TextCallback) {.importc: "nimculus_platform_set_text_callback", cdecl.}
 proc platformSetSelectionCallback*(callback: SelectionCallback) {.importc: "nimculus_platform_set_selection_callback", cdecl.}
 proc platformSetFileCallback*(callback: FileCallback) {.importc: "nimculus_platform_set_file_callback", cdecl.}
+proc platformShowWorkspaceEntryContext*(path: cstring, isDirectory: bool) {.importc: "nimculus_platform_show_workspace_entry_context", cdecl.}
 proc platformSetCommandCallback*(callback: CommandCallback) {.importc: "nimculus_platform_set_command_callback", cdecl.}
 proc platformSetIdleCallback*(callback: IdleCallback) {.importc: "nimculus_platform_set_idle_callback", cdecl.}
 proc platformSetEditorCursor*(x, y: cdouble) {.importc: "nimculus_platform_set_editor_cursor", cdecl.}

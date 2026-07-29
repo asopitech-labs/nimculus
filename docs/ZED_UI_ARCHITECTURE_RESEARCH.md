@@ -407,6 +407,14 @@ commit hash を異なる typography/color で見せる。Nimculus は現在 shar
 text で title/divider/disclosure/status/hash を分離する。これにより UI の情報設計を改善しつつ、既存の
 Files / Git history の action contract を維持する。
 
+## 追加監査: Project Panel context menu（2026-07-29）
+
+Zed の Project Panel は右クリックを selected entry に結び、context menu をその entry の位置から
+deploy する。Nimculus でも Files sidebar の right-click は最初に同じ row を選択し、その row の absolute
+workspace path を Cocoa context menu に渡す。Cocoa は Open / Reveal / New File / New Folder / Rename /
+Delete の prompt を表示するだけで、実際の create/rename/delete は Nim 側の `Workspace` validation を通す。
+これにより UI action と安全な backend 契約を二重実装せずに結合できる。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

@@ -309,6 +309,8 @@ static void nimculus_uncaught_exception_handler(NSException *exception) {
 }
 static BOOL g_terminate_decision = NO;
 static NSArray<NSString *> *g_recent_files = nil;
+static NSString *g_workspace_context_path = nil;
+static BOOL g_workspace_context_is_directory = NO;
 static BOOL g_welcome_visible = NO;
 static uint32_t g_last_width_points = 0;
 static uint32_t g_last_height_points = 0;
@@ -424,6 +426,8 @@ static void releasePlatformResources(void) {
   [g_editor_tab_titles release]; g_editor_tab_titles = nil;
   [g_secondary_editor_tab_titles release]; g_secondary_editor_tab_titles = nil;
   [g_recent_files release]; g_recent_files = nil;
+  [g_workspace_context_path release]; g_workspace_context_path = nil;
+  g_workspace_context_is_directory = NO;
   [g_pending_file_open_paths release]; g_pending_file_open_paths = nil;
   [g_clipboard_utf8_data release]; g_clipboard_utf8_data = nil;
   [g_editor_font_name release]; g_editor_font_name = nil;
@@ -1932,6 +1936,11 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     [NSString stringWithFormat:@"sidebarOpen:%lu", (unsigned long)item];
   g_command_callback(command.UTF8String);
 }
+- (void)dispatchSidebarContext:(NSUInteger)item {
+  if (item == NSNotFound || !g_command_callback || g_editor_sidebar_mode != 1) return;
+  NSString *command = [NSString stringWithFormat:@"sidebarContext:%lu", (unsigned long)item];
+  g_command_callback(command.UTF8String);
+}
 - (void)dispatchSidebarLine:(NSUInteger)line open:(BOOL)open {
   NSUInteger item = [self sidebarItemForLine:line];
   if (open) [self dispatchSidebarOpen:item];
@@ -1956,6 +1965,18 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     if ([self.string characterAtIndex:offset] == '\n') line++;
   }
   [self dispatchSidebarLine:line open:YES];
+}
+- (void)rightMouseDown:(NSEvent *)event {
+  [self.window makeFirstResponder:self];
+  NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+  NSUInteger index = [self characterIndexForInsertionAtPoint:point];
+  NSUInteger line = 0;
+  for (NSUInteger offset = 0; offset < MIN(index, self.string.length); offset++) {
+    if ([self.string characterAtIndex:offset] == '\n') line++;
+  }
+  NSUInteger item = [self sidebarItemForLine:line];
+  [self dispatchSidebarSelection:item];
+  [self dispatchSidebarContext:item];
 }
 - (void)keyDown:(NSEvent *)event {
   if (!g_command_callback) { [super keyDown:event]; return; }
@@ -3655,6 +3676,13 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   if (g_command_callback) g_command_callback("newDocument");
 }
 
+- (void)dispatchOpenWorkspaceContextEntry:(id)sender {
+  (void)sender;
+  if (g_workspace_context_path.length > 0 && g_file_callback) {
+    g_file_callback(g_workspace_context_path.UTF8String, false);
+  }
+}
+
 - (NSTextField *)workspacePathField:(NSString *)placeholder {
   NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
   field.placeholderString = placeholder;
@@ -3677,6 +3705,25 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }];
 }
 
+- (void)createWorkspaceFileAtContext:(id)sender {
+  (void)sender;
+  if (g_workspace_context_path.length == 0) return;
+  NSString *base = g_workspace_context_is_directory ? g_workspace_context_path :
+    g_workspace_context_path.stringByDeletingLastPathComponent;
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+  alert.messageText = @"New File";
+  NSTextField *field = [self workspacePathField:@"File name or relative path"];
+  alert.accessoryView = field;
+  [alert addButtonWithTitle:@"Create"];
+  [alert addButtonWithTitle:@"Cancel"];
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (response != NSAlertFirstButtonReturn || !g_command_callback || field.stringValue.length == 0) return;
+    NSString *path = [base stringByAppendingPathComponent:field.stringValue];
+    NSString *command = [NSString stringWithFormat:@"workspaceCreateFile:%@", path];
+    g_command_callback(command.UTF8String);
+  }];
+}
+
 - (void)createWorkspaceDirectory:(id)sender {
   (void)sender;
   NSAlert *alert = [[[NSAlert alloc] init] autorelease];
@@ -3690,6 +3737,25 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       NSString *command = [NSString stringWithFormat:@"workspaceCreateDirectory:%@", field.stringValue];
       g_command_callback(command.UTF8String);
     }
+  }];
+}
+
+- (void)createWorkspaceDirectoryAtContext:(id)sender {
+  (void)sender;
+  if (g_workspace_context_path.length == 0) return;
+  NSString *base = g_workspace_context_is_directory ? g_workspace_context_path :
+    g_workspace_context_path.stringByDeletingLastPathComponent;
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+  alert.messageText = @"New Folder";
+  NSTextField *field = [self workspacePathField:@"Folder name or relative path"];
+  alert.accessoryView = field;
+  [alert addButtonWithTitle:@"Create"];
+  [alert addButtonWithTitle:@"Cancel"];
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (response != NSAlertFirstButtonReturn || !g_command_callback || field.stringValue.length == 0) return;
+    NSString *path = [base stringByAppendingPathComponent:field.stringValue];
+    NSString *command = [NSString stringWithFormat:@"workspaceCreateDirectory:%@", path];
+    g_command_callback(command.UTF8String);
   }];
 }
 
@@ -3716,6 +3782,26 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }];
 }
 
+- (void)renameWorkspaceContextEntry:(id)sender {
+  (void)sender;
+  if (g_workspace_context_path.length == 0) return;
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+  alert.messageText = @"Rename";
+  NSTextField *field = [self workspacePathField:@"New name"];
+  field.stringValue = g_workspace_context_path.lastPathComponent ?: @"";
+  alert.accessoryView = field;
+  [alert addButtonWithTitle:@"Rename"];
+  [alert addButtonWithTitle:@"Cancel"];
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (response != NSAlertFirstButtonReturn || !g_command_callback || field.stringValue.length == 0) return;
+    NSString *renamed = [g_workspace_context_path.stringByDeletingLastPathComponent
+      stringByAppendingPathComponent:field.stringValue];
+    NSString *command = [NSString stringWithFormat:@"workspaceRename:%@\x1f%@",
+      g_workspace_context_path, renamed];
+    g_command_callback(command.UTF8String);
+  }];
+}
+
 - (void)deleteWorkspaceEntry:(id)sender {
   (void)sender;
   NSAlert *alert = [[[NSAlert alloc] init] autorelease];
@@ -3732,6 +3818,32 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       g_command_callback(command.UTF8String);
     }
   }];
+}
+
+- (void)deleteWorkspaceContextEntry:(id)sender {
+  (void)sender;
+  if (g_workspace_context_path.length == 0) return;
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+  alert.messageText = [NSString stringWithFormat:@"Delete “%@”?", g_workspace_context_path.lastPathComponent];
+  alert.informativeText = g_workspace_context_is_directory
+    ? @"Deleting a folder requires it to be empty." : @"This cannot be undone.";
+  alert.alertStyle = NSAlertStyleWarning;
+  [alert addButtonWithTitle:@"Delete"];
+  [alert addButtonWithTitle:@"Cancel"];
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (response == NSAlertFirstButtonReturn && g_command_callback) {
+      NSString *command = [NSString stringWithFormat:@"workspaceDelete:%@", g_workspace_context_path];
+      g_command_callback(command.UTF8String);
+    }
+  }];
+}
+
+- (void)revealWorkspaceContextEntry:(id)sender {
+  (void)sender;
+  if (g_workspace_context_path.length > 0) {
+    [[NSWorkspace sharedWorkspace] selectFile:g_workspace_context_path
+      inFileViewerRootedAtPath:@""];
+  }
 }
 
 - (void)saveDocument:(id)sender {
@@ -4691,6 +4803,27 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
   }
 }
 
+bool nimculus_platform_validate_sidebar_context_dispatch(void) {
+  @autoreleasepool {
+    NimculusCommandCallback previousCallback = g_command_callback;
+    uint32_t previousMode = g_editor_sidebar_mode;
+    uint32_t previousCount = g_editor_outline_symbol_count;
+    g_validation_command[0] = '\0';
+    g_command_callback = validationCommandCallback;
+    g_editor_sidebar_mode = 1;
+    g_editor_outline_symbol_count = 2;
+    NimculusOutlineOverlay *sidebar = [[NimculusOutlineOverlay alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 180.0, 100.0)];
+    [sidebar dispatchSidebarContext:1];
+    BOOL valid = strcmp(g_validation_command, "sidebarContext:1") == 0;
+    [sidebar release];
+    g_editor_outline_symbol_count = previousCount;
+    g_editor_sidebar_mode = previousMode;
+    g_command_callback = previousCallback;
+    return valid;
+  }
+}
+
 bool nimculus_platform_validate_sidebar_scroll_container(void) {
   @autoreleasepool {
     id previousView = g_active_view;
@@ -5488,6 +5621,27 @@ void nimculus_platform_set_selection_callback(NimculusSelectionCallback callback
 void nimculus_platform_set_file_callback(NimculusFileCallback callback) {
   g_file_callback = callback;
   flushPendingFileOpenPaths();
+}
+void nimculus_platform_show_workspace_entry_context(const char *path, bool is_directory) {
+  if (!path || path[0] == '\0') return;
+  replaceOwnedString(&g_workspace_context_path, [NSString stringWithUTF8String:path]);
+  g_workspace_context_is_directory = is_directory ? YES : NO;
+  NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
+  if (!delegate) return;
+  NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Workspace Entry"] autorelease];
+  if (!g_workspace_context_is_directory) {
+    [menu addItemWithTitle:@"Open" action:@selector(dispatchOpenWorkspaceContextEntry:) keyEquivalent:@""];
+  }
+  [menu addItemWithTitle:@"Reveal in Finder" action:@selector(revealWorkspaceContextEntry:) keyEquivalent:@""];
+  [menu addItem:[NSMenuItem separatorItem]];
+  [menu addItemWithTitle:@"New File…" action:@selector(createWorkspaceFileAtContext:) keyEquivalent:@""];
+  [menu addItemWithTitle:@"New Folder…" action:@selector(createWorkspaceDirectoryAtContext:) keyEquivalent:@""];
+  [menu addItem:[NSMenuItem separatorItem]];
+  [menu addItemWithTitle:@"Rename…" action:@selector(renameWorkspaceContextEntry:) keyEquivalent:@""];
+  NSMenuItem *delete = [menu addItemWithTitle:@"Delete…" action:@selector(deleteWorkspaceContextEntry:) keyEquivalent:@""];
+  delete.keyEquivalentModifierMask = 0;
+  for (NSMenuItem *item in menu.itemArray) item.target = delegate;
+  [menu popUpMenuPositioningItem:nil atLocation:[NSEvent mouseLocation] inView:nil];
 }
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback) { g_command_callback = callback; }
 void nimculus_platform_set_idle_callback(NimculusIdleCallback callback) { g_idle_callback = callback; }

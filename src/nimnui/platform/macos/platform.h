@@ -30,6 +30,7 @@ bool nimculus_platform_validate_color_emoji_fallback(void);
 bool nimculus_platform_validate_color_emoji_sequences(void);
 bool nimculus_platform_validate_terminal_overlay_runs(void);
 bool nimculus_platform_validate_sidebar_dispatch(void);
+bool nimculus_platform_validate_sidebar_context_dispatch(void);
 bool nimculus_platform_validate_sidebar_scroll_container(void);
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics);
 typedef struct NimculusInputLatencyStats {
@@ -73,6 +74,7 @@ void nimculus_platform_set_shortcut_callback(NimculusShortcutCallback callback);
 void nimculus_platform_set_text_callback(NimculusTextCallback callback);
 void nimculus_platform_set_selection_callback(NimculusSelectionCallback callback);
 void nimculus_platform_set_file_callback(NimculusFileCallback callback);
+void nimculus_platform_show_workspace_entry_context(const char *path, bool is_directory);
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback);
 void nimculus_platform_set_idle_callback(NimculusIdleCallback callback);
 void nimculus_platform_set_editor_cursor(double x, double y);

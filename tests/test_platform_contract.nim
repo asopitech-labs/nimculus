@@ -339,6 +339,9 @@ suite "macOS platform contract":
   test "sidebar rows dispatch a stable item index to Nim":
     check platformValidateSidebarDispatch()
 
+  test "Files sidebar dispatches a native context-menu item":
+    check platformValidateSidebarContextDispatch()
+
   test "sidebar supports scrolling long file and Git history lists":
     check platformValidateSidebarScrollContainer()
 

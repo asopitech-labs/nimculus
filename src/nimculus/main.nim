@@ -4008,6 +4008,18 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         of sidebarOutline: discard
       except ValueError:
         editorViewState.statusMessage = "Invalid sidebar item"
+  elif name.startsWith("sidebarContext:"):
+    when defined(macosx):
+      try:
+        let index = parseInt(name[15 .. ^1])
+        if editorSidebarMode == sidebarFiles and index >= 0 and index < workspacePreviewEntries.len:
+          let entry = workspacePreviewEntries[index]
+          discard editorWorkspaceUi.selectPanelItem(panelFiles, index)
+          syncNativeSidebarSelection()
+          platformShowWorkspaceEntryContext(entry.path.cstring,
+            entry.kind == WorkspaceFileKind.directory)
+      except ValueError:
+        editorViewState.statusMessage = "Invalid workspace context item"
   elif name.startsWith("workspaceSearch:"):
     showWorkspaceSearch(name[16 .. ^1])
   elif name.startsWith("quickOpen:"):
