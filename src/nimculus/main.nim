@@ -1602,6 +1602,38 @@ proc refreshWorkspaceAfterMutation(message: string) =
       editorViewState.statusMessage = message
       refreshWorkspacePreview()
 
+proc revealActiveDocumentInWorkspace() =
+  ## Expand only the ancestors of the active document. This follows the
+  ## project-panel reveal behavior without eagerly traversing a large root.
+  if activeWorkspace == nil:
+    editorViewState.statusMessage = "Workspace not open"
+    return
+  let document = activeDocument()
+  if document == nil or document[].path.len == 0:
+    editorViewState.statusMessage = "Active document has no file path"
+    return
+  let documentPath = canonicalOpenPath(document[].path)
+  var matched = false
+  for configuredRoot in activeWorkspace.rootPaths:
+    let root = canonicalOpenPath(configuredRoot)
+    let prefix = root / ""
+    if documentPath == root or documentPath.startsWith(prefix):
+      matched = true
+      var directory = documentPath.parentDir
+      while true:
+        if directory notin workspaceExpandedDirectories:
+          workspaceExpandedDirectories.add(directory)
+        if directory == root: break
+        let parent = directory.parentDir
+        if parent == directory or not parent.startsWith(prefix): break
+        directory = parent
+      break
+  if not matched:
+    editorViewState.statusMessage = "Active file is outside the workspace"
+    return
+  refreshWorkspacePreview()
+  editorViewState.statusMessage = "Revealed " & documentPath.extractFilename
+
 proc workspaceRelativePayload(name, prefix: string): string =
   if not name.startsWith(prefix) or name.len <= prefix.len: return ""
   name[prefix.len .. ^1].strip
@@ -3082,6 +3114,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command.startsWith("workspace search "): "__workspace_search__"
       elif command.startsWith("quick open "): "__quick_open__"
       elif command in ["show files", "show explorer", "show project"]: "__show_files__"
+      elif command in ["reveal active file", "reveal in files", "reveal in explorer"]:
+        "__reveal_active_file__"
       elif command in ["show outline", "show symbols"]: "__show_outline__"
       elif command == "open settings": "openSettings"
       elif command in ["toggle soft wrap", "toggle word wrap"]: "toggleSoftWrap"
@@ -3319,6 +3353,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "Workspace not open"
         else:
           refreshWorkspacePreview()
+    of "__reveal_active_file__":
+      when defined(macosx): revealActiveDocumentInWorkspace()
     of "__show_outline__":
       when defined(macosx):
         editorSidebarMode = sidebarOutline

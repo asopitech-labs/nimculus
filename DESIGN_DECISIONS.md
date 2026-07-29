@@ -4413,3 +4413,14 @@ branch is intentionally inert.
 This keeps the existing clean-tab reload and Git worktree safety behavior
 while providing a discoverable macOS interaction instead of requiring users
 to type a branch name into the command palette.
+
+## M6-018: Reveal the active file by expanding only its ancestor chain
+
+Zed's Project Panel reveals the active file rather than forcing users to
+manually expand every directory. Nimculus adds the same command-palette
+behavior for workspace files: it finds the owning root, expands that root and
+the document's directory ancestors, then refreshes the existing bounded lazy
+tree.
+
+No full workspace traversal is introduced. Files outside all configured roots
+remain unopened in the tree and produce a clear status message instead.
