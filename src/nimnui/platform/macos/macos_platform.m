@@ -107,6 +107,7 @@ static uint32_t g_editor_outline_symbol_count = 0;
 // dispatch sidebarItem:N.
 static uint32_t g_editor_sidebar_mode = 0;
 static BOOL g_editor_sidebar_visible = YES;
+static NSUInteger g_editor_sidebar_selected_index = NSNotFound;
 static NSString *g_theme_background = @"#1f2329";
 static NSString *g_theme_foreground = @"#d7dae0";
 static NSString *g_theme_accent = @"#4daafc";
@@ -1872,27 +1873,63 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @end
 
 @implementation NimculusOutlineOverlay
-- (BOOL)acceptsFirstResponder { return NO; }
+- (BOOL)acceptsFirstResponder { return YES; }
 - (NSView *)hitTest:(NSPoint)point {
   return NSPointInRect(point, self.bounds) ? self : nil;
 }
-- (void)dispatchSidebarLine:(NSUInteger)line {
-  if (g_editor_outline_symbol_count == 0 || !g_command_callback || line < 2) return;
-  NSUInteger symbolIndex = line - 2;
-  if (symbolIndex >= g_editor_outline_symbol_count) return;
-  NSString *command = g_editor_sidebar_mode == 0 ?
-    [NSString stringWithFormat:@"commandPalette:open symbol %lu", (unsigned long)symbolIndex + 1] :
-    [NSString stringWithFormat:@"sidebarItem:%lu", (unsigned long)symbolIndex];
+- (NSUInteger)sidebarItemForLine:(NSUInteger)line {
+  if (g_editor_outline_symbol_count == 0 || line < 2) return NSNotFound;
+  NSUInteger item = line - 2;
+  return item < g_editor_outline_symbol_count ? item : NSNotFound;
+}
+- (void)dispatchSidebarSelection:(NSUInteger)item {
+  if (item == NSNotFound || !g_command_callback) return;
+  NSString *command = [NSString stringWithFormat:@"sidebarSelect:%lu", (unsigned long)item];
   g_command_callback(command.UTF8String);
 }
+- (void)dispatchSidebarOpen:(NSUInteger)item {
+  if (item == NSNotFound || !g_command_callback) return;
+  NSString *command = g_editor_sidebar_mode == 0 ?
+    [NSString stringWithFormat:@"commandPalette:open symbol %lu", (unsigned long)item + 1] :
+    [NSString stringWithFormat:@"sidebarOpen:%lu", (unsigned long)item];
+  g_command_callback(command.UTF8String);
+}
+- (void)dispatchSidebarLine:(NSUInteger)line open:(BOOL)open {
+  NSUInteger item = [self sidebarItemForLine:line];
+  if (open) [self dispatchSidebarOpen:item];
+  else [self dispatchSidebarSelection:item];
+}
 - (void)mouseDown:(NSEvent *)event {
+  [self.window makeFirstResponder:self];
   NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
   NSUInteger index = [self characterIndexForInsertionAtPoint:point];
   NSUInteger line = 0;
   for (NSUInteger offset = 0; offset < MIN(index, self.string.length); offset++) {
     if ([self.string characterAtIndex:offset] == '\n') line++;
   }
-  [self dispatchSidebarLine:line];
+  [self dispatchSidebarLine:line open:NO];
+}
+- (void)mouseUp:(NSEvent *)event {
+  if (event.clickCount < 2) return;
+  NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+  NSUInteger index = [self characterIndexForInsertionAtPoint:point];
+  NSUInteger line = 0;
+  for (NSUInteger offset = 0; offset < MIN(index, self.string.length); offset++) {
+    if ([self.string characterAtIndex:offset] == '\n') line++;
+  }
+  [self dispatchSidebarLine:line open:YES];
+}
+- (void)keyDown:(NSEvent *)event {
+  if (!g_command_callback) { [super keyDown:event]; return; }
+  const unsigned short key = event.keyCode;
+  const char *command = key == 126 ? "sidebarPrevious" :
+    key == 125 ? "sidebarNext" : key == 115 ? "sidebarFirst" :
+    key == 119 ? "sidebarLast" : (key == 36 || key == 76) ? "sidebarOpenSelected" : NULL;
+  if (command) {
+    g_command_callback(command);
+    return;
+  }
+  [super keyDown:event];
 }
 @end
 
@@ -2259,7 +2296,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     NimculusOutlineOverlay *outline = [[NimculusOutlineOverlay alloc]
       initWithFrame:NSZeroRect];
     outline.editable = NO;
-    outline.selectable = NO;
+    outline.selectable = YES;
     outline.drawsBackground = YES;
     outline.backgroundColor = [themeHexColor(g_theme_background,
       [NSColor colorWithCalibratedRed:0.045 green:0.055 blue:0.075 alpha:1.0])
@@ -4395,8 +4432,11 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
     g_editor_outline_symbol_count = 2;
     NimculusOutlineOverlay *sidebar = [[NimculusOutlineOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 180.0, 100.0)];
-    [sidebar dispatchSidebarLine:3];
-    BOOL valid = strcmp(g_validation_command, "sidebarItem:1") == 0;
+    [sidebar dispatchSidebarLine:3 open:NO];
+    BOOL selected = strcmp(g_validation_command, "sidebarSelect:1") == 0;
+    [sidebar dispatchSidebarLine:3 open:YES];
+    BOOL opened = strcmp(g_validation_command, "sidebarOpen:1") == 0;
+    BOOL valid = selected && opened;
     [sidebar release];
     g_editor_outline_symbol_count = previousCount;
     g_editor_sidebar_mode = previousMode;
@@ -4407,11 +4447,29 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
 
 bool nimculus_platform_validate_sidebar_scroll_container(void) {
   @autoreleasepool {
+    id previousView = g_active_view;
+    NSString *previousText = [g_editor_outline_text retain];
+    uint32_t previousMode = g_editor_sidebar_mode;
+    uint32_t previousCount = g_editor_outline_symbol_count;
+    NSUInteger previousSelection = g_editor_sidebar_selected_index;
     NimculusMetalView *view = [[NimculusMetalView alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 480.0)];
     NimculusOutlineOverlay *sidebar = outlineOverlayForView(view);
+    g_active_view = view;
+    const char *text = "Files\n────────\nsrc\nmain.nim";
+    nimculus_platform_set_editor_sidebar(text, (uint32_t)strlen(text), 2, 1);
+    nimculus_platform_set_editor_sidebar_selection(1);
+    NSString *selected = sidebar.string && sidebar.selectedRange.location != NSNotFound
+      ? [sidebar.string substringWithRange:sidebar.selectedRange] : @"";
     BOOL valid = sidebar && sidebar.enclosingScrollView &&
-      sidebar.enclosingScrollView.hasVerticalScroller;
+      sidebar.enclosingScrollView.hasVerticalScroller && [selected isEqualToString:@"main.nim"];
+    replaceOwnedUTF8String(&g_editor_outline_text, previousText.UTF8String,
+      (uint32_t)[previousText lengthOfBytesUsingEncoding:NSUTF8StringEncoding], @"");
+    g_editor_sidebar_mode = previousMode;
+    g_editor_outline_symbol_count = previousCount;
+    g_editor_sidebar_selected_index = previousSelection;
+    g_active_view = previousView;
+    [previousText release];
     [view release];
     return valid;
   }
@@ -5649,8 +5707,42 @@ void nimculus_platform_set_editor_sidebar(const char *utf8, uint32_t length,
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
   NimculusOutlineOverlay *outline = outlineOverlayForView(view);
-  if (outline) outline.string = g_editor_outline_text;
+  if (outline) {
+    outline.string = g_editor_outline_text;
+    nimculus_platform_set_editor_sidebar_selection(
+      g_editor_sidebar_selected_index == NSNotFound ? UINT32_MAX :
+      (uint32_t)g_editor_sidebar_selected_index);
+  }
   [view updateTerminalFrame];
+}
+void nimculus_platform_set_editor_sidebar_selection(uint32_t item_index) {
+  g_editor_sidebar_selected_index = item_index == UINT32_MAX ? NSNotFound : item_index;
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  NimculusOutlineOverlay *outline = outlineOverlayForView(view);
+  if (!outline) return;
+  if (g_editor_sidebar_selected_index == NSNotFound ||
+      g_editor_sidebar_selected_index >= g_editor_outline_symbol_count) {
+    [outline setSelectedRange:NSMakeRange(0, 0)];
+    return;
+  }
+  NSUInteger line = g_editor_sidebar_selected_index + 2;
+  NSUInteger start = 0;
+  for (NSUInteger current = 0; current < line && start < outline.string.length; current++) {
+    NSRange newline = [outline.string rangeOfString:@"\n" options:0
+      range:NSMakeRange(start, outline.string.length - start)];
+    if (newline.location == NSNotFound) { start = outline.string.length; break; }
+    start = NSMaxRange(newline);
+  }
+  NSUInteger end = start;
+  while (end < outline.string.length && [outline.string characterAtIndex:end] != '\n') end++;
+  if (start >= outline.string.length) {
+    [outline setSelectedRange:NSMakeRange(0, 0)];
+    return;
+  }
+  NSRange range = NSMakeRange(start, end - start);
+  [outline setSelectedRange:range];
+  [outline scrollRangeToVisible:range];
 }
 void nimculus_platform_set_editor_sidebar_visible(bool visible) {
   g_editor_sidebar_visible = visible ? YES : NO;

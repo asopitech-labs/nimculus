@@ -48,6 +48,15 @@ type
     size*: float32
     minimumSize*: float32
 
+  PanelListState* = object
+    ## A panel owns its selection independently from the text presenter. Keys
+    ## are stable identities (workspace path, commit hash, branch name), not
+    ## rendered row text, so a refresh can retain the user's current item.
+    itemKeys*: seq[string]
+    selectedKey*: string
+    selectedIndex*: int
+    focused*: bool
+
   WorkspaceLayout* = object
     leftDock*, center*, bottomDock*, status*: Rect
 
@@ -65,6 +74,7 @@ type
 
   WorkspaceUiState* = object
     leftDock*, bottomDock*: DockState
+    panelLists*: array[PanelKind, PanelListState]
     center*: PaneTree
     focusedRegion*: WorkspaceRegion
     focusedPane*: PaneId
@@ -99,6 +109,8 @@ proc initWorkspaceUi*(tabCount = 0, activeTab = -1): WorkspaceUiState =
     activePanel: panelTerminal, size: DefaultBottomDockHeight,
     minimumSize: DefaultDockMinimumSize)
   result.center = newPane(1, tabs, activeTab)
+  for panel in PanelKind:
+    result.panelLists[panel].selectedIndex = -1
   result.focusedRegion = regionCenter
   result.focusedPane = PaneId(1)
   result.nextPaneId = 2
@@ -158,6 +170,61 @@ proc togglePanel*(state: var WorkspaceUiState, panel: PanelKind) =
       state.focusedRegion = regionCenter
   else:
     state.openPanel(panel)
+
+proc panelList*(state: WorkspaceUiState, panel: PanelKind): PanelListState =
+  state.panelLists[panel]
+
+proc panelSelectedIndex*(state: WorkspaceUiState, panel: PanelKind): int =
+  state.panelLists[panel].selectedIndex
+
+proc replacePanelItems*(state: var WorkspaceUiState, panel: PanelKind,
+                        itemKeys: openArray[string]) =
+  ## Preserve a selected entry across refresh by identity rather than row
+  ## position. A refresh that removes the selected item leaves no implicit
+  ## selection; the next navigation command chooses the first available row.
+  var list = addr state.panelLists[panel]
+  list[].itemKeys = @itemKeys
+  list[].selectedIndex = -1
+  if list[].selectedKey.len > 0:
+    for index, key in list[].itemKeys:
+      if key == list[].selectedKey:
+        list[].selectedIndex = index
+        break
+  if list[].selectedIndex < 0:
+    list[].selectedKey = ""
+
+proc selectPanelItem*(state: var WorkspaceUiState, panel: PanelKind,
+                      index: int): bool =
+  var list = addr state.panelLists[panel]
+  if index < 0 or index >= list[].itemKeys.len: return false
+  list[].selectedIndex = index
+  list[].selectedKey = list[].itemKeys[index]
+  list[].focused = true
+  if panelBelongsTo(panel, dockLeft):
+    state.leftDock.activePanel = panel
+    state.leftDock.isOpen = true
+    state.focusedRegion = regionLeftDock
+  else:
+    state.bottomDock.activePanel = panel
+    state.bottomDock.isOpen = true
+    state.focusedRegion = regionBottomDock
+  true
+
+proc movePanelSelection*(state: var WorkspaceUiState, panel: PanelKind,
+                         delta: int): bool =
+  let list = state.panelLists[panel]
+  if list.itemKeys.len == 0: return false
+  let target = if list.selectedIndex < 0:
+      if delta < 0: list.itemKeys.high else: 0
+    else:
+      max(0, min(list.itemKeys.high, list.selectedIndex + delta))
+  state.selectPanelItem(panel, target)
+
+proc selectPanelBoundary*(state: var WorkspaceUiState, panel: PanelKind,
+                          last: bool): bool =
+  let list = state.panelLists[panel]
+  if list.itemKeys.len == 0: return false
+  state.selectPanelItem(panel, if last: list.itemKeys.high else: 0)
 
 proc focusCenter*(state: var WorkspaceUiState) =
   state.focusedRegion = regionCenter

@@ -2,6 +2,7 @@ import std/algorithm
 import std/json
 import std/math
 import std/os
+import std/sequtils
 import std/strutils
 import std/times
 import std/unicode except splitWhitespace
@@ -465,6 +466,18 @@ var workspaceRevealPath = ""
 type EditorSidebarMode = enum
   sidebarOutline, sidebarFiles, sidebarGitHistory, sidebarGitStatus, sidebarGitBranches
 var editorSidebarMode = sidebarOutline
+
+proc workspacePanelForSidebarMode(mode: EditorSidebarMode): PanelKind =
+  case mode
+  of sidebarFiles: panelFiles
+  of sidebarGitHistory, sidebarGitStatus, sidebarGitBranches: panelGit
+  of sidebarOutline: panelOutline
+
+when defined(macosx):
+  proc syncNativeSidebarSelection() =
+    let index = editorWorkspaceUi.panelSelectedIndex(
+      workspacePanelForSidebarMode(editorSidebarMode))
+    platformSetEditorSidebarSelection(if index < 0: uint32.high else: uint32(index))
 var externalAlertShown = false
 var editorPointerDragging = false
 var editorPointerPane = 0
@@ -636,9 +649,11 @@ when defined(macosx):
       for commit in commits:
         let shortHash = if commit.hash.len > 8: commit.hash[0 .. 7] else: commit.hash
         lines.add(shortHash & "  " & commit.subject & " — " & commit.author)
+    editorWorkspaceUi.replacePanelItems(panelGit, commits.mapIt(it.hash))
     let text = lines.join("\n")
     platformSetEditorSidebar(text.cstring, uint32(text.len), uint32(commits.len),
       uint32(sidebarGitHistory))
+    syncNativeSidebarSelection()
 
   proc renderNativeGitBlame(entries: seq[GitBlameLine], path: string) =
     ## Zed renders inline blame when space permits. The native output panel is
@@ -685,8 +700,11 @@ when defined(macosx):
     if editorGitStatusEntries.len > MaxPanelEntries:
       editorGitStatusEntries.setLen(MaxPanelEntries)
     let sidebarText = lines.join("\n")
+    editorWorkspaceUi.replacePanelItems(panelGit,
+      editorGitStatusEntries.mapIt($it.indexStatus & $it.worktreeStatus & "\x1f" & it.path))
     platformSetEditorSidebar(sidebarText.cstring, uint32(sidebarText.len),
       uint32(editorGitStatusEntries.len), uint32(sidebarGitStatus))
+    syncNativeSidebarSelection()
 
   proc renderNativeGitBranches(branches: seq[GitBranch]) =
     editorWorkspaceUi.openPanel(panelGit)
@@ -697,9 +715,11 @@ when defined(macosx):
     for branch in branches:
       lines.add((if branch.current: "● " else: "  ") & branch.name)
     if branches.len == 0: lines.add("No local branches")
+    editorWorkspaceUi.replacePanelItems(panelGit, branches.mapIt(it.name))
     let text = lines.join("\n")
     platformSetEditorSidebar(text.cstring, uint32(text.len), uint32(branches.len),
       uint32(sidebarGitBranches))
+    syncNativeSidebarSelection()
 
   proc reloadCleanDocumentsForBranch(repository: GitRepository): int =
     ## Git switches update the working tree atomically from the editor's point
@@ -1690,8 +1710,11 @@ proc refreshWorkspacePreview() =
         appendDirectory(root, "", 1)
     let text = lines.join("\n")
     when defined(macosx):
+      editorWorkspaceUi.replacePanelItems(panelFiles,
+        workspacePreviewEntries.mapIt(it.path))
       platformSetEditorSidebar(text.cstring, uint32(text.len),
         uint32(workspacePreviewEntries.len), uint32(sidebarFiles))
+      syncNativeSidebarSelection()
     else:
       # The macOS sidebar is intentionally native-only until another platform
       # needs the same interaction contract. Keep the established Win32
@@ -3699,11 +3722,38 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "keepExternal" and document != nil:
     document[].acceptExternalState()
     externalAlertShown = false
-  elif name.startsWith("sidebarItem:"):
+  elif name.startsWith("sidebarSelect:"):
+    when defined(macosx):
+      try:
+        let index = parseInt(name[14 .. ^1])
+        if editorWorkspaceUi.selectPanelItem(workspacePanelForSidebarMode(editorSidebarMode), index):
+          syncNativeSidebarSelection()
+      except ValueError:
+        editorViewState.statusMessage = "Invalid sidebar selection"
+  elif name in ["sidebarPrevious", "sidebarNext", "sidebarFirst", "sidebarLast"]:
+    when defined(macosx):
+      let panel = workspacePanelForSidebarMode(editorSidebarMode)
+      let changed = case name
+        of "sidebarPrevious": editorWorkspaceUi.movePanelSelection(panel, -1)
+        of "sidebarNext": editorWorkspaceUi.movePanelSelection(panel, 1)
+        of "sidebarFirst": editorWorkspaceUi.selectPanelBoundary(panel, last = false)
+        else: editorWorkspaceUi.selectPanelBoundary(panel, last = true)
+      if changed: syncNativeSidebarSelection()
+  elif name == "sidebarOpenSelected":
+    when defined(macosx):
+      let index = editorWorkspaceUi.panelSelectedIndex(
+        workspacePanelForSidebarMode(editorSidebarMode))
+      if index >= 0:
+        receiveNativeCommand(("sidebarOpen:" & $index).cstring)
+  elif name.startsWith("sidebarItem:") or name.startsWith("sidebarOpen:"):
     when defined(macosx):
       let payload = name[12 .. ^1]
       try:
         let index = parseInt(payload)
+        if editorSidebarMode != sidebarOutline:
+          discard editorWorkspaceUi.selectPanelItem(
+            workspacePanelForSidebarMode(editorSidebarMode), index)
+          syncNativeSidebarSelection()
         case editorSidebarMode
         of sidebarFiles:
           if index >= 0 and index < workspacePreviewEntries.len:

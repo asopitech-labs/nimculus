@@ -243,3 +243,62 @@ index、line count を同時に切り替えなければならない。
 
 この監査を満たすまで、任意深さの第三ペイン、見た目だけの tab bar、別の UI 機能へは
 進まない。Pane ごとの文書・入力の正しさが、Zed に寄せる UI/UX の基本契約だからである。
+
+## 追加監査: Project Panel と Git list の操作契約（2026-07-29）
+
+ファイラと Git 履歴を実用的な左 Dock にする前に、Zed の Project Panel / Git Panel と
+Nimculus の native sidebar を照合した。
+
+### Zed の一次実装
+
+- `ProjectPanel` は `selection`、複数選択、visible entries、展開状態、scroll handle、
+  focus handle を所有する。`Open`、`OpenPermanent`、vertical/horizontal split、new file、
+  new directory は選択状態を起点に処理する。
+- `open_internal` は選択がファイルなら対象 Pane へ開き、ディレクトリなら展開を切り替える。
+  同じ操作がキーボード、クリック、コンテキストメニューから到達する。
+- `GitPanel` は Changes / History、選択中 entry、next/previous/first/last、tree 展開、
+  staged/unstaged diff を action として持つ。表示行が action を決めるのではない。
+
+参照箇所:
+
+- `references/zed/crates/project_panel/src/project_panel.rs`
+  (`ProjectPanel`, `select_previous`, `open_internal`, `open_entry`)
+- `references/zed/crates/git_ui/src/git_panel.rs`
+  (Git panel actions)
+
+### Nimculus の差分
+
+現在の `refreshWorkspacePreview` と Git renderer は、行を文字列へ直列化し、AppKit の
+`NSTextView` overlay が click index を `sidebarItem:N` として返す。ファイルを開く、
+ディレクトリ展開、commit show、status file open、branch switch は実装済みだが、次が
+欠けている。
+
+| 要件 | 現在 | 必要な状態／action |
+| --- | --- | --- |
+| 選択行の可視フィードバック | なし | panel ごとの selected item key / index |
+| Up / Down / Home / End | なし | selection move actions |
+| Enter で開く／展開 | なし | selection と open を分離 |
+| click の意味 | 即時 open | select、double-click / Enter で open |
+| フォーカス | Cocoa overlay は focus を拒否 | Dock focus と native responder の同期 |
+| refresh 後の選択 | 暗黙に失う | stable item key で選択を復元 |
+
+Metal renderer は workspace panel/background/separator を描く一方、任意 UI text の
+`PaintKind.text` はまだ placeholder である。従ってこの段階で AppKit text overlay を
+取り除くと、操作可能なファイラ／Git 表示を失う。Cocoa presenter は移行中の text raster
+surfaceとして残し、状態・操作・hit mapping はプラットフォーム非依存の
+`WorkspaceUiState` に置く。GPU text renderer が完成した時点で、同じ state/action を
+Metal renderer へ投影して presenter だけを置換する。
+
+### 採用する最小縦切り
+
+1. `WorkspaceUiState` に panel ごとの list selection（stable key、選択 index、focus）を
+   持たせ、items refresh が key を保つ限り選択を保持する。
+2. Cocoa sidebar は click で select、double-click か Enter で open、矢印／Home／End で
+   move command を dispatch する。Nim が state を更新して選択表示を送り返す。
+3. Files と Git の履歴／status／branches は共通の selection action を使うが、open action
+   はそれぞれの domain handler に委譲する。
+4. model test は item refresh、境界移動、panel 間の独立選択を確認し、native contract は
+   selected row と keyboard dispatch を確認する。
+
+この縦切りにより、ファイラと Git は「クリック時だけ動く文字列」ではなく、ユーザーが
+現在位置を見て、キーボードとポインターを併用できる UI になる。

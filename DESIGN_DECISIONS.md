@@ -4554,3 +4554,30 @@ API-by-API audit is recorded in `docs/ZED_UI_ARCHITECTURE_RESEARCH.md`.
 primary and secondary UTF-8 documents, including newlines and a surrogate pair.
 Tests that give both panes the same text cannot detect the class of failures this
 decision prevents.
+
+## UI-006: Dock list selection is application state, not a text-overlay side effect
+
+**Context.** The first macOS workspace presenter serializes file and Git entries
+into an `NSTextView` overlay. It can map a clicked row to an action, but it does
+not represent selected rows, keyboard navigation, or persistent focus. Zed's
+Project Panel and Git Panel instead own selection and dispatch open/navigation
+actions from it.
+
+**Decision.** `WorkspaceUiState` owns independent list selection state for each
+left-dock panel. Item refreshes accept stable keys and retain the selected key
+when possible. The Cocoa text surface is a temporary presenter only: it sends
+select/open/navigation intents and receives the selected row to render. Files,
+Git history, Git status, and branches share list-selection mechanics while
+retaining domain-specific open actions.
+
+**Evidence.** Zed's `ProjectPanel` holds selection, visible entries and focus,
+then uses `open_internal` to distinguish opening a file from toggling a
+directory. Its Git panel similarly exposes selection navigation as actions.
+Nimculus' current Metal text paint is intentionally a placeholder, so replacing
+the native text presenter before GPU text rendering exists would regress the
+usable macOS UI. The source audit is in `docs/ZED_UI_ARCHITECTURE_RESEARCH.md`.
+
+**Consequences.** A click selects first; double-click or Enter activates the
+selected entry. Up, Down, Home, and End operate through the same state and show
+selection feedback. A future GPU text renderer can replace Cocoa rendering
+without changing workspace behavior.
