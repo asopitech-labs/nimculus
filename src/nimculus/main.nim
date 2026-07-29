@@ -3892,6 +3892,44 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     if metrics.heightPoints > 0:
       uiY = float32(metrics.heightPoints) - float32(event.y)
   let point = Point(x: px(float32(event.x)), y: px(uiY))
+  when defined(macosx):
+    ## Dock resizing belongs to workspace composition, not to the editor text
+    ## presenter. Restrict capture to the divider so normal sidebar rows keep
+    ## their native click behavior while the user has a direct affordance for
+    ## persistent panel sizing.
+    let workspaceLayout = editorWorkspaceUi.layout(Size(
+      width: px(if metrics.widthPoints > 0: float32(metrics.widthPoints) else: 960'f32),
+      height: px(if metrics.heightPoints > 0: float32(metrics.heightPoints) else: 640'f32)))
+    let leftDividerX = float32(workspaceLayout.leftDock.origin.x + workspaceLayout.leftDock.size.width)
+    let bottomDividerY = float32(workspaceLayout.bottomDock.origin.y)
+    if editorWorkspaceUi.isResizingDock:
+      if kind == pointerMove:
+        if editorWorkspaceUi.resizingDock == dockLeft:
+          editorWorkspaceUi.resizeDock(dockLeft, float32(event.x), float32(metrics.widthPoints))
+        else:
+          editorWorkspaceUi.resizeDock(dockBottom,
+            float32(metrics.heightPoints) - uiY - DefaultStatusHeight,
+            float32(metrics.heightPoints))
+        setupDemoUi()
+        return
+      elif kind == pointerUp:
+        editorWorkspaceUi.endDockResize()
+        persistSession()
+        return
+    if kind == pointerDown and editorWorkspaceUi.leftDock.isOpen and
+        abs(float32(event.x) - leftDividerX) <= 4'f32:
+      editorWorkspaceUi.beginDockResize(dockLeft)
+      return
+    if kind == pointerDown and editorWorkspaceUi.bottomDock.isOpen and
+        abs(uiY - bottomDividerY) <= 4'f32:
+      editorWorkspaceUi.beginDockResize(dockBottom)
+      return
+    if kind == pointerDown:
+      case workspaceLayout.regionAt(point)
+      of regionLeftDock: editorWorkspaceUi.focusedRegion = regionLeftDock
+      of regionBottomDock: editorWorkspaceUi.focusedRegion = regionBottomDock
+      of regionCenter: editorWorkspaceUi.focusCenter()
+      else: discard
   let hit = demoTree.hitTest(point)
   let target = if kind in {keyDown, keyUp, modifiersChanged, command}:
     if demoTree.focused != NodeId(0): demoTree.focused else: hit
