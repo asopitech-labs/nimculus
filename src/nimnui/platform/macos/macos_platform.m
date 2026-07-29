@@ -1943,7 +1943,10 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   g_command_callback(command.UTF8String);
 }
 - (void)dispatchSidebarContext:(NSUInteger)item {
-  if (item == NSNotFound || !g_command_callback || g_editor_sidebar_mode == 0) return;
+  // Files, History, and Status have explicit row menus. Branches deliberately
+  // switch on activation only, so right-click must not emit a dead command.
+  if (item == NSNotFound || !g_command_callback || g_editor_sidebar_mode < 1 ||
+      g_editor_sidebar_mode > 3) return;
   NSString *command = [NSString stringWithFormat:@"sidebarContext:%lu", (unsigned long)item];
   g_command_callback(command.UTF8String);
 }
@@ -4942,7 +4945,18 @@ bool nimculus_platform_validate_sidebar_context_dispatch(void) {
     NimculusOutlineOverlay *sidebar = [[NimculusOutlineOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 180.0, 100.0)];
     [sidebar dispatchSidebarContext:1];
-    BOOL valid = strcmp(g_validation_command, "sidebarContext:1") == 0;
+    BOOL files = strcmp(g_validation_command, "sidebarContext:1") == 0;
+    g_editor_sidebar_mode = 2;
+    [sidebar dispatchSidebarContext:1];
+    BOOL history = strcmp(g_validation_command, "sidebarContext:1") == 0;
+    g_editor_sidebar_mode = 3;
+    [sidebar dispatchSidebarContext:1];
+    BOOL status = strcmp(g_validation_command, "sidebarContext:1") == 0;
+    g_editor_sidebar_mode = 4;
+    strcpy(g_validation_command, "unchanged");
+    [sidebar dispatchSidebarContext:1];
+    BOOL branches = strcmp(g_validation_command, "unchanged") == 0;
+    BOOL valid = files && history && status && branches;
     [sidebar release];
     g_editor_outline_symbol_count = previousCount;
     g_editor_sidebar_mode = previousMode;
