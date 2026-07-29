@@ -101,6 +101,7 @@ static uint32_t g_editor_outline_symbol_count = 0;
 // clickable Git status list, and 4 the Git branch picker. Non-outline modes
 // dispatch sidebarItem:N.
 static uint32_t g_editor_sidebar_mode = 0;
+static BOOL g_editor_sidebar_visible = YES;
 static NSString *g_theme_background = @"#1f2329";
 static NSString *g_theme_foreground = @"#d7dae0";
 static NSString *g_theme_accent = @"#4daafc";
@@ -2391,6 +2392,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     CGFloat width = MAX(180.0, g_editor_rect[0] - 12.0);
     NSScrollView *scroll = outline.enclosingScrollView;
     if (scroll) {
+      scroll.hidden = !g_editor_sidebar_visible;
       scroll.frame = NSMakeRect(8.0, g_editor_rect[1], width, g_editor_rect[3]);
       scroll.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
       outline.textContainer.containerSize = NSMakeSize(MAX(1.0, width - 16.0), CGFLOAT_MAX);
@@ -5580,6 +5582,15 @@ void nimculus_platform_set_editor_sidebar(const char *utf8, uint32_t length,
   NimculusOutlineOverlay *outline = outlineOverlayForView(view);
   if (outline) outline.string = g_editor_outline_text;
   [view updateTerminalFrame];
+}
+void nimculus_platform_set_editor_sidebar_visible(bool visible) {
+  g_editor_sidebar_visible = visible ? YES : NO;
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  NimculusOutlineOverlay *outline = outlineOverlayForView(view);
+  if (outline.enclosingScrollView) outline.enclosingScrollView.hidden = !g_editor_sidebar_visible;
+  [view updateTerminalFrame];
+  [view drawFrame];
 }
 void nimculus_platform_set_terminal_visible(bool visible) {
   g_terminal_visible = visible ? YES : NO;

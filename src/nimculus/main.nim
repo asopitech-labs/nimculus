@@ -345,6 +345,7 @@ proc setupDemoUi() =
   platformSetEditorRect(float64(float32(primaryEditor.origin.x)), float64(float32(primaryEditor.origin.y)),
                         float64(float32(primaryEditor.size.width)), float64(float32(primaryEditor.size.height)))
   when defined(macosx):
+    platformSetEditorSidebarVisible(editorWorkspaceUi.leftDock.isOpen)
     platformSetTerminalPanelRect(float64(float32(demoBottomDockBounds.origin.x)),
       float64(float32(demoBottomDockBounds.origin.y)),
       float64(float32(demoBottomDockBounds.size.width)),
@@ -3227,6 +3228,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command.startsWith("workspace search "): "__workspace_search__"
       elif command.startsWith("quick open "): "__quick_open__"
       elif command in ["show files", "show explorer", "show project"]: "__show_files__"
+      elif command in ["toggle files", "toggle explorer", "toggle project"]: "__toggle_files__"
       elif command in ["reveal active file", "reveal in files", "reveal in explorer"]:
         "__reveal_active_file__"
       elif command in ["show outline", "show symbols"]: "__show_outline__"
@@ -3485,9 +3487,16 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "__show_files__":
       when defined(macosx):
         editorWorkspaceUi.openPanel(panelFiles)
+        setupDemoUi()
         if activeWorkspace == nil:
           editorViewState.statusMessage = "Workspace not open"
         else:
+          refreshWorkspacePreview()
+    of "__toggle_files__":
+      when defined(macosx):
+        editorWorkspaceUi.togglePanel(panelFiles)
+        setupDemoUi()
+        if editorWorkspaceUi.leftDock.isOpen and activeWorkspace != nil:
           refreshWorkspacePreview()
     of "__reveal_active_file__":
       when defined(macosx): revealActiveDocumentInWorkspace()
