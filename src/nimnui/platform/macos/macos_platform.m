@@ -2484,10 +2484,16 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   NSArray<NSArray<NSString *> *> *buttons = g_workspace_open ? @[
     @[@"New File", @"createWorkspaceFile:"], @[@"New Folder", @"createWorkspaceDirectory:"]
   ] : @[@[@"Open Folder…", @"openWorkspaceFolder:"]];
-  for (NSArray<NSString *> *entry in buttons) {
+  for (NSUInteger index = 0; index < buttons.count; index++) {
+    NSArray<NSString *> *entry = buttons[index];
     NSButton *button = [NSButton buttonWithTitle:entry[0] target:self
       action:@selector(dispatchWorkspaceAction:)];
-    button.bezelStyle = NSBezelStyleTexturedRounded;
+    // The Files toolbar is part of the primary project workflow. Do not leave
+    // it to AppKit's low-contrast textured bezel on a dark editor surface.
+    // New File/Open Folder is the leading action; a second creation action is
+    // intentionally quieter but still fully readable.
+    styleWorkspaceNavigationButton(button, index == 0, NO);
+    button.toolTip = entry[0];
     button.identifier = entry[1];
     [self addArrangedSubview:button];
   }

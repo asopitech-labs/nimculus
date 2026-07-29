@@ -5155,3 +5155,16 @@ where a tab has enough width to render it.
 
 **Consequences.** Every open document remains reachable in the current editor
 surface without painting chrome outside its bounds.
+
+## UI-037: Files creation actions use explicit dark-theme contrast
+
+**Context.** New File, New Folder, and Open Folder were reachable in the
+Files panel but still used AppKit's textured button appearance, making the
+primary file-creation path weak against the dark workspace chrome.
+
+**Decision.** Reuse the native workspace navigation styling for Files actions;
+the leading New File/Open Folder action receives the active accent treatment,
+while the secondary creation action remains readable and subdued.
+
+**Consequences.** Opening or creating a project file is visually discoverable
+at the point where users browse the workspace.
