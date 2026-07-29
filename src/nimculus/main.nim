@@ -116,6 +116,7 @@ var shortcutRegistry: CommandRegistry
 var demoButton = NodeId(0)
 var demoSplitNode = NodeId(0)
 var demoScrollNode = NodeId(0)
+var editorWorkspaceUi: WorkspaceUiState
 var demoSplitRatio = 0.5'f32
 var demoSplitDragging = false
 var demoSplitEnabled = false
@@ -238,6 +239,30 @@ proc setupDemoUi() =
   demoTree.node(scroll.node).bounds = editor
   var paint: PaintList
   paint.invalidate(viewport)
+  # The native text overlays remain transitional content presenters, but their
+  # surface is composed by the same Metal scene as the editor.  Derive chrome
+  # from WorkspaceUiState rather than drawing a disconnected demo card.
+  let workspaceLayout = editorWorkspaceUi.layout(
+    Size(width: px(viewportWidth), height: px(viewportHeight)))
+  let leftDockWidth = float32(workspaceLayout.leftDock.size.width)
+  let bottomDockHeight = float32(workspaceLayout.bottomDock.size.height)
+  paint.drawWorkspaceBackground(viewport)
+  if leftDockWidth > 0:
+    paint.drawWorkspacePanel(Rect(origin: Point(x: px(0), y: px(24)),
+      size: Size(width: px(leftDockWidth), height: px(max(0'f32, viewportHeight - 46'f32 - bottomDockHeight)))))
+    paint.drawWorkspaceSeparator(Rect(origin: Point(x: px(leftDockWidth - 1), y: px(24)),
+      size: Size(width: px(1), height: px(max(0'f32, viewportHeight - 46'f32 - bottomDockHeight)))))
+  if bottomDockHeight > 0:
+    paint.drawWorkspacePanel(Rect(origin: Point(x: px(leftDockWidth),
+      y: px(viewportHeight - DefaultStatusHeight - bottomDockHeight)),
+      size: Size(width: px(max(0'f32, viewportWidth - leftDockWidth)), height: px(bottomDockHeight))))
+    paint.drawWorkspaceSeparator(Rect(origin: Point(x: px(leftDockWidth),
+      y: px(viewportHeight - DefaultStatusHeight - bottomDockHeight)),
+      size: Size(width: px(max(0'f32, viewportWidth - leftDockWidth)), height: px(1))))
+  paint.drawWorkspacePanel(workspaceLayout.status)
+  if editorWorkspaceUi.focusedRegion == regionCenter:
+    paint.drawWorkspaceActive(Rect(origin: Point(x: px(float32(editor.origin.x)), y: px(24)),
+      size: Size(width: px(2), height: px(max(0'f32, viewportHeight - 46'f32 - bottomDockHeight)))))
   if getEnv("NIMCULUS_UI_GALLERY", "") == "1":
     # Keep the M2 renderer gallery available for explicit visual inspection,
     # but do not let placeholder paint kinds obscure the normal editor.
@@ -412,7 +437,6 @@ proc applySettingsTheme() =
 
 var imeState = newImeState()
 var editorSession: EditorSession
-var editorWorkspaceUi: WorkspaceUiState
 var editorViewState = newEditorView()
 var syntaxState: EditorSyntaxState
 

@@ -684,6 +684,30 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height,
       0.45f, 0.50f, 0.58f, 0.85f, transform);
+  } else if (paint.kind == 11) { // workspace background
+    themeRGB(g_theme_background,
+      [NSColor colorWithCalibratedRed:0.055 green:0.065 blue:0.090 alpha:1.0],
+      &themeRed, &themeGreen, &themeBlue);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y, width, height, themeRed, themeGreen, themeBlue, 1.0f, transform);
+  } else if (paint.kind == 12) { // workspace panel
+    themeRGB(g_theme_background,
+      [NSColor colorWithCalibratedRed:0.070 green:0.082 blue:0.110 alpha:1.0],
+      &themeRed, &themeGreen, &themeBlue);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y, width, height, themeRed, themeGreen, themeBlue, 0.96f, transform);
+  } else if (paint.kind == 13) { // workspace separator
+    themeRGB(g_theme_border,
+      [NSColor colorWithCalibratedRed:0.20 green:0.23 blue:0.29 alpha:1.0],
+      &themeRed, &themeGreen, &themeBlue);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y, width, height, themeRed, themeGreen, themeBlue, 0.9f, transform);
+  } else if (paint.kind == 14) { // active workspace affordance
+    themeRGB(g_theme_accent,
+      [NSColor colorWithCalibratedRed:0.30 green:0.66 blue:0.98 alpha:1.0],
+      &themeRed, &themeGreen, &themeBlue);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y, width, height, themeRed, themeGreen, themeBlue, 0.78f, transform);
   }
 }
 

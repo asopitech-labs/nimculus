@@ -3,7 +3,10 @@ import nimnui/geometry
 type
   PaintKind* = enum
     rectangle, border, roundedRectangle, text, image, clip, transform,
-    shadow, caret, selection, scrollbar
+    shadow, caret, selection, scrollbar,
+    ## Workspace chrome has semantic paint kinds so the Metal backend can use
+    ## the active theme rather than the gallery's fixed placeholder blue.
+    workspaceBackground, workspacePanel, workspaceSeparator, workspaceActive
 
   PaintCommand* = object
     kind*: PaintKind
@@ -109,3 +112,11 @@ proc drawShadow*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(ki
 proc drawCaret*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: caret, bounds: bounds, clip: bounds))
 proc drawSelection*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: selection, bounds: bounds, clip: bounds))
 proc drawScrollbar*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: scrollbar, bounds: bounds, clip: bounds))
+proc drawWorkspaceBackground*(paint: var PaintList, bounds: Rect) =
+  paint.add(PaintCommand(kind: workspaceBackground, bounds: bounds, clip: bounds))
+proc drawWorkspacePanel*(paint: var PaintList, bounds: Rect) =
+  paint.add(PaintCommand(kind: workspacePanel, bounds: bounds, clip: bounds))
+proc drawWorkspaceSeparator*(paint: var PaintList, bounds: Rect) =
+  paint.add(PaintCommand(kind: workspaceSeparator, bounds: bounds, clip: bounds))
+proc drawWorkspaceActive*(paint: var PaintList, bounds: Rect) =
+  paint.add(PaintCommand(kind: workspaceActive, bounds: bounds, clip: bounds))
