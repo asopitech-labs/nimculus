@@ -39,6 +39,7 @@ proc platformValidateResourceTeardown*(): bool {.importc: "nimculus_platform_val
 proc platformValidateColorEmojiFallback*(): bool {.importc: "nimculus_platform_validate_color_emoji_fallback", cdecl.}
 proc platformValidateColorEmojiSequences*(): bool {.importc: "nimculus_platform_validate_color_emoji_sequences", cdecl.}
 proc platformValidateTerminalOverlayRuns*(): bool {.importc: "nimculus_platform_validate_terminal_overlay_runs", cdecl.}
+proc platformValidateTerminalSessionBar*(): bool {.importc: "nimculus_platform_validate_terminal_session_bar", cdecl.}
 proc platformValidateSidebarDispatch*(): bool {.importc: "nimculus_platform_validate_sidebar_dispatch", cdecl.}
 proc platformValidateSidebarContextDispatch*(): bool {.importc: "nimculus_platform_validate_sidebar_context_dispatch", cdecl.}
 proc platformValidateGitSidebarTabs*(): bool {.importc: "nimculus_platform_validate_git_sidebar_tabs", cdecl.}
@@ -136,6 +137,7 @@ proc platformSetEditorSidebar*(text: cstring, length, itemCount, mode: uint32) {
 proc platformSetEditorSidebarSelection*(itemIndex: uint32) {.importc: "nimculus_platform_set_editor_sidebar_selection", cdecl.}
 proc platformSetEditorSidebarVisible*(visible: bool) {.importc: "nimculus_platform_set_editor_sidebar_visible", cdecl.}
 proc platformSetTerminalVisible*(visible: bool) {.importc: "nimculus_platform_set_terminal_visible", cdecl.}
+proc platformSetTerminalSessions*(titles: cstring, length, activeIndex: uint32) {.importc: "nimculus_platform_set_terminal_sessions", cdecl.}
 proc platformSetTerminalText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_terminal_text", cdecl.}
 proc platformSetTerminalRuns*(text: cstring, length: uint32, runs: ptr NativeTerminalRun,
                              count: uint32) {.importc: "nimculus_platform_set_terminal_runs", cdecl.}

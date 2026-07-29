@@ -4843,3 +4843,21 @@ for its Command Palette rather than requiring users to remember raw commands.
 
 **Consequences.** The palette now provides a useful first-level action
 surface without changing the existing command-dispatch ABI.
+
+## UI-019: Terminal sessions are explicit panel controls
+
+**Context.** Nimculus could create, switch, and close PTY sessions through
+shortcuts and the Command Palette, but the terminal surface itself gave no
+visible indication that sessions existed or how to operate them.
+
+**Decision.** Add a native macOS terminal session bar above the terminal
+grid. A popup lists every session, and persistent `+` and close controls send
+commands through the existing Nim terminal manager. Task output deliberately
+hides this bar because it is not a PTY session.
+
+**Evidence.** Zed's `TerminalPanel::apply_tab_bar_buttons` places terminal
+creation and pane operations directly in the terminal tab bar.
+
+**Consequences.** Terminal session state remains owned by Nim and PTYs remain
+independent, while the primary multi-session workflow is visible and usable
+without opening a palette.

@@ -125,6 +125,8 @@ static NimculusTerminalRun *g_terminal_runs = NULL;
 static uint32_t g_terminal_run_count = 0;
 static NSMutableArray<NSString *> *g_terminal_hyperlinks = nil;
 static BOOL g_terminal_visible = NO;
+static NSArray<NSString *> *g_terminal_session_titles = nil;
+static NSUInteger g_terminal_active_session = 0;
 static NSString *g_task_output_text = @"";
 static BOOL g_task_output_visible = NO;
 static BOOL g_terminal_has_selection = NO;
@@ -422,6 +424,7 @@ static void releasePlatformResources(void) {
   free(g_terminal_runs); g_terminal_runs = NULL; g_terminal_run_count = 0;
   free(g_editor_annotations); g_editor_annotations = NULL; g_editor_annotation_count = 0;
   [g_terminal_hyperlinks release]; g_terminal_hyperlinks = nil;
+  [g_terminal_session_titles release]; g_terminal_session_titles = nil;
   [g_editor_annotation_texts release]; g_editor_annotation_texts = nil;
   [g_editor_tab_titles release]; g_editor_tab_titles = nil;
   [g_secondary_editor_tab_titles release]; g_secondary_editor_tab_titles = nil;
@@ -1879,6 +1882,13 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusTerminalOverlay : NSTextView
 @end
 
+@interface NimculusTerminalSessionBar : NSView
+@property(nonatomic, retain) NSPopUpButton *sessionPicker;
+@property(nonatomic, retain) NSButton *newButton;
+@property(nonatomic, retain) NSButton *closeButton;
+- (void)reloadSessions;
+@end
+
 @interface NimculusTaskOutputOverlay : NSTextView
 @end
 
@@ -1913,6 +1923,75 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @implementation NimculusTerminalOverlay
 - (BOOL)acceptsFirstResponder { return NO; }
 - (NSView *)hitTest:(NSPoint)point { return nil; }
+@end
+
+// Zed keeps terminal creation and pane selection in the terminal tab bar.
+// Nimculus has one terminal pane today, so a native popup scales to any number
+// of sessions while keeping creation and closing continuously reachable.
+@implementation NimculusTerminalSessionBar
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.wantsLayer = YES;
+  self.layer.backgroundColor = [themeHexColor(g_theme_background,
+    [NSColor colorWithCalibratedRed:0.045 green:0.055 blue:0.075 alpha:1.0]) CGColor];
+  self.sessionPicker = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+  self.sessionPicker.bezelStyle = NSBezelStyleTexturedRounded;
+  self.sessionPicker.target = self;
+  self.sessionPicker.action = @selector(selectSession:);
+  [self addSubview:self.sessionPicker];
+  self.newButton = [[NSButton alloc] initWithFrame:NSZeroRect];
+  self.newButton.title = @"+";
+  self.newButton.toolTip = @"New Terminal";
+  self.newButton.bezelStyle = NSBezelStyleTexturedRounded;
+  self.newButton.target = self;
+  self.newButton.action = @selector(newTerminal:);
+  [self addSubview:self.newButton];
+  self.closeButton = [[NSButton alloc] initWithFrame:NSZeroRect];
+  self.closeButton.title = @"×";
+  self.closeButton.toolTip = @"Close Terminal";
+  self.closeButton.bezelStyle = NSBezelStyleTexturedRounded;
+  self.closeButton.target = self;
+  self.closeButton.action = @selector(closeTerminal:);
+  [self addSubview:self.closeButton];
+  [self reloadSessions];
+  return self;
+}
+- (void)dealloc {
+  [_sessionPicker release]; [_newButton release]; [_closeButton release];
+  [super dealloc];
+}
+- (void)layout {
+  [super layout];
+  CGFloat buttonWidth = 28.0, inset = 5.0;
+  CGFloat height = MAX(20.0, self.bounds.size.height - 4.0);
+  CGFloat pickerWidth = MAX(96.0, self.bounds.size.width - inset * 2.0 - buttonWidth * 2.0 - 8.0);
+  self.sessionPicker.frame = NSMakeRect(inset, 2.0, pickerWidth, height);
+  self.newButton.frame = NSMakeRect(inset + pickerWidth + 4.0, 2.0, buttonWidth, height);
+  self.closeButton.frame = NSMakeRect(inset + pickerWidth + buttonWidth + 8.0, 2.0, buttonWidth, height);
+}
+- (void)reloadSessions {
+  [self.sessionPicker removeAllItems];
+  for (NSString *title in g_terminal_session_titles ?: @[]) {
+    [self.sessionPicker addItemWithTitle:title.length > 0 ? title : @"Terminal"];
+  }
+  if (g_terminal_session_titles.count > 0) {
+    [self.sessionPicker selectItemAtIndex:MIN(g_terminal_active_session,
+      g_terminal_session_titles.count - 1)];
+  }
+  self.sessionPicker.enabled = g_terminal_session_titles.count > 0;
+  self.closeButton.enabled = g_terminal_session_titles.count > 0;
+  [self setNeedsLayout:YES];
+}
+- (void)selectSession:(id)sender {
+  (void)sender;
+  if (g_command_callback && self.sessionPicker.indexOfSelectedItem >= 0) {
+    NSString *command = [NSString stringWithFormat:@"terminalSession:%ld", (long)self.sessionPicker.indexOfSelectedItem];
+    g_command_callback(command.UTF8String);
+  }
+}
+- (void)newTerminal:(id)sender { (void)sender; if (g_command_callback) g_command_callback("terminalNew"); }
+- (void)closeTerminal:(id)sender { (void)sender; if (g_command_callback) g_command_callback("terminalClose"); }
 @end
 
 @implementation NimculusTaskOutputOverlay
@@ -2652,6 +2731,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0])
       colorWithAlphaComponent:0.82];
     [self addSubview:status];
+    NimculusTerminalSessionBar *terminalSessions = [[NimculusTerminalSessionBar alloc]
+      initWithFrame:NSZeroRect];
+    terminalSessions.hidden = YES;
+    [self addSubview:terminalSessions];
+    [terminalSessions release];
     NimculusTerminalOverlay *terminal = [[NimculusTerminalOverlay alloc]
       initWithFrame:NSZeroRect];
     terminal.editable = NO;
@@ -2755,6 +2839,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusWelcomeOverlay *welcome = nil;
   NimculusStatusOverlay *status = nil;
   NimculusTerminalOverlay *terminal = nil;
+  NimculusTerminalSessionBar *terminalSessions = nil;
   NimculusTaskOutputOverlay *taskOutput = nil;
   NimculusEditorAnnotationOverlay *annotations = nil;
   for (NSView *subview in self.subviews) {
@@ -2767,6 +2852,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusWelcomeOverlay class]]) welcome = (NimculusWelcomeOverlay *)subview;
     if ([subview isKindOfClass:[NimculusStatusOverlay class]]) status = (NimculusStatusOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) terminal = (NimculusTerminalOverlay *)subview;
+    if ([subview isKindOfClass:[NimculusTerminalSessionBar class]]) terminalSessions = (NimculusTerminalSessionBar *)subview;
     if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) taskOutput = (NimculusTaskOutputOverlay *)subview;
     if ([subview isKindOfClass:[NimculusEditorAnnotationOverlay class]]) annotations = (NimculusEditorAnnotationOverlay *)subview;
     if ([subview isKindOfClass:[NimculusGitSidebarTabs class]]) gitTabs = (NimculusGitSidebarTabs *)subview;
@@ -2858,7 +2944,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     annotations.hidden = g_editor_annotation_count == 0;
     [annotations setNeedsDisplay:YES];
   }
-  if (!terminal || !taskOutput) return;
+  if (!terminal || !terminalSessions || !taskOutput) return;
   BOOL panelVisible = g_terminal_visible || g_task_output_visible;
   CGFloat height = panelVisible ? MIN(180.0, MAX(72.0, g_editor_rect[3] * 0.42)) : 0.0;
   CGFloat x = g_editor_rect[0];
@@ -2871,12 +2957,16 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     top = g_terminal_panel_rect[1];
   }
   terminal.hidden = !g_terminal_visible;
+  terminalSessions.hidden = !g_terminal_visible;
   taskOutput.hidden = !g_task_output_visible;
   if (!g_terminal_visible && !g_task_output_visible) return;
   CGFloat y = self.bounds.size.height - top - height;
-  terminal.frame = NSMakeRect(x, y, width, height);
+  CGFloat sessionBarHeight = g_terminal_visible ? 27.0 : 0.0;
+  terminalSessions.frame = NSMakeRect(x, y + height - sessionBarHeight, width, sessionBarHeight);
+  terminal.frame = NSMakeRect(x, y, width, MAX(1.0, height - sessionBarHeight));
   taskOutput.frame = NSMakeRect(x, y, width, height);
   terminal.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
+  terminalSessions.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
   taskOutput.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
 }
 
@@ -4927,6 +5017,34 @@ static void validationCommandCallback(const char *command) {
   g_validation_command[sizeof(g_validation_command) - 1] = '\0';
 }
 
+bool nimculus_platform_validate_terminal_session_bar(void) {
+  @autoreleasepool {
+    NimculusCommandCallback previousCallback = g_command_callback;
+    NSArray<NSString *> *previousTitles = [g_terminal_session_titles retain];
+    NSUInteger previousActive = g_terminal_active_session;
+    g_command_callback = validationCommandCallback;
+    nimculus_platform_set_terminal_sessions("Terminal 1\nTerminal 2", 21, 1);
+    NimculusTerminalSessionBar *bar = [[NimculusTerminalSessionBar alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 280.0, 27.0)];
+    [bar.sessionPicker selectItemAtIndex:0];
+    [bar selectSession:bar.sessionPicker];
+    BOOL select = strcmp(g_validation_command, "terminalSession:0") == 0;
+    [bar newTerminal:bar.newButton];
+    BOOL create = strcmp(g_validation_command, "terminalNew") == 0;
+    [bar closeTerminal:bar.closeButton];
+    BOOL close = strcmp(g_validation_command, "terminalClose") == 0;
+    BOOL presentation = bar.sessionPicker.numberOfItems == 2 &&
+      [bar.sessionPicker.titleOfSelectedItem isEqualToString:@"Terminal 1"] &&
+      bar.newButton.enabled && bar.closeButton.enabled;
+    [bar release];
+    replaceOwnedArray(&g_terminal_session_titles, previousTitles ?: @[]);
+    g_terminal_active_session = previousActive;
+    [previousTitles release];
+    g_command_callback = previousCallback;
+    return select && create && close && presentation;
+  }
+}
+
 bool nimculus_platform_validate_sidebar_dispatch(void) {
   @autoreleasepool {
     NimculusCommandCallback previousCallback = g_command_callback;
@@ -6456,6 +6574,24 @@ void nimculus_platform_set_terminal_visible(bool visible) {
     [(NimculusMetalView *)g_active_view updateTerminalFrame];
     [g_active_view drawFrame];
   }
+}
+void nimculus_platform_set_terminal_sessions(const char *utf8, uint32_t length,
+                                             uint32_t active_index) {
+  NSString *raw = (utf8 && length > 0) ? [[[NSString alloc] initWithBytes:utf8 length:length
+    encoding:NSUTF8StringEncoding] autorelease] : @"";
+  NSArray<NSString *> *titles = raw.length > 0 ? [raw componentsSeparatedByString:@"\n"] : @[];
+  replaceOwnedArray(&g_terminal_session_titles, titles);
+  g_terminal_active_session = g_terminal_session_titles.count > 0 ?
+    MIN((NSUInteger)active_index, g_terminal_session_titles.count - 1) : 0;
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusTerminalSessionBar class]]) {
+      [(NimculusTerminalSessionBar *)subview reloadSessions];
+      break;
+    }
+  }
+  [view updateTerminalFrame];
 }
 void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length) {
   replaceOwnedUTF8String(&g_terminal_text, utf8, length, @"");

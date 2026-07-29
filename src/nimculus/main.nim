@@ -1191,6 +1191,12 @@ when defined(macosx):
       discard applyLspWorkspaceEdits(commandEdits, "code action command")
 
   proc syncNativeTerminal() =
+    var sessionTitles: seq[string]
+    for index in 0 ..< editorTerminals.len:
+      sessionTitles.add("Terminal " & $(index + 1))
+    let titles = sessionTitles.join("\n")
+    platformSetTerminalSessions(titles.cstring, uint32(titles.len),
+      uint32(max(0, editorTerminalIndex)))
     if editorTerminal == nil: return
     let screen = editorTerminal.screen
     let viewportStart = terminalViewportStart(screen.lineCount(), screen.rows,
@@ -1245,7 +1251,7 @@ when defined(macosx):
     editorTerminalScrollRemainder = 0'f32
     if editorTerminalVisible:
       platformSetTerminalSelection(0, 0, 0, 0)
-      syncNativeTerminal()
+    syncNativeTerminal()
     editorViewState.statusMessage = "Terminal " & $(index + 1) & "/" &
       $editorTerminals.len
 
@@ -1424,12 +1430,14 @@ when defined(macosx):
       editorTerminalVisible = false
       editorTerminalFocused = false
       platformSetTerminalVisible(false)
+      syncNativeTerminal()
       editorViewState.statusMessage = "Terminal closed"
     else:
       activateNativeTerminal(min(closingIndex, editorTerminals.high))
       editorTerminalVisible = true
       editorTerminalFocused = true
       platformSetTerminalVisible(true)
+      syncNativeTerminal()
       editorViewState.statusMessage = "Terminal closed — " &
         $(editorTerminalIndex + 1) & "/" & $editorTerminals.len
 
@@ -2987,6 +2995,23 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         return
       else: discard
   when defined(macosx):
+    if name.startsWith("terminalSession:"):
+      try:
+        activateNativeTerminal(parseInt(name["terminalSession:".len .. ^1]))
+        editorTaskOutputVisible = false
+        platformSetTaskOutputVisible(false)
+        editorTerminalVisible = true
+        editorTerminalFocused = true
+        platformSetTerminalVisible(true)
+      except ValueError:
+        discard
+      return
+    if name == "terminalNew":
+      newNativeTerminal()
+      return
+    if name == "terminalClose":
+      closeNativeTerminal()
+      return
     if terminalOwnsInput(editorTerminalVisible, editorTerminalFocused) and
         editorTerminal != nil:
       case name

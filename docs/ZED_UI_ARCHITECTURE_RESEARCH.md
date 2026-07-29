@@ -448,6 +448,18 @@ Zed は action registry を初期化し、action 名を humanize/normalize し�
 候補に渡す。Nimculus は任意の argument 付き command も維持する必要があるため、native `NSComboBox` に主要な
 固定 action を候補として表示しつつ、自由入力をそのまま既存 dispatcher へ渡す構成にする。
 
+## 追加監査: Terminal panel の session 操作（2026-07-29）
+
+Zed の `terminal_view/src/terminal_panel.rs` は `apply_tab_bar_buttons` で terminal pane の tab bar に
+New Terminal、task spawn、split pane の action を置く。`new_terminal` は現在 focus されている terminal
+center pane か bottom terminal panel かを判定し、作成先を決める。したがって terminal session の作成・選択は
+隠れた command ではなく、terminal presenter 固有の UI action である。
+
+Nimculus はまだ terminal pane split を持たない。そこで同じ責務を最小に移植し、下部 terminal panel に
+全 session を選べる native popup と常設の New/Close button を置く。popup は固定幅 tab よりも多数 session
+で破綻せず、選択・作成・終了は既存の Nim PTY manager へ command callback だけで渡す。task output は terminal
+session ではないため、同じ領域を利用してもこの presenter を表示しない。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel
