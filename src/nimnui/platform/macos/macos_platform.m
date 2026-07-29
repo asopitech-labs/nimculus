@@ -1898,6 +1898,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusWelcomeOverlay : NSView
 @end
 
+@interface NimculusGitSidebarTabs : NSSegmentedControl
+@end
+
 @interface NimculusStatusOverlay : NSTextField
 @end
 
@@ -2180,6 +2183,32 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)openFile:(id)sender { (void)sender; [[NSApp delegate] openDocument:nil]; }
 - (void)openFolder:(id)sender { (void)sender; [[NSApp delegate] openWorkspaceFolder:nil]; }
 - (void)openRecentFile:(id)sender { (void)sender; [[NSApp delegate] openRecent:nil]; }
+@end
+
+// Zed exposes Changes and History as visible panel tabs. Keep the same primary
+// navigation in the compact native Git sidebar, with Branches alongside the
+// existing checkout workflow.
+@implementation NimculusGitSidebarTabs
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.segmentCount = 3;
+  [self setLabel:@"Changes" forSegment:0];
+  [self setLabel:@"History" forSegment:1];
+  [self setLabel:@"Branches" forSegment:2];
+  self.segmentStyle = NSSegmentStyleTexturedRounded;
+  self.trackingMode = NSSegmentSwitchTrackingSelectOne;
+  self.target = self;
+  self.action = @selector(selectGitSidebarMode:);
+  return self;
+}
+- (void)selectGitSidebarMode:(id)sender {
+  (void)sender;
+  if (!g_command_callback) return;
+  const char *command = self.selectedSegment == 1 ? "commandPalette:git log" :
+    self.selectedSegment == 2 ? "commandPalette:git branches" : "commandPalette:git status";
+  g_command_callback(command);
+}
 @end
 
 @implementation NimculusStatusOverlay
@@ -2543,6 +2572,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     [self addSubview:outlineScroll];
     [outlineScroll release];
     [outline release];
+    NimculusGitSidebarTabs *gitTabs = [[NimculusGitSidebarTabs alloc]
+      initWithFrame:NSZeroRect];
+    gitTabs.hidden = YES;
+    [self addSubview:gitTabs];
+    [gitTabs release];
     NimculusLineNumberOverlay *lineNumbers = [[NimculusLineNumberOverlay alloc]
       initWithFrame:NSZeroRect];
     [self addSubview:lineNumbers];
@@ -2669,6 +2703,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 
 - (void)updateTerminalFrame {
   NimculusOutlineOverlay *outline = outlineOverlayForView(self);
+  NimculusGitSidebarTabs *gitTabs = nil;
   NimculusLineNumberOverlay *lineNumbers = nil;
   NimculusIndentGuideOverlay *indentGuides = nil;
   NimculusTabBarOverlay *tabs = nil;
@@ -2690,21 +2725,38 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) terminal = (NimculusTerminalOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) taskOutput = (NimculusTaskOutputOverlay *)subview;
     if ([subview isKindOfClass:[NimculusEditorAnnotationOverlay class]]) annotations = (NimculusEditorAnnotationOverlay *)subview;
+    if ([subview isKindOfClass:[NimculusGitSidebarTabs class]]) gitTabs = (NimculusGitSidebarTabs *)subview;
   }
   if (outline) {
     CGFloat width = MAX(180.0, g_editor_rect[0] - 12.0);
+    BOOL showGitTabs = g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 &&
+      g_editor_sidebar_mode <= 4;
+    CGFloat gitTabsHeight = showGitTabs ? 30.0 : 0.0;
     NSScrollView *scroll = outline.enclosingScrollView;
     if (scroll) {
       scroll.hidden = !g_editor_sidebar_visible;
-      scroll.frame = NSMakeRect(8.0, g_editor_rect[1], width, g_editor_rect[3]);
+      scroll.frame = NSMakeRect(8.0, g_editor_rect[1], width,
+        MAX(1.0, g_editor_rect[3] - gitTabsHeight));
       scroll.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
       outline.textContainer.containerSize = NSMakeSize(MAX(1.0, width - 16.0), CGFLOAT_MAX);
       [outline.layoutManager ensureLayoutForTextContainer:outline.textContainer];
       CGFloat contentHeight = ceil([outline.layoutManager usedRectForTextContainer:outline.textContainer].size.height) + 16.0;
-      outline.frame = NSMakeRect(0.0, 0.0, width, MAX(g_editor_rect[3], contentHeight));
+      outline.frame = NSMakeRect(0.0, 0.0, width,
+        MAX(g_editor_rect[3] - gitTabsHeight, contentHeight));
     } else {
       outline.frame = NSMakeRect(8.0, g_editor_rect[1], width, g_editor_rect[3]);
       outline.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
+    }
+  }
+  if (gitTabs) {
+    BOOL showGitTabs = g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 &&
+      g_editor_sidebar_mode <= 4;
+    gitTabs.hidden = !showGitTabs;
+    if (showGitTabs) {
+      CGFloat width = MAX(180.0, g_editor_rect[0] - 12.0);
+      gitTabs.frame = NSMakeRect(12.0, g_editor_rect[1] + g_editor_rect[3] - 27.0,
+        MAX(1.0, width - 8.0), 24.0);
+      gitTabs.selectedSegment = (NSInteger)g_editor_sidebar_mode - 2;
     }
   }
   if (lineNumbers) {
@@ -4832,6 +4884,27 @@ bool nimculus_platform_validate_sidebar_context_dispatch(void) {
     g_editor_sidebar_mode = previousMode;
     g_command_callback = previousCallback;
     return valid;
+  }
+}
+
+bool nimculus_platform_validate_git_sidebar_tabs(void) {
+  @autoreleasepool {
+    NimculusCommandCallback previousCallback = g_command_callback;
+    g_command_callback = validationCommandCallback;
+    NimculusGitSidebarTabs *tabs = [[NimculusGitSidebarTabs alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 240.0, 24.0)];
+    [tabs setSelectedSegment:1];
+    [tabs selectGitSidebarMode:tabs];
+    BOOL history = strcmp(g_validation_command, "commandPalette:git log") == 0;
+    [tabs setSelectedSegment:2];
+    [tabs selectGitSidebarMode:tabs];
+    BOOL branches = strcmp(g_validation_command, "commandPalette:git branches") == 0;
+    [tabs setSelectedSegment:0];
+    [tabs selectGitSidebarMode:tabs];
+    BOOL changes = strcmp(g_validation_command, "commandPalette:git status") == 0;
+    [tabs release];
+    g_command_callback = previousCallback;
+    return history && branches && changes;
   }
 }
 

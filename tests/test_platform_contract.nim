@@ -342,6 +342,9 @@ suite "macOS platform contract":
   test "Files sidebar dispatches a native context-menu item":
     check platformValidateSidebarContextDispatch()
 
+  test "Git sidebar exposes Changes History and Branches tabs":
+    check platformValidateGitSidebarTabs()
+
   test "sidebar supports scrolling long file and Git history lists":
     check platformValidateSidebarScrollContainer()
 

@@ -415,6 +415,13 @@ workspace path を Cocoa context menu に渡す。Cocoa は Open / Reveal / New 
 Delete の prompt を表示するだけで、prompt 開始時の path を保持する。実際の create/rename/delete は Nim 側の
 `Workspace` validation を通す。これにより UI action と安全な backend 契約を二重実装せずに結合できる。
 
+## 追加監査: Git Panel tabs（2026-07-29）
+
+Zed の Git Panel は `Changes` と `History` を常時見える tab とし、History の row 選択は commit detail/diff
+を開く action へ流す。Nimculus は status / log / branch と history-row からの非同期 `git show --no-ext-diff`
+を既に持つため、Git sidebar 上部に native segmented control を置いて同じ command boundary を呼ぶ。表示だけの
+別 Git state を導入せず、Changes / History / Branches をユーザーが発見できる主要導線にする。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

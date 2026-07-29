@@ -31,6 +31,7 @@ bool nimculus_platform_validate_color_emoji_sequences(void);
 bool nimculus_platform_validate_terminal_overlay_runs(void);
 bool nimculus_platform_validate_sidebar_dispatch(void);
 bool nimculus_platform_validate_sidebar_context_dispatch(void);
+bool nimculus_platform_validate_git_sidebar_tabs(void);
 bool nimculus_platform_validate_sidebar_scroll_container(void);
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics);
 typedef struct NimculusInputLatencyStats {

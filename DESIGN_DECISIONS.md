@@ -4758,3 +4758,22 @@ and keeps the panel focus/selection as the action context.
 preserving keyboard routing and the existing symlink/workspace-root safety
 checks. Directories remain subject to the current empty-directory deletion
 rule.
+
+## UI-014: Git navigation is visible in the sidebar
+
+**Context.** Git status, commit history, and branch checkout already used the
+same cancellable Git-job boundary, but switching between them required a
+command-palette command. That makes the primary Git workflow undiscoverable
+inside the panel where the results appear.
+
+**Decision.** When the native sidebar presents a Git mode, show a macOS
+segmented control for Changes, History, and Branches above its scrollable
+rows. Each segment dispatches the existing status/log/branches command; it
+does not duplicate Git state, process ownership, or cancellation logic.
+
+**Evidence.** Zed's Git Panel exposes Changes and History as persistent panel
+tabs and opens a selected history entry through the panel action boundary.
+
+**Consequences.** Users can see and switch the three Nimculus Git workflows
+at their point of use, while history selection still opens the existing safe
+`git show --no-ext-diff` detail job.
