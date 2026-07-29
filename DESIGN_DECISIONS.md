@@ -5143,3 +5143,15 @@ to Changes, History maps to History, and Branches maps to Branches.
 
 **Consequences.** The selected Git tab now truthfully identifies the content
 being shown, independent of internal enum declaration order.
+
+## UI-036: Document tabs never paint past the editor edge
+
+**Context.** Real macOS review with several restored documents showed the
+fixed minimum tab width extending the tab strip beyond the editor viewport.
+
+**Decision.** Divide the visible tab strip across its current documents and
+truncate titles within each allocation. Preserve the right-side close target
+where a tab has enough width to render it.
+
+**Consequences.** Every open document remains reachable in the current editor
+surface without painting chrome outside its bounds.

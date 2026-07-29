@@ -2256,7 +2256,11 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
   NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
   if (titles.count == 0) return;
-  CGFloat tabWidth = MAX(120.0, self.bounds.size.width / titles.count);
+  // A fixed 120pt minimum made a normal session with several open documents
+  // paint tab titles beyond the editor edge. Keep every tab in the visible
+  // strip; the title already truncates and the existing right-side close hit
+  // target remains available for each tab.
+  CGFloat tabWidth = MAX(1.0, self.bounds.size.width / titles.count);
   NSDictionary *attributes = @{
     NSFontAttributeName: [NSFont systemFontOfSize:12.0],
     NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
@@ -2271,7 +2275,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
       NSRectFill(NSMakeRect(x, 0.0, tabWidth, self.bounds.size.height));
     }
     NSString *title = titles[index] ?: @"Untitled";
-    NSRect titleRect = NSMakeRect(x + 10.0, 5.0, MAX(12.0, tabWidth - 34.0),
+    NSRect titleRect = NSMakeRect(x + 8.0, 5.0, MAX(1.0, tabWidth - 30.0),
       self.bounds.size.height - 8.0);
     [title drawWithRect:titleRect options:NSStringDrawingTruncatesLastVisibleLine |
       NSStringDrawingUsesLineFragmentOrigin attributes:attributes context:nil];
@@ -2285,7 +2289,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
         [NSColor colorWithCalibratedWhite:0.88 alpha:1.0])
         colorWithAlphaComponent:index == active ? 0.86 : 0.52]
     };
-    [@"×" drawAtPoint:NSMakePoint(x + tabWidth - 21.0, 4.0) withAttributes:closeAttributes];
+    if (tabWidth >= 38.0) {
+      [@"×" drawAtPoint:NSMakePoint(x + tabWidth - 21.0, 4.0) withAttributes:closeAttributes];
+    }
   }
 }
 - (void)mouseDown:(NSEvent *)event {
@@ -2294,10 +2300,10 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)dispatchTabAtPoint:(NSPoint)point {
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
   if (!g_command_callback || titles.count == 0) return;
-  CGFloat tabWidth = MAX(120.0, self.bounds.size.width / titles.count);
+  CGFloat tabWidth = MAX(1.0, self.bounds.size.width / titles.count);
   NSUInteger index = MIN(titles.count - 1,
     (NSUInteger)MAX(0.0, floor(point.x / tabWidth)));
-  if (point.x >= (index + 1) * tabWidth - 28.0) {
+  if (tabWidth >= 38.0 && point.x >= (index + 1) * tabWidth - 28.0) {
     NSString *command = [NSString stringWithFormat:@"closePaneTab:%u:%lu",
       self.secondary ? 1 : 0, (unsigned long)index];
     g_command_callback(command.UTF8String);
