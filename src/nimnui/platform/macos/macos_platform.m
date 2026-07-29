@@ -3708,8 +3708,10 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 - (void)createWorkspaceFileAtContext:(id)sender {
   (void)sender;
   if (g_workspace_context_path.length == 0) return;
-  NSString *base = g_workspace_context_is_directory ? g_workspace_context_path :
-    g_workspace_context_path.stringByDeletingLastPathComponent;
+  // The sheet completes asynchronously. Keep the target selected when the
+  // menu action began, rather than consulting the mutable context menu state.
+  NSString *base = [(g_workspace_context_is_directory ? g_workspace_context_path :
+    g_workspace_context_path.stringByDeletingLastPathComponent) copy];
   NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"New File";
   NSTextField *field = [self workspacePathField:@"File name or relative path"];
@@ -3717,10 +3719,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   [alert addButtonWithTitle:@"Create"];
   [alert addButtonWithTitle:@"Cancel"];
   [self presentAlertSheet:alert completion:^(NSModalResponse response) {
-    if (response != NSAlertFirstButtonReturn || !g_command_callback || field.stringValue.length == 0) return;
-    NSString *path = [base stringByAppendingPathComponent:field.stringValue];
-    NSString *command = [NSString stringWithFormat:@"workspaceCreateFile:%@", path];
-    g_command_callback(command.UTF8String);
+    if (response == NSAlertFirstButtonReturn && g_command_callback && field.stringValue.length > 0) {
+      NSString *path = [base stringByAppendingPathComponent:field.stringValue];
+      NSString *command = [NSString stringWithFormat:@"workspaceCreateFile:%@", path];
+      g_command_callback(command.UTF8String);
+    }
+    [base release];
   }];
 }
 
@@ -3743,8 +3747,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 - (void)createWorkspaceDirectoryAtContext:(id)sender {
   (void)sender;
   if (g_workspace_context_path.length == 0) return;
-  NSString *base = g_workspace_context_is_directory ? g_workspace_context_path :
-    g_workspace_context_path.stringByDeletingLastPathComponent;
+  NSString *base = [(g_workspace_context_is_directory ? g_workspace_context_path :
+    g_workspace_context_path.stringByDeletingLastPathComponent) copy];
   NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"New Folder";
   NSTextField *field = [self workspacePathField:@"Folder name or relative path"];
@@ -3752,10 +3756,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   [alert addButtonWithTitle:@"Create"];
   [alert addButtonWithTitle:@"Cancel"];
   [self presentAlertSheet:alert completion:^(NSModalResponse response) {
-    if (response != NSAlertFirstButtonReturn || !g_command_callback || field.stringValue.length == 0) return;
-    NSString *path = [base stringByAppendingPathComponent:field.stringValue];
-    NSString *command = [NSString stringWithFormat:@"workspaceCreateDirectory:%@", path];
-    g_command_callback(command.UTF8String);
+    if (response == NSAlertFirstButtonReturn && g_command_callback && field.stringValue.length > 0) {
+      NSString *path = [base stringByAppendingPathComponent:field.stringValue];
+      NSString *command = [NSString stringWithFormat:@"workspaceCreateDirectory:%@", path];
+      g_command_callback(command.UTF8String);
+    }
+    [base release];
   }];
 }
 
@@ -3785,20 +3791,22 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 - (void)renameWorkspaceContextEntry:(id)sender {
   (void)sender;
   if (g_workspace_context_path.length == 0) return;
+  NSString *target = [g_workspace_context_path copy];
   NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"Rename";
   NSTextField *field = [self workspacePathField:@"New name"];
-  field.stringValue = g_workspace_context_path.lastPathComponent ?: @"";
+  field.stringValue = target.lastPathComponent ?: @"";
   alert.accessoryView = field;
   [alert addButtonWithTitle:@"Rename"];
   [alert addButtonWithTitle:@"Cancel"];
   [self presentAlertSheet:alert completion:^(NSModalResponse response) {
-    if (response != NSAlertFirstButtonReturn || !g_command_callback || field.stringValue.length == 0) return;
-    NSString *renamed = [g_workspace_context_path.stringByDeletingLastPathComponent
-      stringByAppendingPathComponent:field.stringValue];
-    NSString *command = [NSString stringWithFormat:@"workspaceRename:%@\x1f%@",
-      g_workspace_context_path, renamed];
-    g_command_callback(command.UTF8String);
+    if (response == NSAlertFirstButtonReturn && g_command_callback && field.stringValue.length > 0) {
+      NSString *renamed = [target.stringByDeletingLastPathComponent
+        stringByAppendingPathComponent:field.stringValue];
+      NSString *command = [NSString stringWithFormat:@"workspaceRename:%@\x1f%@", target, renamed];
+      g_command_callback(command.UTF8String);
+    }
+    [target release];
   }];
 }
 
@@ -3823,18 +3831,21 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 - (void)deleteWorkspaceContextEntry:(id)sender {
   (void)sender;
   if (g_workspace_context_path.length == 0) return;
+  NSString *target = [g_workspace_context_path copy];
+  BOOL isDirectory = g_workspace_context_is_directory;
   NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-  alert.messageText = [NSString stringWithFormat:@"Delete “%@”?", g_workspace_context_path.lastPathComponent];
-  alert.informativeText = g_workspace_context_is_directory
+  alert.messageText = [NSString stringWithFormat:@"Delete “%@”?", target.lastPathComponent];
+  alert.informativeText = isDirectory
     ? @"Deleting a folder requires it to be empty." : @"This cannot be undone.";
   alert.alertStyle = NSAlertStyleWarning;
   [alert addButtonWithTitle:@"Delete"];
   [alert addButtonWithTitle:@"Cancel"];
   [self presentAlertSheet:alert completion:^(NSModalResponse response) {
     if (response == NSAlertFirstButtonReturn && g_command_callback) {
-      NSString *command = [NSString stringWithFormat:@"workspaceDelete:%@", g_workspace_context_path];
+      NSString *command = [NSString stringWithFormat:@"workspaceDelete:%@", target];
       g_command_callback(command.UTF8String);
     }
+    [target release];
   }];
 }
 

@@ -412,8 +412,8 @@ Files / Git history の action contract を維持する。
 Zed の Project Panel は右クリックを selected entry に結び、context menu をその entry の位置から
 deploy する。Nimculus でも Files sidebar の right-click は最初に同じ row を選択し、その row の absolute
 workspace path を Cocoa context menu に渡す。Cocoa は Open / Reveal / New File / New Folder / Rename /
-Delete の prompt を表示するだけで、実際の create/rename/delete は Nim 側の `Workspace` validation を通す。
-これにより UI action と安全な backend 契約を二重実装せずに結合できる。
+Delete の prompt を表示するだけで、prompt 開始時の path を保持する。実際の create/rename/delete は Nim 側の
+`Workspace` validation を通す。これにより UI action と安全な backend 契約を二重実装せずに結合できる。
 
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project

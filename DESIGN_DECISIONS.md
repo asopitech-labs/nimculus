@@ -4746,9 +4746,10 @@ had to leave the selected row to invoke them.
 **Decision.** A right click on a Files row first preserves the normal panel
 selection, then opens a native context menu for that exact workspace entry.
 It exposes Open (files), Reveal in Finder, New File, New Folder, Rename, and
-Delete. The Cocoa presenter owns only the selected absolute path and prompts;
-all mutation commands continue through the Nim workspace path-validation
-boundary.
+Delete. The Cocoa presenter owns only the selected absolute path and prompts.
+Each asynchronous prompt snapshots that path when it opens, so a later
+right-click cannot redirect its mutation. All mutation commands continue
+through the Nim workspace path-validation boundary.
 
 **Evidence.** Zed's Project Panel deploys a context menu from a selected entry
 and keeps the panel focus/selection as the action context.
