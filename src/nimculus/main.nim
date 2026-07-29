@@ -1661,6 +1661,13 @@ proc openActiveWorkspace(path: string) =
     workspaceSearchResults.setLen(0)
     workspaceSearchCancelled = false
     refreshWorkspacePreview()
+    when defined(macosx):
+      # A folder chosen from the welcome surface should immediately become a
+      # visible project, but keyboard focus remains in the center editor.
+      editorWorkspaceUi.leftDock.activePanel = panelFiles
+      editorWorkspaceUi.leftDock.isOpen = true
+      editorWorkspaceUi.focusedRegion = regionCenter
+      setupDemoUi()
 
 proc refreshWorkspacePreview() =
   when defined(macosx) or defined(windows):
@@ -4450,16 +4457,24 @@ when isMainModule:
     restoreSession()
     syncRecentFiles()
     setupDemoUi()
-    let initialRoot = if editorSession.workspaceRoots.len > 0:
-      editorSession.workspaceRoots[0]
-    else: getCurrentDir()
+    let restoredRoot = if editorSession.workspaceRoots.len > 0 and
+        dirExists(editorSession.workspaceRoots[0]): editorSession.workspaceRoots[0] else: ""
+    let initialRoot = if restoredRoot.len > 0: restoredRoot else: getHomeDir()
     # The workspace preview resolves file icons through SettingsStore. Build
     # the settings layer before opening the workspace so the first refresh is
     # identical to subsequent root changes.
     appSettings = newSettingsStore(settingsFilePath,
-      initialRoot / ".nimculus" / "settings.json")
-    openActiveWorkspace(if dirExists(initialRoot): initialRoot else: getCurrentDir())
-    if editorSession.workspaceRoots.len > 1:
+      if restoredRoot.len > 0: restoredRoot / ".nimculus" / "settings.json" else: "")
+    if restoredRoot.len > 0:
+      openActiveWorkspace(restoredRoot)
+    else:
+      # LaunchServices starts app bundles with `/` as their current directory.
+      # Treating it as a project makes an empty launch enumerate the entire
+      # machine and hides the welcome UI behind an irrelevant Files dock.
+      editorWorkspaceUi.leftDock.isOpen = false
+      editorWorkspaceUi.focusedRegion = regionCenter
+      setupDemoUi()
+    if activeWorkspace != nil and editorSession.workspaceRoots.len > 1:
       for root in editorSession.workspaceRoots[1 .. ^1]:
         if dirExists(root): activeWorkspace.addRoot(root)
       activeWorkspace.startWatching()

@@ -370,3 +370,8 @@ Nimculus でも no-document 状態を明示的な UI state とし、New File、O
 Open Recent の入口を center に常設する。現段階は AppKit overlay を presenter に使い、既存の
 native menu / OpenPanel callback と同じ action を dispatch する。GPU text renderer への移行後も
 この state と action contract は維持する。
+
+macOS app bundle の LaunchServices 起動では process working directory が project root を意味
+しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
+Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel
+で明示された folder だけを workspace として開く。
