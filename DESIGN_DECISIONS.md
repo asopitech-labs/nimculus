@@ -4811,3 +4811,18 @@ keeps conflicted entries outside bulk staging operations.
 
 **Consequences.** Git changes are actionable where they are displayed while
 conflict resolution remains explicit and the panel never retains stale state.
+
+## UI-017: Git history exposes commit-level actions
+
+**Context.** Selecting a history row opened its detail, but users could not
+copy the full revision identifier from the history surface.
+
+**Decision.** A Git history row context menu exposes Open Commit and Copy
+Commit SHA. Open reuses the bounded `git show --no-ext-diff` path; copy uses
+the shared macOS clipboard contract.
+
+**Evidence.** Zed's Git Panel commit context menu exposes Copy SHA alongside
+the commit view action.
+
+**Consequences.** A commit row now provides both common commit-level actions
+without introducing a Git graph dependency or a separate clipboard path.

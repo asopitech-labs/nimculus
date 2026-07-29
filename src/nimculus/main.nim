@@ -4029,6 +4029,11 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           syncNativeSidebarSelection()
           platformShowWorkspaceEntryContext(entry.path.cstring,
             entry.kind == WorkspaceFileKind.directory)
+        elif editorSidebarMode == sidebarGitHistory and index >= 0 and
+            index < editorGitHistory.len:
+          discard editorWorkspaceUi.selectPanelItem(panelGit, index)
+          syncNativeSidebarSelection()
+          platformShowGitHistoryContext(uint32(index))
         elif editorSidebarMode == sidebarGitStatus and index >= 0 and
             index < editorGitStatusEntries.len:
           let entry = editorGitStatusEntries[index]
@@ -4087,6 +4092,36 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
               editorViewState.statusMessage = "Unknown Git status action"
         except ValueError:
           editorViewState.statusMessage = "Invalid Git status item"
+  elif name.startsWith("gitHistoryContext:"):
+    when defined(macosx):
+      let parts = name.split(':')
+      if parts.len != 3:
+        editorViewState.statusMessage = "Invalid Git history action"
+      else:
+        try:
+          let index = parseInt(parts[2])
+          if editorSidebarMode != sidebarGitHistory or index < 0 or
+              index >= editorGitHistory.len:
+            editorViewState.statusMessage = "Git history item is unavailable"
+          elif parts[1] == "copy":
+            let hash = editorGitHistory[index].hash
+            clipboardSet(hash.cstring, uint32(hash.len))
+            editorViewState.statusMessage = "Git: commit SHA copied"
+          elif parts[1] == "open":
+            let repository = gitRepositoryForDocument(activeDocument())
+            if repository == nil:
+              editorViewState.statusMessage = "Git repository not found"
+            else:
+              var args = @["show", "--format=fuller", "--stat", "--patch",
+                "--no-ext-diff", editorGitHistory[index].hash]
+              if editorGitHistoryPath.len > 0:
+                args.add("--")
+                args.add(editorGitHistoryPath)
+              startNativeGitAction(repository, "show", "", args)
+          else:
+            editorViewState.statusMessage = "Unknown Git history action"
+        except ValueError:
+          editorViewState.statusMessage = "Invalid Git history item"
   elif name.startsWith("workspaceSearch:"):
     showWorkspaceSearch(name[16 .. ^1])
   elif name.startsWith("quickOpen:"):

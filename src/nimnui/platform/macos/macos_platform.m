@@ -3793,6 +3793,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
 }
 
+- (void)dispatchGitHistoryContext:(NSMenuItem *)sender {
+  if (g_command_callback && [sender.representedObject isKindOfClass:[NSString class]]) {
+    g_command_callback(((NSString *)sender.representedObject).UTF8String);
+  }
+}
+
 - (NSTextField *)workspacePathField:(NSString *)placeholder {
   NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
   field.placeholderString = placeholder;
@@ -5815,6 +5821,22 @@ void nimculus_platform_show_git_status_context(uint32_t item_index, bool can_sta
     item.target = delegate;
     item.representedObject = [NSString stringWithFormat:@"gitStatusContext:%@:%u",
       action, item_index];
+  }
+  [menu popUpMenuPositioningItem:nil atLocation:[NSEvent mouseLocation] inView:nil];
+}
+void nimculus_platform_show_git_history_context(uint32_t item_index) {
+  NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
+  if (!delegate) return;
+  NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Git Commit"] autorelease];
+  NSArray<NSArray<NSString *> *> *items = @[
+    @[@"Open Commit", @"open"], @[@"Copy Commit SHA", @"copy"]
+  ];
+  for (NSArray<NSString *> *entry in items) {
+    NSMenuItem *item = [menu addItemWithTitle:entry[0]
+      action:@selector(dispatchGitHistoryContext:) keyEquivalent:@""];
+    item.target = delegate;
+    item.representedObject = [NSString stringWithFormat:@"gitHistoryContext:%@:%u",
+      entry[1], item_index];
   }
   [menu popUpMenuPositioningItem:nil atLocation:[NSEvent mouseLocation] inView:nil];
 }

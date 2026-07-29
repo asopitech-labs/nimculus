@@ -436,6 +436,12 @@ Zed は `StageIntent` を row の section と status から解決し、conflict 
 conflict は自動処理せず、個別 action は `git add -- <path>` / `git reset HEAD -- <path>` を cancellable Git job
 として実行し、完了後に status を再読み込みする。
 
+## 追加監査: Git commit context menu（2026-07-29）
+
+Zed の Git Panel は commit context menu に `Copy SHA` と commit view を置く。Nimculus の History row は
+`Open Commit` を既存 `git show --no-ext-diff` job に接続し、`Copy Commit SHA` は共通 clipboard bridge に
+full hash を渡す。Git graph や外部 hosting 連携を前提にせず、履歴閲覧に必要な基本操作を完結させる。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel
