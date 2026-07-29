@@ -220,6 +220,9 @@ suite "macOS platform contract":
   test "terminal session bar exposes select new and close actions":
     check platformValidateTerminalSessionBar()
 
+  test "output panel presents its title and close action":
+    check platformValidateOutputPanelBar()
+
   test "native glyph atlas uploads and reuses visible glyphs":
     if platformValidateGlyphAtlas():
       check true

@@ -910,6 +910,8 @@ when defined(macosx):
     editorTaskProblems.setLen(0)
     editorTaskOutputVisible = false
     platformSetTaskOutputVisible(false)
+    let title = "Task — " & command
+    platformSetTaskOutputTitle(title.cstring, uint32(title.len))
     editorTaskJob = startTask(TaskSpec(command: "/bin/zsh",
       args: @["-lc", command], workingDirectory: taskWorkingDirectory(activeDocument())))
     editorViewState.statusMessage = "Task: running " & command
@@ -1005,7 +1007,8 @@ when defined(macosx):
     if lines.len == 0:
       editorViewState.statusMessage = title & ": none"
       return
-    editorTaskOutput = title & "\n" & lines.join("\n")
+    editorTaskOutput = lines.join("\n")
+    platformSetTaskOutputTitle(title.cstring, uint32(title.len))
     platformSetTaskOutputText(editorTaskOutput.cstring, uint32(editorTaskOutput.len))
     if editorTerminalVisible:
       editorTerminalVisible = false
@@ -2995,6 +2998,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         return
       else: discard
   when defined(macosx):
+    if name == "closeOutputPanel":
+      editorTaskOutputVisible = false
+      platformSetTaskOutputVisible(false)
+      return
     if name.startsWith("terminalSession:"):
       try:
         activateNativeTerminal(parseInt(name["terminalSession:".len .. ^1]))

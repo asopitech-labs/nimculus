@@ -4861,3 +4861,23 @@ creation and pane operations directly in the terminal tab bar.
 **Consequences.** Terminal session state remains owned by Nim and PTYs remain
 independent, while the primary multi-session workflow is visible and usable
 without opening a palette.
+
+## UI-020: Commit details use an identified, dismissible inspector
+
+**Context.** A Git history row asynchronously loaded commit metadata and a
+patch, but rendered it as anonymous task-output text. That made it unclear
+whether the panel represented a task, a Git commit, or an LSP result, and
+provided no direct way to dismiss it.
+
+**Decision.** The shared lower inspector has a native title bar and close
+control. Git commit details set the title to `Git Commit`; task and LSP
+surfaces use the same presenter with their own titles. The body remains a
+bounded native text view rather than a second editor implementation, but is
+read-only selectable and scrollable so a diff can be inspected and copied.
+
+**Evidence.** Zed opens a dedicated `CommitView` after independently loading
+commit details and file diffs, giving the result an explicit presentation
+identity rather than treating it as terminal output.
+
+**Consequences.** Nimculus retains one cancellable output boundary while Git
+history now leads to a recognizable, dismissible commit inspector.

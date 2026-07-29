@@ -128,6 +128,7 @@ static BOOL g_terminal_visible = NO;
 static NSArray<NSString *> *g_terminal_session_titles = nil;
 static NSUInteger g_terminal_active_session = 0;
 static NSString *g_task_output_text = @"";
+static NSString *g_task_output_title = @"Task Output";
 static BOOL g_task_output_visible = NO;
 static BOOL g_terminal_has_selection = NO;
 static uint32_t g_terminal_selection_start_row = 0;
@@ -425,6 +426,7 @@ static void releasePlatformResources(void) {
   free(g_editor_annotations); g_editor_annotations = NULL; g_editor_annotation_count = 0;
   [g_terminal_hyperlinks release]; g_terminal_hyperlinks = nil;
   [g_terminal_session_titles release]; g_terminal_session_titles = nil;
+  [g_task_output_title release]; g_task_output_title = nil;
   [g_editor_annotation_texts release]; g_editor_annotation_texts = nil;
   [g_editor_tab_titles release]; g_editor_tab_titles = nil;
   [g_secondary_editor_tab_titles release]; g_secondary_editor_tab_titles = nil;
@@ -1892,6 +1894,12 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusTaskOutputOverlay : NSTextView
 @end
 
+@interface NimculusOutputPanelBar : NSView
+@property(nonatomic, retain) NSTextField *titleLabel;
+@property(nonatomic, retain) NSButton *closeButton;
+- (void)reloadTitle;
+@end
+
 @interface NimculusOutlineOverlay : NSTextView
 @end
 
@@ -1995,8 +2003,55 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @end
 
 @implementation NimculusTaskOutputOverlay
-- (BOOL)acceptsFirstResponder { return NO; }
-- (NSView *)hitTest:(NSPoint)point { return nil; }
+// Unlike the live terminal, an output/commit inspector has no PTY input to
+// protect. Keep it read-only but let AppKit own selection, copy, and wheel
+// scrolling so users can actually inspect a long commit diff or task result.
+- (BOOL)acceptsFirstResponder { return YES; }
+- (NSView *)hitTest:(NSPoint)point {
+  return NSPointInRect(point, self.bounds) ? self : nil;
+}
+@end
+
+// Output is shared by tasks, Git commit details, and LSP result lists. Give
+// that presenter an explicit identity and dismissal affordance instead of
+// making it look like anonymous terminal text.
+@implementation NimculusOutputPanelBar
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.wantsLayer = YES;
+  self.layer.backgroundColor = [NSColor colorWithCalibratedRed:0.075 green:0.067 blue:0.052 alpha:0.98].CGColor;
+  self.titleLabel = [[NSTextField alloc] initWithFrame:NSZeroRect];
+  self.titleLabel.editable = NO;
+  self.titleLabel.selectable = NO;
+  self.titleLabel.bezeled = NO;
+  self.titleLabel.drawsBackground = NO;
+  self.titleLabel.font = [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold];
+  self.titleLabel.textColor = [NSColor colorWithCalibratedRed:0.92 green:0.88 blue:0.76 alpha:1.0];
+  [self addSubview:self.titleLabel];
+  self.closeButton = [[NSButton alloc] initWithFrame:NSZeroRect];
+  self.closeButton.title = @"×";
+  self.closeButton.toolTip = @"Close Output Panel";
+  self.closeButton.bezelStyle = NSBezelStyleTexturedRounded;
+  self.closeButton.target = self;
+  self.closeButton.action = @selector(closeOutput:);
+  [self addSubview:self.closeButton];
+  [self reloadTitle];
+  return self;
+}
+- (void)dealloc { [_titleLabel release]; [_closeButton release]; [super dealloc]; }
+- (void)layout {
+  [super layout];
+  self.titleLabel.frame = NSMakeRect(9.0, 4.0, MAX(1.0, self.bounds.size.width - 46.0),
+    MAX(18.0, self.bounds.size.height - 7.0));
+  self.closeButton.frame = NSMakeRect(MAX(1.0, self.bounds.size.width - 33.0), 2.0, 28.0,
+    MAX(20.0, self.bounds.size.height - 4.0));
+}
+- (void)reloadTitle {
+  self.titleLabel.stringValue = g_task_output_title.length > 0 ? g_task_output_title : @"Output";
+  [self setNeedsLayout:YES];
+}
+- (void)closeOutput:(id)sender { (void)sender; if (g_command_callback) g_command_callback("closeOutputPanel"); }
 @end
 
 @implementation NimculusOutlineOverlay
@@ -2758,6 +2813,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     terminal.verticallyResizable = NO;
     terminal.hidden = YES;
     [self addSubview:terminal];
+    NimculusOutputPanelBar *outputBar = [[NimculusOutputPanelBar alloc]
+      initWithFrame:NSZeroRect];
+    outputBar.hidden = YES;
+    [self addSubview:outputBar];
+    [outputBar release];
     NimculusTaskOutputOverlay *taskOutput = [[NimculusTaskOutputOverlay alloc]
       initWithFrame:NSZeroRect];
     taskOutput.editable = NO;
@@ -2840,6 +2900,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusStatusOverlay *status = nil;
   NimculusTerminalOverlay *terminal = nil;
   NimculusTerminalSessionBar *terminalSessions = nil;
+  NimculusOutputPanelBar *outputBar = nil;
   NimculusTaskOutputOverlay *taskOutput = nil;
   NimculusEditorAnnotationOverlay *annotations = nil;
   for (NSView *subview in self.subviews) {
@@ -2853,6 +2914,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusStatusOverlay class]]) status = (NimculusStatusOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) terminal = (NimculusTerminalOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTerminalSessionBar class]]) terminalSessions = (NimculusTerminalSessionBar *)subview;
+    if ([subview isKindOfClass:[NimculusOutputPanelBar class]]) outputBar = (NimculusOutputPanelBar *)subview;
     if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) taskOutput = (NimculusTaskOutputOverlay *)subview;
     if ([subview isKindOfClass:[NimculusEditorAnnotationOverlay class]]) annotations = (NimculusEditorAnnotationOverlay *)subview;
     if ([subview isKindOfClass:[NimculusGitSidebarTabs class]]) gitTabs = (NimculusGitSidebarTabs *)subview;
@@ -2944,7 +3006,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     annotations.hidden = g_editor_annotation_count == 0;
     [annotations setNeedsDisplay:YES];
   }
-  if (!terminal || !terminalSessions || !taskOutput) return;
+  if (!terminal || !terminalSessions || !outputBar || !taskOutput) return;
   BOOL panelVisible = g_terminal_visible || g_task_output_visible;
   CGFloat height = panelVisible ? MIN(180.0, MAX(72.0, g_editor_rect[3] * 0.42)) : 0.0;
   CGFloat x = g_editor_rect[0];
@@ -2958,15 +3020,19 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
   terminal.hidden = !g_terminal_visible;
   terminalSessions.hidden = !g_terminal_visible;
+  outputBar.hidden = !g_task_output_visible;
   taskOutput.hidden = !g_task_output_visible;
   if (!g_terminal_visible && !g_task_output_visible) return;
   CGFloat y = self.bounds.size.height - top - height;
   CGFloat sessionBarHeight = g_terminal_visible ? 27.0 : 0.0;
+  CGFloat outputBarHeight = g_task_output_visible ? 27.0 : 0.0;
   terminalSessions.frame = NSMakeRect(x, y + height - sessionBarHeight, width, sessionBarHeight);
+  outputBar.frame = NSMakeRect(x, y + height - outputBarHeight, width, outputBarHeight);
   terminal.frame = NSMakeRect(x, y, width, MAX(1.0, height - sessionBarHeight));
-  taskOutput.frame = NSMakeRect(x, y, width, height);
+  taskOutput.frame = NSMakeRect(x, y, width, MAX(1.0, height - outputBarHeight));
   terminal.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
   terminalSessions.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
+  outputBar.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
   taskOutput.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
 }
 
@@ -5045,6 +5111,30 @@ bool nimculus_platform_validate_terminal_session_bar(void) {
   }
 }
 
+bool nimculus_platform_validate_output_panel_bar(void) {
+  @autoreleasepool {
+    NimculusCommandCallback previousCallback = g_command_callback;
+    NSString *previousTitle = [g_task_output_title retain];
+    g_command_callback = validationCommandCallback;
+    nimculus_platform_set_task_output_title("Git Commit", 10);
+    NimculusOutputPanelBar *bar = [[NimculusOutputPanelBar alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 280.0, 27.0)];
+    [bar closeOutput:bar.closeButton];
+    BOOL close = strcmp(g_validation_command, "closeOutputPanel") == 0;
+    BOOL presentation = [bar.titleLabel.stringValue isEqualToString:@"Git Commit"] &&
+      [bar.closeButton.toolTip isEqualToString:@"Close Output Panel"];
+    [bar release];
+    replaceOwnedString(&g_task_output_title, previousTitle ?: @"Task Output");
+    [previousTitle release];
+    g_command_callback = previousCallback;
+    NimculusTaskOutputOverlay *output = [[NimculusTaskOutputOverlay alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 280.0, 120.0)];
+    BOOL readable = output.acceptsFirstResponder && [output hitTest:NSMakePoint(2.0, 2.0)] == output;
+    [output release];
+    return close && presentation && readable;
+  }
+}
+
 bool nimculus_platform_validate_sidebar_dispatch(void) {
   @autoreleasepool {
     NimculusCommandCallback previousCallback = g_command_callback;
@@ -6752,6 +6842,18 @@ void nimculus_platform_set_task_output_visible(bool visible) {
     [(NimculusMetalView *)g_active_view updateTerminalFrame];
     [g_active_view drawFrame];
   }
+}
+void nimculus_platform_set_task_output_title(const char *utf8, uint32_t length) {
+  replaceOwnedUTF8String(&g_task_output_title, utf8, length, @"Task Output");
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusOutputPanelBar class]]) {
+      [(NimculusOutputPanelBar *)subview reloadTitle];
+      break;
+    }
+  }
+  [view updateTerminalFrame];
 }
 void nimculus_platform_set_task_output_text(const char *utf8, uint32_t length) {
   replaceOwnedUTF8String(&g_task_output_text, utf8, length, @"");

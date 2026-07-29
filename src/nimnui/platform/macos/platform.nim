@@ -40,6 +40,7 @@ proc platformValidateColorEmojiFallback*(): bool {.importc: "nimculus_platform_v
 proc platformValidateColorEmojiSequences*(): bool {.importc: "nimculus_platform_validate_color_emoji_sequences", cdecl.}
 proc platformValidateTerminalOverlayRuns*(): bool {.importc: "nimculus_platform_validate_terminal_overlay_runs", cdecl.}
 proc platformValidateTerminalSessionBar*(): bool {.importc: "nimculus_platform_validate_terminal_session_bar", cdecl.}
+proc platformValidateOutputPanelBar*(): bool {.importc: "nimculus_platform_validate_output_panel_bar", cdecl.}
 proc platformValidateSidebarDispatch*(): bool {.importc: "nimculus_platform_validate_sidebar_dispatch", cdecl.}
 proc platformValidateSidebarContextDispatch*(): bool {.importc: "nimculus_platform_validate_sidebar_context_dispatch", cdecl.}
 proc platformValidateGitSidebarTabs*(): bool {.importc: "nimculus_platform_validate_git_sidebar_tabs", cdecl.}
@@ -152,6 +153,7 @@ proc platformIsDarkAppearance*(): bool {.importc: "nimculus_platform_is_dark_app
 proc platformInstallCrashHandler*(path: cstring) {.importc: "nimculus_platform_install_crash_handler", cdecl.}
 proc platformSetTerminalSelection*(startRow, startColumn, endRow, endColumn: uint32) {.importc: "nimculus_platform_set_terminal_selection", cdecl.}
 proc platformSetTaskOutputVisible*(visible: bool) {.importc: "nimculus_platform_set_task_output_visible", cdecl.}
+proc platformSetTaskOutputTitle*(title: cstring, length: uint32) {.importc: "nimculus_platform_set_task_output_title", cdecl.}
 proc platformSetTaskOutputText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_task_output_text", cdecl.}
 proc platformSetEditorCompletions*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_completions", cdecl.}
 proc platformSetEditorHover*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_hover", cdecl.}

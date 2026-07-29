@@ -460,6 +460,15 @@ Nimculus はまだ terminal pane split を持たない。そこで同じ責務�
 で破綻せず、選択・作成・終了は既存の Nim PTY manager へ command callback だけで渡す。task output は terminal
 session ではないため、同じ領域を利用してもこの presenter を表示しない。
 
+## 追加監査: Commit detail の presenter 境界（2026-07-29）
+
+Zed の `CommitView::open` は commit diff と commit details を並列ロードし、専用の workspace item として
+開く。履歴の選択結果を terminal/log 出力へ流さず、commit を読んで戻るための独立した presentation を持つ。
+
+Nimculus の現行レイアウトは単一 editor pane を維持しているため、CommitView を別 editor buffer に偽装しない。
+代わりに既存の bounded lower output presenter に native title bar と close action を追加し、Git Commit、Task、
+LSP result の種別を明示する。Git show の取得・cancel・安全な `--no-ext-diff` 実行境界は変更しない。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel
