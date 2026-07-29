@@ -4986,3 +4986,21 @@ layer.
 **Consequences.** Commit is discoverable where users review changes, without
 adding a second Git execution path or allowing a native UI control to mutate
 the repository directly.
+
+## UI-027: A left activity bar owns persistent workspace destinations
+
+**Context.** Nimculus had top workspace navigation, but the left dock lacked
+the persistent edge navigation that makes Files, Outline, Git, and Terminal
+quickly discoverable in a Zed-style editor layout.
+
+**Decision.** Add a compact SF Symbol activity bar at the left edge of the
+workspace dock. Each button dispatches the existing workspace command and
+derives its accent state from sidebar mode or terminal visibility. The tree,
+Git tabs, and Files actions shift right by the fixed rail width; no panel
+state is stored by the rail.
+
+**Evidence.** Zed keeps workspace destinations in persistent dock/tab-bar
+controls, separate from the project tree and focused editor item.
+
+**Consequences.** The layout now has a stable, icon-first navigation edge
+without shrinking the editor or creating a competing navigation model.

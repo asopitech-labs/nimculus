@@ -1932,6 +1932,11 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)reloadSelection;
 @end
 
+@interface NimculusActivityBar : NSStackView
+- (void)reloadSelection;
+- (void)dispatchWorkspaceCommand:(NSButton *)sender;
+@end
+
 @interface NimculusStatusOverlay : NSTextField
 @end
 
@@ -2482,6 +2487,63 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 }
 @end
 
+// Zed keeps workspace navigation at the left edge, independently of the
+// current editor tab. This compact activity bar makes the same destinations
+// reachable without consuming document or tree space with text-only controls.
+@implementation NimculusActivityBar
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.orientation = NSUserInterfaceLayoutOrientationVertical;
+  self.alignment = NSLayoutAttributeCenterX;
+  self.distribution = NSStackViewDistributionGravityAreas;
+  self.spacing = 7.0;
+  NSArray<NSArray<NSString *> *> *buttons = @[
+    @[@"folder", @"Files", @"commandPalette:show files"],
+    @[@"list.bullet", @"Outline", @"commandPalette:show outline"],
+    @[@"arrow.triangle.branch", @"Git", @"commandPalette:git status"],
+    @[@"terminal", @"Terminal", @"commandPalette:toggle terminal"]
+  ];
+  for (NSArray<NSString *> *entry in buttons) {
+    NSButton *button = [NSButton buttonWithTitle:entry[1] target:self
+      action:@selector(dispatchWorkspaceCommand:)];
+    if (@available(macOS 11.0, *)) {
+      button.image = [NSImage imageWithSystemSymbolName:entry[0]
+        accessibilityDescription:entry[1]];
+      button.imagePosition = NSImageOnly;
+    }
+    button.bezelStyle = NSBezelStyleTexturedRounded;
+    button.identifier = entry[2];
+    button.toolTip = entry[1];
+    [button setFrameSize:NSMakeSize(28.0, 26.0)];
+    [self addArrangedSubview:button];
+  }
+  [self reloadSelection];
+  return self;
+}
+- (void)reloadSelection {
+  for (NSView *view in self.arrangedSubviews) {
+    if (![view isKindOfClass:[NSButton class]]) continue;
+    NSButton *button = (NSButton *)view;
+    NSString *command = button.identifier;
+    BOOL active = [command isEqualToString:@"commandPalette:show files"] ?
+        g_editor_sidebar_visible && g_editor_sidebar_mode == 1 :
+      [command isEqualToString:@"commandPalette:show outline"] ?
+        g_editor_sidebar_visible && g_editor_sidebar_mode == 0 :
+      [command isEqualToString:@"commandPalette:git status"] ?
+        g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 && g_editor_sidebar_mode <= 4 :
+      [command isEqualToString:@"commandPalette:toggle terminal"] ? g_terminal_visible : NO;
+    button.contentTintColor = active ? themeHexColor(g_theme_accent,
+      [NSColor controlAccentColor]) : nil;
+  }
+}
+- (void)dispatchWorkspaceCommand:(NSButton *)sender {
+  if (g_command_callback && sender.identifier.length > 0) {
+    g_command_callback(sender.identifier.UTF8String);
+  }
+}
+@end
+
 @implementation NimculusStatusOverlay
 - (BOOL)acceptsFirstResponder { return NO; }
 - (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
@@ -2818,6 +2880,10 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     self.markedText = @"";
     self.markedTextRange = NSMakeRange(NSNotFound, 0);
     self.selectedTextRange = NSMakeRange(0, 0);
+    NimculusActivityBar *activityBar = [[NimculusActivityBar alloc]
+      initWithFrame:NSZeroRect];
+    [self addSubview:activityBar];
+    [activityBar release];
     NimculusOutlineOverlay *outline = [[NimculusOutlineOverlay alloc]
       initWithFrame:NSZeroRect];
     outline.editable = NO;
@@ -3000,6 +3066,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusOutlineOverlay *outline = outlineOverlayForView(self);
   NimculusGitSidebarTabs *gitTabs = nil;
   NimculusGitCommitButton *gitCommit = nil;
+  NimculusActivityBar *activityBar = nil;
   NimculusFilesSidebarActions *filesActions = nil;
   NimculusWorkspaceToolbar *workspaceToolbar = nil;
   NimculusLineNumberOverlay *lineNumbers = nil;
@@ -3031,9 +3098,22 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusGitCommitButton class]]) gitCommit = (NimculusGitCommitButton *)subview;
     if ([subview isKindOfClass:[NimculusFilesSidebarActions class]]) filesActions = (NimculusFilesSidebarActions *)subview;
     if ([subview isKindOfClass:[NimculusWorkspaceToolbar class]]) workspaceToolbar = (NimculusWorkspaceToolbar *)subview;
+    if ([subview isKindOfClass:[NimculusActivityBar class]]) activityBar = (NimculusActivityBar *)subview;
+  }
+  const CGFloat activityBarWidth = 38.0;
+  const CGFloat sidebarX = 8.0 + activityBarWidth;
+  const CGFloat sidebarControlX = 12.0 + activityBarWidth;
+  const CGFloat sidebarWidth = MAX(140.0, g_editor_rect[0] - 12.0 - activityBarWidth);
+  if (activityBar) {
+    activityBar.hidden = g_welcome_visible || !g_editor_sidebar_visible;
+    if (!activityBar.hidden) {
+      activityBar.frame = NSMakeRect(4.0, g_editor_rect[1] + 4.0, 30.0,
+        MAX(1.0, g_editor_rect[3] - 8.0));
+      [activityBar reloadSelection];
+    }
   }
   if (outline) {
-    CGFloat width = MAX(180.0, g_editor_rect[0] - 12.0);
+    CGFloat width = sidebarWidth;
     BOOL showGitTabs = g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 &&
       g_editor_sidebar_mode <= 4;
     BOOL showFilesActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 1;
@@ -3041,7 +3121,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     NSScrollView *scroll = outline.enclosingScrollView;
     if (scroll) {
       scroll.hidden = !g_editor_sidebar_visible;
-      scroll.frame = NSMakeRect(8.0, g_editor_rect[1], width,
+      scroll.frame = NSMakeRect(sidebarX, g_editor_rect[1], width,
         MAX(1.0, g_editor_rect[3] - sidebarToolbarHeight));
       scroll.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
       outline.textContainer.containerSize = NSMakeSize(MAX(1.0, width - 16.0), CGFLOAT_MAX);
@@ -3050,7 +3130,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       outline.frame = NSMakeRect(0.0, 0.0, width,
         MAX(g_editor_rect[3] - sidebarToolbarHeight, contentHeight));
     } else {
-      outline.frame = NSMakeRect(8.0, g_editor_rect[1], width, g_editor_rect[3]);
+      outline.frame = NSMakeRect(sidebarX, g_editor_rect[1], width, g_editor_rect[3]);
       outline.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
     }
   }
@@ -3059,8 +3139,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       g_editor_sidebar_mode <= 4;
     gitTabs.hidden = !showGitTabs;
     if (showGitTabs) {
-      CGFloat width = MAX(180.0, g_editor_rect[0] - 12.0);
-      gitTabs.frame = NSMakeRect(12.0, g_editor_rect[1] + g_editor_rect[3] - 27.0,
+      CGFloat width = sidebarWidth;
+      gitTabs.frame = NSMakeRect(sidebarControlX, g_editor_rect[1] + g_editor_rect[3] - 27.0,
         MAX(1.0, width - 86.0), 24.0);
       gitTabs.selectedSegment = (NSInteger)g_editor_sidebar_mode - 2;
     }
@@ -3070,8 +3150,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       g_editor_sidebar_mode <= 4;
     gitCommit.hidden = !showGitCommit;
     if (showGitCommit) {
-      CGFloat width = MAX(180.0, g_editor_rect[0] - 12.0);
-      gitCommit.frame = NSMakeRect(12.0 + width - 80.0,
+      CGFloat width = sidebarWidth;
+      gitCommit.frame = NSMakeRect(sidebarControlX + width - 80.0,
         g_editor_rect[1] + g_editor_rect[3] - 27.0, 76.0, 24.0);
     }
   }
@@ -3079,8 +3159,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     BOOL showFilesActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 1;
     filesActions.hidden = !showFilesActions;
     if (showFilesActions) {
-      CGFloat width = MAX(180.0, g_editor_rect[0] - 12.0);
-      filesActions.frame = NSMakeRect(12.0, g_editor_rect[1] + g_editor_rect[3] - 27.0,
+      CGFloat width = sidebarWidth;
+      filesActions.frame = NSMakeRect(sidebarControlX, g_editor_rect[1] + g_editor_rect[3] - 27.0,
         MAX(1.0, width - 8.0), 24.0);
     }
   }
@@ -5449,6 +5529,40 @@ bool nimculus_platform_validate_workspace_toolbar(void) {
     g_terminal_visible = previousTerminalVisible;
     g_command_callback = previousCallback;
     return presentation && selection && git && terminal;
+  }
+}
+
+bool nimculus_platform_validate_activity_bar(void) {
+  @autoreleasepool {
+    NimculusCommandCallback previousCallback = g_command_callback;
+    uint32_t previousMode = g_editor_sidebar_mode;
+    BOOL previousSidebarVisible = g_editor_sidebar_visible;
+    BOOL previousTerminalVisible = g_terminal_visible;
+    g_command_callback = validationCommandCallback;
+    g_editor_sidebar_visible = YES;
+    g_editor_sidebar_mode = 1;
+    g_terminal_visible = NO;
+    NimculusActivityBar *bar = [[NimculusActivityBar alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 30.0, 180.0)];
+    NSArray<NSView *> *buttons = bar.arrangedSubviews;
+    BOOL presentation = buttons.count == 4 &&
+      [((NSButton *)buttons[0]).toolTip isEqualToString:@"Files"] &&
+      [((NSButton *)buttons[1]).toolTip isEqualToString:@"Outline"] &&
+      [((NSButton *)buttons[2]).toolTip isEqualToString:@"Git"] &&
+      [((NSButton *)buttons[3]).toolTip isEqualToString:@"Terminal"] &&
+      ((NSButton *)buttons[0]).contentTintColor != nil &&
+      ((NSButton *)buttons[1]).contentTintColor == nil;
+    [bar dispatchWorkspaceCommand:(NSButton *)buttons[2]];
+    BOOL git = strcmp(g_validation_command, "commandPalette:git status") == 0;
+    g_terminal_visible = YES;
+    [bar reloadSelection];
+    BOOL terminalSelected = ((NSButton *)buttons[3]).contentTintColor != nil;
+    [bar release];
+    g_editor_sidebar_mode = previousMode;
+    g_editor_sidebar_visible = previousSidebarVisible;
+    g_terminal_visible = previousTerminalVisible;
+    g_command_callback = previousCallback;
+    return presentation && git && terminalSelected;
   }
 }
 

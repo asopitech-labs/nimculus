@@ -48,6 +48,7 @@ proc platformValidateGitSidebarTabs*(): bool {.importc: "nimculus_platform_valid
 proc platformShowGitCommitSheet*() {.importc: "nimculus_platform_show_git_commit_sheet", cdecl.}
 proc platformValidateFilesSidebarActions*(): bool {.importc: "nimculus_platform_validate_files_sidebar_actions", cdecl.}
 proc platformValidateWorkspaceToolbar*(): bool {.importc: "nimculus_platform_validate_workspace_toolbar", cdecl.}
+proc platformValidateActivityBar*(): bool {.importc: "nimculus_platform_validate_activity_bar", cdecl.}
 proc platformValidateSidebarScrollContainer*(): bool {.importc: "nimculus_platform_validate_sidebar_scroll_container", cdecl.}
 proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
 type

@@ -513,6 +513,14 @@ Zed の `GitPanel` はChanges tabの中にcommit editorとCommit actionを持ち
 入力する。確定時は既存の`commandPalette:git commit <message>`へ戻すだけであり、repository rootの解決、
 引数配列、async GitJob、cancel、出力panelはすべて既存Nim側が所有する。
 
+## 追加監査: Left activity bar（2026-07-29）
+
+ZedのWorkspace/Dockはproject treeの内容とは別に、常設のpanel destinationをedge chromeへ置く。
+NimculusはFiles、Outline、Git、Terminalを左端のSF Symbol activity barへ置く。各buttonは既存の
+workspace commandだけをdispatchし、active表示はsidebar modeまたはterminal visibilityを読む。
+activity barはworkspace stateを持たず、treeとFiles/Git controlsを固定38pt右へ移すだけなので、
+Nim側のworkspace/panel ownershipとfocus管理は不変である。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel
