@@ -4668,8 +4668,10 @@ pane and renders a WelcomePage when no worktree/item exists. The inspected
 source path is documented in `docs/ZED_UI_ARCHITECTURE_RESEARCH.md`.
 
 **Consequences.** An empty macOS launch has visible, discoverable next actions.
-Opening or creating a document hides the surface immediately, leaving the
-normal editor and workspace layout untouched.
+While it is visible, document-only chrome (focus border, scrollbar, line
+numbers, indent guides, and caret) is suppressed so the center is unambiguously
+an entry surface. Opening or creating a document hides the surface immediately,
+leaving the normal editor and workspace layout untouched.
 
 LaunchServices does not supply a meaningful project working directory for an
 app bundle. Therefore only a restored workspace or an explicit Finder/Open

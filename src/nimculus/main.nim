@@ -108,6 +108,7 @@ when defined(macosx) or defined(windows):
 
 proc syncEditorCursor()
 proc syncWorkspaceUiTabs()
+proc activeDocument(): ptr FileDocument
 when defined(macosx):
   proc syncSecondaryEditorView()
 proc persistSession()
@@ -179,6 +180,7 @@ proc setupDemoUi() =
   ## Keep rendering state synchronized with the document session at the
   ## composition boundary. Pane ownership remains independent: a split
   ## duplicates a viewport, never a document buffer.
+  let hasDocument = activeDocument() != nil
   syncWorkspaceUiTabs()
   demoTree = newUiTree()
   resetPointerInteractions()
@@ -269,7 +271,7 @@ proc setupDemoUi() =
       y: px(viewportHeight - DefaultStatusHeight - bottomDockHeight)),
       size: Size(width: px(max(0'f32, viewportWidth - leftDockWidth)), height: px(1))))
   paint.drawWorkspacePanel(workspaceLayout.status)
-  if editorWorkspaceUi.focusedRegion == regionCenter:
+  if hasDocument and editorWorkspaceUi.focusedRegion == regionCenter:
     paint.drawWorkspaceActive(Rect(origin: Point(x: px(float32(editor.origin.x)), y: px(24)),
       size: Size(width: px(2), height: px(max(0'f32, viewportHeight - 46'f32 - bottomDockHeight)))))
   if getEnv("NIMCULUS_UI_GALLERY", "") == "1":
@@ -296,9 +298,10 @@ proc setupDemoUi() =
     paint.drawCaret(Rect(origin: Point(x: px(74), y: px(176)),
       size: Size(width: px(2), height: px(20))))
     paint.popClip()
-  else:
+  elif hasDocument:
     paint.drawBorder(editor)
-  paint.drawScrollbar(scrollbar)
+  if hasDocument:
+    paint.drawScrollbar(scrollbar)
   var nativeCommands = newSeq[NativePaintCommand](paint.commands.len)
   for index, command in paint.commands:
     nativeCommands[index] = NativePaintCommand(
@@ -556,7 +559,6 @@ proc resetImeState() =
   when defined(macosx):
     platformClearEditorComposition()
 
-proc activeDocument(): ptr FileDocument
 proc activeEditorCursor(): int
 proc activeEditorSelection(): tuple[startByte, endByte: int]
 proc moveActiveEditorCursor(offset: int, selecting = false)

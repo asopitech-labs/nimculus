@@ -371,6 +371,10 @@ Open Recent の入口を center に常設する。現段階は AppKit overlay �
 native menu / OpenPanel callback と同じ action を dispatch する。GPU text renderer への移行後も
 この state と action contract は維持する。
 
+welcome page の表示中は、caret、line number、indent guide、scrollbar、focused-pane border のような
+document 専用 chrome を出さない。これは空バッファを見せるのではなく、操作開始の画面を明確に
+見せるための presenter 境界である。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

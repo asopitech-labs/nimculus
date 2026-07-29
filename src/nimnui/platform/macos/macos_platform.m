@@ -1394,7 +1394,9 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       [line release];
     }
   }
-  if (renderingInputPane) {
+  // A welcome page is a workspace entry surface, not an empty editable
+  // buffer. Suppress the text-presenter caret until an actual document opens.
+  if (renderingInputPane && !g_welcome_visible) {
     CGContextSetStrokeColorWithColor(context, [NSColor colorWithCalibratedRed:0.85
       green:0.90 blue:1.0 alpha:1.0].CGColor);
     CGContextSetLineWidth(context, 1.0);
@@ -2570,13 +2572,14 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     }
   }
   if (lineNumbers) {
-    lineNumbers.hidden = !g_editor_line_numbers;
+    lineNumbers.hidden = g_welcome_visible || !g_editor_line_numbers;
     lineNumbers.frame = NSMakeRect(0.0, g_editor_rect[1],
       MAX(36.0, g_editor_rect[0] - 8.0), g_editor_rect[3]);
     lineNumbers.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
     [lineNumbers setNeedsDisplay:YES];
   }
   if (indentGuides) {
+    indentGuides.hidden = g_welcome_visible;
     indentGuides.frame = NSMakeRect(g_editor_rect[0], g_editor_rect[1],
       g_editor_rect[2], g_editor_rect[3]);
     indentGuides.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
