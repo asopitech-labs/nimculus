@@ -2029,16 +2029,34 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
       NSRectFill(NSMakeRect(x, 0.0, tabWidth, self.bounds.size.height));
     }
     NSString *title = titles[index] ?: @"Untitled";
-    [title drawAtPoint:NSMakePoint(x + 10.0, 6.0) withAttributes:attributes];
+    NSRect titleRect = NSMakeRect(x + 10.0, 5.0, MAX(12.0, tabWidth - 34.0),
+      self.bounds.size.height - 8.0);
+    [title drawWithRect:titleRect options:NSStringDrawingTruncatesLastVisibleLine |
+      NSStringDrawingUsesLineFragmentOrigin attributes:attributes context:nil];
+    if (index == active) {
+      NSDictionary *closeAttributes = @{
+        NSFontAttributeName: [NSFont systemFontOfSize:16.0 weight:NSFontWeightMedium],
+        NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
+          [NSColor colorWithCalibratedWhite:0.88 alpha:1.0]) colorWithAlphaComponent:0.86]
+      };
+      [@"×" drawAtPoint:NSMakePoint(x + tabWidth - 21.0, 4.0) withAttributes:closeAttributes];
+    }
   }
 }
 - (void)mouseDown:(NSEvent *)event {
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
+  NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
   if (!g_command_callback || titles.count == 0) return;
   NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
   CGFloat tabWidth = MAX(120.0, self.bounds.size.width / titles.count);
   NSUInteger index = MIN(titles.count - 1,
     (NSUInteger)MAX(0.0, floor(point.x / tabWidth)));
+  if (index == active && point.x >= (index + 1) * tabWidth - 28.0) {
+    NSString *command = [NSString stringWithFormat:@"closePaneTab:%u:%lu",
+      self.secondary ? 1 : 0, (unsigned long)index];
+    g_command_callback(command.UTF8String);
+    return;
+  }
   NSString *command = [NSString stringWithFormat:@"selectPaneTab:%u:%lu",
     self.secondary ? 1 : 0, (unsigned long)index];
   g_command_callback(command.UTF8String);

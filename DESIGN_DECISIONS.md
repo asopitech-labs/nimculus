@@ -4645,3 +4645,7 @@ secondary Pane has focus. Clean secondary tabs close immediately; dirty tabs
 receive the standard Save / Don’t Save / Cancel sheet against the same focused
 document. Focus changes while a sheet is visible cannot redirect its result to
 another tab.
+
+The active native tab also exposes the same close action directly. An inactive
+tab's right edge still selects it, preventing an ambiguous one-click close of a
+document the user was not viewing.

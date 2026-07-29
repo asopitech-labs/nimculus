@@ -3228,6 +3228,27 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       persistSession()
     except ValueError:
       discard
+  elif name.startsWith("closePaneTab:"):
+    let payload = name["closePaneTab:".len .. ^1].split(':')
+    if payload.len != 2: return
+    try:
+      let paneIndex = parseInt(payload[0])
+      let target = parseInt(payload[1])
+      if target < 0 or target >= editorSession.tabs.len or paneIndex < 0 or paneIndex > 1:
+        return
+      let selectCommand = if editorWorkspaceUi.center != nil and
+          editorWorkspaceUi.center.kind == paneSplit:
+        "selectPaneTab:" & $paneIndex & ":" & $target
+      elif paneIndex == 0:
+        "selectTab:" & $target
+      else:
+        ""
+      if selectCommand.len == 0: return
+      receiveNativeCommand(selectCommand.cstring)
+      if focusedPaneTabIndex() == target:
+        receiveNativeCommand("closeTabRequest".cstring)
+    except ValueError:
+      discard
   elif name.startsWith("selectTab:"):
     let payload = name["selectTab:".len .. ^1]
     try:
