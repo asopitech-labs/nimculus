@@ -44,6 +44,10 @@ static void validateAppearanceCommand(const char *command) {
 }
 static double g_ui_rect[4] = {360.0, 260.0, 240.0, 120.0};
 static double g_editor_rect[4] = {48.0, 128.0, 828.0, 432.0};
+// WorkspaceUiState owns this top-left logical rectangle. Keeping it separate
+// from g_editor_rect prevents terminal/task panels from deriving geometry from
+// a legacy editor-height heuristic.
+static double g_terminal_panel_rect[4] = {0.0, 0.0, 0.0, 0.0};
 // The primary renderer remains the active editing surface.  Keep the second
 // pane's geometry separately so input dispatch can select it before the
 // independent Core Text/Metal resources are attached.
@@ -2430,12 +2434,21 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   if (!terminal || !taskOutput) return;
   BOOL panelVisible = g_terminal_visible || g_task_output_visible;
   CGFloat height = panelVisible ? MIN(180.0, MAX(72.0, g_editor_rect[3] * 0.42)) : 0.0;
+  CGFloat x = g_editor_rect[0];
+  CGFloat width = g_editor_rect[2];
+  CGFloat top = g_editor_rect[1] + g_editor_rect[3] - height;
+  if (g_terminal_panel_rect[2] > 0.0 && g_terminal_panel_rect[3] > 0.0) {
+    x = g_terminal_panel_rect[0];
+    width = g_terminal_panel_rect[2];
+    height = g_terminal_panel_rect[3];
+    top = g_terminal_panel_rect[1];
+  }
   terminal.hidden = !g_terminal_visible;
   taskOutput.hidden = !g_task_output_visible;
   if (!g_terminal_visible && !g_task_output_visible) return;
-  CGFloat y = self.bounds.size.height - g_editor_rect[1] - height;
-  terminal.frame = NSMakeRect(g_editor_rect[0], y, g_editor_rect[2], height);
-  taskOutput.frame = NSMakeRect(g_editor_rect[0], y, g_editor_rect[2], height);
+  CGFloat y = self.bounds.size.height - top - height;
+  terminal.frame = NSMakeRect(x, y, width, height);
+  taskOutput.frame = NSMakeRect(x, y, width, height);
   terminal.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
   taskOutput.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
 }
@@ -5226,6 +5239,13 @@ void nimculus_platform_set_editor_rect(double x, double y, double width, double 
   if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+void nimculus_platform_set_terminal_panel_rect(double x, double y, double width, double height) {
+  g_terminal_panel_rect[0] = MAX(0.0, x);
+  g_terminal_panel_rect[1] = MAX(0.0, y);
+  g_terminal_panel_rect[2] = MAX(0.0, width);
+  g_terminal_panel_rect[3] = MAX(0.0, height);
+  if (g_active_view) [(NimculusMetalView *)g_active_view updateTerminalFrame];
 }
 void nimculus_platform_set_secondary_editor_rect(bool visible, double x, double y,
                                                  double width, double height) {

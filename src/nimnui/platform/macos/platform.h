@@ -85,6 +85,7 @@ uint32_t nimculus_platform_secondary_editor_byte_offset_at_point(double x, doubl
 uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y);
 void nimculus_platform_set_editor_scroll_line(uint32_t line);
 void nimculus_platform_set_editor_rect(double x, double y, double width, double height);
+void nimculus_platform_set_terminal_panel_rect(double x, double y, double width, double height);
 void nimculus_platform_set_secondary_editor_rect(bool visible, double x, double y,
                                                  double width, double height);
 void nimculus_platform_set_secondary_editor_cursor_byte(uint32_t byte_offset,

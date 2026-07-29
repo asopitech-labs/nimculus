@@ -124,6 +124,7 @@ var demoSplitDirection = splitVertical
 var activePointerNode = NodeId(0)
 var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 var demoSecondaryEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
+var demoBottomDockBounds = Rect(size: Size(width: px(0), height: px(0)))
 when defined(macosx) or defined(windows):
   var appSettings: SettingsStore
   var editorLspSemanticTokens: seq[LspSemanticToken]
@@ -201,6 +202,7 @@ proc setupDemoUi() =
     Size(width: px(viewportWidth), height: px(viewportHeight)))
   let leftDockWidth = float32(workspaceLayout.leftDock.size.width)
   let bottomDockHeight = float32(workspaceLayout.bottomDock.size.height)
+  demoBottomDockBounds = workspaceLayout.bottomDock
   let margin = 24'f32
   let panel = Rect(origin: Point(x: px(margin), y: px(margin)),
     size: Size(width: px(max(0'f32, viewportWidth - margin * 2)),
@@ -336,6 +338,10 @@ proc setupDemoUi() =
   platformSetEditorRect(float64(float32(primaryEditor.origin.x)), float64(float32(primaryEditor.origin.y)),
                         float64(float32(primaryEditor.size.width)), float64(float32(primaryEditor.size.height)))
   when defined(macosx):
+    platformSetTerminalPanelRect(float64(float32(demoBottomDockBounds.origin.x)),
+      float64(float32(demoBottomDockBounds.origin.y)),
+      float64(float32(demoBottomDockBounds.size.width)),
+      float64(float32(demoBottomDockBounds.size.height)))
     platformSetSecondaryEditorRect(demoSplitEnabled,
       float64(float32(secondaryEditor.origin.x)), float64(float32(secondaryEditor.origin.y)),
       float64(float32(secondaryEditor.size.width)), float64(float32(secondaryEditor.size.height)))
@@ -1220,6 +1226,12 @@ when defined(macosx):
       editorViewState.statusMessage = "Terminal failed: " & error.msg
 
   proc terminalOverlayBounds(): tuple[x, y, width, height: float32] =
+    if float32(demoBottomDockBounds.size.width) > 0 and
+        float32(demoBottomDockBounds.size.height) > 0:
+      return (x: float32(demoBottomDockBounds.origin.x),
+        y: float32(demoBottomDockBounds.origin.y),
+        width: float32(demoBottomDockBounds.size.width),
+        height: float32(demoBottomDockBounds.size.height))
     let height = min(180'f32, max(72'f32, float32(demoEditorBounds.size.height) * 0.42'f32))
     (x: float32(demoEditorBounds.origin.x),
      y: float32(demoEditorBounds.origin.y) + float32(demoEditorBounds.size.height) - height,
@@ -3415,20 +3427,36 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "Git: cancelled"
     of "__toggle_terminal__":
       when defined(macosx):
-        editorWorkspaceUi.togglePanel(panelTerminal)
         toggleNativeTerminal()
+        if editorTerminalVisible: editorWorkspaceUi.openPanel(panelTerminal)
+        elif editorTaskOutputVisible: editorWorkspaceUi.openPanel(panelTasks)
+        else: editorWorkspaceUi.bottomDock.isOpen = false
+        setupDemoUi()
+        resizeNativeTerminals()
     of "__new_terminal__":
-      when defined(macosx): newNativeTerminal()
+      when defined(macosx):
+        newNativeTerminal()
+        if editorTerminalVisible: editorWorkspaceUi.openPanel(panelTerminal)
+        setupDemoUi()
+        resizeNativeTerminals()
     of "__close_terminal__":
-      when defined(macosx): closeNativeTerminal()
+      when defined(macosx):
+        closeNativeTerminal()
+        if not editorTerminalVisible and not editorTaskOutputVisible:
+          editorWorkspaceUi.bottomDock.isOpen = false
+        setupDemoUi()
     of "__next_terminal__":
       when defined(macosx): switchNativeTerminal(1)
     of "__previous_terminal__":
       when defined(macosx): switchNativeTerminal(-1)
     of "__task_output__":
       when defined(macosx):
-        editorWorkspaceUi.togglePanel(panelTasks)
         toggleNativeTaskOutput()
+        if editorTaskOutputVisible: editorWorkspaceUi.openPanel(panelTasks)
+        elif editorTerminalVisible: editorWorkspaceUi.openPanel(panelTerminal)
+        else: editorWorkspaceUi.bottomDock.isOpen = false
+        setupDemoUi()
+        resizeNativeTerminals()
       when defined(windows): toggleWindowsTaskOutput()
     of "__workspace_search__":
       let query = if rawCommand.len > 17: rawCommand[17 .. ^1].strip else: ""
