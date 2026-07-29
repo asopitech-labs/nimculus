@@ -490,6 +490,7 @@ when defined(macosx):
       workspacePanelForSidebarMode(editorSidebarMode))
     platformSetEditorSidebarSelection(if index < 0: uint32.high else: uint32(index))
 var externalAlertShown = false
+var externalAlertTab = -1
 var editorPointerDragging = false
 var editorPointerPane = 0
 var editorScrollRemainder = 0'f32
@@ -2042,11 +2043,13 @@ proc pollWorkspaceSearch() =
     inc persistenceTick
     if persistenceTick mod 20 == 0: persistSession()
     let changed = if activeWorkspace == nil: @[] else: activeWorkspace.changedPaths()
-    let document = activeDocument()
-    if document != nil and document[].path.len > 0 and document[].externallyChanged() and
-        not externalAlertShown:
-      externalAlertShown = true
-      platformShowExternalChange(document[].path.cstring)
+    if not externalAlertShown:
+      for index, tab in editorSession.tabs:
+        if tab.document.path.len > 0 and tab.document.externallyChanged():
+          externalAlertShown = true
+          externalAlertTab = index
+          platformShowExternalChange(tab.document.path.cstring)
+          break
     if changed.len > 0:
       if workspaceSearchJob != nil:
         # Invalidate results produced against the pre-change filesystem view.
@@ -4204,21 +4207,38 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         platformSetCloseDecision(false)
     else:
       platformShowSavePanelAndClose()
-  elif name == "reloadExternal" and document != nil:
+  elif name == "reloadExternal":
     try:
-      discard editorSession.reloadActiveDocument(editorViewState)
+      let target = externalAlertTab
+      if target < 0 or target >= editorSession.tabs.len: return
+      let path = editorSession.tabs[target].document.path
+      if path.len == 0: return
+      let reloaded = openDocument(path)
+      editorSession.tabs[target].document = reloaded
+      let text = reloaded.buffer.toString()
+      editorSession.tabs[target].view.clampSelectionToText(text)
+      editorSession.tabs[target].secondaryView.clampSelectionToText(text)
+      if target == editorSession.activeTab:
+        editorSession.loadActiveView(editorViewState)
+      if editorSession.split and target == editorSession.effectiveSplitSecondaryTab():
+        editorSession.secondaryView = editorSession.tabs[target].secondaryView
       resetImeState()
       if syntaxState != nil:
         syntaxState.close()
         syntaxState = nil
       externalAlertShown = false
+      externalAlertTab = -1
       syncEditorCursor()
       refreshEditorSyntax()
     except CatchableError:
       externalAlertShown = false
-  elif name == "keepExternal" and document != nil:
-    document[].acceptExternalState()
+      externalAlertTab = -1
+  elif name == "keepExternal":
+    let target = externalAlertTab
+    if target >= 0 and target < editorSession.tabs.len:
+      editorSession.tabs[target].document.acceptExternalState()
     externalAlertShown = false
+    externalAlertTab = -1
   elif name.startsWith("sidebarSelect:"):
     when defined(macosx):
       try:
