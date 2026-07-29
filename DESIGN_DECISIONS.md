@@ -4401,3 +4401,15 @@ Before opening, Nimculus canonicalizes both repository root and candidate path
 and rejects a path outside that root. The native sidebar uses a new mode value
 but retains its established indexed callback contract, so no OS-specific
 interaction abstraction enters the editor core.
+
+## M9-032: Reuse the native sidebar as the local branch picker
+
+Zed separates branch listing from the switch operation. Nimculus renders the
+same machine-oriented local branch list in its existing sidebar; selecting a
+non-current entry invokes `git switch --no-guess` through the established
+asynchronous job boundary. The list itself comes from Git, and the current
+branch is intentionally inert.
+
+This keeps the existing clean-tab reload and Git worktree safety behavior
+while providing a discoverable macOS interaction instead of requiring users
+to type a branch name into the command palette.

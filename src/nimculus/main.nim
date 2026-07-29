@@ -419,7 +419,7 @@ var workspacePreviewEntries: seq[WorkspaceEntry]
 var workspaceExpandedDirectories: seq[string]
 var workspacePreviewMode = ""
 type EditorSidebarMode = enum
-  sidebarOutline, sidebarFiles, sidebarGitHistory, sidebarGitStatus
+  sidebarOutline, sidebarFiles, sidebarGitHistory, sidebarGitStatus, sidebarGitBranches
 var editorSidebarMode = sidebarOutline
 var externalAlertShown = false
 var editorPointerDragging = false
@@ -450,6 +450,7 @@ when defined(macosx):
   var editorGitHistory: seq[GitCommit]
   var editorGitHistoryPath = ""
   var editorGitStatusEntries: seq[GitStatusEntry]
+  var editorGitBranches: seq[GitBranch]
   var editorTaskJob: TaskJob
   var editorTaskCommand = ""
   var editorTaskOutput = ""
@@ -639,6 +640,17 @@ when defined(macosx):
     platformSetEditorSidebar(sidebarText.cstring, uint32(sidebarText.len),
       uint32(editorGitStatusEntries.len), uint32(sidebarGitStatus))
 
+  proc renderNativeGitBranches(branches: seq[GitBranch]) =
+    editorSidebarMode = sidebarGitBranches
+    editorGitBranches = branches
+    var lines = @["Git Branches", "────────"]
+    for branch in branches:
+      lines.add((if branch.current: "● " else: "  ") & branch.name)
+    if branches.len == 0: lines.add("No local branches")
+    let text = lines.join("\n")
+    platformSetEditorSidebar(text.cstring, uint32(text.len), uint32(branches.len),
+      uint32(sidebarGitBranches))
+
   proc reloadCleanDocumentsForBranch(repository: GitRepository): int =
     ## Git switches update the working tree atomically from the editor's point
     ## of view. Reload only clean tabs under the switched repository; dirty
@@ -720,10 +732,7 @@ when defined(macosx):
         "Git file history: no commits" else: "Git file history: " & commits[0].subject
     elif action == "branches":
       let branches = parseBranches(job.result.output)
-      var lines: seq[string] = @[]
-      for branch in branches:
-        lines.add((if branch.current: "* " else: "  ") & branch.name)
-      showNativeLspPanel("Git Branches", lines)
+      renderNativeGitBranches(branches)
       editorViewState.statusMessage = if branches.len == 0:
         "Git: no local branches" else: "Git: " & $branches.len & " local branch(es)"
     elif action == "commit" or action == "amend":
@@ -3515,6 +3524,18 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
                 editorViewState.statusMessage = "Git status file is unavailable: " & entry.path
               else:
                 receiveNativeFile(candidate.cstring, false)
+        of sidebarGitBranches:
+          if index >= 0 and index < editorGitBranches.len:
+            let branch = editorGitBranches[index]
+            if branch.current:
+              editorViewState.statusMessage = "Git: already on " & branch.name
+            elif editorGitRepository == nil:
+              editorViewState.statusMessage = "Git repository not found"
+            else:
+              # The source is Git's own machine-oriented branch listing, and
+              # the command still opts out of remote-name guessing.
+              startNativeGitAction(editorGitRepository, "switch branch", "",
+                ["switch", "--no-guess", branch.name], source = branch.name)
         of sidebarOutline: discard
       except ValueError:
         editorViewState.statusMessage = "Invalid sidebar item"
