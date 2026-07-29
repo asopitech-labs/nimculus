@@ -3194,6 +3194,17 @@ proc handleSecondaryEditorCommand(name: string, document: ptr FileDocument): boo
   of "selectAll":
     view.selection.anchor = 0
     view.selection.active = text.len
+  of "save":
+    if activeDocument[].path.len == 0:
+      editorViewState.statusMessage = "Save As is required for this split-pane document"
+    else:
+      try:
+        activeDocument[].save()
+        editorSession.tabs[tab].title = splitFile(activeDocument[].path).name
+        editorViewState.statusMessage = "Saved " & editorSession.tabs[tab].title
+        persistSession()
+      except CatchableError as error:
+        editorViewState.statusMessage = "Save failed: " & error.msg
   else: return false
   editorSession.secondaryView = view
   syncEditorCursor()
