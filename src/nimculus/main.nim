@@ -1911,7 +1911,6 @@ proc moveActiveEditorCursor(offset: int, selecting = false) =
   editorSession.moveActivePaneCursor(editorViewState, offset, selecting)
 
 proc syncEditorCursor() =
-  editorWorkspaceUi.selectTab(editorSession.activeTab)
   when defined(macosx):
     let document = activeDocument()
     let visibleLines = editorVisibleLineCount()
@@ -3019,6 +3018,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name in ["previousTab", "nextTab"]:
     let delta = if name == "previousTab": -1 else: 1
     if editorSession.switchTab(editorViewState, editorSession.secondaryView, delta):
+      discard editorWorkspaceUi.selectPaneTab(editorWorkspaceUi.focusedPane,
+        editorSession.activeTab)
       when defined(macosx): editorLspSignatureText = ""
       resetImeState()
       resetEditorTransientState()
@@ -3038,6 +3039,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         editorSession.saveActiveView(editorViewState)
         editorSession.saveSecondaryActiveView(editorSession.secondaryView)
         editorSession.activeTab = target
+        discard editorWorkspaceUi.selectPaneTab(editorWorkspaceUi.focusedPane, target)
         editorSession.loadActiveView(editorViewState)
         editorSession.loadSecondaryActiveView()
         resetImeState()

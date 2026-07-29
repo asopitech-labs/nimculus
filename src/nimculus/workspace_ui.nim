@@ -267,9 +267,9 @@ proc focusPane*(state: var WorkspaceUiState, pane: PaneId): bool =
   true
 
 proc syncRootTabs*(state: var WorkspaceUiState, tabCount, activeTab: int) =
-  ## Transitional adapter while EditorSession remains the owner of documents.
-  ## It refreshes only the initial/root pane and intentionally leaves a split
-  ## tree untouched: a split is a view arrangement, not a second buffer list.
+  ## EditorSession remains the document store during the migration, while each
+  ## Pane owns which of those items it presents. Refresh availability without
+  ## overwriting a secondary pane's independent tab choice.
   if state.center.isNil: state = initWorkspaceUi(tabCount, activeTab)
   var indices: seq[int]
   for index in 0 ..< tabCount: indices.add(index)
@@ -277,7 +277,8 @@ proc syncRootTabs*(state: var WorkspaceUiState, tabCount, activeTab: int) =
     if tree.isNil: return
     if tree.kind == paneLeaf:
       tree.pane.tabIndices = indices
-      tree.pane.activeTabIndex = activeTab
+      if tree.pane.activeTabIndex notin indices:
+        tree.pane.activeTabIndex = activeTab
     else:
       sync(tree.first)
       sync(tree.second)
@@ -296,6 +297,30 @@ proc selectTab*(state: var WorkspaceUiState, tabIndex: int) =
       select(tree.first)
       select(tree.second)
   select(state.center)
+
+proc paneTabIndex*(state: WorkspaceUiState, pane: PaneId): int =
+  proc find(tree: PaneTree): int =
+    if tree.isNil: return -1
+    if tree.kind == paneLeaf:
+      return if tree.pane.id == pane: tree.pane.activeTabIndex else: -1
+    let first = find(tree.first)
+    if first >= 0: first else: find(tree.second)
+  find(state.center)
+
+proc selectPaneTab*(state: var WorkspaceUiState, pane: PaneId, tabIndex: int): bool =
+  ## A tab activation is scoped to the pane that received the command. This is
+  ## the essential difference between a real PaneGroup and a duplicated view.
+  proc select(tree: PaneTree): bool =
+    if tree.isNil: return false
+    if tree.kind == paneLeaf:
+      if tree.pane.id != pane or tabIndex notin tree.pane.tabIndices: return false
+      tree.pane.activeTabIndex = tabIndex
+      return true
+    select(tree.first) or select(tree.second)
+  result = select(state.center)
+  if result:
+    state.focusedPane = pane
+    state.focusedRegion = regionCenter
 
 proc splitFocusedPane*(state: var WorkspaceUiState, axis: PaneAxis,
                        ratio = 0.5'f32): bool =

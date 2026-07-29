@@ -52,6 +52,18 @@ suite "workspace UI state":
     check state.center.first.pane.activeTabIndex == 2
     check state.center.second.pane.activeTabIndex == 2
 
+  test "a pane retains its own tab selection when session tabs refresh":
+    var state = initWorkspaceUi(tabCount = 3, activeTab = 0)
+    discard state.splitFocusedPane(paneVertical)
+    let primary = state.center.first.pane.id
+    let secondary = state.center.second.pane.id
+    check state.selectPaneTab(secondary, 2)
+    check state.paneTabIndex(primary) == 0
+    check state.paneTabIndex(secondary) == 2
+    state.syncRootTabs(tabCount = 3, activeTab = 1)
+    check state.paneTabIndex(primary) == 0
+    check state.paneTabIndex(secondary) == 2
+
   test "split ratio and close remain pane tree operations":
     var state = initWorkspaceUi(tabCount = 1)
     discard state.splitFocusedPane(paneHorizontal, 0.4)
