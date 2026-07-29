@@ -4365,3 +4365,15 @@ Selecting a commit then appends that path after Git's `--` separator.
 
 The result is a focused patch for the requested file without changing the
 revision's parsing or allowing repository-configured external diff tools.
+
+## M9-029: Render bounded line blame without altering editor state
+
+Zed presents blame as an editor decoration and status item. Nimculus uses its
+existing native output panel for the same information until a dedicated gutter
+annotation layout is warranted: `git blame` lists line number, short hash,
+author, and source text, while retaining the cursor-line summary in the status
+bar.
+
+The list is capped at 500 lines. This preserves a useful whole-file view for
+ordinary sources without turning a large generated file into a blocking native
+text update.

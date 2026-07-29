@@ -592,6 +592,22 @@ when defined(macosx):
     platformSetEditorSidebar(text.cstring, uint32(text.len), uint32(commits.len),
       uint32(sidebarGitHistory))
 
+  proc renderNativeGitBlame(entries: seq[GitBlameLine], path: string) =
+    ## Zed renders inline blame when space permits. The native output panel is
+    ## Nimculus' current compact equivalent: retain a bounded, line-oriented
+    ## view while leaving the editor text and cursor untouched.
+    const MaxPanelLines = 500
+    var lines = @["Git Blame — " & path, "────────"]
+    let shown = min(entries.len, MaxPanelLines)
+    for index in 0 ..< shown:
+      let entry = entries[index]
+      let shortHash = if entry.hash.len > 8: entry.hash[0 .. 7] else: entry.hash
+      lines.add(align($((index + 1)), 5) & "  " & shortHash & "  " &
+        entry.author & " │ " & entry.text)
+    if entries.len > shown:
+      lines.add("… " & $(entries.len - shown) & " additional line(s) omitted")
+    showNativeLspPanel("Git Blame", lines)
+
   proc reloadCleanDocumentsForBranch(repository: GitRepository): int =
     ## Git switches update the working tree atomically from the editor's point
     ## of view. Reload only clean tabs under the switched repository; dirty
@@ -708,6 +724,7 @@ when defined(macosx):
       editorViewState.statusMessage = "Git: commit details"
     elif action == "blame":
       let blameLines = parseBlame(job.result.output)
+      renderNativeGitBlame(blameLines, editorGitActionPath)
       let location = if not sameDocument: -1
         elif document == nil: -1
         else: document[].buffer.lineColumn(editorViewState.cursor).line
