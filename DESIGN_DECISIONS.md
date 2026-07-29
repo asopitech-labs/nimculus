@@ -4355,3 +4355,13 @@ parsed as a revision or option.
 
 The implementation reuses the history renderer and commit-detail click path;
 it does not create a second Git view or block the editor while loading history.
+
+## M9-028: Preserve a file-history filter when opening a commit
+
+Zed keeps the selected-file filter when it opens a commit view. Nimculus keeps
+the same small context beside its history sidebar: a repository history has no
+path filter, while `git file history` records the workspace-relative path.
+Selecting a commit then appends that path after Git's `--` separator.
+
+The result is a focused patch for the requested file without changing the
+revision's parsing or allowing repository-configured external diff tools.

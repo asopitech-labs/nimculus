@@ -448,6 +448,7 @@ when defined(macosx):
   var editorGitRepository: GitRepository
   var editorGitPath = ""
   var editorGitHistory: seq[GitCommit]
+  var editorGitHistoryPath = ""
   var editorTaskJob: TaskJob
   var editorTaskCommand = ""
   var editorTaskOutput = ""
@@ -575,9 +576,11 @@ when defined(macosx):
     editorGitActionJob = repository.startGitJob(diffArgs)
     editorViewState.statusMessage = "Git: " & action & "…"
 
-  proc renderNativeGitHistory(commits: seq[GitCommit], title = "Git History") =
+  proc renderNativeGitHistory(commits: seq[GitCommit], title = "Git History",
+                              path = "") =
     editorSidebarMode = sidebarGitHistory
     editorGitHistory = commits
+    editorGitHistoryPath = path
     var lines = @[title, "────────"]
     if commits.len == 0:
       lines.add("No commits")
@@ -663,7 +666,8 @@ when defined(macosx):
         "Git log: no commits" else: "Git log: " & commits[0].subject
     elif action == "file history":
       let commits = parseLog(job.result.output, 100)
-      renderNativeGitHistory(commits, "Git History — " & editorGitActionPath)
+      renderNativeGitHistory(commits, "Git History — " & editorGitActionPath,
+        editorGitActionPath)
       editorViewState.statusMessage = if commits.len == 0:
         "Git file history: no commits" else: "Git file history: " & commits[0].subject
     elif action == "branches":
@@ -3440,8 +3444,12 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
               # Keep the same bounded async Git job boundary here, but include
               # the patch so a history entry is useful without a shell escape
               # or repository-provided external diff driver.
-              startNativeGitAction(repository, "show", "", ["show", "--format=fuller",
-                "--stat", "--patch", "--no-ext-diff", editorGitHistory[index].hash])
+              var args = @["show", "--format=fuller", "--stat", "--patch",
+                "--no-ext-diff", editorGitHistory[index].hash]
+              if editorGitHistoryPath.len > 0:
+                args.add("--")
+                args.add(editorGitHistoryPath)
+              startNativeGitAction(repository, "show", "", args)
         of sidebarOutline: discard
       except ValueError:
         editorViewState.statusMessage = "Invalid sidebar item"

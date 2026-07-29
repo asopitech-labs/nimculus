@@ -111,6 +111,9 @@ suite "M9 Git service":
     check details.output.contains("amended second commit")
     check details.output.contains("-first")
     check details.output.contains("+second")
+    let filtered = repository.showCommitPath(commits[0].hash, "history.nim")
+    check filtered.exitCode == 0
+    check filtered.output.contains("history.nim")
     check repository.showCommit("").exitCode == -1
 
   test "lists and safely switches local branches":

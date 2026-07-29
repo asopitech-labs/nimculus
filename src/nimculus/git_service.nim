@@ -476,6 +476,19 @@ proc showCommit*(repository: GitRepository, revision: string): GitResult =
   repository.runGit(["show", "--format=fuller", "--stat", "--patch",
     "--no-ext-diff", revision])
 
+proc showCommitPath*(repository: GitRepository, revision, path: string): GitResult =
+  ## The file-history detail view must retain its path filter. Place the
+  ## pathspec after `--`, independently of the commit revision.
+  let relativePath = path.strip()
+  if relativePath.len == 0:
+    return showCommit(repository, revision)
+  if repository == nil:
+    return GitResult(exitCode: -1, output: "Git repository not found")
+  if revision.strip.len == 0:
+    return GitResult(exitCode: -1, output: "Git revision is empty")
+  repository.runGit(["show", "--format=fuller", "--stat", "--patch",
+    "--no-ext-diff", revision, "--", relativePath])
+
 proc parseBlame*(output: string): seq[GitBlameLine] =
   var current = GitBlameLine()
   var haveHeader = false
