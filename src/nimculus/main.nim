@@ -419,7 +419,7 @@ var workspacePreviewEntries: seq[WorkspaceEntry]
 var workspaceExpandedDirectories: seq[string]
 var workspacePreviewMode = ""
 type EditorSidebarMode = enum
-  sidebarOutline, sidebarFiles, sidebarGitHistory
+  sidebarOutline, sidebarFiles, sidebarGitHistory, sidebarGitStatus
 var editorSidebarMode = sidebarOutline
 var externalAlertShown = false
 var editorPointerDragging = false
@@ -449,6 +449,7 @@ when defined(macosx):
   var editorGitPath = ""
   var editorGitHistory: seq[GitCommit]
   var editorGitHistoryPath = ""
+  var editorGitStatusEntries: seq[GitStatusEntry]
   var editorTaskJob: TaskJob
   var editorTaskCommand = ""
   var editorTaskOutput = ""
@@ -628,6 +629,15 @@ when defined(macosx):
     if entries.len > MaxPanelEntries:
       lines.add("… " & $(entries.len - MaxPanelEntries) & " additional entry(s) omitted")
     showNativeLspPanel("Git Status", lines)
+    # Reuse the native scrollable sidebar so each status entry can open its
+    # file. Keep exactly the same ordering and cap as the textual panel.
+    editorSidebarMode = sidebarGitStatus
+    editorGitStatusEntries = conflicts & ordinary
+    if editorGitStatusEntries.len > MaxPanelEntries:
+      editorGitStatusEntries.setLen(MaxPanelEntries)
+    let sidebarText = lines.join("\n")
+    platformSetEditorSidebar(sidebarText.cstring, uint32(sidebarText.len),
+      uint32(editorGitStatusEntries.len), uint32(sidebarGitStatus))
 
   proc reloadCleanDocumentsForBranch(repository: GitRepository): int =
     ## Git switches update the working tree atomically from the editor's point
@@ -3489,6 +3499,22 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
                 args.add("--")
                 args.add(editorGitHistoryPath)
               startNativeGitAction(repository, "show", "", args)
+        of sidebarGitStatus:
+          if index >= 0 and index < editorGitStatusEntries.len:
+            let entry = editorGitStatusEntries[index]
+            let repository = editorGitRepository
+            if repository == nil:
+              editorViewState.statusMessage = "Git repository not found"
+            else:
+              let candidate = canonicalOpenPath(repository.root / entry.path)
+              let root = canonicalOpenPath(repository.root)
+              let rootPrefix = root / ""
+              if not (candidate == root or candidate.startsWith(rootPrefix)):
+                editorViewState.statusMessage = "Git status path is outside repository"
+              elif not fileExists(candidate) or dirExists(candidate):
+                editorViewState.statusMessage = "Git status file is unavailable: " & entry.path
+              else:
+                receiveNativeFile(candidate.cstring, false)
         of sidebarOutline: discard
       except ValueError:
         editorViewState.statusMessage = "Invalid sidebar item"

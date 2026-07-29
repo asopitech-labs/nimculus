@@ -93,7 +93,8 @@ static BOOL g_editor_soft_wrap = NO;
 static NSString *g_terminal_text = @"";
 static NSString *g_editor_outline_text = @"Outline\n────────\nNo symbols";
 static uint32_t g_editor_outline_symbol_count = 0;
-// mode 0 is the document outline, 1 the project files, and 2 Git history.
+// mode 0 is the document outline, 1 the project files, 2 Git history, and 3
+// the clickable Git status list. Non-outline modes dispatch sidebarItem:N.
 static uint32_t g_editor_sidebar_mode = 0;
 static NSString *g_theme_background = @"#1f2329";
 static NSString *g_theme_foreground = @"#d7dae0";

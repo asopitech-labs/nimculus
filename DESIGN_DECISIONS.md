@@ -4388,3 +4388,16 @@ silently resolve an unmerged file.
 
 The list is capped at 1,000 entries to preserve responsiveness in large
 workspaces, while the status bar retains total change and conflict counts.
+
+## M9-031: Make bounded Git status entries navigable in the native sidebar
+
+Status inspection needs a path back to editing. The bounded conflict-first
+status list is now also rendered through the existing scrollable macOS
+sidebar. Selecting an entry opens the corresponding existing regular file;
+deleted and unavailable paths report their state rather than creating an
+untitled replacement.
+
+Before opening, Nimculus canonicalizes both repository root and candidate path
+and rejects a path outside that root. The native sidebar uses a new mode value
+but retains its established indexed callback contract, so no OS-specific
+interaction abstraction enters the editor core.
