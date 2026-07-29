@@ -4304,3 +4304,31 @@ Git lookup now falls back to `git rev-parse --show-toplevel` from the
 document's parent directory. The matching relative path uses the same fallback
 instead of returning an empty path. A nested-file regression test confirms the
 resolved root is the enclosing repository.
+
+## M9-025: Keep amend explicit and message-bearing
+
+Zed's commit modal separates normal commit from its amend mode instead of
+silently changing the meaning of the primary commit action. Nimculus follows
+that behavioral contract in its command palette: `git commit <message>` and
+`git commit --amend <message>` are separate commands, and both require a
+non-empty explicit message. The service keeps the message as one process
+argument, while the existing bounded asynchronous Git job owns execution and
+cancellation.
+
+This avoids an accidental amend caused by implicit state or a reused editor
+field. A successful amend simply replaces the existing commit through Git's
+normal safety checks; history can then be refreshed through the existing Git
+History command.
+
+## M20-022: Preserve E2E harness failures through the workflow boundary
+
+The soak wrapper correctly rejects an early process exit without
+`soak_complete`, but invoking it as a Nimble task on the self-hosted runner
+reported the task exception while returning a successful workflow step. The
+release-candidate workflow now invokes `scripts/test_macos_e2e.sh` directly
+under `bash` with `set -euo pipefail`. A failed completion or memory contract
+therefore produces a failed Actions job.
+
+This is a measurement-harness correction, not an implementation gate: a
+long-soak result is stability evidence and does not block macOS editor feature
+development.

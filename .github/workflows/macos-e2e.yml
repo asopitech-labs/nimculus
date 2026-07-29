@@ -51,4 +51,11 @@ jobs:
         run: nimble install --depsOnly -y
         working-directory: ci
       - name: Run consolidated macOS E2E gate
-        run: nimble macosE2E
+        # Invoke the harness directly. Nimble reports a task-launch exception
+        # but, on the self-hosted runner, can still return zero; calling the
+        # script preserves its non-zero status so an incomplete soak cannot
+        # turn the release gate green.
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/test_macos_e2e.sh

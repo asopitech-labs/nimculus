@@ -97,14 +97,16 @@ suite "M9 Git service":
     writeFile(root / "history.nim", "second\n")
     check repository.stage(["history.nim"]).exitCode == 0
     check repository.commit("second commit").exitCode == 0
+    check repository.amendCommit("").exitCode == -1
+    check repository.amendCommit("amended second commit").exitCode == 0
     let commits = repository.log(100)
     check commits.len == 2
-    check commits[0].subject == "second commit"
+    check commits[0].subject == "amended second commit"
     check commits[1].subject == "first commit"
     check repository.log(1).len == 1
     let details = repository.showCommit(commits[0].hash)
     check details.exitCode == 0
-    check details.output.contains("second commit")
+    check details.output.contains("amended second commit")
     check details.output.contains("-first")
     check details.output.contains("+second")
     check repository.showCommit("").exitCode == -1

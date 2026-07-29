@@ -371,7 +371,18 @@ proc unstageAll*(repository: GitRepository): GitResult =
   repository.runGit(["reset", "HEAD"])
 
 proc commit*(repository: GitRepository, message: string): GitResult =
-  repository.runGit(["commit", "-m", message])
+  let subject = message.strip()
+  if subject.len == 0:
+    return GitResult(exitCode: -1, output: "Git commit message is empty")
+  repository.runGit(["commit", "-m", subject])
+
+proc amendCommit*(repository: GitRepository, message: string): GitResult =
+  ## Amending is intentionally explicit. The caller must provide a new
+  ## message, so this cannot accidentally reuse the prior subject.
+  let subject = message.strip()
+  if subject.len == 0:
+    return GitResult(exitCode: -1, output: "Git amend message is empty")
+  repository.runGit(["commit", "--amend", "-m", subject])
 
 proc checkout*(repository: GitRepository, source: string,
                paths: openArray[string]): GitResult =

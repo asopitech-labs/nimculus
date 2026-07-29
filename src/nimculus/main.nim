@@ -2980,7 +2980,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     let rawCommand = name[15 .. ^1].strip
     let command = rawCommand.toLowerAscii
     let dispatchCommand =
-      if command.startsWith("git commit "): "__git_commit__"
+      if command.startsWith("git commit --amend "): "__git_amend__"
+      elif command.startsWith("git commit "): "__git_commit__"
       elif command.startsWith("git checkout "): "__git_checkout__"
       elif command.startsWith("git switch "): "__git_switch__"
       elif command == "git branches": "__git_branches__"
@@ -3308,6 +3309,21 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "Git commit requires a message"
         else:
           startNativeGitAction(repository, "commit", "", ["commit", "-m", message])
+    of "__git_amend__":
+      when defined(macosx):
+        let repository = gitRepositoryForDocument(document)
+        const amendPrefix = "git commit --amend"
+        let message = if rawCommand.len > amendPrefix.len:
+          rawCommand[amendPrefix.len .. ^1].strip else: ""
+        if repository == nil:
+          editorViewState.statusMessage = "Git repository not found"
+        elif message.len == 0:
+          editorViewState.statusMessage = "Git amend requires a message"
+        else:
+          # Zed exposes amend as an explicit commit-modal mode. The command
+          # palette keeps that safety property: it never infers --amend.
+          startNativeGitAction(repository, "amend", "",
+            ["commit", "--amend", "-m", message])
     of "__git_checkout__":
       when defined(macosx):
         let repository = gitRepositoryForDocument(document)
