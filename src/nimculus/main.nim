@@ -418,6 +418,7 @@ var workspaceQuickOpenQuery = ""
 var workspacePreviewEntries: seq[WorkspaceEntry]
 var workspaceExpandedDirectories: seq[string]
 var workspacePreviewMode = ""
+var workspaceRevealPath = ""
 type EditorSidebarMode = enum
   sidebarOutline, sidebarFiles, sidebarGitHistory, sidebarGitStatus, sidebarGitBranches
 var editorSidebarMode = sidebarOutline
@@ -1539,6 +1540,7 @@ proc openActiveWorkspace(path: string) =
     workspaceQuickOpenJob = nil
     activeWorkspace = openWorkspace(path)
     workspaceExpandedDirectories = activeWorkspace.rootPaths
+    workspaceRevealPath = ""
     reloadWorkspaceSettings(activeWorkspace.root)
     activeWorkspace.startWatching()
     workspaceSearchQuery = ""
@@ -1559,10 +1561,16 @@ proc refreshWorkspacePreview() =
     var lines = @["Files", "────────"]
     # Follow Zed's Project Panel ordering: expanded children are emitted
     # directly below their directory, while traversal remains lazy and bounded.
+    proc containsReveal(path: string): bool =
+      workspaceRevealPath == path or workspaceRevealPath.startsWith(path / "")
     proc appendDirectory(root, relative: string, depth: int) =
       if workspacePreviewEntries.len >= 192: return
       var children = activeWorkspace.listChildrenAt(root, relative)
-      children.sort(proc(a, b: WorkspaceEntry): int = cmp(a.relativePath, b.relativePath))
+      children.sort(proc(a, b: WorkspaceEntry): int =
+        let aPriority = if containsReveal(a.path): 0 else: 1
+        let bPriority = if containsReveal(b.path): 0 else: 1
+        result = cmp(aPriority, bPriority)
+        if result == 0: result = cmp(a.relativePath, b.relativePath))
       for entry in children:
         if workspacePreviewEntries.len >= 192: break
         workspacePreviewEntries.add(entry)
@@ -1576,7 +1584,13 @@ proc refreshWorkspacePreview() =
         lines.add(repeat("  ", depth) & marker & " " & relativeName)
         if expanded:
           appendDirectory(root, entry.relativePath, depth + 1)
-    for root in activeWorkspace.rootPaths:
+    var roots = activeWorkspace.rootPaths
+    roots.sort(proc(a, b: string): int =
+      let aPriority = if containsReveal(a): 0 else: 1
+      let bPriority = if containsReveal(b): 0 else: 1
+      result = cmp(aPriority, bPriority)
+      if result == 0: result = cmp(a, b))
+    for root in roots:
       if workspacePreviewEntries.len >= 192: break
       let rootName = if root.extractFilename.len > 0: root.extractFilename else: root
       let expanded = root in workspaceExpandedDirectories
@@ -1613,6 +1627,7 @@ proc revealActiveDocumentInWorkspace() =
     editorViewState.statusMessage = "Active document has no file path"
     return
   let documentPath = canonicalOpenPath(document[].path)
+  workspaceRevealPath = documentPath
   var matched = false
   for configuredRoot in activeWorkspace.rootPaths:
     let root = canonicalOpenPath(configuredRoot)

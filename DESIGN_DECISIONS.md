@@ -4424,3 +4424,14 @@ tree.
 
 No full workspace traversal is introduced. Files outside all configured roots
 remain unopened in the tree and produce a clear status message instead.
+
+## M6-019: Prioritize a revealed file within the bounded lazy tree
+
+The project tree intentionally caps visible entries, but a simple lexical walk
+could exhaust that cap in an earlier root or sibling directory before reaching
+the active file. When Reveal Active File is used, Nimculus now orders the
+owning root and each ancestor child ahead of unrelated entries. The existing
+cap and lazy directory loading remain in force.
+
+This guarantees that the requested path receives traversal budget without
+turning reveal into an eager workspace scan.
