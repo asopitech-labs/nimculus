@@ -1305,6 +1305,35 @@ when defined(macosx):
     editorTerminalFocused = true
     platformSetTerminalVisible(true)
 
+  proc closeNativeTerminal() =
+    ## Close only the selected PTY. `TerminalPty.close` terminates its process
+    ## group, so shells and their foreground descendants do not survive as
+    ## orphaned processes after a tab/session is removed.
+    if editorTerminalIndex < 0 or editorTerminalIndex >= editorTerminals.len:
+      editorViewState.statusMessage = "Terminal: no active session"
+      return
+    let closingIndex = editorTerminalIndex
+    let session = editorTerminals[closingIndex]
+    if session != nil: session.close()
+    editorTerminals.delete(closingIndex)
+    editorTerminalSelection = TerminalSelection()
+    editorTerminalScrollOffset = 0
+    editorTerminalScrollRemainder = 0'f32
+    if editorTerminals.len == 0:
+      editorTerminal = nil
+      editorTerminalIndex = -1
+      editorTerminalVisible = false
+      editorTerminalFocused = false
+      platformSetTerminalVisible(false)
+      editorViewState.statusMessage = "Terminal closed"
+    else:
+      activateNativeTerminal(min(closingIndex, editorTerminals.high))
+      editorTerminalVisible = true
+      editorTerminalFocused = true
+      platformSetTerminalVisible(true)
+      editorViewState.statusMessage = "Terminal closed — " &
+        $(editorTerminalIndex + 1) & "/" & $editorTerminals.len
+
   proc closeNativeTerminals() =
     for session in editorTerminals:
       if session != nil: session.close()
@@ -3118,6 +3147,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command == "git unstage hunk": "__git_unstage_hunk__"
       elif command == "toggle terminal": "__toggle_terminal__"
       elif command == "new terminal": "__new_terminal__"
+      elif command in ["close terminal", "kill terminal"]: "__close_terminal__"
       elif command == "next terminal": "__next_terminal__"
       elif command == "previous terminal": "__previous_terminal__"
       elif command in ["toggle task output", "show task output"]: "__task_output__"
@@ -3339,6 +3369,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx): toggleNativeTerminal()
     of "__new_terminal__":
       when defined(macosx): newNativeTerminal()
+    of "__close_terminal__":
+      when defined(macosx): closeNativeTerminal()
     of "__next_terminal__":
       when defined(macosx): switchNativeTerminal(1)
     of "__previous_terminal__":

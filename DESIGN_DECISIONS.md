@@ -4435,3 +4435,15 @@ cap and lazy directory loading remain in force.
 
 This guarantees that the requested path receives traversal budget without
 turning reveal into an eager workspace scan.
+
+## M10-013: Close a single terminal session through its PTY process group
+
+Zed's terminal panel closes an individual terminal without tearing down the
+whole panel. Nimculus now exposes the same behavior as `Close Terminal`: it
+closes the active `TerminalPty`, removes only that session, and selects the
+next remaining session. The existing POSIX close path terminates the child
+process group before reclaiming PTY resources.
+
+If the final session is closed, the native terminal overlay and focus state are
+cleared. This avoids both orphaned shell descendants and a stale overlay that
+appears to accept input without an owning PTY.
