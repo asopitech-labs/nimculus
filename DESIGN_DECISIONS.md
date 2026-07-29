@@ -4793,3 +4793,21 @@ panel actions and exposes them with the selected project context.
 
 **Consequences.** File creation is now a discoverable panel action without
 creating a second mutation implementation or weakening workspace checks.
+
+## UI-016: Git status rows own safe stage actions
+
+**Context.** The Git status sidebar could open a file, but staging required a
+command-palette action even though the changed row already establishes the
+file context.
+
+**Decision.** A Git status row's context menu provides Open plus Stage and/or
+Unstage when its porcelain state permits the action. Conflict rows provide no
+automatic stage action. Mutations use `git add -- <path>` or `git reset HEAD
+-- <path>` through the existing cancellable Git-job boundary and refresh
+status on completion.
+
+**Evidence.** Zed derives stage intent from the entry and its section, and
+keeps conflicted entries outside bulk staging operations.
+
+**Consequences.** Git changes are actionable where they are displayed while
+conflict resolution remains explicit and the panel never retains stale state.

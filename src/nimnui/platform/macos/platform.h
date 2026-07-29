@@ -77,6 +77,8 @@ void nimculus_platform_set_text_callback(NimculusTextCallback callback);
 void nimculus_platform_set_selection_callback(NimculusSelectionCallback callback);
 void nimculus_platform_set_file_callback(NimculusFileCallback callback);
 void nimculus_platform_show_workspace_entry_context(const char *path, bool is_directory);
+void nimculus_platform_show_git_status_context(uint32_t item_index, bool can_stage,
+                                               bool can_unstage);
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback);
 void nimculus_platform_set_idle_callback(NimculusIdleCallback callback);
 void nimculus_platform_set_editor_cursor(double x, double y);

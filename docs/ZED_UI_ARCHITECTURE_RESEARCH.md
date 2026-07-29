@@ -429,6 +429,13 @@ add-entry flow を開始する。Nimculus は row context menu の選択ディ�
 一般作成を既に持つ。Files sidebar 上部の `New File` / `New Folder` は後者の既存 AppKit sheet を呼び、
 入力後のパス検証・ファイル監視更新は Nim `Workspace` に一元化する。
 
+## 追加監査: Git status row actions（2026-07-29）
+
+Zed は `StageIntent` を row の section と status から解決し、conflict は Staged/Unstaged bulk 操作から
+除外する。Nimculus の compact status list では右クリック menu に Open と可能な Stage/Unstage のみを表示する。
+conflict は自動処理せず、個別 action は `git add -- <path>` / `git reset HEAD -- <path>` を cancellable Git job
+として実行し、完了後に status を再読み込みする。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

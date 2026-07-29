@@ -1943,7 +1943,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   g_command_callback(command.UTF8String);
 }
 - (void)dispatchSidebarContext:(NSUInteger)item {
-  if (item == NSNotFound || !g_command_callback || g_editor_sidebar_mode != 1) return;
+  if (item == NSNotFound || !g_command_callback || g_editor_sidebar_mode == 0) return;
   NSString *command = [NSString stringWithFormat:@"sidebarContext:%lu", (unsigned long)item];
   g_command_callback(command.UTF8String);
 }
@@ -3784,6 +3784,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   (void)sender;
   if (g_workspace_context_path.length > 0 && g_file_callback) {
     g_file_callback(g_workspace_context_path.UTF8String, false);
+  }
+}
+
+- (void)dispatchGitStatusContext:(NSMenuItem *)sender {
+  if (g_command_callback && [sender.representedObject isKindOfClass:[NSString class]]) {
+    g_command_callback(((NSString *)sender.representedObject).UTF8String);
   }
 }
 
@@ -5790,6 +5796,26 @@ void nimculus_platform_show_workspace_entry_context(const char *path, bool is_di
   NSMenuItem *delete = [menu addItemWithTitle:@"Delete…" action:@selector(deleteWorkspaceContextEntry:) keyEquivalent:@""];
   delete.keyEquivalentModifierMask = 0;
   for (NSMenuItem *item in menu.itemArray) item.target = delegate;
+  [menu popUpMenuPositioningItem:nil atLocation:[NSEvent mouseLocation] inView:nil];
+}
+void nimculus_platform_show_git_status_context(uint32_t item_index, bool can_stage,
+                                               bool can_unstage) {
+  NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
+  if (!delegate) return;
+  NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Git Change"] autorelease];
+  NSArray<NSArray<NSString *> *> *items = @[
+    @[@"Open", @"open"], @[@"Stage", @"stage"], @[@"Unstage", @"unstage"]
+  ];
+  for (NSArray<NSString *> *entry in items) {
+    NSString *action = entry[1];
+    if (([action isEqualToString:@"stage"] && !can_stage) ||
+        ([action isEqualToString:@"unstage"] && !can_unstage)) continue;
+    NSMenuItem *item = [menu addItemWithTitle:entry[0]
+      action:@selector(dispatchGitStatusContext:) keyEquivalent:@""];
+    item.target = delegate;
+    item.representedObject = [NSString stringWithFormat:@"gitStatusContext:%@:%u",
+      action, item_index];
+  }
   [menu popUpMenuPositioningItem:nil atLocation:[NSEvent mouseLocation] inView:nil];
 }
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback) { g_command_callback = callback; }

@@ -818,6 +818,17 @@ when defined(macosx):
       renderNativeGitBranches(branches)
       editorViewState.statusMessage = if branches.len == 0:
         "Git: no local branches" else: "Git: " & $branches.len & " local branch(es)"
+    elif action == "stage file" or action == "unstage file":
+      # Refresh the panel through the same job boundary after an item-local
+      # mutation. This avoids stale staging affordances and never blocks UI.
+      scheduleNativeGitHunks(activeDocument())
+      startNativeGitAction(editorGitRepository, "refresh status", "", [
+        "status", "--porcelain=v1", "--untracked-files=all", "-z"], source = action)
+      return
+    elif action == "refresh status":
+      let entries = parseStatus(job.result.output)
+      renderNativeGitStatus(entries)
+      editorViewState.statusMessage = "Git: " & editorGitActionSource & " complete"
     elif action == "commit" or action == "amend":
       # A Git panel must not keep displaying the old HEAD after a successful
       # write. Refresh through the same cancellable job boundary rather than
@@ -4018,8 +4029,64 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           syncNativeSidebarSelection()
           platformShowWorkspaceEntryContext(entry.path.cstring,
             entry.kind == WorkspaceFileKind.directory)
+        elif editorSidebarMode == sidebarGitStatus and index >= 0 and
+            index < editorGitStatusEntries.len:
+          let entry = editorGitStatusEntries[index]
+          discard editorWorkspaceUi.selectPanelItem(panelGit, index)
+          syncNativeSidebarSelection()
+          # Do not expose a one-click resolution path for conflicts. Match
+          # Zed's separation of conflict rows from ordinary stage actions.
+          let canStage = not entry.conflict and
+            (entry.worktreeStatus != ' ' or entry.indexStatus == '?')
+          let canUnstage = not entry.conflict and entry.indexStatus notin {' ', '?', '!'}
+          platformShowGitStatusContext(uint32(index), canStage, canUnstage)
       except ValueError:
         editorViewState.statusMessage = "Invalid workspace context item"
+  elif name.startsWith("gitStatusContext:"):
+    when defined(macosx):
+      let parts = name.split(':')
+      if parts.len != 3:
+        editorViewState.statusMessage = "Invalid Git status action"
+      else:
+        try:
+          let index = parseInt(parts[2])
+          if editorSidebarMode != sidebarGitStatus or index < 0 or
+              index >= editorGitStatusEntries.len or editorGitRepository == nil:
+            editorViewState.statusMessage = "Git status item is unavailable"
+          else:
+            let entry = editorGitStatusEntries[index]
+            let repository = editorGitRepository
+            case parts[1]
+            of "open":
+              let candidate = canonicalOpenPath(repository.root / entry.path)
+              let root = canonicalOpenPath(repository.root)
+              let rootPrefix = root / ""
+              if not (candidate == root or candidate.startsWith(rootPrefix)):
+                editorViewState.statusMessage = "Git status path is outside repository"
+              elif not fileExists(candidate) or dirExists(candidate):
+                editorViewState.statusMessage = "Git status file is unavailable: " & entry.path
+              else:
+                receiveNativeFile(candidate.cstring, false)
+            of "stage":
+              if entry.conflict:
+                editorViewState.statusMessage = "Git conflict must be resolved before staging"
+              elif entry.worktreeStatus == ' ' and entry.indexStatus != '?':
+                editorViewState.statusMessage = "Git change is already staged"
+              else:
+                startNativeGitAction(repository, "stage file", entry.path,
+                  ["add", "--", entry.path])
+            of "unstage":
+              if entry.conflict:
+                editorViewState.statusMessage = "Git conflict must be resolved explicitly"
+              elif entry.indexStatus in {' ', '?', '!'}:
+                editorViewState.statusMessage = "Git change is not staged"
+              else:
+                startNativeGitAction(repository, "unstage file", entry.path,
+                  ["reset", "HEAD", "--", entry.path])
+            else:
+              editorViewState.statusMessage = "Unknown Git status action"
+        except ValueError:
+          editorViewState.statusMessage = "Invalid Git status item"
   elif name.startsWith("workspaceSearch:"):
     showWorkspaceSearch(name[16 .. ^1])
   elif name.startsWith("quickOpen:"):
