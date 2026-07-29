@@ -2730,27 +2730,31 @@ proc handleSecondaryEditorCommand(name: string, document: ptr FileDocument): boo
   ## Cocoa has one NSTextInputClient, while a split owns two view states. Once
   ## the platform selected pane 1, route every editing selector through that
   ## view before mutating the shared document buffer.
-  if document == nil or not editorSession.split or editorSession.splitActivePane != 1:
+  if not editorSession.split or editorSession.splitActivePane != 1:
     return false
-  template view: untyped = editorSession.secondaryView
-  let text = document[].buffer.toString()
+  let secondaryDocument = secondaryPaneDocument()
+  if secondaryDocument == nil: return false
+  let tab = editorWorkspaceUi.center.second.pane.activeTabIndex
+  template view: untyped = editorSession.tabs[tab].secondaryView
+  template activeDocument: untyped = secondaryDocument
+  let text = activeDocument[].buffer.toString()
   case name
   of "moveLeft": view.moveCursor(previousBoundary(text, view.cursor))
   of "selectLeft": view.moveCursor(previousBoundary(text, view.cursor), selecting = true)
   of "moveRight": view.moveCursor(nextBoundary(text, view.cursor))
   of "selectRight": view.moveCursor(nextBoundary(text, view.cursor), selecting = true)
   of "moveUp", "moveDown", "selectUp", "selectDown":
-    let location = document[].buffer.lineColumn(view.cursor)
+    let location = activeDocument[].buffer.lineColumn(view.cursor)
     let delta = if name in ["moveUp", "selectUp"]: -1 else: 1
-    let targetLine = max(0, min(document[].buffer.lineStarts.high, location.line + delta))
-    view.moveCursor(document[].buffer.byteOffsetAtLineColumn(targetLine, location.column),
+    let targetLine = max(0, min(activeDocument[].buffer.lineStarts.high, location.line + delta))
+    view.moveCursor(activeDocument[].buffer.byteOffsetAtLineColumn(targetLine, location.column),
       selecting = name.startsWith("select"))
   of "moveToBeginningOfLine", "selectToBeginningOfLine":
-    let location = document[].buffer.lineColumn(view.cursor)
-    view.moveCursor(document[].buffer.lineStarts[location.line], selecting = name.startsWith("select"))
+    let location = activeDocument[].buffer.lineColumn(view.cursor)
+    view.moveCursor(activeDocument[].buffer.lineStarts[location.line], selecting = name.startsWith("select"))
   of "moveToEndOfLine", "selectToEndOfLine":
-    let location = document[].buffer.lineColumn(view.cursor)
-    view.moveCursor(lineEndOffset(document, location.line), selecting = name.startsWith("select"))
+    let location = activeDocument[].buffer.lineColumn(view.cursor)
+    view.moveCursor(lineEndOffset(activeDocument, location.line), selecting = name.startsWith("select"))
   of "moveToBeginningOfDocument": view.moveCursor(0)
   of "moveToEndOfDocument": view.moveCursor(text.len)
   of "selectToBeginningOfDocument": view.moveCursor(0, selecting = true)
@@ -2768,33 +2772,33 @@ proc handleSecondaryEditorCommand(name: string, document: ptr FileDocument): boo
       if name == "deleteWordBackward": start = previousWordBoundary(text, start)
       elif name == "deleteWordForward": finish = nextWordBoundary(text, finish)
       elif name == "deleteToBeginningOfLine":
-        start = document[].buffer.lineStarts[document[].buffer.lineColumn(start).line]
+        start = activeDocument[].buffer.lineStarts[activeDocument[].buffer.lineColumn(start).line]
       elif name == "deleteToEndOfLine":
-        finish = lineEndOffset(document, document[].buffer.lineColumn(finish).line)
+        finish = lineEndOffset(activeDocument, activeDocument[].buffer.lineColumn(finish).line)
       elif name == "deleteBackward": start = previousBoundary(text, start)
       else: finish = nextBoundary(text, finish)
     if finish > start:
-      document[].buffer.edit(Edit(startByte: start, endByte: finish, text: ""))
+      activeDocument[].buffer.edit(Edit(startByte: start, endByte: finish, text: ""))
       view.moveCursor(start)
       refreshEditorSyntax()
   of "undo":
-    if document[].buffer.undo():
-      view.moveCursor(min(view.cursor, document[].buffer.toString().len))
+    if activeDocument[].buffer.undo():
+      view.moveCursor(min(view.cursor, activeDocument[].buffer.toString().len))
       refreshEditorSyntax()
   of "redo":
-    if document[].buffer.redo():
-      view.moveCursor(min(view.cursor, document[].buffer.toString().len))
+    if activeDocument[].buffer.redo():
+      view.moveCursor(min(view.cursor, activeDocument[].buffer.toString().len))
       refreshEditorSyntax()
   of "copy":
     let selected = view.selectedRange()
-    let copied = document[].buffer.substring(selected.startByte, selected.endByte)
+    let copied = activeDocument[].buffer.substring(selected.startByte, selected.endByte)
     clipboardSet(copied.cstring, uint32(copied.len))
   of "cut":
     let selected = view.selectedRange()
-    let copied = document[].buffer.substring(selected.startByte, selected.endByte)
+    let copied = activeDocument[].buffer.substring(selected.startByte, selected.endByte)
     clipboardSet(copied.cstring, uint32(copied.len))
     if selected.endByte > selected.startByte:
-      document[].buffer.edit(Edit(startByte: selected.startByte, endByte: selected.endByte, text: ""))
+      activeDocument[].buffer.edit(Edit(startByte: selected.startByte, endByte: selected.endByte, text: ""))
       view.moveCursor(selected.startByte)
       refreshEditorSyntax()
   of "paste": receiveNativeTextValue(clipboardGet(), false)
@@ -2802,6 +2806,7 @@ proc handleSecondaryEditorCommand(name: string, document: ptr FileDocument): boo
     view.selection.anchor = 0
     view.selection.active = text.len
   else: return false
+  editorSession.secondaryView = view
   syncEditorCursor()
   true
 
