@@ -4881,3 +4881,20 @@ identity rather than treating it as terminal output.
 
 **Consequences.** Nimculus retains one cancellable output boundary while Git
 history now leads to a recognizable, dismissible commit inspector.
+
+## UI-021: Every document tab exposes its close target
+
+**Context.** Only the active Nimculus tab drew a close glyph. Background tabs
+were visually indistinguishable from tabs that could not be closed, although
+the underlying close path already handles selection, unsaved confirmation,
+and session persistence safely.
+
+**Decision.** Draw a muted close glyph on every tab and retain the brighter
+active-tab treatment. Clicking any close target routes through the existing
+`closePaneTab` → `closeTabRequest` flow rather than bypassing unsaved work.
+
+**Evidence.** Zed renders a close target for each closable pane item (visible
+on hover by default) and delegates closure to `CloseActiveItem`.
+
+**Consequences.** The document lifecycle is visible at the point of use,
+while Nimculus retains the same safe confirmation semantics for every tab.

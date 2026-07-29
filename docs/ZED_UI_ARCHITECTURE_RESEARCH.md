@@ -469,6 +469,13 @@ Nimculus の現行レイアウトは単一 editor pane を維持しているた�
 代わりに既存の bounded lower output presenter に native title bar と close action を追加し、Git Commit、Task、
 LSP result の種別を明示する。Git show の取得・cancel・安全な `--no-ext-diff` 実行境界は変更しない。
 
+## 追加監査: Pane tab の close affordance（2026-07-29）
+
+Zed の `Pane::render_tab` は各 closable item に `CloseActiveItem` を接続した close icon を描く。設定により
+hover 時だけ非表示にできるが、tab 自体が閉じられることは常に一貫している。Nimculus の custom tab bar は
+hover renderer を持たないため、background tab の close glyph を muted で常時表示する。クリックは既存の
+`closePaneTab` が対象を選択してから unsaved confirmation を始めるため、dirty document の安全性を損なわない。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

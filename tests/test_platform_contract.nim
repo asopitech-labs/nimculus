@@ -223,6 +223,9 @@ suite "macOS platform contract":
   test "output panel presents its title and close action":
     check platformValidateOutputPanelBar()
 
+  test "every document tab exposes an independent close target":
+    check platformValidateTabBarCloseTargets()
+
   test "native glyph atlas uploads and reuses visible glyphs":
     if platformValidateGlyphAtlas():
       check true

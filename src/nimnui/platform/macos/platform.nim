@@ -41,6 +41,7 @@ proc platformValidateColorEmojiSequences*(): bool {.importc: "nimculus_platform_
 proc platformValidateTerminalOverlayRuns*(): bool {.importc: "nimculus_platform_validate_terminal_overlay_runs", cdecl.}
 proc platformValidateTerminalSessionBar*(): bool {.importc: "nimculus_platform_validate_terminal_session_bar", cdecl.}
 proc platformValidateOutputPanelBar*(): bool {.importc: "nimculus_platform_validate_output_panel_bar", cdecl.}
+proc platformValidateTabBarCloseTargets*(): bool {.importc: "nimculus_platform_validate_tab_bar_close_targets", cdecl.}
 proc platformValidateSidebarDispatch*(): bool {.importc: "nimculus_platform_validate_sidebar_dispatch", cdecl.}
 proc platformValidateSidebarContextDispatch*(): bool {.importc: "nimculus_platform_validate_sidebar_context_dispatch", cdecl.}
 proc platformValidateGitSidebarTabs*(): bool {.importc: "nimculus_platform_validate_git_sidebar_tabs", cdecl.}

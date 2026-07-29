@@ -1911,6 +1911,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 
 @interface NimculusTabBarOverlay : NSView
 @property(nonatomic) BOOL secondary;
+- (void)dispatchTabAtPoint:(NSPoint)point;
 @end
 
 @interface NimculusWelcomeOverlay : NSView
@@ -2231,25 +2232,29 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
       self.bounds.size.height - 8.0);
     [title drawWithRect:titleRect options:NSStringDrawingTruncatesLastVisibleLine |
       NSStringDrawingUsesLineFragmentOrigin attributes:attributes context:nil];
-    if (index == active) {
-      NSDictionary *closeAttributes = @{
-        NSFontAttributeName: [NSFont systemFontOfSize:16.0 weight:NSFontWeightMedium],
-        NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
-          [NSColor colorWithCalibratedWhite:0.88 alpha:1.0]) colorWithAlphaComponent:0.86]
-      };
-      [@"×" drawAtPoint:NSMakePoint(x + tabWidth - 21.0, 4.0) withAttributes:closeAttributes];
-    }
+    // Zed exposes a close target for every closable tab (normally on hover).
+    // A lightweight custom AppKit tab bar has no hover renderer yet, so keep
+    // the target visible with a muted inactive treatment rather than hiding
+    // the only discoverable close affordance on background documents.
+    NSDictionary *closeAttributes = @{
+      NSFontAttributeName: [NSFont systemFontOfSize:16.0 weight:NSFontWeightMedium],
+      NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
+        [NSColor colorWithCalibratedWhite:0.88 alpha:1.0])
+        colorWithAlphaComponent:index == active ? 0.86 : 0.52]
+    };
+    [@"×" drawAtPoint:NSMakePoint(x + tabWidth - 21.0, 4.0) withAttributes:closeAttributes];
   }
 }
 - (void)mouseDown:(NSEvent *)event {
+  [self dispatchTabAtPoint:[self convertPoint:event.locationInWindow fromView:nil]];
+}
+- (void)dispatchTabAtPoint:(NSPoint)point {
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
-  NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
   if (!g_command_callback || titles.count == 0) return;
-  NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
   CGFloat tabWidth = MAX(120.0, self.bounds.size.width / titles.count);
   NSUInteger index = MIN(titles.count - 1,
     (NSUInteger)MAX(0.0, floor(point.x / tabWidth)));
-  if (index == active && point.x >= (index + 1) * tabWidth - 28.0) {
+  if (point.x >= (index + 1) * tabWidth - 28.0) {
     NSString *command = [NSString stringWithFormat:@"closePaneTab:%u:%lu",
       self.secondary ? 1 : 0, (unsigned long)index];
     g_command_callback(command.UTF8String);
@@ -5132,6 +5137,31 @@ bool nimculus_platform_validate_output_panel_bar(void) {
     BOOL readable = output.acceptsFirstResponder && [output hitTest:NSMakePoint(2.0, 2.0)] == output;
     [output release];
     return close && presentation && readable;
+  }
+}
+
+bool nimculus_platform_validate_tab_bar_close_targets(void) {
+  @autoreleasepool {
+    NimculusCommandCallback previousCallback = g_command_callback;
+    NSArray<NSString *> *previousTitles = [g_editor_tab_titles retain];
+    NSUInteger previousActive = g_editor_active_tab;
+    g_command_callback = validationCommandCallback;
+    replaceOwnedArray(&g_editor_tab_titles, @[@"first", @"second"]);
+    g_editor_active_tab = 0;
+    NimculusTabBarOverlay *tabs = [[NimculusTabBarOverlay alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 400.0, 28.0)];
+    [tabs dispatchTabAtPoint:NSMakePoint(187.0, 12.0)];
+    BOOL closeFirst = strcmp(g_validation_command, "closePaneTab:0:0") == 0;
+    [tabs dispatchTabAtPoint:NSMakePoint(387.0, 12.0)];
+    BOOL closeSecond = strcmp(g_validation_command, "closePaneTab:0:1") == 0;
+    [tabs dispatchTabAtPoint:NSMakePoint(260.0, 12.0)];
+    BOOL selectSecond = strcmp(g_validation_command, "selectPaneTab:0:1") == 0;
+    [tabs release];
+    replaceOwnedArray(&g_editor_tab_titles, previousTitles ?: @[]);
+    g_editor_active_tab = previousActive;
+    [previousTitles release];
+    g_command_callback = previousCallback;
+    return closeFirst && closeSecond && selectSecond;
   }
 }
 
