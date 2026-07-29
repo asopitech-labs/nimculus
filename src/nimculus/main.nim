@@ -2813,16 +2813,24 @@ proc receiveNativeText(text: cstring, composing: bool) {.cdecl.} =
   receiveNativeTextValue(if text == nil: "" else: $text, composing)
 
 proc receiveNativeSelection(startByte, endByte: uint32) {.cdecl.} =
-  let document = activeDocument()
+  let secondary = editorSession.split and editorSession.splitActivePane == 1
+  let document = if secondary: secondaryPaneDocument() else: activeDocument()
   if document == nil: return
   let text = document[].buffer.toString()
   let length = text.len
-  if editorSession.split and editorSession.splitActivePane == 1:
-    editorSession.secondaryView.selection.anchor = floorGraphemeBoundary(text, min(int(startByte), length))
-    editorSession.secondaryView.selection.active = floorGraphemeBoundary(text, min(int(endByte), length))
+  let anchor = floorGraphemeBoundary(text, min(int(startByte), length))
+  let active = floorGraphemeBoundary(text, min(int(endByte), length))
+  if secondary:
+    let tab = if editorWorkspaceUi.center != nil and
+        editorWorkspaceUi.center.kind == paneSplit:
+      editorWorkspaceUi.center.second.pane.activeTabIndex else: -1
+    if tab < 0 or tab >= editorSession.tabs.len: return
+    editorSession.tabs[tab].secondaryView.selection.anchor = anchor
+    editorSession.tabs[tab].secondaryView.selection.active = active
+    editorSession.secondaryView = editorSession.tabs[tab].secondaryView
   else:
-    editorViewState.selection.anchor = floorGraphemeBoundary(text, min(int(startByte), length))
-    editorViewState.selection.active = floorGraphemeBoundary(text, min(int(endByte), length))
+    editorViewState.selection.anchor = anchor
+    editorViewState.selection.active = active
   syncEditorCursor()
 
 when defined(macosx):
