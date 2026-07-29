@@ -216,6 +216,12 @@ proc resolveEntryPathAt(workspace: Workspace, root, relative: string): string =
     raise newException(ValueError, "workspace root is not an entry")
   path
 
+proc entryPathAt*(workspace: Workspace, root, relative: string): string =
+  ## Return a validated, non-root entry path for a platform-owned operation.
+  ## The caller may then use a native capability such as Finder's Trash
+  ## without allowing an arbitrary path to escape the registered worktree.
+  workspace.resolveEntryPathAt(root, relative)
+
 proc createFileAt*(workspace: Workspace, root, relative: string, content = ""): string =
   let path = workspace.resolveEntryPathAt(root, relative)
   if fileExists(path) or dirExists(path): raise newException(IOError, "path already exists")

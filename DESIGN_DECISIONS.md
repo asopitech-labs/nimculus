@@ -2142,6 +2142,13 @@ operations therefore use `createFileAt`, `createDirectoryAt`,
 wrappers for the primary root. This prevents a secondary root from being
 silently redirected to the primary workspace.
 
+On macOS, a Files-panel removal is a move-to-Trash operation rather than an
+irreversible `removeFile`/`removeDir` call. The Nim `Workspace` first resolves
+the requested path within its owning root and rejects the root itself; only
+then does the macOS platform adapter call `NSFileManager`'s
+`trashItemAtURL`. This preserves the common validation boundary for UI,
+menus, and shortcuts while using the platform's recoverable file lifecycle.
+
 ## M6-016: Coalesce filesystem changes before UI invalidation
 
 Zed's worktree scanner publishes an `UpdatedEntriesSet` after reconciling

@@ -193,6 +193,10 @@ suite "M6 workspace":
     let secondaryLocation = workspace.splitWorkspacePath(second / "src/secondary.nim")
     check secondaryLocation.root == canonicalWorkspaceRoot(second)
     check secondaryLocation.relative == "src/secondary.nim"
+    check workspace.entryPathAt(secondaryLocation.root, secondaryLocation.relative) ==
+      canonicalWorkspaceRoot(second) / "src/secondary.nim"
+    expect ValueError:
+      discard workspace.entryPathAt(secondaryLocation.root, "")
     expect ValueError:
       discard workspace.splitWorkspacePath(getTempDir() / "outside-workspace.txt")
     check workspace.enumerateFiles().anyIt(it.rootPath == canonicalWorkspaceRoot(second) and

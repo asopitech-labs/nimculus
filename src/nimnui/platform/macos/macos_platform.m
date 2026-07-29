@@ -4454,16 +4454,16 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 - (void)deleteWorkspaceEntry:(id)sender {
   (void)sender;
   NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-  alert.messageText = @"Delete Workspace Entry";
-  alert.informativeText = @"Deleting a directory requires it to be empty.";
+  alert.messageText = @"Move Workspace Entry to Trash";
+  alert.informativeText = @"The entry can be restored from the Trash in Finder.";
   NSTextField *field = [self workspacePathField:@"Relative or absolute path in a workspace root"];
   alert.accessoryView = field;
-  [alert addButtonWithTitle:@"Delete"];
+  [alert addButtonWithTitle:@"Move to Trash"];
   [alert addButtonWithTitle:@"Cancel"];
   alert.alertStyle = NSAlertStyleWarning;
   [self presentAlertSheet:alert completion:^(NSModalResponse response) {
     if (response == NSAlertFirstButtonReturn && g_command_callback) {
-      NSString *command = [NSString stringWithFormat:@"workspaceDelete:%@", field.stringValue];
+      NSString *command = [NSString stringWithFormat:@"workspaceTrash:%@", field.stringValue];
       g_command_callback(command.UTF8String);
     }
   }];
@@ -4475,19 +4475,32 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NSString *target = [g_workspace_context_path copy];
   BOOL isDirectory = g_workspace_context_is_directory;
   NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-  alert.messageText = [NSString stringWithFormat:@"Delete “%@”?", target.lastPathComponent];
+  alert.messageText = [NSString stringWithFormat:@"Move “%@” to Trash?", target.lastPathComponent];
   alert.informativeText = isDirectory
-    ? @"Deleting a folder requires it to be empty." : @"This cannot be undone.";
+    ? @"The folder and its contents can be restored from the Trash in Finder."
+    : @"The file can be restored from the Trash in Finder.";
   alert.alertStyle = NSAlertStyleWarning;
-  [alert addButtonWithTitle:@"Delete"];
+  [alert addButtonWithTitle:@"Move to Trash"];
   [alert addButtonWithTitle:@"Cancel"];
   [self presentAlertSheet:alert completion:^(NSModalResponse response) {
     if (response == NSAlertFirstButtonReturn && g_command_callback) {
-      NSString *command = [NSString stringWithFormat:@"workspaceDelete:%@", target];
+      NSString *command = [NSString stringWithFormat:@"workspaceTrash:%@", target];
       g_command_callback(command.UTF8String);
     }
     [target release];
   }];
+}
+
+bool nimculus_platform_move_item_to_trash(const char *path) {
+  if (!path || path[0] == '\0') return false;
+  @autoreleasepool {
+    NSString *string = [NSString stringWithUTF8String:path];
+    if (!string) return false;
+    NSError *error = nil;
+    NSURL *url = [NSURL fileURLWithPath:string];
+    return [[NSFileManager defaultManager] trashItemAtURL:url
+      resultingItemURL:nil error:&error];
+  }
 }
 
 - (void)revealWorkspaceContextEntry:(id)sender {
@@ -6524,8 +6537,8 @@ void nimculus_platform_show_workspace_entry_context(const char *path, bool is_di
   [menu addItemWithTitle:@"New Folder…" action:@selector(createWorkspaceDirectoryAtContext:) keyEquivalent:@""];
   [menu addItem:[NSMenuItem separatorItem]];
   [menu addItemWithTitle:@"Rename…" action:@selector(renameWorkspaceContextEntry:) keyEquivalent:@""];
-  NSMenuItem *delete = [menu addItemWithTitle:@"Delete…" action:@selector(deleteWorkspaceContextEntry:) keyEquivalent:@""];
-  delete.keyEquivalentModifierMask = 0;
+  NSMenuItem *trash = [menu addItemWithTitle:@"Move to Trash…" action:@selector(deleteWorkspaceContextEntry:) keyEquivalent:@""];
+  trash.keyEquivalentModifierMask = 0;
   for (NSMenuItem *item in menu.itemArray) item.target = delegate;
   [menu popUpMenuPositioningItem:nil atLocation:[NSEvent mouseLocation] inView:nil];
 }

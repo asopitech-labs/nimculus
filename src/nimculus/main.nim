@@ -4284,6 +4284,20 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       refreshWorkspaceAfterMutation("Deleted " & payload)
     except CatchableError as error:
       editorViewState.statusMessage = "Delete failed: " & error.msg
+  elif name.startsWith("workspaceTrash:") and activeWorkspace != nil:
+    let payload = workspaceRelativePayload(name, "workspaceTrash:")
+    if payload.len == 0: return
+    try:
+      let location = activeWorkspace.splitWorkspacePath(payload)
+      let path = activeWorkspace.entryPathAt(location.root, location.relative)
+      when defined(macosx):
+        if not platformMoveItemToTrash(path.cstring):
+          raise newException(IOError, "macOS could not move the entry to Trash")
+        refreshWorkspaceAfterMutation("Moved to Trash " & payload)
+      else:
+        raise newException(IOError, "Moving workspace entries to Trash requires macOS")
+    except CatchableError as error:
+      editorViewState.statusMessage = "Move to Trash failed: " & error.msg
   elif name.startsWith("workspaceRename:") and activeWorkspace != nil:
     let payload = workspaceRelativePayload(name, "workspaceRename:")
     let separator = payload.find('\x1f')

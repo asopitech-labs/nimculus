@@ -50,6 +50,7 @@ proc platformValidateFilesSidebarActions*(): bool {.importc: "nimculus_platform_
 proc platformValidateWorkspaceToolbar*(): bool {.importc: "nimculus_platform_validate_workspace_toolbar", cdecl.}
 proc platformValidateActivityBar*(): bool {.importc: "nimculus_platform_validate_activity_bar", cdecl.}
 proc platformValidateSidebarScrollContainer*(): bool {.importc: "nimculus_platform_validate_sidebar_scroll_container", cdecl.}
+proc platformMoveItemToTrash*(path: cstring): bool {.importc: "nimculus_platform_move_item_to_trash", cdecl.}
 proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
 type
   InputLatencyStats* {.bycopy.} = object
