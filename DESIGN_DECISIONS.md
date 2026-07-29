@@ -5223,3 +5223,20 @@ presentation will be added only with matching per-document LSP/Git state.
 **Consequences.** Two different languages or source lengths can be displayed
 side-by-side without syntax-span aliasing or stale primary diagnostics/diff
 markers, while the current LSP and Git UI scope remains explicit.
+
+## UI-041: Persist the secondary pane item separately from the primary tab
+
+**Context.** `EditorSession.activeTab` denotes the primary Pane. Once the
+secondary Pane can select a different shared document, restoring only the
+split geometry and per-document viewport loses which document was visible
+there after relaunch.
+
+**Decision.** Store `splitSecondaryTab` beside `activeTab` in the session
+format. Serialization maps both indices through deduplication; restoration
+uses the mapped secondary item to restore its cursor/scroll view. The legacy
+`switchTab` helper retains its old mirrored-viewport behavior, while workspace
+commands keep their pane-local selection.
+
+**Consequences.** A primary and secondary document survive session recovery as
+the same two-pane workspace rather than collapsing into a duplicate primary
+document.

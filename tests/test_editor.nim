@@ -453,6 +453,33 @@ suite "M5 editor services":
     check recovered.buffer.isDirty
     removeFile(path); removeFile(sessionPath); removeFile(recoveryPath)
 
+  test "session restores a secondary pane document independently of primary":
+    let sessionPath = getTempDir() / "nimculus-m5-split-secondary-session.json"
+    if fileExists(sessionPath): removeFile(sessionPath)
+    var session: EditorSession
+    var first = newDocument()
+    first.buffer = initPieceTable("primary\n")
+    var second = newDocument()
+    second.buffer = initPieceTable("secondary\nline\n")
+    session.addTab(first)
+    session.addTab(second)
+    session.activeTab = 0
+    session.splitEditor(splitVertical, 0.42)
+    session.splitSecondaryTab = 1
+    session.tabs[1].secondaryView.moveCursor("secondary\n".len)
+    session.tabs[1].secondaryView.scrollLine = 1
+    session.secondaryView = session.tabs[1].secondaryView
+    discard session.activateSplitPane(1)
+    session.saveSession(sessionPath)
+    let restored = loadSession(sessionPath)
+    check restored.split
+    check restored.activeTab == 0
+    check restored.effectiveSplitSecondaryTab() == 1
+    check restored.secondaryView.cursor == "secondary\n".len
+    check restored.secondaryView.scrollLine == 1
+    check restored.tabs[1].secondaryView.cursor == "secondary\n".len
+    removeFile(sessionPath)
+
   test "session restores dirty untitled tabs":
     var session: EditorSession
     var untitled = newDocument()

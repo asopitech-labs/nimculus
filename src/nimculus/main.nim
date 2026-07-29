@@ -1735,6 +1735,9 @@ proc restoreSession() =
   if editorSession.split:
     discard editorWorkspaceUi.splitFocusedPane(if editorSession.splitDirection == splitVertical:
       paneVertical else: paneHorizontal, editorSession.effectiveSplitRatio)
+    if editorSession.effectiveSplitSecondaryTab() >= 0:
+      discard editorWorkspaceUi.selectPaneTab(editorWorkspaceUi.center.second.pane.id,
+        editorSession.effectiveSplitSecondaryTab())
 
 proc reloadWorkspaceSettings(root: string) =
   when defined(macosx) or defined(windows):
@@ -2905,6 +2908,7 @@ proc openFilesDockEntry(path: string) =
     # migration. Keep it aligned with the tab owned by the secondary Pane;
     # syncSecondaryEditorView reads the Pane selection as the source of truth.
     editorSession.secondaryView = editorSession.tabs[tab].secondaryView
+    editorSession.splitSecondaryTab = tab
     resetImeState()
     resetEditorTransientState()
     externalAlertShown = false
@@ -3420,6 +3424,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       else:
         discard editorWorkspaceUi.focusPane(pane)
         discard editorSession.activateSplitPane(1)
+        editorSession.splitSecondaryTab = target
         editorSession.secondaryView = editorSession.tabs[target].secondaryView
       resetImeState()
       resetEditorTransientState()

@@ -44,6 +44,10 @@ type
     ## A cloned split starts on the same document, but owns its own cursor,
     ## selection, viewport, and display preferences.
     secondaryView*: EditorViewState
+    ## The second Pane can select a different shared document. Persist that
+    ## item identity independently of `activeTab`, which belongs to the
+    ## primary Pane.
+    splitSecondaryTab*: int
     splitActivePane*: int
     recentFiles*: seq[string]
     workspaceRoots*: seq[string]
@@ -206,14 +210,25 @@ proc loadActiveView*(session: EditorSession, view: var EditorViewState) =
   if session.activeTab >= 0 and session.activeTab < session.tabs.len:
     view = session.tabs[session.activeTab].view
 
+proc effectiveSplitSecondaryTab*(session: EditorSession): int
+
 proc saveSecondaryActiveView*(session: var EditorSession, view: EditorViewState) =
   session.secondaryView = view
-  if session.activeTab >= 0 and session.activeTab < session.tabs.len:
-    session.tabs[session.activeTab].secondaryView = view
+  let tab = session.effectiveSplitSecondaryTab()
+  if tab >= 0 and tab < session.tabs.len:
+    session.tabs[tab].secondaryView = view
 
 proc loadSecondaryActiveView*(session: var EditorSession) =
-  if session.activeTab >= 0 and session.activeTab < session.tabs.len:
-    session.secondaryView = session.tabs[session.activeTab].secondaryView
+  let tab = session.effectiveSplitSecondaryTab()
+  if tab >= 0 and tab < session.tabs.len:
+    session.secondaryView = session.tabs[tab].secondaryView
+
+proc effectiveSplitSecondaryTab*(session: EditorSession): int =
+  if session.split and session.splitSecondaryTab >= 0 and
+      session.splitSecondaryTab < session.tabs.len:
+    session.splitSecondaryTab
+  else:
+    session.activeTab
 
 proc switchTab*(session: var EditorSession, delta: int): bool =
   ## Move around the existing tabs without mutating their buffers.
@@ -232,9 +247,13 @@ proc switchTab*(session: var EditorSession, view: var EditorViewState, delta: in
 
 proc switchTab*(session: var EditorSession, view: var EditorViewState,
                 secondaryView: var EditorViewState, delta: int): bool =
+  ## Compatibility helper for callers that intentionally treat a split as two
+  ## viewports of the newly active primary item. Workspace UI commands use
+  ## pane-local selection instead and never call this overload.
   session.saveActiveView(view)
   session.saveSecondaryActiveView(secondaryView)
   if not session.switchTab(delta): return false
+  if session.split: session.splitSecondaryTab = session.activeTab
   session.loadActiveView(view)
   session.loadSecondaryActiveView()
   secondaryView = session.secondaryView
@@ -247,6 +266,10 @@ proc closeTabAt*(session: var EditorSession, tabIndex: int, forceDirty = false):
   if session.activeTab > tabIndex: dec session.activeTab
   elif session.activeTab == tabIndex: session.activeTab = min(tabIndex, session.tabs.high)
   session.activeTab = min(session.activeTab, session.tabs.high)
+  if session.splitSecondaryTab > tabIndex: dec session.splitSecondaryTab
+  elif session.splitSecondaryTab == tabIndex:
+    session.splitSecondaryTab = min(tabIndex, session.tabs.high)
+  if session.tabs.len == 0: session.splitSecondaryTab = -1
   true
 
 proc closeActiveTab*(session: var EditorSession, forceDirty = false): bool =
@@ -312,9 +335,11 @@ proc splitEditor*(session: var EditorSession, direction: SplitDirection,
   session.splitDirection = direction
   session.splitRatio = normalizedSplitRatio(ratio)
   if session.activeTab >= 0 and session.activeTab < session.tabs.len:
+    session.splitSecondaryTab = session.activeTab
     session.secondaryView = session.tabs[session.activeTab].view
     session.tabs[session.activeTab].secondaryView = session.secondaryView
   else:
+    session.splitSecondaryTab = -1
     session.secondaryView = newEditorView()
   session.splitActivePane = 0
 
@@ -359,6 +384,7 @@ proc ensureCursorVisible*(view: var EditorViewState, buffer: PieceTable,
 
 proc closeSplit*(session: var EditorSession) =
   session.split = false
+  session.splitSecondaryTab = -1
   session.splitActivePane = 0
 
 proc recordRecent*(session: var EditorSession, path: string) =

@@ -64,6 +64,7 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
                 "splitDirection": $session.splitDirection,
                 "splitRatio": session.effectiveSplitRatio,
                 "splitActivePane": session.splitActivePane,
+                "splitSecondaryTab": -1,
                 "splitSecondaryView": serializedView(session.secondaryView),
                 "recentFiles": recentFiles,
                 "workspaceRoots": workspaceRoots,
@@ -75,6 +76,7 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
                 "workspaceBottomPanel": session.workspaceBottomPanel}
   var tabs = newJArray()
   var savedActive = -1
+  var savedSecondary = -1
   # Keep persistence on the same one-buffer-per-canonical-path invariant as
   # live document opens. This also repairs an in-memory session produced by
   # older builds before its next launch. Dirty content wins; active dirty
@@ -114,6 +116,7 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
     if not preserveDirty and dirty and tab.document.path.len == 0: continue
     let saveDirty = preserveDirty and dirty
     if originalIndex == session.activeTab: savedActive = tabs.len
+    if originalIndex == session.effectiveSplitSecondaryTab(): savedSecondary = tabs.len
     var serializedTab = %*{"path": tab.document.path, "title": tab.title,
       "dirty": saveDirty,
       "view": serializedView(tab.view),
@@ -132,6 +135,7 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
           savedActive = index
           break
   root["activeTab"] = %savedActive
+  root["splitSecondaryTab"] = %savedSecondary
   root["tabs"] = tabs
   atomicWriteFile(path, $root)
 
@@ -152,6 +156,7 @@ proc loadSession*(path: string): EditorSession =
   result.splitDirection = if direction == "splitHorizontal": splitHorizontal else: splitVertical
   result.splitRatio = normalizedSplitRatio(jsonFloat(root, "splitRatio", 0.5'f32))
   result.splitActivePane = min(1, max(0, jsonInt(root, "splitActivePane", 0)))
+  result.splitSecondaryTab = jsonInt(root, "splitSecondaryTab", result.activeTab)
   result.workspaceLeftDockOpen = jsonBool(root, "workspaceLeftDockOpen", true)
   result.workspaceBottomDockOpen = jsonBool(root, "workspaceBottomDockOpen", false)
   result.workspaceLeftDockSize = max(0'f32, jsonFloat(root, "workspaceLeftDockSize", 0'f32))
@@ -174,7 +179,9 @@ proc loadSession*(path: string): EditorSession =
   # URL, CLI, and Save As opens.  Dirty content wins over a clean duplicate;
   # an active dirty duplicate wins over any other duplicate.
   let requestedActive = result.activeTab
+  let requestedSecondary = result.splitSecondaryTab
   var restoredActive = -1
+  var restoredSecondary = -1
   var restorePriority: seq[int]
   for originalIndex, item in root["tabs"].getElems:
     if item.kind != JObject or not item.hasKey("path"): continue
@@ -237,6 +244,7 @@ proc loadSession*(path: string): EditorSession =
           restorePriority[tabIndex] = priority
           adopted = true
         if originalIndex == requestedActive: restoredActive = tabIndex
+        if originalIndex == requestedSecondary: restoredSecondary = tabIndex
         if adopted:
           let savedTitle = jsonString(item, "title", "")
           if savedTitle.len > 0: result.tabs[tabIndex].title = savedTitle
@@ -251,19 +259,23 @@ proc loadSession*(path: string): EditorSession =
     result.activeTab = if restoredActive >= 0: restoredActive
       else: max(0, min(requestedActive, result.tabs.high))
   if result.split and result.activeTab >= 0 and result.activeTab < result.tabs.len:
-    let text = result.tabs[result.activeTab].document.buffer.toString()
+    result.splitSecondaryTab = if restoredSecondary >= 0: restoredSecondary
+      else: max(0, min(requestedSecondary, result.tabs.high))
+    let secondaryTab = result.effectiveSplitSecondaryTab()
+    let text = result.tabs[secondaryTab].document.buffer.toString()
     result.secondaryView = loadView(if root.hasKey("splitSecondaryView"):
       root["splitSecondaryView"] else: nil, text)
     if root.hasKey("splitSecondaryView"):
       # Older sessions stored only the active split state at the root.  Adopt
       # it into the newly tab-owned representation during migration.
-      result.tabs[result.activeTab].secondaryView = result.secondaryView
+      result.tabs[secondaryTab].secondaryView = result.secondaryView
     else:
       result.loadSecondaryActiveView()
     result.secondaryView.scrollLine = min(result.secondaryView.scrollLine,
-      max(0, result.tabs[result.activeTab].document.buffer.lineStarts.high))
+      max(0, result.tabs[secondaryTab].document.buffer.lineStarts.high))
   else:
     result.secondaryView = newEditorView()
+    result.splitSecondaryTab = -1
     result.splitActivePane = 0
 
 proc writeRecovery*(document: FileDocument, path: string) =
