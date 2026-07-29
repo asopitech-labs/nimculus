@@ -523,6 +523,14 @@ iconにはAppKit default accentを使わずtheme由来のmuted foregroundを明�
 activity barはworkspace stateを持たず、treeとFiles/Git controlsを固定38pt右へ移すだけなので、
 Nim側のworkspace/panel ownershipとfocus管理は不変である。
 
+## 追加監査: Pane chrome の split action（2026-07-29）
+
+Zed の `Pane::render_tab_bar` はSplit Pane iconをpane chromeに置き、split可能なitemと既存pane数に
+応じてaction menuを変える。Nimculusは現時点でvertical splitのみを提供するため、workspace headerの
+buttonを`Split`/`Close Split`として表示する。labelはnative secondary editor visibilityから再計算し、
+クリックは既存Nimの`splitEditor`/`closeSplit` commandへ渡す。session、pane geometry、focus、保存状態は
+このbuttonが保持せず既存editor layerが一元所有する。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

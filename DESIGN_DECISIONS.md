@@ -5006,3 +5006,22 @@ controls, separate from the project tree and focused editor item.
 
 **Consequences.** The layout now has a stable, icon-first navigation edge
 without shrinking the editor or creating a competing navigation model.
+
+## UI-028: Pane chrome exposes the current split action
+
+**Context.** The editor supported split panes through menus, shortcuts, and a
+divider interaction, but no visible action in pane chrome exposed that
+capability. Users could not discover a central editor workflow from the place
+where it takes effect.
+
+**Decision.** Add a workspace-header control that dispatches `splitEditor`
+when one pane is visible and `closeSplit` when the native secondary editor is
+visible. Its label and tooltip are derived from the existing native pane
+visibility contract; it owns no editor-session state.
+
+**Evidence.** Zed renders a Split Pane icon in pane chrome and changes the
+available action according to whether a pane can be split or joined.
+
+**Consequences.** Split and unsplit become discoverable at the editor's point
+of use, while the existing editor session keeps all pane geometry, focus, and
+persistence ownership.

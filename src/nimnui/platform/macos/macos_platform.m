@@ -2446,7 +2446,8 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     @[@"Files", @"commandPalette:show files"],
     @[@"Outline", @"commandPalette:show outline"],
     @[@"Git", @"commandPalette:git status"],
-    @[@"Terminal", @"commandPalette:toggle terminal"]
+    @[@"Terminal", @"commandPalette:toggle terminal"],
+    @[@"Split", @"splitEditor"]
   ];
   for (NSArray<NSString *> *entry in buttons) {
     NSButton *button = [NSButton buttonWithTitle:entry[0] target:self
@@ -2467,6 +2468,13 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     if (![view isKindOfClass:[NSButton class]]) continue;
     NSButton *button = (NSButton *)view;
     NSString *command = button.identifier;
+    if ([command isEqualToString:@"splitEditor"] || [command isEqualToString:@"closeSplit"]) {
+      const BOOL split = g_secondary_editor_visible;
+      button.title = split ? @"Close Split" : @"Split";
+      button.identifier = split ? @"closeSplit" : @"splitEditor";
+      button.toolTip = split ? @"Close the secondary editor pane" : @"Split the editor pane";
+      command = button.identifier;
+    }
     BOOL active = [command isEqualToString:@"commandPalette:show files"] ?
         g_editor_sidebar_visible && g_editor_sidebar_mode == 1 :
       [command isEqualToString:@"commandPalette:show outline"] ?
@@ -5508,15 +5516,18 @@ bool nimculus_platform_validate_workspace_toolbar(void) {
     uint32_t previousMode = g_editor_sidebar_mode;
     BOOL previousSidebarVisible = g_editor_sidebar_visible;
     BOOL previousTerminalVisible = g_terminal_visible;
+    BOOL previousSecondaryVisible = g_secondary_editor_visible;
     g_command_callback = validationCommandCallback;
+    g_secondary_editor_visible = NO;
     NimculusWorkspaceToolbar *toolbar = [[NimculusWorkspaceToolbar alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 360.0, 22.0)];
     NSArray<NSView *> *buttons = toolbar.arrangedSubviews;
-    BOOL presentation = buttons.count == 4 &&
+    BOOL presentation = buttons.count == 5 &&
       [((NSButton *)buttons[0]).title isEqualToString:@"Files"] &&
       [((NSButton *)buttons[1]).title isEqualToString:@"Outline"] &&
       [((NSButton *)buttons[2]).title isEqualToString:@"Git"] &&
-      [((NSButton *)buttons[3]).title isEqualToString:@"Terminal"];
+      [((NSButton *)buttons[3]).title isEqualToString:@"Terminal"] &&
+      [((NSButton *)buttons[4]).title isEqualToString:@"Split"];
     g_editor_sidebar_visible = YES;
     g_editor_sidebar_mode = 2;
     g_terminal_visible = YES;
@@ -5529,12 +5540,20 @@ bool nimculus_platform_validate_workspace_toolbar(void) {
     BOOL git = strcmp(g_validation_command, "commandPalette:git status") == 0;
     [toolbar dispatchWorkspaceCommand:(NSButton *)buttons[3]];
     BOOL terminal = strcmp(g_validation_command, "commandPalette:toggle terminal") == 0;
+    [toolbar dispatchWorkspaceCommand:(NSButton *)buttons[4]];
+    BOOL split = strcmp(g_validation_command, "splitEditor") == 0;
+    g_secondary_editor_visible = YES;
+    [toolbar reloadSelection];
+    BOOL closePresentation = [((NSButton *)buttons[4]).title isEqualToString:@"Close Split"];
+    [toolbar dispatchWorkspaceCommand:(NSButton *)buttons[4]];
+    BOOL closeSplit = strcmp(g_validation_command, "closeSplit") == 0;
     [toolbar release];
     g_editor_sidebar_mode = previousMode;
     g_editor_sidebar_visible = previousSidebarVisible;
     g_terminal_visible = previousTerminalVisible;
+    g_secondary_editor_visible = previousSecondaryVisible;
     g_command_callback = previousCallback;
-    return presentation && selection && git && terminal;
+    return presentation && selection && git && terminal && split && closePresentation && closeSplit;
   }
 }
 
