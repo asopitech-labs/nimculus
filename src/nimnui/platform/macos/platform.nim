@@ -173,6 +173,7 @@ proc platformClearEditorComposition*() {.importc: "nimculus_platform_clear_edito
 proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32) {.importc: "nimculus_platform_set_editor_highlights", cdecl.}
 proc platformSetSecondaryEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32) {.importc: "nimculus_platform_set_secondary_editor_highlights", cdecl.}
 proc platformSetEditorDiagnostics*(spans: ptr NativeDiagnosticSpan, count: uint32) {.importc: "nimculus_platform_set_editor_diagnostics", cdecl.}
+proc platformSetSecondaryEditorDiagnostics*(spans: ptr NativeDiagnosticSpan, count: uint32) {.importc: "nimculus_platform_set_secondary_editor_diagnostics", cdecl.}
 proc platformSetEditorAnnotations*(annotations: ptr NativeEditorAnnotation, count: uint32) {.importc: "nimculus_platform_set_editor_annotations", cdecl.}
 proc platformSetEditorGitHunks*(spans: ptr NativeGitHunkSpan, count: uint32) {.importc: "nimculus_platform_set_editor_git_hunks", cdecl.}
 proc platformSetRecentFiles*(paths: ptr cstring, count: uint32) {.importc: "nimculus_platform_set_recent_files", cdecl.}

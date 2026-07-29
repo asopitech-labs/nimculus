@@ -311,6 +311,7 @@ suite "macOS platform contract":
   test "syntax and diagnostic spans have separate native contracts":
     platformSetEditorHighlights(nil, 0)
     platformSetEditorDiagnostics(nil, 0)
+    platformSetSecondaryEditorDiagnostics(nil, 0)
     check true
 
   test "split panes keep independent syntax highlight buffers":

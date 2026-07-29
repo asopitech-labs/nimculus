@@ -1,11 +1,20 @@
 import std/os
 import std/json
 import std/strutils
+import std/tables
 import nimculus/lsp
 import nimculus/editor_buffer
 import nimculus/editor_view
 
 type
+  LspDocumentState = object
+    path: string
+    uri: string
+    languageId: string
+    version: int
+    opened: bool
+    lastText: string
+
   LspEditorBridge* = ref object
     command*: string
     args*: seq[string]
@@ -54,6 +63,10 @@ type
     semanticTokens*: seq[LspSemanticToken]
     inlayHintsRequestId*: int
     inlayHints*: seq[LspInlayHint]
+    ## LSP document lifetime is independent of which pane currently owns
+    ## requests. Zed keeps buffers open while panes switch focus; doing the
+    ## same here preserves diagnostics for both sides of a split editor.
+    documents: Table[string, LspDocumentState]
 
 proc hexDigit(value: int): char =
   if value < 10: char(ord('0') + value)
@@ -108,7 +121,8 @@ proc languageIdForPath*(path: string): string =
 
 proc newLspEditorBridge*(command: string, args: openArray[string] = [],
                          rootUri = ""): LspEditorBridge =
-  LspEditorBridge(command: command, args: @args, rootUri: rootUri, version: 0)
+  LspEditorBridge(command: command, args: @args, rootUri: rootUri, version: 0,
+    documents: initTable[string, LspDocumentState]())
 
 proc hideCompletion*(bridge: LspEditorBridge) =
   if bridge == nil: return
@@ -442,10 +456,12 @@ proc completionEdit*(bridge: LspEditorBridge, buffer: PieceTable):
 proc closeDocument*(bridge: LspEditorBridge) =
   if bridge == nil: return
   bridge.hideCompletion()
-  if bridge.session != nil and bridge.opened and bridge.uri.len > 0 and
-      bridge.session.state == lspSessionReady:
-    try: bridge.session.notify("textDocument/didClose", didCloseNotification(bridge.uri))
-    except CatchableError: discard
+  if bridge.session != nil and bridge.session.state == lspSessionReady:
+    for _, document in bridge.documents:
+      if document.opened and document.uri.len > 0:
+        try: bridge.session.notify("textDocument/didClose", didCloseNotification(document.uri))
+        except CatchableError: discard
+  bridge.documents.clear()
   bridge.opened = false
   bridge.uri = ""
   bridge.path = ""
@@ -474,19 +490,28 @@ proc closeDocument*(bridge: LspEditorBridge) =
   bridge.semanticTokens.setLen(0)
   bridge.inlayHints.setLen(0)
 
-proc updateDocument*(bridge: LspEditorBridge, path, text: string) =
+proc markDocumentsClosed(bridge: LspEditorBridge) =
+  ## A restarted server has forgotten every didOpen notification. Retain the
+  ## snapshots so focused and visible documents can be reopened safely.
+  for uri, document in bridge.documents.pairs:
+    var next = document
+    next.opened = false
+    bridge.documents[uri] = next
+  bridge.opened = false
+
+proc syncDocument*(bridge: LspEditorBridge, path, text: string) =
+  ## Synchronize a visible document without changing the document that owns
+  ## completion, hover, definition, or formatting requests.
   if bridge == nil or bridge.command.len == 0 or path.len == 0: return
   let nextUri = fileUri(path)
   let nextLanguage = languageIdForPath(path)
-  if bridge.uri != nextUri:
-    bridge.closeDocument()
-    bridge.uri = nextUri
-    bridge.path = absolutePath(path)
-    bridge.languageId = nextLanguage
-    bridge.lastText = text
-    bridge.version = 1
-  elif bridge.languageId != nextLanguage:
-    bridge.languageId = nextLanguage
+  var document = bridge.documents.getOrDefault(nextUri)
+  if document.uri.len == 0:
+    document = LspDocumentState(path: absolutePath(path), uri: nextUri,
+      languageId: nextLanguage, version: 1, lastText: text)
+  else:
+    document.path = absolutePath(path)
+    document.languageId = nextLanguage
   if bridge.session == nil:
     try:
       bridge.session = startLspSession(bridge.command, bridge.args, bridge.rootUri, "Nimculus")
@@ -496,30 +521,48 @@ proc updateDocument*(bridge: LspEditorBridge, path, text: string) =
   elif bridge.session.state in {lspSessionStopped, lspSessionFailed}:
     try:
       bridge.session.restart()
-      bridge.opened = false
+      bridge.markDocumentsClosed()
     except CatchableError:
       bridge.lastError = getCurrentExceptionMsg()
       return
-  if bridge.session.state != lspSessionReady: return
+  if bridge.session.state != lspSessionReady:
+    bridge.documents[nextUri] = document
+    return
   try:
-    if not bridge.opened:
+    if not document.opened:
       bridge.session.notify("textDocument/didOpen",
-        didOpenNotification(bridge.uri, bridge.languageId, text, bridge.version))
-      bridge.opened = true
-      bridge.lastText = text
-    elif bridge.lastText != text:
-      bridge.hideCompletion()
-      bridge.hideHover()
-      bridge.hideDefinition()
-      bridge.hideFormatting()
-      bridge.cancelDocumentFeatureRequests()
-      inc bridge.version
+        didOpenNotification(document.uri, document.languageId, text, document.version))
+      document.opened = true
+      document.lastText = text
+    elif document.lastText != text:
+      inc document.version
       bridge.session.notify("textDocument/didChange",
-        didChangeNotification(bridge.uri, text, bridge.version))
-      bridge.lastText = text
+        didChangeNotification(document.uri, text, document.version))
+      document.lastText = text
   except CatchableError:
     bridge.lastError = getCurrentExceptionMsg()
     bridge.session.state = lspSessionFailed
+  bridge.documents[nextUri] = document
+
+proc updateDocument*(bridge: LspEditorBridge, path, text: string) =
+  ## Select a document for request-producing editor actions, then synchronize
+  ## it. Other pane documents stay open in the same LSP session.
+  if bridge == nil or path.len == 0: return
+  let nextUri = fileUri(path)
+  if bridge.uri != nextUri:
+    bridge.hideCompletion()
+    bridge.hideHover()
+    bridge.hideDefinition()
+    bridge.hideFormatting()
+    bridge.cancelDocumentFeatureRequests()
+  bridge.uri = nextUri
+  bridge.path = absolutePath(path)
+  bridge.languageId = languageIdForPath(path)
+  bridge.lastText = text
+  bridge.syncDocument(path, text)
+  let document = bridge.documents.getOrDefault(nextUri)
+  bridge.version = document.version
+  bridge.opened = document.opened
 
 proc poll*(bridge: LspEditorBridge): bool =
   ## Poll only already-readable bytes; this is safe to call from the UI event
@@ -630,6 +673,21 @@ proc poll*(bridge: LspEditorBridge): bool =
 proc diagnostics*(bridge: LspEditorBridge): seq[LspDiagnostic] =
   if bridge != nil and bridge.session != nil and bridge.uri.len > 0:
     result = bridge.session.diagnosticsFor(bridge.uri)
+
+proc diagnosticsForPath*(bridge: LspEditorBridge, path: string): seq[LspDiagnostic] =
+  ## Diagnostics are keyed by URI by the LSP transport, not by active pane.
+  if bridge != nil and bridge.session != nil and path.len > 0:
+    result = bridge.session.diagnosticsFor(fileUri(path))
+
+proc openedDocumentCount*(bridge: LspEditorBridge): int =
+  if bridge == nil: return
+  for _, document in bridge.documents:
+    if document.opened: inc result
+
+proc documentVersion*(bridge: LspEditorBridge, path: string): int =
+  if bridge == nil or path.len == 0: return
+  let document = bridge.documents.getOrDefault(fileUri(path))
+  result = document.version
 
 proc stop*(bridge: LspEditorBridge) =
   if bridge == nil: return

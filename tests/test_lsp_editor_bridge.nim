@@ -100,6 +100,29 @@ suite "LSP editor bridge":
     bridge.updateDocument("/tmp/a b.nim", "A日本語")
     check bridge.version == 2
 
+  when defined(posix):
+    test "keeps split-pane documents open with independent versions":
+      let server = "import sys,json,time\n" &
+        "def frame(x):\n" &
+        "    b=json.dumps(x,separators=(',',':')).encode()\n" &
+        "    return ('Content-Length: '+str(len(b))+'\\r\\n\\r\\n').encode()+b\n" &
+        "init={'jsonrpc':'2.0','id':1,'result':{'capabilities':{}}}\n" &
+        "sys.stdout.buffer.write(frame(init)); sys.stdout.buffer.flush(); time.sleep(10)\n"
+      let bridge = newLspEditorBridge("python3", ["-u", "-c", server])
+      defer: bridge.stop()
+      for _ in 0 ..< 100:
+        bridge.updateDocument("/tmp/primary.nim", "let primary = 1")
+        bridge.syncDocument("/tmp/secondary.nim", "let secondary = 2")
+        discard bridge.poll()
+        if bridge.openedDocumentCount == 2: break
+        sleep(10)
+      check bridge.openedDocumentCount == 2
+      check bridge.documentVersion("/tmp/primary.nim") == 1
+      check bridge.documentVersion("/tmp/secondary.nim") == 1
+      bridge.updateDocument("/tmp/primary.nim", "let primary = 3")
+      check bridge.documentVersion("/tmp/primary.nim") == 2
+      check bridge.documentVersion("/tmp/secondary.nim") == 1
+
   test "requests completion at UTF-16 cursor and accepts a stale-safe edit":
     let server = "import sys,json,time\n" &
       "def frame(x):\n" &

@@ -119,6 +119,7 @@ proc platformClearEditorComposition*() = discard
 when not defined(windows):
   proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32) = discard (spans, count)
 proc platformSetEditorDiagnostics*(spans: ptr NativeDiagnosticSpan, count: uint32) = discard (spans, count)
+proc platformSetSecondaryEditorDiagnostics*(spans: ptr NativeDiagnosticSpan, count: uint32) = discard (spans, count)
 proc platformSetEditorAnnotations*(annotations: ptr NativeEditorAnnotation,
     count: uint32) = discard (annotations, count)
 proc platformSetEditorGitHunks*(spans: ptr NativeGitHunkSpan, count: uint32) = discard (spans, count)

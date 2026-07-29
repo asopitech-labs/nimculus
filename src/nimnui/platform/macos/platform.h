@@ -168,6 +168,8 @@ void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans,
 void nimculus_platform_set_secondary_editor_highlights(const NimculusHighlightSpan *spans,
                                                        uint32_t count);
 void nimculus_platform_set_editor_diagnostics(const NimculusDiagnosticSpan *spans, uint32_t count);
+void nimculus_platform_set_secondary_editor_diagnostics(const NimculusDiagnosticSpan *spans,
+                                                        uint32_t count);
 void nimculus_platform_set_editor_annotations(const NimculusEditorAnnotation *annotations, uint32_t count);
 void nimculus_platform_set_editor_git_hunks(const NimculusGitHunkSpan *spans, uint32_t count);
 void nimculus_platform_set_recent_files(const char *const *paths, uint32_t count);

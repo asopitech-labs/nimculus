@@ -5245,3 +5245,22 @@ The restored `splitActivePane` also restores `WorkspaceUiState.focusedPane`.
 Without that final focus handoff, the native input responder could target the
 secondary pane while Files-panel opens and pane-local commands still target the
 primary pane.
+
+## UI-042: Keep LSP document lifetimes and diagnostic buffers pane-local
+
+**Context.** The LSP transport already stores diagnostics by URI, but the
+editor bridge closed the previous document whenever focus changed. A secondary
+pane therefore either lost its server state or received primary-document byte
+offsets.
+
+**Decision.** Retain each synchronized document's `didOpen` state, text
+snapshot, and version in the bridge. Selecting the primary document only
+changes the target for request-producing features such as completion and
+hover; synchronizing the secondary document leaves that target unchanged.
+Metal receives a separate diagnostic span buffer for the secondary editor,
+selected while its Core Text texture is rebuilt.
+
+**Consequences.** Split panes can render URI-correct diagnostics and update
+their own document versions without a focus switch sending `didClose` for the
+other visible buffer. Interactive LSP requests remain deliberately scoped to
+the focused primary bridge until per-pane request ownership is introduced.

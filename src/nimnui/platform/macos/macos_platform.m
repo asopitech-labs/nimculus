@@ -430,6 +430,10 @@ static NimculusHighlightSpan *g_secondary_highlights = NULL;
 static uint32_t g_secondary_highlight_count = 0;
 static NimculusDiagnosticSpan *g_diagnostics = NULL;
 static uint32_t g_diagnostic_count = 0;
+// Diagnostics carry document byte offsets just like syntax spans. A split
+// pane must therefore never reuse the primary document's diagnostic ranges.
+static NimculusDiagnosticSpan *g_secondary_diagnostics = NULL;
+static uint32_t g_secondary_diagnostic_count = 0;
 static NimculusGitHunkSpan *g_git_hunks = NULL;
 static uint32_t g_git_hunk_count = 0;
 
@@ -455,6 +459,7 @@ static void releasePlatformResources(void) {
   free(g_highlights); g_highlights = NULL; g_highlight_count = 0;
   free(g_secondary_highlights); g_secondary_highlights = NULL; g_secondary_highlight_count = 0;
   free(g_diagnostics); g_diagnostics = NULL; g_diagnostic_count = 0;
+  free(g_secondary_diagnostics); g_secondary_diagnostics = NULL; g_secondary_diagnostic_count = 0;
   free(g_git_hunks); g_git_hunks = NULL; g_git_hunk_count = 0;
   free(g_terminal_runs); g_terminal_runs = NULL; g_terminal_run_count = 0;
   free(g_editor_annotations); g_editor_annotations = NULL; g_editor_annotation_count = 0;
@@ -505,7 +510,8 @@ bool nimculus_platform_validate_resource_teardown(void) {
     g_text_pipeline == nil && g_glyph_pipeline == nil &&
     g_image_pipeline == nil && g_queue == nil && g_glyph_vertices == NULL &&
     g_paint_commands == NULL && g_paint_dirty_regions == NULL &&
-    g_highlights == NULL && g_secondary_highlights == NULL && g_diagnostics == NULL && g_git_hunks == NULL &&
+    g_highlights == NULL && g_secondary_highlights == NULL && g_diagnostics == NULL &&
+    g_secondary_diagnostics == NULL && g_git_hunks == NULL &&
     g_terminal_runs == NULL && g_editor_annotations == NULL &&
     g_pending_file_open_paths == nil &&
     g_glyph_vertex_count == 0 && g_paint_count == 0 &&
@@ -1273,9 +1279,12 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
           value:(id)selectionColor.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
       }
     }
-    for (uint32_t diagnosticIndex = 0; editorTextureOwnsPrimaryDecorations() &&
-         diagnosticIndex < g_diagnostic_count; diagnosticIndex++) {
-      NimculusDiagnosticSpan diagnostic = g_diagnostics[diagnosticIndex];
+    NimculusDiagnosticSpan *diagnostics = g_rendering_secondary_editor
+      ? g_secondary_diagnostics : g_diagnostics;
+    uint32_t diagnosticCount = g_rendering_secondary_editor
+      ? g_secondary_diagnostic_count : g_diagnostic_count;
+    for (uint32_t diagnosticIndex = 0; diagnosticIndex < diagnosticCount; diagnosticIndex++) {
+      NimculusDiagnosticSpan diagnostic = diagnostics[diagnosticIndex];
       if (diagnostic.end_byte <= lineStartByte ||
           diagnostic.start_byte >= lineStartByte + wrappedByteLength) continue;
       NSUInteger startByte = MAX((NSUInteger)diagnostic.start_byte, lineStartByte) - lineStartByte;
@@ -1386,9 +1395,12 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       CTLineDraw(line, context);
       CFRelease(line);
     }
-    for (uint32_t diagnosticIndex = 0; editorTextureOwnsPrimaryDecorations() &&
-         diagnosticIndex < g_diagnostic_count; diagnosticIndex++) {
-      NimculusDiagnosticSpan diagnostic = g_diagnostics[diagnosticIndex];
+    NimculusDiagnosticSpan *diagnostics = g_rendering_secondary_editor
+      ? g_secondary_diagnostics : g_diagnostics;
+    uint32_t diagnosticCount = g_rendering_secondary_editor
+      ? g_secondary_diagnostic_count : g_diagnostic_count;
+    for (uint32_t diagnosticIndex = 0; diagnosticIndex < diagnosticCount; diagnosticIndex++) {
+      NimculusDiagnosticSpan diagnostic = diagnostics[diagnosticIndex];
       if (diagnostic.end_byte <= lineStartByte ||
           diagnostic.start_byte >= lineStartByte + lineLength) continue;
       NSUInteger startByte = MAX((NSUInteger)diagnostic.start_byte, lineStartByte) - lineStartByte;
@@ -7533,6 +7545,22 @@ void nimculus_platform_set_editor_diagnostics(const NimculusDiagnosticSpan *span
   }
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+void nimculus_platform_set_secondary_editor_diagnostics(const NimculusDiagnosticSpan *spans,
+                                                        uint32_t count) {
+  free(g_secondary_diagnostics);
+  g_secondary_diagnostics = NULL;
+  g_secondary_diagnostic_count = 0;
+  if (spans && count > 0) {
+    g_secondary_diagnostics = malloc(sizeof(NimculusDiagnosticSpan) * count);
+    if (g_secondary_diagnostics) {
+      memcpy(g_secondary_diagnostics, spans, sizeof(NimculusDiagnosticSpan) * count);
+      g_secondary_diagnostic_count = count;
+    }
+  }
+  markSceneFullyDirty();
+  if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_secondary_editor_highlights(const NimculusHighlightSpan *spans,

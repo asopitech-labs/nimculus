@@ -111,6 +111,7 @@ proc syncWorkspaceUiTabs()
 proc activeDocument(): ptr FileDocument
 when defined(macosx):
   proc syncSecondaryEditorView()
+  proc syncSecondaryNativeDiagnostics(document: ptr FileDocument)
 proc persistSession()
 
 var demoTree = newUiTree()
@@ -2165,9 +2166,13 @@ proc syncEditorCursor() =
 
 when defined(macosx):
   proc syncSecondaryEditorView() =
-    if not editorSession.split: return
+    if not editorSession.split:
+      platformSetSecondaryEditorDiagnostics(nil, 0)
+      return
     let document = secondaryPaneDocument()
-    if document == nil: return
+    if document == nil:
+      platformSetSecondaryEditorDiagnostics(nil, 0)
+      return
     let tab = editorWorkspaceUi.center.second.pane.activeTabIndex
     var view = editorSession.tabs[tab].secondaryView
     view.ensureCursorVisible(document[].buffer, editorVisibleLineCount())
@@ -2186,6 +2191,7 @@ when defined(macosx):
     platformSetSecondaryEditorCursorByte(uint32(view.cursor),
       uint32(max(0, location.line)))
     platformSetSecondaryEditorSelection(uint32(selection.startByte), uint32(selection.endByte))
+    syncSecondaryNativeDiagnostics(document)
 
   proc editorOffsetAtPoint(document: ptr FileDocument, x, y: cdouble, pane = 0): int =
     if document == nil: return 0
@@ -2212,6 +2218,29 @@ when defined(macosx):
       platformSetEditorDiagnostics(addr nativeDiagnostics[0], uint32(nativeDiagnostics.len))
     else:
       platformSetEditorDiagnostics(nil, 0)
+
+  proc syncSecondaryNativeDiagnostics(document: ptr FileDocument) =
+    ## Synchronize the visible secondary buffer without activating it for
+    ## primary-pane requests. The URI-keyed LSP session can then render its
+    ## own byte offsets instead of borrowing primary diagnostics.
+    if lspBridge == nil or document == nil:
+      platformSetSecondaryEditorDiagnostics(nil, 0)
+      return
+    let text = document[].buffer.toString()
+    lspBridge.syncDocument(document[].path, text)
+    let diagnostics = document[].buffer.resolveDiagnostics(
+      lspBridge.diagnosticsForPath(document[].path))
+    var nativeDiagnostics = newSeq[NativeDiagnosticSpan](diagnostics.len)
+    for index, diagnostic in diagnostics:
+      nativeDiagnostics[index] = NativeDiagnosticSpan(
+        startByte: uint32(max(0, diagnostic.startByte)),
+        endByte: uint32(max(0, diagnostic.endByte)),
+        severity: uint32(max(0, diagnostic.severity)))
+    if nativeDiagnostics.len > 0:
+      platformSetSecondaryEditorDiagnostics(addr nativeDiagnostics[0],
+        uint32(nativeDiagnostics.len))
+    else:
+      platformSetSecondaryEditorDiagnostics(nil, 0)
 
   proc syncNativeCompletion() =
     if lspBridge == nil or not lspBridge.completionVisible:
@@ -2439,6 +2468,7 @@ when defined(macosx):
         secondarySyntaxState.close()
         secondarySyntaxState = nil
       platformSetSecondaryEditorHighlights(nil, 0)
+      platformSetSecondaryEditorDiagnostics(nil, 0)
       return
     let document = secondaryPaneDocument()
     if document == nil:
@@ -2446,6 +2476,7 @@ when defined(macosx):
         secondarySyntaxState.close()
         secondarySyntaxState = nil
       platformSetSecondaryEditorHighlights(nil, 0)
+      platformSetSecondaryEditorDiagnostics(nil, 0)
       return
     var grammar: GrammarKind
     try:
