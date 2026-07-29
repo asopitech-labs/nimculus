@@ -3064,7 +3064,17 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     when defined(windows): closeWindowsTerminal()
     platformSetCloseDecision(true)
   elif name == "closeTabRequest":
-    when defined(macosx): platformRequestCloseTab()
+    when defined(macosx):
+      if editorSession.split and editorSession.splitActivePane == 1:
+        let secondary = secondaryPaneDocument()
+        if secondary == nil: return
+        if secondary[].buffer.isDirty:
+          editorViewState.statusMessage = "Unsaved changes: save before closing secondary tab"
+          platformSetEditorStatus(editorViewState.statusMessage.cstring)
+        else:
+          receiveNativeCommand("closeTabConfirmed".cstring)
+      else:
+        platformRequestCloseTab()
     when defined(windows):
       if document == nil: return
       if document[].buffer.isDirty:
@@ -3084,14 +3094,31 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     else:
       when defined(macosx): platformShowSavePanelAndCloseTab()
   elif name == "closeTabConfirmed":
+    let closingSecondary = editorSession.split and editorSession.splitActivePane == 1
+    let closingTab = if closingSecondary and editorWorkspaceUi.center != nil and
+        editorWorkspaceUi.center.kind == paneSplit:
+      editorWorkspaceUi.center.second.pane.activeTabIndex else: editorSession.activeTab
+    if closingTab < 0 or closingTab >= editorSession.tabs.len: return
     editorSession.saveActiveView(editorViewState)
-    editorSession.saveSecondaryActiveView(editorSession.secondaryView)
+    if closingSecondary:
+      editorSession.tabs[closingTab].secondaryView = editorSession.secondaryView
+    else:
+      editorSession.saveSecondaryActiveView(editorSession.secondaryView)
     when defined(macosx): editorLspSignatureText = ""
-    if editorSession.closeActiveTab(forceDirty = true):
+    if editorSession.closeTabAt(closingTab, forceDirty = true):
+      editorWorkspaceUi.removeTab(closingTab)
       resetImeState()
       if editorSession.activeTab >= 0:
         editorSession.loadActiveView(editorViewState)
-        editorSession.loadSecondaryActiveView()
+        if editorSession.split:
+          let secondary = secondaryPaneDocument()
+          if secondary != nil:
+            let tab = editorWorkspaceUi.center.second.pane.activeTabIndex
+            editorSession.secondaryView = editorSession.tabs[tab].secondaryView
+          else:
+            editorSession.secondaryView = newEditorView()
+        else:
+          editorSession.loadSecondaryActiveView()
         resetEditorTransientState()
       else:
         resetEditorViewState()

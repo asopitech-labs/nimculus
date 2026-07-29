@@ -339,3 +339,23 @@ primary editor rectangle の上だけに配置される。その click は globa
 action を `selectPaneTab:<pane-index>:<tab-index>` にする。Nim 側は PaneTree の leaf selection
 を更新し、primary の場合だけ session active tab も更新する。これにより text presenter、
 IME、Files Dock と tab bar が一つの Pane selection を共有する。
+
+## 追加監査: focused Pane からの tab close（2026-07-29）
+
+Zed の `Pane::close_active_item` は Workspace 全体の active editor ではなく、当該
+`Pane` の `active_item_index` を対象にする。close 判定、保存確認、item removal の後も、
+各 Pane の focus と item selection は Pane-local なまま維持される。
+
+Nimculus は document ownership を `EditorSession`、Pane 側を shared document index の投影と
+している。このため close は次の一操作として扱う必要がある。
+
+1. focused Pane から閉じる document index を解決する。
+2. dirty document の場合はその document に対して保存／破棄を確認する。
+3. `EditorSession.tabs` から document を削除する。
+4. 全 Pane の mirrored index を再番号付けし、閉じた item を選んでいた Pane だけ次の
+   item を選ぶ。
+
+今回の縦切りでは clean secondary tab をこのモデルで閉じる。secondary の native
+save/discard sheet が Pane-local document を渡せるまで、dirty secondary tab は閉じず status
+message を表示する。これは Zed と同じ Pane ownership を優先し、誤った primary document を
+閉じる／未保存内容を失う回帰を防ぐための安全境界である。

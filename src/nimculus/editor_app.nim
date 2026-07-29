@@ -240,13 +240,19 @@ proc switchTab*(session: var EditorSession, view: var EditorViewState,
   secondaryView = session.secondaryView
   true
 
+proc closeTabAt*(session: var EditorSession, tabIndex: int, forceDirty = false): bool =
+  if tabIndex < 0 or tabIndex >= session.tabs.len: return false
+  if session.tabs[tabIndex].document.buffer.isDirty and not forceDirty: return false
+  session.tabs.delete(tabIndex)
+  if session.activeTab > tabIndex: dec session.activeTab
+  elif session.activeTab == tabIndex: session.activeTab = min(tabIndex, session.tabs.high)
+  session.activeTab = min(session.activeTab, session.tabs.high)
+  true
+
 proc closeActiveTab*(session: var EditorSession, forceDirty = false): bool =
   if session.tabs.len == 0: return false
   session.activeTab = max(0, min(session.activeTab, session.tabs.high))
-  if session.tabs[session.activeTab].document.buffer.isDirty and not forceDirty: return false
-  session.tabs.delete(session.activeTab)
-  session.activeTab = min(session.activeTab, session.tabs.high)
-  true
+  result = session.closeTabAt(session.activeTab, forceDirty)
 
 proc hasDirtyTabs*(session: EditorSession): bool =
   for tab in session.tabs:

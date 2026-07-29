@@ -44,6 +44,15 @@ suite "workspace UI state":
     check state.leftDock.activePanel == panelGit
     check state.focusedRegion == regionLeftDock
 
+  test "closing a shared tab preserves independent pane selections":
+    var state = initWorkspaceUi(tabCount = 3, activeTab = 0)
+    discard state.splitFocusedPane(paneVertical)
+    discard state.selectPaneTab(state.center.second.pane.id, 2)
+    state.removeTab(1)
+    check state.center.first.pane.activeTabIndex == 0
+    check state.center.second.pane.activeTabIndex == 1
+    check state.center.first.pane.tabIndices == @[0, 1]
+
   test "layout protects a usable editor center":
     var state = initWorkspaceUi()
     state.resizeDock(dockLeft, 900, 800)

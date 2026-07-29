@@ -389,6 +389,26 @@ proc selectPaneTab*(state: var WorkspaceUiState, pane: PaneId, tabIndex: int): b
     state.focusedPane = pane
     state.focusedRegion = regionCenter
 
+proc removeTab*(state: var WorkspaceUiState, tabIndex: int) =
+  ## Keep every mirrored Pane's item indices aligned with EditorSession after
+  ## one shared document is closed. Each Pane retains its own selection where
+  ## possible, choosing the next item only when it owned the closed tab.
+  proc remove(tree: PaneTree) =
+    if tree.isNil: return
+    if tree.kind == paneLeaf:
+      if tabIndex notin tree.pane.tabIndices: return
+      tree.pane.tabIndices.delete(tree.pane.tabIndices.find(tabIndex))
+      for index in 0 ..< tree.pane.tabIndices.len:
+        if tree.pane.tabIndices[index] > tabIndex: dec tree.pane.tabIndices[index]
+      if tree.pane.activeTabIndex > tabIndex: dec tree.pane.activeTabIndex
+      elif tree.pane.activeTabIndex == tabIndex:
+        tree.pane.activeTabIndex = if tree.pane.tabIndices.len == 0: -1
+          else: min(tabIndex, tree.pane.tabIndices.high)
+    else:
+      remove(tree.first)
+      remove(tree.second)
+  remove(state.center)
+
 proc splitFocusedPane*(state: var WorkspaceUiState, axis: PaneAxis,
                        ratio = 0.5'f32): bool =
   ## The first vertical slice splits the root pane.  Recursive pane operations

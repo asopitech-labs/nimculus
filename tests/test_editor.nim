@@ -313,6 +313,27 @@ suite "M5 editor services":
     check session.closeActiveTab()
     check session.tabs.len == 2
 
+  test "closing a non-active tab retains the active document":
+    var session: EditorSession
+    session.addTab(newDocument())
+    session.addTab(newDocument())
+    session.addTab(newDocument())
+    session.activeTab = 2
+    check session.closeTabAt(0)
+    check session.tabs.len == 2
+    check session.activeTab == 1
+
+  test "closing a dirty non-active tab requires an explicit decision":
+    var session: EditorSession
+    var document = newDocument()
+    document.buffer.edit(Edit(startByte: 0, endByte: 0, text: "unsaved"))
+    session.addTab(document)
+    session.addTab(newDocument())
+    check not session.closeTabAt(0)
+    check session.tabs.len == 2
+    check session.closeTabAt(0, forceDirty = true)
+    check session.tabs.len == 1
+
   test "background tab preserves primary session activation":
     var session: EditorSession
     session.addTab(newDocument())
