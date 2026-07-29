@@ -45,6 +45,7 @@ proc platformValidateTabBarCloseTargets*(): bool {.importc: "nimculus_platform_v
 proc platformValidateSidebarDispatch*(): bool {.importc: "nimculus_platform_validate_sidebar_dispatch", cdecl.}
 proc platformValidateSidebarContextDispatch*(): bool {.importc: "nimculus_platform_validate_sidebar_context_dispatch", cdecl.}
 proc platformValidateGitSidebarTabs*(): bool {.importc: "nimculus_platform_validate_git_sidebar_tabs", cdecl.}
+proc platformShowGitCommitSheet*() {.importc: "nimculus_platform_show_git_commit_sheet", cdecl.}
 proc platformValidateFilesSidebarActions*(): bool {.importc: "nimculus_platform_validate_files_sidebar_actions", cdecl.}
 proc platformValidateWorkspaceToolbar*(): bool {.importc: "nimculus_platform_validate_workspace_toolbar", cdecl.}
 proc platformValidateSidebarScrollContainer*(): bool {.importc: "nimculus_platform_validate_sidebar_scroll_container", cdecl.}

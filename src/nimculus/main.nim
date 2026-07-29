@@ -3497,6 +3497,11 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     syncEditorCursor()
     refreshEditorSyntax()
     persistSession()
+  elif name == "gitCommitPrompt":
+    when defined(macosx):
+      platformShowGitCommitSheet()
+  elif name == "gitCommitMessageEmpty":
+    editorViewState.statusMessage = "Git commit requires a message"
   elif name.startsWith("commandPalette:"):
     let rawCommand = name[15 .. ^1].strip
     let command = rawCommand.toLowerAscii

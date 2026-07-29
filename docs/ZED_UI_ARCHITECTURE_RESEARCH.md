@@ -505,6 +505,14 @@ Zed の Pane tab-bar actions は workspace の active panel と terminal の表�
 を lower panel visibility から毎回再計算する。toolbar自身は状態を保持せず、theme accent とtooltipだけを更新する
 ため、既存のNim command dispatcherと各パネルの所有関係は変わらない。
 
+## 追加監査: Git Changes の commit entry point（2026-07-29）
+
+Zed の `GitPanel` はChanges tabの中にcommit editorとCommit actionを持ち、実際の
+`commit_changes`はrepository layerへ委譲する。Nimculusは現段階で常設の複数行commit editorを
+持たないため、Changes/History/Branches切替の隣に`Commit…`を置き、macOS標準sheetで一行messageを
+入力する。確定時は既存の`commandPalette:git commit <message>`へ戻すだけであり、repository rootの解決、
+引数配列、async GitJob、cancel、出力panelはすべて既存Nim側が所有する。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

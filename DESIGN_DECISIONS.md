@@ -4965,3 +4965,24 @@ state while the focused editor item changes.
 
 **Consequences.** Workspace context remains visible in the primary chrome,
 without duplicating workspace, Git, or terminal ownership in AppKit.
+
+## UI-026: Git Changes exposes a native commit entry point
+
+**Context.** Nimculus could commit safely through the command palette, but
+the Git sidebar exposed only status, history, and branch navigation. A normal
+source-control workflow therefore required discovering a typed command before
+the existing Git service became usable.
+
+**Decision.** Place `Commit…` beside the Changes/History/Branches selector.
+It opens a non-blocking macOS sheet, validates that the message is non-empty,
+then dispatches the existing `git commit <message>` command. The Nim Git
+service remains the sole owner of repository resolution, argument-array
+construction, asynchronous execution, cancellation, and output rendering.
+
+**Evidence.** Zed's Git Panel keeps its commit editor and commit action within
+the Changes workflow, while `commit_changes` remains owned by its repository
+layer.
+
+**Consequences.** Commit is discoverable where users review changes, without
+adding a second Git execution path or allowing a native UI control to mutate
+the repository directly.
