@@ -4673,6 +4673,11 @@ numbers, indent guides, and caret) is suppressed so the center is unambiguously
 an entry surface. Opening or creating a document hides the surface immediately,
 leaving the normal editor and workspace layout untouched.
 
+The primary project-opening action is visually distinct from secondary
+file/recent actions. Every action uses a fixed-width, 34pt control rather than
+an intrinsic text-width button, preserving a clear click target and hierarchy
+at both Retina and non-Retina scales.
+
 LaunchServices does not supply a meaningful project working directory for an
 app bundle. Therefore only a restored workspace or an explicit Finder/Open
 path opens a project; an empty launch never treats `/` as the workspace root.

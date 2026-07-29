@@ -2101,19 +2101,27 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     @[@"Open Folder…", @"openFolder:"], @[@"Open File…", @"openFile:"],
     @[@"New File", @"newFile:"], @[@"Open Recent…", @"openRecentFile:"]
   ];
-  for (NSArray *entry in buttons) {
+  for (NSUInteger index = 0; index < buttons.count; index++) {
+    NSArray *entry = buttons[index];
     NSButton *button = [NSButton buttonWithTitle:entry[0] target:self
       action:NSSelectorFromString(entry[1])];
     button.bordered = NO;
     button.wantsLayer = YES;
+    button.translatesAutoresizingMaskIntoConstraints = NO;
     button.layer.cornerRadius = 6.0;
-    button.layer.backgroundColor = [themeHexColor(g_theme_accent,
-      [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0]) CGColor];
+    const BOOL primary = index == 0;
+    button.layer.backgroundColor = [(primary
+      ? themeHexColor(g_theme_accent,
+          [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0])
+      : [themeHexColor(g_theme_foreground,
+          [NSColor colorWithCalibratedWhite:0.88 alpha:1.0]) colorWithAlphaComponent:0.11]) CGColor];
     button.attributedTitle = [[[NSAttributedString alloc] initWithString:entry[0]
-      attributes:@{NSForegroundColorAttributeName: NSColor.whiteColor,
+      attributes:@{NSForegroundColorAttributeName: primary ? NSColor.whiteColor :
+          themeHexColor(g_theme_foreground, [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]),
         NSFontAttributeName: [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium]}] autorelease];
-    button.frame = NSMakeRect(0.0, 0.0, 220.0, 30.0);
     [stack addArrangedSubview:button];
+    [[button.widthAnchor constraintEqualToConstant:260.0] setActive:YES];
+    [[button.heightAnchor constraintEqualToConstant:34.0] setActive:YES];
   }
   [self addSubview:stack];
   [stack release];

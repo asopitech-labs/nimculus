@@ -375,6 +375,11 @@ welcome page の表示中は、caret、line number、indent guide、scrollbar、
 document 専用 chrome を出さない。これは空バッファを見せるのではなく、操作開始の画面を明確に
 見せるための presenter 境界である。
 
+Zed の welcome content は中央の縦 stack に heading と action entries を置く。Nimculus の macOS
+presenter も同じ hierarchy を採り、Open Folder を primary、Open File / New File / Open Recent を
+secondary とする。AppKit の intrinsic text width に任せると action が選択テキストのように見えるため、
+全 action に固定の 260pt × 34pt hit target を与える。
+
 ## 追加監査: Git panel の repository 解決（2026-07-29）
 
 Zed の `GitPanel` は作成時に `Project::active_repository` から repository を受け取る
