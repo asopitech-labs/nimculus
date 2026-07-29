@@ -1935,7 +1935,8 @@ proc revealActiveDocumentInWorkspace() =
   if activeWorkspace == nil:
     editorViewState.statusMessage = "Workspace not open"
     return
-  let document = activeDocument()
+  let document = if editorSession.split and editorSession.splitActivePane == 1:
+    secondaryPaneDocument() else: activeDocument()
   if document == nil or document[].path.len == 0:
     editorViewState.statusMessage = "Active document has no file path"
     return
@@ -3347,7 +3348,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         if terminalInput.handled:
           if terminalInput.input.len > 0: writeNativeTerminalInput(terminalInput.input)
           return
-  let document = activeDocument()
+  let document = if editorSession.split and editorSession.splitActivePane == 1:
+    secondaryPaneDocument() else: activeDocument()
   when defined(macosx):
     if handleSecondaryEditorCommand(name, document): return
   if name == "workspaceSearchTick":
