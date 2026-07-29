@@ -517,6 +517,9 @@ when defined(macosx):
   var editorGitHistoryPath = ""
   var editorGitStatusEntries: seq[GitStatusEntry]
   var editorGitPanelBranch = ""
+  var editorGitStatusGeneration = 0'u64
+  var editorGitEntriesGeneration = 0'u64
+  var editorGitBranchGeneration = 0'u64
   var editorGitBranches: seq[GitBranch]
   var editorTaskJob: TaskJob
   var editorTaskCommand = ""
@@ -615,6 +618,7 @@ when defined(macosx):
       editorGitBranchJob.cancel()
     editorGitBranchJob = nil
     editorGitBranchRepository = repository
+    editorGitBranchGeneration = editorGitStatusGeneration
     editorGitPanelBranch = ""
     if repository != nil:
       editorGitBranchJob = repository.startGitJob([
@@ -744,6 +748,7 @@ when defined(macosx):
     # file. Keep exactly the same ordering and cap as the textual panel.
     editorSidebarMode = sidebarGitStatus
     editorGitStatusEntries = conflicts & ordinary
+    editorGitEntriesGeneration = editorGitStatusGeneration
     if editorGitStatusEntries.len > MaxPanelEntries:
       editorGitStatusEntries.setLen(MaxPanelEntries)
     let sidebarText = lines.join("\n")
@@ -833,6 +838,7 @@ when defined(macosx):
       var conflicts = 0
       for entry in entries:
         if entry.conflict: inc conflicts
+      inc editorGitStatusGeneration
       refreshNativeGitPanelBranch(editorGitRepository)
       renderNativeGitStatus(entries)
       editorViewState.statusMessage = "Git: " & $entries.len &
@@ -862,6 +868,7 @@ when defined(macosx):
       return
     elif action == "refresh status":
       let entries = parseStatus(job.result.output)
+      inc editorGitStatusGeneration
       refreshNativeGitPanelBranch(editorGitRepository)
       renderNativeGitStatus(entries)
       editorViewState.statusMessage = "Git: " & editorGitActionSource & " complete"
@@ -1568,6 +1575,7 @@ when defined(macosx):
         syncNativeTerminalSelection()
 
   proc scheduleNativeGitHunks(document: ptr FileDocument) =
+    inc editorGitStatusGeneration
     if editorGitDiffJob != nil:
       editorGitDiffJob.cancel()
       editorGitDiffJob = nil
@@ -1647,7 +1655,8 @@ when defined(macosx):
     # The branch can arrive before or after porcelain status. Repaint only an
     # already-visible Changes list; no Git command or filesystem access occurs
     # on this path.
-    if editorSidebarMode == sidebarGitStatus and editorGitStatusEntries.len > 0:
+    if editorSidebarMode == sidebarGitStatus and editorGitStatusEntries.len > 0 and
+        editorGitEntriesGeneration == editorGitBranchGeneration:
       renderNativeGitStatus(editorGitStatusEntries)
 
   proc editorVisibleLineCount(): int =

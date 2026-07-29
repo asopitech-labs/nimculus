@@ -5036,8 +5036,9 @@ panel and editor should remain responsive.
 **Decision.** Start a separate cancellable `symbolic-ref --quiet --short
 HEAD` GitJob whenever status is refreshed. The Changes title initially renders
 without a branch if necessary, then rerenders only the visible status panel
-when the branch result arrives. Detached HEAD is an explicit presentation
-state.
+when the branch result arrives. Branch and status carry the same monotonically
+increasing snapshot generation, so a late result can update only the matching
+Changes list. Detached HEAD is an explicit presentation state.
 
 **Evidence.** Zed keeps repository state and panel presentation in separate
 asynchronous update paths; a panel does not synchronously query Git while
@@ -5045,4 +5046,5 @@ rendering or handling input.
 
 **Consequences.** Git status and branch can arrive in either order without
 blocking input, and document/workspace changes cancel stale branch work with
-the rest of the Git lifecycle.
+the rest of the Git lifecycle; a late branch result cannot relabel an older
+status list.
