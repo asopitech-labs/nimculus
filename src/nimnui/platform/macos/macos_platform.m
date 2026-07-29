@@ -114,6 +114,7 @@ static uint32_t g_editor_outline_symbol_count = 0;
 // dispatch sidebarItem:N.
 static uint32_t g_editor_sidebar_mode = 0;
 static BOOL g_editor_sidebar_visible = YES;
+static BOOL g_workspace_open = YES;
 static NSUInteger g_editor_sidebar_selected_index = NSNotFound;
 static NSString *g_theme_background = @"#1f2329";
 static NSString *g_theme_foreground = @"#d7dae0";
@@ -1921,6 +1922,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @end
 
 @interface NimculusFilesSidebarActions : NSStackView
+ - (void)reloadActions;
 @end
 
 @interface NimculusStatusOverlay : NSTextField
@@ -2367,9 +2369,19 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   self.alignment = NSLayoutAttributeCenterY;
   self.distribution = NSStackViewDistributionFillEqually;
   self.spacing = 6.0;
-  NSArray<NSArray<NSString *> *> *buttons = @[
+  [self reloadActions];
+  return self;
+}
+- (void)reloadActions {
+  NSArray<NSView *> *previous = [self.arrangedSubviews copy];
+  for (NSView *view in previous) {
+    [self removeArrangedSubview:view];
+    [view removeFromSuperview];
+  }
+  [previous release];
+  NSArray<NSArray<NSString *> *> *buttons = g_workspace_open ? @[
     @[@"New File", @"createWorkspaceFile:"], @[@"New Folder", @"createWorkspaceDirectory:"]
-  ];
+  ] : @[@[@"Open Folder…", @"openWorkspaceFolder:"]];
   for (NSArray<NSString *> *entry in buttons) {
     NSButton *button = [NSButton buttonWithTitle:entry[0] target:self
       action:@selector(dispatchWorkspaceAction:)];
@@ -2377,7 +2389,6 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     button.identifier = entry[1];
     [self addArrangedSubview:button];
   }
-  return self;
 }
 - (void)dispatchWorkspaceAction:(NSButton *)sender {
   SEL action = NSSelectorFromString(sender.identifier);
@@ -5244,14 +5255,22 @@ bool nimculus_platform_validate_git_sidebar_tabs(void) {
 
 bool nimculus_platform_validate_files_sidebar_actions(void) {
   @autoreleasepool {
+    BOOL previousWorkspaceOpen = g_workspace_open;
+    g_workspace_open = YES;
     NimculusFilesSidebarActions *actions = [[NimculusFilesSidebarActions alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 240.0, 24.0)];
     NSArray<NSView *> *buttons = actions.arrangedSubviews;
-    BOOL valid = buttons.count == 2 &&
+    BOOL workspaceActions = buttons.count == 2 &&
       [((NSButton *)buttons[0]).title isEqualToString:@"New File"] &&
       [((NSButton *)buttons[1]).title isEqualToString:@"New Folder"];
+    g_workspace_open = NO;
+    [actions reloadActions];
+    buttons = actions.arrangedSubviews;
+    BOOL emptyActions = buttons.count == 1 &&
+      [((NSButton *)buttons[0]).title isEqualToString:@"Open Folder…"];
     [actions release];
-    return valid;
+    g_workspace_open = previousWorkspaceOpen;
+    return workspaceActions && emptyActions;
   }
 }
 
@@ -6687,6 +6706,22 @@ void nimculus_platform_set_editor_sidebar_visible(bool visible) {
   if (outline.enclosingScrollView) outline.enclosingScrollView.hidden = !g_editor_sidebar_visible;
   [view updateTerminalFrame];
   [view drawFrame];
+}
+void nimculus_platform_set_workspace_open(bool open) {
+  g_workspace_open = open ? YES : NO;
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusFilesSidebarActions class]]) {
+      [(NimculusFilesSidebarActions *)subview reloadActions];
+      break;
+    }
+  }
+  [view updateTerminalFrame];
+}
+void nimculus_platform_open_workspace_folder(void) {
+  NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
+  if (delegate) [delegate openWorkspaceFolder:nil];
 }
 void nimculus_platform_set_terminal_visible(bool visible) {
   g_terminal_visible = visible ? YES : NO;

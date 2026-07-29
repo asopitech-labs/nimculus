@@ -4898,3 +4898,20 @@ on hover by default) and delegates closure to `CloseActiveItem`.
 
 **Consequences.** The document lifecycle is visible at the point of use,
 while Nimculus retains the same safe confirmation semantics for every tab.
+
+## UI-022: An empty Files panel starts a workspace
+
+**Context.** The Files sidebar showed creation controls even when no workspace
+existed. Those actions lacked a meaningful root and made the primary first
+step—choosing a project—harder to discover.
+
+**Decision.** Files presents `Open Folder…` as its only panel action without
+a workspace. The empty row and toolbar route to the existing non-blocking
+macOS directory panel; after selection, the normal workspace preview replaces
+the action with `New File` and `New Folder`.
+
+**Evidence.** Zed's empty Project Panel makes opening or cloning a project
+the primary action instead of offering file-tree mutations with no project.
+
+**Consequences.** The file explorer is useful before and after a workspace is
+open, with no separate folder-selection or workspace-creation implementation.

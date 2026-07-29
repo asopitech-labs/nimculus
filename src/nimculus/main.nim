@@ -1683,6 +1683,7 @@ proc openActiveWorkspace(path: string) =
     if workspaceQuickOpenJob != nil: workspaceQuickOpenJob.cancelFuzzySearch()
     workspaceQuickOpenJob = nil
     activeWorkspace = openWorkspace(path)
+    when defined(macosx): platformSetWorkspaceOpen(true)
     workspaceExpandedDirectories = activeWorkspace.rootPaths
     workspaceRevealPath = ""
     reloadWorkspaceSettings(activeWorkspace.root)
@@ -1706,6 +1707,7 @@ proc refreshWorkspacePreview() =
     # settings store is still being constructed. Keep that boundary safe, but
     # initialize settings before the first normal workspace refresh below.
     if activeWorkspace == nil or appSettings == nil: return
+    when defined(macosx): platformSetWorkspaceOpen(true)
     workspacePreviewMode = "tree"
     editorSidebarMode = sidebarFiles
     workspacePreviewEntries.setLen(0)
@@ -3769,7 +3771,13 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         editorWorkspaceUi.openPanel(panelFiles)
         setupDemoUi()
         if activeWorkspace == nil:
-          editorViewState.statusMessage = "Workspace not open"
+          editorSidebarMode = sidebarFiles
+          let emptyPanel = "Files\n────────\nOpen Folder…"
+          editorWorkspaceUi.replacePanelItems(panelFiles, @["open-workspace"])
+          platformSetWorkspaceOpen(false)
+          platformSetEditorSidebar(emptyPanel.cstring, uint32(emptyPanel.len), 1,
+            uint32(sidebarFiles))
+          editorViewState.statusMessage = "Open a folder to start a workspace"
         else:
           refreshWorkspacePreview()
     of "__toggle_files__":
@@ -3989,7 +3997,9 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           syncNativeSidebarSelection()
         case editorSidebarMode
         of sidebarFiles:
-          if index >= 0 and index < workspacePreviewEntries.len:
+          if activeWorkspace == nil:
+            if index == 0: platformOpenWorkspaceFolder()
+          elif index >= 0 and index < workspacePreviewEntries.len:
             let entry = workspacePreviewEntries[index]
             if entry.kind == WorkspaceFileKind.directory:
               var expandedIndex = -1

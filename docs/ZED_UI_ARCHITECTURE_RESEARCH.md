@@ -476,6 +476,13 @@ hover 時だけ非表示にできるが、tab 自体が閉じられることは�
 hover renderer を持たないため、background tab の close glyph を muted で常時表示する。クリックは既存の
 `closePaneTab` が対象を選択してから unsaved confirmation を始めるため、dirty document の安全性を損なわない。
 
+## 追加監査: Empty Project Panel の開始操作（2026-07-29）
+
+Zed の `ProjectEmptyState` はProject Panelが空のときにOpen ProjectとClone Repoを主要操作として表示する。
+ファイル作成・renameなどはproject contextが得られてから提供する。NimculusのFilesも同じ順序にし、workspace
+がないときはOpen Folderだけを表示する。操作は既存のAppKit `NSOpenPanel` とfile callbackを通るため、Finderから
+のfolder openと同じworkspace loading boundaryを共有する。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

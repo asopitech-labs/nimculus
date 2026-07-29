@@ -138,6 +138,8 @@ proc platformSetEditorOutline*(text: cstring, length, symbolCount: uint32) {.imp
 proc platformSetEditorSidebar*(text: cstring, length, itemCount, mode: uint32) {.importc: "nimculus_platform_set_editor_sidebar", cdecl.}
 proc platformSetEditorSidebarSelection*(itemIndex: uint32) {.importc: "nimculus_platform_set_editor_sidebar_selection", cdecl.}
 proc platformSetEditorSidebarVisible*(visible: bool) {.importc: "nimculus_platform_set_editor_sidebar_visible", cdecl.}
+proc platformSetWorkspaceOpen*(open: bool) {.importc: "nimculus_platform_set_workspace_open", cdecl.}
+proc platformOpenWorkspaceFolder*() {.importc: "nimculus_platform_open_workspace_folder", cdecl.}
 proc platformSetTerminalVisible*(visible: bool) {.importc: "nimculus_platform_set_terminal_visible", cdecl.}
 proc platformSetTerminalSessions*(titles: cstring, length, activeIndex: uint32) {.importc: "nimculus_platform_set_terminal_sessions", cdecl.}
 proc platformSetTerminalText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_terminal_text", cdecl.}
