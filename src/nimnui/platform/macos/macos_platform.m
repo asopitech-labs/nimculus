@@ -4820,13 +4820,21 @@ bool nimculus_platform_validate_save_panel_sheet(void) {
   NimculusPlatformMetrics previousMetrics = g_metrics;
   BOOL previousCloseDecision = g_close_decision;
   @autoreleasepool {
+    // NSSavePanel requires an initialized application connection before it
+    // creates its auxiliary XPC sheet services. Match the OpenPanel contract
+    // so this remains valid in an isolated native test process.
+    NSApplication *application = [NSApplication sharedApplication];
+    (void)application;
     id previousView = g_active_view;
     NimculusCommandCallback previousCommandCallback = g_command_callback;
     g_validation_save_panel_cancel_count = 0;
     NSWindow *window = [[NSWindow alloc]
       initWithContentRect:NSMakeRect(160.0, 180.0, 640.0, 480.0)
       styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
-    NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
+    // This contract verifies only the AppKit sheet and callback boundary.
+    // A CAMetalLayer adds an unrelated IOSurface/XPC dependency in isolated
+    // GUI test processes, so use the minimal NSView that supplies a window.
+    NSView *view = [[NSView alloc] initWithFrame:
       NSMakeRect(0.0, 0.0, 640.0, 480.0)];
     if (!window || !view) {
       [view release];

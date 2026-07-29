@@ -32,7 +32,7 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 
 ## macOS E2E 受け入れの実行時点
 
-E2EはM1/M2/M3/M5だけの個別操作では開始しない。M12までのeditor、workspace、Tree-sitter、LSP、Git、terminal/task、settingsが一つの`.app`で利用可能になり、M20のcold-start/soak/benchmarkが自動成功したrelease candidateで実行する。`nimble macosE2E`は全test、native contract、benchmark、3回cold-start、soak、adhoc署名DMGのmount後起動を一つの自動ゲートへ集約し、`.github/workflows/macos-e2e.yml`から手動起動できる。2026-07-29にはcommit [`7083934`](https://github.com/asopitech-labs/nimculus/commit/7083934e2fbc04f393c64386793b5b94c3105bc4)でこの[自動E2Eが成功](https://github.com/asopitech-labs/nimculus/actions/runs/30413726097)した。これは自動基準の達成を示すものであり、物理IME/trackpad/複数画面、実Language Server操作、長時間利用、Developer ID承認を完了とみなさない。E2E失敗はissueと自動regression testへ還元し、個別マイルストーンの手作業チェックリストを増やさない。
+E2EはM1/M2/M3/M5だけの個別操作では開始しない。M12までのeditor、workspace、Tree-sitter、LSP、Git、terminal/task、settingsが一つの`.app`で利用可能になり、M20のcold-start/soak/benchmarkが自動成功したrelease candidateで実行する。`nimble macosE2E`は全test、native contract、benchmark、3回cold-start、soak、adhoc署名DMGのmount後起動を一つの自動ゲートへ集約し、`.github/workflows/macos-e2e.yml`から手動起動できる。Save/Open/Alertなどのnative sheet contractは補助XPCを提供する専用GUI runnerで必須とし、隔離E2Eは `NIMCULUS_E2E_SKIP_NATIVE_SHEET_CONTRACTS=1` によりその契約だけを明示skipできる。2026-07-29にはcommit [`7083934`](https://github.com/asopitech-labs/nimculus/commit/7083934e2fbc04f393c64386793b5b94c3105bc4)でこの[自動E2Eが成功](https://github.com/asopitech-labs/nimculus/actions/runs/30413726097)した。これは自動基準の達成を示すものであり、物理IME/trackpad/複数画面、実Language Server操作、長時間利用、Developer ID承認を完了とみなさない。E2E失敗はissueと自動regression testへ還元し、個別マイルストーンの手作業チェックリストを増やさない。
 
 ## 基本方針
 

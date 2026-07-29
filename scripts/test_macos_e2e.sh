@@ -9,6 +9,11 @@ SOAK_SECONDS="${NIMCULUS_E2E_SOAK_SECONDS:-20}"
 SOAK_INTERVAL_SECONDS="${NIMCULUS_E2E_SOAK_INTERVAL_SECONDS:-5}"
 SOAK_TIMEOUT_SECONDS="${NIMCULUS_E2E_SOAK_TIMEOUT_SECONDS:-$((SOAK_SECONDS + 20))}"
 KEEP_ARTIFACTS="${NIMCULUS_E2E_KEEP_ARTIFACTS:-0}"
+# Native panel sheets are covered by the dedicated GUI runner. The combined
+# E2E may execute inside an isolated process without macOS's panel auxiliary
+# XPC service; keep that process failure from masking the application-level
+# release gate. Set to 0 on a runner that vends those services.
+export NIMCULUS_SKIP_NATIVE_SHEET_CONTRACTS="${NIMCULUS_E2E_SKIP_NATIVE_SHEET_CONTRACTS:-1}"
 
 GENERATED_BINARIES=(
   src/nimculus/main

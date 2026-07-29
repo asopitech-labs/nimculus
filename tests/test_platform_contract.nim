@@ -7,6 +7,9 @@ proc nativeGuiValidationRequired(): bool =
   ## though compilation and non-modal AppKit contracts still work.
   getEnv("CI").len > 0 or getEnv("NIMCULUS_REQUIRE_NATIVE_GUI") == "1"
 
+proc skipNativeSheetService(): bool =
+  getEnv("NIMCULUS_SKIP_NATIVE_SHEET_CONTRACTS") == "1"
+
 proc fullscreenTransitionValidationRequired(): bool =
   ## This deliberately changes the active macOS GUI space, so it runs only
   ## on the explicitly opted-in self-hosted runner.
@@ -93,7 +96,9 @@ suite "macOS platform contract":
     check platformValidateShortcutDispatch()
 
   test "native Open panel uses a non-blocking window sheet":
-    if platformValidateOpenPanelSheet():
+    if skipNativeSheetService():
+      echo "  [SKIP] Open panel sheet contract (auxiliary GUI service excluded)"
+    elif platformValidateOpenPanelSheet():
       check true
     elif nativeGuiValidationRequired():
       check false
@@ -151,7 +156,9 @@ suite "macOS platform contract":
     check platformValidateDeferredFileOpenEvents()
 
   test "external file changes use a non-blocking window sheet":
-    if platformValidateExternalChangeSheet():
+    if skipNativeSheetService():
+      echo "  [SKIP] external-change sheet contract (auxiliary GUI service excluded)"
+    elif platformValidateExternalChangeSheet():
       check true
     elif nativeGuiValidationRequired():
       check false
