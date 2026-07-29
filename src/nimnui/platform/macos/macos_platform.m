@@ -3213,7 +3213,13 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       BOOL compactCommit = width < 350.0;
       gitTabs.frame = NSMakeRect(sidebarControlX, g_editor_rect[1] + g_editor_rect[3] - 27.0,
         MAX(1.0, width - (compactCommit ? 40.0 : 86.0)), 24.0);
-      [gitTabs setSelectedMode:(NSInteger)g_editor_sidebar_mode - 2];
+      // Sidebar modes are ordered History, Status, Branches for the Nim
+      // command layer, while the visible Zed-like navigation is Changes,
+      // History, Branches. Do not derive this presentation mapping from enum
+      // ordinals: Status must visibly select Changes, not History.
+      NSInteger selectedGitMode = g_editor_sidebar_mode == 2 ? 1 :
+        g_editor_sidebar_mode == 4 ? 2 : 0;
+      [gitTabs setSelectedMode:selectedGitMode];
     }
   }
   if (gitCommit) {

@@ -564,6 +564,10 @@ ZedではGit StatusはGit panelのprimary listとして表示され、editorを�
 複製しない。NimculusもStatusはsidebarのみが所有し、output panelはcommit patch、blame、task、LSPの
 詳細表示に限定する。
 
+Git sidebarのinternal mode列挙順とvisible tab順は一致しない。ZedのChanges/History/Branchesという
+user-facing hierarchyを優先し、NimculusはStatus→Changes、History→History、Branches→Branchesを明示的に
+mapする。enum ordinalの算術変換は使わない。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

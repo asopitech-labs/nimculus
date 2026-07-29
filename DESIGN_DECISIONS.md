@@ -5130,3 +5130,16 @@ results.
 
 **Consequences.** A status refresh preserves document context and leaves the
 Git panel as the unambiguous place to review and act on changes.
+
+## UI-035: Git tab selection maps behavior, not enum order
+
+**Context.** The command-layer sidebar modes are ordered History, Status, and
+Branches, while the user-facing Git navigation is Changes, History, and
+Branches. Deriving the selected tab from the enum ordinal made Git Status
+visibly select History during real macOS review.
+
+**Decision.** Use an explicit behavior-to-presentation mapping: Status maps
+to Changes, History maps to History, and Branches maps to Branches.
+
+**Consequences.** The selected Git tab now truthfully identifies the content
+being shown, independent of internal enum declaration order.
