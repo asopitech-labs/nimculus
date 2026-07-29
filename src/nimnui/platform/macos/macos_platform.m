@@ -2245,6 +2245,25 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 }
 @end
 
+static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
+                            NSUInteger *start, NSUInteger *count) {
+  // Zed keeps tab titles readable and scrolls the strip instead of squeezing
+  // every document into a few pixels. This compact native presenter exposes a
+  // stable window around the active tab; keyboard/window-menu navigation
+  // moves the window as selection changes.
+  const CGFloat preferredWidth = 120.0;
+  NSUInteger visible = MAX((NSUInteger)1, (NSUInteger)floor(width / preferredWidth));
+  visible = MIN(visible, total);
+  NSUInteger first = 0;
+  if (total > visible) {
+    NSUInteger before = visible / 2;
+    first = active > before ? active - before : 0;
+    first = MIN(first, total - visible);
+  }
+  if (start) *start = first;
+  if (count) *count = visible;
+}
+
 @implementation NimculusTabBarOverlay
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return NO; }
@@ -2256,18 +2275,17 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
   NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
   if (titles.count == 0) return;
-  // A fixed 120pt minimum made a normal session with several open documents
-  // paint tab titles beyond the editor edge. Keep every tab in the visible
-  // strip; the title already truncates and the existing right-side close hit
-  // target remains available for each tab.
-  CGFloat tabWidth = MAX(1.0, self.bounds.size.width / titles.count);
+  NSUInteger first = 0, visible = 0;
+  visibleTabRange(titles.count, active, self.bounds.size.width, &first, &visible);
+  CGFloat tabWidth = MAX(1.0, self.bounds.size.width / visible);
   NSDictionary *attributes = @{
     NSFontAttributeName: [NSFont systemFontOfSize:12.0],
     NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedWhite:0.88 alpha:1.0]) colorWithAlphaComponent:0.92]
   };
-  for (NSUInteger index = 0; index < titles.count; index++) {
-    CGFloat x = index * tabWidth;
+  for (NSUInteger visualIndex = 0; visualIndex < visible; visualIndex++) {
+    NSUInteger index = first + visualIndex;
+    CGFloat x = visualIndex * tabWidth;
     if (index == active) {
       [[themeHexColor(g_theme_accent,
         [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0])
@@ -2275,7 +2293,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
       NSRectFill(NSMakeRect(x, 0.0, tabWidth, self.bounds.size.height));
     }
     NSString *title = titles[index] ?: @"Untitled";
-    NSRect titleRect = NSMakeRect(x + 8.0, 5.0, MAX(1.0, tabWidth - 30.0),
+    NSRect titleRect = NSMakeRect(x + 10.0, 5.0, MAX(12.0, tabWidth - 34.0),
       self.bounds.size.height - 8.0);
     [title drawWithRect:titleRect options:NSStringDrawingTruncatesLastVisibleLine |
       NSStringDrawingUsesLineFragmentOrigin attributes:attributes context:nil];
@@ -2289,9 +2307,19 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
         [NSColor colorWithCalibratedWhite:0.88 alpha:1.0])
         colorWithAlphaComponent:index == active ? 0.86 : 0.52]
     };
-    if (tabWidth >= 38.0) {
-      [@"×" drawAtPoint:NSMakePoint(x + tabWidth - 21.0, 4.0) withAttributes:closeAttributes];
-    }
+    [@"×" drawAtPoint:NSMakePoint(x + tabWidth - 21.0, 4.0) withAttributes:closeAttributes];
+  }
+  if (first > 0 || first + visible < titles.count) {
+    NSDictionary *indicatorAttributes = @{
+      NSFontAttributeName: [NSFont systemFontOfSize:10.0 weight:NSFontWeightMedium],
+      NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
+        [NSColor colorWithCalibratedWhite:0.88 alpha:1.0]) colorWithAlphaComponent:0.55]
+    };
+    NSString *indicator = [NSString stringWithFormat:@"%lu–%lu / %lu",
+      (unsigned long)first + 1, (unsigned long)(first + visible),
+      (unsigned long)titles.count];
+    [indicator drawAtPoint:NSMakePoint(MAX(3.0, self.bounds.size.width - 58.0),
+      self.bounds.size.height - 13.0) withAttributes:indicatorAttributes];
   }
 }
 - (void)mouseDown:(NSEvent *)event {
@@ -2300,10 +2328,14 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)dispatchTabAtPoint:(NSPoint)point {
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
   if (!g_command_callback || titles.count == 0) return;
-  CGFloat tabWidth = MAX(1.0, self.bounds.size.width / titles.count);
-  NSUInteger index = MIN(titles.count - 1,
+  NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
+  NSUInteger first = 0, visible = 0;
+  visibleTabRange(titles.count, active, self.bounds.size.width, &first, &visible);
+  CGFloat tabWidth = MAX(1.0, self.bounds.size.width / visible);
+  NSUInteger visualIndex = MIN(visible - 1,
     (NSUInteger)MAX(0.0, floor(point.x / tabWidth)));
-  if (tabWidth >= 38.0 && point.x >= (index + 1) * tabWidth - 28.0) {
+  NSUInteger index = first + visualIndex;
+  if (point.x >= (visualIndex + 1) * tabWidth - 28.0) {
     NSString *command = [NSString stringWithFormat:@"closePaneTab:%u:%lu",
       self.secondary ? 1 : 0, (unsigned long)index];
     g_command_callback(command.UTF8String);

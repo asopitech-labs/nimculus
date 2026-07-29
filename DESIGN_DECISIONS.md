@@ -5168,3 +5168,16 @@ while the secondary creation action remains readable and subdued.
 
 **Consequences.** Opening or creating a project file is visually discoverable
 at the point where users browse the workspace.
+
+## UI-038: Many document tabs retain readable labels
+
+**Context.** Fitting every restored tab into the editor width made each tab
+unreadably narrow in a real session.
+
+**Decision.** Present a bounded, active-tab-centered window of 120pt tabs and
+show a small range indicator when documents exist outside that window. Tab
+keyboard navigation and the Window menu move the active tab and therefore its
+visible window.
+
+**Consequences.** The current document and nearby documents remain readable
+and closable without chrome overflow or meaningless one-character labels.
