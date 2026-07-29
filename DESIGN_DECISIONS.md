@@ -5296,3 +5296,18 @@ that pane's bounds and scroll state before starting stage/unstage.
 **Consequences.** Two files can display correct independent diff decorations
 and hunk actions without coupling the Git sidebar/status job to
 secondary-pane presentation.
+
+## UI-045: Bind native Save Panels to their initiating tab
+
+**Context.** AppKit save panels complete asynchronously. A split editor can
+change focus while a panel is open, so resolving the callback from the current
+primary tab can save the wrong document.
+
+**Decision.** Record the initiating tab index before showing an NSSavePanel or
+Save As panel. The completion callback uses that stored tab after close-flow
+requests have taken precedence, then clears the pending target on success,
+failure, cancellation, or destination conflict.
+
+**Consequences.** Cmd+S and Save As work for an untitled secondary-pane
+document without changing which pane owns keyboard focus or overloading the
+native panel API with pane-specific state.

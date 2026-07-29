@@ -143,6 +143,10 @@ when defined(macosx) or defined(windows):
   var pendingLspSymbols: seq[LspSymbol]
 
 when defined(macosx):
+  # NSSavePanel is asynchronous. Remember the tab that initiated it so a
+  # focused secondary pane is not replaced by whichever tab is active when
+  # the panel returns.
+  var pendingSaveTabIndex = -1
   # Index of the next tab to save while an asynchronous Save All and Quit
   # sequence is waiting for an untitled document's NSSavePanel response.
   var pendingSaveAllQuitNextTab = -1
@@ -2891,6 +2895,8 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
     let saveTab = when defined(macosx):
       if pendingCloseTabIndex >= 0 and pendingCloseTabIndex < editorSession.tabs.len:
         pendingCloseTabIndex
+      elif pendingSaveTabIndex >= 0 and pendingSaveTabIndex < editorSession.tabs.len:
+        pendingSaveTabIndex
       else:
         editorSession.activeTab
     else:
@@ -2906,6 +2912,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
           # stale termination sequence.
           let wasSavingAllAndQuitting = pendingSaveAllQuitNextTab >= 0
           let wasClosingTab = pendingCloseTabIndex == saveTab
+          pendingSaveTabIndex = -1
           pendingSaveAllQuitNextTab = -1
           pendingCloseTabIndex = -1
           platformSetCloseDecision(false)
@@ -2924,13 +2931,17 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
           editorSession.tabs[saveTab].title =
             splitFile(document[].path).name
         externalAlertShown = false
-        editorSession.saveActiveView(editorViewState)
+        if editorSession.split and editorSession.splitActivePane == 1:
+          editorSession.saveSecondaryActiveView(editorSession.secondaryView)
+        else:
+          editorSession.saveActiveView(editorViewState)
         editorSession.recordRecent(document[].path)
         syncRecentFiles()
         persistSession()
         editorViewState.statusMessage = "Saved " & document[].path
         syncEditorCursor()
         when defined(macosx):
+          pendingSaveTabIndex = -1
           # The native Save Panel used by close confirmation must only allow
           # termination after the document write has actually succeeded.
           if pendingCloseTabIndex == saveTab:
@@ -2943,6 +2954,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       except CatchableError as error:
         editorViewState.statusMessage = "Save failed: " & error.msg
         when defined(macosx):
+          pendingSaveTabIndex = -1
           platformSetCloseDecision(false)
   else:
     let filePath = canonicalOpenPath(inputPath)
@@ -3196,7 +3208,15 @@ proc handleSecondaryEditorCommand(name: string, document: ptr FileDocument): boo
     view.selection.active = text.len
   of "save":
     if activeDocument[].path.len == 0:
-      editorViewState.statusMessage = "Save As is required for this split-pane document"
+      when defined(macosx):
+        pendingSaveTabIndex = tab
+        platformShowSavePanel()
+        editorViewState.statusMessage = "Choose a location to save " & editorSession.tabs[tab].title
+        editorSession.secondaryView = view
+        syncEditorCursor()
+        return true
+      else:
+        editorViewState.statusMessage = "Save As is required for this split-pane document"
     else:
       try:
         activeDocument[].save()
@@ -3205,6 +3225,20 @@ proc handleSecondaryEditorCommand(name: string, document: ptr FileDocument): boo
         persistSession()
       except CatchableError as error:
         editorViewState.statusMessage = "Save failed: " & error.msg
+  of "saveAs":
+    when defined(macosx):
+      pendingSaveTabIndex = tab
+      let suggestedName = if activeDocument[].path.len > 0:
+        splitFile(activeDocument[].path).name & splitFile(activeDocument[].path).ext
+      else:
+        editorSession.tabs[tab].title
+      platformShowSaveAsPanel(suggestedName.cstring)
+      editorViewState.statusMessage = "Choose a new location to save"
+      editorSession.secondaryView = view
+      syncEditorCursor()
+      return true
+    else:
+      return false
   else: return false
   editorSession.secondaryView = view
   syncEditorCursor()
@@ -3400,6 +3434,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     platformSetCloseDecision(success and not editorSession.hasDirtyTabs())
   elif name == "savePanelCancelled":
     when defined(macosx):
+      pendingSaveTabIndex = -1
       if pendingSaveAllQuitNextTab >= 0:
         pendingSaveAllQuitNextTab = -1
         platformSetCloseDecision(false)
@@ -3621,6 +3656,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         document[].save()
       else:
         when defined(macosx):
+          pendingSaveTabIndex = editorSession.activeTab
           platformShowSavePanel()
           editorViewState.statusMessage = "Choose a location to save"
           return
@@ -3641,6 +3677,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       editorViewState.statusMessage = "Save failed: " & error.msg
   elif name == "saveAs" and document != nil:
     when defined(macosx):
+      pendingSaveTabIndex = editorSession.activeTab
       let suggestedName = if document[].path.len > 0:
         splitFile(document[].path).name & splitFile(document[].path).ext
       elif editorSession.activeTab >= 0 and editorSession.activeTab < editorSession.tabs.len:
@@ -3793,18 +3830,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     case dispatchCommand
     of "new": receiveNativeCommand("newDocument".cstring)
     of "save":
-      when defined(macosx):
-        if document != nil and document[].path.len > 0:
-          try:
-            document[].save()
-            editorViewState.statusMessage = "Saved " & document[].path
-            syncEditorCursor()
-            refreshEditorSyntax()
-          except CatchableError as error:
-            editorViewState.statusMessage = "Save failed: " & error.msg
-        else:
-          platformShowSavePanel()
-          editorViewState.statusMessage = "Choose a location to save"
+      receiveNativeCommand("save".cstring)
     of "find":
       when defined(macosx):
         platformShowFindDocument()
