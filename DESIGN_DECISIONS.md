@@ -4602,3 +4602,22 @@ source-path audit is recorded in `docs/ZED_UI_ARCHITECTURE_RESEARCH.md`.
 **Consequences.** Opening a file from Files while the secondary pane is focused
 changes that pane's document, viewport, selection, and IME context without
 silently replacing the primary editor.
+
+## UI-008: Tab presentation and activation are pane-local
+
+**Context.** A single macOS tab overlay could only render the primary session's
+active tab. It contradicted PaneTree's independent selection and made a
+secondary document impossible to discover or switch through the UI.
+
+**Decision.** Native tab presenters are explicit primary and secondary surfaces.
+Their callbacks identify both pane and tab. `WorkspaceUiState` remains the
+selection authority; activating a primary tab additionally updates
+`EditorSession.activeTab`, while activating a secondary tab does not.
+
+**Evidence.** Zed's `Pane::render_tab_bar` renders and activates items from one
+Pane's own item list. The implementation audit is in
+`docs/ZED_UI_ARCHITECTURE_RESEARCH.md`.
+
+**Consequences.** A split presents two independently highlighted tab bars.
+Files Dock open, tab click, text rendering, selection, and IME all resolve the
+same Pane document.

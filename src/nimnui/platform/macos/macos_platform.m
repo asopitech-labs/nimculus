@@ -95,6 +95,8 @@ static NSUInteger g_secondary_editor_line_count = 0;
 static NSString *g_editor_status = @"Ready";
 static NSArray<NSString *> *g_editor_tab_titles = nil;
 static NSUInteger g_editor_active_tab = 0;
+static NSArray<NSString *> *g_secondary_editor_tab_titles = nil;
+static NSUInteger g_secondary_editor_active_tab = 0;
 static BOOL g_editor_indent_guides = YES;
 static NSUInteger g_editor_indent_width = 2;
 static BOOL g_editor_line_numbers = YES;
@@ -393,6 +395,7 @@ static void releasePlatformResources(void) {
   [g_terminal_hyperlinks release]; g_terminal_hyperlinks = nil;
   [g_editor_annotation_texts release]; g_editor_annotation_texts = nil;
   [g_editor_tab_titles release]; g_editor_tab_titles = nil;
+  [g_secondary_editor_tab_titles release]; g_secondary_editor_tab_titles = nil;
   [g_recent_files release]; g_recent_files = nil;
   [g_clipboard_utf8_data release]; g_clipboard_utf8_data = nil;
   [g_editor_font_name release]; g_editor_font_name = nil;
@@ -1854,6 +1857,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @end
 
 @interface NimculusTabBarOverlay : NSView
+@property(nonatomic) BOOL secondary;
 @end
 
 @interface NimculusStatusOverlay : NSTextField
@@ -2007,32 +2011,36 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   (void)dirtyRect;
   [[NSColor colorWithCalibratedWhite:0.08 alpha:0.98] setFill];
   NSRectFill(self.bounds);
-  if (g_editor_tab_titles.count == 0) return;
-  CGFloat tabWidth = MAX(120.0, self.bounds.size.width / g_editor_tab_titles.count);
+  NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
+  NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
+  if (titles.count == 0) return;
+  CGFloat tabWidth = MAX(120.0, self.bounds.size.width / titles.count);
   NSDictionary *attributes = @{
     NSFontAttributeName: [NSFont systemFontOfSize:12.0],
     NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedWhite:0.88 alpha:1.0]) colorWithAlphaComponent:0.92]
   };
-  for (NSUInteger index = 0; index < g_editor_tab_titles.count; index++) {
+  for (NSUInteger index = 0; index < titles.count; index++) {
     CGFloat x = index * tabWidth;
-    if (index == g_editor_active_tab) {
+    if (index == active) {
       [[themeHexColor(g_theme_accent,
         [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0])
         colorWithAlphaComponent:0.20] setFill];
       NSRectFill(NSMakeRect(x, 0.0, tabWidth, self.bounds.size.height));
     }
-    NSString *title = g_editor_tab_titles[index] ?: @"Untitled";
+    NSString *title = titles[index] ?: @"Untitled";
     [title drawAtPoint:NSMakePoint(x + 10.0, 6.0) withAttributes:attributes];
   }
 }
 - (void)mouseDown:(NSEvent *)event {
-  if (!g_command_callback || g_editor_tab_titles.count == 0) return;
+  NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
+  if (!g_command_callback || titles.count == 0) return;
   NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
-  CGFloat tabWidth = MAX(120.0, self.bounds.size.width / g_editor_tab_titles.count);
-  NSUInteger index = MIN(g_editor_tab_titles.count - 1,
+  CGFloat tabWidth = MAX(120.0, self.bounds.size.width / titles.count);
+  NSUInteger index = MIN(titles.count - 1,
     (NSUInteger)MAX(0.0, floor(point.x / tabWidth)));
-  NSString *command = [NSString stringWithFormat:@"selectTab:%lu", (unsigned long)index];
+  NSString *command = [NSString stringWithFormat:@"selectPaneTab:%u:%lu",
+    self.secondary ? 1 : 0, (unsigned long)index];
   g_command_callback(command.UTF8String);
 }
 @end
@@ -2327,7 +2335,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     [self addSubview:indentGuides];
     NimculusTabBarOverlay *tabs = [[NimculusTabBarOverlay alloc]
       initWithFrame:NSZeroRect];
+    tabs.secondary = NO;
     [self addSubview:tabs];
+    NimculusTabBarOverlay *secondaryTabs = [[NimculusTabBarOverlay alloc]
+      initWithFrame:NSZeroRect];
+    secondaryTabs.secondary = YES;
+    [self addSubview:secondaryTabs];
     NimculusStatusOverlay *status = [[NimculusStatusOverlay alloc]
       initWithFrame:NSZeroRect];
     status.editable = NO;
@@ -2438,6 +2451,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusLineNumberOverlay *lineNumbers = nil;
   NimculusIndentGuideOverlay *indentGuides = nil;
   NimculusTabBarOverlay *tabs = nil;
+  NimculusTabBarOverlay *secondaryTabs = nil;
   NimculusStatusOverlay *status = nil;
   NimculusTerminalOverlay *terminal = nil;
   NimculusTaskOutputOverlay *taskOutput = nil;
@@ -2445,7 +2459,10 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   for (NSView *subview in self.subviews) {
     if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) lineNumbers = (NimculusLineNumberOverlay *)subview;
     if ([subview isKindOfClass:[NimculusIndentGuideOverlay class]]) indentGuides = (NimculusIndentGuideOverlay *)subview;
-    if ([subview isKindOfClass:[NimculusTabBarOverlay class]]) tabs = (NimculusTabBarOverlay *)subview;
+    if ([subview isKindOfClass:[NimculusTabBarOverlay class]]) {
+      if (((NimculusTabBarOverlay *)subview).secondary) secondaryTabs = (NimculusTabBarOverlay *)subview;
+      else tabs = (NimculusTabBarOverlay *)subview;
+    }
     if ([subview isKindOfClass:[NimculusStatusOverlay class]]) status = (NimculusStatusOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) terminal = (NimculusTerminalOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) taskOutput = (NimculusTaskOutputOverlay *)subview;
@@ -2486,6 +2503,14 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       g_editor_rect[2], 28.0);
     tabs.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     [tabs setNeedsDisplay:YES];
+  }
+  if (secondaryTabs) {
+    secondaryTabs.hidden = !g_secondary_editor_visible || g_secondary_editor_tab_titles.count == 0;
+    secondaryTabs.frame = NSMakeRect(g_secondary_editor_rect[0],
+      g_secondary_editor_rect[1] + g_secondary_editor_rect[3],
+      g_secondary_editor_rect[2], 28.0);
+    secondaryTabs.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
+    [secondaryTabs setNeedsDisplay:YES];
   }
   if (status) {
     status.frame = NSMakeRect(g_editor_rect[0], 2.0, g_editor_rect[2], 20.0);
@@ -5508,7 +5533,27 @@ void nimculus_platform_set_editor_tabs(const char *utf8, uint32_t length, uint32
   if (!view) return;
   [view updateTerminalFrame];
   for (NSView *subview in view.subviews) {
-    if ([subview isKindOfClass:[NimculusTabBarOverlay class]]) {
+    if ([subview isKindOfClass:[NimculusTabBarOverlay class]] &&
+        !((NimculusTabBarOverlay *)subview).secondary) {
+      [subview setNeedsDisplay:YES];
+      break;
+    }
+  }
+}
+void nimculus_platform_set_secondary_editor_tabs(const char *utf8, uint32_t length,
+                                                 uint32_t active_index) {
+  NSString *value = (utf8 && length > 0)
+    ? [[[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding] autorelease] : @"";
+  replaceOwnedArray((NSArray **)&g_secondary_editor_tab_titles, value.length > 0
+    ? [value componentsSeparatedByString:@"\n"] : @[]);
+  g_secondary_editor_active_tab = g_secondary_editor_tab_titles.count == 0 ? 0
+    : MIN((NSUInteger)active_index, g_secondary_editor_tab_titles.count - 1);
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  [view updateTerminalFrame];
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusTabBarOverlay class]] &&
+        ((NimculusTabBarOverlay *)subview).secondary) {
       [subview setNeedsDisplay:YES];
       break;
     }

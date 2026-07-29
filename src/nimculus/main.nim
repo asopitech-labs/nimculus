@@ -1968,7 +1968,17 @@ proc syncEditorCursor() =
     let status = if document != nil: editorViewState.statusBarText(document[].buffer)
       else: editorViewState.statusMessage
     platformSetEditorStatus(status.cstring)
+    var tabTitles: seq[string]
+    for tab in editorSession.tabs:
+      tabTitles.add(tab.title & (if tab.document.buffer.isDirty: " •" else: ""))
+    let tabsText = tabTitles.join("\n")
+    let primaryTab = if editorWorkspaceUi.center != nil:
+      editorWorkspaceUi.center.firstPane().activeTabIndex else: editorSession.activeTab
+    platformSetEditorTabs(tabsText.cstring, uint32(tabsText.len),
+      uint32(max(0, primaryTab)))
     syncSecondaryEditorView()
+    if not editorSession.split:
+      platformSetSecondaryEditorTabs("".cstring, 0, 0)
     platformSetEditorInputPane(uint32(if editorSession.split: editorSession.splitActivePane else: 0))
   elif defined(windows):
     let document = activeDocument()
@@ -2019,6 +2029,11 @@ when defined(macosx):
     let location = document[].buffer.lineColumn(view.cursor)
     let selection = view.selectedRange()
     let text = document[].buffer.toString()
+    var tabTitles: seq[string]
+    for editorTab in editorSession.tabs:
+      tabTitles.add(editorTab.title & (if editorTab.document.buffer.isDirty: " •" else: ""))
+    let tabsText = tabTitles.join("\n")
+    platformSetSecondaryEditorTabs(tabsText.cstring, uint32(tabsText.len), uint32(tab))
     platformSetSecondaryEditorText(text.cstring, uint32(text.len))
     platformSetSecondaryEditorScrollLine(uint32(max(0, view.scrollLine)))
     platformSetSecondaryEditorSoftWrap(view.softWrap)
@@ -3110,6 +3125,37 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       syncEditorCursor()
       refreshEditorSyntax()
       persistSession()
+  elif name.startsWith("selectPaneTab:"):
+    let payload = name["selectPaneTab:".len .. ^1].split(':')
+    if payload.len != 2: return
+    try:
+      let paneIndex = parseInt(payload[0])
+      let target = parseInt(payload[1])
+      if target < 0 or target >= editorSession.tabs.len or
+          editorWorkspaceUi.center == nil or editorWorkspaceUi.center.kind != paneSplit:
+        return
+      let pane = if paneIndex == 0: editorWorkspaceUi.center.first.pane.id
+        elif paneIndex == 1: editorWorkspaceUi.center.second.pane.id else: PaneId(-1)
+      if pane == PaneId(-1) or not editorWorkspaceUi.selectPaneTab(pane, target): return
+      if paneIndex == 0:
+        discard editorWorkspaceUi.focusPane(pane)
+        if editorSession.activeTab != target:
+          editorSession.saveActiveView(editorViewState)
+          editorSession.saveSecondaryActiveView(editorSession.secondaryView)
+          editorSession.activeTab = target
+          editorSession.loadActiveView(editorViewState)
+          editorSession.loadSecondaryActiveView()
+      else:
+        discard editorWorkspaceUi.focusPane(pane)
+        discard editorSession.activateSplitPane(1)
+        editorSession.secondaryView = editorSession.tabs[target].secondaryView
+      resetImeState()
+      resetEditorTransientState()
+      syncEditorCursor()
+      refreshEditorSyntax()
+      persistSession()
+    except ValueError:
+      discard
   elif name.startsWith("selectTab:"):
     let payload = name["selectTab:".len .. ^1]
     try:

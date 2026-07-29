@@ -323,3 +323,19 @@ Nimculus の `receiveNativeFile` は Finder、Open dialog、recent file、sideba
    selection、IME context は既存の focused-pane presenter 同期を通す。
 
 これにより、Pane を表示だけ別にするのではなく、ファイラ操作の結果まで Pane-local にする。
+
+## 追加監査: Pane ごとの tab bar（2026-07-29）
+
+Zed の `Pane::render_tab_bar` は、その Pane の `items` と `active_item_index` を描画し、
+tab click を同じ Pane の `activate_item` へ送る。tab close、preview の固定化、drag/drop も
+Pane の item collection を起点とする。
+
+Nimculus の既存 `NimculusTabBarOverlay` は tab title 配列と active index を一組だけ持ち、
+primary editor rectangle の上だけに配置される。その click は global `selectTab:N` を送る。
+このままでは secondary Pane が異なる document を表示していても、その選択を UI で確認・
+変更できない。
+
+最小縦切りでは、primary と secondary に別の native tab presenter/state を持たせ、click
+action を `selectPaneTab:<pane-index>:<tab-index>` にする。Nim 側は PaneTree の leaf selection
+を更新し、primary の場合だけ session active tab も更新する。これにより text presenter、
+IME、Files Dock と tab bar が一つの Pane selection を共有する。
