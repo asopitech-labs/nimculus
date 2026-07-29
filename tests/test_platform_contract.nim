@@ -345,6 +345,9 @@ suite "macOS platform contract":
   test "Git sidebar exposes Changes History and Branches tabs":
     check platformValidateGitSidebarTabs()
 
+  test "Files sidebar exposes New File and New Folder actions":
+    check platformValidateFilesSidebarActions()
+
   test "sidebar supports scrolling long file and Git history lists":
     check platformValidateSidebarScrollContainer()
 

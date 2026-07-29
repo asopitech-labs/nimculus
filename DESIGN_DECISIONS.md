@@ -4777,3 +4777,19 @@ tabs and opens a selected history entry through the panel action boundary.
 **Consequences.** Users can see and switch the three Nimculus Git workflows
 at their point of use, while history selection still opens the existing safe
 `git show --no-ext-diff` detail job.
+
+## UI-015: Files creation is visible at the point of use
+
+**Context.** Files already supported creation through the menu bar and a row
+context menu, but neither made the primary project-creation workflow visible
+when the Files panel was open.
+
+**Decision.** Show native `New File` and `New Folder` controls at the top of
+the Files sidebar. They invoke the existing AppKit sheets, then route through
+the Nim `Workspace` path-validation and refresh boundary.
+
+**Evidence.** Zed's Project Panel registers New File and New Directory as
+panel actions and exposes them with the selected project context.
+
+**Consequences.** File creation is now a discoverable panel action without
+creating a second mutation implementation or weakening workspace checks.

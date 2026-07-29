@@ -1901,6 +1901,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusGitSidebarTabs : NSSegmentedControl
 @end
 
+@interface NimculusFilesSidebarActions : NSStackView
+@end
+
 @interface NimculusStatusOverlay : NSTextField
 @end
 
@@ -2208,6 +2211,38 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   const char *command = self.selectedSegment == 1 ? "commandPalette:git log" :
     self.selectedSegment == 2 ? "commandPalette:git branches" : "commandPalette:git status";
   g_command_callback(command);
+}
+@end
+
+// Zed exposes project creation from the Project Panel itself. Keep the action
+// visible in Nimculus Files while delegating prompts and validation to the
+// existing macOS/Nim workspace path.
+@implementation NimculusFilesSidebarActions
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+  self.alignment = NSLayoutAttributeCenterY;
+  self.distribution = NSStackViewDistributionFillEqually;
+  self.spacing = 6.0;
+  NSArray<NSArray<NSString *> *> *buttons = @[
+    @[@"New File", @"createWorkspaceFile:"], @[@"New Folder", @"createWorkspaceDirectory:"]
+  ];
+  for (NSArray<NSString *> *entry in buttons) {
+    NSButton *button = [NSButton buttonWithTitle:entry[0] target:self
+      action:@selector(dispatchWorkspaceAction:)];
+    button.bezelStyle = NSBezelStyleTexturedRounded;
+    button.identifier = entry[1];
+    [self addArrangedSubview:button];
+  }
+  return self;
+}
+- (void)dispatchWorkspaceAction:(NSButton *)sender {
+  SEL action = NSSelectorFromString(sender.identifier);
+  id delegate = [NSApp delegate];
+  if (delegate && [delegate respondsToSelector:action]) {
+    [delegate performSelector:action withObject:self];
+  }
 }
 @end
 
@@ -2577,6 +2612,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     gitTabs.hidden = YES;
     [self addSubview:gitTabs];
     [gitTabs release];
+    NimculusFilesSidebarActions *filesActions = [[NimculusFilesSidebarActions alloc]
+      initWithFrame:NSZeroRect];
+    filesActions.hidden = YES;
+    [self addSubview:filesActions];
+    [filesActions release];
     NimculusLineNumberOverlay *lineNumbers = [[NimculusLineNumberOverlay alloc]
       initWithFrame:NSZeroRect];
     [self addSubview:lineNumbers];
@@ -2704,6 +2744,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 - (void)updateTerminalFrame {
   NimculusOutlineOverlay *outline = outlineOverlayForView(self);
   NimculusGitSidebarTabs *gitTabs = nil;
+  NimculusFilesSidebarActions *filesActions = nil;
   NimculusLineNumberOverlay *lineNumbers = nil;
   NimculusIndentGuideOverlay *indentGuides = nil;
   NimculusTabBarOverlay *tabs = nil;
@@ -2726,23 +2767,25 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) taskOutput = (NimculusTaskOutputOverlay *)subview;
     if ([subview isKindOfClass:[NimculusEditorAnnotationOverlay class]]) annotations = (NimculusEditorAnnotationOverlay *)subview;
     if ([subview isKindOfClass:[NimculusGitSidebarTabs class]]) gitTabs = (NimculusGitSidebarTabs *)subview;
+    if ([subview isKindOfClass:[NimculusFilesSidebarActions class]]) filesActions = (NimculusFilesSidebarActions *)subview;
   }
   if (outline) {
     CGFloat width = MAX(180.0, g_editor_rect[0] - 12.0);
     BOOL showGitTabs = g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 &&
       g_editor_sidebar_mode <= 4;
-    CGFloat gitTabsHeight = showGitTabs ? 30.0 : 0.0;
+    BOOL showFilesActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 1;
+    CGFloat sidebarToolbarHeight = (showGitTabs || showFilesActions) ? 30.0 : 0.0;
     NSScrollView *scroll = outline.enclosingScrollView;
     if (scroll) {
       scroll.hidden = !g_editor_sidebar_visible;
       scroll.frame = NSMakeRect(8.0, g_editor_rect[1], width,
-        MAX(1.0, g_editor_rect[3] - gitTabsHeight));
+        MAX(1.0, g_editor_rect[3] - sidebarToolbarHeight));
       scroll.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
       outline.textContainer.containerSize = NSMakeSize(MAX(1.0, width - 16.0), CGFLOAT_MAX);
       [outline.layoutManager ensureLayoutForTextContainer:outline.textContainer];
       CGFloat contentHeight = ceil([outline.layoutManager usedRectForTextContainer:outline.textContainer].size.height) + 16.0;
       outline.frame = NSMakeRect(0.0, 0.0, width,
-        MAX(g_editor_rect[3] - gitTabsHeight, contentHeight));
+        MAX(g_editor_rect[3] - sidebarToolbarHeight, contentHeight));
     } else {
       outline.frame = NSMakeRect(8.0, g_editor_rect[1], width, g_editor_rect[3]);
       outline.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
@@ -2757,6 +2800,15 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       gitTabs.frame = NSMakeRect(12.0, g_editor_rect[1] + g_editor_rect[3] - 27.0,
         MAX(1.0, width - 8.0), 24.0);
       gitTabs.selectedSegment = (NSInteger)g_editor_sidebar_mode - 2;
+    }
+  }
+  if (filesActions) {
+    BOOL showFilesActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 1;
+    filesActions.hidden = !showFilesActions;
+    if (showFilesActions) {
+      CGFloat width = MAX(180.0, g_editor_rect[0] - 12.0);
+      filesActions.frame = NSMakeRect(12.0, g_editor_rect[1] + g_editor_rect[3] - 27.0,
+        MAX(1.0, width - 8.0), 24.0);
     }
   }
   if (lineNumbers) {
@@ -4905,6 +4957,19 @@ bool nimculus_platform_validate_git_sidebar_tabs(void) {
     [tabs release];
     g_command_callback = previousCallback;
     return history && branches && changes;
+  }
+}
+
+bool nimculus_platform_validate_files_sidebar_actions(void) {
+  @autoreleasepool {
+    NimculusFilesSidebarActions *actions = [[NimculusFilesSidebarActions alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 240.0, 24.0)];
+    NSArray<NSView *> *buttons = actions.arrangedSubviews;
+    BOOL valid = buttons.count == 2 &&
+      [((NSButton *)buttons[0]).title isEqualToString:@"New File"] &&
+      [((NSButton *)buttons[1]).title isEqualToString:@"New Folder"];
+    [actions release];
+    return valid;
   }
 }
 

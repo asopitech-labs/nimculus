@@ -422,6 +422,13 @@ Zed の Git Panel は `Changes` と `History` を常時見える tab とし、Hi
 を既に持つため、Git sidebar 上部に native segmented control を置いて同じ command boundary を呼ぶ。表示だけの
 別 Git state を導入せず、Changes / History / Branches をユーザーが発見できる主要導線にする。
 
+## 追加監査: Project Panel creation actions（2026-07-29）
+
+Zed の Project Panel は `NewFile` / `NewDirectory` action を panel に登録し、選択中 entry を基準に
+add-entry flow を開始する。Nimculus は row context menu の選択ディレクトリ基準作成と、workspace root への
+一般作成を既に持つ。Files sidebar 上部の `New File` / `New Folder` は後者の既存 AppKit sheet を呼び、
+入力後のパス検証・ファイル監視更新は Nim `Workspace` に一元化する。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel
