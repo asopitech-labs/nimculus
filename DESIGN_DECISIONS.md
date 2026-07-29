@@ -5365,3 +5365,18 @@ route it through Nimculus' existing clipboard boundary.
 **Consequences.** The copy operation preserves the selected tree entry and
 works identically for files and directories without introducing a Cocoa-only
 clipboard path into workspace code.
+
+## UI-050: Navigation commands follow the focused split pane
+
+**Context.** Files, workspace search, Git status, and LSP definition commands
+all open a path and optionally position a cursor. Sending any one of these
+through the primary document path makes a two-pane editor appear to ignore the
+user's active pane.
+
+**Decision.** Treat these operations as pane-local navigation: open the target
+through the focused-pane file activation boundary, then resolve the target
+document and cursor from that same pane. Generic editor commands also derive
+their document from the focused pane.
+
+**Consequences.** Split panes retain their independent tab, selection, and
+navigation state across Files, search, Git, and LSP workflows.
