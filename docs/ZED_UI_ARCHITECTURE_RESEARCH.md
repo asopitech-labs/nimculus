@@ -168,3 +168,78 @@ Nimculusには既にprimary / secondaryのネイティブ文字テクスチャ�
 この順序は、既存のmacOS IME・LSP・編集コアを壊さず、Zedと同じ「Paneが状態を持つ」
 構造へ移行するためのものである。二面を同一Documentのまま増やしたり、AppKitの
 オーバーレイだけでタブを偽装したりはしない。
+
+## 追加監査: focused pane ごとの IME 文書契約（2026-07-29）
+
+Pane ごとに異なる文書を表示する実装へ進む前に、Zed の入力境界、AppKit の
+`NSTextInputClient`、および Nimculus の primary / secondary presenter を API 単位で
+照合した。
+
+### 一次資料から確定したこと
+
+- Zed の `Pane` は `items`、`active_item_index`、focus handle、タブ履歴を所有する。
+  `activate_item` は item の切替、履歴、toolbar、status、フォーカスを同じ遷移で更新する。
+- Zed の `PaneGroup::split` は対象 Pane を新しい Pane と置換し、各 Pane の item と
+  capability を保持したまま、分割木を更新する。表示上の二枚目ではない。
+- Zed の macOS backend は `InputHandler` を `NSTextInputClient` の 1:1 境界として扱う。
+  選択範囲、marked range、文字列取得、置換、候補矩形、point-to-character の全てを
+  同一のフォーカス中 document に対する UTF-16 座標として扱う。
+- Apple の `firstRect(forCharacterRange:actualRange:)` は screen coordinates を返し、
+  `characterIndex(for:)` も screen coordinates を受ける。`insertText` と
+  `setMarkedText` の replacement range は document の UTF-16 範囲である。
+
+参照箇所:
+
+- `references/zed/crates/workspace/src/pane.rs` (`Pane`, `activate_item`)
+- `references/zed/crates/workspace/src/pane_group.rs` (`PaneGroup::split`, hit test)
+- `references/zed/crates/gpui/src/platform.rs` (`InputHandler`)
+- `references/zed/crates/gpui_macos/src/window.rs` (`NSTextInputClient` 登録)
+- [Apple: NSTextInputClient](https://developer.apple.com/documentation/AppKit/NSTextInputClient)
+- [Apple: firstRect(forCharacterRange:actualRange:)](https://developer.apple.com/documentation/appkit/nstextinputclient/firstrect%28forcharacterrange%3Aactualrange%3A%29)
+
+### Nimculus の現在地と不足点
+
+Nimculus は `PaneTree` の葉ごとに tab index を持ち、secondary presenter に別文書の
+文字列・カーソル・選択・スクロールを渡せる。これは必要な土台である。一方で、Cocoa
+側の API が primary と secondary の文書状態を完全には同じ文脈で参照していなかった。
+
+| Cocoa API / 更新 API | 要求される文書 | 監査結果 | 対応 |
+| --- | --- | --- | --- |
+| `attributedSubstring` / `attributedString` | focused pane | 対応済み | 維持 |
+| `setMarkedText` / `insertText` の UTF-16→UTF-8 変換 | focused pane | `insertText` は修正中 | secondary text を使用 |
+| `firstRectForCharacterRange` | focused pane の text、scroll、rect | text index の切替が必要 | text state も一時切替 |
+| `characterIndexForPoint` | focused pane の text、line index、rect、scroll、wrap | text / line index の切替が不足 | 全 text state を一時切替 |
+| secondary cursor byte→座標 | secondary text、line index、scroll、wrap | 対応済み | 維持 |
+| secondary selection byte→UTF-16 | secondary text | primary text を誤参照 | secondary text を使用 |
+| pointer byte hit test | secondary text、rect、scroll | 対応済み | 維持 |
+
+この表の一行でも primary 文書を参照すると、primary と secondary の文字数、改行、
+サロゲートペアが異なる場合に、変換候補の位置・選択置換・入力位置のどれかが壊れる。
+従って同じ text state を使う API は、矩形だけでなく text、行 UTF-16 index、行 UTF-8
+index、line count を同時に切り替えなければならない。
+
+### 実装前に固定する不変条件
+
+1. `g_editor_input_pane` が選択する Pane は、`NSTextInputClient` の全 required method
+   に対する唯一の document context である。
+2. UTF-16 範囲は Cocoa 境界でのみ扱い、Nim 側 editor core へ渡す前に、その Pane の
+   document を基準に UTF-8 byte offset へ変換する。
+3. screen/view 座標変換は一度だけ行い、変換後は PaneTree 由来の同じ logical rect を
+   描画、hit test、IME candidate rect に使う。
+4. primary と secondary の text texture、selection、cursor、scroll、soft-wrap は
+   独立する。temporary state swap は文字列と行 index を原子的に切り替え、戻す。
+5. 回帰テストは primary / secondary に異なる UTF-8・改行・絵文字を設定し、secondary
+   での replacement range、character index、candidate rect、pointer hit test を一つの
+   native contract で検証する。同じサンプル文字列を二面に置く試験は不十分である。
+
+### 実装順
+
+1. `NSTextInputClient` の focused-pane state swap を helper として限定し、既存の
+   secondary state の一部だけを切り替えるコードを置換する。
+2. secondary selection と `characterIndexForPoint:` をその helper 経由にする。
+3. primary / secondary が異なる文書の native contract を追加する。
+4. Nim 側で secondary Pane の文書を編集する editor-layer test と、分割を開く実機 E2E
+   をまとめて実行する。
+
+この監査を満たすまで、任意深さの第三ペイン、見た目だけの tab bar、別の UI 機能へは
+進まない。Pane ごとの文書・入力の正しさが、Zed に寄せる UI/UX の基本契約だからである。

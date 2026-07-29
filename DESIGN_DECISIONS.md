@@ -4528,3 +4528,29 @@ the active editor. The first implementation supports the existing two native
 presenters while preserving pane-local focus, selection, scrolling, and document
 context. Arbitrary-depth splitting follows only after this two-pane contract is
 verified. No macOS-specific view or coordinate type enters `workspace_ui`.
+
+## UI-005: One focused pane defines the complete macOS IME document context
+
+**Context.** Once two panes can select different documents, switching only the
+draw rectangle or cursor is insufficient. `NSTextInputClient` asks for document
+text, UTF-16 selection and marked ranges, a candidate rectangle, and a character
+index for a screen point. If any of those methods read the primary document while
+the secondary pane is focused, IME replacement and candidate positioning become
+incorrect whenever the two files differ.
+
+**Decision.** The active input pane selects one complete native document context:
+text, UTF-16/UTF-8 line indexes, rectangle, scroll position, soft-wrap setting,
+cursor, and selection. The bridge may temporarily swap the text/index portion to
+reuse Core Text helpers, but it must restore it before returning. Cocoa ranges are
+converted against that context before crossing into Nim's UTF-8 editor core.
+
+**Evidence.** Zed exposes its `InputHandler` as a one-to-one implementation of
+the complete `NSTextInputClient` contract, and `Pane::activate_item` changes the
+active item and focus together. Apple documents UTF-16 document ranges for text
+replacement and screen-coordinate candidate and character-index methods. The
+API-by-API audit is recorded in `docs/ZED_UI_ARCHITECTURE_RESEARCH.md`.
+
+**Consequences.** Native split-pane tests must use intentionally different
+primary and secondary UTF-8 documents, including newlines and a surrogate pair.
+Tests that give both panes the same text cannot detect the class of failures this
+decision prevents.

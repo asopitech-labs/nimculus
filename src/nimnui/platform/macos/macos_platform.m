@@ -2766,12 +2766,13 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NSString *committed = [string isKindOfClass:[NSAttributedString class]]
     ? [string string] : (NSString *)string;
   if (replacementRange.location != NSNotFound && g_selection_callback) {
-    NSUInteger textLength = g_editor_text.length;
+    NSString *text = g_editor_input_pane == 1 ? g_secondary_editor_text : g_editor_text;
+    NSUInteger textLength = text.length;
     NSRange boundedReplacement = boundedDocumentRange(replacementRange, textLength);
     NSUInteger startUnit = boundedReplacement.location;
     NSUInteger endUnit = NSMaxRange(boundedReplacement);
-    uint32_t startByte = (uint32_t)utf8BytesForDocumentUTF16Offset(g_editor_text, startUnit);
-    uint32_t endByte = (uint32_t)utf8BytesForDocumentUTF16Offset(g_editor_text, endUnit);
+    uint32_t startByte = (uint32_t)utf8BytesForDocumentUTF16Offset(text, startUnit);
+    uint32_t endByte = (uint32_t)utf8BytesForDocumentUTF16Offset(text, endUnit);
     // NSTextInputClient may commit text with a replacement range even when
     // no preceding marked-text update selected it. Preserve Zed's
     // insert_text(range) contract at the Nim boundary.
@@ -2819,18 +2820,27 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 - (void)paste:(id)sender { if (g_command_callback) g_command_callback("paste"); }
 - (void)selectAll:(id)sender { if (g_command_callback) g_command_callback("selectAll"); }
 - (NSRect)firstRectForCharacterRange:(NSRange)range actualRange:(NSRangePointer)actualRange {
-  NSUInteger documentLength = g_editor_text.length;
+  BOOL secondary = g_editor_input_pane == 1;
+  NSString *text = secondary ? g_secondary_editor_text : g_editor_text;
+  NSUInteger documentLength = text.length;
   NSUInteger start = MIN(range.location, documentLength);
   NSUInteger length = MIN(range.length, documentLength - start);
   if (actualRange) *actualRange = NSMakeRange(start, length);
   // The editor keeps cursor Y in top-origin logical coordinates, while NSView
   // uses a bottom-origin coordinate system for this protocol callback.
   CGFloat lineHeight = editorLineHeight();
-  double *rect = g_editor_input_pane == 1 ? g_secondary_editor_rect : g_editor_rect;
+  double *rect = secondary ? g_secondary_editor_rect : g_editor_rect;
   NSUInteger previousScrollLine = g_editor_scroll_line;
-  if (g_editor_input_pane == 1) g_editor_scroll_line = g_secondary_editor_scroll_line;
+  BOOL previousSoftWrap = g_editor_soft_wrap;
+  if (secondary) {
+    swapEditorTextState();
+    g_editor_scroll_line = g_secondary_editor_scroll_line;
+    g_editor_soft_wrap = g_secondary_editor_soft_wrap;
+  }
   CGPoint logical = editorPointForUTF16Offset(start);
+  if (secondary) swapEditorTextState();
   g_editor_scroll_line = previousScrollLine;
+  g_editor_soft_wrap = previousSoftWrap;
   CGFloat viewY = self.bounds.size.height - rect[1] - logical.y - lineHeight;
   NSRect cursor = NSMakeRect(rect[0] + logical.x, MAX(0.0, viewY), 0, lineHeight);
   return [self.window convertRectToScreen:[self convertRect:cursor toView:nil]];
@@ -2850,10 +2860,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     g_editor_rect[2], g_editor_rect[3]};
   NSUInteger previousScrollLine = g_editor_scroll_line;
   BOOL previousSoftWrap = g_editor_soft_wrap;
+  swapEditorTextState();
   memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
   g_editor_scroll_line = g_secondary_editor_scroll_line;
   g_editor_soft_wrap = g_secondary_editor_soft_wrap;
   NSUInteger result = nimculus_platform_editor_utf16_offset_at_point(viewPoint.x, viewPoint.y);
+  swapEditorTextState();
   memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
   g_editor_scroll_line = previousScrollLine;
   g_editor_soft_wrap = previousSoftWrap;
@@ -4652,6 +4664,7 @@ bool nimculus_platform_validate_ime_candidate_rect(void) {
   BOOL valid = NO;
   @autoreleasepool {
     NSString *previousText = g_editor_text;
+    NSString *previousSecondaryText = [g_secondary_editor_text retain];
     NSUInteger previousSelectionStart = g_editor_selection_start;
     NSUInteger previousSelectionEnd = g_editor_selection_end;
     NSUInteger previousScrollLine = g_editor_scroll_line;
@@ -4665,6 +4678,8 @@ bool nimculus_platform_validate_ime_candidate_rect(void) {
     NSUInteger previousSecondaryScrollLine = g_secondary_editor_scroll_line;
     g_editor_text = @"A日本語\nB";
     rebuildEditorLineIndex();
+    nimculus_platform_set_secondary_editor_text("🙂\n日本語",
+      (uint32_t)strlen("🙂\n日本語"));
     g_editor_selection_start = 0;
     g_editor_selection_end = 0;
     g_editor_scroll_line = 0;
@@ -4704,14 +4719,18 @@ bool nimculus_platform_validate_ime_candidate_rect(void) {
       g_secondary_editor_visible = YES;
       g_secondary_editor_scroll_line = 0;
       g_editor_input_pane = 1;
-      NSRect secondary = [view firstRectForCharacterRange:NSMakeRange(1, 0)
+      nimculus_platform_set_secondary_editor_selection(4, 4);
+      NSRect secondary = [view firstRectForCharacterRange:NSMakeRange(3, 0)
         actualRange:&actualSecondary];
+      NSUInteger secondaryCharacter = [view characterIndexForPoint:secondary.origin];
       valid = actualFirst.location == 0 && actualFirst.length == 0 &&
         actualSecond.location == 1 && actualSecond.length == 0 &&
-        actualSecondary.location == 1 && actualSecondary.length == 0 &&
+        actualSecondary.location == 3 && actualSecondary.length == 0 &&
         first.size.height > 0.0 && second.size.height > 0.0 &&
         secondary.size.height > 0.0 && second.origin.x > first.origin.x &&
-        secondary.origin.x > second.origin.x && isfinite(first.origin.x) &&
+        secondary.origin.x > second.origin.x && secondary.origin.y < second.origin.y &&
+        secondaryCharacter == 3 && view.selectedTextRange.location == 2 &&
+        isfinite(first.origin.x) &&
         isfinite(first.origin.y) && isfinite(second.origin.x) &&
         isfinite(second.origin.y) && isfinite(secondary.origin.x) &&
         isfinite(secondary.origin.y);
@@ -4723,6 +4742,8 @@ bool nimculus_platform_validate_ime_candidate_rect(void) {
     }
     g_editor_text = previousText;
     rebuildEditorLineIndex();
+    nimculus_platform_set_secondary_editor_text(previousSecondaryText.UTF8String,
+      (uint32_t)[previousSecondaryText lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
     g_editor_selection_start = previousSelectionStart;
     g_editor_selection_end = previousSelectionEnd;
     g_editor_scroll_line = previousScrollLine;
@@ -4734,6 +4755,7 @@ bool nimculus_platform_validate_ime_candidate_rect(void) {
     g_secondary_editor_visible = previousSecondaryVisible;
     g_editor_input_pane = previousInputPane;
     g_secondary_editor_scroll_line = previousSecondaryScrollLine;
+    [previousSecondaryText release];
   }
   // AppKit may detach the temporary view while the autorelease pool drains.
   // Restore the shared resize metrics after that boundary, as in the native
@@ -5247,13 +5269,16 @@ uint32_t nimculus_platform_secondary_editor_byte_offset_at_point(double x, doubl
   double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
     g_editor_rect[2], g_editor_rect[3]};
   NSUInteger previousScrollLine = g_editor_scroll_line;
+  BOOL previousSoftWrap = g_editor_soft_wrap;
   swapEditorTextState();
   memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
   g_editor_scroll_line = g_secondary_editor_scroll_line;
+  g_editor_soft_wrap = g_secondary_editor_soft_wrap;
   uint32_t result = nimculus_platform_editor_byte_offset_at_point(x, y);
   swapEditorTextState();
   memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
   g_editor_scroll_line = previousScrollLine;
+  g_editor_soft_wrap = previousSoftWrap;
   return result;
 }
 void nimculus_platform_set_editor_scroll_line(uint32_t line) {
@@ -5326,8 +5351,8 @@ void nimculus_platform_set_secondary_editor_cursor_byte(uint32_t byte_offset, ui
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_secondary_editor_selection(uint32_t start_byte, uint32_t end_byte) {
-  NSUInteger start = utf16OffsetForUTF8Bytes(g_editor_text ?: @"", start_byte);
-  NSUInteger end = utf16OffsetForUTF8Bytes(g_editor_text ?: @"", end_byte);
+  NSUInteger start = utf16OffsetForUTF8Bytes(g_secondary_editor_text ?: @"", start_byte);
+  NSUInteger end = utf16OffsetForUTF8Bytes(g_secondary_editor_text ?: @"", end_byte);
   g_secondary_editor_selection_start = MIN(start, end);
   g_secondary_editor_selection_end = MAX(start, end);
   if (g_editor_input_pane == 1 && g_active_view) {
