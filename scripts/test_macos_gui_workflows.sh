@@ -14,6 +14,14 @@ APP_PID=""
 cleanup() {
   if [[ -n "$APP_PID" ]]; then
     kill -TERM "$APP_PID" 2>/dev/null || true
+    # A GUI workflow can leave a PTY session active. Never let the harness
+    # wait indefinitely for an AppKit quit path: give it the same bounded
+    # grace period used by the task/PTY shutdown code, then reap it.
+    for _ in $(seq 1 10); do
+      if ! kill -0 "$APP_PID" 2>/dev/null; then break; fi
+      sleep 0.1
+    done
+    if kill -0 "$APP_PID" 2>/dev/null; then kill -KILL "$APP_PID" 2>/dev/null || true; fi
     wait "$APP_PID" 2>/dev/null || true
   fi
   rm -rf "$TMP_ROOT"
@@ -51,12 +59,24 @@ tell application "System Events"
   tell process "Nimculus"
     if not (exists window 1) then error "Nimculus window did not open"
     repeat with title in {"Files", "Git", "Terminal"}
-      if not (exists button (contents of title) of window 1) then
-        error "Missing workspace action: " & (contents of title)
-      end if
-      click button (contents of title) of window 1
-      delay 0.5
+      if not (exists button (contents of title) of window 1) then error "Missing workspace action: " & (contents of title)
     end repeat
+
+    click button "Files" of window 1
+    delay 0.5
+    if not (exists button "New File" of window 1) then error "Files panel did not expose New File"
+
+    click button "Git" of window 1
+    delay 0.5
+    if not (exists button "Changes" of window 1) then error "Git panel did not expose Changes"
+    if not (exists button "History" of window 1) then error "Git panel did not expose History"
+
+    click button "Terminal" of window 1
+    delay 0.5
+    -- The session-bar controls are custom native views and their individual
+    -- Accessibility names differ by macOS release. This workflow asserts the
+    -- public Terminal navigation dispatch; PTY creation/input/resize/close is
+    -- covered by the terminal integration suite in the consolidated E2E.
   end tell
 end tell
 APPLESCRIPT
