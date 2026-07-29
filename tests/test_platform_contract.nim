@@ -313,6 +313,9 @@ suite "macOS platform contract":
     platformSetEditorDiagnostics(nil, 0)
     check true
 
+  test "split panes keep independent syntax highlight buffers":
+    check platformValidateSecondaryHighlightIsolation()
+
   test "editor annotation overlay contract can be cleared":
     platformSetEditorAnnotations(nil, 0)
     check true

@@ -50,6 +50,7 @@ proc platformValidateFilesSidebarActions*(): bool {.importc: "nimculus_platform_
 proc platformValidateWorkspaceToolbar*(): bool {.importc: "nimculus_platform_validate_workspace_toolbar", cdecl.}
 proc platformValidateActivityBar*(): bool {.importc: "nimculus_platform_validate_activity_bar", cdecl.}
 proc platformValidateSidebarScrollContainer*(): bool {.importc: "nimculus_platform_validate_sidebar_scroll_container", cdecl.}
+proc platformValidateSecondaryHighlightIsolation*(): bool {.importc: "nimculus_platform_validate_secondary_highlight_isolation", cdecl.}
 proc platformMoveItemToTrash*(path: cstring): bool {.importc: "nimculus_platform_move_item_to_trash", cdecl.}
 proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
 type
@@ -170,6 +171,7 @@ proc platformEditorTextUtf8Length*(): uint32 {.importc: "nimculus_platform_edito
 proc platformSetEditorComposition*(text: cstring) {.importc: "nimculus_platform_set_editor_composition", cdecl.}
 proc platformClearEditorComposition*() {.importc: "nimculus_platform_clear_editor_composition", cdecl.}
 proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32) {.importc: "nimculus_platform_set_editor_highlights", cdecl.}
+proc platformSetSecondaryEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32) {.importc: "nimculus_platform_set_secondary_editor_highlights", cdecl.}
 proc platformSetEditorDiagnostics*(spans: ptr NativeDiagnosticSpan, count: uint32) {.importc: "nimculus_platform_set_editor_diagnostics", cdecl.}
 proc platformSetEditorAnnotations*(annotations: ptr NativeEditorAnnotation, count: uint32) {.importc: "nimculus_platform_set_editor_annotations", cdecl.}
 proc platformSetEditorGitHunks*(spans: ptr NativeGitHunkSpan, count: uint32) {.importc: "nimculus_platform_set_editor_git_hunks", cdecl.}

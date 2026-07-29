@@ -36,3 +36,16 @@ suite "M7 editor syntax integration":
     check secondViewport
     check not gapViewport
     state.close()
+
+  test "separate split documents keep independent grammar state":
+    let primary = newEditorSyntax("main.nim", "proc main() = discard\n")
+    let secondary = newEditorSyntax("main.py", "def main():\n  return 1\n")
+    check primary != nil
+    check secondary != nil
+    check primary.grammar != secondary.grammar
+    check primary.visibleHighlights(0, 20).len > 0
+    check secondary.visibleHighlights(0, 20).len > 0
+    primary.update("proc main() = echo \"primary\"\n")
+    check secondary.tree.source == "def main():\n  return 1\n"
+    primary.close()
+    secondary.close()

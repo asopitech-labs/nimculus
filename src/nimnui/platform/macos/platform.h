@@ -34,6 +34,7 @@ bool nimculus_platform_validate_sidebar_context_dispatch(void);
 bool nimculus_platform_validate_git_sidebar_tabs(void);
 bool nimculus_platform_validate_files_sidebar_actions(void);
 bool nimculus_platform_validate_sidebar_scroll_container(void);
+bool nimculus_platform_validate_secondary_highlight_isolation(void);
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics);
 typedef struct NimculusInputLatencyStats {
   uint64_t sample_count;
@@ -164,6 +165,8 @@ uint32_t nimculus_platform_editor_text_utf8_length(void);
 void nimculus_platform_set_editor_composition(const char *utf8);
 void nimculus_platform_clear_editor_composition(void);
 void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans, uint32_t count);
+void nimculus_platform_set_secondary_editor_highlights(const NimculusHighlightSpan *spans,
+                                                       uint32_t count);
 void nimculus_platform_set_editor_diagnostics(const NimculusDiagnosticSpan *spans, uint32_t count);
 void nimculus_platform_set_editor_annotations(const NimculusEditorAnnotation *annotations, uint32_t count);
 void nimculus_platform_set_editor_git_hunks(const NimculusGitHunkSpan *spans, uint32_t count);

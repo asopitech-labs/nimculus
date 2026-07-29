@@ -5206,3 +5206,19 @@ with a fixed bullet delimiter before rendering the single native status field.
 
 **Consequences.** Editor feedback and document position remain scannable
 without changing the status bar's compact one-line layout.
+
+## UI-040: Split panes own independent syntax buffers
+
+**Context.** A split pane can select a different document from the primary
+pane. Reusing the primary Tree-sitter ranges in the secondary Core Text texture
+applies byte offsets from the wrong buffer and produces incorrect coloring.
+
+**Decision.** Maintain a second `EditorSyntaxState` for the secondary pane and
+send its visible spans through a distinct macOS highlight buffer. The platform
+selects that buffer only while rebuilding the secondary texture; primary LSP
+diagnostics, inlay hints, and Git gutter remain primary-pane services until
+their own pane-local presentation is implemented.
+
+**Consequences.** Two different languages or source lengths can be displayed
+side-by-side without syntax-span aliasing, while the current LSP and Git UI
+scope remains explicit.

@@ -456,6 +456,8 @@ var imeState = newImeState()
 var editorSession: EditorSession
 var editorViewState = newEditorView()
 var syntaxState: EditorSyntaxState
+when defined(macosx):
+  var secondarySyntaxState: EditorSyntaxState
 
 proc syncWorkspaceUiTabs() =
   editorWorkspaceUi.syncRootTabs(editorSession.tabs.len, editorSession.activeTab)
@@ -573,6 +575,7 @@ proc refreshEditorSyntax()
 proc refreshDocumentLanguageSettings()
 
 when defined(macosx):
+  proc refreshSecondaryEditorSyntax()
   proc scheduleNativeGitHunks(document: ptr FileDocument)
 
   proc gitRepositoryForDocument(document: ptr FileDocument): GitRepository =
@@ -1539,6 +1542,9 @@ when defined(macosx):
     if syntaxState != nil:
       syntaxState.close()
     syntaxState = nil
+    if secondarySyntaxState != nil:
+      secondarySyntaxState.close()
+    secondarySyntaxState = nil
 
   proc resizeNativeTerminals() =
     if editorTerminals.len == 0: return
@@ -2317,6 +2323,7 @@ proc refreshEditorSyntax() =
       editorLspInlayHints.setLen(0)
       platformSetEditorAnnotations(nil, 0)
       clearNativeGitHunks()
+      refreshSecondaryEditorSyntax()
     return
   when defined(macosx):
     let currentText = document[].buffer.toString()
@@ -2348,6 +2355,7 @@ proc refreshEditorSyntax() =
       syncNativeInlayHints(document)
       syncNativeDiagnostics(document)
       scheduleNativeGitHunks(document)
+      refreshSecondaryEditorSyntax()
     when defined(windows):
       platformSetEditorHighlights(nil, 0)
       let text = document[].buffer.toString()
@@ -2394,6 +2402,7 @@ proc refreshEditorSyntax() =
     syncNativeInlayHints(document)
     syncNativeDiagnostics(document)
     scheduleNativeGitHunks(document)
+    refreshSecondaryEditorSyntax()
   when defined(windows):
     let highlights = if syntaxState == nil: @[] else:
       let visibleLines = max(1, int(float32(demoEditorBounds.size.height) /
@@ -2414,6 +2423,57 @@ proc refreshEditorSyntax() =
     platformSetEditorHighlights(highlightPtr, uint32(nativeHighlights.len))
     let text = document[].buffer.toString()
     platformSetEditorText(text.cstring, uint32(text.len))
+
+when defined(macosx):
+  proc refreshSecondaryEditorSyntax() =
+    ## The secondary pane may show another buffer and grammar. Its Core Text
+    ## texture therefore receives a separate byte-range list instead of the
+    ## primary pane's offsets.
+    if not editorSession.split:
+      if secondarySyntaxState != nil:
+        secondarySyntaxState.close()
+        secondarySyntaxState = nil
+      platformSetSecondaryEditorHighlights(nil, 0)
+      return
+    let document = secondaryPaneDocument()
+    if document == nil:
+      if secondarySyntaxState != nil:
+        secondarySyntaxState.close()
+        secondarySyntaxState = nil
+      platformSetSecondaryEditorHighlights(nil, 0)
+      return
+    var grammar: GrammarKind
+    try:
+      grammar = grammarForPath(document[].path)
+    except ValueError:
+      if secondarySyntaxState != nil:
+        secondarySyntaxState.close()
+        secondarySyntaxState = nil
+      platformSetSecondaryEditorHighlights(nil, 0)
+      return
+    let text = document[].buffer.toString()
+    if secondarySyntaxState == nil or secondarySyntaxState.grammar != grammar:
+      if secondarySyntaxState != nil: secondarySyntaxState.close()
+      secondarySyntaxState = newEditorSyntax(document[].path, text)
+    else:
+      secondarySyntaxState.update(text)
+    let tab = editorWorkspaceUi.center.second.pane.activeTabIndex
+    let view = editorSession.tabs[tab].secondaryView
+    let visibleLines = editorVisibleLineCount()
+    let firstLine = min(view.scrollLine, document[].buffer.lineStarts.high)
+    let firstByte = document[].buffer.lineStarts[firstLine]
+    let requestedLastLine = firstLine + visibleLines
+    let lastByte = if requestedLastLine < document[].buffer.lineStarts.len:
+      document[].buffer.lineStarts[requestedLastLine] else: text.len
+    let highlights = if secondarySyntaxState == nil: @[] else:
+      secondarySyntaxState.visibleHighlights(@[(firstByte: uint32(firstByte),
+        lastByte: uint32(lastByte))])
+    var nativeHighlights = newSeq[NativeHighlightSpan](highlights.len)
+    for index, span in highlights:
+      nativeHighlights[index] = NativeHighlightSpan(startByte: span.startByte,
+        endByte: span.endByte, kind: uint32(ord(span.kind)))
+    let ptrHighlights = if nativeHighlights.len > 0: addr nativeHighlights[0] else: nil
+    platformSetSecondaryEditorHighlights(ptrHighlights, uint32(nativeHighlights.len))
 
 when defined(macosx):
   proc pollLspAndRefreshDiagnostics() =

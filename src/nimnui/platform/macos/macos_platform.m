@@ -420,6 +420,11 @@ static BOOL g_scene_dirty = YES;
 static id g_active_view = nil;
 static NimculusHighlightSpan *g_highlights = NULL;
 static uint32_t g_highlight_count = 0;
+// A split pane can display a different document (and therefore grammar) from
+// the primary editor. Keep its byte ranges separate; sharing primary spans
+// would apply invalid offsets and colors to the secondary Core Text texture.
+static NimculusHighlightSpan *g_secondary_highlights = NULL;
+static uint32_t g_secondary_highlight_count = 0;
 static NimculusDiagnosticSpan *g_diagnostics = NULL;
 static uint32_t g_diagnostic_count = 0;
 static NimculusGitHunkSpan *g_git_hunks = NULL;
@@ -445,6 +450,7 @@ static void releasePlatformResources(void) {
   free(g_paint_commands); g_paint_commands = NULL; g_paint_count = 0;
   free(g_paint_dirty_regions); g_paint_dirty_regions = NULL; g_paint_dirty_count = 0;
   free(g_highlights); g_highlights = NULL; g_highlight_count = 0;
+  free(g_secondary_highlights); g_secondary_highlights = NULL; g_secondary_highlight_count = 0;
   free(g_diagnostics); g_diagnostics = NULL; g_diagnostic_count = 0;
   free(g_git_hunks); g_git_hunks = NULL; g_git_hunk_count = 0;
   free(g_terminal_runs); g_terminal_runs = NULL; g_terminal_run_count = 0;
@@ -496,11 +502,11 @@ bool nimculus_platform_validate_resource_teardown(void) {
     g_text_pipeline == nil && g_glyph_pipeline == nil &&
     g_image_pipeline == nil && g_queue == nil && g_glyph_vertices == NULL &&
     g_paint_commands == NULL && g_paint_dirty_regions == NULL &&
-    g_highlights == NULL && g_diagnostics == NULL && g_git_hunks == NULL &&
+    g_highlights == NULL && g_secondary_highlights == NULL && g_diagnostics == NULL && g_git_hunks == NULL &&
     g_terminal_runs == NULL && g_editor_annotations == NULL &&
     g_pending_file_open_paths == nil &&
     g_glyph_vertex_count == 0 && g_paint_count == 0 &&
-    g_paint_dirty_count == 0 && g_highlight_count == 0 &&
+    g_paint_dirty_count == 0 && g_highlight_count == 0 && g_secondary_highlight_count == 0 &&
     g_diagnostic_count == 0 && g_git_hunk_count == 0 &&
     g_terminal_run_count == 0 && g_editor_annotation_count == 0;
 }
@@ -1230,8 +1236,12 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       }
       wrappedLineUnit += visibleLine.length + 1;
     }
-    for (uint32_t spanIndex = 0; spanIndex < g_highlight_count; spanIndex++) {
-      NimculusHighlightSpan span = g_highlights[spanIndex];
+    NimculusHighlightSpan *highlights = g_rendering_secondary_editor
+      ? g_secondary_highlights : g_highlights;
+    uint32_t highlightCount = g_rendering_secondary_editor
+      ? g_secondary_highlight_count : g_highlight_count;
+    for (uint32_t spanIndex = 0; spanIndex < highlightCount; spanIndex++) {
+      NimculusHighlightSpan span = highlights[spanIndex];
       if (span.end_byte <= lineStartByte || span.start_byte >= lineStartByte + wrappedByteLength) continue;
       NSUInteger startByte = MAX((NSUInteger)span.start_byte, lineStartByte) - lineStartByte;
       NSUInteger endByte = MIN((NSUInteger)span.end_byte, lineStartByte + wrappedByteLength) - lineStartByte;
@@ -1341,8 +1351,12 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     }
     NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
       initWithString:lineText attributes:attributes];
-    for (uint32_t spanIndex = 0; spanIndex < g_highlight_count; spanIndex++) {
-      NimculusHighlightSpan span = g_highlights[spanIndex];
+    NimculusHighlightSpan *highlights = g_rendering_secondary_editor
+      ? g_secondary_highlights : g_highlights;
+    uint32_t highlightCount = g_rendering_secondary_editor
+      ? g_secondary_highlight_count : g_highlight_count;
+    for (uint32_t spanIndex = 0; spanIndex < highlightCount; spanIndex++) {
+      NimculusHighlightSpan span = highlights[spanIndex];
       if (span.end_byte > lineStartByte && span.start_byte < lineStartByte + lineLength) {
         NSUInteger startByte = MAX((NSUInteger)span.start_byte, lineStartByte) - lineStartByte;
         NSUInteger endByte = MIN((NSUInteger)span.end_byte, lineStartByte + lineLength) - lineStartByte;
@@ -1736,8 +1750,12 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
     NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
     NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
       initWithString:lineText attributes:attributes];
-    for (uint32_t spanIndex = 0; spanIndex < g_highlight_count; spanIndex++) {
-      NimculusHighlightSpan span = g_highlights[spanIndex];
+    NimculusHighlightSpan *highlights = g_rendering_secondary_editor
+      ? g_secondary_highlights : g_highlights;
+    uint32_t highlightCount = g_rendering_secondary_editor
+      ? g_secondary_highlight_count : g_highlight_count;
+    for (uint32_t spanIndex = 0; spanIndex < highlightCount; spanIndex++) {
+      NimculusHighlightSpan span = highlights[spanIndex];
       if (span.end_byte > lineStartByte && span.start_byte < lineStartByte + lineLength) {
         NSUInteger startByte = MAX((NSUInteger)span.start_byte, lineStartByte) - lineStartByte;
         NSUInteger endByte = MIN((NSUInteger)span.end_byte, lineStartByte + lineLength) - lineStartByte;
@@ -7459,6 +7477,21 @@ void nimculus_platform_clear_editor_composition(void) {
   }
   if (g_active_view) [g_active_view drawFrame];
 }
+bool nimculus_platform_validate_secondary_highlight_isolation(void) {
+  NimculusHighlightSpan primary = {.start_byte = 1, .end_byte = 4, .kind = 1};
+  NimculusHighlightSpan secondary = {.start_byte = 9, .end_byte = 15, .kind = 4};
+  nimculus_platform_set_editor_highlights(&primary, 1);
+  nimculus_platform_set_secondary_editor_highlights(&secondary, 1);
+  BOOL valid = g_highlights != NULL && g_secondary_highlights != NULL &&
+    g_highlights != g_secondary_highlights && g_highlight_count == 1 &&
+    g_secondary_highlight_count == 1 && g_highlights[0].start_byte == 1 &&
+    g_highlights[0].end_byte == 4 && g_secondary_highlights[0].start_byte == 9 &&
+    g_secondary_highlights[0].end_byte == 15;
+  nimculus_platform_set_editor_highlights(NULL, 0);
+  nimculus_platform_set_secondary_editor_highlights(NULL, 0);
+  return valid;
+}
+
 void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans, uint32_t count) {
   free(g_highlights);
   g_highlights = NULL;
@@ -7485,6 +7518,22 @@ void nimculus_platform_set_editor_diagnostics(const NimculusDiagnosticSpan *span
   }
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+void nimculus_platform_set_secondary_editor_highlights(const NimculusHighlightSpan *spans,
+                                                       uint32_t count) {
+  free(g_secondary_highlights);
+  g_secondary_highlights = NULL;
+  g_secondary_highlight_count = 0;
+  if (spans && count > 0) {
+    g_secondary_highlights = malloc(sizeof(NimculusHighlightSpan) * count);
+    if (g_secondary_highlights) {
+      memcpy(g_secondary_highlights, spans, sizeof(NimculusHighlightSpan) * count);
+      g_secondary_highlight_count = count;
+    }
+  }
+  markSceneFullyDirty();
+  if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_editor_annotations(const NimculusEditorAnnotation *annotations,
