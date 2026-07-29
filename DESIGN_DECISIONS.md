@@ -5352,3 +5352,16 @@ workflow.
 
 **Consequences.** History remains available without changing the active editor
 or treating a workspace-relative path as trusted input to Git.
+
+## UI-049: Copy a file-tree entry path without opening it
+
+**Context.** File navigation regularly needs a path for shell commands, test
+fixtures, and issue reports. Requiring a Finder reveal or opening the file to
+obtain it makes the file tree less useful as a primary workspace surface.
+
+**Decision.** Add `Copy Path` to the macOS workspace-entry context menu and
+route it through Nimculus' existing clipboard boundary.
+
+**Consequences.** The copy operation preserves the selected tree entry and
+works identically for files and directories without introducing a Cocoa-only
+clipboard path into workspace code.

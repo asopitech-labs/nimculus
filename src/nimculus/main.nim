@@ -4522,6 +4522,11 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           startNativeGitAction(repository, "file history", relative, [
             "log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00", "-n", "100",
             "--", relative])
+  elif name.startsWith("workspaceCopyPath:"):
+    let path = name["workspaceCopyPath:".len .. ^1]
+    if path.len > 0:
+      clipboardSet(path.cstring, uint32(path.len))
+      editorViewState.statusMessage = "Copied path"
   elif name.startsWith("quickOpen:"):
     showQuickOpen(name[10 .. ^1].strip)
   elif name.startsWith("workspaceCreateFile:") and activeWorkspace != nil:
