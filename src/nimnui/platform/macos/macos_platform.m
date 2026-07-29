@@ -5240,9 +5240,11 @@ uint32_t nimculus_platform_secondary_editor_byte_offset_at_point(double x, doubl
   double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
     g_editor_rect[2], g_editor_rect[3]};
   NSUInteger previousScrollLine = g_editor_scroll_line;
+  swapEditorTextState();
   memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
   g_editor_scroll_line = g_secondary_editor_scroll_line;
   uint32_t result = nimculus_platform_editor_byte_offset_at_point(x, y);
+  swapEditorTextState();
   memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
   g_editor_scroll_line = previousScrollLine;
   return result;
@@ -5291,8 +5293,9 @@ void nimculus_platform_set_secondary_editor_rect(bool visible, double x, double 
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_secondary_editor_cursor_byte(uint32_t byte_offset, uint32_t line) {
+  swapEditorTextState();
   NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
-  if (lines.count == 0) return;
+  if (lines.count == 0) { swapEditorTextState(); return; }
   NSUInteger lineIndex = MIN((NSUInteger)line, lines.count - 1);
   NSUInteger lineStartByte = editorLineUTF8Offset(lineIndex, lines);
   NSString *lineText = lines[lineIndex];
@@ -5310,6 +5313,7 @@ void nimculus_platform_set_secondary_editor_cursor_byte(uint32_t byte_offset, ui
   g_editor_soft_wrap = previousSoftWrap;
   g_secondary_editor_cursor[0] = point.x;
   g_secondary_editor_cursor[1] = point.y;
+  swapEditorTextState();
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
