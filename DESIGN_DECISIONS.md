@@ -5215,10 +5215,11 @@ applies byte offsets from the wrong buffer and produces incorrect coloring.
 
 **Decision.** Maintain a second `EditorSyntaxState` for the secondary pane and
 send its visible spans through a distinct macOS highlight buffer. The platform
-selects that buffer only while rebuilding the secondary texture; primary LSP
-diagnostics, inlay hints, and Git gutter remain primary-pane services until
-their own pane-local presentation is implemented.
+selects that buffer only while rebuilding the secondary texture. Primary LSP
+diagnostics and Git hunks are explicitly not rendered into that texture;
+inlay hints remain attached to the primary overlay. Their own pane-local
+presentation will be added only with matching per-document LSP/Git state.
 
 **Consequences.** Two different languages or source lengths can be displayed
-side-by-side without syntax-span aliasing, while the current LSP and Git UI
-scope remains explicit.
+side-by-side without syntax-span aliasing or stale primary diagnostics/diff
+markers, while the current LSP and Git UI scope remains explicit.

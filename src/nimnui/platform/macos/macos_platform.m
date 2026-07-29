@@ -71,6 +71,9 @@ static NSUInteger g_editor_hover_pane = 0;
 // updateEditorTextTexture is reused to build both pane textures. Keep the
 // target explicit so transient overlays are emitted only into their owner.
 static BOOL g_rendering_secondary_editor = NO;
+static BOOL editorTextureOwnsPrimaryDecorations(void) {
+  return !g_rendering_secondary_editor;
+}
 static NimculusPaintCommand *g_paint_commands = NULL;
 static uint32_t g_paint_count = 0;
 static NimculusPaintRegion *g_paint_dirty_regions = NULL;
@@ -1217,7 +1220,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     for (NSUInteger visibleIndex = 0; visibleIndex < visible.count; visibleIndex++) {
       NSString *visibleLine = visible[visibleIndex];
       NSUInteger documentLine = startLine + visibleIndex;
-      for (uint32_t hunkIndex = 0; hunkIndex < g_git_hunk_count; hunkIndex++) {
+      for (uint32_t hunkIndex = 0; editorTextureOwnsPrimaryDecorations() &&
+           hunkIndex < g_git_hunk_count; hunkIndex++) {
         NimculusGitHunkSpan hunk = g_git_hunks[hunkIndex];
         NSUInteger hunkStart = hunk.start_line;
         NSUInteger hunkEnd = hunkStart + MAX((uint32_t)1, hunk.line_count);
@@ -1269,7 +1273,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
           value:(id)selectionColor.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
       }
     }
-    for (uint32_t diagnosticIndex = 0; diagnosticIndex < g_diagnostic_count; diagnosticIndex++) {
+    for (uint32_t diagnosticIndex = 0; editorTextureOwnsPrimaryDecorations() &&
+         diagnosticIndex < g_diagnostic_count; diagnosticIndex++) {
       NimculusDiagnosticSpan diagnostic = g_diagnostics[diagnosticIndex];
       if (diagnostic.end_byte <= lineStartByte ||
           diagnostic.start_byte >= lineStartByte + wrappedByteLength) continue;
@@ -1302,7 +1307,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
     NSUInteger lineEndUnit = lineStartUnit + lineText.length;
     NSUInteger documentLine = startLine + displayIndex;
-    for (uint32_t hunkIndex = 0; hunkIndex < g_git_hunk_count; hunkIndex++) {
+    for (uint32_t hunkIndex = 0; editorTextureOwnsPrimaryDecorations() &&
+         hunkIndex < g_git_hunk_count; hunkIndex++) {
       NimculusGitHunkSpan hunk = g_git_hunks[hunkIndex];
       NSUInteger hunkStart = hunk.start_line;
       NSUInteger hunkEnd = hunkStart + MAX((uint32_t)1, hunk.line_count);
@@ -1333,7 +1339,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         logicalHeight - lineHeight * (displayIndex + 1) - 4.0,
         MAX(1.0, editorTextOffset(lineText, endUnit) - editorTextOffset(lineText, startUnit)), 20.0));
     }
-    for (uint32_t hunkIndex = 0; hunkIndex < g_git_hunk_count; hunkIndex++) {
+    for (uint32_t hunkIndex = 0; editorTextureOwnsPrimaryDecorations() &&
+         hunkIndex < g_git_hunk_count; hunkIndex++) {
       NimculusGitHunkSpan hunk = g_git_hunks[hunkIndex];
       NSUInteger hunkStart = hunk.start_line;
       NSUInteger hunkEnd = hunkStart + MAX((uint32_t)1, hunk.line_count);
@@ -1379,7 +1386,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       CTLineDraw(line, context);
       CFRelease(line);
     }
-    for (uint32_t diagnosticIndex = 0; diagnosticIndex < g_diagnostic_count; diagnosticIndex++) {
+    for (uint32_t diagnosticIndex = 0; editorTextureOwnsPrimaryDecorations() &&
+         diagnosticIndex < g_diagnostic_count; diagnosticIndex++) {
       NimculusDiagnosticSpan diagnostic = g_diagnostics[diagnosticIndex];
       if (diagnostic.end_byte <= lineStartByte ||
           diagnostic.start_byte >= lineStartByte + lineLength) continue;
@@ -7482,7 +7490,14 @@ bool nimculus_platform_validate_secondary_highlight_isolation(void) {
   NimculusHighlightSpan secondary = {.start_byte = 9, .end_byte = 15, .kind = 4};
   nimculus_platform_set_editor_highlights(&primary, 1);
   nimculus_platform_set_secondary_editor_highlights(&secondary, 1);
-  BOOL valid = g_highlights != NULL && g_secondary_highlights != NULL &&
+  BOOL previousRenderingSecondary = g_rendering_secondary_editor;
+  g_rendering_secondary_editor = NO;
+  BOOL primaryOwnsDecorations = editorTextureOwnsPrimaryDecorations();
+  g_rendering_secondary_editor = YES;
+  BOOL secondaryRejectsPrimaryDecorations = !editorTextureOwnsPrimaryDecorations();
+  g_rendering_secondary_editor = previousRenderingSecondary;
+  BOOL valid = primaryOwnsDecorations && secondaryRejectsPrimaryDecorations &&
+    g_highlights != NULL && g_secondary_highlights != NULL &&
     g_highlights != g_secondary_highlights && g_highlight_count == 1 &&
     g_secondary_highlight_count == 1 && g_highlights[0].start_byte == 1 &&
     g_highlights[0].end_byte == 4 && g_secondary_highlights[0].start_byte == 9 &&
