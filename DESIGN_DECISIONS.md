@@ -5101,3 +5101,18 @@ sidebar during background filesystem changes.
 **Consequences.** The control that a user selected remains selected through
 asynchronous work, and workspace watching cannot make Git history appear to
 fail or disappear.
+
+## UI-033: Git controls preserve labels at narrow dock widths
+
+**Context.** After Git selection ownership was fixed, real macOS review showed
+that a narrow left dock truncated Changes and Branches because the full
+`Commit…` label competed for the same single toolbar row.
+
+**Decision.** Keep all three Git navigation labels visible by compacting only
+the secondary commit control to a checkmark button below the dock-width
+threshold. The button keeps its full tooltip and accessibility label and
+expands to `Commit…` when the dock is wide enough.
+
+**Consequences.** The primary Git navigation remains scannable at practical
+sidebar sizes without removing commit from the UI or forcing users into the
+command palette.

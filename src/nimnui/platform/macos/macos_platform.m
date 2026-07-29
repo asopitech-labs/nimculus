@@ -1950,6 +1950,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @end
 
 @interface NimculusGitCommitButton : NSButton
+- (void)setCompact:(BOOL)compact;
 @end
 
 @interface NimculusFilesSidebarActions : NSStackView
@@ -2432,12 +2433,20 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
   if (!self) return nil;
-  self.title = @"Commit…";
   self.bezelStyle = NSBezelStyleTexturedRounded;
-  self.toolTip = @"Commit staged changes";
+  [self setCompact:NO];
   self.target = self;
   self.action = @selector(requestCommit:);
   return self;
+}
+- (void)setCompact:(BOOL)compact {
+  // Keep Changes/History/Branches legible at the smallest supported dock
+  // width. The commit action remains present as a conventional checkmark
+  // control with its full accessible name and tooltip, then expands again as
+  // soon as the dock has room for all four text labels.
+  self.title = compact ? @"✓" : @"Commit…";
+  self.toolTip = @"Commit staged changes";
+  self.accessibilityLabel = @"Commit staged changes";
 }
 - (void)requestCommit:(id)sender {
   (void)sender;
@@ -3201,8 +3210,9 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     gitTabs.hidden = !showGitTabs;
     if (showGitTabs) {
       CGFloat width = sidebarWidth;
+      BOOL compactCommit = width < 350.0;
       gitTabs.frame = NSMakeRect(sidebarControlX, g_editor_rect[1] + g_editor_rect[3] - 27.0,
-        MAX(1.0, width - 86.0), 24.0);
+        MAX(1.0, width - (compactCommit ? 40.0 : 86.0)), 24.0);
       [gitTabs setSelectedMode:(NSInteger)g_editor_sidebar_mode - 2];
     }
   }
@@ -3212,8 +3222,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     gitCommit.hidden = !showGitCommit;
     if (showGitCommit) {
       CGFloat width = sidebarWidth;
-      gitCommit.frame = NSMakeRect(sidebarControlX + width - 80.0,
-        g_editor_rect[1] + g_editor_rect[3] - 27.0, 76.0, 24.0);
+      BOOL compact = width < 350.0;
+      [gitCommit setCompact:compact];
+      CGFloat commitWidth = compact ? 30.0 : 76.0;
+      gitCommit.frame = NSMakeRect(sidebarControlX + width - commitWidth - 4.0,
+        g_editor_rect[1] + g_editor_rect[3] - 27.0, commitWidth, 24.0);
     }
   }
   if (filesActions) {

@@ -556,6 +556,10 @@ ZedのProject Panel watcherはtree modelを更新しても、ユーザーが選�
 publishはFilesがactiveな場合に限定する。これによりFSEventsなどのbackground updateがGit Status/Historyの
 visible selectionを上書きしない。
 
+Zedのnarrow dockではprimary navigationのlabelがactionより優先される。NimculusのGit toolbarも
+Changes / History / Branchesを常にtextで可読にし、幅が足りない場合だけCommit actionをcheckmark
+buttonへcompactする。tooltipとaccessibility labelは常に `Commit staged changes` を維持する。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel
