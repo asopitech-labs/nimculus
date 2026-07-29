@@ -846,7 +846,10 @@ when defined(macosx):
       editorViewState.statusMessage = "Git: applying hunk…"
       return
     let output = job.result.output.strip
-    if job.result.exitCode != 0:
+    # `git diff --no-index` deliberately returns 1 when it found a diff.
+    # Treat that as a successful untracked-file preview, not as a failed job.
+    let diffFound = action == "show file diff" and job.result.exitCode == 1
+    if job.result.exitCode != 0 and not diffFound:
       editorViewState.statusMessage = "Git " & action & " failed: " & output
     elif action == "status":
       let entries = parseStatus(job.result.output)
@@ -918,6 +921,12 @@ when defined(macosx):
     elif action == "show":
       showNativeLspPanel("Git Commit", job.result.output.splitLines())
       editorViewState.statusMessage = "Git: commit details"
+    elif action == "show file diff":
+      let title = "Git Diff — " & editorGitActionPath
+      let lines = if output.len > 0: job.result.output.splitLines()
+        else: @["No textual differences to show"]
+      showNativeLspPanel(title, lines)
+      editorViewState.statusMessage = "Git: file diff"
     elif action == "blame":
       let blameLines = parseBlame(job.result.output)
       renderNativeGitBlame(blameLines, editorGitActionPath)
@@ -4422,6 +4431,20 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
             let entry = editorGitStatusEntries[index]
             let repository = editorGitRepository
             case parts[1]
+            of "diff":
+              let candidate = canonicalOpenPath(repository.root / entry.path)
+              if entry.indexStatus == '?' and entry.worktreeStatus == '?':
+                # Untracked files have no HEAD side. `--no-index` supplies a
+                # normal unified patch against /dev/null and returns 1 by Git
+                # convention, which pollNativeGitAction accepts for this view.
+                startNativeGitAction(repository, "show file diff", entry.path,
+                  ["diff", "--no-index", "--no-ext-diff", "--unified=3", "--",
+                   "/dev/null", candidate])
+              else:
+                # Compare with HEAD so a single preview includes both staged
+                # and unstaged edits, matching the Change-list mental model.
+                startNativeGitAction(repository, "show file diff", entry.path,
+                  ["diff", "--no-ext-diff", "--unified=3", "HEAD", "--", entry.path])
             of "open":
               let candidate = canonicalOpenPath(repository.root / entry.path)
               let root = canonicalOpenPath(repository.root)

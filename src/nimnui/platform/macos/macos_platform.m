@@ -6603,7 +6603,7 @@ void nimculus_platform_show_git_status_context(uint32_t item_index, bool can_sta
   if (!delegate) return;
   NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Git Change"] autorelease];
   NSArray<NSArray<NSString *> *> *items = @[
-    @[@"Open", @"open"], @[@"Stage", @"stage"], @[@"Unstage", @"unstage"]
+    @[@"View Diff", @"diff"], @[@"Open", @"open"], @[@"Stage", @"stage"], @[@"Unstage", @"unstage"]
   ];
   for (NSArray<NSString *> *entry in items) {
     NSString *action = entry[1];

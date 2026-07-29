@@ -5323,3 +5323,18 @@ both row activation and its context-menu detail action.
 
 **Consequences.** Commit metadata and patches stay attached to the history
 list's original project even as editor focus changes.
+
+## UI-047: Make changed-file diffs visible from the Git panel
+
+**Context.** The Changes sidebar exposed opening and staging actions, but did
+not offer an in-app way to inspect the selected file's patch. This made Git
+state visible without making its consequences reviewable.
+
+**Decision.** Add `View Diff` to the changed-file context menu. For tracked
+files, render `git diff HEAD` so staged and unstaged edits appear together;
+for untracked files, use the standard `/dev/null` no-index diff and accept
+Git's exit code 1 as the expected "differences found" result.
+
+**Consequences.** The native read-only output panel becomes a safe review
+surface for every normal status entry without spawning an external diff tool
+or changing the user's editor document.
