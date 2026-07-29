@@ -2707,7 +2707,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 - (NSArray<NSAttributedStringKey> *)validAttributesForMarkedText { return @[]; }
 - (NSAttributedString *)attributedSubstringForProposedRange:(NSRange)range
                                                      actualRange:(NSRangePointer)actualRange {
-  NSString *text = g_editor_text ?: @"";
+  NSString *text = (g_editor_input_pane == 1 ? g_secondary_editor_text : g_editor_text) ?: @"";
   NSRange actual = boundedDocumentRange(range, text.length);
   if (actualRange) *actualRange = actual;
   return [[[NSAttributedString alloc] initWithString:[text substringWithRange:actual]] autorelease];
@@ -2716,7 +2716,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   // This optional NSTextInputClient method describes the committed document,
   // not the transient marked composition. Zed does not register the optional
   // selector, but since Nimculus exposes it, return the actual document.
-  return [[[NSAttributedString alloc] initWithString:g_editor_text ?: @""] autorelease];
+  NSString *text = (g_editor_input_pane == 1 ? g_secondary_editor_text : g_editor_text) ?: @"";
+  return [[[NSAttributedString alloc] initWithString:text] autorelease];
 }
 - (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange
       replacementRange:(NSRange)replacementRange {
@@ -2737,12 +2738,13 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
         : NSMakeRange(g_editor_selection_start,
                       g_editor_selection_end - g_editor_selection_start))
     : replacementRange;
-  NSUInteger textLength = g_editor_text.length;
+  NSString *text = g_editor_input_pane == 1 ? g_secondary_editor_text : g_editor_text;
+  NSUInteger textLength = text.length;
   NSRange boundedReplacement = boundedDocumentRange(effectiveReplacement, textLength);
   NSUInteger replacementStart = boundedReplacement.location;
   NSUInteger replacementEnd = NSMaxRange(boundedReplacement);
-  uint32_t startByte = (uint32_t)utf8BytesForDocumentUTF16Offset(g_editor_text, replacementStart);
-  uint32_t endByte = (uint32_t)utf8BytesForDocumentUTF16Offset(g_editor_text, replacementEnd);
+  uint32_t startByte = (uint32_t)utf8BytesForDocumentUTF16Offset(text, replacementStart);
+  uint32_t endByte = (uint32_t)utf8BytesForDocumentUTF16Offset(text, replacementEnd);
   if (g_selection_callback) g_selection_callback(startByte, endByte);
   self.markedTextRange = NSMakeRange(replacementStart, self.markedText.length);
   NSUInteger markedSelection = MIN(selectedRange.location, self.markedText.length);
