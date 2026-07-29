@@ -10,6 +10,7 @@ import nimnui/render
 import nimculus/editor_app
 import nimculus/editor_buffer
 import nimculus/editor_view
+import nimculus/workspace_ui
 import nimculus/editor_syntax
 import nimculus/tree_sitter
 import nimculus/workspace
@@ -406,6 +407,7 @@ proc applySettingsTheme() =
 
 var imeState = newImeState()
 var editorSession: EditorSession
+var editorWorkspaceUi: WorkspaceUiState
 var editorViewState = newEditorView()
 var syntaxState: EditorSyntaxState
 var activeWorkspace: Workspace
@@ -1543,6 +1545,10 @@ proc restoreSession() =
   demoSplitRatio = editorSession.effectiveSplitRatio
   demoSplitEnabled = editorSession.split
   demoSplitDirection = editorSession.splitDirection
+  editorWorkspaceUi = initWorkspaceUi(editorSession.tabs.len, editorSession.activeTab)
+  if editorSession.split:
+    discard editorWorkspaceUi.splitFocusedPane(if editorSession.splitDirection == splitVertical:
+      paneVertical else: paneHorizontal, editorSession.effectiveSplitRatio)
 
 proc reloadWorkspaceSettings(root: string) =
   when defined(macosx) or defined(windows):

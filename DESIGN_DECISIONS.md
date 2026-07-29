@@ -4472,3 +4472,19 @@ the current head. It does not assert physical IME/trackpad/multi-display
 coverage, an eight-hour soak, real LSP interaction, or Developer ID
 notarization; those remain separately recorded release coverage rather than
 blocking feature implementation.
+
+## UI-002: Own workspace layout as application state before rendering it
+
+Zed's `Workspace` owns docks, pane groups, active items, focus, and transient
+layers; individual panels render from that state. Nimculus previously exposed
+Files, Outline, Git history, status, and branches through one serialized
+native-sidebar string. That representation cannot preserve panel identity,
+dock sizing, focus, or direct manipulation.
+
+`workspace_ui` therefore introduces a platform-independent `WorkspaceUiState`
+with independent left and bottom docks, a pane tree, focus region, and
+geometry calculation. During the migration `EditorSession` remains the owner
+of documents, while panes reference its tab indices. This keeps document and
+editing behavior stable while moving visual composition and interaction toward
+one GPU UI owner. Cocoa is retained for platform services, not as a parallel
+workspace layout system.

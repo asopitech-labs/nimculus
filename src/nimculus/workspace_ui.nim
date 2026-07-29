@@ -1,0 +1,204 @@
+## Application-owned workspace UI state.
+##
+## This deliberately models interaction and geometry independently of Cocoa and
+## Metal.  AppKit remains the platform bridge; the editor owns its docks, panes
+## and focus in one place, as Zed's Workspace does.
+
+import nimnui/geometry
+
+type
+  WorkspaceRegion* = enum
+    regionNone, regionLeftDock, regionCenter, regionBottomDock, regionStatus
+
+  PanelKind* = enum
+    panelFiles, panelGit, panelOutline, panelTerminal, panelTasks
+
+  DockSide* = enum
+    dockLeft, dockBottom
+
+  PaneAxis* = enum
+    paneHorizontal, paneVertical
+
+  PaneId* = distinct int
+
+  PaneState* = object
+    ## Tab indices remain owned by EditorSession during the migration. This
+    ## makes the layout state useful now without duplicating document ownership.
+    id*: PaneId
+    tabIndices*: seq[int]
+    activeTabIndex*: int
+
+  PaneTreeKind* = enum
+    paneLeaf, paneSplit
+
+  PaneTree* = ref object
+    case kind*: PaneTreeKind
+    of paneLeaf:
+      pane*: PaneState
+    of paneSplit:
+      axis*: PaneAxis
+      ratio*: float32
+      first*, second*: PaneTree
+
+  DockState* = object
+    side*: DockSide
+    isOpen*: bool
+    activePanel*: PanelKind
+    size*: float32
+    minimumSize*: float32
+
+  WorkspaceLayout* = object
+    leftDock*, center*, bottomDock*, status*: Rect
+
+  WorkspaceUiState* = object
+    leftDock*, bottomDock*: DockState
+    center*: PaneTree
+    focusedRegion*: WorkspaceRegion
+    resizingDock*: DockSide
+    isResizingDock*: bool
+    nextPaneId*: int
+
+const
+  DefaultLeftDockWidth* = 240'f32
+  DefaultBottomDockHeight* = 260'f32
+  DefaultStatusHeight* = 22'f32
+  DefaultDockMinimumSize* = 160'f32
+  MinimumCenterWidth* = 360'f32
+  MinimumCenterHeight* = 180'f32
+
+proc normalizedRatio*(ratio: float32): float32 =
+  min(0.9'f32, max(0.1'f32, ratio))
+
+proc newPane(id: int, tabIndices: seq[int] = @[], activeTabIndex = -1): PaneTree =
+  PaneTree(kind: paneLeaf, pane: PaneState(id: PaneId(id), tabIndices: tabIndices,
+    activeTabIndex: activeTabIndex))
+
+proc initWorkspaceUi*(tabCount = 0, activeTab = -1): WorkspaceUiState =
+  var tabs: seq[int]
+  for index in 0 ..< tabCount: tabs.add(index)
+  result.leftDock = DockState(side: dockLeft, isOpen: true, activePanel: panelFiles,
+    size: DefaultLeftDockWidth, minimumSize: DefaultDockMinimumSize)
+  result.bottomDock = DockState(side: dockBottom, isOpen: false,
+    activePanel: panelTerminal, size: DefaultBottomDockHeight,
+    minimumSize: DefaultDockMinimumSize)
+  result.center = newPane(1, tabs, activeTab)
+  result.focusedRegion = regionCenter
+  result.nextPaneId = 2
+
+proc dock*(state: WorkspaceUiState, side: DockSide): DockState =
+  if side == dockLeft: state.leftDock else: state.bottomDock
+
+proc panelBelongsTo*(panel: PanelKind, side: DockSide): bool =
+  case side
+  of dockLeft: panel in {panelFiles, panelGit, panelOutline}
+  of dockBottom: panel in {panelTerminal, panelTasks}
+
+proc openPanel*(state: var WorkspaceUiState, panel: PanelKind) =
+  let side = if panelBelongsTo(panel, dockLeft): dockLeft else: dockBottom
+  if side == dockLeft:
+    state.leftDock.activePanel = panel
+    state.leftDock.isOpen = true
+  else:
+    state.bottomDock.activePanel = panel
+    state.bottomDock.isOpen = true
+  state.focusedRegion = if side == dockLeft: regionLeftDock else: regionBottomDock
+
+proc togglePanel*(state: var WorkspaceUiState, panel: PanelKind) =
+  let side = if panelBelongsTo(panel, dockLeft): dockLeft else: dockBottom
+  let isOpen = state.dock(side).isOpen
+  let activePanel = state.dock(side).activePanel
+  if isOpen and activePanel == panel:
+    if side == dockLeft: state.leftDock.isOpen = false
+    else: state.bottomDock.isOpen = false
+    if state.focusedRegion == (if side == dockLeft: regionLeftDock else: regionBottomDock):
+      state.focusedRegion = regionCenter
+  else:
+    state.openPanel(panel)
+
+proc focusCenter*(state: var WorkspaceUiState) =
+  state.focusedRegion = regionCenter
+
+proc beginDockResize*(state: var WorkspaceUiState, side: DockSide) =
+  state.resizingDock = side
+  state.isResizingDock = true
+
+proc endDockResize*(state: var WorkspaceUiState) =
+  state.isResizingDock = false
+
+proc resizeDock*(state: var WorkspaceUiState, side: DockSide, requested: float32,
+                 available: float32) =
+  let current = state.dock(side)
+  let centerMinimum = if side == dockLeft: MinimumCenterWidth else: MinimumCenterHeight
+  let upperBound = max(current.minimumSize, available - centerMinimum)
+  let size = min(upperBound, max(current.minimumSize, requested))
+  if side == dockLeft: state.leftDock.size = size
+  else: state.bottomDock.size = size
+
+proc layout*(state: WorkspaceUiState, viewport: Size): WorkspaceLayout =
+  let width = max(0'f32, float32(viewport.width))
+  let height = max(0'f32, float32(viewport.height))
+  let statusHeight = min(DefaultStatusHeight, height)
+  let usableHeight = max(0'f32, height - statusHeight)
+  let leftWidth = if state.leftDock.isOpen:
+      min(max(0'f32, width - MinimumCenterWidth), state.leftDock.size) else: 0'f32
+  let bottomHeight = if state.bottomDock.isOpen:
+      min(max(0'f32, usableHeight - MinimumCenterHeight), state.bottomDock.size) else: 0'f32
+  result.leftDock = Rect(origin: Point(x: px(0), y: px(0)),
+    size: Size(width: px(leftWidth), height: px(max(0'f32, usableHeight - bottomHeight))))
+  result.center = Rect(origin: Point(x: px(leftWidth), y: px(0)),
+    size: Size(width: px(max(0'f32, width - leftWidth)),
+      height: px(max(0'f32, usableHeight - bottomHeight))))
+  result.bottomDock = Rect(origin: Point(x: px(leftWidth),
+      y: px(max(0'f32, usableHeight - bottomHeight))),
+    size: Size(width: px(max(0'f32, width - leftWidth)), height: px(bottomHeight)))
+  result.status = Rect(origin: Point(x: px(0), y: px(usableHeight)),
+    size: Size(width: px(width), height: px(statusHeight)))
+
+proc regionAt*(layout: WorkspaceLayout, point: Point): WorkspaceRegion =
+  if layout.status.contains(point): regionStatus
+  elif float32(layout.leftDock.size.width) > 0 and layout.leftDock.contains(point): regionLeftDock
+  elif float32(layout.bottomDock.size.height) > 0 and layout.bottomDock.contains(point): regionBottomDock
+  elif layout.center.contains(point): regionCenter
+  else: regionNone
+
+proc firstPane*(tree: PaneTree): PaneState =
+  if tree.isNil: return
+  if tree.kind == paneLeaf: tree.pane else: tree.first.firstPane()
+
+proc syncRootTabs*(state: var WorkspaceUiState, tabCount, activeTab: int) =
+  ## Transitional adapter while EditorSession remains the owner of documents.
+  ## It refreshes only the initial/root pane and intentionally leaves a split
+  ## tree untouched: a split is a view arrangement, not a second buffer list.
+  if state.center.isNil: state = initWorkspaceUi(tabCount, activeTab)
+  var indices: seq[int]
+  for index in 0 ..< tabCount: indices.add(index)
+  proc sync(tree: PaneTree) =
+    if tree.isNil: return
+    if tree.kind == paneLeaf:
+      tree.pane.tabIndices = indices
+      tree.pane.activeTabIndex = activeTab
+    else:
+      sync(tree.first)
+      sync(tree.second)
+  sync(state.center)
+
+proc splitFocusedPane*(state: var WorkspaceUiState, axis: PaneAxis,
+                       ratio = 0.5'f32): bool =
+  ## The first vertical slice splits the root pane.  Recursive pane operations
+  ## follow once tab ownership moves from EditorSession to PaneState.
+  if state.center.isNil or state.center.kind != paneLeaf: return false
+  let source = state.center.pane
+  let newId = state.nextPaneId
+  inc state.nextPaneId
+  state.center = PaneTree(kind: paneSplit, axis: axis, ratio: normalizedRatio(ratio),
+    first: PaneTree(kind: paneLeaf, pane: source),
+    second: newPane(newId, source.tabIndices, source.activeTabIndex))
+  state.focusedRegion = regionCenter
+  true
+
+proc validate*(state: WorkspaceUiState): bool =
+  if state.leftDock.minimumSize <= 0 or state.bottomDock.minimumSize <= 0: return false
+  if not panelBelongsTo(state.leftDock.activePanel, dockLeft): return false
+  if not panelBelongsTo(state.bottomDock.activePanel, dockBottom): return false
+  if state.center.isNil: return false
+  true
