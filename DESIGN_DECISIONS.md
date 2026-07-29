@@ -4447,3 +4447,16 @@ process group before reclaiming PTY resources.
 If the final session is closed, the native terminal overlay and focus state are
 cleared. This avoids both orphaned shell descendants and a stale overlay that
 appears to accept input without an owning PTY.
+
+## M20-023: Record current-head E2E evidence separately from release credentials
+
+The self-hosted Apple Silicon GUI E2E for commit `7083934` succeeded after the
+integrated Git sidebar, workspace reveal, and terminal-session changes. It
+ran the full test suite, native Cocoa/Metal contracts, benchmarks, three cold
+starts, a short soak, and an adhoc DMG mount-and-launch in one execution.
+
+This is evidence that the macOS implementation is integrated and runnable at
+the current head. It does not assert physical IME/trackpad/multi-display
+coverage, an eight-hour soak, real LSP interaction, or Developer ID
+notarization; those remain separately recorded release coverage rather than
+blocking feature implementation.

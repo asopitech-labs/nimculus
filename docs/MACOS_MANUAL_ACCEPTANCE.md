@@ -10,11 +10,13 @@ macOS CIを完了条件とする。物理入力機器・日本語入力ソース
 
 ## 自動E2E証跡
 
-2026-07-28に、Apple SiliconのGUIログイン済みself-hosted runnerで、commit
-[`a3b1d1c`](https://github.com/asopitech-labs/nimculus/commit/a3b1d1c79fba37af6f6456828936c862277c7438)
-の[macOS Release Candidate E2E](https://github.com/asopitech-labs/nimculus/actions/runs/30345469642)
+2026-07-29に、Apple SiliconのGUIログイン済みself-hosted runnerで、commit
+[`7083934`](https://github.com/asopitech-labs/nimculus/commit/7083934e2fbc04f393c64386793b5b94c3105bc4)
+の[macOS Release Candidate E2E](https://github.com/asopitech-labs/nimculus/actions/runs/30413726097)
 が成功した。この実行は、全test、native Cocoa/Metal contract、benchmark、3回のcold-start、
 20秒soak、adhoc署名DMGをmountした内部`.app`の起動を一つのself-hosted GUI実行で確認した。
+このHEADには、クリック可能なGit status・branch picker・file history、bounded blame表示、
+Reveal Active File、大規模ツリーのreveal優先、および個別terminal session終了を含む。
 
 この証跡は自動化できるrelease-candidate基準を満たす。一方で、物理日本語IME、trackpad、
 複数ディスプレイ、実Language Serverの対話操作、2時間/8時間の連続利用、Developer ID署名・
