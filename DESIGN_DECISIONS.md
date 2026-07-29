@@ -4826,3 +4826,20 @@ the commit view action.
 
 **Consequences.** A commit row now provides both common commit-level actions
 without introducing a Git graph dependency or a separate clipboard path.
+
+## UI-018: Command Palette presents discoverable primary actions
+
+**Context.** The native Command Palette accepted arbitrary text but advertised
+only a small, stale subset of the commands it could execute. This made a
+large portion of the editor, workspace, Git, terminal, and LSP workflow
+effectively undiscoverable.
+
+**Decision.** Use a native completing combo box with the primary action names
+as visible candidates, while retaining exact free-form commands for commands
+that require an argument.
+
+**Evidence.** Zed initializes an action registry and normalizes action names
+for its Command Palette rather than requiring users to remember raw commands.
+
+**Consequences.** The palette now provides a useful first-level action
+surface without changing the existing command-dispatch ABI.

@@ -3667,8 +3667,18 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   (void)sender;
   NSAlert *alert = [[[NSAlert alloc] init] autorelease];
   alert.messageText = @"Command Palette";
-  alert.informativeText = @"Available: new, save, find, workspace search, cancel search";
-  NSTextField *field = [self workspacePathField:@"Command"];
+  alert.informativeText = @"Choose a command or type an exact command.";
+  NSComboBox *field = [[[NSComboBox alloc] initWithFrame:NSMakeRect(0, 0, 360, 26)] autorelease];
+  field.placeholderString = @"Type to filter commands";
+  field.completes = YES;
+  field.numberOfVisibleItems = 12;
+  [field addItemsWithObjectValues:@[
+    @"new", @"save", @"find", @"toggle files", @"reveal active file",
+    @"toggle git", @"git status", @"git log", @"git branches", @"git file history",
+    @"split editor", @"close split", @"toggle soft wrap", @"open settings",
+    @"toggle terminal", @"new terminal", @"toggle task output",
+    @"go to definition", @"find references", @"document symbols"
+  ]];
   alert.accessoryView = field;
   [alert addButtonWithTitle:@"Run"];
   [alert addButtonWithTitle:@"Cancel"];

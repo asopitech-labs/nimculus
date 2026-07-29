@@ -442,6 +442,12 @@ Zed の Git Panel は commit context menu に `Copy SHA` と commit view を置�
 `Open Commit` を既存 `git show --no-ext-diff` job に接続し、`Copy Commit SHA` は共通 clipboard bridge に
 full hash を渡す。Git graph や外部 hosting 連携を前提にせず、履歴閲覧に必要な基本操作を完結させる。
 
+## 追加監査: Command Palette action discovery（2026-07-29）
+
+Zed は action registry を初期化し、action 名を humanize/normalize して Command Palette と keymap editor の
+候補に渡す。Nimculus は任意の argument 付き command も維持する必要があるため、native `NSComboBox` に主要な
+固定 action を候補として表示しつつ、自由入力をそのまま既存 dispatcher へ渡す構成にする。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel
