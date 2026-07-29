@@ -1,5 +1,17 @@
 # Design Decisions
 
+## UI-001: UI を機能の入口として扱う
+
+ZedのWorkspace、Dock、Pane、ProjectPanelを調査した結果、Nimculusの既存UIは
+ファイル、Git、アウトラインを単一の文字列サイドバーへ投影するだけで、ユーザーが
+操作するPanel、Pane、Dockの状態を持っていなかった。内部サービスが存在しても、
+ユーザーが発見し、操作し、状態と結果を確認できなければ機能は完成していない。
+
+以後、機能の完了条件には、操作導線、hit target、キーボードフォーカス、状態表示、
+失敗時のフィードバック、実機スクリーンショットを含める。UI実装は見た目を後付けする
+工程ではなく、アクションから状態遷移、描画までを含む機能実装として扱う。調査内容と
+再設計の前提は `docs/ZED_UI_ARCHITECTURE_RESEARCH.md` に記録する。
+
 ## M1-017: Bind window lifecycle callbacks to the application delegate
 
 Zed registers macOS window callbacks for both close handling and display
