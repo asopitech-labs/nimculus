@@ -436,6 +436,8 @@ static NimculusDiagnosticSpan *g_secondary_diagnostics = NULL;
 static uint32_t g_secondary_diagnostic_count = 0;
 static NimculusGitHunkSpan *g_git_hunks = NULL;
 static uint32_t g_git_hunk_count = 0;
+static NimculusGitHunkSpan *g_secondary_git_hunks = NULL;
+static uint32_t g_secondary_git_hunk_count = 0;
 
 static void releasePlatformResources(void) {
   // As with Zed's renderer drop path, release GPU objects before AppKit tears
@@ -461,6 +463,7 @@ static void releasePlatformResources(void) {
   free(g_diagnostics); g_diagnostics = NULL; g_diagnostic_count = 0;
   free(g_secondary_diagnostics); g_secondary_diagnostics = NULL; g_secondary_diagnostic_count = 0;
   free(g_git_hunks); g_git_hunks = NULL; g_git_hunk_count = 0;
+  free(g_secondary_git_hunks); g_secondary_git_hunks = NULL; g_secondary_git_hunk_count = 0;
   free(g_terminal_runs); g_terminal_runs = NULL; g_terminal_run_count = 0;
   free(g_editor_annotations); g_editor_annotations = NULL; g_editor_annotation_count = 0;
   [g_terminal_hyperlinks release]; g_terminal_hyperlinks = nil;
@@ -511,7 +514,7 @@ bool nimculus_platform_validate_resource_teardown(void) {
     g_image_pipeline == nil && g_queue == nil && g_glyph_vertices == NULL &&
     g_paint_commands == NULL && g_paint_dirty_regions == NULL &&
     g_highlights == NULL && g_secondary_highlights == NULL && g_diagnostics == NULL &&
-    g_secondary_diagnostics == NULL && g_git_hunks == NULL &&
+    g_secondary_diagnostics == NULL && g_git_hunks == NULL && g_secondary_git_hunks == NULL &&
     g_terminal_runs == NULL && g_editor_annotations == NULL &&
     g_pending_file_open_paths == nil &&
     g_glyph_vertex_count == 0 && g_paint_count == 0 &&
@@ -1226,9 +1229,12 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     for (NSUInteger visibleIndex = 0; visibleIndex < visible.count; visibleIndex++) {
       NSString *visibleLine = visible[visibleIndex];
       NSUInteger documentLine = startLine + visibleIndex;
-      for (uint32_t hunkIndex = 0; editorTextureOwnsPrimaryDecorations() &&
-           hunkIndex < g_git_hunk_count; hunkIndex++) {
-        NimculusGitHunkSpan hunk = g_git_hunks[hunkIndex];
+      NimculusGitHunkSpan *hunks = g_rendering_secondary_editor
+        ? g_secondary_git_hunks : g_git_hunks;
+      uint32_t hunkCount = g_rendering_secondary_editor
+        ? g_secondary_git_hunk_count : g_git_hunk_count;
+      for (uint32_t hunkIndex = 0; hunkIndex < hunkCount; hunkIndex++) {
+        NimculusGitHunkSpan hunk = hunks[hunkIndex];
         NSUInteger hunkStart = hunk.start_line;
         NSUInteger hunkEnd = hunkStart + MAX((uint32_t)1, hunk.line_count);
         if (documentLine < hunkStart || documentLine >= hunkEnd || visibleLine.length == 0) continue;
@@ -1316,9 +1322,12 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
     NSUInteger lineEndUnit = lineStartUnit + lineText.length;
     NSUInteger documentLine = startLine + displayIndex;
-    for (uint32_t hunkIndex = 0; editorTextureOwnsPrimaryDecorations() &&
-         hunkIndex < g_git_hunk_count; hunkIndex++) {
-      NimculusGitHunkSpan hunk = g_git_hunks[hunkIndex];
+    NimculusGitHunkSpan *hunks = g_rendering_secondary_editor
+      ? g_secondary_git_hunks : g_git_hunks;
+    uint32_t hunkCount = g_rendering_secondary_editor
+      ? g_secondary_git_hunk_count : g_git_hunk_count;
+    for (uint32_t hunkIndex = 0; hunkIndex < hunkCount; hunkIndex++) {
+      NimculusGitHunkSpan hunk = hunks[hunkIndex];
       NSUInteger hunkStart = hunk.start_line;
       NSUInteger hunkEnd = hunkStart + MAX((uint32_t)1, hunk.line_count);
       if (documentLine < hunkStart || documentLine >= hunkEnd) continue;
@@ -1348,9 +1357,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         logicalHeight - lineHeight * (displayIndex + 1) - 4.0,
         MAX(1.0, editorTextOffset(lineText, endUnit) - editorTextOffset(lineText, startUnit)), 20.0));
     }
-    for (uint32_t hunkIndex = 0; editorTextureOwnsPrimaryDecorations() &&
-         hunkIndex < g_git_hunk_count; hunkIndex++) {
-      NimculusGitHunkSpan hunk = g_git_hunks[hunkIndex];
+    for (uint32_t hunkIndex = 0; hunkIndex < hunkCount; hunkIndex++) {
+      NimculusGitHunkSpan hunk = hunks[hunkIndex];
       NSUInteger hunkStart = hunk.start_line;
       NSUInteger hunkEnd = hunkStart + MAX((uint32_t)1, hunk.line_count);
       if (documentLine < hunkStart || documentLine >= hunkEnd) continue;
@@ -7624,6 +7632,22 @@ void nimculus_platform_set_editor_git_hunks(const NimculusGitHunkSpan *spans, ui
   }
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+void nimculus_platform_set_secondary_editor_git_hunks(const NimculusGitHunkSpan *spans,
+                                                       uint32_t count) {
+  free(g_secondary_git_hunks);
+  g_secondary_git_hunks = NULL;
+  g_secondary_git_hunk_count = 0;
+  if (spans && count > 0) {
+    g_secondary_git_hunks = malloc(sizeof(NimculusGitHunkSpan) * count);
+    if (g_secondary_git_hunks) {
+      memcpy(g_secondary_git_hunks, spans, sizeof(NimculusGitHunkSpan) * count);
+      g_secondary_git_hunk_count = count;
+    }
+  }
+  markSceneFullyDirty();
+  if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
 }
 void nimculus_platform_set_recent_files(const char *const *paths, uint32_t count) {

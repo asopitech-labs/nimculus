@@ -5215,14 +5215,14 @@ applies byte offsets from the wrong buffer and produces incorrect coloring.
 
 **Decision.** Maintain a second `EditorSyntaxState` for the secondary pane and
 send its visible spans through a distinct macOS highlight buffer. The platform
-selects that buffer only while rebuilding the secondary texture. Primary LSP
-diagnostics and Git hunks are explicitly not rendered into that texture;
-inlay hints remain attached to the primary overlay. Their own pane-local
-presentation will be added only with matching per-document LSP/Git state.
+selects that buffer only while rebuilding the secondary texture. Diagnostics
+and Git hunks use matching per-pane buffers and URI/path-specific async
+sources; inlay hints remain attached to the primary overlay until they obtain
+the same per-document request ownership.
 
 **Consequences.** Two different languages or source lengths can be displayed
 side-by-side without syntax-span aliasing or stale primary diagnostics/diff
-markers, while the current LSP and Git UI scope remains explicit.
+markers, while the remaining primary-only inlay-hint scope stays explicit.
 
 ## UI-041: Persist the secondary pane item separately from the primary tab
 
@@ -5280,3 +5280,17 @@ x/width for vertical splits and y/height for horizontal splits.
 **Consequences.** The supported two-pane model has no hidden orientation that
 can only be restored from a session. Geometry, hit testing, focus, and drag
 resizing remain derived from the same `PaneTree` layout.
+
+## UI-044: Render Git hunks from each visible pane's document
+
+**Context.** Git hunk ranges are line-based and belong to a specific file.
+Suppressing primary hunks in the secondary pane avoided stale markers, but
+left an independently selected secondary document without diff feedback.
+
+**Decision.** Give the secondary pane its own cancellable `git diff` job,
+path guard, and Metal hunk buffer. Completion applies only if that same path
+is still visible in the secondary pane; closing the split or removing its
+document clears the buffer.
+
+**Consequences.** Two files can display correct independent diff decorations
+without coupling the Git sidebar/status job to secondary-pane presentation.

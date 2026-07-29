@@ -109,6 +109,7 @@ when defined(macosx) or defined(windows):
 proc syncEditorCursor()
 proc syncWorkspaceUiTabs()
 proc activeDocument(): ptr FileDocument
+proc secondaryPaneDocument(): ptr FileDocument
 when defined(macosx):
   proc syncSecondaryEditorView()
   proc syncSecondaryNativeDiagnostics(document: ptr FileDocument)
@@ -502,6 +503,7 @@ var discardDirtyOnExit = false
 when defined(macosx):
   var lspBridge: LspEditorBridge
   var editorGitDiffJob: GitJob
+  var editorSecondaryGitDiffJob: GitJob
   var editorGitStatusJob: GitJob
   var editorGitBranchJob: GitJob
   var editorGitStatusRepository: GitRepository
@@ -516,6 +518,7 @@ when defined(macosx):
   var editorGitActionLine = -1
   var editorGitRepository: GitRepository
   var editorGitPath = ""
+  var editorSecondaryGitPath = ""
   var editorGitHistory: seq[GitCommit]
   var editorGitHistoryPath = ""
   var editorGitStatusEntries: seq[GitStatusEntry]
@@ -578,6 +581,7 @@ proc refreshDocumentLanguageSettings()
 when defined(macosx):
   proc refreshSecondaryEditorSyntax()
   proc scheduleNativeGitHunks(document: ptr FileDocument)
+  proc scheduleNativeSecondaryGitHunks(document: ptr FileDocument)
 
   proc gitRepositoryForDocument(document: ptr FileDocument): GitRepository =
     # Zed's Git panel is owned by a workspace repository, not by an editor
@@ -869,6 +873,7 @@ when defined(macosx):
       # Refresh the panel through the same job boundary after an item-local
       # mutation. This avoids stale staging affordances and never blocks UI.
       scheduleNativeGitHunks(activeDocument())
+      scheduleNativeSecondaryGitHunks(secondaryPaneDocument())
       startNativeGitAction(editorGitRepository, "refresh status", "", [
         "status", "--porcelain=v1", "--untracked-files=all", "-z"], source = action)
       return
@@ -883,6 +888,7 @@ when defined(macosx):
       # write. Refresh through the same cancellable job boundary rather than
       # synchronously reading history on the UI thread.
       scheduleNativeGitHunks(activeDocument())
+      scheduleNativeSecondaryGitHunks(secondaryPaneDocument())
       startNativeGitAction(editorGitRepository, "refresh history", "", [
         "log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00", "-n", "100"],
         source = action)
@@ -901,6 +907,7 @@ when defined(macosx):
         syntaxState = nil
       refreshEditorSyntax()
       scheduleNativeGitHunks(activeDocument())
+      scheduleNativeSecondaryGitHunks(secondaryPaneDocument())
       editorViewState.statusMessage = "Git: switched to " & editorGitActionSource &
         " (reloaded " & $reloaded & " clean tab(s))"
     elif action == "show":
@@ -943,6 +950,16 @@ when defined(macosx):
 
   proc clearNativeGitHunks() =
     platformSetEditorGitHunks(nil, 0)
+
+  proc clearNativeSecondaryGitHunks() =
+    platformSetSecondaryEditorGitHunks(nil, 0)
+
+  proc resetNativeSecondaryGitHunks() =
+    if editorSecondaryGitDiffJob != nil:
+      editorSecondaryGitDiffJob.cancel()
+      editorSecondaryGitDiffJob = nil
+    editorSecondaryGitPath = ""
+    clearNativeSecondaryGitHunks()
 
   proc taskWorkingDirectory(document: ptr FileDocument): string =
     if activeWorkspace != nil and activeWorkspace.rootPaths.len > 0:
@@ -1636,6 +1653,39 @@ when defined(macosx):
     else:
       clearNativeGitHunks()
 
+  proc scheduleNativeSecondaryGitHunks(document: ptr FileDocument) =
+    ## Secondary panes can own a different document. Keep their diff request
+    ## and line ranges independent from the primary Git panel state.
+    resetNativeSecondaryGitHunks()
+    if not editorSession.split or document == nil or document[].path.len == 0: return
+    let repository = gitRepositoryForDocument(document)
+    if repository == nil: return
+    let relative = gitRelativePathForDocument(document, repository)
+    if relative.len == 0: return
+    editorSecondaryGitPath = document[].path
+    editorSecondaryGitDiffJob = repository.startGitJob([
+      "diff", "--no-ext-diff", "--unified=3", "--", relative])
+
+  proc pollNativeSecondaryGitHunks() =
+    if editorSecondaryGitDiffJob == nil or not editorSecondaryGitDiffJob.poll(): return
+    let completedJob = editorSecondaryGitDiffJob
+    let output = completedJob.result
+    editorSecondaryGitDiffJob = nil
+    let document = secondaryPaneDocument()
+    if document == nil or document[].path != editorSecondaryGitPath or output.exitCode != 0:
+      return
+    let hunks = parseDiffHunks(output.output)
+    var nativeHunks = newSeq[NativeGitHunkSpan](hunks.len)
+    for index, hunk in hunks:
+      nativeHunks[index] = NativeGitHunkSpan(
+        startLine: uint32(max(0, hunk.newStart - 1)),
+        lineCount: uint32(max(1, hunk.newCount)),
+        kind: uint32(ord(hunk.kind)))
+    if nativeHunks.len > 0:
+      platformSetSecondaryEditorGitHunks(addr nativeHunks[0], uint32(nativeHunks.len))
+    else:
+      resetNativeSecondaryGitHunks()
+
   proc pollNativeGitStatus() =
     if editorGitStatusJob == nil or not editorGitStatusJob.poll(): return
     let completedJob = editorGitStatusJob
@@ -2168,10 +2218,12 @@ when defined(macosx):
   proc syncSecondaryEditorView() =
     if not editorSession.split:
       platformSetSecondaryEditorDiagnostics(nil, 0)
+      resetNativeSecondaryGitHunks()
       return
     let document = secondaryPaneDocument()
     if document == nil:
       platformSetSecondaryEditorDiagnostics(nil, 0)
+      resetNativeSecondaryGitHunks()
       return
     let tab = editorWorkspaceUi.center.second.pane.activeTabIndex
     var view = editorSession.tabs[tab].secondaryView
@@ -2469,6 +2521,7 @@ when defined(macosx):
         secondarySyntaxState = nil
       platformSetSecondaryEditorHighlights(nil, 0)
       platformSetSecondaryEditorDiagnostics(nil, 0)
+      resetNativeSecondaryGitHunks()
       return
     let document = secondaryPaneDocument()
     if document == nil:
@@ -2477,6 +2530,7 @@ when defined(macosx):
         secondarySyntaxState = nil
       platformSetSecondaryEditorHighlights(nil, 0)
       platformSetSecondaryEditorDiagnostics(nil, 0)
+      resetNativeSecondaryGitHunks()
       return
     var grammar: GrammarKind
     try:
@@ -2486,6 +2540,7 @@ when defined(macosx):
         secondarySyntaxState.close()
         secondarySyntaxState = nil
       platformSetSecondaryEditorHighlights(nil, 0)
+      scheduleNativeSecondaryGitHunks(document)
       return
     let text = document[].buffer.toString()
     if secondarySyntaxState == nil or secondarySyntaxState.grammar != grammar:
@@ -2510,6 +2565,7 @@ when defined(macosx):
         endByte: span.endByte, kind: uint32(ord(span.kind)))
     let ptrHighlights = if nativeHighlights.len > 0: addr nativeHighlights[0] else: nil
     platformSetSecondaryEditorHighlights(ptrHighlights, uint32(nativeHighlights.len))
+    scheduleNativeSecondaryGitHunks(document)
 
 when defined(macosx):
   proc pollLspAndRefreshDiagnostics() =
@@ -2524,6 +2580,7 @@ when defined(macosx):
       applySettingsTheme()
       editorViewState.statusMessage = "Settings reloaded"
     pollNativeGitHunks()
+    pollNativeSecondaryGitHunks()
     pollNativeGitBranch()
     pollNativeGitStatus()
     pollNativeGitAction()

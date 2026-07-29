@@ -176,6 +176,7 @@ proc platformSetEditorDiagnostics*(spans: ptr NativeDiagnosticSpan, count: uint3
 proc platformSetSecondaryEditorDiagnostics*(spans: ptr NativeDiagnosticSpan, count: uint32) {.importc: "nimculus_platform_set_secondary_editor_diagnostics", cdecl.}
 proc platformSetEditorAnnotations*(annotations: ptr NativeEditorAnnotation, count: uint32) {.importc: "nimculus_platform_set_editor_annotations", cdecl.}
 proc platformSetEditorGitHunks*(spans: ptr NativeGitHunkSpan, count: uint32) {.importc: "nimculus_platform_set_editor_git_hunks", cdecl.}
+proc platformSetSecondaryEditorGitHunks*(spans: ptr NativeGitHunkSpan, count: uint32) {.importc: "nimculus_platform_set_secondary_editor_git_hunks", cdecl.}
 proc platformSetRecentFiles*(paths: ptr cstring, count: uint32) {.importc: "nimculus_platform_set_recent_files", cdecl.}
 proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}
 proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer, length: uint32) {.importc: "nimculus_platform_set_image_rgba", cdecl.}
