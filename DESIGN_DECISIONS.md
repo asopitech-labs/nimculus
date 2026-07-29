@@ -5048,3 +5048,24 @@ rendering or handling input.
 blocking input, and document/workspace changes cancel stale branch work with
 the rest of the Git lifecycle; a late branch result cannot relabel an older
 status list.
+
+## UI-030: Workspace navigation owns explicit contrast
+
+**Context.** A real dark-theme review showed that AppKit's textured buttons
+and default template-symbol tint left Files, Outline, Git, Terminal, and Split
+labels too dark, while inactive activity icons could resemble the active
+accent. The controls were functional but their state was not legible.
+
+**Decision.** Style workspace-header and activity-bar buttons with explicit
+theme foregrounds, accent/muted backgrounds, and an active accent border.
+They remain native buttons and retain their existing accessibility labels and
+command dispatch; the appearance no longer depends on AppKit's default bezel
+or template-image tint choices.
+
+**Evidence.** Zed assigns foreground, active background, and border tokens to
+its pane and dock controls rather than relying on platform-default button
+colors.
+
+**Consequences.** Navigation labels and selected state remain visible under
+the configured dark theme, making the UI pathway itself usable rather than
+merely present.

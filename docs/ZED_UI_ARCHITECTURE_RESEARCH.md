@@ -539,6 +539,14 @@ Nimculusもporcelain statusとbranchを別のcancellable GitJobとして開始�
 再描画する。statusとbranchには同じsnapshot generationを記録し、document/workspace切替時は両方のjobを
 cancelするため、古いrepositoryのbranchが現在panelに混入しない。
 
+## 追加監査: Workspace navigation のcontrast（2026-07-29）
+
+Zedのpane/dock buttonはtheme tokenからforeground、active background、borderを明示的に選び、OS既定の
+bezel色へ委譲しない。Nimculusも実画面レビューでdark theme上のlow-contrast labelを確認したため、workspace
+headerとactivity barのnative buttonへtheme foreground、muted/active背景、active accent borderを設定する。
+buttonは引き続きAppKit controlとしてaccessibilityとcommand dispatchを持ち、表示だけを明示的なtheme contractへ
+移す。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

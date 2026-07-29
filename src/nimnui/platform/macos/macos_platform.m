@@ -289,6 +289,30 @@ static NSColor *themeHexColor(NSString *value, NSColor *fallback) {
                                    blue:blue / 255.0 alpha:1.0];
 }
 
+static void styleWorkspaceNavigationButton(NSButton *button, BOOL active,
+                                           BOOL imageOnly) {
+  if (!button) return;
+  NSColor *foreground = themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]);
+  NSColor *accent = themeHexColor(g_theme_accent, [NSColor controlAccentColor]);
+  NSColor *tint = active ? accent : [foreground colorWithAlphaComponent:0.78];
+  button.bordered = NO;
+  button.wantsLayer = YES;
+  button.layer.cornerRadius = 5.0;
+  button.layer.borderWidth = active ? 1.0 : 0.0;
+  button.layer.borderColor = [accent colorWithAlphaComponent:0.55].CGColor;
+  button.layer.backgroundColor = [(active ? [accent colorWithAlphaComponent:0.22] :
+    [foreground colorWithAlphaComponent:0.08]) CGColor];
+  button.contentTintColor = tint;
+  if (button.image) button.image.template = YES;
+  if (!imageOnly) {
+    button.attributedTitle = [[[NSAttributedString alloc] initWithString:button.title ?: @""
+      attributes:@{NSForegroundColorAttributeName: tint,
+        NSFontAttributeName: [NSFont systemFontOfSize:12.0
+          weight:active ? NSFontWeightSemibold : NSFontWeightMedium]}] autorelease];
+  }
+}
+
 static void themeRGB(NSString *value, NSColor *fallback,
                      float *red, float *green, float *blue) {
   NSColor *color = themeHexColor(value, fallback);
@@ -2482,12 +2506,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
       [command isEqualToString:@"commandPalette:git status"] ?
         g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 && g_editor_sidebar_mode <= 4 :
       [command isEqualToString:@"commandPalette:toggle terminal"] ? g_terminal_visible : NO;
-    // `nil` lets AppKit pick the system accent for template symbols/text, so
-    // inactive controls can look selected. Use an explicit muted foreground
-    // and reserve the accent for the active destination.
-    button.contentTintColor = active ? themeHexColor(g_theme_accent,
-      [NSColor controlAccentColor]) : [themeHexColor(g_theme_foreground,
-        [NSColor secondaryLabelColor]) colorWithAlphaComponent:0.66];
+    styleWorkspaceNavigationButton(button, active, NO);
     button.toolTip = active ? [NSString stringWithFormat:@"%@ (active)", button.title] :
       button.title;
   }
@@ -2545,9 +2564,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
       [command isEqualToString:@"commandPalette:git status"] ?
         g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 && g_editor_sidebar_mode <= 4 :
       [command isEqualToString:@"commandPalette:toggle terminal"] ? g_terminal_visible : NO;
-    button.contentTintColor = active ? themeHexColor(g_theme_accent,
-      [NSColor controlAccentColor]) : [themeHexColor(g_theme_foreground,
-        [NSColor secondaryLabelColor]) colorWithAlphaComponent:0.66];
+    styleWorkspaceNavigationButton(button, active, YES);
   }
 }
 - (void)dispatchWorkspaceCommand:(NSButton *)sender {
@@ -5535,7 +5552,9 @@ bool nimculus_platform_validate_workspace_toolbar(void) {
     BOOL selection = ((NSButton *)buttons[2]).contentTintColor != nil &&
       ((NSButton *)buttons[3]).contentTintColor != nil &&
       ![((NSButton *)buttons[2]).contentTintColor
-        isEqual:((NSButton *)buttons[0]).contentTintColor];
+        isEqual:((NSButton *)buttons[0]).contentTintColor] &&
+      !((NSButton *)buttons[2]).bordered &&
+      ((NSButton *)buttons[2]).layer.backgroundColor != nil;
     [toolbar dispatchWorkspaceCommand:(NSButton *)buttons[2]];
     BOOL git = strcmp(g_validation_command, "commandPalette:git status") == 0;
     [toolbar dispatchWorkspaceCommand:(NSButton *)buttons[3]];
@@ -5577,7 +5596,9 @@ bool nimculus_platform_validate_activity_bar(void) {
       [((NSButton *)buttons[3]).toolTip isEqualToString:@"Terminal"] &&
       ((NSButton *)buttons[0]).contentTintColor != nil &&
       ![((NSButton *)buttons[0]).contentTintColor
-        isEqual:((NSButton *)buttons[1]).contentTintColor];
+        isEqual:((NSButton *)buttons[1]).contentTintColor] &&
+      !((NSButton *)buttons[0]).bordered &&
+      ((NSButton *)buttons[0]).layer.backgroundColor != nil;
     [bar dispatchWorkspaceCommand:(NSButton *)buttons[2]];
     BOOL git = strcmp(g_validation_command, "commandPalette:git status") == 0;
     g_terminal_visible = YES;
