@@ -197,16 +197,22 @@ proc setupDemoUi() =
     viewport: viewport)
   demoTree.layoutNode(root, viewport, spec)
   let bounds = demoTree.node(button.node).bounds
+  let workspaceLayout = editorWorkspaceUi.layout(
+    Size(width: px(viewportWidth), height: px(viewportHeight)))
+  let leftDockWidth = float32(workspaceLayout.leftDock.size.width)
+  let bottomDockHeight = float32(workspaceLayout.bottomDock.size.height)
   let margin = 24'f32
   let panel = Rect(origin: Point(x: px(margin), y: px(margin)),
     size: Size(width: px(max(0'f32, viewportWidth - margin * 2)),
                height: px(max(0'f32, viewportHeight - margin * 2))))
   let toolbar = Rect(origin: Point(x: px(margin * 2), y: px(margin * 2)),
     size: Size(width: px(max(0'f32, viewportWidth - margin * 4)), height: px(56)))
-  let outlineWidth = 220'f32
-  let editorWidth = max(0'f32, viewportWidth - margin * 4 - outlineWidth - 84'f32)
+  # Preserve the mature editor presenter's internal gutters while making the
+  # composition boundary authoritative: the dock owns its width and the
+  # center receives the remainder.
+  let editorWidth = max(0'f32, float32(workspaceLayout.center.size.width) - 112'f32)
   let editorHeight = max(0'f32, viewportHeight - 208'f32)
-  let editor = Rect(origin: Point(x: px(margin * 2 + outlineWidth), y: px(128)),
+  let editor = Rect(origin: Point(x: px(leftDockWidth + 28'f32), y: px(128)),
     size: Size(width: px(editorWidth), height: px(editorHeight)))
   var primaryEditor = editor
   var secondaryEditor = Rect(size: Size(width: px(0), height: px(0)))
@@ -232,7 +238,7 @@ proc setupDemoUi() =
         size: Size(width: editor.size.width, height: px(2)))
   demoEditorBounds = primaryEditor
   demoSecondaryEditorBounds = secondaryEditor
-  let scrollbar = Rect(origin: Point(x: px(margin * 2 + outlineWidth + editorWidth + 24), y: px(144)),
+  let scrollbar = Rect(origin: Point(x: px(float32(editor.origin.x) + editorWidth + 24), y: px(144)),
     size: Size(width: px(8), height: px(max(0'f32, editorHeight - 32'f32))))
   demoTree.node(button.node).bounds = toolbar
   demoTree.node(split.node).bounds = splitBar
@@ -242,10 +248,6 @@ proc setupDemoUi() =
   # The native text overlays remain transitional content presenters, but their
   # surface is composed by the same Metal scene as the editor.  Derive chrome
   # from WorkspaceUiState rather than drawing a disconnected demo card.
-  let workspaceLayout = editorWorkspaceUi.layout(
-    Size(width: px(viewportWidth), height: px(viewportHeight)))
-  let leftDockWidth = float32(workspaceLayout.leftDock.size.width)
-  let bottomDockHeight = float32(workspaceLayout.bottomDock.size.height)
   paint.drawWorkspaceBackground(viewport)
   if leftDockWidth > 0:
     paint.drawWorkspacePanel(Rect(origin: Point(x: px(0), y: px(24)),
