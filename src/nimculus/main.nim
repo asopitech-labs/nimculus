@@ -632,6 +632,7 @@ when defined(macosx):
   proc renderNativeGitHistory(commits: seq[GitCommit], title = "Git History",
                               path = "") =
     editorWorkspaceUi.openPanel(panelGit)
+    setupDemoUi()
     editorSidebarMode = sidebarGitHistory
     editorGitHistory = commits
     editorGitHistoryPath = path
@@ -664,6 +665,7 @@ when defined(macosx):
 
   proc renderNativeGitStatus(entries: seq[GitStatusEntry]) =
     editorWorkspaceUi.openPanel(panelGit)
+    setupDemoUi()
     ## Keep conflicts explicit and ahead of ordinary changes. As in Zed's
     ## separate conflict section, this is informational only: bulk stage or
     ## unstage actions must not silently resolve or discard an unmerged file.
@@ -695,6 +697,7 @@ when defined(macosx):
 
   proc renderNativeGitBranches(branches: seq[GitBranch]) =
     editorWorkspaceUi.openPanel(panelGit)
+    setupDemoUi()
     editorSidebarMode = sidebarGitBranches
     editorGitBranches = branches
     var lines = @["Git Branches", "────────"]
@@ -3232,6 +3235,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command in ["reveal active file", "reveal in files", "reveal in explorer"]:
         "__reveal_active_file__"
       elif command in ["show outline", "show symbols"]: "__show_outline__"
+      elif command in ["toggle outline", "toggle symbols"]: "__toggle_outline__"
+      elif command in ["toggle git", "toggle source control"]: "__toggle_git__"
       elif command == "open settings": "openSettings"
       elif command in ["toggle soft wrap", "toggle word wrap"]: "toggleSoftWrap"
       elif command == "check for updates": "__check_updates__"
@@ -3503,8 +3508,27 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "__show_outline__":
       when defined(macosx):
         editorWorkspaceUi.openPanel(panelOutline)
+        setupDemoUi()
         editorSidebarMode = sidebarOutline
         syncNativeSymbolTree()
+    of "__toggle_outline__":
+      when defined(macosx):
+        editorWorkspaceUi.togglePanel(panelOutline)
+        setupDemoUi()
+        if editorWorkspaceUi.leftDock.isOpen:
+          editorSidebarMode = sidebarOutline
+          syncNativeSymbolTree()
+    of "__toggle_git__":
+      when defined(macosx):
+        let wasActive = editorWorkspaceUi.leftDock.isOpen and
+          editorWorkspaceUi.leftDock.activePanel == panelGit
+        if wasActive:
+          editorWorkspaceUi.togglePanel(panelGit)
+          setupDemoUi()
+        else:
+          # Reuse the existing asynchronous Git status path rather than
+          # inventing a second source-control presenter.
+          receiveNativeCommand("commandPalette:git status".cstring)
     of "git status":
       when defined(macosx):
         editorWorkspaceUi.openPanel(panelGit)
