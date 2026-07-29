@@ -5264,3 +5264,19 @@ selected while its Core Text texture is rebuilt.
 their own document versions without a focus switch sending `didClose` for the
 other visible buffer. Interactive LSP requests remain deliberately scoped to
 the focused primary bridge until per-pane request ownership is introduced.
+
+## UI-043: Expose both supported split axes through the macOS UI
+
+**Context.** `PaneTree`, session restoration, and the native primary/secondary
+presenters already support vertical and horizontal two-pane geometry. The
+visible toolbar and Window menu, however, only created a vertical split, while
+the divider drag calculation always used the x coordinate.
+
+**Decision.** Keep the compact toolbar action as the common vertical split and
+add an explicit `Window > Split Editor Horizontally` command and Command
+Palette aliases. Divider dragging derives its ratio from the `PaneTree` axis:
+x/width for vertical splits and y/height for horizontal splits.
+
+**Consequences.** The supported two-pane model has no hidden orientation that
+can only be restored from a session. Geometry, hit testing, focus, and drag
+resizing remain derived from the same `PaneTree` layout.

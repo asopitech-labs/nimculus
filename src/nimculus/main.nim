@@ -394,7 +394,7 @@ proc setupShortcutRegistry() =
   # bindings are installed below and are resolved before interpretKeyEvents.
   for name in [
       # Application and menu commands.
-    "save", "newDocument", "closeTabRequest", "openSettings", "splitEditor", "closeSplit", "undo", "redo",
+    "save", "newDocument", "closeTabRequest", "openSettings", "splitEditor", "splitEditorHorizontal", "closeSplit", "undo", "redo",
       "cut", "copy", "paste", "selectAll", "previousTab", "nextTab",
       # AppKit NSText movement/editing selectors. Keeping these names at the
         # application boundary lets settings override Command/Option behavior
@@ -3236,20 +3236,23 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     when defined(macosx):
       if appSettings != nil and appSettings.stringSetting("theme", "dark").toLowerAscii == "system":
         applySettingsTheme()
-  elif name == "splitEditor":
+  elif name in ["splitEditor", "splitEditorHorizontal"]:
     if document == nil:
       editorViewState.statusMessage = "Open a document before splitting"
     elif editorSession.split:
       editorViewState.statusMessage = "Editor is already split"
     else:
-      editorSession.splitEditor(splitVertical, demoSplitRatio)
-      if not editorWorkspaceUi.splitFocusedPane(paneVertical, editorSession.effectiveSplitRatio):
+      let direction = if name == "splitEditorHorizontal": splitHorizontal else: splitVertical
+      let axis = if direction == splitHorizontal: paneHorizontal else: paneVertical
+      editorSession.splitEditor(direction, demoSplitRatio)
+      if not editorWorkspaceUi.splitFocusedPane(axis, editorSession.effectiveSplitRatio):
         # A restored split already has a pane tree; session state is still the
         # compatibility source while pane-local tab ownership is migrated.
         discard
       demoSplitEnabled = true
       demoSplitDirection = editorSession.splitDirection
-      editorViewState.statusMessage = "Editor split"
+      editorViewState.statusMessage = if direction == splitHorizontal:
+        "Editor split horizontally" else: "Editor split vertically"
       setupDemoUi()
       syncEditorCursor()
       persistSession()
@@ -3685,6 +3688,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command == "cancel task": "__cancel_task__"
       elif command == "cancel git": "__cancel_git__"
       elif command in ["split", "split editor", "split vertical"]: "splitEditor"
+      elif command in ["split horizontal", "split editor horizontally"]: "splitEditorHorizontal"
       elif command in ["close split", "unsplit"]: "closeSplit"
       elif command.startsWith("workspace search "): "__workspace_search__"
       elif command.startsWith("quick open "): "__quick_open__"
@@ -4660,9 +4664,15 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       splitPointerHandled = true
     elif demoSplitDragging and kind == pointerMove:
       let editorBounds = demoTree.node(demoScrollNode).bounds
-      let width = max(1'f32, float32(editorBounds.size.width))
-      editorSession.setSplitRatio(
-        (float32(event.x) - float32(editorBounds.origin.x)) / width)
+      let axisLength = if demoSplitDirection == splitHorizontal:
+          max(1'f32, float32(editorBounds.size.height))
+        else:
+          max(1'f32, float32(editorBounds.size.width))
+      let position = if demoSplitDirection == splitHorizontal:
+          uiY - float32(editorBounds.origin.y)
+        else:
+          float32(event.x) - float32(editorBounds.origin.x)
+      editorSession.setSplitRatio(position / axisLength)
       demoSplitRatio = editorSession.effectiveSplitRatio
       discard editorWorkspaceUi.setRootSplitRatio(demoSplitRatio)
       setupDemoUi()

@@ -76,6 +76,13 @@ tell application "System Events"
     delay 0.5
     if not (exists button "Split" of window 1) then error "Close Split did not restore Split"
 
+    click menu item "Split Editor Horizontally" of menu "Window" of menu bar item "Window" of menu bar 1
+    delay 0.5
+    if not (exists button "Close Split" of window 1) then error "Horizontal split did not expose Close Split"
+    click button "Close Split" of window 1
+    delay 0.5
+    if not (exists button "Split" of window 1) then error "Close Split did not restore Split after horizontal split"
+
     click button "Git" of window 1
     delay 0.5
     if not (exists button "Changes" of window 1) then error "Git panel did not expose Changes"
