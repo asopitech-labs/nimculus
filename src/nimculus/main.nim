@@ -4507,6 +4507,21 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "Invalid Git history item"
   elif name.startsWith("workspaceSearch:"):
     showWorkspaceSearch(name[16 .. ^1])
+  elif name.startsWith("workspaceFileHistory:"):
+    when defined(macosx):
+      let filePath = canonicalOpenPath(name["workspaceFileHistory:".len .. ^1])
+      let repository = repositoryForPath(filePath)
+      if repository == nil:
+        editorViewState.statusMessage = "Git repository not found"
+      else:
+        let prefix = repository.root & DirSep
+        if not filePath.startsWith(prefix):
+          editorViewState.statusMessage = "Git history path is outside repository"
+        else:
+          let relative = filePath[prefix.len .. ^1]
+          startNativeGitAction(repository, "file history", relative, [
+            "log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00", "-n", "100",
+            "--", relative])
   elif name.startsWith("quickOpen:"):
     showQuickOpen(name[10 .. ^1].strip)
   elif name.startsWith("workspaceCreateFile:") and activeWorkspace != nil:

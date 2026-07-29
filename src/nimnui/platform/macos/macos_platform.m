@@ -4365,6 +4365,15 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
 }
 
+- (void)dispatchWorkspaceHistoryContextEntry:(id)sender {
+  (void)sender;
+  if (g_workspace_context_path.length > 0 && g_command_callback) {
+    NSString *command = [NSString stringWithFormat:@"workspaceFileHistory:%@",
+      g_workspace_context_path];
+    g_command_callback(command.UTF8String);
+  }
+}
+
 - (void)dispatchGitStatusContext:(NSMenuItem *)sender {
   if (g_command_callback && [sender.representedObject isKindOfClass:[NSString class]]) {
     g_command_callback(((NSString *)sender.representedObject).UTF8String);
@@ -6585,6 +6594,7 @@ void nimculus_platform_show_workspace_entry_context(const char *path, bool is_di
   NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Workspace Entry"] autorelease];
   if (!g_workspace_context_is_directory) {
     [menu addItemWithTitle:@"Open" action:@selector(dispatchOpenWorkspaceContextEntry:) keyEquivalent:@""];
+    [menu addItemWithTitle:@"View History" action:@selector(dispatchWorkspaceHistoryContextEntry:) keyEquivalent:@""];
   }
   [menu addItemWithTitle:@"Reveal in Finder" action:@selector(revealWorkspaceContextEntry:) keyEquivalent:@""];
   [menu addItem:[NSMenuItem separatorItem]];

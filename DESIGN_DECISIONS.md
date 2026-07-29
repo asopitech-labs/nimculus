@@ -5338,3 +5338,17 @@ Git's exit code 1 as the expected "differences found" result.
 **Consequences.** The native read-only output panel becomes a safe review
 surface for every normal status entry without spawning an external diff tool
 or changing the user's editor document.
+
+## UI-048: Enter file history from the file tree
+
+**Context.** Zed exposes file history from a project entry's context menu.
+Nimculus only offered that history after first opening the file and invoking a
+palette command, which made a common repository-navigation action indirect.
+
+**Decision.** Add `View History` to the macOS file-tree context menu. The
+command resolves the selected path's enclosing repository and passes a
+repository-relative path to the existing cancellable `git log -- <path>`
+workflow.
+
+**Consequences.** History remains available without changing the active editor
+or treating a workspace-relative path as trusted input to Git.
