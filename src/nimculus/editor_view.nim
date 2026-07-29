@@ -172,7 +172,9 @@ proc lineNumber*(buffer: PieceTable, line: int): string = $(line + 1)
 proc statusBarText*(view: EditorViewState, buffer: PieceTable): string =
   let location = buffer.lineColumn(view.cursor)
   let dirty = if buffer.isDirty: " • Unsaved" else: ""
-  view.statusMessage & "Ln " & $(location.line + 1) & ", Col " & $(location.column + 1) & dirty
+  let message = view.statusMessage.strip()
+  let prefix = if message.len > 0: message & "  •  " else: ""
+  prefix & "Ln " & $(location.line + 1) & ", Col " & $(location.column + 1) & dirty
 
 proc openCommandPalette*(view: var EditorViewState) = view.commandPaletteOpen = true
 proc closeCommandPalette*(view: var EditorViewState) = view.commandPaletteOpen = false

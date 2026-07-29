@@ -5181,3 +5181,14 @@ visible window.
 
 **Consequences.** The current document and nearby documents remain readable
 and closable without chrome overflow or meaningless one-character labels.
+
+## UI-039: Status messages and cursor position are distinct fields
+
+**Context.** The status bar concatenated transient messages directly with the
+cursor position, producing unreadable text such as `Soft wrap disabledLn 1`.
+
+**Decision.** Separate a nonempty transient message from line/column metadata
+with a fixed bullet delimiter before rendering the single native status field.
+
+**Consequences.** Editor feedback and document position remain scannable
+without changing the status bar's compact one-line layout.

@@ -391,6 +391,8 @@ suite "M5 editor services":
     check view.selectedRange() == (startByte: 4, endByte: 6)
     check buffer.visibleLines(0, 2) == @["one", "two"]
     check view.statusBarText(buffer).contains("Ln 2")
+    view.statusMessage = "Soft wrap disabled"
+    check view.statusBarText(buffer).contains("Soft wrap disabled  •  Ln 2")
     view.openCommandPalette()
     check view.commandPaletteOpen
 
