@@ -4488,3 +4488,16 @@ of documents, while panes reference its tab indices. This keeps document and
 editing behavior stable while moving visual composition and interaction toward
 one GPU UI owner. Cocoa is retained for platform services, not as a parallel
 workspace layout system.
+
+## UI-003: Persist workspace composition as scalar session state
+
+Dock ownership stays in `WorkspaceUiState`, but session serialization should
+not depend on renderer or platform types. `EditorSession` therefore stores
+only the left/bottom dock visibility, size, and selected panel ordinal. On
+startup `workspace_ui` validates those scalars and reconstructs the layout;
+sessions written before this addition retain the default Files dock because a
+zero persisted dock size is treated as absent state.
+
+This keeps a user-selected Files, Outline, Git, Terminal, or Task arrangement
+across relaunches without introducing Cocoa state into the editor core or
+coupling session JSON to the recursive pane implementation.
