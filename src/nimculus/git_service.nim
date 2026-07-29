@@ -456,6 +456,15 @@ proc log*(repository: GitRepository, limit = 50): seq[GitCommit] =
     "-n", $max(1, limit)])
   if output.exitCode == 0: result = parseLog(output.output, limit)
 
+proc logPath*(repository: GitRepository, path: string, limit = 50): seq[GitCommit] =
+  ## Keep path history distinct from repository history. `--` prevents a
+  ## file name from being interpreted as a revision or a Git option.
+  let relativePath = path.strip()
+  if repository == nil or relativePath.len == 0: return
+  let output = repository.runGit(["log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00",
+    "-n", $max(1, limit), "--", relativePath])
+  if output.exitCode == 0: result = parseLog(output.output, limit)
+
 proc showCommit*(repository: GitRepository, revision: string): GitResult =
   ## Return bounded, self-contained commit metadata and its patch for the
   ## history panel. Disable external diff drivers: opening a history entry

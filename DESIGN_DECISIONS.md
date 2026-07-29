@@ -4344,3 +4344,14 @@ log job redraws the sidebar.
 The chain deliberately avoids a synchronous `git log` in the main event loop.
 It remains cancellable, uses the same 100-entry history bound, and records
 whether the refresh follows a normal commit or an amend in the final status.
+
+## M9-027: Use a pathspec-separated command for file history
+
+Zed's commit view can filter changed files to the selected path. Nimculus adds
+the corresponding lightweight editor command: `git file history` renders the
+active document's bounded history in the existing native Git sidebar. The Git
+command inserts `--` before the workspace-relative path, so a path is never
+parsed as a revision or option.
+
+The implementation reuses the history renderer and commit-detail click path;
+it does not create a second Git view or block the editor while loading history.

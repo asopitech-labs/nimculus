@@ -104,6 +104,8 @@ suite "M9 Git service":
     check commits[0].subject == "amended second commit"
     check commits[1].subject == "first commit"
     check repository.log(1).len == 1
+    check repository.logPath("history.nim", 100).len == 2
+    check repository.logPath("", 100).len == 0
     let details = repository.showCommit(commits[0].hash)
     check details.exitCode == 0
     check details.output.contains("amended second commit")

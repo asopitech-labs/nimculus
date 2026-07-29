@@ -575,10 +575,10 @@ when defined(macosx):
     editorGitActionJob = repository.startGitJob(diffArgs)
     editorViewState.statusMessage = "Git: " & action & "…"
 
-  proc renderNativeGitHistory(commits: seq[GitCommit]) =
+  proc renderNativeGitHistory(commits: seq[GitCommit], title = "Git History") =
     editorSidebarMode = sidebarGitHistory
     editorGitHistory = commits
-    var lines = @["Git History", "────────"]
+    var lines = @[title, "────────"]
     if commits.len == 0:
       lines.add("No commits")
     else:
@@ -661,6 +661,11 @@ when defined(macosx):
       renderNativeGitHistory(commits)
       editorViewState.statusMessage = if commits.len == 0:
         "Git log: no commits" else: "Git log: " & commits[0].subject
+    elif action == "file history":
+      let commits = parseLog(job.result.output, 100)
+      renderNativeGitHistory(commits, "Git History — " & editorGitActionPath)
+      editorViewState.statusMessage = if commits.len == 0:
+        "Git file history: no commits" else: "Git file history: " & commits[0].subject
     elif action == "branches":
       let branches = parseBranches(job.result.output)
       var lines: seq[string] = @[]
@@ -2996,6 +3001,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     let dispatchCommand =
       if command.startsWith("git commit --amend "): "__git_amend__"
       elif command.startsWith("git commit "): "__git_commit__"
+      elif command in ["git file history", "git history for file"]: "__git_file_history__"
       elif command.startsWith("git checkout "): "__git_checkout__"
       elif command.startsWith("git switch "): "__git_switch__"
       elif command == "git branches": "__git_branches__"
@@ -3296,6 +3302,16 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         else:
           startNativeGitAction(repository, "log", "", [
             "log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00", "-n", "100"])
+    of "__git_file_history__":
+      when defined(macosx):
+        let repository = gitRepositoryForDocument(document)
+        let relative = gitRelativePathForDocument(document, repository)
+        if repository == nil or relative.len == 0:
+          editorViewState.statusMessage = "Git repository not found"
+        else:
+          startNativeGitAction(repository, "file history", relative, [
+            "log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00", "-n", "100",
+            "--", relative])
     of "__git_branches__":
       when defined(macosx):
         let repository = gitRepositoryForDocument(document)
