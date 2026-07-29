@@ -106,6 +106,7 @@ when defined(macosx) or defined(windows):
     false
 
 proc syncEditorCursor()
+proc syncWorkspaceUiTabs()
 when defined(macosx):
   proc syncSecondaryEditorView()
 proc persistSession()
@@ -168,6 +169,10 @@ when defined(windows):
     platformSetImageRgba(1, 16, 16, addr pixels[0], uint32(pixels.len))
 
 proc setupDemoUi() =
+  ## Keep rendering state synchronized with the document session at the
+  ## composition boundary. Pane ownership remains independent: a split
+  ## duplicates a viewport, never a document buffer.
+  syncWorkspaceUiTabs()
   demoTree = newUiTree()
   resetPointerInteractions()
   let root = demoTree.addNode()
@@ -410,6 +415,9 @@ var editorSession: EditorSession
 var editorWorkspaceUi: WorkspaceUiState
 var editorViewState = newEditorView()
 var syntaxState: EditorSyntaxState
+
+proc syncWorkspaceUiTabs() =
+  editorWorkspaceUi.syncRootTabs(editorSession.tabs.len, editorSession.activeTab)
 var activeWorkspace: Workspace
 var workspaceSearchJob: SearchJob
 var workspaceQuickOpenJob: FuzzySearchJob
@@ -2828,6 +2836,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       editorViewState.statusMessage = "Editor is already split"
     else:
       editorSession.splitEditor(splitVertical, demoSplitRatio)
+      if not editorWorkspaceUi.splitFocusedPane(paneVertical, editorSession.effectiveSplitRatio):
+        # A restored split already has a pane tree; session state is still the
+        # compatibility source while pane-local tab ownership is migrated.
+        discard
       demoSplitEnabled = true
       demoSplitDirection = editorSession.splitDirection
       editorViewState.statusMessage = "Editor split"
@@ -2837,6 +2849,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "closeSplit":
     if editorSession.split:
       editorSession.closeSplit()
+      editorWorkspaceUi = initWorkspaceUi(editorSession.tabs.len, editorSession.activeTab)
       demoSplitEnabled = false
       editorPointerPane = 0
       editorPointerDragging = false
