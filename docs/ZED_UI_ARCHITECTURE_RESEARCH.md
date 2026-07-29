@@ -531,6 +531,14 @@ buttonを`Split`/`Close Split`として表示する。labelはnative secondary e
 クリックは既存Nimの`splitEditor`/`closeSplit` commandへ渡す。session、pane geometry、focus、保存状態は
 このbuttonが保持せず既存editor layerが一元所有する。
 
+## 追加監査: Git branch の非同期panel更新（2026-07-29）
+
+ZedのGitPanelはrepository storeの更新を購読し、panel render中にGit CLIを同期呼び出ししない。
+Nimculusもporcelain statusとbranchを別のcancellable GitJobとして開始する。Changes panelはstatusだけで
+先に表示でき、`symbolic-ref --quiet --short HEAD`が後着した場合だけ同じstatus listの見出しをbranch名で
+再描画する。document/workspace切替時は両方のjobをcancelするため、古いrepositoryのbranchが現在panelに
+混入しない。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

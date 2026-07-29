@@ -500,7 +500,9 @@ when defined(macosx):
   var lspBridge: LspEditorBridge
   var editorGitDiffJob: GitJob
   var editorGitStatusJob: GitJob
+  var editorGitBranchJob: GitJob
   var editorGitStatusRepository: GitRepository
+  var editorGitBranchRepository: GitRepository
   var editorGitStatusDocumentPath = ""
   var editorGitActionJob: GitJob
   var editorGitAction = ""
@@ -514,6 +516,7 @@ when defined(macosx):
   var editorGitHistory: seq[GitCommit]
   var editorGitHistoryPath = ""
   var editorGitStatusEntries: seq[GitStatusEntry]
+  var editorGitPanelBranch = ""
   var editorGitBranches: seq[GitBranch]
   var editorTaskJob: TaskJob
   var editorTaskCommand = ""
@@ -602,6 +605,20 @@ when defined(macosx):
       result = absoluteDocumentPath[prefix.len .. ^1]
 
   proc showNativeLspPanel(title: string, lines: seq[string])
+  proc renderNativeGitStatus(entries: seq[GitStatusEntry])
+
+  proc refreshNativeGitPanelBranch(repository: GitRepository) =
+    ## Keep branch resolution cancellable and off the idle/UI path. A direct
+    ## `currentBranch` call spawns Git synchronously and can wait on a slow
+    ## repository filesystem operation.
+    if editorGitBranchJob != nil and not editorGitBranchJob.done:
+      editorGitBranchJob.cancel()
+    editorGitBranchJob = nil
+    editorGitBranchRepository = repository
+    editorGitPanelBranch = ""
+    if repository != nil:
+      editorGitBranchJob = repository.startGitJob([
+        "symbolic-ref", "--quiet", "--short", "HEAD"])
 
   proc cancelNativeGitAction() =
     if editorGitActionJob != nil and not editorGitActionJob.done:
@@ -706,7 +723,9 @@ when defined(macosx):
     ## separate conflict section, this is informational only: bulk stage or
     ## unstage actions must not silently resolve or discard an unmerged file.
     const MaxPanelEntries = 1_000
-    var lines = @["Git Status", "────────"]
+    let title = if editorGitPanelBranch.len > 0:
+      "Git Status — " & editorGitPanelBranch else: "Git Status"
+    var lines = @[title, "────────"]
     var conflicts: seq[GitStatusEntry]
     var ordinary: seq[GitStatusEntry]
     for entry in entries:
@@ -814,6 +833,7 @@ when defined(macosx):
       var conflicts = 0
       for entry in entries:
         if entry.conflict: inc conflicts
+      refreshNativeGitPanelBranch(editorGitRepository)
       renderNativeGitStatus(entries)
       editorViewState.statusMessage = "Git: " & $entries.len &
         " changed file(s), " & $conflicts & " conflict(s)"
@@ -842,6 +862,7 @@ when defined(macosx):
       return
     elif action == "refresh status":
       let entries = parseStatus(job.result.output)
+      refreshNativeGitPanelBranch(editorGitRepository)
       renderNativeGitStatus(entries)
       editorViewState.statusMessage = "Git: " & editorGitActionSource & " complete"
     elif action == "commit" or action == "amend":
@@ -1491,6 +1512,10 @@ when defined(macosx):
     if editorGitStatusJob != nil and not editorGitStatusJob.done:
       editorGitStatusJob.cancel()
     editorGitStatusJob = nil
+    if editorGitBranchJob != nil and not editorGitBranchJob.done:
+      editorGitBranchJob.cancel()
+    editorGitBranchJob = nil
+    editorGitBranchRepository = nil
     cancelNativeGitAction()
     if editorTaskJob != nil and not editorTaskJob.done:
       editorTaskJob.cancel()
@@ -1549,7 +1574,12 @@ when defined(macosx):
     if editorGitStatusJob != nil:
       editorGitStatusJob.cancel()
       editorGitStatusJob = nil
+    if editorGitBranchJob != nil:
+      editorGitBranchJob.cancel()
+      editorGitBranchJob = nil
     editorGitStatusRepository = nil
+    editorGitBranchRepository = nil
+    editorGitPanelBranch = ""
     editorGitStatusDocumentPath = ""
     editorGitRepository = nil
     editorGitPath = ""
@@ -1567,6 +1597,7 @@ when defined(macosx):
       "diff", "--no-ext-diff", "--unified=3", "--", relative])
     editorGitStatusJob = repository.startGitJob([
       "status", "--porcelain=v1", "--untracked-files=all", "-z"])
+    refreshNativeGitPanelBranch(repository)
 
   proc pollNativeGitHunks() =
     if editorGitDiffJob == nil or not editorGitDiffJob.poll(): return
@@ -1600,10 +1631,24 @@ when defined(macosx):
     var conflicts = 0
     for entry in entries:
       if entry.conflict: inc conflicts
-    let branch = editorGitStatusRepository.currentBranch()
-    let branchLabel = if branch.len > 0: branch else: "detached"
-    editorViewState.statusMessage = "Git " & branchLabel & ": " & $entries.len &
+    editorViewState.statusMessage = "Git: " & $entries.len &
       " changed, " & $conflicts & " conflict(s)"
+
+  proc pollNativeGitBranch() =
+    if editorGitBranchJob == nil or not editorGitBranchJob.poll(): return
+    let completedJob = editorGitBranchJob
+    let repository = editorGitBranchRepository
+    editorGitBranchJob = nil
+    editorGitBranchRepository = nil
+    if repository == nil or completedJob.cancelled: return
+    let branch = if completedJob.result.exitCode == 0:
+      completedJob.result.output.strip else: "(detached)"
+    editorGitPanelBranch = if branch.len > 0: branch else: "(detached)"
+    # The branch can arrive before or after porcelain status. Repaint only an
+    # already-visible Changes list; no Git command or filesystem access occurs
+    # on this path.
+    if editorSidebarMode == sidebarGitStatus and editorGitStatusEntries.len > 0:
+      renderNativeGitStatus(editorGitStatusEntries)
 
   proc editorVisibleLineCount(): int =
     ## Keep cursor reveal, syntax requests, and native text rendering on the
@@ -2365,6 +2410,7 @@ when defined(macosx):
       applySettingsTheme()
       editorViewState.statusMessage = "Settings reloaded"
     pollNativeGitHunks()
+    pollNativeGitBranch()
     pollNativeGitStatus()
     pollNativeGitAction()
     pollNativeTask()
