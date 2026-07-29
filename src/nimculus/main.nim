@@ -3055,8 +3055,9 @@ when defined(macosx):
     if targetPath.len == 0: return
     let current = activeDocument()
     if current == nil or canonicalOpenPath(current[].path) != canonicalOpenPath(targetPath):
-      receiveNativeFile(targetPath.cstring, false)
-    let document = activeDocument()
+      openFilesDockEntry(targetPath)
+    let document = if editorSession.split and editorSession.splitActivePane == 1:
+      secondaryPaneDocument() else: activeDocument()
     if document == nil: return
     let location = locations[0].range.start
     let byteOffset = document[].buffer.byteOffsetAtUtf16Position(location.line, location.character)
