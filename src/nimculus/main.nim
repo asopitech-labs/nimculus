@@ -591,6 +591,7 @@ when defined(macosx):
 
   proc renderNativeGitHistory(commits: seq[GitCommit], title = "Git History",
                               path = "") =
+    editorWorkspaceUi.openPanel(panelGit)
     editorSidebarMode = sidebarGitHistory
     editorGitHistory = commits
     editorGitHistoryPath = path
@@ -622,6 +623,7 @@ when defined(macosx):
     showNativeLspPanel("Git Blame", lines)
 
   proc renderNativeGitStatus(entries: seq[GitStatusEntry]) =
+    editorWorkspaceUi.openPanel(panelGit)
     ## Keep conflicts explicit and ahead of ordinary changes. As in Zed's
     ## separate conflict section, this is informational only: bulk stage or
     ## unstage actions must not silently resolve or discard an unmerged file.
@@ -652,6 +654,7 @@ when defined(macosx):
       uint32(editorGitStatusEntries.len), uint32(sidebarGitStatus))
 
   proc renderNativeGitBranches(branches: seq[GitBranch]) =
+    editorWorkspaceUi.openPanel(panelGit)
     editorSidebarMode = sidebarGitBranches
     editorGitBranches = branches
     var lines = @["Git Branches", "────────"]
@@ -3385,7 +3388,9 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           cancelNativeGitAction()
           editorViewState.statusMessage = "Git: cancelled"
     of "__toggle_terminal__":
-      when defined(macosx): toggleNativeTerminal()
+      when defined(macosx):
+        editorWorkspaceUi.togglePanel(panelTerminal)
+        toggleNativeTerminal()
     of "__new_terminal__":
       when defined(macosx): newNativeTerminal()
     of "__close_terminal__":
@@ -3395,7 +3400,9 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "__previous_terminal__":
       when defined(macosx): switchNativeTerminal(-1)
     of "__task_output__":
-      when defined(macosx): toggleNativeTaskOutput()
+      when defined(macosx):
+        editorWorkspaceUi.togglePanel(panelTasks)
+        toggleNativeTaskOutput()
       when defined(windows): toggleWindowsTaskOutput()
     of "__workspace_search__":
       let query = if rawCommand.len > 17: rawCommand[17 .. ^1].strip else: ""
@@ -3415,6 +3422,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "cancel search": cancelWorkspaceSearch()
     of "__show_files__":
       when defined(macosx):
+        editorWorkspaceUi.openPanel(panelFiles)
         if activeWorkspace == nil:
           editorViewState.statusMessage = "Workspace not open"
         else:
@@ -3423,10 +3431,12 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx): revealActiveDocumentInWorkspace()
     of "__show_outline__":
       when defined(macosx):
+        editorWorkspaceUi.openPanel(panelOutline)
         editorSidebarMode = sidebarOutline
         syncNativeSymbolTree()
     of "git status":
       when defined(macosx):
+        editorWorkspaceUi.openPanel(panelGit)
         let repository = gitRepositoryForDocument(document)
         if repository == nil:
           editorViewState.statusMessage = "Git repository not found"
@@ -3460,6 +3470,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
             line)
     of "git log":
       when defined(macosx):
+        editorWorkspaceUi.openPanel(panelGit)
         let repository = gitRepositoryForDocument(document)
         if repository == nil:
           editorViewState.statusMessage = "Git repository not found"
@@ -3468,6 +3479,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
             "log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00", "-n", "100"])
     of "__git_file_history__":
       when defined(macosx):
+        editorWorkspaceUi.openPanel(panelGit)
         let repository = gitRepositoryForDocument(document)
         let relative = gitRelativePathForDocument(document, repository)
         if repository == nil or relative.len == 0:
@@ -3478,6 +3490,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
             "--", relative])
     of "__git_branches__":
       when defined(macosx):
+        editorWorkspaceUi.openPanel(panelGit)
         let repository = gitRepositoryForDocument(document)
         if repository == nil:
           editorViewState.statusMessage = "Git repository not found"
