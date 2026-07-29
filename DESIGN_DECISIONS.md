@@ -2149,6 +2149,13 @@ then does the macOS platform adapter call `NSFileManager`'s
 `trashItemAtURL`. This preserves the common validation boundary for UI,
 menus, and shortcuts while using the platform's recoverable file lifecycle.
 
+Focused-pane tab navigation follows Zed's `Pane` ownership: previous/next tab
+updates only that leaf's selected item. The primary `EditorSession.activeTab`
+is still the document-store bridge for the first pane, but it is never used as
+the selection source for a focused secondary pane. This keeps tab navigation,
+the secondary text overlay, IME context, and per-document secondary view state
+on the same pane-local document.
+
 ## M6-016: Coalesce filesystem changes before UI invalidation
 
 Zed's worktree scanner publishes an `UpdatedEntriesSet` after reconciling

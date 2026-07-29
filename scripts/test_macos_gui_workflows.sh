@@ -69,6 +69,13 @@ tell application "System Events"
     delay 0.5
     if not (exists button "New File" of window 1) then error "Files panel did not expose New File"
 
+    click button "Split" of window 1
+    delay 0.5
+    if not (exists button "Close Split" of window 1) then error "Split did not expose Close Split"
+    click button "Close Split" of window 1
+    delay 0.5
+    if not (exists button "Split" of window 1) then error "Close Split did not restore Split"
+
     click button "Git" of window 1
     delay 0.5
     if not (exists button "Changes" of window 1) then error "Git panel did not expose Changes"

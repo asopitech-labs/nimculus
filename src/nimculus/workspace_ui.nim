@@ -389,6 +389,30 @@ proc selectPaneTab*(state: var WorkspaceUiState, pane: PaneId, tabIndex: int): b
     state.focusedPane = pane
     state.focusedRegion = regionCenter
 
+proc cyclePaneTab*(state: var WorkspaceUiState, pane: PaneId, delta: int): int =
+  ## Cycle the item selection of one Pane without changing a sibling Pane.
+  ## Zed routes tab navigation through the focused Pane; using the global
+  ## EditorSession active tab here would make Cmd+Shift+[ in the secondary
+  ## editor unexpectedly replace the primary document.
+  if delta == 0: return -1
+  proc cycle(tree: PaneTree): int =
+    if tree.isNil: return -1
+    if tree.kind == paneLeaf:
+      if tree.pane.id != pane or tree.pane.tabIndices.len == 0: return -1
+      let current = tree.pane.tabIndices.find(tree.pane.activeTabIndex)
+      let base = if current < 0: 0 else: current
+      let count = tree.pane.tabIndices.len
+      let step = if delta < 0: -1 else: 1
+      let next = (base + step + count) mod count
+      tree.pane.activeTabIndex = tree.pane.tabIndices[next]
+      return tree.pane.activeTabIndex
+    let first = cycle(tree.first)
+    if first >= 0: first else: cycle(tree.second)
+  result = cycle(state.center)
+  if result >= 0:
+    state.focusedPane = pane
+    state.focusedRegion = regionCenter
+
 proc removeTab*(state: var WorkspaceUiState, tabIndex: int) =
   ## Keep every mirrored Pane's item indices aligned with EditorSession after
   ## one shared document is closed. Each Pane retains its own selection where

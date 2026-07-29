@@ -3324,20 +3324,19 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       persistSession()
   elif name in ["previousTab", "nextTab"]:
     let delta = if name == "previousTab": -1 else: 1
-    if editorSession.switchTab(editorViewState, editorSession.secondaryView, delta):
-      discard editorWorkspaceUi.selectPaneTab(editorWorkspaceUi.focusedPane,
-        editorSession.activeTab)
-      when defined(macosx): editorLspSignatureText = ""
-      resetImeState()
-      resetEditorTransientState()
-      workspacePreviewMode = ""
-      externalAlertShown = false
-      if syntaxState != nil:
-        syntaxState.close()
-        syntaxState = nil
-      syncEditorCursor()
-      refreshEditorSyntax()
-      persistSession()
+    let pane = editorWorkspaceUi.focusedPane
+    let previous = focusedPaneTabIndex()
+    let target = editorWorkspaceUi.cyclePaneTab(pane, delta)
+    if target >= 0 and target != previous:
+      # Reuse the normal tab activation boundary so focused-pane IME, text
+      # overlay, view state, and persistence remain synchronized. Unlike the
+      # old EditorSession.switchTab path, this does not change a sibling pane.
+      let paneIndex = if editorSession.split and editorSession.splitActivePane == 1: 1 else: 0
+      let command = if editorSession.split:
+          "selectPaneTab:" & $paneIndex & ":" & $target
+        else:
+          "selectTab:" & $target
+      receiveNativeCommand(command.cstring)
   elif name.startsWith("selectPaneTab:"):
     let payload = name["selectPaneTab:".len .. ^1].split(':')
     if payload.len != 2: return

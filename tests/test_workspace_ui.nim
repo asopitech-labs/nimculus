@@ -97,6 +97,17 @@ suite "workspace UI state":
     check state.paneTabIndex(primary) == 0
     check state.paneTabIndex(secondary) == 2
 
+  test "tab cycling changes only the focused pane selection":
+    var state = initWorkspaceUi(tabCount = 3, activeTab = 0)
+    discard state.splitFocusedPane(paneVertical)
+    let primary = state.center.first.pane.id
+    let secondary = state.center.second.pane.id
+    check state.cyclePaneTab(secondary, 1) == 1
+    check state.paneTabIndex(primary) == 0
+    check state.paneTabIndex(secondary) == 1
+    check state.cyclePaneTab(secondary, -1) == 0
+    check state.paneTabIndex(primary) == 0
+
   test "split ratio and close remain pane tree operations":
     var state = initWorkspaceUi(tabCount = 1)
     discard state.splitFocusedPane(paneHorizontal, 0.4)
