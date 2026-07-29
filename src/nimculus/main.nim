@@ -213,11 +213,15 @@ proc setupDemoUi() =
   # composition boundary authoritative: the dock owns its width and the
   # center receives the remainder.
   let editorWidth = max(0'f32, float32(workspaceLayout.center.size.width) - 112'f32)
-  # The center rect already excludes the status and an open bottom dock. Keep
-  # the established tab/header allowance (186pt) but no longer reserve a
-  # hidden terminal area unconditionally.
-  let editorHeight = max(0'f32, float32(workspaceLayout.center.size.height) - 186'f32)
-  let editor = Rect(origin: Point(x: px(leftDockWidth + 28'f32), y: px(128)),
+  # Keep a compact Zed-like workspace header and a status/scroll gutter. The
+  # former fixed 128pt top gap left most of the window visually empty before
+  # the active editor began; these insets retain the same lower tab boundary
+  # while giving the document the recovered vertical space.
+  const EditorTopInset = 52'f32
+  const EditorBottomInset = 58'f32
+  let editorHeight = max(0'f32, float32(workspaceLayout.center.size.height) -
+    EditorTopInset - EditorBottomInset)
+  let editor = Rect(origin: Point(x: px(leftDockWidth + 28'f32), y: px(EditorTopInset)),
     size: Size(width: px(editorWidth), height: px(editorHeight)))
   var primaryEditor = editor
   var secondaryEditor = Rect(size: Size(width: px(0), height: px(0)))
