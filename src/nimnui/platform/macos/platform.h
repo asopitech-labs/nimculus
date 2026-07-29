@@ -104,6 +104,7 @@ void nimculus_platform_set_editor_tabs(const char *utf8, uint32_t length, uint32
 void nimculus_platform_set_secondary_editor_tabs(const char *utf8, uint32_t length,
                                                  uint32_t active_index);
 void nimculus_platform_set_editor_status(const char *utf8);
+void nimculus_platform_set_welcome_visible(bool visible);
 void nimculus_platform_set_close_decision(bool allow);
 void nimculus_platform_request_close_tab(void);
 void nimculus_platform_request_close_tab_with_unsaved(bool unsaved);

@@ -75,6 +75,7 @@ when not defined(windows):
   proc platformSetEditorSoftWrap*(enabled: bool) = discard enabled
   proc platformSetEditorTabs*(titles: cstring, length, activeIndex: uint32) = discard (titles, length, activeIndex)
   proc platformSetEditorStatus*(text: cstring) = discard text
+  proc platformSetWelcomeVisible*(visible: bool) = discard visible
 when not defined(windows):
   proc platformSetCloseDecision*(allow: bool) = discard allow
 proc platformRequestCloseTab*() = discard

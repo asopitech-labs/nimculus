@@ -1961,6 +1961,7 @@ proc moveActiveEditorCursor(offset: int, selecting = false) =
 proc syncEditorCursor() =
   when defined(macosx):
     let document = activeDocument()
+    platformSetWelcomeVisible(document == nil)
     let visibleLines = editorVisibleLineCount()
     if document != nil:
       # Undo/redo and external reload can shorten or reshape the buffer
@@ -4489,6 +4490,7 @@ when isMainModule:
       syncEditorCursor()
       refreshEditorSyntax()
     else:
+      platformSetWelcomeVisible(true)
       persistSession()
   elif defined(windows):
     setupPersistencePaths()

@@ -283,6 +283,7 @@ static void nimculus_uncaught_exception_handler(NSException *exception) {
 }
 static BOOL g_terminate_decision = NO;
 static NSArray<NSString *> *g_recent_files = nil;
+static BOOL g_welcome_visible = NO;
 static uint32_t g_last_width_points = 0;
 static uint32_t g_last_height_points = 0;
 
@@ -1860,6 +1861,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic) BOOL secondary;
 @end
 
+@interface NimculusWelcomeOverlay : NSView
+@end
+
 @interface NimculusStatusOverlay : NSTextField
 @end
 
@@ -2061,6 +2065,62 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     self.secondary ? 1 : 0, (unsigned long)index];
   g_command_callback(command.UTF8String);
 }
+@end
+
+@implementation NimculusWelcomeOverlay
+- (BOOL)isFlipped { return YES; }
+- (void)layout {
+  [super layout];
+  NSView *stack = self.subviews.firstObject;
+  CGFloat width = MIN(420.0, MAX(280.0, self.bounds.size.width - 48.0));
+  CGFloat height = 250.0;
+  stack.frame = NSMakeRect(floor((self.bounds.size.width - width) * 0.5),
+    MAX(24.0, floor((self.bounds.size.height - height) * 0.40)), width, height);
+}
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.wantsLayer = YES;
+  NSStackView *stack = [[NSStackView alloc] initWithFrame:NSZeroRect];
+  stack.orientation = NSUserInterfaceLayoutOrientationVertical;
+  stack.alignment = NSLayoutAttributeCenterX;
+  stack.spacing = 12.0;
+  NSTextField *title = [NSTextField labelWithString:@"Welcome to Nimculus"];
+  title.font = [NSFont systemFontOfSize:25.0 weight:NSFontWeightSemibold];
+  title.textColor = themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]);
+  NSTextField *subtitle = [NSTextField labelWithString:@"Open a project or start editing a file."];
+  subtitle.textColor = [themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedWhite:0.72 alpha:1.0]) colorWithAlphaComponent:0.78];
+  [stack addArrangedSubview:title];
+  [stack addArrangedSubview:subtitle];
+  [stack setCustomSpacing:24.0 afterView:subtitle];
+  NSArray<NSArray *> *buttons = @[
+    @[@"Open Folder…", @"openFolder:"], @[@"Open File…", @"openFile:"],
+    @[@"New File", @"newFile:"], @[@"Open Recent…", @"openRecentFile:"]
+  ];
+  for (NSArray *entry in buttons) {
+    NSButton *button = [NSButton buttonWithTitle:entry[0] target:self
+      action:NSSelectorFromString(entry[1])];
+    button.bordered = NO;
+    button.wantsLayer = YES;
+    button.layer.cornerRadius = 6.0;
+    button.layer.backgroundColor = [themeHexColor(g_theme_accent,
+      [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0]) CGColor];
+    button.attributedTitle = [[[NSAttributedString alloc] initWithString:entry[0]
+      attributes:@{NSForegroundColorAttributeName: NSColor.whiteColor,
+        NSFontAttributeName: [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium]}] autorelease];
+    button.frame = NSMakeRect(0.0, 0.0, 220.0, 30.0);
+    [stack addArrangedSubview:button];
+  }
+  [self addSubview:stack];
+  [stack release];
+  return self;
+}
+- (void)newFile:(id)sender { (void)sender; if (g_command_callback) g_command_callback("newDocument"); }
+- (void)openFile:(id)sender { (void)sender; [[NSApp delegate] openDocument:nil]; }
+- (void)openFolder:(id)sender { (void)sender; [[NSApp delegate] openWorkspaceFolder:nil]; }
+- (void)openRecentFile:(id)sender { (void)sender; [[NSApp delegate] openRecent:nil]; }
 @end
 
 @implementation NimculusStatusOverlay
@@ -2359,6 +2419,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       initWithFrame:NSZeroRect];
     secondaryTabs.secondary = YES;
     [self addSubview:secondaryTabs];
+    NimculusWelcomeOverlay *welcome = [[NimculusWelcomeOverlay alloc]
+      initWithFrame:NSZeroRect];
+    welcome.hidden = !g_welcome_visible;
+    [self addSubview:welcome];
+    [welcome release];
     NimculusStatusOverlay *status = [[NimculusStatusOverlay alloc]
       initWithFrame:NSZeroRect];
     status.editable = NO;
@@ -2470,6 +2535,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusIndentGuideOverlay *indentGuides = nil;
   NimculusTabBarOverlay *tabs = nil;
   NimculusTabBarOverlay *secondaryTabs = nil;
+  NimculusWelcomeOverlay *welcome = nil;
   NimculusStatusOverlay *status = nil;
   NimculusTerminalOverlay *terminal = nil;
   NimculusTaskOutputOverlay *taskOutput = nil;
@@ -2481,6 +2547,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       if (((NimculusTabBarOverlay *)subview).secondary) secondaryTabs = (NimculusTabBarOverlay *)subview;
       else tabs = (NimculusTabBarOverlay *)subview;
     }
+    if ([subview isKindOfClass:[NimculusWelcomeOverlay class]]) welcome = (NimculusWelcomeOverlay *)subview;
     if ([subview isKindOfClass:[NimculusStatusOverlay class]]) status = (NimculusStatusOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) terminal = (NimculusTerminalOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) taskOutput = (NimculusTaskOutputOverlay *)subview;
@@ -2529,6 +2596,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       g_secondary_editor_rect[2], 28.0);
     secondaryTabs.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     [secondaryTabs setNeedsDisplay:YES];
+  }
+  if (welcome) {
+    welcome.hidden = !g_welcome_visible;
+    welcome.frame = NSMakeRect(g_editor_rect[0], g_editor_rect[1],
+      g_editor_rect[2], g_editor_rect[3]);
+    [welcome setNeedsLayout:YES];
   }
   if (status) {
     status.frame = NSMakeRect(g_editor_rect[0], 2.0, g_editor_rect[2], 20.0);
@@ -3425,6 +3498,19 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
         NSString *command = [NSString stringWithFormat:@"workspaceAddRoot:%@", url.path];
         g_command_callback(command.UTF8String);
       }
+    }
+  }];
+}
+
+- (void)openWorkspaceFolder:(id)sender {
+  (void)sender;
+  NSOpenPanel *panel = [NSOpenPanel openPanel];
+  panel.canChooseFiles = NO;
+  panel.canChooseDirectories = YES;
+  panel.allowsMultipleSelection = NO;
+  [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response) {
+    if (response == NSModalResponseOK && g_file_callback) {
+      g_file_callback(panel.URL.path.UTF8String, false);
     }
   }];
 }
@@ -5587,6 +5673,11 @@ void nimculus_platform_set_editor_status(const char *utf8) {
       break;
     }
   }
+}
+void nimculus_platform_set_welcome_visible(bool visible) {
+  g_welcome_visible = visible ? YES : NO;
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (view) [view updateTerminalFrame];
 }
 void nimculus_platform_set_close_decision(bool allow) { g_close_decision = allow ? YES : NO; }
 static void showSavePanelWithSuggestedName(const char *suggestedName) {

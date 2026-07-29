@@ -359,3 +359,14 @@ macOS bridge は document の dirty state を明示引数として受け、Nim �
 Pane identity を sheet completion まで保持する。Save / Don’t Save / Cancel と、untitled
 document の後続 Save As panel はすべてこの pending target を使う。これは Zed と同じ Pane
 ownership を優先し、誤った primary document を閉じる／未保存内容を失う回帰を防ぐ。
+
+## 追加監査: 空 workspace の welcome page（2026-07-29）
+
+Zed の Workspace は center Pane に `should_display_welcome_page` を設定し、worktree と
+editor item がない場合は `WelcomePage` を配置する。welcome page は editor の代用品ではなく、
+最初の Project/Open 操作へ到達するための workspace UI である。
+
+Nimculus でも no-document 状態を明示的な UI state とし、New File、Open File、Open Folder、
+Open Recent の入口を center に常設する。現段階は AppKit overlay を presenter に使い、既存の
+native menu / OpenPanel callback と同じ action を dispatch する。GPU text renderer への移行後も
+この state と action contract は維持する。

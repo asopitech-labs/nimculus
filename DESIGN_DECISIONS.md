@@ -4649,3 +4649,24 @@ another tab.
 The active native tab also exposes the same close action directly. An inactive
 tab's right edge still selects it, preventing an ambiguous one-click close of a
 document the user was not viewing.
+
+## UI-010: Empty editor panes expose a native welcome surface
+
+**Context.** A clean launch with no restored document presented an empty dark
+editor rectangle and a scrollbar. File and workspace actions existed in the
+menu bar, but the central workspace—the user's primary entry point—gave no
+indication of how to begin.
+
+**Decision.** Render a centered welcome surface only while no editor document
+is active. It offers New File, Open File, Open Folder, and Open Recent through
+the same AppKit actions already used by the main menu. The surface is a native
+overlay during the GPU-text migration; the interaction contract is independent
+of that presenter.
+
+**Evidence.** Zed enables `Pane::should_display_welcome_page` for the center
+pane and renders a WelcomePage when no worktree/item exists. The inspected
+source path is documented in `docs/ZED_UI_ARCHITECTURE_RESEARCH.md`.
+
+**Consequences.** An empty macOS launch has visible, discoverable next actions.
+Opening or creating a document hides the surface immediately, leaving the
+normal editor and workspace layout untouched.
