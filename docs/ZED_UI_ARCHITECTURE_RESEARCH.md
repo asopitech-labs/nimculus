@@ -375,6 +375,17 @@ welcome page の表示中は、caret、line number、indent guide、scrollbar、
 document 専用 chrome を出さない。これは空バッファを見せるのではなく、操作開始の画面を明確に
 見せるための presenter 境界である。
 
+## 追加監査: Git panel の repository 解決（2026-07-29）
+
+Zed の `GitPanel` は作成時に `Project::active_repository` から repository を受け取る
+（`crates/git_ui/src/git_panel.rs`）。つまり履歴・status・branch は、editor item がない
+workspace でも project context から利用できる。
+
+Nimculus も path を持つ active document があればその enclosing worktree を優先する。一方、
+untitled/no-document 状態では workspace roots を順番に検査して最初の Git repository を使う。
+これにより welcome から Open Folder した直後でも Git history を開け、複数 root でも選択規則が
+安定する。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

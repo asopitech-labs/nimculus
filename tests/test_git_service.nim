@@ -82,6 +82,24 @@ suite "M9 Git service":
     check renamed.len == 1
     check renamed[0].originalPath == "main.nim"
 
+  test "resolves the first Git repository from workspace roots":
+    let root = getTempDir() / "nimculus-m9-workspace-root"
+    let ordinary = getTempDir() / "nimculus-m9-ordinary-root"
+    if dirExists(root): removeDir(root)
+    if dirExists(ordinary): removeDir(ordinary)
+    createDir(root)
+    createDir(ordinary)
+    defer:
+      removeDir(root)
+      removeDir(ordinary)
+    discard git(root, "init", "-q")
+    let repository = firstRepositoryForPaths([ordinary, root])
+    let directRepository = newGitRepository(root)
+    check repository != nil
+    check directRepository != nil
+    # Git resolves macOS's /var -> /private/var temporary-directory alias.
+    check repository.root == directRepository.root
+
   test "returns newest-first bounded commit history for the Git sidebar":
     let root = getTempDir() / "nimculus-m9-history"
     if dirExists(root): removeDir(root)

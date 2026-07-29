@@ -4676,3 +4676,23 @@ leaving the normal editor and workspace layout untouched.
 LaunchServices does not supply a meaningful project working directory for an
 app bundle. Therefore only a restored workspace or an explicit Finder/Open
 path opens a project; an empty launch never treats `/` as the workspace root.
+
+## UI-011: Git panel resolves workspace context without an open document
+
+**Context.** The initial Git history/status implementation derived its
+repository only from the active file. That made the Git panel unavailable in a
+newly opened project, a welcome workspace, or an untitled editor even though a
+repository was already known to the workspace.
+
+**Decision.** Resolve Git actions for a pathless/no active document from the
+first Git-backed workspace root, in workspace order. A concrete document keeps
+precedence and resolves its own enclosing worktree, including a restored file
+outside configured roots.
+
+**Evidence.** Zed's `GitPanel` initializes `active_repository` from the
+Project rather than an editor buffer (`crates/git_ui/src/git_panel.rs`).
+
+**Consequences.** Files, status, history, and branches can be used from the
+project UI before opening a file. Multi-root behavior remains deterministic;
+the first Git-backed root is selected until an explicit document provides a
+more specific worktree.

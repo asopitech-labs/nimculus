@@ -174,6 +174,15 @@ proc repositoryForPath*(path: string): GitRepository =
   let probe = if dirExists(absolute): absolute else: splitFile(absolute).dir
   newGitRepository(probe)
 
+proc firstRepositoryForPaths*(paths: openArray[string]): GitRepository =
+  ## A workspace can be useful before it has an open file. Resolve its Git
+  ## context from the configured roots in their workspace order, skipping
+  ## ordinary folders without making a document selection a prerequisite for
+  ## history, status, or branch operations.
+  for path in paths:
+    result = repositoryForPath(path)
+    if result != nil: return
+
 proc runGit*(repository: GitRepository, args: openArray[string]): GitResult =
   if repository == nil: return GitResult(exitCode: -1, output: "not a git repository")
   var commandArgs = @["-C", repository.root]

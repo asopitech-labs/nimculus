@@ -570,7 +570,14 @@ when defined(macosx):
   proc scheduleNativeGitHunks(document: ptr FileDocument)
 
   proc gitRepositoryForDocument(document: ptr FileDocument): GitRepository =
-    if document == nil or document[].path.len == 0: return nil
+    # Zed's Git panel is owned by a workspace repository, not by an editor
+    # buffer. An untitled editor (or no editor at all) must still be able to
+    # show a workspace's history/status. For a concrete document, keep its
+    # own worktree authoritative, including files restored outside the roots.
+    if document == nil or document[].path.len == 0:
+      if activeWorkspace != nil:
+        return firstRepositoryForPaths(activeWorkspace.rootPaths)
+      return nil
     if activeWorkspace != nil:
       try:
         let location = activeWorkspace.splitWorkspacePath(document[].path)
