@@ -123,3 +123,48 @@ WorkspaceUiState
 - 各アクションの入力元と表示上のフィードバック
 - Metal/NimNUI/AppKitの描画責務と座標系
 - ファイラ、エディタ、Git履歴、ターミナルを含む実機E2Eシナリオ
+
+## 追加調査: Pane と macOS 描画の境界（2026-07-29）
+
+次の縦切りを実装する前に、PaneGroup と macOS の描画・入力契約を再確認した。
+
+### 一次資料
+
+- `references/zed/crates/workspace/src/pane_group.rs`
+  - `PaneGroup::split` は、対象Paneを持つ木の位置を置換する。
+  - `Member::render` / `PaneAxis::render` は木を再帰的に描画し、各Paneに固有の
+    active状態を渡す。
+  - PaneAxisは各子の境界ボックスとflexを保持し、hit testとリサイズにも同じ木を使う。
+- `references/zed/crates/workspace/src/pane.rs`
+  - Paneはタブ、アクティブItem、フォーカスを所有する。分割は同じ画面を二枚並べる
+    表現ではない。
+- `references/zed/crates/workspace/src/dock.rs`
+  - DockはPanelの登録、開閉、アクティブPanel、サイズを所有し、Panelの表示文字列を
+    状態の正本にしない。
+- [Apple: Managing your game window for Metal in macOS](https://developer.apple.com/documentation/metal/managing-your-game-window-for-metal-in-macos)
+  - AppKitのレイアウトはpointで扱い、`CAMetalLayer.drawableSize`だけを
+    `convertSizeToBacking:` によりbacking pixelへ同期する。
+- [Apple: NSTextInputClient](https://developer.apple.com/documentation/AppKit/NSTextInputClient)
+  - 独自テキスト面はNSTextInputClientを実装し、候補ウィンドウの位置を
+    `firstRect(forCharacterRange:actualRange:)` で正確に返す。
+
+### 現行実装の確認結果
+
+Nimculusには既にprimary / secondaryのネイティブ文字テクスチャ、各ビュー固有の
+カーソル、選択、スクロール、soft-wrap、入力Pane選択がある。しかし、二面は同じ
+アクティブDocumentを表示する移行実装であり、`WorkspaceUiState.PaneTree` の葉ごとの
+タブ選択・文書選択には接続されていない。また、`PaneTree`はルートsplitまでしか
+レイアウトへ投影していない。
+
+### 採用する順序
+
+1. `PaneTree`を唯一のペイン幾何の正本とし、再帰レイアウトとhit testを追加する。
+2. 各Paneの選択・フォーカスを、既存のprimary / secondary view stateへ明示的に対応
+   付ける。クリック、ショートカット、分割境界ドラッグはこの対応を通す。
+3. secondary側が別Documentを表示できるよう、ネイティブ文字描画・入力・IMEの
+   Document文脈をPaneごとに分離する。
+4. 二ペインで操作・保存・IMEが一貫してから、任意深さの木と三面以上へ拡張する。
+
+この順序は、既存のmacOS IME・LSP・編集コアを壊さず、Zedと同じ「Paneが状態を持つ」
+構造へ移行するためのものである。二面を同一Documentのまま増やしたり、AppKitの
+オーバーレイだけでタブを偽装したりはしない。

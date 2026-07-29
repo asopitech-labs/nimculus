@@ -4501,3 +4501,30 @@ zero persisted dock size is treated as absent state.
 This keeps a user-selected Files, Outline, Git, Terminal, or Task arrangement
 across relaunches without introducing Cocoa state into the editor core or
 coupling session JSON to the recursive pane implementation.
+
+## UI-004: PaneTree is the canonical pane-geometry owner
+
+**Context.** The original editor split was represented by `EditorSession.split`
+and a primary/secondary rectangle in `main.nim`. That made a second view visible,
+but it could not grow into Zed's recursive `PaneGroup`: the layout path, pointer
+hit testing, focus, and split divider were separate sources of truth.
+
+**Decision.** `WorkspaceUiState.center: PaneTree` owns pane geometry, split
+ratios, and focused-pane identity. Its recursive layout result will be consumed
+by both Metal chrome and the macOS text presenter. `EditorSession` remains the
+authoritative document store during the migration, while each Pane stores its
+selection of session items and each native presenter receives an explicit pane
+context.
+
+**Evidence.** Zed's `PaneGroup` recursively renders `Member::Pane` and
+`Member::Axis`, retaining each pane's active state and bounding boxes. Apple's
+Metal guidance keeps AppKit layout in logical points and converts only the
+`CAMetalLayer` drawable to backing pixels; AppKit text input requires the active
+text surface to answer IME geometry. The relevant source and documentation are
+recorded in `docs/ZED_UI_ARCHITECTURE_RESEARCH.md`.
+
+**Consequences.** A split must not be implemented as a decorative duplicate of
+the active editor. The first implementation supports the existing two native
+presenters while preserving pane-local focus, selection, scrolling, and document
+context. Arbitrary-depth splitting follows only after this two-pane contract is
+verified. No macOS-specific view or coordinate type enters `workspace_ui`.

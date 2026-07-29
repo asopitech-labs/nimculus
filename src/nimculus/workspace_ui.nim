@@ -51,13 +51,28 @@ type
   WorkspaceLayout* = object
     leftDock*, center*, bottomDock*, status*: Rect
 
+  PaneLayoutEntry* = object
+    id*: PaneId
+    bounds*: Rect
+
+  PaneDivider* = object
+    axis*: PaneAxis
+    bounds*: Rect
+
+  PaneLayout* = object
+    panes*: seq[PaneLayoutEntry]
+    dividers*: seq[PaneDivider]
+
   WorkspaceUiState* = object
     leftDock*, bottomDock*: DockState
     center*: PaneTree
     focusedRegion*: WorkspaceRegion
+    focusedPane*: PaneId
     resizingDock*: DockSide
     isResizingDock*: bool
     nextPaneId*: int
+
+proc `==`*(a, b: PaneId): bool {.borrow.}
 
 const
   DefaultLeftDockWidth* = 240'f32
@@ -66,6 +81,7 @@ const
   DefaultDockMinimumSize* = 160'f32
   MinimumCenterWidth* = 360'f32
   MinimumCenterHeight* = 180'f32
+  PaneDividerThickness* = 2'f32
 
 proc normalizedRatio*(ratio: float32): float32 =
   min(0.9'f32, max(0.1'f32, ratio))
@@ -84,6 +100,7 @@ proc initWorkspaceUi*(tabCount = 0, activeTab = -1): WorkspaceUiState =
     minimumSize: DefaultDockMinimumSize)
   result.center = newPane(1, tabs, activeTab)
   result.focusedRegion = regionCenter
+  result.focusedPane = PaneId(1)
   result.nextPaneId = 2
 
 proc panelFromOrdinal(value: int, fallback: PanelKind): PanelKind =
@@ -192,6 +209,63 @@ proc firstPane*(tree: PaneTree): PaneState =
   if tree.isNil: return
   if tree.kind == paneLeaf: tree.pane else: tree.first.firstPane()
 
+proc paneLayout*(tree: PaneTree, bounds: Rect): PaneLayout =
+  ## Mirrors Zed's PaneGroup traversal: a single tree owns both the leaf
+  ## rectangles and the split handles used for painting and hit testing.
+  var computed: PaneLayout
+  proc append(tree: PaneTree, rect: Rect, layout: var PaneLayout) =
+    if tree.isNil: return
+    if tree.kind == paneLeaf:
+      layout.panes.add(PaneLayoutEntry(id: tree.pane.id, bounds: rect))
+      return
+    let sideBySide = tree.axis == paneVertical
+    let available = max(0'f32, (if sideBySide: float32(rect.size.width)
+      else: float32(rect.size.height)) - PaneDividerThickness)
+    let firstLength = available * normalizedRatio(tree.ratio)
+    if sideBySide:
+      let firstRect = Rect(origin: rect.origin,
+        size: Size(width: px(firstLength), height: rect.size.height))
+      let divider = Rect(origin: Point(x: px(float32(rect.origin.x) + firstLength),
+        y: rect.origin.y), size: Size(width: px(PaneDividerThickness), height: rect.size.height))
+      let secondRect = Rect(origin: Point(x: px(float32(divider.origin.x) + PaneDividerThickness),
+        y: rect.origin.y), size: Size(width: px(max(0'f32, available - firstLength)), height: rect.size.height))
+      append(tree.first, firstRect, layout)
+      layout.dividers.add(PaneDivider(axis: tree.axis, bounds: divider))
+      append(tree.second, secondRect, layout)
+    else:
+      let firstRect = Rect(origin: rect.origin,
+        size: Size(width: rect.size.width, height: px(firstLength)))
+      let divider = Rect(origin: Point(x: rect.origin.x,
+        y: px(float32(rect.origin.y) + firstLength)),
+        size: Size(width: rect.size.width, height: px(PaneDividerThickness)))
+      let secondRect = Rect(origin: Point(x: rect.origin.x,
+        y: px(float32(divider.origin.y) + PaneDividerThickness)),
+        size: Size(width: rect.size.width, height: px(max(0'f32, available - firstLength))))
+      append(tree.first, firstRect, layout)
+      layout.dividers.add(PaneDivider(axis: tree.axis, bounds: divider))
+      append(tree.second, secondRect, layout)
+  append(tree, bounds, computed)
+  result = computed
+
+proc paneAt*(state: WorkspaceUiState, bounds: Rect, point: Point): PaneId =
+  for pane in state.center.paneLayout(bounds).panes:
+    if pane.bounds.contains(point): return pane.id
+
+proc paneIndexAt*(state: WorkspaceUiState, bounds: Rect, point: Point): int =
+  for index, pane in state.center.paneLayout(bounds).panes:
+    if pane.bounds.contains(point): return index
+  -1
+
+proc focusPane*(state: var WorkspaceUiState, pane: PaneId): bool =
+  proc contains(tree: PaneTree): bool =
+    if tree.isNil: return false
+    if tree.kind == paneLeaf: return tree.pane.id == pane
+    contains(tree.first) or contains(tree.second)
+  if not contains(state.center): return false
+  state.focusedPane = pane
+  state.focusedRegion = regionCenter
+  true
+
 proc syncRootTabs*(state: var WorkspaceUiState, tabCount, activeTab: int) =
   ## Transitional adapter while EditorSession remains the owner of documents.
   ## It refreshes only the initial/root pane and intentionally leaves a split
@@ -235,6 +309,7 @@ proc splitFocusedPane*(state: var WorkspaceUiState, axis: PaneAxis,
     first: PaneTree(kind: paneLeaf, pane: source),
     second: newPane(newId, source.tabIndices, source.activeTabIndex))
   state.focusedRegion = regionCenter
+  state.focusedPane = source.id
   true
 
 proc setRootSplitRatio*(state: var WorkspaceUiState, ratio: float32): bool =
@@ -249,6 +324,7 @@ proc closeRootSplit*(state: var WorkspaceUiState): bool =
   if state.center.isNil or state.center.kind != paneSplit: return false
   state.center = state.center.first
   state.focusedRegion = regionCenter
+  state.focusedPane = state.center.pane.id
   true
 
 proc validate*(state: WorkspaceUiState): bool =

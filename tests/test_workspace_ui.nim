@@ -59,3 +59,19 @@ suite "workspace UI state":
     check abs(state.center.ratio - 0.7'f32) < 0.001'f32
     check state.closeRootSplit()
     check state.center.kind == paneLeaf
+
+  test "pane tree recursively owns rectangles, dividers, and hit testing":
+    var state = initWorkspaceUi(tabCount = 2, activeTab = 0)
+    check state.splitFocusedPane(paneVertical, 0.4'f32)
+    let bounds = Rect(origin: Point(x: px(10), y: px(20)),
+      size: Size(width: px(500), height: px(300)))
+    let layout = state.center.paneLayout(bounds)
+    check layout.panes.len == 2
+    check layout.dividers.len == 1
+    check abs(float32(layout.panes[0].bounds.size.width) - 199.2'f32) < 0.001'f32
+    check float32(layout.dividers[0].bounds.size.width) == PaneDividerThickness
+    check state.paneAt(bounds, Point(x: px(50), y: px(40))) == layout.panes[0].id
+    check state.paneAt(bounds, Point(x: px(400), y: px(40))) == layout.panes[1].id
+    check state.paneIndexAt(bounds, Point(x: px(400), y: px(40))) == 1
+    check state.focusPane(layout.panes[1].id)
+    check state.focusedPane == layout.panes[1].id
