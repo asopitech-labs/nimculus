@@ -547,6 +547,10 @@ headerとactivity barのnative buttonへtheme foreground、muted/active背景、
 buttonは引き続きAppKit controlとしてaccessibilityとcommand dispatchを持ち、表示だけを明示的なtheme contractへ
 移す。
 
+Git panelのChanges / History / Branchesも同じnavigation hierarchyである。Nimculusでは
+`NSSegmentedControl` のtextureに依存せず、3つのnative buttonへ置換して同一のforeground、active background、
+border tokenを適用する。Git log、branch listing、statusの既存の非同期command経路は変更しない。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

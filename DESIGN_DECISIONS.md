@@ -5069,3 +5069,19 @@ colors.
 **Consequences.** Navigation labels and selected state remain visible under
 the configured dark theme, making the UI pathway itself usable rather than
 merely present.
+
+## UI-031: Git navigation uses explicit native button states
+
+**Context.** The Changes/History/Branches switcher was the remaining
+`NSSegmentedControl` in the workspace navigation path. Its textured selected
+state was delegated to AppKit, producing a different and lower-contrast dark
+appearance from the workspace header and activity bar.
+
+**Decision.** Implement the switcher as three compact native `NSButton`
+controls, reusing the workspace navigation theme contract for foreground,
+active background, and border. It keeps the same asynchronous Git commands,
+tooltips, keyboard-accessible native controls, and panel layout.
+
+**Consequences.** Git history is a visible, stateful primary surface rather
+than an otherwise-functional feature hidden behind an ambiguous platform
+bezel.

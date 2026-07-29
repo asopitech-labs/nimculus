@@ -1942,7 +1942,11 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusWelcomeOverlay : NSView
 @end
 
-@interface NimculusGitSidebarTabs : NSSegmentedControl
+@interface NimculusGitSidebarTabs : NSView
+@property(nonatomic, retain) NSArray<NSButton *> *buttons;
+@property(nonatomic) NSInteger selectedMode;
+- (void)setSelectedMode:(NSInteger)selectedMode;
+- (void)selectMode:(NSButton *)sender;
 @end
 
 @interface NimculusGitCommitButton : NSButton
@@ -2370,26 +2374,53 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 
 // Zed exposes Changes and History as visible panel tabs. Keep the same primary
 // navigation in the compact native Git sidebar, with Branches alongside the
-// existing checkout workflow.
+// existing checkout workflow. AppKit's textured NSSegmentedControl delegates
+// selected-state contrast to the system appearance, which made the Git panel
+// inconsistent with the explicit dark-theme workspace navigation. A compact
+// native button group keeps the same commands while making selected state a
+// deliberate part of the UI contract.
 @implementation NimculusGitSidebarTabs
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
   if (!self) return nil;
-  self.segmentCount = 3;
-  [self setLabel:@"Changes" forSegment:0];
-  [self setLabel:@"History" forSegment:1];
-  [self setLabel:@"Branches" forSegment:2];
-  self.segmentStyle = NSSegmentStyleTexturedRounded;
-  self.trackingMode = NSSegmentSwitchTrackingSelectOne;
-  self.target = self;
-  self.action = @selector(selectGitSidebarMode:);
+  self.wantsLayer = YES;
+  self.selectedMode = 0;
+  NSArray<NSString *> *labels = @[@"Changes", @"History", @"Branches"];
+  NSMutableArray<NSButton *> *buttons = [NSMutableArray arrayWithCapacity:labels.count];
+  for (NSUInteger index = 0; index < labels.count; index++) {
+    NSButton *button = [NSButton buttonWithTitle:labels[index] target:self
+      action:@selector(selectMode:)];
+    button.tag = (NSInteger)index;
+    button.toolTip = labels[index];
+    [self addSubview:button];
+    [buttons addObject:button];
+  }
+  self.buttons = buttons;
+  [self setSelectedMode:0];
   return self;
 }
-- (void)selectGitSidebarMode:(id)sender {
-  (void)sender;
+- (void)dealloc { [_buttons release]; [super dealloc]; }
+- (void)layout {
+  [super layout];
+  CGFloat width = self.bounds.size.width / MAX((CGFloat)1.0, (CGFloat)self.buttons.count);
+  for (NSUInteger index = 0; index < self.buttons.count; index++) {
+    self.buttons[index].frame = NSMakeRect(floor(index * width), 0.0,
+      ceil(width), self.bounds.size.height);
+  }
+}
+- (void)setSelectedMode:(NSInteger)selectedMode {
+  _selectedMode = MIN(MAX(selectedMode, 0), (NSInteger)self.buttons.count - 1);
+  for (NSButton *button in self.buttons) {
+    styleWorkspaceNavigationButton(button, button.tag == _selectedMode, NO);
+    button.toolTip = button.tag == _selectedMode ?
+      [NSString stringWithFormat:@"%@ (active)", button.title] : button.title;
+  }
+}
+- (void)selectMode:(NSButton *)sender {
+  [self setSelectedMode:sender.tag];
   if (!g_command_callback) return;
-  const char *command = self.selectedSegment == 1 ? "commandPalette:git log" :
-    self.selectedSegment == 2 ? "commandPalette:git branches" : "commandPalette:git status";
+  const char *command = self.selectedMode == 1 ? "commandPalette:git log" :
+    self.selectedMode == 2 ? "commandPalette:git branches" : "commandPalette:git status";
   g_command_callback(command);
 }
 @end
@@ -3172,7 +3203,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       CGFloat width = sidebarWidth;
       gitTabs.frame = NSMakeRect(sidebarControlX, g_editor_rect[1] + g_editor_rect[3] - 27.0,
         MAX(1.0, width - 86.0), 24.0);
-      gitTabs.selectedSegment = (NSInteger)g_editor_sidebar_mode - 2;
+      [gitTabs setSelectedMode:(NSInteger)g_editor_sidebar_mode - 2];
     }
   }
   if (gitCommit) {
@@ -5484,15 +5515,18 @@ bool nimculus_platform_validate_git_sidebar_tabs(void) {
     g_command_callback = validationCommandCallback;
     NimculusGitSidebarTabs *tabs = [[NimculusGitSidebarTabs alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 240.0, 24.0)];
-    [tabs setSelectedSegment:1];
-    [tabs selectGitSidebarMode:tabs];
+    [tabs setSelectedMode:1];
+    [tabs selectMode:tabs.buttons[1]];
     BOOL history = strcmp(g_validation_command, "commandPalette:git log") == 0;
-    [tabs setSelectedSegment:2];
-    [tabs selectGitSidebarMode:tabs];
+    [tabs setSelectedMode:2];
+    [tabs selectMode:tabs.buttons[2]];
     BOOL branches = strcmp(g_validation_command, "commandPalette:git branches") == 0;
-    [tabs setSelectedSegment:0];
-    [tabs selectGitSidebarMode:tabs];
+    [tabs setSelectedMode:0];
+    [tabs selectMode:tabs.buttons[0]];
     BOOL changes = strcmp(g_validation_command, "commandPalette:git status") == 0;
+    BOOL appearance = tabs.buttons.count == 3 && !tabs.buttons[0].bordered &&
+      tabs.buttons[0].layer.backgroundColor != nil &&
+      ![tabs.buttons[0].contentTintColor isEqual:tabs.buttons[1].contentTintColor];
     [tabs release];
     NimculusGitCommitButton *commit = [[NimculusGitCommitButton alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 76.0, 24.0)];
@@ -5502,7 +5536,7 @@ bool nimculus_platform_validate_git_sidebar_tabs(void) {
       [commit.toolTip isEqualToString:@"Commit staged changes"];
     [commit release];
     g_command_callback = previousCallback;
-    return history && branches && changes && commitAction && commitPresentation;
+    return history && branches && changes && appearance && commitAction && commitPresentation;
   }
 }
 
