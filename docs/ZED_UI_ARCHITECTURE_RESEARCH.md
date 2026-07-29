@@ -483,6 +483,13 @@ Zed の `ProjectEmptyState` はProject Panelが空のときにOpen ProjectとClo
 がないときはOpen Folderだけを表示する。操作は既存のAppKit `NSOpenPanel` とfile callbackを通るため、Finderから
 のfolder openと同じworkspace loading boundaryを共有する。
 
+## 追加監査: Git Panel の no-repository 状態（2026-07-29）
+
+Zed の `GitPanel` は active repository がないとき、History表示で `No repository found` placeholderを
+renderする。NimculusもGit status/log/branches commandでrepositoryを解決できない場合、status barだけで終えず
+Git sidebarをplaceholderへ置換する。Open Folder rowはFilesと同じnon-blocking `NSOpenPanel` を呼び、Git用の
+別経路を作らない。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

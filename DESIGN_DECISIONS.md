@@ -4915,3 +4915,19 @@ the primary action instead of offering file-tree mutations with no project.
 
 **Consequences.** The file explorer is useful before and after a workspace is
 open, with no separate folder-selection or workspace-creation implementation.
+
+## UI-023: Git has an explicit no-repository state
+
+**Context.** Opening Git outside a repository only changed the status bar,
+leaving a stale sidebar behind. The user could not tell whether Git had opened
+or what action would make it useful.
+
+**Decision.** Render a Git sidebar placeholder with the normal Git tabs, a
+`No repository found` message, and an `Open Folder…` row. That row uses the
+same macOS folder picker and workspace-open path as Files.
+
+**Evidence.** Zed's Git Panel renders a `No repository found` placeholder
+when its active repository is absent.
+
+**Consequences.** Git navigation remains a coherent UI state before a
+repository exists, without inventing a special Git workspace loader.

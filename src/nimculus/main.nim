@@ -668,6 +668,21 @@ when defined(macosx):
       uint32(sidebarGitHistory))
     syncNativeSidebarSelection()
 
+  proc renderNativeGitEmpty() =
+    ## Keep Git discoverable even before a project resolves to a repository.
+    ## The sidebar owns the primary next action instead of leaving a stale
+    ## Files/Outline list visible behind a status-bar-only error.
+    editorWorkspaceUi.openPanel(panelGit)
+    setupDemoUi()
+    editorSidebarMode = sidebarGitStatus
+    editorGitRepository = nil
+    editorGitStatusEntries.setLen(0)
+    editorWorkspaceUi.replacePanelItems(panelGit, @["open-workspace"])
+    let text = "Git\n────────\nNo repository found\nOpen Folder…"
+    platformSetEditorSidebar(text.cstring, uint32(text.len), 1,
+      uint32(sidebarGitStatus))
+    syncNativeSidebarSelection()
+
   proc renderNativeGitBlame(entries: seq[GitBlameLine], path: string) =
     ## Zed renders inline blame when space permits. The native output panel is
     ## Nimculus' current compact equivalent: retain a bounded, line-oriented
@@ -3817,6 +3832,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         editorWorkspaceUi.openPanel(panelGit)
         let repository = gitRepositoryForDocument(document)
         if repository == nil:
+          renderNativeGitEmpty()
           editorViewState.statusMessage = "Git repository not found"
         else:
           startNativeGitAction(repository, "status", "", [
@@ -3851,6 +3867,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         editorWorkspaceUi.openPanel(panelGit)
         let repository = gitRepositoryForDocument(document)
         if repository == nil:
+          renderNativeGitEmpty()
           editorViewState.statusMessage = "Git repository not found"
         else:
           startNativeGitAction(repository, "log", "", [
@@ -3871,6 +3888,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         editorWorkspaceUi.openPanel(panelGit)
         let repository = gitRepositoryForDocument(document)
         if repository == nil:
+          renderNativeGitEmpty()
           editorViewState.statusMessage = "Git repository not found"
         else:
           startNativeGitAction(repository, "branches", "", [
@@ -4031,7 +4049,9 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
                 args.add(editorGitHistoryPath)
               startNativeGitAction(repository, "show", "", args)
         of sidebarGitStatus:
-          if index >= 0 and index < editorGitStatusEntries.len:
+          if editorGitRepository == nil and index == 0:
+            platformOpenWorkspaceFolder()
+          elif index >= 0 and index < editorGitStatusEntries.len:
             let entry = editorGitStatusEntries[index]
             let repository = editorGitRepository
             if repository == nil:
