@@ -517,7 +517,9 @@ Zed の `GitPanel` はChanges tabの中にcommit editorとCommit actionを持ち
 
 ZedのWorkspace/Dockはproject treeの内容とは別に、常設のpanel destinationをedge chromeへ置く。
 NimculusはFiles、Outline、Git、Terminalを左端のSF Symbol activity barへ置く。各buttonは既存の
-workspace commandだけをdispatchし、active表示はsidebar modeまたはterminal visibilityを読む。
+workspace commandだけをdispatchし、active表示はsidebar modeまたはterminal visibilityを読む。inactive
+iconにはAppKit default accentを使わずtheme由来のmuted foregroundを明示して、active destinationだけをaccentで
+表示する。
 activity barはworkspace stateを持たず、treeとFiles/Git controlsを固定38pt右へ移すだけなので、
 Nim側のworkspace/panel ownershipとfocus管理は不変である。
 

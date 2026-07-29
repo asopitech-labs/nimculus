@@ -2474,8 +2474,12 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
       [command isEqualToString:@"commandPalette:git status"] ?
         g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 && g_editor_sidebar_mode <= 4 :
       [command isEqualToString:@"commandPalette:toggle terminal"] ? g_terminal_visible : NO;
+    // `nil` lets AppKit pick the system accent for template symbols/text, so
+    // inactive controls can look selected. Use an explicit muted foreground
+    // and reserve the accent for the active destination.
     button.contentTintColor = active ? themeHexColor(g_theme_accent,
-      [NSColor controlAccentColor]) : nil;
+      [NSColor controlAccentColor]) : [themeHexColor(g_theme_foreground,
+        [NSColor secondaryLabelColor]) colorWithAlphaComponent:0.66];
     button.toolTip = active ? [NSString stringWithFormat:@"%@ (active)", button.title] :
       button.title;
   }
@@ -2534,7 +2538,8 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
         g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 && g_editor_sidebar_mode <= 4 :
       [command isEqualToString:@"commandPalette:toggle terminal"] ? g_terminal_visible : NO;
     button.contentTintColor = active ? themeHexColor(g_theme_accent,
-      [NSColor controlAccentColor]) : nil;
+      [NSColor controlAccentColor]) : [themeHexColor(g_theme_foreground,
+        [NSColor secondaryLabelColor]) colorWithAlphaComponent:0.66];
   }
 }
 - (void)dispatchWorkspaceCommand:(NSButton *)sender {
@@ -5518,7 +5523,8 @@ bool nimculus_platform_validate_workspace_toolbar(void) {
     [toolbar reloadSelection];
     BOOL selection = ((NSButton *)buttons[2]).contentTintColor != nil &&
       ((NSButton *)buttons[3]).contentTintColor != nil &&
-      ((NSButton *)buttons[0]).contentTintColor == nil;
+      ![((NSButton *)buttons[2]).contentTintColor
+        isEqual:((NSButton *)buttons[0]).contentTintColor];
     [toolbar dispatchWorkspaceCommand:(NSButton *)buttons[2]];
     BOOL git = strcmp(g_validation_command, "commandPalette:git status") == 0;
     [toolbar dispatchWorkspaceCommand:(NSButton *)buttons[3]];
@@ -5551,7 +5557,8 @@ bool nimculus_platform_validate_activity_bar(void) {
       [((NSButton *)buttons[2]).toolTip isEqualToString:@"Git"] &&
       [((NSButton *)buttons[3]).toolTip isEqualToString:@"Terminal"] &&
       ((NSButton *)buttons[0]).contentTintColor != nil &&
-      ((NSButton *)buttons[1]).contentTintColor == nil;
+      ![((NSButton *)buttons[0]).contentTintColor
+        isEqual:((NSButton *)buttons[1]).contentTintColor];
     [bar dispatchWorkspaceCommand:(NSButton *)buttons[2]];
     BOOL git = strcmp(g_validation_command, "commandPalette:git status") == 0;
     g_terminal_visible = YES;

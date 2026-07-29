@@ -4995,9 +4995,11 @@ quickly discoverable in a Zed-style editor layout.
 
 **Decision.** Add a compact SF Symbol activity bar at the left edge of the
 workspace dock. Each button dispatches the existing workspace command and
-derives its accent state from sidebar mode or terminal visibility. The tree,
-Git tabs, and Files actions shift right by the fixed rail width; no panel
-state is stored by the rail.
+derives its accent state from sidebar mode or terminal visibility. Inactive
+controls receive an explicit muted theme foreground rather than AppKit's
+default accent, so the selected destination is visually unambiguous. The
+tree, Git tabs, and Files actions shift right by the fixed rail width; no
+panel state is stored by the rail.
 
 **Evidence.** Zed keeps workspace destinations in persistent dock/tab-bar
 controls, separate from the project tree and focused editor item.
