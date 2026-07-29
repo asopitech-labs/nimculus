@@ -1778,7 +1778,6 @@ proc refreshWorkspacePreview() =
     if activeWorkspace == nil or appSettings == nil: return
     when defined(macosx): platformSetWorkspaceOpen(true)
     workspacePreviewMode = "tree"
-    editorSidebarMode = sidebarFiles
     workspacePreviewEntries.setLen(0)
     var lines = @["Files", "────────"]
     # Follow Zed's Project Panel ordering: expanded children are emitted
@@ -1825,9 +1824,17 @@ proc refreshWorkspacePreview() =
     when defined(macosx):
       editorWorkspaceUi.replacePanelItems(panelFiles,
         workspacePreviewEntries.mapIt(it.path))
-      platformSetEditorSidebar(text.cstring, uint32(text.len),
-        uint32(workspacePreviewEntries.len), uint32(sidebarFiles))
-      syncNativeSidebarSelection()
+      # File watcher and workspace mutations refresh this cache in the
+      # background. They must not steal the active Git/Outline panel just
+      # because Files happens to be the data source being updated. Present
+      # the rebuilt tree only while Files is the selected left-dock surface;
+      # opening a workspace already selects Files before calling this path.
+      if editorWorkspaceUi.leftDock.isOpen and
+          editorWorkspaceUi.leftDock.activePanel == panelFiles:
+        editorSidebarMode = sidebarFiles
+        platformSetEditorSidebar(text.cstring, uint32(text.len),
+          uint32(workspacePreviewEntries.len), uint32(sidebarFiles))
+        syncNativeSidebarSelection()
     else:
       # The macOS sidebar is intentionally native-only until another platform
       # needs the same interaction contract. Keep the established Win32

@@ -551,6 +551,11 @@ Git panelのChanges / History / Branchesも同じnavigation hierarchyである�
 `NSSegmentedControl` のtextureに依存せず、3つのnative buttonへ置換して同一のforeground、active background、
 border tokenを適用する。Git log、branch listing、statusの既存の非同期command経路は変更しない。
 
+ZedのProject Panel watcherはtree modelを更新しても、ユーザーが選択しているGit panelをFilesへ強制遷移
+させない。Nimculusでもworkspace preview refreshはFiles panelのmodelを常に更新するが、native sidebarへの
+publishはFilesがactiveな場合に限定する。これによりFSEventsなどのbackground updateがGit Status/Historyの
+visible selectionを上書きしない。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

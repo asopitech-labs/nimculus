@@ -5085,3 +5085,19 @@ tooltips, keyboard-accessible native controls, and panel layout.
 **Consequences.** Git history is a visible, stateful primary surface rather
 than an otherwise-functional feature hidden behind an ambiguous platform
 bezel.
+
+## UI-032: Background file refresh never replaces the active panel
+
+**Context.** A real Git-panel interaction showed that a workspace-preview
+refresh could reset the visible sidebar to Files after Git status completed.
+The Git result still existed, but its selected state and navigation surface
+were replaced by unrelated watcher-driven presentation work.
+
+**Decision.** Workspace refreshes always update the Files panel model, but
+publish it to the native sidebar only when Files is the active left-dock
+panel. Git, Outline, and other active panels retain ownership of the visible
+sidebar during background filesystem changes.
+
+**Consequences.** The control that a user selected remains selected through
+asynchronous work, and workspace watching cannot make Git history appear to
+fail or disappear.
