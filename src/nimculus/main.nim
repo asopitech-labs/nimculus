@@ -143,6 +143,10 @@ when defined(macosx):
   # Index of the next tab to save while an asynchronous Save All and Quit
   # sequence is waiting for an untitled document's NSSavePanel response.
   var pendingSaveAllQuitNextTab = -1
+  # A close sheet is asynchronous. Keep its Pane-local target stable rather
+  # than resolving the then-current focus when the sheet completes.
+  var pendingCloseTabIndex = -1
+  var pendingClosePane = 0
 
 proc resetPointerInteractions()
 when defined(macosx):
@@ -1908,6 +1912,18 @@ proc secondaryPaneDocument(): ptr FileDocument =
   if tab < 0 or tab >= editorSession.tabs.len: return nil
   addr editorSession.tabs[tab].document
 
+proc focusedPaneTabIndex(): int =
+  if editorSession.split and editorSession.splitActivePane == 1 and
+      editorWorkspaceUi.center != nil and editorWorkspaceUi.center.kind == paneSplit:
+    editorWorkspaceUi.center.second.pane.activeTabIndex
+  else:
+    editorSession.activeTab
+
+proc documentForTab(tabIndex: int): ptr FileDocument =
+  if tabIndex < 0 or tabIndex >= editorSession.tabs.len:
+    return nil
+  addr editorSession.tabs[tabIndex].document
+
 proc refreshDocumentLanguageSettings() =
   ## Follow Zed's per-buffer settings boundary: document activation chooses a
   ## language overlay without waiting for a settings-file reload.
@@ -2585,20 +2601,31 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
     workspaceQuickOpenJob.cancelFuzzySearch()
     workspaceQuickOpenJob = nil
   if saving:
-    let document = activeDocument()
+    let saveTab = when defined(macosx):
+      if pendingCloseTabIndex >= 0 and pendingCloseTabIndex < editorSession.tabs.len:
+        pendingCloseTabIndex
+      else:
+        editorSession.activeTab
+    else:
+      editorSession.activeTab
+    let document = documentForTab(saveTab)
     if document != nil:
       let existingTab = editorSession.tabIndexForSaveTarget(inputPath)
-      if existingTab >= 0 and existingTab != editorSession.activeTab:
+      if existingTab >= 0 and existingTab != saveTab:
         when defined(macosx):
           # An untitled tab in Save All / Quit uses this same panel callback.
           # Do not leave its asynchronous queue armed after rejecting a
           # conflicting destination, or a later ordinary Save could resume a
           # stale termination sequence.
           let wasSavingAllAndQuitting = pendingSaveAllQuitNextTab >= 0
+          let wasClosingTab = pendingCloseTabIndex == saveTab
           pendingSaveAllQuitNextTab = -1
+          pendingCloseTabIndex = -1
           platformSetCloseDecision(false)
           editorViewState.statusMessage = if wasSavingAllAndQuitting:
             "Save all cancelled: destination is already open"
+          elif wasClosingTab:
+            "Close cancelled: destination is already open"
           else:
             "Save As cancelled: destination is already open"
         else:
@@ -2606,8 +2633,8 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
         return
       try:
         document[].save(inputPath)
-        if editorSession.activeTab >= 0 and editorSession.activeTab < editorSession.tabs.len:
-          editorSession.tabs[editorSession.activeTab].title =
+        if saveTab >= 0 and saveTab < editorSession.tabs.len:
+          editorSession.tabs[saveTab].title =
             splitFile(document[].path).name
         externalAlertShown = false
         editorSession.saveActiveView(editorViewState)
@@ -2619,7 +2646,9 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
         when defined(macosx):
           # The native Save Panel used by close confirmation must only allow
           # termination after the document write has actually succeeded.
-          if pendingSaveAllQuitNextTab >= 0:
+          if pendingCloseTabIndex == saveTab:
+            platformSetCloseDecision(true)
+          elif pendingSaveAllQuitNextTab >= 0:
             platformSetCloseDecision(false)
             continueSaveAllAndQuit()
           else:
@@ -3052,6 +3081,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         pendingSaveAllQuitNextTab = -1
         platformSetCloseDecision(false)
         editorViewState.statusMessage = "Save all cancelled"
+      elif pendingCloseTabIndex >= 0:
+        pendingCloseTabIndex = -1
+        platformSetCloseDecision(false)
+        editorViewState.statusMessage = "Close cancelled"
       else:
         editorViewState.statusMessage = "Save cancelled"
   elif name == "discardAllAndQuit":
@@ -3065,16 +3098,12 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     platformSetCloseDecision(true)
   elif name == "closeTabRequest":
     when defined(macosx):
-      if editorSession.split and editorSession.splitActivePane == 1:
-        let secondary = secondaryPaneDocument()
-        if secondary == nil: return
-        if secondary[].buffer.isDirty:
-          editorViewState.statusMessage = "Unsaved changes: save before closing secondary tab"
-          platformSetEditorStatus(editorViewState.statusMessage.cstring)
-        else:
-          receiveNativeCommand("closeTabConfirmed".cstring)
-      else:
-        platformRequestCloseTab()
+      let closingTab = focusedPaneTabIndex()
+      let closingDocument = documentForTab(closingTab)
+      if closingDocument == nil: return
+      pendingCloseTabIndex = closingTab
+      pendingClosePane = if editorSession.split and editorSession.splitActivePane == 1: 1 else: 0
+      platformRequestCloseTabWithUnsaved(closingDocument[].buffer.isDirty)
     when defined(windows):
       if document == nil: return
       if document[].buffer.isDirty:
@@ -3082,22 +3111,37 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       else:
         receiveNativeCommand("closeTabConfirmed".cstring)
   elif name == "saveAndCloseTab":
-    if document == nil or not document[].buffer.isDirty:
-      platformSetCloseDecision(true)
-    elif document[].path.len > 0:
+    let closingTab = when defined(macosx): pendingCloseTabIndex else: editorSession.activeTab
+    let closingDocument = documentForTab(closingTab)
+    if closingDocument == nil:
+      when defined(macosx): pendingCloseTabIndex = -1
+      platformSetCloseDecision(false)
+    elif not closingDocument[].buffer.isDirty:
+      receiveNativeCommand("closeTabConfirmed".cstring)
+    elif closingDocument[].path.len > 0:
       try:
-        document[].save()
+        closingDocument[].save()
+        editorSession.tabs[closingTab].title = splitFile(closingDocument[].path).name
         syncEditorCursor()
-        platformSetCloseDecision(true)
+        receiveNativeCommand("closeTabConfirmed".cstring)
       except CatchableError:
         platformSetCloseDecision(false)
     else:
       when defined(macosx): platformShowSavePanelAndCloseTab()
+  elif name == "closeTabCancelled":
+    when defined(macosx):
+      pendingCloseTabIndex = -1
+      platformSetCloseDecision(false)
+      editorViewState.statusMessage = "Close cancelled"
   elif name == "closeTabConfirmed":
-    let closingSecondary = editorSession.split and editorSession.splitActivePane == 1
-    let closingTab = if closingSecondary and editorWorkspaceUi.center != nil and
-        editorWorkspaceUi.center.kind == paneSplit:
-      editorWorkspaceUi.center.second.pane.activeTabIndex else: editorSession.activeTab
+    let closingSecondary = when defined(macosx):
+      pendingClosePane == 1
+    else:
+      editorSession.split and editorSession.splitActivePane == 1
+    let closingTab = when defined(macosx):
+      pendingCloseTabIndex
+    else:
+      focusedPaneTabIndex()
     if closingTab < 0 or closingTab >= editorSession.tabs.len: return
     editorSession.saveActiveView(editorViewState)
     if closingSecondary:
@@ -3106,6 +3150,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       editorSession.saveSecondaryActiveView(editorSession.secondaryView)
     when defined(macosx): editorLspSignatureText = ""
     if editorSession.closeTabAt(closingTab, forceDirty = true):
+      when defined(macosx): pendingCloseTabIndex = -1
       editorWorkspaceUi.removeTab(closingTab)
       resetImeState()
       if editorSession.activeTab >= 0:

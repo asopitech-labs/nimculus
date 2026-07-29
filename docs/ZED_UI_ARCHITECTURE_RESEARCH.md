@@ -355,7 +355,7 @@ Nimculus は document ownership を `EditorSession`、Pane 側を shared documen
 4. 全 Pane の mirrored index を再番号付けし、閉じた item を選んでいた Pane だけ次の
    item を選ぶ。
 
-今回の縦切りでは clean secondary tab をこのモデルで閉じる。secondary の native
-save/discard sheet が Pane-local document を渡せるまで、dirty secondary tab は閉じず status
-message を表示する。これは Zed と同じ Pane ownership を優先し、誤った primary document を
-閉じる／未保存内容を失う回帰を防ぐための安全境界である。
+macOS bridge は document の dirty state を明示引数として受け、Nim 側が resolved tab index と
+Pane identity を sheet completion まで保持する。Save / Don’t Save / Cancel と、untitled
+document の後続 Save As panel はすべてこの pending target を使う。これは Zed と同じ Pane
+ownership を優先し、誤った primary document を閉じる／未保存内容を失う回帰を防ぐ。

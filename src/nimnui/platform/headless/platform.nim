@@ -78,6 +78,7 @@ when not defined(windows):
 when not defined(windows):
   proc platformSetCloseDecision*(allow: bool) = discard allow
 proc platformRequestCloseTab*() = discard
+proc platformRequestCloseTabWithUnsaved*(unsaved: bool) = discard unsaved
 proc platformShowSavePanelAndCloseTab*() = discard
 proc platformRequestQuit*() = discard
 proc platformConfirmQuit*() = discard

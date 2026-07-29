@@ -4632,8 +4632,8 @@ the wrong document.
 **Decision.** Resolve a close request from the focused Pane's active tab index,
 then remove that document from `EditorSession` and every mirrored `PaneTree`
 tab list in one operation. Each Pane keeps its own selected item whenever
-possible. A dirty secondary document is deliberately left open until a
-Pane-aware native save/discard confirmation is wired through the macOS bridge.
+possible. The asynchronous native save/discard sheet retains the resolved tab
+and pane target until it completes, including a subsequent Save As panel.
 
 **Evidence.** Zed implements `Pane::close_active_item` against the Pane's
 `active_item_index`, rather than a workspace-global active editor. Its Pane
@@ -4641,6 +4641,7 @@ owns item focus while the Workspace coordinates lifecycle. The relevant source
 audit is recorded in `docs/ZED_UI_ARCHITECTURE_RESEARCH.md`.
 
 **Consequences.** Cmd+W cannot silently close the primary document while the
-secondary Pane has focus. Clean secondary tabs close immediately; dirty ones
-remain visible with an explanatory status message, avoiding data loss until the
-native confirmation covers the focused Pane document explicitly.
+secondary Pane has focus. Clean secondary tabs close immediately; dirty tabs
+receive the standard Save / Don’t Save / Cancel sheet against the same focused
+document. Focus changes while a sheet is visible cannot redirect its result to
+another tab.

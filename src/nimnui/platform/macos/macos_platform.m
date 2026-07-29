@@ -4389,7 +4389,6 @@ bool nimculus_platform_validate_save_panel_sheet(void) {
 
 bool nimculus_platform_validate_unsaved_close_sheet(void) {
   NimculusPlatformMetrics previousMetrics = g_metrics;
-  BOOL previousDirty = g_editor_dirty;
   @autoreleasepool {
     NSApplication *application = [NSApplication sharedApplication];
     (void)application;
@@ -4407,9 +4406,10 @@ bool nimculus_platform_validate_unsaved_close_sheet(void) {
     }
     window.contentView = view;
     g_active_view = view;
-    g_editor_dirty = YES;
     [window makeKeyAndOrderFront:nil];
-    nimculus_platform_request_close_tab();
+    // Pane-local callers pass their document's dirty state explicitly instead
+    // of relying on the primary editor overlay's global dirty bit.
+    nimculus_platform_request_close_tab_with_unsaved(true);
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
     NSWindow *sheet = window.attachedSheet;
     // attachedSheet is AppKit's sheet window, not the NSAlert controller.
@@ -4419,7 +4419,6 @@ bool nimculus_platform_validate_unsaved_close_sheet(void) {
     BOOL detached = window.attachedSheet == nil;
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
     g_active_view = previousView;
-    g_editor_dirty = previousDirty;
     [window orderOut:nil];
     [window close];
     [view release];
@@ -5595,8 +5594,8 @@ void nimculus_platform_show_save_panel(void) { showSavePanelWithSuggestedName(NU
 void nimculus_platform_show_save_as_panel(const char *suggested_name) {
   showSavePanelWithSuggestedName(suggested_name);
 }
-void nimculus_platform_request_close_tab(void) {
-  if (!g_editor_dirty) {
+static void requestCloseTabWithUnsaved(BOOL unsaved) {
+  if (!unsaved) {
     if (g_command_callback) g_command_callback("closeTabConfirmed");
     return;
   }
@@ -5616,11 +5615,19 @@ void nimculus_platform_request_close_tab(void) {
       // saveAndCloseTab may open its own asynchronous Save Panel. Its
       // completion emits closeTabConfirmed only after the write succeeds.
       g_command_callback("saveAndCloseTab");
+    } else if (g_command_callback) {
+      g_command_callback("closeTabCancelled");
     }
   };
   if (window) [alert beginSheetModalForWindow:window completionHandler:complete];
   else [alert beginWithCompletionHandler:complete];
   [alert release];
+}
+void nimculus_platform_request_close_tab(void) {
+  requestCloseTabWithUnsaved(g_editor_dirty);
+}
+void nimculus_platform_request_close_tab_with_unsaved(bool unsaved) {
+  requestCloseTabWithUnsaved(unsaved ? YES : NO);
 }
 void nimculus_platform_show_save_panel_and_close_tab(void) {
   g_close_decision = NO;
@@ -5628,7 +5635,10 @@ void nimculus_platform_show_save_panel_and_close_tab(void) {
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   NSWindow *window = view.window;
   void (^complete)(NSModalResponse) = ^(NSModalResponse response) {
-    if (response != NSModalResponseOK || !g_file_callback) return;
+    if (response != NSModalResponseOK || !g_file_callback) {
+      if (g_command_callback) g_command_callback("closeTabCancelled");
+      return;
+    }
     g_file_callback(panel.URL.path.UTF8String, true);
     // receiveNativeFile synchronously writes the document and sets this only
     // on success. With an asynchronous panel this must happen after the
