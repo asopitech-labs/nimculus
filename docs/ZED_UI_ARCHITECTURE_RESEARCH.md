@@ -498,6 +498,13 @@ editor rect上部には既にchrome用の高さが確保されていたため、
 として配置し、既存のcommand dispatcherへだけ接続する。これにより空白を増やさず、UI actionとbackend stateを
 重複させない。
 
+## 追加監査: Workspace chrome の active state（2026-07-29）
+
+Zed の Pane tab-bar actions は workspace の active panel と terminal の表示状態を反映し、editor へ focus が
+戻っても現在の作業領域を示し続ける。Nimculus の native toolbar も Files/Outline/Git を sidebar mode、Terminal
+を lower panel visibility から毎回再計算する。toolbar自身は状態を保持せず、theme accent とtooltipだけを更新する
+ため、既存のNim command dispatcherと各パネルの所有関係は変わらない。
+
 macOS app bundle の LaunchServices 起動では process working directory が project root を意味
 しない。空 launch でそれを workspace として開くと `/` の巨大な filesystem tree が Project
 Panel に現れ、welcome UI の目的を失う。Nimculus は restored workspace または Finder/OpenPanel

@@ -1926,6 +1926,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @end
 
 @interface NimculusWorkspaceToolbar : NSStackView
+- (void)reloadSelection;
 @end
 
 @interface NimculusStatusOverlay : NSTextField
@@ -2426,7 +2427,30 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     button.identifier = entry[1];
     [self addArrangedSubview:button];
   }
+  [self reloadSelection];
   return self;
+}
+- (void)reloadSelection {
+  // The workspace toolbar is persistent chrome, not a row of unrelated
+  // commands. Match Zed's active-panel affordance so the currently presented
+  // sidebar (or bottom terminal) remains legible even after focus moves into
+  // the editor.
+  for (NSView *view in self.arrangedSubviews) {
+    if (![view isKindOfClass:[NSButton class]]) continue;
+    NSButton *button = (NSButton *)view;
+    NSString *command = button.identifier;
+    BOOL active = [command isEqualToString:@"commandPalette:show files"] ?
+        g_editor_sidebar_visible && g_editor_sidebar_mode == 1 :
+      [command isEqualToString:@"commandPalette:show outline"] ?
+        g_editor_sidebar_visible && g_editor_sidebar_mode == 0 :
+      [command isEqualToString:@"commandPalette:git status"] ?
+        g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 && g_editor_sidebar_mode <= 4 :
+      [command isEqualToString:@"commandPalette:toggle terminal"] ? g_terminal_visible : NO;
+    button.contentTintColor = active ? themeHexColor(g_theme_accent,
+      [NSColor controlAccentColor]) : nil;
+    button.toolTip = active ? [NSString stringWithFormat:@"%@ (active)", button.title] :
+      button.title;
+  }
 }
 - (void)dispatchWorkspaceCommand:(NSButton *)sender {
   if (g_command_callback && sender.identifier.length > 0) {
@@ -3022,6 +3046,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
   if (workspaceToolbar) {
     workspaceToolbar.hidden = g_welcome_visible;
+    [workspaceToolbar reloadSelection];
     workspaceToolbar.frame = NSMakeRect(g_editor_rect[0] + 8.0,
       g_editor_rect[1] + g_editor_rect[3] + 29.0,
       MAX(1.0, g_editor_rect[2] - 16.0), 22.0);
@@ -5325,6 +5350,9 @@ bool nimculus_platform_validate_files_sidebar_actions(void) {
 bool nimculus_platform_validate_workspace_toolbar(void) {
   @autoreleasepool {
     NimculusCommandCallback previousCallback = g_command_callback;
+    uint32_t previousMode = g_editor_sidebar_mode;
+    BOOL previousSidebarVisible = g_editor_sidebar_visible;
+    BOOL previousTerminalVisible = g_terminal_visible;
     g_command_callback = validationCommandCallback;
     NimculusWorkspaceToolbar *toolbar = [[NimculusWorkspaceToolbar alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 360.0, 22.0)];
@@ -5334,13 +5362,23 @@ bool nimculus_platform_validate_workspace_toolbar(void) {
       [((NSButton *)buttons[1]).title isEqualToString:@"Outline"] &&
       [((NSButton *)buttons[2]).title isEqualToString:@"Git"] &&
       [((NSButton *)buttons[3]).title isEqualToString:@"Terminal"];
+    g_editor_sidebar_visible = YES;
+    g_editor_sidebar_mode = 2;
+    g_terminal_visible = YES;
+    [toolbar reloadSelection];
+    BOOL selection = ((NSButton *)buttons[2]).contentTintColor != nil &&
+      ((NSButton *)buttons[3]).contentTintColor != nil &&
+      ((NSButton *)buttons[0]).contentTintColor == nil;
     [toolbar dispatchWorkspaceCommand:(NSButton *)buttons[2]];
     BOOL git = strcmp(g_validation_command, "commandPalette:git status") == 0;
     [toolbar dispatchWorkspaceCommand:(NSButton *)buttons[3]];
     BOOL terminal = strcmp(g_validation_command, "commandPalette:toggle terminal") == 0;
     [toolbar release];
+    g_editor_sidebar_mode = previousMode;
+    g_editor_sidebar_visible = previousSidebarVisible;
+    g_terminal_visible = previousTerminalVisible;
     g_command_callback = previousCallback;
-    return presentation && git && terminal;
+    return presentation && selection && git && terminal;
   }
 }
 

@@ -4947,3 +4947,21 @@ chrome and lets panel-specific code add workspace actions there.
 
 **Consequences.** The previously blank region now anchors primary navigation,
 while all functional ownership stays in the existing workspace command paths.
+
+## UI-025: Persistent workspace navigation shows its active destination
+
+**Context.** The workspace header had working Files, Outline, Git, and
+Terminal controls, but every control used the same idle appearance. Once focus
+moved into the editor, there was no visible indication of the sidebar mode or
+whether the terminal panel was open.
+
+**Decision.** Resolve the selected state from the existing sidebar mode and
+terminal visibility each layout pass. The matching native button receives the
+theme accent and an accessibility tooltip; it does not store presentation
+state or dispatch a new command.
+
+**Evidence.** Zed's persistent Pane tab-bar actions retain an active visual
+state while the focused editor item changes.
+
+**Consequences.** Workspace context remains visible in the primary chrome,
+without duplicating workspace, Git, or terminal ownership in AppKit.
