@@ -4527,6 +4527,16 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     if path.len > 0:
       clipboardSet(path.cstring, uint32(path.len))
       editorViewState.statusMessage = "Copied path"
+  elif name.startsWith("workspaceCopyRelativePath:"):
+    let path = name["workspaceCopyRelativePath:".len .. ^1]
+    if path.len > 0 and activeWorkspace != nil:
+      try:
+        let location = activeWorkspace.splitWorkspacePath(path)
+        let relative = if location.relative.len > 0: location.relative else: "."
+        clipboardSet(relative.cstring, uint32(relative.len))
+        editorViewState.statusMessage = "Copied relative path"
+      except CatchableError:
+        editorViewState.statusMessage = "Path is outside the workspace"
   elif name.startsWith("quickOpen:"):
     showQuickOpen(name[10 .. ^1].strip)
   elif name.startsWith("workspaceCreateFile:") and activeWorkspace != nil:

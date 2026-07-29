@@ -4383,6 +4383,15 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
 }
 
+- (void)copyWorkspaceContextRelativePath:(id)sender {
+  (void)sender;
+  if (g_workspace_context_path.length > 0 && g_command_callback) {
+    NSString *command = [NSString stringWithFormat:@"workspaceCopyRelativePath:%@",
+      g_workspace_context_path];
+    g_command_callback(command.UTF8String);
+  }
+}
+
 - (void)dispatchGitStatusContext:(NSMenuItem *)sender {
   if (g_command_callback && [sender.representedObject isKindOfClass:[NSString class]]) {
     g_command_callback(((NSString *)sender.representedObject).UTF8String);
@@ -6607,6 +6616,7 @@ void nimculus_platform_show_workspace_entry_context(const char *path, bool is_di
   }
   [menu addItemWithTitle:@"Reveal in Finder" action:@selector(revealWorkspaceContextEntry:) keyEquivalent:@""];
   [menu addItemWithTitle:@"Copy Path" action:@selector(copyWorkspaceContextPath:) keyEquivalent:@""];
+  [menu addItemWithTitle:@"Copy Relative Path" action:@selector(copyWorkspaceContextRelativePath:) keyEquivalent:@""];
   [menu addItem:[NSMenuItem separatorItem]];
   [menu addItemWithTitle:@"New File…" action:@selector(createWorkspaceFileAtContext:) keyEquivalent:@""];
   [menu addItemWithTitle:@"New Folder…" action:@selector(createWorkspaceDirectoryAtContext:) keyEquivalent:@""];
