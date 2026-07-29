@@ -44,3 +44,10 @@ suite "workspace UI state":
     check state.center.kind == paneSplit
     check state.center.first.pane.tabIndices == @[0, 1]
     check state.center.second.pane.tabIndices == @[0, 1]
+
+  test "tab selection belongs to every mirrored pane":
+    var state = initWorkspaceUi(tabCount = 3, activeTab = 0)
+    discard state.splitFocusedPane(paneVertical)
+    state.selectTab(2)
+    check state.center.first.pane.activeTabIndex == 2
+    check state.center.second.pane.activeTabIndex == 2

@@ -1909,6 +1909,7 @@ proc moveActiveEditorCursor(offset: int, selecting = false) =
   editorSession.moveActivePaneCursor(editorViewState, offset, selecting)
 
 proc syncEditorCursor() =
+  editorWorkspaceUi.selectTab(editorSession.activeTab)
   when defined(macosx):
     let document = activeDocument()
     let visibleLines = editorVisibleLineCount()

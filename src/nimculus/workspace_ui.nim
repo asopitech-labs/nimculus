@@ -182,6 +182,20 @@ proc syncRootTabs*(state: var WorkspaceUiState, tabCount, activeTab: int) =
       sync(tree.second)
   sync(state.center)
 
+proc selectTab*(state: var WorkspaceUiState, tabIndex: int) =
+  ## Selection is pane state, even while EditorSession is the transitional
+  ## document owner. Applying it to each currently mirrored pane keeps the
+  ## split arrangement visually consistent until panes own independent item
+  ## sets.
+  proc select(tree: PaneTree) =
+    if tree.isNil: return
+    if tree.kind == paneLeaf:
+      tree.pane.activeTabIndex = if tabIndex in tree.pane.tabIndices: tabIndex else: -1
+    else:
+      select(tree.first)
+      select(tree.second)
+  select(state.center)
+
 proc splitFocusedPane*(state: var WorkspaceUiState, axis: PaneAxis,
                        ratio = 0.5'f32): bool =
   ## The first vertical slice splits the root pane.  Recursive pane operations
