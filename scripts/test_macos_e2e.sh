@@ -157,4 +157,12 @@ phase package
     bash scripts/verify_macos_package.sh
 )
 
+if [[ "${NIMCULUS_E2E_GUI_WORKFLOWS:-0}" == "1" ]]; then
+  phase gui-workflows
+  (
+    cd "$ROOT_DIR"
+    bash scripts/test_macos_gui_workflows.sh
+  )
+fi
+
 printf 'macos_e2e_complete\tcold_runs=%s\tsoak_seconds=%s\n' "$COLD_RUNS" "$SOAK_SECONDS"

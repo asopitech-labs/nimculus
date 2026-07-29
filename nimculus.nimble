@@ -67,3 +67,6 @@ task packageMacos, "Build, sign, and package the macOS application":
 
 task macosE2E, "Run the consolidated macOS release-candidate E2E gate":
   exec "bash scripts/test_macos_e2e.sh"
+
+task macosGuiE2E, "Run GUI-login workspace workflow E2E on macOS":
+  exec "bash scripts/test_macos_gui_workflows.sh"
