@@ -4372,7 +4372,9 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
               elif not fileExists(candidate) or dirExists(candidate):
                 editorViewState.statusMessage = "Git status file is unavailable: " & entry.path
               else:
-                receiveNativeFile(candidate.cstring, false)
+                # A Git change-list file is a workspace navigation action,
+                # so preserve the focused split pane just like Files does.
+                openFilesDockEntry(candidate)
         of sidebarGitBranches:
           if index >= 0 and index < editorGitBranches.len:
             let branch = editorGitBranches[index]
@@ -4454,7 +4456,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
               elif not fileExists(candidate) or dirExists(candidate):
                 editorViewState.statusMessage = "Git status file is unavailable: " & entry.path
               else:
-                receiveNativeFile(candidate.cstring, false)
+                openFilesDockEntry(candidate)
             of "stage":
               if entry.conflict:
                 editorViewState.statusMessage = "Git conflict must be resolved before staging"
