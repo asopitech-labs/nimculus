@@ -2461,14 +2461,17 @@ proc receiveNativeTextValue(value: string, composing: bool) =
       return
     platformSetEditorComposition("".cstring)
   if not composing and value.len > 0:
-    let document = activeDocument()
+    let secondary = editorSession.split and editorSession.splitActivePane == 1
+    let document = if secondary: secondaryPaneDocument() else: activeDocument()
     if document != nil:
-      let selected = if editorSession.split and editorSession.splitActivePane == 1:
-        editorSession.secondaryView.selectedRange() else: editorViewState.selectedRange()
+      let secondaryTab = if secondary: editorWorkspaceUi.center.second.pane.activeTabIndex else: -1
+      let selected = if secondary:
+        editorSession.tabs[secondaryTab].secondaryView.selectedRange() else: editorViewState.selectedRange()
       document[].buffer.edit(Edit(startByte: selected.startByte,
         endByte: selected.endByte, text: value))
-      if editorSession.split and editorSession.splitActivePane == 1:
-        editorSession.secondaryView.moveCursor(selected.startByte + value.len)
+      if secondary:
+        editorSession.tabs[secondaryTab].secondaryView.moveCursor(selected.startByte + value.len)
+        editorSession.secondaryView = editorSession.tabs[secondaryTab].secondaryView
       else:
         editorViewState.moveCursor(selected.startByte + value.len)
       syncEditorCursor()
