@@ -148,6 +148,7 @@ when defined(macosx) or defined(windows):
   var pendingLspRename: seq[LspWorkspaceEdit]
   var pendingLspCodeActions: seq[LspCodeAction]
   var pendingLspSymbols: seq[LspSymbol]
+  var pendingLspSymbolDepths: seq[int]
 
 when defined(macosx):
   # NSSavePanel is asynchronous. Remember the tab that initiated it so a
@@ -626,6 +627,7 @@ proc resetEditorTransientState() =
   editorScrollRemainder = 0'f32
   when defined(macosx):
     pendingLspSymbols.setLen(0)
+    pendingLspSymbolDepths.setLen(0)
     syncNativeSymbolTree()
 
 proc resetEditorViewState() =
@@ -1266,14 +1268,37 @@ when defined(macosx):
     if pendingLspSymbols.len == 0:
       lines.add("No symbols")
     else:
-      proc appendSymbol(symbol: LspSymbol, depth: int) =
+      var keys: seq[string]
+      for index, symbol in pendingLspSymbols:
+        let depth = if index < pendingLspSymbolDepths.len:
+          pendingLspSymbolDepths[index] else: 0
         lines.add("  ".repeat(depth) & symbol.name & "  " &
           $(symbol.range.start.line + 1))
-        for child in symbol.children:
-          appendSymbol(child, depth + 1)
-      for symbol in pendingLspSymbols: appendSymbol(symbol, 0)
+        # A symbol name alone is not stable across overloads. The LSP range
+        # keeps the selected outline entry attached to the same source span.
+        keys.add(symbol.name & "\x1f" & $symbol.range.start.line & ":" &
+          $symbol.range.start.character & ":" & $symbol.range.finish.line & ":" &
+          $symbol.range.finish.character)
+      editorWorkspaceUi.replacePanelItems(panelOutline, keys)
     let text = lines.join("\n")
     platformSetEditorOutline(text.cstring, uint32(text.len), uint32(pendingLspSymbols.len))
+    syncNativeSidebarSelection()
+
+  proc openNativeSymbol(index: int): bool =
+    let document = activeDocument()
+    if document == nil or index < 0 or index >= pendingLspSymbols.len:
+      editorViewState.statusMessage = "LSP symbol is unavailable"
+      return false
+    let symbol = pendingLspSymbols[index]
+    let target = document[].buffer.byteOffsetAtUtf16Position(
+      symbol.range.start.line, symbol.range.start.character)
+    moveActiveEditorCursor(target)
+    syncEditorCursor()
+    refreshEditorSyntax()
+    editorWorkspaceUi.focusCenter()
+    platformFocusEditor()
+    editorViewState.statusMessage = "LSP: " & symbol.name
+    true
 
   proc lspSelectionRange(document: ptr FileDocument): LspRange =
     if document == nil: return
@@ -1347,9 +1372,11 @@ when defined(macosx):
     let symbols = lspBridge.takeSymbols()
     if symbols.len > 0:
       pendingLspSymbols.setLen(0)
+      pendingLspSymbolDepths.setLen(0)
       var lines: seq[string]
       proc appendSymbol(symbol: LspSymbol, depth: int) =
         pendingLspSymbols.add(symbol)
+        pendingLspSymbolDepths.add(depth)
         lines.add($(pendingLspSymbols.len) & ". " & "  ".repeat(depth) & symbol.name & "  " &
           $(symbol.range.start.line + 1))
         for child in symbol.children:
@@ -4306,16 +4333,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           let value = if rawCommand.len > 12: rawCommand[12 .. ^1].strip else: ""
           try:
             let index = parseInt(value) - 1
-            if index < 0 or index >= pendingLspSymbols.len:
+            if not openNativeSymbol(index):
               editorViewState.statusMessage = "Invalid symbol number"
-            else:
-              let symbol = pendingLspSymbols[index]
-              let target = document[].buffer.byteOffsetAtUtf16Position(
-                symbol.range.start.line, symbol.range.start.character)
-              moveActiveEditorCursor(target)
-              syncEditorCursor()
-              refreshEditorSyntax()
-              editorViewState.statusMessage = "LSP: " & symbol.name
           except ValueError:
             editorViewState.statusMessage = "Invalid symbol number"
     of "__apply_code_action__":
@@ -4853,7 +4872,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
               # the command still opts out of remote-name guessing.
               startNativeGitAction(editorGitRepository, "switch branch", "",
                 ["switch", "--no-guess", branch.name], source = branch.name)
-        of sidebarOutline: discard
+        of sidebarOutline:
+          discard openNativeSymbol(index)
       except ValueError:
         editorViewState.statusMessage = "Invalid sidebar item"
   elif name.startsWith("sidebarContext:"):

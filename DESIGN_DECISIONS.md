@@ -5769,3 +5769,19 @@ reuses the existing stage/unstage safety checks.
 **Consequences.** Keyboard actions retain the same conflict, staged, and
 unstaged rules as pointer actions; no Git command is created until a real
 selectable change is focused.
+
+## M7-019: Use one flat LSP-symbol projection for the Outline sidebar
+
+**Context.** LSP returns hierarchical document symbols, while native sidebar
+selection requires a stable linear row index. Nimculus flattened symbols for
+the command palette but recursively rendered that flattened list in Outline,
+which could duplicate child rows and left sidebar selection unregistered.
+
+**Decision.** Retain the flattened symbol sequence together with each row's
+tree depth. Outline rendering, native line count, workspace panel selection,
+and navigation all use this same projection. A stable key combines name and
+LSP range so refreshes retain selection across overloaded symbol names.
+
+**Consequences.** Every visible Outline row maps to exactly one LSP range;
+click, Enter, and Space move the editor cursor to that range and return focus
+to the editor without duplicating nested symbols.
