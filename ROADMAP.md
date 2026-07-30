@@ -456,6 +456,8 @@ LSP document symbolのOutlineは、階層depthを保持した単一のフラッ�
 
 **実装済み基盤：** `GitRepository` によるrepository検出、porcelain v1 NUL status解析（rename/copy/conflictを含む）、unstaged/staged diff、unified diff hunkの行範囲・追加削除数解析、stage/unstage、hunk単位stage/unstage、commit、branch/HEAD、log、line blame、checkout、conflict path取得、終了コードを保持するGitJobと明示的cancel（`src/nimculus/git_service.nim`）。active documentの所属Workspace rootに対する非同期diff/status取得、branch・変更数・conflict数のstatus bar反映、追加/削除/変更を表すmacOS gutter ABIと本文内変更行背景、gutter通常クリックによるstage、Option-clickによるunstage、Command PaletteからのGit status/stage all/unstage all/カーソル行のhunk stage・unstage/commit/log/blame/checkoutを非同期ジョブへ接続済み。hunk操作はdiff取得とpatch適用を分離し、文書切替時の古い結果を破棄する。`cancel git`で実行中のGit操作を停止できる。実機でのinline diff/gutter確認は残る。
 
+Git Commit UI：**[x]** Changes パネルの Commit はZedのcommit editorと同様に、非モーダルなnative message editorを表示する。Enterで既存のGit jobへ明示dispatchし、Escはエディタへfocusを戻す。空メッセージは従来どおり拒否し、commit実行経路を二重化しない。
+
 Gitキャンセルは直接起動したGit子プロセスへSIGTERM後1秒のbounded waitとkill fallbackを適用する。共有process groupにはシグナルを送らず、stdin待ち・hook待ちでもmacOS UIを無期限に停止させない。
 
 Git History UI：**[x]** ZedのHistory tabと同じく、取得開始時の`Loading Commit History…`、失敗時、空履歴、読み込み完了を別状態としてサイドバーに表示する。File HistoryのRefreshは、後からフォーカスした文書ではなく、その履歴を生成したrepository/pathへ固定する。

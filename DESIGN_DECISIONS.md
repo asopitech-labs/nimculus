@@ -5942,3 +5942,20 @@ editor focus without changing the current search job.
 **Consequences.** Cmd+Shift+F and the Search activity action retain a visible,
 non-modal query entry point. Search remains cancellable from the persistent
 Search sidebar, and document content is never replaced by search output.
+
+## UI-064: Edit a Git commit message in the Changes surface
+
+**Context.** Nimculus had a Commit button in its Zed-like Changes panel but
+opened an `NSAlert` to collect the message. Zed keeps a commit editor in the
+Git panel, so committing does not replace the workspace with a blocking prompt.
+
+**Decision.** Place a compact native message editor beside the active Git
+sidebar. Commit validates the existing non-empty message contract, hides the
+editor before dispatching `commandPalette:git commit <message>`, and Esc
+returns focus to the Metal editor. The existing asynchronous Git job remains
+the only path that performs a commit.
+
+**Consequences.** The primary Changes-panel operation stays visible and
+keyboard-complete without weakening Git validation or creating a second commit
+implementation. The native overlay contract verifies Enter, Esc, and command
+routing without an attached sheet.

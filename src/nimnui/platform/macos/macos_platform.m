@@ -2042,6 +2042,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)showGoToLineBar;
 - (void)showWorkspaceSearchBar;
 - (void)showCommandPalette;
+- (void)showGitCommitEditor;
 @end
 
 // Zed keeps buffer search in the pane chrome instead of making the editor
@@ -2050,6 +2051,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 // to the editor when dismissed.
 @class NimculusDocumentSearchOverlay;
 @class NimculusCommandPaletteOverlay;
+@class NimculusGitCommitOverlay;
 @interface NimculusDocumentSearchField : NSSearchField
 @property(nonatomic, assign) NimculusDocumentSearchOverlay *searchOverlay;
 @end
@@ -2059,12 +2061,21 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusCommandPaletteField : NSComboBox
 @property(nonatomic, assign) NimculusCommandPaletteOverlay *commandPalette;
 @end
+@interface NimculusGitCommitField : NSTextField
+@property(nonatomic, assign) NimculusGitCommitOverlay *commitOverlay;
+@end
 @interface NimculusCommandPaletteOverlay : NSView <NSComboBoxDelegate>
 @property(nonatomic, retain) NSComboBox *field;
 @property(nonatomic, retain) NSButton *closeButton;
 @property(nonatomic, retain) NSArray<NSString *> *commands;
 - (void)show;
 - (void)refreshCandidatesForQuery:(NSString *)query;
+@end
+@interface NimculusGitCommitOverlay : NSView
+@property(nonatomic, retain) NSTextField *messageField;
+@property(nonatomic, retain) NSButton *commitButton;
+@property(nonatomic, retain) NSButton *closeButton;
+- (void)show;
 @end
 @interface NimculusDocumentSearchOverlay : NSView <NSTextFieldDelegate>
 @property(nonatomic, retain) NSSearchField *queryField;
@@ -2182,6 +2193,10 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)cancelOperation:(id)sender { (void)sender; [self.commandPalette close:nil]; }
 @end
 
+@implementation NimculusGitCommitField
+- (void)cancelOperation:(id)sender { (void)sender; [self.commitOverlay close:nil]; }
+@end
+
 @implementation NimculusCommandPaletteOverlay
 
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -2296,6 +2311,73 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 }
 
 - (void)cancelOperation:(id)sender { (void)sender; [self close:nil]; }
+@end
+
+// Zed's Changes panel owns a persistent commit-message editor. Nimculus keeps
+// the compact panel but makes the same operation directly reachable without a
+// blocking sheet.
+@implementation NimculusGitCommitOverlay
+
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.wantsLayer = YES;
+  self.layer.cornerRadius = 6.0;
+  self.layer.borderWidth = 1.0;
+  self.layer.borderColor = [[NSColor separatorColor] colorWithAlphaComponent:0.8].CGColor;
+  self.layer.backgroundColor = [[NSColor windowBackgroundColor]
+    colorWithAlphaComponent:0.99].CGColor;
+  self.messageField = [[[NimculusGitCommitField alloc] initWithFrame:NSZeroRect] autorelease];
+  ((NimculusGitCommitField *)self.messageField).commitOverlay = self;
+  self.messageField.placeholderString = @"Commit message";
+  self.messageField.target = self;
+  self.messageField.action = @selector(commit:);
+  [self addSubview:self.messageField];
+  self.commitButton = [NSButton buttonWithTitle:@"Commit" target:self action:@selector(commit:)];
+  self.commitButton.bezelStyle = NSBezelStyleTexturedRounded;
+  self.closeButton = [NSButton buttonWithTitle:@"×" target:self action:@selector(close:)];
+  self.closeButton.bezelStyle = NSBezelStyleTexturedRounded;
+  self.closeButton.toolTip = @"Close Commit Message (Esc)";
+  [self addSubview:self.commitButton];
+  [self addSubview:self.closeButton];
+  return self;
+}
+
+- (void)dealloc { [_messageField release]; [_commitButton release]; [_closeButton release]; [super dealloc]; }
+- (void)layout {
+  [super layout];
+  const CGFloat padding = 6.0;
+  self.messageField.frame = NSMakeRect(padding, padding,
+    MAX(1.0, self.bounds.size.width - 124.0), 24.0);
+  self.commitButton.frame = NSMakeRect(self.bounds.size.width - 112.0, padding, 72.0, 24.0);
+  self.closeButton.frame = NSMakeRect(self.bounds.size.width - 36.0, padding, 28.0, 24.0);
+}
+- (void)show {
+  self.hidden = NO;
+  [self setNeedsLayout:YES];
+  [self layoutSubtreeIfNeeded];
+  [self.window makeFirstResponder:self.messageField];
+  [self.messageField selectText:nil];
+}
+- (void)commit:(id)sender {
+  (void)sender;
+  NSString *message = [self.messageField.stringValue
+    stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+  if (message.length == 0) {
+    if (g_command_callback) g_command_callback("gitCommitMessageEmpty");
+    return;
+  }
+  [self close:nil];
+  if (g_command_callback) {
+    NSString *command = [NSString stringWithFormat:@"commandPalette:git commit %@", message];
+    g_command_callback(command.UTF8String);
+  }
+}
+- (void)close:(id)sender {
+  (void)sender;
+  self.hidden = YES;
+  [self.window makeFirstResponder:self.superview];
+}
 @end
 
 @implementation NimculusDocumentSearchOverlay
@@ -3991,6 +4073,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     commandPalette.hidden = YES;
     [self addSubview:commandPalette];
     [commandPalette release];
+    NimculusGitCommitOverlay *gitCommitEditor =
+      [[NimculusGitCommitOverlay alloc] initWithFrame:NSZeroRect];
+    gitCommitEditor.hidden = YES;
+    [self addSubview:gitCommitEditor];
+    [gitCommitEditor release];
     [self updateTrackingAreas];
   }
   return self;
@@ -4069,6 +4156,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusEditorAnnotationOverlay *annotations = nil;
   NimculusDocumentSearchOverlay *documentSearch = nil;
   NimculusCommandPaletteOverlay *commandPalette = nil;
+  NimculusGitCommitOverlay *gitCommitEditor = nil;
   for (NSView *subview in self.subviews) {
     if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) lineNumbers = (NimculusLineNumberOverlay *)subview;
     if ([subview isKindOfClass:[NimculusIndentGuideOverlay class]]) indentGuides = (NimculusIndentGuideOverlay *)subview;
@@ -4086,6 +4174,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusEditorAnnotationOverlay class]]) annotations = (NimculusEditorAnnotationOverlay *)subview;
     if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) documentSearch = (NimculusDocumentSearchOverlay *)subview;
     if ([subview isKindOfClass:[NimculusCommandPaletteOverlay class]]) commandPalette = (NimculusCommandPaletteOverlay *)subview;
+    if ([subview isKindOfClass:[NimculusGitCommitOverlay class]]) gitCommitEditor = (NimculusGitCommitOverlay *)subview;
     if ([subview isKindOfClass:[NimculusGitSidebarTabs class]]) gitTabs = (NimculusGitSidebarTabs *)subview;
     if ([subview isKindOfClass:[NimculusGitCommitButton class]]) gitCommit = (NimculusGitCommitButton *)subview;
     if ([subview isKindOfClass:[NimculusGitRefreshButton class]]) gitRefresh = (NimculusGitRefreshButton *)subview;
@@ -4281,6 +4370,14 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       g_editor_rect[1] + g_editor_rect[3] - 52.0, paletteWidth, 40.0);
     [commandPalette setNeedsLayout:YES];
   }
+  if (gitCommitEditor && !gitCommitEditor.hidden) {
+    const CGFloat commitWidth = MIN(420.0, MAX(260.0, sidebarWidth - 8.0));
+    const CGFloat commitX = g_editor_sidebar_on_right ? sidebarX + 4.0 :
+      sidebarX + sidebarWidth - commitWidth - 4.0;
+    gitCommitEditor.frame = NSMakeRect(commitX, g_editor_rect[1] + g_editor_rect[3] - 62.0,
+      commitWidth, 36.0);
+    [gitCommitEditor setNeedsLayout:YES];
+  }
   if (!terminal || !terminalSessions || !outputBar || !taskOutput) return;
   BOOL panelVisible = g_terminal_visible || g_task_output_visible;
   CGFloat height = panelVisible ? MIN(180.0, MAX(72.0, g_editor_rect[3] * 0.42)) : 0.0;
@@ -4345,6 +4442,16 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   for (NSView *subview in self.subviews) {
     if ([subview isKindOfClass:[NimculusCommandPaletteOverlay class]]) {
       [(NimculusCommandPaletteOverlay *)subview show];
+      [self updateTerminalFrame];
+      return;
+    }
+  }
+}
+
+- (void)showGitCommitEditor {
+  for (NSView *subview in self.subviews) {
+    if ([subview isKindOfClass:[NimculusGitCommitOverlay class]]) {
+      [(NimculusGitCommitOverlay *)subview show];
       [self updateTerminalFrame];
       return;
     }
@@ -5112,25 +5219,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 }
 
 - (void)presentGitCommitSheet {
-  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-  alert.messageText = @"Commit Changes";
-  alert.informativeText = @"Enter a commit message for the staged changes.";
-  NSTextField *field = [[[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 360, 24)] autorelease];
-  field.placeholderString = @"Commit message";
-  alert.accessoryView = field;
-  [alert addButtonWithTitle:@"Commit"];
-  [alert addButtonWithTitle:@"Cancel"];
-  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
-    if (response != NSAlertFirstButtonReturn || !g_command_callback) return;
-    NSString *message = [field.stringValue
-      stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    if (message.length == 0) {
-      g_command_callback("gitCommitMessageEmpty");
-      return;
-    }
-    NSString *command = [NSString stringWithFormat:@"commandPalette:git commit %@", message];
-    g_command_callback(command.UTF8String);
-  }];
+  [self.view showGitCommitEditor];
 }
 
 - (void)findInWorkspace:(id)sender {
@@ -7158,6 +7247,24 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     [delegate openCommandPalette:nil];
     [palette.field cancelOperation:nil];
     BOOL paletteEscaped = palette.hidden && window.firstResponder == view;
+    [delegate presentGitCommitSheet];
+    NimculusGitCommitOverlay *commitEditor = nil;
+    for (NSView *subview in view.subviews) {
+      if ([subview isKindOfClass:[NimculusGitCommitOverlay class]]) {
+        commitEditor = (NimculusGitCommitOverlay *)subview;
+        break;
+      }
+    }
+    BOOL commitVisible = commitEditor && !commitEditor.hidden && window.attachedSheet == nil &&
+      window.firstResponder == commitEditor.messageField.currentEditor;
+    commitEditor.messageField.stringValue = @"Update project search";
+    [commitEditor commit:nil];
+    BOOL commitDispatched = strcmp(g_validation_command,
+      "commandPalette:git commit Update project search") == 0 && commitEditor.hidden &&
+      window.firstResponder == view;
+    [delegate presentGitCommitSheet];
+    [commitEditor.messageField cancelOperation:nil];
+    BOOL commitEscaped = commitEditor.hidden && window.firstResponder == view;
     g_command_callback = previousCallback;
     g_active_view = previousView;
     delegate.view = nil;
@@ -7169,7 +7276,8 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     g_metrics = previousMetrics;
     return visibleFind && dispatched && escaped && visibleReplace && visibleLine &&
       visibleWorkspaceSearch && workspaceSearchDispatched && dismissed &&
-      paletteVisible && paletteFiltered && paletteDispatched && paletteEscaped;
+      paletteVisible && paletteFiltered && paletteDispatched && paletteEscaped &&
+      commitVisible && commitDispatched && commitEscaped;
   }
 }
 
