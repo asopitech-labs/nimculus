@@ -30,6 +30,7 @@ bool nimculus_platform_validate_glyph_atlas_eviction(void);
 bool nimculus_platform_validate_color_emoji_fallback(void);
 bool nimculus_platform_validate_color_emoji_sequences(void);
 bool nimculus_platform_validate_terminal_overlay_runs(void);
+bool nimculus_platform_validate_editor_context_header(void);
 bool nimculus_platform_validate_sidebar_dispatch(void);
 bool nimculus_platform_validate_sidebar_context_dispatch(void);
 bool nimculus_platform_validate_git_sidebar_tabs(void);

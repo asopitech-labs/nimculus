@@ -234,6 +234,9 @@ suite "macOS platform contract":
   test "every document tab exposes an independent close target":
     check platformValidateTabBarCloseTargets()
 
+  test "editor header keeps a non-interactive truncated document breadcrumb":
+    check platformValidateEditorContextHeader()
+
   test "native glyph atlas uploads and reuses visible glyphs":
     if platformValidateGlyphAtlas():
       check true

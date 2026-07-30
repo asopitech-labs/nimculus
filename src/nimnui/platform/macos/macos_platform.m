@@ -5782,6 +5782,25 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
   }
 }
 
+bool nimculus_platform_validate_editor_context_header(void) {
+  @autoreleasepool {
+    NSString *previous = [g_editor_context retain];
+    replaceOwnedString(&g_editor_context, @"nimculus › src › nimculus › main.nim");
+    NimculusEditorContextOverlay *context = [[NimculusEditorContextOverlay alloc]
+      initWithFrame:NSMakeRect(12.0, 480.0, 300.0, 20.0)];
+    context.stringValue = g_editor_context;
+    context.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    BOOL valid = [context.stringValue isEqualToString:g_editor_context] &&
+      context.lineBreakMode == NSLineBreakByTruncatingMiddle &&
+      context.frame.size.height == 20.0 && !context.acceptsFirstResponder &&
+      [context hitTest:NSMakePoint(2.0, 2.0)] == nil;
+    [context release];
+    replaceOwnedString(&g_editor_context, previous ?: @"");
+    [previous release];
+    return valid;
+  }
+}
+
 bool nimculus_platform_validate_sidebar_dispatch(void) {
   @autoreleasepool {
     NimculusCommandCallback previousCallback = g_command_callback;
