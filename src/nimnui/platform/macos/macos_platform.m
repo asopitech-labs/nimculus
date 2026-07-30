@@ -4172,7 +4172,21 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 - (void)keyUp:(NSEvent *)event { logInput(@"keyUp", event); }
 - (void)flagsChanged:(NSEvent *)event { logInput(@"flagsChanged", event); }
 - (void)mouseDown:(NSEvent *)event { logInput(@"mouseDown", event); }
-- (void)mouseUp:(NSEvent *)event { logInput(@"mouseUp", event); }
+- (void)mouseUp:(NSEvent *)event {
+  // Zed gives its sidebar resize handle a double-click reset.  The right
+  // Project dock is native macOS presentation, so keep this gesture here and
+  // let the Nim workspace model own only the resulting default width.
+  if (event.clickCount >= 2 && g_editor_sidebar_visible &&
+      g_editor_sidebar_on_right && g_command_callback) {
+    NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    const CGFloat dividerX = g_editor_rect[0] + g_editor_rect[2] + 8.0;
+    if (fabs(point.x - dividerX) <= 4.0) {
+      g_command_callback("resetWorkspaceSidebarWidth");
+      return;
+    }
+  }
+  logInput(@"mouseUp", event);
+}
 - (void)mouseMoved:(NSEvent *)event { logInput(@"mouseMoved", event); }
 - (void)mouseDragged:(NSEvent *)event { logInput(@"mouseDragged", event); }
 - (void)rightMouseDragged:(NSEvent *)event { logInput(@"rightMouseDragged", event); }

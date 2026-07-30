@@ -81,6 +81,8 @@ suite "workspace UI state":
       dockResizeRequest(dockLeft, 840, 1200, dockOnRight = true), 1200)
     check state.leftDock.size == 360
     check state.dockResizeDivider(dockLeft, 1200, dockOnRight = true) == 840
+    state.resetDockSize(dockLeft)
+    check state.leftDock.size == DefaultLeftDockWidth
 
   test "bottom dock takes space from the center instead of overlaying it":
     var state = initWorkspaceUi()

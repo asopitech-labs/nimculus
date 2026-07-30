@@ -4236,6 +4236,11 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       else: receiveNativeCommand("commandPalette:git status".cstring)
   elif name == "gitCommitMessageEmpty":
     editorViewState.statusMessage = "Git commit requires a message"
+  elif name == "resetWorkspaceSidebarWidth":
+    when defined(macosx):
+      editorWorkspaceUi.resetDockSize(dockLeft)
+      setupDemoUi()
+      persistSession()
   elif name.startsWith("commandPalette:"):
     let rawCommand = name[15 .. ^1].strip
     let command = rawCommand.toLowerAscii

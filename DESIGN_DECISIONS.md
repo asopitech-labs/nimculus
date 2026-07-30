@@ -5548,7 +5548,8 @@ pointer x`.
 
 **Consequences.** The macOS Project dock now resizes from its visible edge,
 while Windows/Linux can retain left-side presentation without inheriting a
-macOS-specific layout abstraction. Unit coverage verifies the round trip.
+macOS-specific layout abstraction. Double-clicking the resize handle restores
+the Zed-like default width. Unit coverage verifies the round trip and reset.
 
 ## UI-059: Keep workspace-search controls inside the Search panel
 

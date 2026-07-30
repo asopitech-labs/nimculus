@@ -274,6 +274,13 @@ proc dockResizeRequest*(side: DockSide, pointer, available: float32,
   of dockBottom:
     max(0'f32, available - pointer)
 
+proc resetDockSize*(state: var WorkspaceUiState, side: DockSide) =
+  ## Match Zed's resize-handle double-click behavior without exposing a
+  ## platform event detail to the shared workspace model.
+  case side
+  of dockLeft: state.leftDock.size = DefaultLeftDockWidth
+  of dockBottom: state.bottomDock.size = DefaultBottomDockHeight
+
 proc resizeDock*(state: var WorkspaceUiState, side: DockSide, requested: float32,
                  available: float32) =
   let current = state.dock(side)
