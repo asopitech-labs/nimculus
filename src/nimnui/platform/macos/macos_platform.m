@@ -3624,15 +3624,24 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       [glyphBuffer release];
     }
     if (g_text_pipeline && g_text_texture) {
-      const float left = (float)(g_editor_rect[0] / logicalSize.width * 2.0 - 1.0);
-      const float right = (float)((g_editor_rect[0] + g_editor_rect[2]) / logicalSize.width * 2.0 - 1.0);
-      const float top = (float)(1.0 - g_editor_rect[1] / logicalSize.height * 2.0);
-      const float bottom = (float)(1.0 - (g_editor_rect[1] + g_editor_rect[3]) / logicalSize.height * 2.0);
+      // The text texture is pane-sized for inexpensive reuse, but only its
+      // content viewport may be sampled.  Restricting both the destination
+      // quad and its UVs makes the boundary structural rather than relying on
+      // a scissor alone: stale Core Text pixels cannot cross into the tab
+      // strip, scrollbar, right dock, or status area.
+      const float left = (float)(primaryEditorRegion.x / logicalSize.width * 2.0 - 1.0);
+      const float right = (float)((primaryEditorRegion.x + primaryEditorRegion.width) / logicalSize.width * 2.0 - 1.0);
+      const float top = (float)(1.0 - primaryEditorRegion.y / logicalSize.height * 2.0);
+      const float bottom = (float)(1.0 - (primaryEditorRegion.y + primaryEditorRegion.height) / logicalSize.height * 2.0);
+      const float u0 = (float)((primaryEditorRegion.x - g_editor_rect[0]) / g_editor_rect[2]);
+      const float u1 = (float)((primaryEditorRegion.x + primaryEditorRegion.width - g_editor_rect[0]) / g_editor_rect[2]);
+      const float v0 = (float)((primaryEditorRegion.y - g_editor_rect[1]) / g_editor_rect[3]);
+      const float v1 = (float)((primaryEditorRegion.y + primaryEditorRegion.height - g_editor_rect[1]) / g_editor_rect[3]);
       const float textVertices[] = {
-        left, top, 0.0f, 0.0f,
-        right, top, 1.0f, 0.0f,
-        left, bottom, 0.0f, 1.0f,
-        right, bottom, 1.0f, 1.0f,
+        left, top, u0, v0,
+        right, top, u1, v0,
+        left, bottom, u0, v1,
+        right, bottom, u1, v1,
       };
       id<MTLBuffer> textBuffer = [drawable.texture.device newBufferWithBytes:textVertices
         length:sizeof(textVertices) options:MTLResourceStorageModeShared];
@@ -3654,11 +3663,15 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       [textBuffer release];
     }
     if (g_text_pipeline && g_secondary_text_texture && g_secondary_editor_visible) {
-      const float left = (float)(g_secondary_editor_rect[0] / logicalSize.width * 2.0 - 1.0);
-      const float right = (float)((g_secondary_editor_rect[0] + g_secondary_editor_rect[2]) / logicalSize.width * 2.0 - 1.0);
-      const float top = (float)(1.0 - g_secondary_editor_rect[1] / logicalSize.height * 2.0);
-      const float bottom = (float)(1.0 - (g_secondary_editor_rect[1] + g_secondary_editor_rect[3]) / logicalSize.height * 2.0);
-      const float vertices[] = {left, top, 0, 0, right, top, 1, 0, left, bottom, 0, 1, right, bottom, 1, 1};
+      const float left = (float)(secondaryEditorRegion.x / logicalSize.width * 2.0 - 1.0);
+      const float right = (float)((secondaryEditorRegion.x + secondaryEditorRegion.width) / logicalSize.width * 2.0 - 1.0);
+      const float top = (float)(1.0 - secondaryEditorRegion.y / logicalSize.height * 2.0);
+      const float bottom = (float)(1.0 - (secondaryEditorRegion.y + secondaryEditorRegion.height) / logicalSize.height * 2.0);
+      const float u0 = (float)((secondaryEditorRegion.x - g_secondary_editor_rect[0]) / g_secondary_editor_rect[2]);
+      const float u1 = (float)((secondaryEditorRegion.x + secondaryEditorRegion.width - g_secondary_editor_rect[0]) / g_secondary_editor_rect[2]);
+      const float v0 = (float)((secondaryEditorRegion.y - g_secondary_editor_rect[1]) / g_secondary_editor_rect[3]);
+      const float v1 = (float)((secondaryEditorRegion.y + secondaryEditorRegion.height - g_secondary_editor_rect[1]) / g_secondary_editor_rect[3]);
+      const float vertices[] = {left, top, u0, v0, right, top, u1, v0, left, bottom, u0, v1, right, bottom, u1, v1};
       id<MTLBuffer> buffer = [drawable.texture.device newBufferWithBytes:vertices length:sizeof(vertices) options:MTLResourceStorageModeShared];
       [encoder setRenderPipelineState:g_text_pipeline];
       [encoder setVertexBuffer:buffer offset:0 atIndex:0];

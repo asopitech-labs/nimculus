@@ -242,7 +242,12 @@ proc setupDemoUi() =
   # former fixed 128pt top gap left most of the window visually empty before
   # the active editor began; these insets retain the same lower tab boundary
   # while giving the document the recovered vertical space.
-  const EditorTopInset = 52'f32
+  # The native tab strip occupies the first 28pt of the editor surface. Keep
+  # the text viewport below it instead of treating the pane's outer rectangle
+  # as editable content: otherwise the first rendered line can appear behind
+  # tabs and a resized pane has no unambiguous bottom boundary.
+  const EditorTabStripHeight = 28'f32
+  const EditorTopInset = 52'f32 + EditorTabStripHeight
   const EditorBottomInset = 58'f32
   let editorHeight = max(0'f32, float32(workspaceLayout.center.size.height) -
     EditorTopInset - EditorBottomInset)
