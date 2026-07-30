@@ -2124,19 +2124,38 @@ proc renderQuickOpen() =
     if activeWorkspace == nil or workspaceQuickOpenQuery.len == 0: return
     workspacePreviewMode = "quickOpen"
     workspaceSearchQuery = ""
-    var lines = @["Quick Open: " & workspaceQuickOpenQuery]
+    # Native sidebar selection reserves its first two lines for title and
+    # separator, just like Files/Git. Keep that contract so a result's visual
+    # row and its activation index are identical.
+    var lines = @["Quick Open: " & workspaceQuickOpenQuery, "────────"]
     for entry in workspacePreviewEntries:
       if lines.len >= 12: break
       lines.add(entry.relativePath)
     if workspaceQuickOpenJob != nil and not workspaceQuickOpenJob.isComplete:
       lines.add("… searching workspace")
-    platformSetEditorHighlights(nil, 0)
-    platformSetEditorComposition("".cstring)
-    platformSetEditorScrollLine(0)
-    platformSetEditorCursorByte(0, 0)
-    platformSetEditorSelection(0, 0)
     let text = lines.join("\n")
-    platformSetEditorText(text.cstring, uint32(text.len))
+    when defined(macosx):
+      # File discovery is navigation chrome, not document content. Rendering
+      # results into the editor discarded the current visual context (and made
+      # a split editor look empty) until a file was chosen. Reuse the native
+      # Files list so click, keyboard selection, and Enter retain their normal
+      # workspace semantics while the edited document remains visible.
+      editorWorkspaceUi.openPanel(panelFiles)
+      editorWorkspaceUi.leftDock.isOpen = true
+      editorSidebarMode = sidebarFiles
+      editorWorkspaceUi.replacePanelItems(panelFiles,
+        workspacePreviewEntries.mapIt(it.path))
+      platformSetEditorSidebar(text.cstring, uint32(text.len),
+        uint32(workspacePreviewEntries.len), uint32(sidebarFiles))
+      syncNativeSidebarSelection()
+      setupDemoUi()
+    else:
+      platformSetEditorHighlights(nil, 0)
+      platformSetEditorComposition("".cstring)
+      platformSetEditorScrollLine(0)
+      platformSetEditorCursorByte(0, 0)
+      platformSetEditorSelection(0, 0)
+      platformSetEditorText(text.cstring, uint32(text.len))
 
 proc showWorkspaceSearch(query: string) =
   when defined(macosx) or defined(windows):

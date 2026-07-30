@@ -5396,3 +5396,18 @@ rows expose no stage toggle or implicit resolution.
 aligned when one path occurs twice. The isolated GUI E2E performs Stage All
 then Unstage All and verifies the resulting Git index and worktree state;
 the native contract verifies row-control dispatch.
+
+## UI-052: Keep Quick Open out of the editor document surface
+
+**Context.** Quick Open previously replaced the native editor text with search
+results. That made the active document, caret, and second split pane appear to
+disappear until a result was selected.
+
+**Decision.** On macOS, render Quick Open into the existing Files sidebar and
+retain its normal list-selection and activation path. Keep the editor text
+presentation untouched; the Windows fallback retains its current independent
+surface until it has an equivalent native project panel.
+
+**Consequences.** File discovery behaves as workspace navigation rather than a
+temporary document. The GUI E2E opens File > Quick Open, enters a query, and
+asserts that its title appears in the sidebar accessibility text area.

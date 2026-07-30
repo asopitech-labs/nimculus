@@ -113,6 +113,18 @@ tell application "System Events"
     delay 0.5
     if not (exists button "New File" of window 1) then error "Files panel did not expose New File"
 
+    click menu item "Quick Open…" of menu "File" of menu bar item "File" of menu bar 1
+    delay 0.3
+    if not (exists sheet 1) then error "Quick Open did not present a sheet"
+    set value of text field 1 of sheet 1 to "main"
+    click button "Search" of sheet 1
+    delay 0.8
+    set quickOpenVisible to false
+    repeat with area in every text area of window 1
+      if (value of area as text) contains "Quick Open: main" then set quickOpenVisible to true
+    end repeat
+    if not quickOpenVisible then error "Quick Open did not render in the Files sidebar"
+
     click button "Split" of window 1
     delay 0.5
     if not (exists button "Close Split" of window 1) then error "Split did not expose Close Split"
