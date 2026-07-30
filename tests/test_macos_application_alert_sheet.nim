@@ -8,7 +8,7 @@ proc skipNativeSheetService(): bool =
   getEnv("NIMCULUS_SKIP_NATIVE_SHEET_CONTRACTS") == "1"
 
 suite "macOS editor overlay contracts":
-  test "search, command palette, and Git commit stay non-modal":
+  test "search, Quick Open, command palette, and Git commit stay non-modal":
     if skipNativeSheetService():
       echo "  [SKIP] document search overlay contract (auxiliary GUI service excluded)"
     elif platformValidateApplicationAlertSheet():

@@ -5959,3 +5959,18 @@ the only path that performs a commit.
 keyboard-complete without weakening Git validation or creating a second commit
 implementation. The native overlay contract verifies Enter, Esc, and command
 routing without an attached sheet.
+
+## UI-065: Keep Quick Open inside the editor workflow
+
+**Context.** Quick Open already streamed fuzzy file results into the Files
+sidebar, but its query was collected through an `NSAlert`. That interrupted
+the editor before the result UI was even visible.
+
+**Decision.** Add a Quick Open mode to the shared non-modal query overlay.
+Enter dispatches the existing `quickOpen:` command, which retains its bounded,
+cancelable fuzzy-search job and Files-sidebar result projection. The mode does
+not run a filesystem search for every keystroke.
+
+**Consequences.** File navigation has the same non-modal, editor-preserving
+entry behavior as document and workspace search. The native overlay contract
+verifies query dispatch and focus restoration without an attached sheet.

@@ -41,7 +41,8 @@ Git fixture に対して Stage All → Unstage All を操作し、index と work
 
 macOS の Quick Open は検索結果をエディタ本文へ描画せず、Files サイドバーへ
 表示する。これによりアクティブ文書、カーソル、分割ペインを維持したまま
-ファイル探索・選択・Enterによるオープンを行える。隔離 GUI E2E は File メニュー
+ファイル探索・選択・Enterによるオープンを行える。クエリはエディタ内の非モーダルな
+Quick Open バーで明示確定する。隔離 GUI E2E は File メニュー
 から `main` を検索し、結果タイトルがサイドバーのアクセシブルなテキスト領域に
 現れることを検証する。
 

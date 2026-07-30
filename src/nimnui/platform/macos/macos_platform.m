@@ -2041,6 +2041,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)showDocumentFindBar:(BOOL)replace;
 - (void)showGoToLineBar;
 - (void)showWorkspaceSearchBar;
+- (void)showQuickOpenBar;
 - (void)showCommandPalette;
 - (void)showGitCommitEditor;
 @end
@@ -2089,6 +2090,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)showFind:(BOOL)replace;
 - (void)showGoToLine;
 - (void)showWorkspaceSearch;
+- (void)showQuickOpen;
 @end
 
 @interface NimculusTerminalOverlay : NSTextView
@@ -2505,8 +2507,18 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   [self.queryField selectText:nil];
 }
 
+- (void)showQuickOpen {
+  self.mode = 4;
+  self.queryField.placeholderString = @"Quick Open: file name or path";
+  self.hidden = NO;
+  [self setNeedsLayout:YES];
+  [self layoutSubtreeIfNeeded];
+  [self.window makeFirstResponder:self.queryField];
+  [self.queryField selectText:nil];
+}
+
 - (void)controlTextDidChange:(NSNotification *)notification {
-  if (self.mode != 3 && notification.object == self.queryField && self.queryField.stringValue.length > 0 &&
+  if (self.mode != 3 && self.mode != 4 && notification.object == self.queryField && self.queryField.stringValue.length > 0 &&
       g_command_callback) {
     NSString *command = [NSString stringWithFormat:@"findDocument:%@", self.queryField.stringValue];
     g_command_callback(command.UTF8String);
@@ -2517,8 +2529,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)findNext:(id)sender {
   (void)sender;
   if (self.queryField.stringValue.length == 0 || !g_command_callback) return;
-  NSString *command = [NSString stringWithFormat:self.mode == 3 ? @"workspaceSearch:%@" :
-    @"findDocument:%@", self.queryField.stringValue];
+  NSString *format = self.mode == 3 ? @"workspaceSearch:%@" :
+    self.mode == 4 ? @"quickOpen:%@" : @"findDocument:%@";
+  NSString *command = [NSString stringWithFormat:format, self.queryField.stringValue];
   g_command_callback(command.UTF8String);
 }
 - (void)replaceAll:(id)sender {
@@ -4438,6 +4451,16 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
 }
 
+- (void)showQuickOpenBar {
+  for (NSView *subview in self.subviews) {
+    if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) {
+      [(NimculusDocumentSearchOverlay *)subview showQuickOpen];
+      [self updateTerminalFrame];
+      return;
+    }
+  }
+}
+
 - (void)showCommandPalette {
   for (NSView *subview in self.subviews) {
     if ([subview isKindOfClass:[NimculusCommandPaletteOverlay class]]) {
@@ -5330,19 +5353,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 
 - (void)quickOpen:(id)sender {
   (void)sender;
-  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-  alert.messageText = @"Quick Open";
-  alert.informativeText = @"Enter part of a file name or path.";
-  NSTextField *field = [self workspacePathField:@"File name"];
-  alert.accessoryView = field;
-  [alert addButtonWithTitle:@"Search"];
-  [alert addButtonWithTitle:@"Cancel"];
-  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
-    if (response == NSAlertFirstButtonReturn && g_command_callback) {
-      NSString *command = [NSString stringWithFormat:@"quickOpen:%@", field.stringValue];
-      g_command_callback(command.UTF8String);
-    }
-  }];
+  [self.view showQuickOpenBar];
 }
 
 - (void)newDocument:(id)sender {
@@ -7223,6 +7234,11 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     search.queryField.stringValue = @"Nimculus";
     [search findNext:nil];
     BOOL workspaceSearchDispatched = strcmp(g_validation_command, "workspaceSearch:Nimculus") == 0;
+    [delegate quickOpen:nil];
+    BOOL visibleQuickOpen = !search.hidden && search.mode == 4 && !search.queryField.hidden;
+    search.queryField.stringValue = @"main.nim";
+    [search findNext:nil];
+    BOOL quickOpenDispatched = strcmp(g_validation_command, "quickOpen:main.nim") == 0;
     [search close:nil];
     BOOL dismissed = search.hidden && window.attachedSheet == nil &&
       window.firstResponder == view;
@@ -7275,7 +7291,8 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     [window release];
     g_metrics = previousMetrics;
     return visibleFind && dispatched && escaped && visibleReplace && visibleLine &&
-      visibleWorkspaceSearch && workspaceSearchDispatched && dismissed &&
+      visibleWorkspaceSearch && workspaceSearchDispatched && visibleQuickOpen &&
+      quickOpenDispatched && dismissed &&
       paletteVisible && paletteFiltered && paletteDispatched && paletteEscaped &&
       commitVisible && commitDispatched && commitEscaped;
   }
