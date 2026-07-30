@@ -441,6 +441,8 @@ Search パネル：**[x]** 結果一覧のまま再検索を始める `New Searc
 
 Gitキャンセルは直接起動したGit子プロセスへSIGTERM後1秒のbounded waitとkill fallbackを適用する。共有process groupにはシグナルを送らず、stdin待ち・hook待ちでもmacOS UIを無期限に停止させない。
 
+Git History UI：**[x]** ZedのHistory tabと同じく、取得開始時の`Loading Commit History…`、失敗時、空履歴、読み込み完了を別状態としてサイドバーに表示する。File HistoryのRefreshは、後からフォーカスした文書ではなく、その履歴を生成したrepository/pathへ固定する。
+
 **完了条件：** 大規模リポジトリで UI を停止させず、Git 処理をキャンセルでき、Worktree ごとに状態を分離できる。
 
 ### M10：macOS 統合ターミナルとタスク — `v0.4.0-alpha`

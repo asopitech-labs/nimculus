@@ -166,7 +166,12 @@ tell application "System Events"
     click button "Unstage all changes" of window 1
     delay 0.8
     click button "History" of window 1
-    delay 0.5
+    delay 0.8
+    set gitHistoryVisible to false
+    repeat with area in every text area of window 1
+      if (value of area as text) contains "Git History" then set gitHistoryVisible to true
+    end repeat
+    if not gitHistoryVisible then error "Git History did not render in its sidebar"
     click button "Refresh Git panel" of window 1
     delay 0.5
 

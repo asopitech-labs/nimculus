@@ -770,6 +770,22 @@ when defined(macosx):
       uint32(sidebarGitHistory))
     syncNativeSidebarSelection()
 
+  proc renderNativeGitHistoryPlaceholder(message: string, title = "Git History",
+                                         path = "") =
+    ## Match Zed's History state machine: the tab owns a clear Loading/Error/
+    ## Empty transition rather than retaining whatever sidebar happened to be
+    ## visible before the asynchronous Git job started.
+    editorWorkspaceUi.openPanel(panelGit)
+    setupDemoUi()
+    editorSidebarMode = sidebarGitHistory
+    editorGitHistory.setLen(0)
+    editorGitHistoryPath = path
+    editorWorkspaceUi.replacePanelItems(panelGit, @[])
+    let text = title & "\n────────\n" & message
+    platformSetEditorSidebar(text.cstring, uint32(text.len), 0,
+      uint32(sidebarGitHistory))
+    syncNativeSidebarSelection()
+
   proc renderNativeGitEmpty() =
     ## Keep Git discoverable even before a project resolves to a repository.
     ## The sidebar owns the primary next action instead of leaving a stale
@@ -955,6 +971,11 @@ when defined(macosx):
     # Treat that as a successful untracked-file preview, not as a failed job.
     let diffFound = action == "show file diff" and job.result.exitCode == 1
     if job.result.exitCode != 0 and not diffFound:
+      if action == "log" or action == "refresh history":
+        renderNativeGitHistoryPlaceholder("Failed to load commit history")
+      elif action == "file history":
+        renderNativeGitHistoryPlaceholder("Failed to load commit history",
+          "Git History — " & editorGitActionPath, editorGitActionPath)
       editorViewState.statusMessage = "Git " & action & " failed: " & output
     elif action == "status":
       let entries = parseStatus(job.result.output)
@@ -3989,7 +4010,18 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     ## refresh must not unexpectedly switch to History, and vice versa.
     when defined(macosx):
       case editorSidebarMode
-      of sidebarGitHistory: receiveNativeCommand("commandPalette:git log".cstring)
+      of sidebarGitHistory:
+        # File History is anchored to the path that produced the list, not to
+        # a potentially different document that gained focus meanwhile.
+        if editorGitRepository != nil and editorGitHistoryPath.len > 0:
+          let path = editorGitHistoryPath
+          renderNativeGitHistoryPlaceholder("Loading Commit History…",
+            "Git History — " & path, path)
+          startNativeGitAction(editorGitRepository, "file history", path, [
+            "log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00", "-n", "100",
+            "--", path])
+        else:
+          receiveNativeCommand("commandPalette:git log".cstring)
       of sidebarGitBranches: receiveNativeCommand("commandPalette:git branches".cstring)
       else: receiveNativeCommand("commandPalette:git status".cstring)
   elif name == "gitCommitMessageEmpty":
@@ -4357,6 +4389,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           renderNativeGitEmpty()
           editorViewState.statusMessage = "Git repository not found"
         else:
+          renderNativeGitHistoryPlaceholder("Loading Commit History…")
           startNativeGitAction(repository, "log", "", [
             "log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00", "-n", "100"])
     of "__git_file_history__":
@@ -4367,6 +4400,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         if repository == nil or relative.len == 0:
           editorViewState.statusMessage = "Git repository not found"
         else:
+          renderNativeGitHistoryPlaceholder("Loading Commit History…",
+            "Git History — " & relative, relative)
           startNativeGitAction(repository, "file history", relative, [
             "log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00", "-n", "100",
             "--", relative])

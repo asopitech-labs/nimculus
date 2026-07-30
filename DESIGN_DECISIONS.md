@@ -5512,3 +5512,21 @@ boundary, so cancellation remains a harmless no-op after completion.
 the active document remains visible while a user can refine, restart, or stop
 search directly from its results. Native contract and GUI E2E cover the two
 controls.
+
+## UI-059: Model Git History as explicit loading, error, and loaded states
+
+**Context.** Zed's Git Panel renders `Loading Commit History…`, a failure
+placeholder, or an empty-history message while repository data changes. The
+Nimculus History tab waited for `git log` to complete, leaving a stale Files or
+Changes panel visible in the meantime; refreshing file history could also
+silently change to the currently focused document.
+
+**Decision.** Render a zero-item History sidebar immediately before every
+history job, replace it with a failure placeholder on a non-zero result, and
+then render commit rows only after a successful result. Preserve the history
+path and repository across Refresh so File History always refreshes the file
+that created the list.
+
+**Consequences.** The Git panel's visible state accurately represents the
+asynchronous operation, has no stale clickable rows during loading or failure,
+and file-history refresh remains stable even when editor focus changes.
