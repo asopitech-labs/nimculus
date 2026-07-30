@@ -2750,12 +2750,15 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     [NSColor colorWithCalibratedRed:0.045 green:0.055 blue:0.075 alpha:1.0]) CGColor];
   self.sessionPicker = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
   self.sessionPicker.bezelStyle = NSBezelStyleTexturedRounded;
+  self.sessionPicker.toolTip = @"Terminal sessions";
+  self.sessionPicker.accessibilityLabel = @"Terminal sessions";
   self.sessionPicker.target = self;
   self.sessionPicker.action = @selector(selectSession:);
   [self addSubview:self.sessionPicker];
   self.newButton = [[NSButton alloc] initWithFrame:NSZeroRect];
   self.newButton.title = @"+";
   self.newButton.toolTip = @"New Terminal";
+  self.newButton.accessibilityLabel = @"New Terminal";
   self.newButton.bezelStyle = NSBezelStyleTexturedRounded;
   self.newButton.target = self;
   self.newButton.action = @selector(newTerminal:);
@@ -2763,6 +2766,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   self.closeButton = [[NSButton alloc] initWithFrame:NSZeroRect];
   self.closeButton.title = @"×";
   self.closeButton.toolTip = @"Close Terminal";
+  self.closeButton.accessibilityLabel = @"Close Terminal";
   self.closeButton.bezelStyle = NSBezelStyleTexturedRounded;
   self.closeButton.target = self;
   self.closeButton.action = @selector(closeTerminal:);
@@ -6837,6 +6841,9 @@ bool nimculus_platform_validate_terminal_session_bar(void) {
     BOOL close = strcmp(g_validation_command, "terminalClose") == 0;
     BOOL presentation = bar.sessionPicker.numberOfItems == 2 &&
       [bar.sessionPicker.titleOfSelectedItem isEqualToString:@"Terminal 1"] &&
+      [bar.sessionPicker.accessibilityLabel isEqualToString:@"Terminal sessions"] &&
+      [bar.newButton.accessibilityLabel isEqualToString:@"New Terminal"] &&
+      [bar.closeButton.accessibilityLabel isEqualToString:@"Close Terminal"] &&
       bar.newButton.enabled && bar.closeButton.enabled;
     [bar release];
     replaceOwnedArray(&g_terminal_session_titles, previousTitles ?: @[]);
