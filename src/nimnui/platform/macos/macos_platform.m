@@ -2062,7 +2062,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusCommandPaletteOverlay : NSView <NSComboBoxDelegate>
 @property(nonatomic, retain) NSComboBox *field;
 @property(nonatomic, retain) NSButton *closeButton;
+@property(nonatomic, retain) NSArray<NSString *> *commands;
 - (void)show;
+- (void)refreshCandidatesForQuery:(NSString *)query;
 @end
 @interface NimculusDocumentSearchOverlay : NSView <NSTextFieldDelegate>
 @property(nonatomic, retain) NSSearchField *queryField;
@@ -2199,13 +2201,14 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   self.field.delegate = self;
   self.field.target = self;
   self.field.action = @selector(execute:);
-  [self.field addItemsWithObjectValues:@[
+  self.commands = @[
     @"new", @"save", @"find", @"toggle files", @"reveal active file",
     @"reopen closed tab", @"toggle git", @"git status", @"git log",
     @"git branches", @"git file history", @"split editor", @"close split",
     @"toggle soft wrap", @"open settings", @"toggle terminal", @"new terminal",
     @"toggle task output", @"go to definition", @"find references", @"document symbols"
-  ]];
+  ];
+  [self.field addItemsWithObjectValues:self.commands];
   [self addSubview:self.field];
   self.closeButton = [NSButton buttonWithTitle:@"×" target:self action:@selector(close:)];
   self.closeButton.bezelStyle = NSBezelStyleTexturedRounded;
@@ -2216,7 +2219,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   return self;
 }
 
-- (void)dealloc { [_field release]; [_closeButton release]; [super dealloc]; }
+- (void)dealloc { [_field release]; [_closeButton release]; [_commands release]; [super dealloc]; }
 
 - (void)layout {
   [super layout];
@@ -2226,10 +2229,54 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 
 - (void)show {
   self.field.stringValue = @"";
+  [self refreshCandidatesForQuery:@""];
   self.hidden = NO;
   [self setNeedsLayout:YES];
   [self layoutSubtreeIfNeeded];
   [self.window makeFirstResponder:self.field];
+}
+
+- (void)refreshCandidatesForQuery:(NSString *)query {
+  NSString *needle = query.lowercaseString;
+  NSArray<NSString *> *matches = self.commands;
+  if (needle.length > 0) {
+    matches = [self.commands filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:
+      ^BOOL(NSString *candidate, NSDictionary *bindings) {
+        (void)bindings;
+        NSString *haystack = candidate.lowercaseString;
+        // Keep Zed's forgiving command discovery property: all query
+        // characters may be separated, so `tgtrm` still finds Toggle Terminal.
+        NSUInteger cursor = 0;
+        for (NSUInteger index = 0; index < needle.length; index++) {
+          NSRange range = [haystack rangeOfString:[needle substringWithRange:NSMakeRange(index, 1)]
+            options:0 range:NSMakeRange(cursor, haystack.length - cursor)];
+          if (range.location == NSNotFound) return NO;
+          cursor = NSMaxRange(range);
+        }
+        return YES;
+      }]];
+    matches = [matches sortedArrayUsingComparator:^NSComparisonResult(NSString *left, NSString *right) {
+      NSString *leftLower = left.lowercaseString;
+      NSString *rightLower = right.lowercaseString;
+      NSUInteger leftPrefix = [leftLower hasPrefix:needle] ? 0 :
+        ([leftLower rangeOfString:needle].location != NSNotFound ? 1 : 2);
+      NSUInteger rightPrefix = [rightLower hasPrefix:needle] ? 0 :
+        ([rightLower rangeOfString:needle].location != NSNotFound ? 1 : 2);
+      if (leftPrefix != rightPrefix) return leftPrefix < rightPrefix ? NSOrderedAscending : NSOrderedDescending;
+      return [left localizedCaseInsensitiveCompare:right];
+    }];
+  }
+  [self.field removeAllItems];
+  [self.field addItemsWithObjectValues:matches];
+}
+
+- (void)controlTextDidChange:(NSNotification *)notification {
+  if (notification.object == self.field) {
+    NSString *query = [self.field.stringValue copy];
+    [self refreshCandidatesForQuery:query];
+    self.field.stringValue = query;
+    [query release];
+  }
 }
 
 - (void)execute:(id)sender {
@@ -7101,6 +7148,10 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     BOOL paletteVisible = palette && !palette.hidden && window.attachedSheet == nil &&
       window.firstResponder == palette.field.currentEditor;
     palette.field.stringValue = @"toggle files";
+    [palette controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification
+      object:palette.field]];
+    BOOL paletteFiltered = palette.field.numberOfItems == 1 &&
+      [[palette.field itemObjectValueAtIndex:0] isEqualToString:@"toggle files"];
     [palette execute:nil];
     BOOL paletteDispatched = strcmp(g_validation_command, "commandPalette:toggle files") == 0 &&
       palette.hidden && window.firstResponder == view;
@@ -7118,7 +7169,7 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     g_metrics = previousMetrics;
     return visibleFind && dispatched && escaped && visibleReplace && visibleLine &&
       visibleWorkspaceSearch && workspaceSearchDispatched && dismissed &&
-      paletteVisible && paletteDispatched && paletteEscaped;
+      paletteVisible && paletteFiltered && paletteDispatched && paletteEscaped;
   }
 }
 

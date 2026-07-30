@@ -5915,8 +5915,11 @@ selected action after dismissal, and restores the previous editor focus.
 **Decision.** Place a native `NSComboBox` command palette over the active
 editor rectangle. Its curated, command-dispatch-compatible entries are
 completion candidates; typed commands retain the existing `commandPalette:`
-boundary. Enter hides the palette before dispatching and Esc restores the
-Metal editor first responder. No `NSAlert` or attached sheet is used.
+boundary. Input uses ordered subsequence matching (with prefix and substring
+matches ranked first), so abbreviated discovery remains useful rather than
+requiring an exact command string. Enter hides the palette before dispatching
+and Esc restores the Metal editor first responder. No `NSAlert` or attached
+sheet is used.
 
 **Consequences.** Shift+Cmd+P no longer strands a document behind a dialog,
 while keyboard completion and exact command input remain available. The native
