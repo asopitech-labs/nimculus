@@ -4382,6 +4382,14 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusActivityBar class]]) activityBar = (NimculusActivityBar *)subview;
   }
   const CGFloat activityBarWidth = 38.0;
+  // The logical editor begins after its 28pt tab strip and 28pt breadcrumb
+  // header. The dock is a workspace sibling rather than a document child, so
+  // its activity/header controls start at the workspace top instead of
+  // inheriting the document's 56pt inset.
+  const CGFloat workspaceChromeHeight = 56.0;
+  const CGFloat sidebarTop = MAX(0.0, g_editor_rect[1] - workspaceChromeHeight);
+  const CGFloat sidebarHeight = MAX(1.0, g_editor_rect[3] +
+    (g_editor_rect[1] - sidebarTop));
   const CGFloat dockOuterX = g_editor_sidebar_on_right ?
     g_editor_rect[0] + g_editor_rect[2] + 8.0 : 0.0;
   const CGFloat dockAvailableWidth = g_editor_sidebar_on_right ?
@@ -4406,8 +4414,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     activityBar.hidden = g_welcome_visible || !sidebarPresented;
     if (!activityBar.hidden) {
       activityBar.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(activityBarX, g_editor_rect[1] + 4.0, 30.0,
-          MAX(1.0, g_editor_rect[3] - 8.0)));
+        NSMakeRect(activityBarX, sidebarTop + 4.0, 30.0,
+          MAX(1.0, sidebarHeight - 8.0)));
       [activityBar reloadSelection];
     }
   }
@@ -4424,17 +4432,17 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if (scroll) {
       scroll.hidden = !sidebarPresented;
       scroll.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(sidebarX, g_editor_rect[1] + sidebarToolbarHeight, width,
-          MAX(1.0, g_editor_rect[3] - sidebarToolbarHeight)));
+        NSMakeRect(sidebarX, sidebarTop + sidebarToolbarHeight, width,
+          MAX(1.0, sidebarHeight - sidebarToolbarHeight)));
       scroll.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
       outline.textContainer.containerSize = NSMakeSize(MAX(1.0, width - 16.0), CGFLOAT_MAX);
       [outline.layoutManager ensureLayoutForTextContainer:outline.textContainer];
       CGFloat contentHeight = ceil([outline.layoutManager usedRectForTextContainer:outline.textContainer].size.height) + 16.0;
       outline.frame = NSMakeRect(0.0, 0.0, width,
-        MAX(g_editor_rect[3] - sidebarToolbarHeight, contentHeight));
+        MAX(sidebarHeight - sidebarToolbarHeight, contentHeight));
     } else {
       outline.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(sidebarX, g_editor_rect[1], width, g_editor_rect[3]));
+        NSMakeRect(sidebarX, sidebarTop, width, sidebarHeight));
       outline.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
     }
   }
@@ -4446,7 +4454,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       CGFloat width = sidebarWidth;
       BOOL compactCommit = width < 350.0;
       gitTabs.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(sidebarControlX, g_editor_rect[1] + 3.0,
+        NSMakeRect(sidebarControlX, sidebarTop + 3.0,
           MAX(1.0, width - (compactCommit ? 72.0 : 118.0)), 24.0));
       // Sidebar modes are ordered History, Status, Branches for the Nim
       // command layer, while the visible Zed-like navigation is Changes,
@@ -4468,7 +4476,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       CGFloat commitWidth = compact ? 30.0 : 76.0;
       gitCommit.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(sidebarControlX + width - commitWidth - 4.0,
-          g_editor_rect[1] + 3.0, commitWidth, 24.0));
+          sidebarTop + 3.0, commitWidth, 24.0));
     }
   }
   if (gitRefresh) {
@@ -4481,7 +4489,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       CGFloat commitWidth = compact ? 30.0 : 76.0;
       gitRefresh.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(sidebarControlX + width - commitWidth - 36.0,
-          g_editor_rect[1] + 3.0, 28.0, 24.0));
+          sidebarTop + 3.0, 28.0, 24.0));
     }
   }
   if (gitChangesActions) {
@@ -4490,7 +4498,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if (showGitChangesActions) {
       gitChangesActions.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(sidebarControlX,
-          g_editor_rect[1] + 29.0, 56.0, 24.0));
+          sidebarTop + 29.0, 56.0, 24.0));
     }
   }
   if (filesActions) {
@@ -4501,7 +4509,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       CGFloat actionWidth = g_workspace_open ? 116.0 : 28.0;
       filesActions.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(sidebarControlX + width - actionWidth - 4.0,
-          g_editor_rect[1] + 3.0, actionWidth, 24.0));
+          sidebarTop + 3.0, actionWidth, 24.0));
     }
   }
   if (searchActions) {
@@ -4511,7 +4519,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       CGFloat width = sidebarWidth;
       searchActions.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(sidebarControlX + width - 56.0,
-          g_editor_rect[1] + 3.0, 52.0, 24.0));
+          sidebarTop + 3.0, 52.0, 24.0));
     }
   }
   if (workspaceToolbar) {
@@ -4602,11 +4610,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     const CGFloat commitWidth = MIN(420.0, MAX(1.0, sidebarWidth - 8.0));
     const CGFloat commitX = g_editor_sidebar_on_right ? sidebarX + 4.0 :
       sidebarX + sidebarWidth - commitWidth - 4.0;
-    const NSRect sidebarRect = NSMakeRect(sidebarX, g_editor_rect[1],
-      MAX(1.0, sidebarWidth), MAX(1.0, g_editor_rect[3]));
+    const NSRect sidebarRect = NSMakeRect(sidebarX, sidebarTop,
+      MAX(1.0, sidebarWidth), sidebarHeight);
     gitCommitEditor.frame = appKitFrameForLogicalTopRect(self,
       boundedOverlayFrame(sidebarRect, commitWidth, 36.0,
-        commitX, g_editor_rect[1] + 32.0));
+        commitX, sidebarTop + 32.0));
     [gitCommitEditor setNeedsLayout:YES];
   }
   if (settingsEditor && !settingsEditor.hidden) {
@@ -7566,10 +7574,14 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     const NSRect logicalPane = NSMakeRect(g_editor_rect[0], g_editor_rect[1],
       g_editor_rect[2], g_editor_rect[3]);
     const NSRect pane = appKitFrameForLogicalTopRect(view, logicalPane);
-    const CGFloat validationSidebarWidth = MAX(140.0,
+    const CGFloat validationSidebarWidth = MAX(1.0,
       g_editor_rect[0] - 12.0 - 38.0);
+    const CGFloat validationSidebarTop = MAX(0.0, g_editor_rect[1] - 56.0);
+    const CGFloat validationSidebarHeight = MAX(1.0, g_editor_rect[3] +
+      (g_editor_rect[1] - validationSidebarTop));
     const NSRect sidebar = appKitFrameForLogicalTopRect(view,
-      NSMakeRect(46.0, g_editor_rect[1], validationSidebarWidth, g_editor_rect[3]));
+      NSMakeRect(46.0, validationSidebarTop, validationSidebarWidth,
+        validationSidebarHeight));
     const NSRect expectedSearch = appKitFrameForLogicalTopRect(view,
       editorOverlayFrame(MIN(420.0, MAX(1.0, g_editor_rect[2] - 16.0)), 36.0,
         g_editor_rect[0] + g_editor_rect[2] -

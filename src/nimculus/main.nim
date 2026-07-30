@@ -269,15 +269,15 @@ proc setupDemoUi() =
     else:
       max(0'f32, float32(workspaceLayout.center.size.width) - 112'f32)
   # Keep a compact Zed-like workspace header and a status/scroll gutter. The
-  # former fixed 128pt top gap left most of the window visually empty before
-  # the active editor began; these insets retain the same lower tab boundary
-  # while giving the document the recovered vertical space.
+  # AppKit window keeps its native titlebar, so the content view must not also
+  # reserve a second empty titlebar-height strip. Breadcrumb, tabs, and text
+  # occupy the first 56pt of the workspace in sequence.
   # The native tab strip occupies the first 28pt of the editor surface. Keep
   # the text viewport below it instead of treating the pane's outer rectangle
   # as editable content: otherwise the first rendered line can appear behind
   # tabs and a resized pane has no unambiguous bottom boundary.
   const EditorTabStripHeight = 28'f32
-  const EditorTopInset = 52'f32 + EditorTabStripHeight
+  const EditorTopInset = 28'f32 + EditorTabStripHeight
   # The status bar is the only persistent chrome below the editor. Reserving
   # the former 58pt here created an empty pseudo-panel at every startup and
   # made normal files appear to stop well above the window bottom.

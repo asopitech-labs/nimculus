@@ -6095,3 +6095,22 @@ proving that Files/Git presentation is hidden in the former and fully bounded
 in the latter. Pointer region and divider hit-testing consume the same
 projected dock width, so a retired dock cannot steal editor focus or begin an
 invisible resize drag.
+
+## UI-071: Do not reserve a second macOS titlebar in workspace content
+
+**Context.** Zed uses a transparent custom macOS titlebar and lays its
+workspace chrome continuously below it. Nimculus keeps AppKit's native
+titlebar, but its content layout also reserved an additional empty 24pt strip
+above the breadcrumb and tab bar. The Project dock inherited the document
+inset, leaving an even larger blank header before Files or Git actions.
+
+**Decision.** Keep the native titlebar, but use the content view's top edge
+for the 28pt breadcrumb and 28pt tab strip: editor text starts at 56pt. The
+native workspace sidebar is positioned from the workspace top and spans the
+same vertical extent as the breadcrumb, tabs, and editor surface; it no longer
+inherits the document-only top inset.
+
+**Consequences.** The editor gains 24pt of usable height and Project/Git
+controls are immediately discoverable at the top of their panel. Pane-local
+overlays retain their existing top-edge containment. The non-modal native
+overlay contract exercises the revised sidebar and commit-editor bounds.
