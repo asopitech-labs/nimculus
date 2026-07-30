@@ -274,6 +274,7 @@ suite "M5 editor services":
     session.addTab(newDocument())
     session.addTab(newDocument())
     check session.activeTab == 1
+
     view.moveCursor(5)
     check session.switchTab(view, -1)
     check session.activeTab == 0
@@ -312,6 +313,15 @@ suite "M5 editor services":
     check abs(session.effectiveSplitRatio - 0.9'f32) < 0.001'f32
     check session.closeActiveTab()
     check session.tabs.len == 2
+
+  test "duplicate unsaved tab labels remain individually identifiable":
+    var session: EditorSession
+    session.addTab(newDocument())
+    session.addTab(newDocument())
+    session.addTab(newDocument())
+    check session.displayTitle(0) == "Untitled 1"
+    check session.displayTitle(1) == "Untitled 2"
+    check session.displayTitle(2) == "Untitled 3"
 
   test "closing a non-active tab retains the active document":
     var session: EditorSession

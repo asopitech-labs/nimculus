@@ -186,6 +186,20 @@ proc addBackgroundTab*(session: var EditorSession, document: FileDocument): int 
   result = session.activeTab
   session.activeTab = active
 
+proc displayTitle*(session: EditorSession, index: int): string =
+  ## Titles are item labels, not stable identities. A restored set of unsaved
+  ## buffers can legitimately contain several "Untitled" entries; number only
+  ## duplicate labels so every visible tab remains an actionable target.
+  if index < 0 or index >= session.tabs.len: return "Untitled"
+  let title = session.tabs[index].title
+  var total = 0
+  var ordinal = 0
+  for candidate, tab in session.tabs:
+    if tab.title == title:
+      inc total
+      if candidate <= index: inc ordinal
+  result = if total > 1: title & " " & $ordinal else: title
+
 proc tabIndexForPath*(session: EditorSession, path: string): int =
   ## Every file-bearing feature (Finder, Save As, LSP, and navigation) must
   ## identify a document the same way. Keep one buffer for symlink and macOS

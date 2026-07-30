@@ -2209,8 +2209,9 @@ proc syncEditorCursor() =
       else: editorViewState.statusMessage
     platformSetEditorStatus(status.cstring)
     var tabTitles: seq[string]
-    for tab in editorSession.tabs:
-      tabTitles.add(tab.title & (if tab.document.buffer.isDirty: " •" else: ""))
+    for index, tab in editorSession.tabs:
+      tabTitles.add(editorSession.displayTitle(index) &
+        (if tab.document.buffer.isDirty: " •" else: ""))
     let tabsText = tabTitles.join("\n")
     let primaryTab = if editorWorkspaceUi.center != nil:
       editorWorkspaceUi.center.firstPane().activeTabIndex else: editorSession.activeTab
@@ -2251,8 +2252,9 @@ proc syncEditorCursor() =
       cdouble(float32(demoEditorBounds.origin.x) + 8.0'f32 + float(location.column) * cellWidth),
       cdouble(float32(demoEditorBounds.origin.y) + 6.0'f32 + float(visibleLine) * lineHeight))
     var tabTitles: seq[string]
-    for tab in editorSession.tabs:
-      tabTitles.add(tab.title & (if tab.document.buffer.isDirty: " •" else: ""))
+    for index, tab in editorSession.tabs:
+      tabTitles.add(editorSession.displayTitle(index) &
+        (if tab.document.buffer.isDirty: " •" else: ""))
     let tabsText = tabTitles.join("\n")
     platformSetEditorTabs(tabsText.cstring, uint32(tabsText.len),
       uint32(max(0, editorSession.activeTab)))
@@ -2276,8 +2278,9 @@ when defined(macosx):
     let selection = view.selectedRange()
     let text = document[].buffer.toString()
     var tabTitles: seq[string]
-    for editorTab in editorSession.tabs:
-      tabTitles.add(editorTab.title & (if editorTab.document.buffer.isDirty: " •" else: ""))
+    for index, editorTab in editorSession.tabs:
+      tabTitles.add(editorSession.displayTitle(index) &
+        (if editorTab.document.buffer.isDirty: " •" else: ""))
     let tabsText = tabTitles.join("\n")
     platformSetSecondaryEditorTabs(tabsText.cstring, uint32(tabsText.len), uint32(tab))
     platformSetSecondaryEditorText(text.cstring, uint32(text.len))
