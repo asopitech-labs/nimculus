@@ -2057,6 +2057,8 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusTabBarOverlay : NSView
 @property(nonatomic) BOOL secondary;
 - (void)dispatchTabAtPoint:(NSPoint)point;
+- (void)selectTabFromMenu:(NSMenuItem *)sender;
+- (void)showTabListAtPoint:(NSPoint)point;
 @end
 
 @interface NimculusWelcomeOverlay : NSView
@@ -2430,7 +2432,10 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   // painted over the active tab, obscuring both its title and close target.
   // Zed uses a horizontally-scrollable unpinned strip; this compact AppKit
   // presenter follows the same navigation model with explicit controls.
-  const CGFloat navigationWidth = titles.count > 1 ? 48.0 : 0.0;
+  // Keep a dedicated disclosure affordance beside the previous/next arrows.
+  // A restored session can contain dozens of tabs; arrows alone make an
+  // off-screen item technically reachable but practically undiscoverable.
+  const CGFloat navigationWidth = titles.count > 1 ? 70.0 : 0.0;
   const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - navigationWidth);
   NSUInteger first = 0, visible = 0;
   visibleTabRange(titles.count, active, tabAreaWidth, &first, &visible);
@@ -2474,9 +2479,11 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
       NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
         [NSColor colorWithCalibratedWhite:0.88 alpha:1.0]) colorWithAlphaComponent:0.72]
     };
-    [@"‹" drawAtPoint:NSMakePoint(tabAreaWidth + 10.0, 4.0)
+    [@"‹" drawAtPoint:NSMakePoint(tabAreaWidth + 8.0, 4.0)
         withAttributes:navigationAttributes];
-    [@"›" drawAtPoint:NSMakePoint(tabAreaWidth + 33.0, 4.0)
+    [@"›" drawAtPoint:NSMakePoint(tabAreaWidth + 29.0, 4.0)
+        withAttributes:navigationAttributes];
+    [@"⌄" drawAtPoint:NSMakePoint(tabAreaWidth + 52.0, 4.0)
         withAttributes:navigationAttributes];
   }
   if (first > 0 || first + visible < titles.count) {
@@ -2487,21 +2494,47 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     };
     NSString *indicator = [NSString stringWithFormat:@"%lu/%lu",
       (unsigned long)active + 1, (unsigned long)titles.count];
-    [indicator drawAtPoint:NSMakePoint(tabAreaWidth + 9.0,
+    [indicator drawAtPoint:NSMakePoint(tabAreaWidth + 7.0,
       self.bounds.size.height - 12.0) withAttributes:indicatorAttributes];
   }
 }
 - (void)mouseDown:(NSEvent *)event {
   [self dispatchTabAtPoint:[self convertPoint:event.locationInWindow fromView:nil]];
 }
+- (void)selectTabFromMenu:(NSMenuItem *)sender {
+  if (!g_command_callback || sender.tag < 0) return;
+  NSString *command = [NSString stringWithFormat:@"selectPaneTab:%u:%ld",
+    self.secondary ? 1 : 0, (long)sender.tag];
+  g_command_callback(command.UTF8String);
+}
+- (void)showTabListAtPoint:(NSPoint)point {
+  NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
+  if (titles.count == 0) return;
+  NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
+  NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Open Tabs"] autorelease];
+  for (NSUInteger index = 0; index < titles.count; index++) {
+    NSString *title = titles[index].length > 0 ? titles[index] : @"Untitled";
+    NSMenuItem *item = [menu addItemWithTitle:title action:@selector(selectTabFromMenu:)
+      keyEquivalent:@""];
+    item.target = self;
+    item.tag = (NSInteger)index;
+    item.state = index == active ? NSControlStateValueOn : NSControlStateValueOff;
+  }
+  [menu popUpMenuPositioningItem:[menu itemAtIndex:MIN(active, menu.numberOfItems - 1)]
+    atLocation:point inView:self];
+}
 - (void)dispatchTabAtPoint:(NSPoint)point {
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
   if (!g_command_callback || titles.count == 0) return;
   NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
-  const CGFloat navigationWidth = titles.count > 1 ? 48.0 : 0.0;
+  const CGFloat navigationWidth = titles.count > 1 ? 70.0 : 0.0;
   const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - navigationWidth);
   if (titles.count > 1 && point.x >= tabAreaWidth) {
-    NSInteger delta = point.x < tabAreaWidth + navigationWidth / 2.0 ? -1 : 1;
+    if (point.x >= tabAreaWidth + 48.0) {
+      [self showTabListAtPoint:point];
+      return;
+    }
+    NSInteger delta = point.x < tabAreaWidth + 24.0 ? -1 : 1;
     NSInteger next = MAX(0, MIN((NSInteger)titles.count - 1, (NSInteger)active + delta));
     if (next != (NSInteger)active) {
       NSString *command = [NSString stringWithFormat:@"selectPaneTab:%u:%ld",
@@ -5951,7 +5984,7 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
     // 176pt wide. Keep close-target checks on their actual trailing edges.
     [tabs dispatchTabAtPoint:NSMakePoint(160.0, 12.0)];
     BOOL closeFirst = strcmp(g_validation_command, "closePaneTab:0:0") == 0;
-    [tabs dispatchTabAtPoint:NSMakePoint(336.0, 12.0)];
+    [tabs dispatchTabAtPoint:NSMakePoint(322.0, 12.0)];
     BOOL closeSecond = strcmp(g_validation_command, "closePaneTab:0:1") == 0;
     [tabs dispatchTabAtPoint:NSMakePoint(240.0, 12.0)];
     BOOL selectSecond = strcmp(g_validation_command, "selectPaneTab:0:1") == 0;
@@ -5960,16 +5993,21 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
     g_editor_active_tab = 2;
     NimculusTabBarOverlay *overflowTabs = [[NimculusTabBarOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 240.0, 28.0)];
-    [overflowTabs dispatchTabAtPoint:NSMakePoint(202.0, 12.0)];
+    [overflowTabs dispatchTabAtPoint:NSMakePoint(180.0, 12.0)];
     BOOL previousTab = strcmp(g_validation_command, "selectPaneTab:0:1") == 0;
-    [overflowTabs dispatchTabAtPoint:NSMakePoint(228.0, 12.0)];
+    [overflowTabs dispatchTabAtPoint:NSMakePoint(202.0, 12.0)];
     BOOL nextTab = strcmp(g_validation_command, "selectPaneTab:0:3") == 0;
+    NSMenuItem *overflowItem = [[[NSMenuItem alloc] initWithTitle:@"five"
+      action:nil keyEquivalent:@""] autorelease];
+    overflowItem.tag = 4;
+    [overflowTabs selectTabFromMenu:overflowItem];
+    BOOL selectOverflowItem = strcmp(g_validation_command, "selectPaneTab:0:4") == 0;
     [overflowTabs release];
     replaceOwnedArray(&g_editor_tab_titles, previousTitles ?: @[]);
     g_editor_active_tab = previousActive;
     [previousTitles release];
     g_command_callback = previousCallback;
-    return closeFirst && closeSecond && selectSecond && previousTab && nextTab;
+    return closeFirst && closeSecond && selectSecond && previousTab && nextTab && selectOverflowItem;
   }
 }
 
