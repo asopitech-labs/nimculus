@@ -1117,6 +1117,7 @@ elif defined(macosx):
   proc execl(path, arg0: cstring): cint {.varargs, importc, header: "<unistd.h>".}
   proc chdir(path: cstring): cint {.importc, header: "<unistd.h>".}
   proc setpgid(pid, pgid: Pid): cint {.importc, header: "<unistd.h>".}
+  proc getpgid(pid: Pid): Pid {.importc, header: "<unistd.h>".}
 
   proc newTerminalPty*(shell = "/bin/zsh", workingDirectory = "",
                        columns = 80, rows = 24): TerminalPty =
@@ -1183,10 +1184,21 @@ elif defined(macosx):
     let waited = waitpid(pid, status, WNOHANG)
     waited == pid or (waited < 0 and errno == ECHILD)
 
+  proc terminalOwnsProcessGroup*(pty: TerminalPty): bool =
+    ## A negative PID signal addresses a process *group*. Never infer that
+    ## the PTY child owns such a group from forkpty alone: a failed or raced
+    ## setpgid must degrade to signalling the direct child, not the caller's
+    ## terminal/session group.
+    pty != nil and pty.childPid > 0 and getpgid(pty.childPid) == pty.childPid
+
   proc terminalProcessGroupExited(pid: Pid): bool =
     ## A login shell can exit while a foreground child still owns the slave.
     ## Do not release on a momentary EAGAIN until the PTY-owned group is gone.
     if pid <= 0: return true
+    # A group probe is only meaningful when the live child is its leader. If
+    # it is not, no group signal is safe and the direct child lifecycle is the
+    # only boundary we own.
+    if getpgid(pid) != pid: return true
     if kill(-pid, 0) == 0: return false
     errno == ESRCH
 
@@ -1234,13 +1246,17 @@ elif defined(macosx):
     discard terminalIoctl(pty.masterFd, terminalSetWindowSize, addr size)
     pty.screen.resize(columns, rows)
 
-  proc terminateTerminalProcessGroup(pid: Pid, signal: cint) =
+  proc terminateTerminalProcessGroup(pty: TerminalPty, signal: cint) =
     ## A shell can leave a pipeline running after it receives SIGTERM.  The
     ## terminal owns the whole child group, so signal that group as well as
     ## the leader.  The second call is a safe fallback if a platform's
     ## forkpty/session setup did not retain the expected group id.
-    if pid <= 0: return
-    discard kill(-pid, signal)
+    if pty == nil or pty.childPid <= 0: return
+    let pid = pty.childPid
+    # Group delivery is an optimization for shell descendants, not a right to
+    # signal any group numerically matching a stale PID. Revalidate at the
+    # exact signal boundary; otherwise terminate only the direct child.
+    if pty.terminalOwnsProcessGroup(): discard kill(-pid, signal)
     discard kill(pid, signal)
 
   proc reapTerminalChild(pid: Pid) =
@@ -1253,7 +1269,11 @@ elif defined(macosx):
       let waited = waitpid(pid, status, WNOHANG)
       if waited == pid or (waited < 0 and errno == ECHILD): return
       sleep(10)
-    terminateTerminalProcessGroup(pid, SIGKILL)
+    # Reap is invoked from TerminalPty.close, so preserve the same ownership
+    # check used for the initial graceful signal.
+    # The direct child PID is still sufficient if the group has changed.
+    if getpgid(pid) == pid: discard kill(-pid, SIGKILL)
+    discard kill(pid, SIGKILL)
     for _ in 0 ..< 100:
       let waited = waitpid(pid, status, WNOHANG)
       if waited == pid or (waited < 0 and errno == ECHILD): return
@@ -1261,6 +1281,6 @@ elif defined(macosx):
 
   proc close*(pty: TerminalPty) =
     if pty == nil or pty.closed: return
-    terminateTerminalProcessGroup(pty.childPid, SIGTERM)
+    terminateTerminalProcessGroup(pty, SIGTERM)
     reapTerminalChild(pty.childPid)
     pty.releaseTerminalPty()

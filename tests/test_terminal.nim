@@ -425,6 +425,10 @@ suite "M10 terminal core":
           break
         sleep(10)
       check accepted
+      # The close path may signal a negative PID only after this ownership
+      # proof. A failed PTY session must never turn cleanup into a signal for
+      # the test runner's or developer's process group.
+      check pty.terminalOwnsProcessGroup()
       pty.close()
       # The shell and its child command share the PTY-owned group. A
       # successful signal probe here would mean a command escaped cleanup.
@@ -442,6 +446,7 @@ suite "M10 terminal core":
           break
         sleep(10)
       check accepted
+      check pty.terminalOwnsProcessGroup()
       let started = epochTime()
       pty.close()
       check epochTime() - started < 3.0

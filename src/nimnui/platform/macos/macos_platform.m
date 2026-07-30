@@ -737,12 +737,20 @@ static NimculusPaintRegion intersectPaintRegions(NimculusPaintRegion a,
 // prevents any renderer (atlas or Core Text texture) from painting into that
 // chrome.  Do not use the pane rectangle as a text clip.
 static NimculusPaintRegion editorTextViewport(const double rect[4]) {
-  const double horizontalInset = 8.0;
-  const double verticalInset = 4.0;
-  const double width = MAX(0.0, rect[2] - horizontalInset * 2.0);
-  const double height = MAX(0.0, rect[3] - verticalInset * 2.0);
+  // This is intentionally asymmetric. The left edge only needs a text
+  // gutter, while the right edge also reserves the scrollbar track. The
+  // bottom must remain clear of the status/scroll gutter; merely clipping to
+  // the pane rectangle lets a partially visible final glyph read as overflow.
+  // Keep every text producer (atlas, Core Text fallback, wrapping) tied to
+  // these constants rather than independently guessing its content bounds.
+  const double leftInset = 8.0;
+  const double rightInset = 28.0;
+  const double topInset = 6.0;
+  const double bottomInset = 26.0;
+  const double width = MAX(0.0, rect[2] - leftInset - rightInset);
+  const double height = MAX(0.0, rect[3] - topInset - bottomInset);
   NimculusPaintRegion viewport = {
-    (float)(rect[0] + horizontalInset), (float)(rect[1] + verticalInset),
+    (float)(rect[0] + leftInset), (float)(rect[1] + topInset),
     (float)width, (float)height
   };
   return viewport;
@@ -971,7 +979,7 @@ static CGFloat editorTextOffset(NSString *line, NSUInteger utf16Index) {
 }
 
 static CGFloat editorWrapWidth(void) {
-  return MAX(1.0, g_editor_rect[2] - 16.0);
+  return MAX(1.0, editorTextViewport(g_editor_rect).width);
 }
 
 static NSUInteger editorSoftWrapBreakLength(NSString *line, NSUInteger start) {
@@ -1241,9 +1249,9 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   // would permit stale text to reappear if a later pass has a wider clip.
   // The four-sided content viewport is the only valid destination for editor
   // text, selections, composition, and caret pixels.
-  CGContextClipToRect(context, CGRectMake(8.0, 4.0,
-    MAX(0.0, g_editor_rect[2] - 16.0),
-    MAX(0.0, g_editor_rect[3] - 8.0)));
+  NimculusPaintRegion textViewport = editorTextViewport(g_editor_rect);
+  CGContextClipToRect(context, CGRectMake(textViewport.x - g_editor_rect[0],
+    textViewport.y - g_editor_rect[1], textViewport.width, textViewport.height));
   CTFontRef font = editorFont();
   NSColor *baseColor = themeHexColor(g_theme_foreground,
     [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]);
@@ -1342,8 +1350,9 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     CTFramesetterRef framesetter = CTFramesetterCreateWithAttributedString(
       (CFAttributedStringRef)wrappedAttributed);
     CGMutablePathRef path = CGPathCreateMutable();
-    CGPathAddRect(path, NULL, CGRectMake(8.0, 0.0,
-      MAX(1.0, g_editor_rect[2] - 8.0), logicalHeight));
+    CGPathAddRect(path, NULL, CGRectMake(textViewport.x - g_editor_rect[0],
+      textViewport.y - g_editor_rect[1], MAX(1.0, textViewport.width),
+      MAX(1.0, textViewport.height)));
     CTFrameRef frame = CTFramesetterCreateFrame(framesetter,
       CFRangeMake(0, wrappedText.length), path, NULL);
     if (frame) {
@@ -5368,9 +5377,9 @@ bool nimculus_platform_validate_editor_text_viewport(void) {
   NimculusPaintRegion rightVisible = intersectPaintRegions(viewport, outsideRight);
   NimculusPaintRegion bottomVisible = intersectPaintRegions(viewport, outsideBottom);
   return fabs(viewport.x - 48.0f) < 0.01f &&
-    fabs(viewport.y - 64.0f) < 0.01f &&
-    fabs(viewport.width - 284.0f) < 0.01f &&
-    fabs(viewport.height - 172.0f) < 0.01f &&
+    fabs(viewport.y - 66.0f) < 0.01f &&
+    fabs(viewport.width - 264.0f) < 0.01f &&
+    fabs(viewport.height - 148.0f) < 0.01f &&
     rightVisible.width == 0.0f && bottomVisible.height == 0.0f;
 }
 
