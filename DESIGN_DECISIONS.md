@@ -5688,3 +5688,19 @@ its own deadline check and is not delayed by this cadence.
 **Consequences.** Search streams remain interactive, while an idle editor
 does substantially less lock, allocation, and filesystem work. FSEvents and
 external-change notices remain bounded to half a second when idle.
+
+## M12-037: Keep keyboard and activity-bar workspace navigation equivalent
+
+**Context.** Files, Outline, and Git were reachable from the Nimculus
+activity bar and command palette, but the default shortcut registry omitted
+the corresponding Zed macOS bindings. This left the visible UI incomplete for
+keyboard-first development despite the underlying panel implementations.
+
+**Decision.** Register Zed-compatible defaults: `Cmd+Shift+E` for Files,
+`Cmd+Shift+B` for Outline, and `Control+Shift+G` for Git. Each forwards to
+the existing command-palette command rather than duplicating panel state
+transitions. The named registry entries remain configurable through
+`settings.json`.
+
+**Consequences.** Activity-bar and keyboard actions share one dispatch path,
+and custom keymaps can override every default without Cocoa-specific logic.

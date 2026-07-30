@@ -62,6 +62,17 @@ suite "M2 UI foundation":
     check shortcutFromKeyBinding("cmd+shift+f12").keyCode == 111
     check shortcutFromKeyBinding("cmd+comma").keyCode == 43
 
+  test "Zed-style workspace navigation shortcuts retain their modifiers":
+    let files = shortcutFromKeyBinding("cmd+shift+e")
+    check files.keyCode == 14
+    check files.modifiers == {commandModifier, shiftModifier}
+    let outline = shortcutFromKeyBinding("cmd+shift+b")
+    check outline.keyCode == 11
+    check outline.modifiers == {commandModifier, shiftModifier}
+    let git = shortcutFromKeyBinding("ctrl+shift+g")
+    check git.keyCode == 5
+    check git.modifiers == {controlModifier, shiftModifier}
+
   test "row layout distributes children and preserves parent":
     var tree = newUiTree()
     let root = tree.addNode()

@@ -432,6 +432,21 @@ proc setupShortcutRegistry() =
     name: "workspaceSearch",
     shortcut: Shortcut(keyCode: 3, modifiers: {commandModifier, shiftModifier}),
     action: proc() = platformShowWorkspaceSearch()))
+  # Match Zed's macOS workspace entry points. These forward through the same
+  # palette dispatch used by the activity bar, keeping keyboard and pointer
+  # navigation on one panel-state path.
+  shortcutRegistry.register(Command(
+    name: "toggleFiles",
+    shortcut: Shortcut(keyCode: 14, modifiers: {commandModifier, shiftModifier}),
+    action: nativeShortcutAction("commandPalette:toggle files")))
+  shortcutRegistry.register(Command(
+    name: "toggleOutline",
+    shortcut: Shortcut(keyCode: 11, modifiers: {commandModifier, shiftModifier}),
+    action: nativeShortcutAction("commandPalette:toggle outline")))
+  shortcutRegistry.register(Command(
+    name: "toggleGit",
+    shortcut: Shortcut(keyCode: 5, modifiers: {controlModifier, shiftModifier}),
+    action: nativeShortcutAction("commandPalette:toggle git")))
   # Keep all commands addressable from settings keymaps. They have no default
   # shortcut here when AppKit owns the standard menu equivalent; custom
   # bindings are installed below and are resolved before interpretKeyEvents.
