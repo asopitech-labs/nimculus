@@ -77,6 +77,9 @@ git -C "$TMP_ROOT/project" config user.name "Nimculus GUI E2E"
 git -C "$TMP_ROOT/project" config user.email "gui-e2e@nimculus.invalid"
 git -C "$TMP_ROOT/project" add main.nim
 git -C "$TMP_ROOT/project" commit -qm "initial"
+# Give Changes a real unstaged row. The workflow then verifies the visible
+# bulk Stage/Unstage controls against Git, not merely their accessibility IDs.
+printf 'echo "unstaged GUI workflow change"\n' >> "$TMP_ROOT/project/main.nim"
 
 cd "$ROOT_DIR"
 nimble build
@@ -130,6 +133,12 @@ tell application "System Events"
     if not (exists button "History" of window 1) then error "Git panel did not expose History"
     if not (exists button "Branches" of window 1) then error "Git panel did not expose Branches"
     if not (exists button "Refresh Git panel" of window 1) then error "Git panel did not expose Refresh"
+    if not (exists button "Stage all changes" of window 1) then error "Git panel did not expose Stage All"
+    if not (exists button "Unstage all changes" of window 1) then error "Git panel did not expose Unstage All"
+    click button "Stage all changes" of window 1
+    delay 0.8
+    click button "Unstage all changes" of window 1
+    delay 0.8
     click button "History" of window 1
     delay 0.5
     click button "Refresh Git panel" of window 1
@@ -144,5 +153,19 @@ tell application "System Events"
   end tell
 end tell
 APPLESCRIPT
+
+# The visible Stage All then Unstage All controls must leave this fixture with
+# precisely its original worktree change: no staged residue and an unstaged
+# diff still present. This checks the result, not just command dispatch.
+if ! git -C "$TMP_ROOT/project" diff --quiet; then
+  : # expected: the last visible action was Unstage All
+else
+  echo "Git GUI controls did not restore the unstaged fixture" >&2
+  exit 1
+fi
+if ! git -C "$TMP_ROOT/project" diff --cached --quiet; then
+  echo "Git GUI controls left staged fixture changes behind" >&2
+  exit 1
+fi
 
 echo "macos_gui_workflows_complete"

@@ -2294,6 +2294,12 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   NSString *command = [NSString stringWithFormat:@"sidebarContext:%lu", (unsigned long)item];
   g_command_callback(command.UTF8String);
 }
+- (void)dispatchSidebarStageToggle:(NSUInteger)item {
+  if (item == NSNotFound || g_editor_sidebar_mode != 3 || !g_command_callback) return;
+  NSString *command = [NSString stringWithFormat:@"sidebarStageToggle:%lu",
+    (unsigned long)item];
+  g_command_callback(command.UTF8String);
+}
 - (void)dispatchSidebarLine:(NSUInteger)line open:(BOOL)open {
   NSUInteger item = [self sidebarItemForLine:line];
   if (open) [self dispatchSidebarOpen:item];
@@ -2307,7 +2313,15 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   for (NSUInteger offset = 0; offset < MIN(index, self.string.length); offset++) {
     if ([self.string characterAtIndex:offset] == '\n') line++;
   }
-  [self dispatchSidebarLine:line open:NO];
+  NSUInteger item = [self sidebarItemForLine:line];
+  // Changes rows have a visible leading check control. This targets the
+  // rendered section: a partial file appears twice, with opposite actions.
+  if (g_editor_sidebar_mode == 3 && item != NSNotFound && point.x < 30.0 &&
+      g_command_callback) {
+    [self dispatchSidebarStageToggle:item];
+    return;
+  }
+  [self dispatchSidebarSelection:item];
 }
 - (void)mouseUp:(NSEvent *)event {
   if (event.clickCount < 2) return;
@@ -6091,7 +6105,10 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
     BOOL mappedSelection = strcmp(g_validation_command, "sidebarSelect:0") == 0;
     [sidebar dispatchSidebarLine:4 open:YES];
     BOOL mappedOpen = strcmp(g_validation_command, "sidebarOpen:1") == 0;
-    BOOL valid = selected && opened && headerIgnored && mappedSelection && mappedOpen;
+    g_editor_sidebar_mode = 3;
+    [sidebar dispatchSidebarStageToggle:0];
+    BOOL stageToggle = strcmp(g_validation_command, "sidebarStageToggle:0") == 0;
+    BOOL valid = selected && opened && headerIgnored && mappedSelection && mappedOpen && stageToggle;
     [sidebar release];
     free(g_editor_sidebar_line_items);
     g_editor_sidebar_line_items = previousLineItems;
@@ -7128,18 +7145,20 @@ void nimculus_platform_show_workspace_entry_context(const char *path, bool is_di
   for (NSMenuItem *item in menu.itemArray) item.target = delegate;
   [menu popUpMenuPositioningItem:nil atLocation:[NSEvent mouseLocation] inView:nil];
 }
-void nimculus_platform_show_git_status_context(uint32_t item_index, bool can_stage,
-                                               bool can_unstage) {
+void nimculus_platform_show_git_status_context(uint32_t item_index,
+                                               uint32_t projection) {
   NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
   if (!delegate) return;
   NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Git Change"] autorelease];
-  NSArray<NSArray<NSString *> *> *items = @[
-    @[@"View Diff", @"diff"], @[@"Open", @"open"], @[@"Stage", @"stage"], @[@"Unstage", @"unstage"]
+  NSArray<NSArray<NSString *> *> *items = projection == 1 ? @[
+    @[@"View Staged Diff", @"diffStaged"], @[@"Open", @"open"], @[@"Unstage", @"unstage"]
+  ] : projection == 2 ? @[
+    @[@"View Unstaged Diff", @"diffUnstaged"], @[@"Open", @"open"], @[@"Stage", @"stage"]
+  ] : @[
+    @[@"View Diff", @"diff"], @[@"Open", @"open"]
   ];
   for (NSArray<NSString *> *entry in items) {
     NSString *action = entry[1];
-    if (([action isEqualToString:@"stage"] && !can_stage) ||
-        ([action isEqualToString:@"unstage"] && !can_unstage)) continue;
     NSMenuItem *item = [menu addItemWithTitle:entry[0]
       action:@selector(dispatchGitStatusContext:) keyEquivalent:@""];
     item.target = delegate;

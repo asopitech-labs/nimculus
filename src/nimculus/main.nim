@@ -516,6 +516,12 @@ var workspacePreviewMode = ""
 var workspaceRevealPath = ""
 type EditorSidebarMode = enum
   sidebarOutline, sidebarFiles, sidebarGitHistory, sidebarGitStatus, sidebarGitBranches
+
+type GitStatusProjection = enum
+  ## A partial file is intentionally rendered in both sections. Preserve this
+  ## projection so user actions never have to guess which half was targeted.
+  gitStatusConflict, gitStatusStaged, gitStatusUnstaged
+
 var editorSidebarMode = sidebarFiles
 
 proc workspacePanelForSidebarMode(mode: EditorSidebarMode): PanelKind =
@@ -567,6 +573,7 @@ when defined(macosx):
   # branch-name repaint must never treat those two rows as two Git entries.
   var editorGitStatusSourceEntries: seq[GitStatusEntry]
   var editorGitStatusEntries: seq[GitStatusEntry]
+  var editorGitStatusProjections: seq[GitStatusProjection]
   var editorGitPanelBranch = ""
   var editorGitStatusGeneration = 0'u64
   var editorGitEntriesGeneration = 0'u64
@@ -770,6 +777,7 @@ when defined(macosx):
     editorGitRepository = nil
     editorGitStatusSourceEntries.setLen(0)
     editorGitStatusEntries.setLen(0)
+    editorGitStatusProjections.setLen(0)
     editorWorkspaceUi.replacePanelItems(panelGit, @["open-workspace"])
     let text = "Git\n────────\nNo repository found\nOpen Folder…"
     platformSetEditorSidebar(text.cstring, uint32(text.len), 1,
@@ -817,10 +825,11 @@ when defined(macosx):
         if entry.worktreeStatus != ' ' or entry.indexStatus in {'?', '!'}:
           unstaged.add(entry)
     var displayed: seq[GitStatusEntry]
+    var projections: seq[GitStatusProjection]
     var panelKeys: seq[string]
     var omitted = 0
     proc appendSection(name: string, section: openArray[GitStatusEntry],
-                       kind: string) =
+                       projection: GitStatusProjection) =
       if section.len == 0: return
       lines.add(name & " (" & $section.len & ")")
       lineItems.add(-1'i32)
@@ -828,18 +837,21 @@ when defined(macosx):
         if displayed.len >= MaxPanelEntries:
           inc omitted
           continue
-        let state = if kind == "conflict": "CONFLICT" elif kind == "staged":
-          $entry.indexStatus & " " else: " " & $entry.worktreeStatus
+        let state = case projection
+          of gitStatusConflict: "! CONFLICT"
+          of gitStatusStaged: "✓ " & $entry.indexStatus
+          of gitStatusUnstaged: "○ " & $entry.worktreeStatus
         let path = if entry.originalPath.len > 0:
           entry.originalPath & " → " & entry.path else: entry.path
         lines.add(state & "  " & path)
         displayed.add(entry)
-        panelKeys.add(kind & "\x1f" & $entry.indexStatus & $entry.worktreeStatus &
+        projections.add(projection)
+        panelKeys.add($projection & "\x1f" & $entry.indexStatus & $entry.worktreeStatus &
           "\x1f" & entry.path)
         lineItems.add(int32(displayed.high))
-    appendSection("Conflicts", conflicts, "conflict")
-    appendSection("Staged", staged, "staged")
-    appendSection("Unstaged", unstaged, "unstaged")
+    appendSection("Conflicts", conflicts, gitStatusConflict)
+    appendSection("Staged", staged, gitStatusStaged)
+    appendSection("Unstaged", unstaged, gitStatusUnstaged)
     if displayed.len == 0:
       lines.add("No changes")
       lineItems.add(-1'i32)
@@ -853,6 +865,7 @@ when defined(macosx):
     # The scrollable sidebar owns the complete status list and file actions.
     editorSidebarMode = sidebarGitStatus
     editorGitStatusEntries = displayed
+    editorGitStatusProjections = projections
     editorGitEntriesGeneration = editorGitStatusGeneration
     let sidebarText = lines.join("\n")
     editorWorkspaceUi.replacePanelItems(panelGit, panelKeys)
@@ -4544,15 +4557,14 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           platformShowGitHistoryContext(uint32(index))
         elif editorSidebarMode == sidebarGitStatus and index >= 0 and
             index < editorGitStatusEntries.len:
-          let entry = editorGitStatusEntries[index]
+          let projection = if index < editorGitStatusProjections.len:
+            editorGitStatusProjections[index] else: gitStatusConflict
           discard editorWorkspaceUi.selectPanelItem(panelGit, index)
           syncNativeSidebarSelection()
-          # Do not expose a one-click resolution path for conflicts. Match
-          # Zed's separation of conflict rows from ordinary stage actions.
-          let canStage = not entry.conflict and
-            (entry.worktreeStatus != ' ' or entry.indexStatus == '?')
-          let canUnstage = not entry.conflict and entry.indexStatus notin {' ', '?', '!'}
-          platformShowGitStatusContext(uint32(index), canStage, canUnstage)
+          # A projected partial file receives the action dictated by its
+          # section: Staged means Unstage, Unstaged means Stage. Conflicts
+          # intentionally expose no implicit resolution action.
+          platformShowGitStatusContext(uint32(index), uint32(ord(projection)))
       except ValueError:
         editorViewState.statusMessage = "Invalid workspace context item"
   elif name.startsWith("gitStatusContext:"):
@@ -4570,7 +4582,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
             let entry = editorGitStatusEntries[index]
             let repository = editorGitRepository
             case parts[1]
-            of "diff":
+            of "diff", "diffStaged", "diffUnstaged":
               let candidate = canonicalOpenPath(repository.root / entry.path)
               if entry.indexStatus == '?' and entry.worktreeStatus == '?':
                 # Untracked files have no HEAD side. `--no-index` supplies a
@@ -4580,10 +4592,11 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
                   ["diff", "--no-index", "--no-ext-diff", "--unified=3", "--",
                    "/dev/null", candidate])
               else:
-                # Compare with HEAD so a single preview includes both staged
-                # and unstaged edits, matching the Change-list mental model.
-                startNativeGitAction(repository, "show file diff", entry.path,
-                  ["diff", "--no-ext-diff", "--unified=3", "HEAD", "--", entry.path])
+                let diffArgs = case parts[1]
+                  of "diffStaged": @["diff", "--cached", "--no-ext-diff", "--unified=3", "--", entry.path]
+                  of "diffUnstaged": @["diff", "--no-ext-diff", "--unified=3", "--", entry.path]
+                  else: @["diff", "--no-ext-diff", "--unified=3", "HEAD", "--", entry.path]
+                startNativeGitAction(repository, "show file diff", entry.path, diffArgs)
             of "open":
               let candidate = canonicalOpenPath(repository.root / entry.path)
               let root = canonicalOpenPath(repository.root)
@@ -4614,6 +4627,29 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
               editorViewState.statusMessage = "Unknown Git status action"
         except ValueError:
           editorViewState.statusMessage = "Invalid Git status item"
+  elif name.startsWith("sidebarStageToggle:"):
+    when defined(macosx):
+      try:
+        let index = parseInt(name[19 .. ^1])
+        if editorSidebarMode != sidebarGitStatus or index < 0 or
+            index >= editorGitStatusEntries.len or index >= editorGitStatusProjections.len or
+            editorGitRepository == nil:
+          editorViewState.statusMessage = "Git status item is unavailable"
+        else:
+          let entry = editorGitStatusEntries[index]
+          discard editorWorkspaceUi.selectPanelItem(panelGit, index)
+          syncNativeSidebarSelection()
+          case editorGitStatusProjections[index]
+          of gitStatusConflict:
+            editorViewState.statusMessage = "Git conflict must be resolved explicitly"
+          of gitStatusStaged:
+            startNativeGitAction(editorGitRepository, "unstage file", entry.path,
+              ["reset", "HEAD", "--", entry.path])
+          of gitStatusUnstaged:
+            startNativeGitAction(editorGitRepository, "stage file", entry.path,
+              ["add", "--", entry.path])
+      except ValueError:
+        editorViewState.statusMessage = "Invalid Git status item"
   elif name.startsWith("gitHistoryContext:"):
     when defined(macosx):
       let parts = name.split(':')

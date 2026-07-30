@@ -81,8 +81,10 @@ void nimculus_platform_set_selection_callback(NimculusSelectionCallback callback
 void nimculus_platform_set_file_callback(NimculusFileCallback callback);
 void nimculus_platform_show_workspace_entry_context(const char *path, bool is_directory);
 bool nimculus_platform_move_item_to_trash(const char *path);
-void nimculus_platform_show_git_status_context(uint32_t item_index, bool can_stage,
-                                               bool can_unstage);
+// projection: 0 = conflict, 1 = staged, 2 = unstaged. A partially staged
+// path can occur in both groups, so native actions need the projected group.
+void nimculus_platform_show_git_status_context(uint32_t item_index,
+                                               uint32_t projection);
 void nimculus_platform_show_git_history_context(uint32_t item_index);
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback);
 void nimculus_platform_set_idle_callback(NimculusIdleCallback callback);

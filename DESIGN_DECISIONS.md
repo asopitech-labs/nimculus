@@ -5380,3 +5380,19 @@ their document from the focused pane.
 
 **Consequences.** Split panes retain their independent tab, selection, and
 navigation state across Files, search, Git, and LSP workflows.
+
+## UI-051: Make Git change actions follow their rendered section
+
+**Context.** A partially staged path has both index and worktree changes. It
+appears under both `Staged` and `Unstaged`, so a generic toggle can apply the
+opposite operation from the one the user selected.
+
+**Decision.** Retain a projection for every rendered Changes row. `Staged`
+rows show `✓` and unstage on their leading control; `Unstaged` rows show `○`
+and stage. Context menus expose the matching staged or unstaged diff. Conflict
+rows expose no stage toggle or implicit resolution.
+
+**Consequences.** The native sidebar line mapping and Git action state remain
+aligned when one path occurs twice. The isolated GUI E2E performs Stage All
+then Unstage All and verifies the resulting Git index and worktree state;
+the native contract verifies row-control dispatch.

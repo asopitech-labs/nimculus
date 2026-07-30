@@ -28,6 +28,15 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | M17〜M19：拡張・AI・DAP | ⚪ 未着手 | 拡張API、CLIエージェント、DAPクライアントを順次実装する |
 | M20〜M21：安定化・v1.0 | 🟡 M20自動E2E済み・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録する。2026-07-29の[release-candidate E2E成功](https://github.com/asopitech-labs/nimculus/actions/runs/30413726097)で、最新macOS HEADに対する全test、native contract、benchmark、3回cold-start、20秒soak、adhoc DMG起動を確認済み。8時間実機実行、remote latency、正式配布は未完了 |
 
+### M9 更新：Changes の操作モデル
+
+Changes は `Conflicts` / `Staged` / `Unstaged` に分ける。部分ステージ済みの
+パスは両方の区分に投影し、`✓` は Unstage、`○` は Stage を直接実行する。
+右クリックの差分も、選択した区分に応じて staged / unstaged を表示する。
+Conflict には暗黙の解決・stage操作を提示しない。隔離 GUI E2E は変更済みの
+Git fixture に対して Stage All → Unstage All を操作し、index と worktree の
+最終状態まで検証する。
+
 各マイルストーンはunit/integration test、native Cocoa/Metal contract、self-hosted macOS CIで進める。個別のGUI実機確認は完了ゲートにしない。M12とM20の自動基準がそろったrelease candidateで、物理入力機器・日本語入力ソース・複数ディスプレイを含む確認を[`docs/MACOS_MANUAL_ACCEPTANCE.md`](./docs/MACOS_MANUAL_ACCEPTANCE.md)の一回のmacOS E2E受け入れとして実施する。
 
 ## macOS E2E 受け入れの実行時点

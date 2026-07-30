@@ -98,7 +98,7 @@ proc platformSetTextCallback*(callback: TextCallback) {.importc: "nimculus_platf
 proc platformSetSelectionCallback*(callback: SelectionCallback) {.importc: "nimculus_platform_set_selection_callback", cdecl.}
 proc platformSetFileCallback*(callback: FileCallback) {.importc: "nimculus_platform_set_file_callback", cdecl.}
 proc platformShowWorkspaceEntryContext*(path: cstring, isDirectory: bool) {.importc: "nimculus_platform_show_workspace_entry_context", cdecl.}
-proc platformShowGitStatusContext*(itemIndex: uint32, canStage, canUnstage: bool) {.importc: "nimculus_platform_show_git_status_context", cdecl.}
+proc platformShowGitStatusContext*(itemIndex, projection: uint32) {.importc: "nimculus_platform_show_git_status_context", cdecl.}
 proc platformShowGitHistoryContext*(itemIndex: uint32) {.importc: "nimculus_platform_show_git_history_context", cdecl.}
 proc platformSetCommandCallback*(callback: CommandCallback) {.importc: "nimculus_platform_set_command_callback", cdecl.}
 proc platformSetIdleCallback*(callback: IdleCallback) {.importc: "nimculus_platform_set_idle_callback", cdecl.}
