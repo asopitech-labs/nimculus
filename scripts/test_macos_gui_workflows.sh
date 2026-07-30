@@ -33,7 +33,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 2
 fi
 
-mkdir -p "$TMP_ROOT/project"
+mkdir -p "$TMP_ROOT/project" "$TMP_ROOT/home"
 printf 'echo "Nimculus GUI E2E"\n' > "$TMP_ROOT/project/main.nim"
 git -C "$TMP_ROOT/project" init -q
 git -C "$TMP_ROOT/project" config user.name "Nimculus GUI E2E"
@@ -43,7 +43,10 @@ git -C "$TMP_ROOT/project" commit -qm "initial"
 
 cd "$ROOT_DIR"
 nimble build
-"$ROOT_DIR/nimculus/main" "$TMP_ROOT/project/main.nim" >"$TMP_ROOT/app.log" 2>&1 &
+# Keep the acceptance app's session, recovery data, and settings isolated from
+# the developer's real macOS profile. A GUI test must never manufacture a
+# fleet of restored Untitled tabs in the user's next interactive launch.
+HOME="$TMP_ROOT/home" "$ROOT_DIR/nimculus/main" "$TMP_ROOT/project/main.nim" >"$TMP_ROOT/app.log" 2>&1 &
 APP_PID=$!
 
 for _ in $(seq 1 40); do
