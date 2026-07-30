@@ -5797,11 +5797,13 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
     g_editor_active_tab = 0;
     NimculusTabBarOverlay *tabs = [[NimculusTabBarOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 400.0, 28.0)];
-    [tabs dispatchTabAtPoint:NSMakePoint(187.0, 12.0)];
+    // The right navigation reserve makes each of the two 400pt-strip tabs
+    // 176pt wide. Keep close-target checks on their actual trailing edges.
+    [tabs dispatchTabAtPoint:NSMakePoint(160.0, 12.0)];
     BOOL closeFirst = strcmp(g_validation_command, "closePaneTab:0:0") == 0;
-    [tabs dispatchTabAtPoint:NSMakePoint(387.0, 12.0)];
+    [tabs dispatchTabAtPoint:NSMakePoint(336.0, 12.0)];
     BOOL closeSecond = strcmp(g_validation_command, "closePaneTab:0:1") == 0;
-    [tabs dispatchTabAtPoint:NSMakePoint(260.0, 12.0)];
+    [tabs dispatchTabAtPoint:NSMakePoint(240.0, 12.0)];
     BOOL selectSecond = strcmp(g_validation_command, "selectPaneTab:0:1") == 0;
     [tabs release];
     replaceOwnedArray(&g_editor_tab_titles, @[@"one", @"two", @"three", @"four", @"five"]);
