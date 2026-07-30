@@ -117,6 +117,7 @@ static uint32_t g_editor_outline_symbol_count = 0;
 // dispatch sidebarItem:N.
 static uint32_t g_editor_sidebar_mode = 0;
 static BOOL g_editor_sidebar_visible = YES;
+static BOOL g_editor_sidebar_on_right = NO;
 static BOOL g_workspace_open = YES;
 static NSUInteger g_editor_sidebar_selected_index = NSNotFound;
 static NSString *g_theme_background = @"#1f2329";
@@ -2840,10 +2841,15 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
   NSString *text = g_editor_outline_text ?: @"";
   NSColor *foreground = themeHexColor(g_theme_foreground,
     [NSColor colorWithCalibratedWhite:0.84 alpha:1.0]);
+  NSMutableParagraphStyle *rowStyle = [[NSMutableParagraphStyle alloc] init];
+  rowStyle.lineBreakMode = NSLineBreakByTruncatingTail;
+  rowStyle.minimumLineHeight = 18.0;
+  rowStyle.maximumLineHeight = 18.0;
   NSMutableAttributedString *presented = [[NSMutableAttributedString alloc]
     initWithString:text attributes:@{
       NSFontAttributeName: [NSFont systemFontOfSize:13.0],
-      NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.88]
+      NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.88],
+      NSParagraphStyleAttributeName: rowStyle
     }];
   NSUInteger cursor = 0;
   NSUInteger line = 0;
@@ -2909,6 +2915,7 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
   }
   [outline.textStorage setAttributedString:presented];
   [presented release];
+  [rowStyle release];
 }
 
 static NSUInteger terminalUTF16OffsetForCell(uint32_t row, uint32_t column) {
@@ -3335,13 +3342,18 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusActivityBar class]]) activityBar = (NimculusActivityBar *)subview;
   }
   const CGFloat activityBarWidth = 38.0;
-  const CGFloat sidebarX = 8.0 + activityBarWidth;
-  const CGFloat sidebarControlX = 12.0 + activityBarWidth;
-  const CGFloat sidebarWidth = MAX(140.0, g_editor_rect[0] - 12.0 - activityBarWidth);
+  const CGFloat dockOuterX = g_editor_sidebar_on_right ?
+    g_editor_rect[0] + g_editor_rect[2] + 8.0 : 0.0;
+  const CGFloat dockAvailableWidth = g_editor_sidebar_on_right ?
+    self.bounds.size.width - dockOuterX - 8.0 : g_editor_rect[0] - 12.0;
+  const CGFloat sidebarWidth = MAX(140.0, dockAvailableWidth - activityBarWidth);
+  const CGFloat activityBarX = g_editor_sidebar_on_right ? dockOuterX + sidebarWidth : 4.0;
+  const CGFloat sidebarX = g_editor_sidebar_on_right ? dockOuterX : 8.0 + activityBarWidth;
+  const CGFloat sidebarControlX = sidebarX + 4.0;
   if (activityBar) {
     activityBar.hidden = g_welcome_visible || !g_editor_sidebar_visible;
     if (!activityBar.hidden) {
-      activityBar.frame = NSMakeRect(4.0, g_editor_rect[1] + 4.0, 30.0,
+      activityBar.frame = NSMakeRect(activityBarX, g_editor_rect[1] + 4.0, 30.0,
         MAX(1.0, g_editor_rect[3] - 8.0));
       [activityBar reloadSelection];
     }
@@ -7374,6 +7386,11 @@ void nimculus_platform_set_workspace_open(bool open) {
     }
   }
   [view updateTerminalFrame];
+}
+void nimculus_platform_set_editor_sidebar_on_right(bool on_right) {
+  g_editor_sidebar_on_right = on_right ? YES : NO;
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (view) [view updateTerminalFrame];
 }
 void nimculus_platform_open_workspace_folder(void) {
   NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];

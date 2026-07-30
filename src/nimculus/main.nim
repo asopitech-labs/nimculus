@@ -215,7 +215,16 @@ proc setupDemoUi() =
     Size(width: px(viewportWidth), height: px(viewportHeight)))
   let leftDockWidth = float32(workspaceLayout.leftDock.size.width)
   let bottomDockHeight = float32(workspaceLayout.bottomDock.size.height)
-  demoBottomDockBounds = workspaceLayout.bottomDock
+  # Zed's current macOS workspace presents Project on the right. Preserve the
+  # core's logical left dock (commands, focus, and persistence) and map only
+  # the macOS presentation to the right; other platforms retain their own
+  # native convention without inheriting an artificial shared abstraction.
+  const MacProjectDockOnRight = true
+  let contentX = if MacProjectDockOnRight: 0'f32 else: leftDockWidth
+  let contentWidth = max(0'f32, viewportWidth - leftDockWidth)
+  demoBottomDockBounds = Rect(origin: Point(x: px(contentX),
+      y: workspaceLayout.bottomDock.origin.y),
+    size: Size(width: px(contentWidth), height: workspaceLayout.bottomDock.size.height))
   let margin = 24'f32
   let panel = Rect(origin: Point(x: px(margin), y: px(margin)),
     size: Size(width: px(max(0'f32, viewportWidth - margin * 2)),
@@ -225,7 +234,10 @@ proc setupDemoUi() =
   # Preserve the mature editor presenter's internal gutters while making the
   # composition boundary authoritative: the dock owns its width and the
   # center receives the remainder.
-  let editorWidth = max(0'f32, float32(workspaceLayout.center.size.width) - 112'f32)
+  let editorWidth = if MacProjectDockOnRight:
+      max(0'f32, contentWidth - 28'f32)
+    else:
+      max(0'f32, float32(workspaceLayout.center.size.width) - 112'f32)
   # Keep a compact Zed-like workspace header and a status/scroll gutter. The
   # former fixed 128pt top gap left most of the window visually empty before
   # the active editor began; these insets retain the same lower tab boundary
@@ -234,7 +246,7 @@ proc setupDemoUi() =
   const EditorBottomInset = 58'f32
   let editorHeight = max(0'f32, float32(workspaceLayout.center.size.height) -
     EditorTopInset - EditorBottomInset)
-  let editor = Rect(origin: Point(x: px(leftDockWidth + 28'f32), y: px(EditorTopInset)),
+  let editor = Rect(origin: Point(x: px(contentX + 28'f32), y: px(EditorTopInset)),
     size: Size(width: px(editorWidth), height: px(editorHeight)))
   # PaneTree is the sole owner of split geometry. The native primary and
   # secondary text presenters consume its first two leaves during the staged
@@ -253,7 +265,9 @@ proc setupDemoUi() =
     demoSplitRatio = editorWorkspaceUi.center.ratio
   demoEditorBounds = primaryEditor
   demoSecondaryEditorBounds = secondaryEditor
-  let scrollbar = Rect(origin: Point(x: px(float32(editor.origin.x) + editorWidth + 24), y: editor.origin.y),
+  let scrollbar = Rect(origin: Point(x: px(if MacProjectDockOnRight:
+      float32(editor.origin.x) + editorWidth - 14'f32
+    else: float32(editor.origin.x) + editorWidth + 24'f32), y: editor.origin.y),
     size: Size(width: px(8), height: px(max(0'f32, editorHeight - 32'f32))))
   demoTree.node(button.node).bounds = toolbar
   demoTree.node(split.node).bounds = splitBar
@@ -265,15 +279,16 @@ proc setupDemoUi() =
   # from WorkspaceUiState rather than drawing a disconnected demo card.
   paint.drawWorkspaceBackground(viewport)
   if leftDockWidth > 0:
-    paint.drawWorkspacePanel(Rect(origin: Point(x: px(0), y: px(24)),
+    let dockX = if MacProjectDockOnRight: viewportWidth - leftDockWidth else: 0'f32
+    paint.drawWorkspacePanel(Rect(origin: Point(x: px(dockX), y: px(24)),
       size: Size(width: px(leftDockWidth), height: px(max(0'f32, viewportHeight - 46'f32 - bottomDockHeight)))))
-    paint.drawWorkspaceSeparator(Rect(origin: Point(x: px(leftDockWidth - 1), y: px(24)),
+    paint.drawWorkspaceSeparator(Rect(origin: Point(x: px(if MacProjectDockOnRight: dockX else: leftDockWidth - 1), y: px(24)),
       size: Size(width: px(1), height: px(max(0'f32, viewportHeight - 46'f32 - bottomDockHeight)))))
   if bottomDockHeight > 0:
-    paint.drawWorkspacePanel(Rect(origin: Point(x: px(leftDockWidth),
+    paint.drawWorkspacePanel(Rect(origin: Point(x: px(contentX),
       y: px(viewportHeight - DefaultStatusHeight - bottomDockHeight)),
-      size: Size(width: px(max(0'f32, viewportWidth - leftDockWidth)), height: px(bottomDockHeight))))
-    paint.drawWorkspaceSeparator(Rect(origin: Point(x: px(leftDockWidth),
+      size: Size(width: px(contentWidth), height: px(bottomDockHeight))))
+    paint.drawWorkspaceSeparator(Rect(origin: Point(x: px(contentX),
       y: px(viewportHeight - DefaultStatusHeight - bottomDockHeight)),
       size: Size(width: px(max(0'f32, viewportWidth - leftDockWidth)), height: px(1))))
   paint.drawWorkspacePanel(workspaceLayout.status)
@@ -353,6 +368,7 @@ proc setupDemoUi() =
                         float64(float32(primaryEditor.size.width)), float64(float32(primaryEditor.size.height)))
   when defined(macosx):
     platformSetEditorSidebarVisible(editorWorkspaceUi.leftDock.isOpen)
+    platformSetEditorSidebarOnRight(MacProjectDockOnRight)
     platformSetTerminalPanelRect(float64(float32(demoBottomDockBounds.origin.x)),
       float64(float32(demoBottomDockBounds.origin.y)),
       float64(float32(demoBottomDockBounds.size.width)),

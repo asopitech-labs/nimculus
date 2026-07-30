@@ -134,6 +134,7 @@ void nimculus_platform_set_editor_sidebar(const char *utf8, uint32_t length,
                                           uint32_t item_count, uint32_t mode);
 void nimculus_platform_set_editor_sidebar_selection(uint32_t item_index);
 void nimculus_platform_set_editor_sidebar_visible(bool visible);
+void nimculus_platform_set_editor_sidebar_on_right(bool on_right);
 void nimculus_platform_set_workspace_open(bool open);
 void nimculus_platform_open_workspace_folder(void);
 void nimculus_platform_set_terminal_visible(bool visible);
