@@ -7,13 +7,13 @@ proc nativeGuiValidationRequired(): bool =
 proc skipNativeSheetService(): bool =
   getEnv("NIMCULUS_SKIP_NATIVE_SHEET_CONTRACTS") == "1"
 
-suite "macOS application alert sheet contracts":
-  test "application alerts use a non-blocking window sheet and dispatch after completion":
+suite "macOS document search overlay contracts":
+  test "document search, replace, and line navigation stay non-modal":
     if skipNativeSheetService():
-      echo "  [SKIP] application-alert sheet contract (auxiliary GUI service excluded)"
+      echo "  [SKIP] document search overlay contract (auxiliary GUI service excluded)"
     elif platformValidateApplicationAlertSheet():
       check true
     elif nativeGuiValidationRequired():
       check false
     else:
-      echo "  [SKIP] application-alert sheet contract (GUI services unavailable in this session)"
+      echo "  [SKIP] document search overlay contract (GUI services unavailable in this session)"

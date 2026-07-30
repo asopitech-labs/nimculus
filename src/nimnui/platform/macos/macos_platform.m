@@ -2038,6 +2038,32 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic) NSRange selectedTextRange;
 @property(nonatomic, strong) NSTrackingArea *trackingArea;
 - (void)updateTerminalFrame;
+- (void)showDocumentFindBar:(BOOL)replace;
+- (void)showGoToLineBar;
+@end
+
+// Zed keeps buffer search in the pane chrome instead of making the editor
+// wait on a modal prompt.  This small native equivalent stays above the Metal
+// document surface, lets the document continue rendering, and returns focus
+// to the editor when dismissed.
+@class NimculusDocumentSearchOverlay;
+@interface NimculusDocumentSearchField : NSSearchField
+@property(nonatomic, assign) NimculusDocumentSearchOverlay *searchOverlay;
+@end
+@interface NimculusDocumentLineField : NSTextField
+@property(nonatomic, assign) NimculusDocumentSearchOverlay *searchOverlay;
+@end
+@interface NimculusDocumentSearchOverlay : NSView <NSTextFieldDelegate>
+@property(nonatomic, retain) NSSearchField *queryField;
+@property(nonatomic, retain) NSTextField *replacementField;
+@property(nonatomic, retain) NSTextField *lineField;
+@property(nonatomic, retain) NSButton *previousButton;
+@property(nonatomic, retain) NSButton *nextButton;
+@property(nonatomic, retain) NSButton *replaceButton;
+@property(nonatomic, retain) NSButton *closeButton;
+@property(nonatomic) NSInteger mode;
+- (void)showFind:(BOOL)replace;
+- (void)showGoToLine;
 @end
 
 @interface NimculusTerminalOverlay : NSTextView
@@ -2128,6 +2154,158 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @end
 
 @interface NimculusEditorAnnotationOverlay : NSView
+@end
+
+@implementation NimculusDocumentSearchField
+- (void)cancelOperation:(id)sender { (void)sender; [self.searchOverlay close:nil]; }
+@end
+
+@implementation NimculusDocumentLineField
+- (void)cancelOperation:(id)sender { (void)sender; [self.searchOverlay close:nil]; }
+@end
+
+@implementation NimculusDocumentSearchOverlay
+
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.wantsLayer = YES;
+  self.layer.cornerRadius = 6.0;
+  self.layer.borderWidth = 1.0;
+  self.layer.borderColor = [[NSColor separatorColor] colorWithAlphaComponent:0.8].CGColor;
+  self.layer.backgroundColor = [[NSColor windowBackgroundColor]
+    colorWithAlphaComponent:0.98].CGColor;
+  self.mode = 0;
+  self.queryField = [[[NimculusDocumentSearchField alloc] initWithFrame:NSZeroRect] autorelease];
+  ((NimculusDocumentSearchField *)self.queryField).searchOverlay = self;
+  self.queryField.placeholderString = @"Find";
+  self.queryField.delegate = self;
+  self.queryField.target = self;
+  self.queryField.action = @selector(findNext:);
+  [self addSubview:self.queryField];
+  self.replacementField = [[[NimculusDocumentLineField alloc] initWithFrame:NSZeroRect] autorelease];
+  ((NimculusDocumentLineField *)self.replacementField).searchOverlay = self;
+  self.replacementField.placeholderString = @"Replace";
+  self.replacementField.delegate = self;
+  self.replacementField.target = self;
+  self.replacementField.action = @selector(replaceAll:);
+  [self addSubview:self.replacementField];
+  self.lineField = [[[NimculusDocumentLineField alloc] initWithFrame:NSZeroRect] autorelease];
+  ((NimculusDocumentLineField *)self.lineField).searchOverlay = self;
+  self.lineField.placeholderString = @"Line number";
+  self.lineField.delegate = self;
+  self.lineField.target = self;
+  self.lineField.action = @selector(goToLine:);
+  [self addSubview:self.lineField];
+  self.previousButton = [NSButton buttonWithTitle:@"‹" target:self action:@selector(findPrevious:)];
+  self.nextButton = [NSButton buttonWithTitle:@"›" target:self action:@selector(findNext:)];
+  self.replaceButton = [NSButton buttonWithTitle:@"Replace All" target:self action:@selector(replaceAll:)];
+  self.closeButton = [NSButton buttonWithTitle:@"×" target:self action:@selector(close:)];
+  for (NSButton *button in @[self.previousButton, self.nextButton, self.replaceButton, self.closeButton]) {
+    button.bezelStyle = NSBezelStyleTexturedRounded;
+    [self addSubview:button];
+  }
+  self.toolTip = @"Find in document (Esc to close)";
+  return self;
+}
+
+- (void)dealloc {
+  [_queryField release]; [_replacementField release]; [_lineField release];
+  [_previousButton release]; [_nextButton release]; [_replaceButton release];
+  [_closeButton release];
+  [super dealloc];
+}
+
+- (BOOL)acceptsFirstResponder { return YES; }
+
+- (void)layout {
+  [super layout];
+  const CGFloat padding = 6.0;
+  const CGFloat controlHeight = 24.0;
+  const CGFloat buttonWidth = 27.0;
+  const CGFloat width = self.bounds.size.width;
+  if (self.mode == 2) {
+    self.lineField.frame = NSMakeRect(padding, padding, width - padding * 2.0 - 54.0, controlHeight);
+    self.closeButton.frame = NSMakeRect(width - 48.0, padding, 42.0, controlHeight);
+    self.queryField.hidden = self.replacementField.hidden = YES;
+    self.previousButton.hidden = self.nextButton.hidden = self.replaceButton.hidden = YES;
+    self.lineField.hidden = self.closeButton.hidden = NO;
+    return;
+  }
+  const CGFloat fieldWidth = self.mode == 1 ? width - 4.0 * padding - 2.0 * buttonWidth - 82.0 :
+    width - 3.0 * padding - 3.0 * buttonWidth;
+  self.queryField.frame = NSMakeRect(padding, self.mode == 1 ? 34.0 : padding,
+    MAX(90.0, fieldWidth), controlHeight);
+  self.previousButton.frame = NSMakeRect(NSMaxX(self.queryField.frame) + padding,
+    self.queryField.frame.origin.y, buttonWidth, controlHeight);
+  self.nextButton.frame = NSMakeRect(NSMaxX(self.previousButton.frame) + 2.0,
+    self.queryField.frame.origin.y, buttonWidth, controlHeight);
+  self.closeButton.frame = NSMakeRect(NSMaxX(self.nextButton.frame) + 2.0,
+    self.queryField.frame.origin.y, buttonWidth, controlHeight);
+  self.replacementField.frame = NSMakeRect(padding, padding,
+    MAX(90.0, width - 3.0 * padding - 82.0), controlHeight);
+  self.replaceButton.frame = NSMakeRect(NSMaxX(self.replacementField.frame) + padding,
+    padding, 76.0, controlHeight);
+  self.queryField.hidden = self.previousButton.hidden = self.nextButton.hidden = NO;
+  self.closeButton.hidden = NO;
+  self.replacementField.hidden = self.replaceButton.hidden = self.mode != 1;
+  self.lineField.hidden = YES;
+}
+
+- (void)showFind:(BOOL)replace {
+  self.mode = replace ? 1 : 0;
+  self.hidden = NO;
+  [self setNeedsLayout:YES];
+  [self layoutSubtreeIfNeeded];
+  [self.window makeFirstResponder:self.queryField];
+  [self.queryField selectText:nil];
+}
+
+- (void)showGoToLine {
+  self.mode = 2;
+  self.lineField.stringValue = @"";
+  self.hidden = NO;
+  [self setNeedsLayout:YES];
+  [self layoutSubtreeIfNeeded];
+  [self.window makeFirstResponder:self.lineField];
+  [self.lineField selectText:nil];
+}
+
+- (void)controlTextDidChange:(NSNotification *)notification {
+  if (notification.object == self.queryField && self.queryField.stringValue.length > 0 &&
+      g_command_callback) {
+    NSString *command = [NSString stringWithFormat:@"findDocument:%@", self.queryField.stringValue];
+    g_command_callback(command.UTF8String);
+  }
+}
+
+- (void)findPrevious:(id)sender { (void)sender; [self findNext:nil]; }
+- (void)findNext:(id)sender {
+  (void)sender;
+  if (self.queryField.stringValue.length == 0 || !g_command_callback) return;
+  NSString *command = [NSString stringWithFormat:@"findDocument:%@", self.queryField.stringValue];
+  g_command_callback(command.UTF8String);
+}
+- (void)replaceAll:(id)sender {
+  (void)sender;
+  if (self.queryField.stringValue.length == 0 || !g_command_callback) return;
+  NSString *command = [NSString stringWithFormat:@"replaceDocument:%@\x1f%@",
+    self.queryField.stringValue, self.replacementField.stringValue];
+  g_command_callback(command.UTF8String);
+}
+- (void)goToLine:(id)sender {
+  (void)sender;
+  if (self.lineField.stringValue.length == 0 || !g_command_callback) return;
+  NSString *command = [NSString stringWithFormat:@"goToLine:%@", self.lineField.stringValue];
+  g_command_callback(command.UTF8String);
+  [self close:nil];
+}
+- (void)close:(id)sender {
+  (void)sender;
+  self.hidden = YES;
+  [self.window makeFirstResponder:self.superview];
+}
+- (void)cancelOperation:(id)sender { (void)sender; [self close:nil]; }
 @end
 
 @implementation NimculusTerminalOverlay
@@ -3649,6 +3827,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     annotations.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     annotations.hidden = YES;
     [self addSubview:annotations];
+    [annotations release];
+    NimculusDocumentSearchOverlay *documentSearch =
+      [[NimculusDocumentSearchOverlay alloc] initWithFrame:NSZeroRect];
+    documentSearch.hidden = YES;
+    [self addSubview:documentSearch];
+    [documentSearch release];
     [self updateTrackingAreas];
   }
   return self;
@@ -3725,6 +3909,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusOutputPanelBar *outputBar = nil;
   NimculusTaskOutputOverlay *taskOutput = nil;
   NimculusEditorAnnotationOverlay *annotations = nil;
+  NimculusDocumentSearchOverlay *documentSearch = nil;
   for (NSView *subview in self.subviews) {
     if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) lineNumbers = (NimculusLineNumberOverlay *)subview;
     if ([subview isKindOfClass:[NimculusIndentGuideOverlay class]]) indentGuides = (NimculusIndentGuideOverlay *)subview;
@@ -3740,6 +3925,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusOutputPanelBar class]]) outputBar = (NimculusOutputPanelBar *)subview;
     if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) taskOutput = (NimculusTaskOutputOverlay *)subview;
     if ([subview isKindOfClass:[NimculusEditorAnnotationOverlay class]]) annotations = (NimculusEditorAnnotationOverlay *)subview;
+    if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) documentSearch = (NimculusDocumentSearchOverlay *)subview;
     if ([subview isKindOfClass:[NimculusGitSidebarTabs class]]) gitTabs = (NimculusGitSidebarTabs *)subview;
     if ([subview isKindOfClass:[NimculusGitCommitButton class]]) gitCommit = (NimculusGitCommitButton *)subview;
     if ([subview isKindOfClass:[NimculusGitRefreshButton class]]) gitRefresh = (NimculusGitRefreshButton *)subview;
@@ -3922,6 +4108,13 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     annotations.hidden = g_editor_annotation_count == 0;
     [annotations setNeedsDisplay:YES];
   }
+  if (documentSearch && !documentSearch.hidden) {
+    const CGFloat searchWidth = MIN(420.0, MAX(260.0, g_editor_rect[2] - 16.0));
+    const CGFloat searchHeight = documentSearch.mode == 1 ? 64.0 : 36.0;
+    documentSearch.frame = NSMakeRect(g_editor_rect[0] + g_editor_rect[2] - searchWidth - 8.0,
+      g_editor_rect[1] + g_editor_rect[3] - searchHeight - 8.0, searchWidth, searchHeight);
+    [documentSearch setNeedsLayout:YES];
+  }
   if (!terminal || !terminalSessions || !outputBar || !taskOutput) return;
   BOOL panelVisible = g_terminal_visible || g_task_output_visible;
   CGFloat height = panelVisible ? MIN(180.0, MAX(72.0, g_editor_rect[3] * 0.42)) : 0.0;
@@ -3950,6 +4143,26 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   terminalSessions.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
   outputBar.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
   taskOutput.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
+}
+
+- (void)showDocumentFindBar:(BOOL)replace {
+  for (NSView *subview in self.subviews) {
+    if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) {
+      [(NimculusDocumentSearchOverlay *)subview showFind:replace];
+      [self updateTerminalFrame];
+      return;
+    }
+  }
+}
+
+- (void)showGoToLineBar {
+  for (NSView *subview in self.subviews) {
+    if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) {
+      [(NimculusDocumentSearchOverlay *)subview showGoToLine];
+      [self updateTerminalFrame];
+      return;
+    }
+  }
 }
 
 - (void)viewDidChangeBackingProperties {
@@ -4754,63 +4967,17 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 
 - (void)findInDocument:(id)sender {
   (void)sender;
-  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-  alert.messageText = @"Find in Document";
-  NSTextField *field = [[[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)] autorelease];
-  field.placeholderString = @"Search text";
-  alert.accessoryView = field;
-  [alert addButtonWithTitle:@"Find"];
-  [alert addButtonWithTitle:@"Cancel"];
-  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
-    if (response == NSAlertFirstButtonReturn && g_command_callback) {
-      NSString *command = [NSString stringWithFormat:@"findDocument:%@", field.stringValue];
-      g_command_callback(command.UTF8String);
-    }
-  }];
+  [self.view showDocumentFindBar:NO];
 }
 
 - (void)replaceInDocument:(id)sender {
   (void)sender;
-  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-  alert.messageText = @"Replace in Document";
-  NSStackView *fields = [[[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 320, 56)] autorelease];
-  fields.orientation = NSUserInterfaceLayoutOrientationVertical;
-  fields.spacing = 8;
-  NSTextField *query = [[[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)] autorelease];
-  query.placeholderString = @"Search text";
-  NSTextField *replacement = [[[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)] autorelease];
-  replacement.placeholderString = @"Replacement";
-  [fields addArrangedSubview:query];
-  [fields addArrangedSubview:replacement];
-  alert.accessoryView = fields;
-  [alert addButtonWithTitle:@"Replace All"];
-  [alert addButtonWithTitle:@"Cancel"];
-  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
-    if (response == NSAlertFirstButtonReturn && g_command_callback) {
-      // Unit Separator is not valid in normal text input and keeps this ABI
-      // independent of colons/newlines in either field.
-      NSString *command = [NSString stringWithFormat:@"replaceDocument:%@\x1f%@",
-        query.stringValue, replacement.stringValue];
-      g_command_callback(command.UTF8String);
-    }
-  }];
+  [self.view showDocumentFindBar:YES];
 }
 
 - (void)goToLine:(id)sender {
   (void)sender;
-  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-  alert.messageText = @"Go to Line";
-  NSTextField *field = [self workspacePathField:@"Line number"];
-  field.stringValue = @"1";
-  alert.accessoryView = field;
-  [alert addButtonWithTitle:@"Go"];
-  [alert addButtonWithTitle:@"Cancel"];
-  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
-    if (response == NSAlertFirstButtonReturn && g_command_callback) {
-      NSString *command = [NSString stringWithFormat:@"goToLine:%@", field.stringValue];
-      g_command_callback(command.UTF8String);
-    }
-  }];
+  [self.view showGoToLineBar];
 }
 
 - (void)openCommandPalette:(id)sender {
@@ -6770,38 +6937,61 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     NSApplication *application = [NSApplication sharedApplication];
     (void)application;
     NimculusCommandCallback previousCallback = g_command_callback;
+    id previousView = g_active_view;
     NSWindow *window = [[NSWindow alloc]
       initWithContentRect:NSMakeRect(160.0, 180.0, 640.0, 480.0)
       styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:NO];
     NimculusAppDelegate *delegate = [NimculusAppDelegate new];
-    if (!window || !delegate) {
+    NimculusMetalView *view = [[NimculusMetalView alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 480.0)];
+    if (!window || !delegate || !view) {
+      [view release];
       [delegate release];
       [window release];
       g_metrics = previousMetrics;
       return false;
     }
     delegate.window = window;
+    delegate.view = view;
+    [window setContentView:view];
+    g_active_view = view;
     g_command_callback = validationCommandCallback;
     g_validation_command[0] = '\0';
     [window makeKeyAndOrderFront:nil];
     [delegate findInDocument:nil];
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
-    NSWindow *sheet = window.attachedSheet;
-    BOOL attached = sheet != nil;
-    if (sheet) [window endSheet:sheet returnCode:NSAlertFirstButtonReturn];
-    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
-    BOOL dispatched = strcmp(g_validation_command, "findDocument:") == 0;
-    BOOL detached = window.attachedSheet == nil;
-    // Let the AppKit sheet transform release before tearing down the
-    // temporary parent window, as in the Open/Save sheet contracts.
-    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
+    NimculusDocumentSearchOverlay *search = nil;
+    for (NSView *subview in view.subviews) {
+      if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) {
+        search = (NimculusDocumentSearchOverlay *)subview;
+        break;
+      }
+    }
+    BOOL visibleFind = search && !search.hidden && search.mode == 0 &&
+      window.firstResponder == search.queryField.currentEditor;
+    search.queryField.stringValue = @"日本語🙂";
+    [search controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification
+      object:search.queryField]];
+    BOOL dispatched = strcmp(g_validation_command, "findDocument:日本語🙂") == 0;
+    [search.queryField cancelOperation:nil];
+    BOOL escaped = search.hidden && window.firstResponder == view;
+    [delegate replaceInDocument:nil];
+    BOOL visibleReplace = !search.hidden && search.mode == 1 && !search.replacementField.hidden;
+    [delegate goToLine:nil];
+    BOOL visibleLine = !search.hidden && search.mode == 2 && !search.lineField.hidden;
+    [search close:nil];
+    BOOL dismissed = search.hidden && window.attachedSheet == nil &&
+      window.firstResponder == view;
     g_command_callback = previousCallback;
+    g_active_view = previousView;
+    delegate.view = nil;
     [window orderOut:nil];
     [window close];
+    [view release];
     [delegate release];
     [window release];
     g_metrics = previousMetrics;
-    return attached && dispatched && detached;
+    return visibleFind && dispatched && escaped && visibleReplace && visibleLine && dismissed;
   }
 }
 

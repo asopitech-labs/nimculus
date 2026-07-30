@@ -5886,3 +5886,22 @@ cancellation, stale-job handling, and focus remain identical to pointer use.
 
 **Consequences.** Git history has a keyboard entry point without duplicate
 repository state. The native sidebar contract verifies both command bindings.
+
+## UI-061: Keep document search and navigation inside the editor surface
+
+**Context.** Find, Replace, and Go to Line were presented as `NSAlert` sheets.
+They suspended the user's editing flow and made an accidental shortcut look
+like a blocked application. Zed's `BufferSearchBar` instead lives in pane
+chrome, takes focus when deployed, updates search without closing the editor,
+and dismisses back to the active pane.
+
+**Decision.** Use one native `NimculusDocumentSearchOverlay` above the active
+Metal editor rectangle. Find updates the existing document-search command as
+the query changes; Replace exposes a second field and uses the existing
+atomic replace-all command; Go to Line uses the same overlay. The overlay is
+not an `NSWindow` or `NSAlert`, so it never attaches a blocking sheet. Closing
+it returns first responder status to `NimculusMetalView`.
+
+**Consequences.** Cmd+F, Replace, and Cmd+L remain keyboard-first while the
+document stays visible and responsive. The native contract proves the three
+modes, live command routing, lack of an attached sheet, and focus restoration.
