@@ -2386,9 +2386,15 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
   NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
   if (titles.count == 0) return;
+  // Keep overflow controls outside tab labels. The earlier range label was
+  // painted over the active tab, obscuring both its title and close target.
+  // Zed uses a horizontally-scrollable unpinned strip; this compact AppKit
+  // presenter follows the same navigation model with explicit controls.
+  const CGFloat navigationWidth = titles.count > 1 ? 48.0 : 0.0;
+  const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - navigationWidth);
   NSUInteger first = 0, visible = 0;
-  visibleTabRange(titles.count, active, self.bounds.size.width, &first, &visible);
-  CGFloat tabWidth = MAX(1.0, self.bounds.size.width / visible);
+  visibleTabRange(titles.count, active, tabAreaWidth, &first, &visible);
+  CGFloat tabWidth = MAX(1.0, tabAreaWidth / visible);
   NSDictionary *attributes = @{
     NSFontAttributeName: [NSFont systemFontOfSize:12.0],
     NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
@@ -2420,17 +2426,29 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     };
     [@"×" drawAtPoint:NSMakePoint(x + tabWidth - 21.0, 4.0) withAttributes:closeAttributes];
   }
+  if (titles.count > 1) {
+    [[NSColor colorWithCalibratedWhite:0.11 alpha:0.98] setFill];
+    NSRectFill(NSMakeRect(tabAreaWidth, 0.0, navigationWidth, self.bounds.size.height));
+    NSDictionary *navigationAttributes = @{
+      NSFontAttributeName: [NSFont systemFontOfSize:14.0 weight:NSFontWeightMedium],
+      NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
+        [NSColor colorWithCalibratedWhite:0.88 alpha:1.0]) colorWithAlphaComponent:0.72]
+    };
+    [@"‹" drawAtPoint:NSMakePoint(tabAreaWidth + 10.0, 4.0)
+        withAttributes:navigationAttributes];
+    [@"›" drawAtPoint:NSMakePoint(tabAreaWidth + 33.0, 4.0)
+        withAttributes:navigationAttributes];
+  }
   if (first > 0 || first + visible < titles.count) {
     NSDictionary *indicatorAttributes = @{
-      NSFontAttributeName: [NSFont systemFontOfSize:10.0 weight:NSFontWeightMedium],
+      NSFontAttributeName: [NSFont systemFontOfSize:9.0 weight:NSFontWeightMedium],
       NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
         [NSColor colorWithCalibratedWhite:0.88 alpha:1.0]) colorWithAlphaComponent:0.55]
     };
-    NSString *indicator = [NSString stringWithFormat:@"%lu–%lu / %lu",
-      (unsigned long)first + 1, (unsigned long)(first + visible),
-      (unsigned long)titles.count];
-    [indicator drawAtPoint:NSMakePoint(MAX(3.0, self.bounds.size.width - 58.0),
-      self.bounds.size.height - 13.0) withAttributes:indicatorAttributes];
+    NSString *indicator = [NSString stringWithFormat:@"%lu/%lu",
+      (unsigned long)active + 1, (unsigned long)titles.count];
+    [indicator drawAtPoint:NSMakePoint(tabAreaWidth + 9.0,
+      self.bounds.size.height - 12.0) withAttributes:indicatorAttributes];
   }
 }
 - (void)mouseDown:(NSEvent *)event {
@@ -2440,9 +2458,21 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
   if (!g_command_callback || titles.count == 0) return;
   NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
+  const CGFloat navigationWidth = titles.count > 1 ? 48.0 : 0.0;
+  const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - navigationWidth);
+  if (titles.count > 1 && point.x >= tabAreaWidth) {
+    NSInteger delta = point.x < tabAreaWidth + navigationWidth / 2.0 ? -1 : 1;
+    NSInteger next = MAX(0, MIN((NSInteger)titles.count - 1, (NSInteger)active + delta));
+    if (next != (NSInteger)active) {
+      NSString *command = [NSString stringWithFormat:@"selectPaneTab:%u:%ld",
+        self.secondary ? 1 : 0, (long)next];
+      g_command_callback(command.UTF8String);
+    }
+    return;
+  }
   NSUInteger first = 0, visible = 0;
-  visibleTabRange(titles.count, active, self.bounds.size.width, &first, &visible);
-  CGFloat tabWidth = MAX(1.0, self.bounds.size.width / visible);
+  visibleTabRange(titles.count, active, tabAreaWidth, &first, &visible);
+  CGFloat tabWidth = MAX(1.0, tabAreaWidth / visible);
   NSUInteger visualIndex = MIN(visible - 1,
     (NSUInteger)MAX(0.0, floor(point.x / tabWidth)));
   NSUInteger index = first + visualIndex;
@@ -5774,11 +5804,20 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
     [tabs dispatchTabAtPoint:NSMakePoint(260.0, 12.0)];
     BOOL selectSecond = strcmp(g_validation_command, "selectPaneTab:0:1") == 0;
     [tabs release];
+    replaceOwnedArray(&g_editor_tab_titles, @[@"one", @"two", @"three", @"four", @"five"]);
+    g_editor_active_tab = 2;
+    NimculusTabBarOverlay *overflowTabs = [[NimculusTabBarOverlay alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 240.0, 28.0)];
+    [overflowTabs dispatchTabAtPoint:NSMakePoint(202.0, 12.0)];
+    BOOL previousTab = strcmp(g_validation_command, "selectPaneTab:0:1") == 0;
+    [overflowTabs dispatchTabAtPoint:NSMakePoint(228.0, 12.0)];
+    BOOL nextTab = strcmp(g_validation_command, "selectPaneTab:0:3") == 0;
+    [overflowTabs release];
     replaceOwnedArray(&g_editor_tab_titles, previousTitles ?: @[]);
     g_editor_active_tab = previousActive;
     [previousTitles release];
     g_command_callback = previousCallback;
-    return closeFirst && closeSecond && selectSecond;
+    return closeFirst && closeSecond && selectSecond && previousTab && nextTab;
   }
 }
 
