@@ -1029,8 +1029,13 @@ when defined(macosx):
     editorTaskCommand = command
     editorTaskOutput = ""
     editorTaskProblems.setLen(0)
-    editorTaskOutputVisible = false
-    platformSetTaskOutputVisible(false)
+    if editorTerminalVisible:
+      editorTerminalVisible = false
+      editorTerminalFocused = false
+      platformSetTerminalVisible(false)
+    editorTaskOutputVisible = true
+    platformSetTaskOutputVisible(true)
+    platformSetTaskOutputCancellable(true)
     let title = "Task — " & command
     platformSetTaskOutputTitle(title.cstring, uint32(title.len))
     editorTaskJob = startTask(TaskSpec(command: "/bin/zsh",
@@ -1042,6 +1047,7 @@ when defined(macosx):
       editorViewState.statusMessage = "Task: no running task"
       return
     editorTaskJob.cancel()
+    platformSetTaskOutputCancellable(false)
     editorViewState.statusMessage = "Task: cancelled"
 
   proc pollNativeTask() =
@@ -1072,6 +1078,7 @@ when defined(macosx):
       editorViewState.statusMessage = "Task cancelled: " & editorTaskCommand
     else: discard
     editorTaskJob = nil
+    platformSetTaskOutputCancellable(false)
 
   proc pollNativeUpdate() =
     if editorUpdateJob == nil: return
@@ -3360,6 +3367,9 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     if name == "closeOutputPanel":
       editorTaskOutputVisible = false
       platformSetTaskOutputVisible(false)
+      return
+    if name == "cancelTask":
+      cancelNativeTask()
       return
     if name.startsWith("terminalSession:"):
       try:

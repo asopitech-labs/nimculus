@@ -228,7 +228,7 @@ suite "macOS platform contract":
   test "terminal session bar exposes select new and close actions":
     check platformValidateTerminalSessionBar()
 
-  test "output panel presents its title and close action":
+  test "output panel presents title close and task-cancel actions":
     check platformValidateOutputPanelBar()
 
   test "every document tab exposes an independent close target":

@@ -136,6 +136,7 @@ static NSUInteger g_terminal_active_session = 0;
 static NSString *g_task_output_text = @"";
 static NSString *g_task_output_title = @"Task Output";
 static BOOL g_task_output_visible = NO;
+static BOOL g_task_output_cancellable = NO;
 static BOOL g_terminal_has_selection = NO;
 static uint32_t g_terminal_selection_start_row = 0;
 static uint32_t g_terminal_selection_start_column = 0;
@@ -2038,8 +2039,10 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 
 @interface NimculusOutputPanelBar : NSView
 @property(nonatomic, retain) NSTextField *titleLabel;
+@property(nonatomic, retain) NSButton *stopButton;
 @property(nonatomic, retain) NSButton *closeButton;
 - (void)reloadTitle;
+- (void)reloadActions;
 @end
 
 @interface NimculusOutlineOverlay : NSTextView
@@ -2196,21 +2199,35 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   self.titleLabel.font = [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold];
   self.titleLabel.textColor = [NSColor colorWithCalibratedRed:0.92 green:0.88 blue:0.76 alpha:1.0];
   [self addSubview:self.titleLabel];
+  self.stopButton = [[NSButton alloc] initWithFrame:NSZeroRect];
+  self.stopButton.image = [NSImage imageWithSystemSymbolName:@"stop.fill"
+    accessibilityDescription:@"Cancel running task"];
+  self.stopButton.toolTip = @"Cancel running task";
+  self.stopButton.accessibilityLabel = @"Cancel running task";
+  self.stopButton.bezelStyle = NSBezelStyleTexturedRounded;
+  self.stopButton.target = self;
+  self.stopButton.action = @selector(cancelTask:);
+  [self addSubview:self.stopButton];
   self.closeButton = [[NSButton alloc] initWithFrame:NSZeroRect];
   self.closeButton.title = @"×";
   self.closeButton.toolTip = @"Close Output Panel";
+  self.closeButton.accessibilityLabel = @"Close Output Panel";
   self.closeButton.bezelStyle = NSBezelStyleTexturedRounded;
   self.closeButton.target = self;
   self.closeButton.action = @selector(closeOutput:);
   [self addSubview:self.closeButton];
   [self reloadTitle];
+  [self reloadActions];
   return self;
 }
-- (void)dealloc { [_titleLabel release]; [_closeButton release]; [super dealloc]; }
+- (void)dealloc { [_titleLabel release]; [_stopButton release]; [_closeButton release]; [super dealloc]; }
 - (void)layout {
   [super layout];
-  self.titleLabel.frame = NSMakeRect(9.0, 4.0, MAX(1.0, self.bounds.size.width - 46.0),
+  CGFloat stopWidth = self.stopButton.hidden ? 0.0 : 32.0;
+  self.titleLabel.frame = NSMakeRect(9.0, 4.0, MAX(1.0, self.bounds.size.width - 46.0 - stopWidth),
     MAX(18.0, self.bounds.size.height - 7.0));
+  self.stopButton.frame = NSMakeRect(MAX(1.0, self.bounds.size.width - 33.0 - stopWidth), 2.0, 28.0,
+    MAX(20.0, self.bounds.size.height - 4.0));
   self.closeButton.frame = NSMakeRect(MAX(1.0, self.bounds.size.width - 33.0), 2.0, 28.0,
     MAX(20.0, self.bounds.size.height - 4.0));
 }
@@ -2218,7 +2235,13 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   self.titleLabel.stringValue = g_task_output_title.length > 0 ? g_task_output_title : @"Output";
   [self setNeedsLayout:YES];
 }
+- (void)reloadActions {
+  self.stopButton.hidden = !g_task_output_cancellable;
+  self.stopButton.enabled = g_task_output_cancellable;
+  [self setNeedsLayout:YES];
+}
 - (void)closeOutput:(id)sender { (void)sender; if (g_command_callback) g_command_callback("closeOutputPanel"); }
+- (void)cancelTask:(id)sender { (void)sender; if (g_command_callback) g_command_callback("cancelTask"); }
 @end
 
 @implementation NimculusOutlineOverlay
@@ -5826,23 +5849,30 @@ bool nimculus_platform_validate_output_panel_bar(void) {
   @autoreleasepool {
     NimculusCommandCallback previousCallback = g_command_callback;
     NSString *previousTitle = [g_task_output_title retain];
+    BOOL previousCancellable = g_task_output_cancellable;
     g_command_callback = validationCommandCallback;
     nimculus_platform_set_task_output_title("Git Commit", 10);
+    nimculus_platform_set_task_output_cancellable(true);
     NimculusOutputPanelBar *bar = [[NimculusOutputPanelBar alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 280.0, 27.0)];
     [bar closeOutput:bar.closeButton];
     BOOL close = strcmp(g_validation_command, "closeOutputPanel") == 0;
+    [bar cancelTask:bar.stopButton];
+    BOOL cancel = strcmp(g_validation_command, "cancelTask") == 0;
     BOOL presentation = [bar.titleLabel.stringValue isEqualToString:@"Git Commit"] &&
-      [bar.closeButton.toolTip isEqualToString:@"Close Output Panel"];
+      [bar.closeButton.toolTip isEqualToString:@"Close Output Panel"] &&
+      !bar.stopButton.hidden && bar.stopButton.enabled &&
+      [bar.stopButton.accessibilityLabel isEqualToString:@"Cancel running task"];
     [bar release];
     replaceOwnedString(&g_task_output_title, previousTitle ?: @"Task Output");
+    g_task_output_cancellable = previousCancellable;
     [previousTitle release];
     g_command_callback = previousCallback;
     NimculusTaskOutputOverlay *output = [[NimculusTaskOutputOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 280.0, 120.0)];
     BOOL readable = output.acceptsFirstResponder && [output hitTest:NSMakePoint(2.0, 2.0)] == output;
     [output release];
-    return close && presentation && readable;
+    return close && cancel && presentation && readable;
   }
 }
 
@@ -7776,6 +7806,19 @@ void nimculus_platform_set_task_output_visible(bool visible) {
     [(NimculusMetalView *)g_active_view updateTerminalFrame];
     [g_active_view drawFrame];
   }
+}
+void nimculus_platform_set_task_output_cancellable(bool cancellable) {
+  g_task_output_cancellable = cancellable ? YES : NO;
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusOutputPanelBar class]]) {
+      [(NimculusOutputPanelBar *)subview reloadActions];
+      break;
+    }
+  }
+  [view updateTerminalFrame];
+  [view drawFrame];
 }
 void nimculus_platform_set_task_output_title(const char *utf8, uint32_t length) {
   replaceOwnedUTF8String(&g_task_output_title, utf8, length, @"Task Output");

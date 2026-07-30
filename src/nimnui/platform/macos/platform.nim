@@ -165,6 +165,7 @@ proc platformIsDarkAppearance*(): bool {.importc: "nimculus_platform_is_dark_app
 proc platformInstallCrashHandler*(path: cstring) {.importc: "nimculus_platform_install_crash_handler", cdecl.}
 proc platformSetTerminalSelection*(startRow, startColumn, endRow, endColumn: uint32) {.importc: "nimculus_platform_set_terminal_selection", cdecl.}
 proc platformSetTaskOutputVisible*(visible: bool) {.importc: "nimculus_platform_set_task_output_visible", cdecl.}
+proc platformSetTaskOutputCancellable*(cancellable: bool) {.importc: "nimculus_platform_set_task_output_cancellable", cdecl.}
 proc platformSetTaskOutputTitle*(title: cstring, length: uint32) {.importc: "nimculus_platform_set_task_output_title", cdecl.}
 proc platformSetTaskOutputText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_task_output_text", cdecl.}
 proc platformSetEditorCompletions*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_completions", cdecl.}
