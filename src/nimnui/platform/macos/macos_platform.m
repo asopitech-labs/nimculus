@@ -2040,6 +2040,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)updateTerminalFrame;
 - (void)showDocumentFindBar:(BOOL)replace;
 - (void)showGoToLineBar;
+- (void)showWorkspaceSearchBar;
 - (void)showCommandPalette;
 @end
 
@@ -2074,6 +2075,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic) NSInteger mode;
 - (void)showFind:(BOOL)replace;
 - (void)showGoToLine;
+- (void)showWorkspaceSearch;
 @end
 
 @interface NimculusTerminalOverlay : NSTextView
@@ -2309,12 +2311,19 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   const CGFloat controlHeight = 24.0;
   const CGFloat buttonWidth = 27.0;
   const CGFloat width = self.bounds.size.width;
-  if (self.mode == 2) {
+  if (self.mode == 2 || self.mode == 3) {
     self.lineField.frame = NSMakeRect(padding, padding, width - padding * 2.0 - 54.0, controlHeight);
+    self.queryField.frame = self.lineField.frame;
     self.closeButton.frame = NSMakeRect(width - 48.0, padding, 42.0, controlHeight);
     self.queryField.hidden = self.replacementField.hidden = YES;
     self.previousButton.hidden = self.nextButton.hidden = self.replaceButton.hidden = YES;
-    self.lineField.hidden = self.closeButton.hidden = NO;
+    self.lineField.hidden = YES;
+    self.queryField.hidden = NO;
+    if (self.mode == 2) {
+      self.lineField.hidden = NO;
+      self.queryField.hidden = YES;
+    }
+    self.closeButton.hidden = NO;
     return;
   }
   const CGFloat fieldWidth = self.mode == 1 ? width - 4.0 * padding - 2.0 * buttonWidth - 82.0 :
@@ -2339,6 +2348,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 
 - (void)showFind:(BOOL)replace {
   self.mode = replace ? 1 : 0;
+  self.queryField.placeholderString = @"Find";
   self.hidden = NO;
   [self setNeedsLayout:YES];
   [self layoutSubtreeIfNeeded];
@@ -2356,8 +2366,18 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   [self.lineField selectText:nil];
 }
 
+- (void)showWorkspaceSearch {
+  self.mode = 3;
+  self.queryField.placeholderString = @"Search workspace";
+  self.hidden = NO;
+  [self setNeedsLayout:YES];
+  [self layoutSubtreeIfNeeded];
+  [self.window makeFirstResponder:self.queryField];
+  [self.queryField selectText:nil];
+}
+
 - (void)controlTextDidChange:(NSNotification *)notification {
-  if (notification.object == self.queryField && self.queryField.stringValue.length > 0 &&
+  if (self.mode != 3 && notification.object == self.queryField && self.queryField.stringValue.length > 0 &&
       g_command_callback) {
     NSString *command = [NSString stringWithFormat:@"findDocument:%@", self.queryField.stringValue];
     g_command_callback(command.UTF8String);
@@ -2368,7 +2388,8 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)findNext:(id)sender {
   (void)sender;
   if (self.queryField.stringValue.length == 0 || !g_command_callback) return;
-  NSString *command = [NSString stringWithFormat:@"findDocument:%@", self.queryField.stringValue];
+  NSString *command = [NSString stringWithFormat:self.mode == 3 ? @"workspaceSearch:%@" :
+    @"findDocument:%@", self.queryField.stringValue];
   g_command_callback(command.UTF8String);
 }
 - (void)replaceAll:(id)sender {
@@ -4263,6 +4284,16 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
 }
 
+- (void)showWorkspaceSearchBar {
+  for (NSView *subview in self.subviews) {
+    if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) {
+      [(NimculusDocumentSearchOverlay *)subview showWorkspaceSearch];
+      [self updateTerminalFrame];
+      return;
+    }
+  }
+}
+
 - (void)showCommandPalette {
   for (NSView *subview in self.subviews) {
     if ([subview isKindOfClass:[NimculusCommandPaletteOverlay class]]) {
@@ -5057,20 +5088,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 
 - (void)findInWorkspace:(id)sender {
   (void)sender;
-  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-  alert.messageText = @"Find in Workspace";
-  alert.informativeText = @"Enter text to search in the current workspace.";
-  NSTextField *field = [[[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)] autorelease];
-  field.placeholderString = @"Search text";
-  alert.accessoryView = field;
-  [alert addButtonWithTitle:@"Find"];
-  [alert addButtonWithTitle:@"Cancel"];
-  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
-    if (response == NSAlertFirstButtonReturn && g_command_callback) {
-      NSString *command = [NSString stringWithFormat:@"workspaceSearch:%@", field.stringValue];
-      g_command_callback(command.UTF8String);
-    }
-  }];
+  [self.view showWorkspaceSearchBar];
 }
 
 - (void)findInDocument:(id)sender {
@@ -7064,6 +7082,11 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     BOOL visibleReplace = !search.hidden && search.mode == 1 && !search.replacementField.hidden;
     [delegate goToLine:nil];
     BOOL visibleLine = !search.hidden && search.mode == 2 && !search.lineField.hidden;
+    [delegate findInWorkspace:nil];
+    BOOL visibleWorkspaceSearch = !search.hidden && search.mode == 3 && !search.queryField.hidden;
+    search.queryField.stringValue = @"Nimculus";
+    [search findNext:nil];
+    BOOL workspaceSearchDispatched = strcmp(g_validation_command, "workspaceSearch:Nimculus") == 0;
     [search close:nil];
     BOOL dismissed = search.hidden && window.attachedSheet == nil &&
       window.firstResponder == view;
@@ -7093,7 +7116,8 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     [delegate release];
     [window release];
     g_metrics = previousMetrics;
-    return visibleFind && dispatched && escaped && visibleReplace && visibleLine && dismissed &&
+    return visibleFind && dispatched && escaped && visibleReplace && visibleLine &&
+      visibleWorkspaceSearch && workspaceSearchDispatched && dismissed &&
       paletteVisible && paletteDispatched && paletteEscaped;
   }
 }

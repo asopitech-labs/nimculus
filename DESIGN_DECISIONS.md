@@ -5922,3 +5922,20 @@ Metal editor first responder. No `NSAlert` or attached sheet is used.
 while keyboard completion and exact command input remain available. The native
 overlay contract verifies visibility, Enter dispatch, absence of a sheet, and
 Esc focus restoration.
+
+## UI-063: Start workspace search without a blocking prompt
+
+**Context.** Project Search in Zed retains the document and displays results
+in a dedicated search surface. Nimculus already has a Search sidebar and a
+cancelable background search job, but its entry action required an `NSAlert`
+before that surface could be reached.
+
+**Decision.** Reuse the editor search overlay for a Workspace Search mode.
+It dispatches the existing `workspaceSearch:` command only on explicit Enter,
+which avoids starting ripgrep for every keystroke. The existing result renderer
+then selects the Search sidebar and streams results there; Esc simply restores
+editor focus without changing the current search job.
+
+**Consequences.** Cmd+Shift+F and the Search activity action retain a visible,
+non-modal query entry point. Search remains cancellable from the persistent
+Search sidebar, and document content is never replaced by search output.
