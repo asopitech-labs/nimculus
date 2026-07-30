@@ -3876,6 +3876,41 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorSession.tabs[tabIndex].pinned, editorSession.pinnedTabCount() > 0)
       except ValueError:
         discard
+  elif name.startsWith("movePaneTab:"):
+    when defined(macosx):
+      try:
+        let payload = name["movePaneTab:".len .. ^1].split(':')
+        if payload.len != 3: return
+        let paneIndex = parseInt(payload[0])
+        let source = parseInt(payload[1])
+        let requestedDestination = parseInt(payload[2])
+        if paneIndex notin 0..1 or source < 0 or source >= editorSession.tabs.len or
+            requestedDestination < 0 or requestedDestination >= editorSession.tabs.len:
+          return
+        let pinnedCount = editorSession.pinnedTabCount()
+        let sourcePinned = editorSession.tabs[source].pinned
+        let destination = if sourcePinned:
+          min(requestedDestination, pinnedCount - 1)
+        else:
+          max(requestedDestination, pinnedCount)
+        if source == destination: return
+        editorSession.saveActiveView(editorViewState)
+        editorSession.saveSecondaryActiveView(editorSession.secondaryView)
+        if editorSession.moveTab(source, destination):
+          syncWorkspaceUiTabs()
+          if editorWorkspaceUi.center != nil:
+            discard editorWorkspaceUi.selectPaneTab(editorWorkspaceUi.center.firstPane().id,
+              editorSession.activeTab)
+            if editorSession.split and editorWorkspaceUi.center.kind == paneSplit:
+              discard editorWorkspaceUi.selectPaneTab(editorWorkspaceUi.center.second.pane.id,
+                editorSession.effectiveSplitSecondaryTab())
+          editorSession.loadActiveView(editorViewState)
+          editorSession.loadSecondaryActiveView()
+          editorViewState.statusMessage = "Tab reordered"
+          syncEditorCursor()
+          persistSession()
+      except ValueError:
+        discard
   elif name.startsWith("editorTabContext:"):
     when defined(macosx):
       try:

@@ -2063,8 +2063,10 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 
 @interface NimculusTabBarOverlay : NSView
 @property(nonatomic) BOOL secondary;
+@property(nonatomic) NSUInteger dragSourceIndex;
 - (void)dispatchTabAtPoint:(NSPoint)point;
 - (void)dispatchTabContextAtPoint:(NSPoint)point;
+- (void)dispatchTabMoveFrom:(NSUInteger)source to:(NSUInteger)destination;
 - (NSUInteger)tabIndexAtPoint:(NSPoint)point;
 - (void)selectTabFromMenu:(NSMenuItem *)sender;
 - (void)showTabListAtPoint:(NSPoint)point;
@@ -2454,6 +2456,11 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 
 @implementation NimculusTabBarOverlay
 - (BOOL)isFlipped { return YES; }
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (self) _dragSourceIndex = NSNotFound;
+  return self;
+}
 - (BOOL)acceptsFirstResponder { return NO; }
 - (NSView *)hitTest:(NSPoint)point { return NSPointInRect(point, self.bounds) ? self : nil; }
 - (void)drawRect:(NSRect)dirtyRect {
@@ -2534,7 +2541,33 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   }
 }
 - (void)mouseDown:(NSEvent *)event {
-  [self dispatchTabAtPoint:[self convertPoint:event.locationInWindow fromView:nil]];
+  NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+  NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
+  NSUInteger index = [self tabIndexAtPoint:point];
+  self.dragSourceIndex = NSNotFound;
+  if (index != NSNotFound && titles.count > 0) {
+    NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
+    const CGFloat navigationWidth = titles.count > 1 ? 70.0 : 0.0;
+    const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - navigationWidth);
+    NSUInteger first = 0, visible = 0;
+    visibleTabRange(titles.count, active, tabAreaWidth, &first, &visible);
+    CGFloat tabWidth = MAX(1.0, tabAreaWidth / visible);
+    NSUInteger visualIndex = index - first;
+    // Close targets keep their click-only behavior and must never begin a
+    // tab reorder drag.
+    if (point.x < (visualIndex + 1) * tabWidth - 28.0) self.dragSourceIndex = index;
+  }
+  [self dispatchTabAtPoint:point];
+}
+- (void)mouseUp:(NSEvent *)event {
+  NSUInteger source = self.dragSourceIndex;
+  self.dragSourceIndex = NSNotFound;
+  if (source == NSNotFound) return;
+  NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+  NSUInteger destination = [self tabIndexAtPoint:point];
+  if (destination != NSNotFound && destination != source) {
+    [self dispatchTabMoveFrom:source to:destination];
+  }
 }
 - (void)rightMouseDown:(NSEvent *)event {
   [self dispatchTabContextAtPoint:[self convertPoint:event.locationInWindow fromView:nil]];
@@ -2545,6 +2578,12 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   if (index == NSNotFound) return;
   NSString *command = [NSString stringWithFormat:@"tabContext:%u:%lu",
     self.secondary ? 1 : 0, (unsigned long)index];
+  g_command_callback(command.UTF8String);
+}
+- (void)dispatchTabMoveFrom:(NSUInteger)source to:(NSUInteger)destination {
+  if (!g_command_callback || source == destination) return;
+  NSString *command = [NSString stringWithFormat:@"movePaneTab:%u:%lu:%lu",
+    self.secondary ? 1 : 0, (unsigned long)source, (unsigned long)destination];
   g_command_callback(command.UTF8String);
 }
 - (void)selectTabFromMenu:(NSMenuItem *)sender {
@@ -6193,6 +6232,8 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
     BOOL contextFirst = strcmp(g_validation_command, "tabContext:0:0") == 0;
     [tabs dispatchTabContextAtPoint:NSMakePoint(380.0, 12.0)];
     BOOL contextNavigationIgnored = strcmp(g_validation_command, "tabContext:0:0") == 0;
+    [tabs dispatchTabMoveFrom:1 to:0];
+    BOOL movesSecondToFirst = strcmp(g_validation_command, "movePaneTab:0:1:0") == 0;
     [tabs release];
     replaceOwnedArray(&g_editor_tab_titles, @[@"one", @"two", @"three", @"four", @"five"]);
     g_editor_active_tab = 2;
@@ -6212,7 +6253,7 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
     g_editor_active_tab = previousActive;
     [previousTitles release];
     g_command_callback = previousCallback;
-    return closeFirst && closeSecond && selectSecond && contextFirst &&
+    return closeFirst && closeSecond && selectSecond && contextFirst && movesSecondToFirst &&
       contextNavigationIgnored && previousTab && nextTab && selectOverflowItem;
   }
 }

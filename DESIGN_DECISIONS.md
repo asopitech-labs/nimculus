@@ -5619,3 +5619,21 @@ Palette both use the same command.
 explicit discard, reflects external file changes, and does not retain closed
 large-file buffers in memory. The restored tab preserves pin/view metadata
 and rebinds split-pane selections.
+
+## UI-065: Drag reordering does not implicitly change a pin
+
+**Context.** Zed supports tab dragging and treats the pinned prefix as a
+separate tab group. A compact strip must not turn a drag near the group
+boundary into an accidental unpin or pin, and its visible close target must
+not start a drag.
+
+**Decision.** The macOS tab strip records a non-close mouse-down tab and
+reorders on mouse-up over another visible tab. The command carries pane,
+source, and destination indices. Nimculus clamps a pinned source to the
+pinned prefix and an unpinned source after it, then uses the shared index
+remapping helper and rebinds both split-pane selections.
+
+**Consequences.** Reordering is available without compromising pin intent,
+close actions, overflow navigation, or per-pane document identity. The native
+tab contract and editor-core remapping test cover the dispatch and state
+boundaries.

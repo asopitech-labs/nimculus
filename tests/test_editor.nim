@@ -351,6 +351,22 @@ suite "M5 editor services":
     check session.pinnedTabCount() == 0
     check not session.tabDisplayLabel(0).startsWith("📌 ")
 
+  test "moving a tab remaps both pane tab identities":
+    var session: EditorSession
+    for text in ["first", "second", "third"]:
+      var document = newDocument()
+      document.buffer.edit(Edit(startByte: 0, endByte: 0, text: text))
+      session.addTab(document)
+    session.activeTab = 2
+    session.split = true
+    session.splitSecondaryTab = 1
+    check session.moveTab(0, 2)
+    check session.tabs[0].document.buffer.toString() == "second"
+    check session.tabs[1].document.buffer.toString() == "third"
+    check session.tabs[2].document.buffer.toString() == "first"
+    check session.activeTab == 1
+    check session.splitSecondaryTab == 0
+
   test "pinned tab state survives session restore":
     let path = getTempDir() / "nimculus-pinned-tab-session.json"
     defer:
