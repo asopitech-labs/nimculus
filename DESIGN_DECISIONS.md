@@ -5785,3 +5785,19 @@ LSP range so refreshes retain selection across overloaded symbol names.
 **Consequences.** Every visible Outline row maps to exactly one LSP range;
 click, Enter, and Space move the editor cursor to that range and return focus
 to the editor without duplicating nested symbols.
+
+## M6-024: Give Files tree expansion explicit keyboard actions
+
+**Context.** The Files panel already retained directory expansion state, but
+only pointer activation could change it. Zed's project panel reserves Right
+for expanding and Left for collapsing the selected directory.
+
+**Decision.** Dispatch left/right arrow keys from the native sidebar to
+`sidebarCollapseSelected` and `sidebarExpandSelected`. The core changes only
+the selected directory's membership in the existing expansion list, then
+refreshes the bounded workspace projection; files and non-Files panels are
+left unchanged.
+
+**Consequences.** Tree exploration is keyboard complete without triggering
+file loads or a broad workspace rescan. Repeated Left/Right on an already
+collapsed/expanded directory is a no-op.

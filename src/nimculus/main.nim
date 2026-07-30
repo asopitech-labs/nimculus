@@ -4765,6 +4765,27 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         editorViewState.statusMessage = "Git status item is unavailable"
       else:
         receiveNativeCommand(("sidebarStageToggle:" & $index).cstring)
+  elif name in ["sidebarCollapseSelected", "sidebarExpandSelected"]:
+    when defined(macosx):
+      if editorSidebarMode != sidebarFiles or activeWorkspace == nil:
+        return
+      let index = editorWorkspaceUi.panelSelectedIndex(panelFiles)
+      if index < 0 or index >= workspacePreviewEntries.len:
+        return
+      let entry = workspacePreviewEntries[index]
+      if entry.kind != WorkspaceFileKind.directory:
+        return
+      var expandedIndex = -1
+      for candidateIndex, candidate in workspaceExpandedDirectories:
+        if candidate == entry.path:
+          expandedIndex = candidateIndex
+          break
+      if name == "sidebarExpandSelected" and expandedIndex < 0:
+        workspaceExpandedDirectories.add(entry.path)
+        refreshWorkspacePreview()
+      elif name == "sidebarCollapseSelected" and expandedIndex >= 0:
+        workspaceExpandedDirectories.delete(expandedIndex)
+        refreshWorkspacePreview()
   elif name in ["sidebarPrevious", "sidebarNext", "sidebarFirst", "sidebarLast"]:
     when defined(macosx):
       let panel = workspacePanelForSidebarMode(editorSidebarMode)

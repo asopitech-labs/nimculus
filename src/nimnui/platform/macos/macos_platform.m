@@ -2370,7 +2370,8 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   const char *command = (key == 48 || key == 53) ? "sidebarFocusEditor" :
     key == 49 ? (g_editor_sidebar_mode == 3 ? "sidebarStageToggleSelected" : "sidebarOpenSelected") :
     key == 126 ? "sidebarPrevious" :
-    key == 125 ? "sidebarNext" : key == 115 ? "sidebarFirst" :
+    key == 125 ? "sidebarNext" : key == 123 ? "sidebarCollapseSelected" :
+    key == 124 ? "sidebarExpandSelected" : key == 115 ? "sidebarFirst" :
     key == 119 ? "sidebarLast" : (key == 36 || key == 76) ? "sidebarOpenSelected" : NULL;
   if (command) {
     g_command_callback(command);
@@ -6411,9 +6412,21 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
     strcpy(g_validation_command, "unchanged");
     if (space) [sidebar keyDown:space];
     BOOL spaceOpensSidebarItem = strcmp(g_validation_command, "sidebarOpenSelected") == 0;
+    NSEvent *left = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:0 timestamp:0.0 windowNumber:0 context:nil
+      characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:123];
+    NSEvent *right = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:0 timestamp:0.0 windowNumber:0 context:nil
+      characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:124];
+    strcpy(g_validation_command, "unchanged");
+    if (left) [sidebar keyDown:left];
+    BOOL leftCollapsesDirectory = strcmp(g_validation_command, "sidebarCollapseSelected") == 0;
+    strcpy(g_validation_command, "unchanged");
+    if (right) [sidebar keyDown:right];
+    BOOL rightExpandsDirectory = strcmp(g_validation_command, "sidebarExpandSelected") == 0;
     BOOL valid = selected && opened && headerIgnored && mappedSelection && mappedOpen &&
       stageToggle && tabFocusesEditor && escapeFocusesEditor && spaceStagesGitChange &&
-      spaceOpensSidebarItem;
+      spaceOpensSidebarItem && leftCollapsesDirectory && rightExpandsDirectory;
     [sidebar release];
     free(g_editor_sidebar_line_items);
     g_editor_sidebar_line_items = previousLineItems;
