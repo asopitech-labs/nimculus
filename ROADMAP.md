@@ -333,6 +333,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 - [x] Cmd+Qは全dirty tabをSave All / Don't Save / Cancelで解決してから終了する
 - [x] macOS外部変更AlertからReload / Keep Editingを選択する経路
 - [x] タブ。タブタイトル・dirty表示・クリックによるactive tab切替をnative overlayへ接続
+- [x] タブの右クリックメニュー（Close Tab、Copy File Path、Reveal in Finder）。Closeは既存の未保存変更確認を必ず経由する
 - [x] 初期二分割表示。dividerの比率は0.1〜0.9に制限してsessionへ保存・復元し、副paneのcursor/selection/scroll/表示設定を独立保持する。両paneのnative描画、pointer/keyboard/IME入力、候補位置を接続し、WindowメニューとCommand Paletteからsplit / close splitを操作できる。任意深さのZed `PaneGroup`相当pane treeはv0.1.0-alpha後の拡張とする
 - [x] WindowメニューのPrevious / Next Tabからactive bufferを切り替え、IME・selection・syntax・scrollを再同期
 - [x] タブごとのprimary / secondary selection、scroll、表示設定を分離し、session保存・復元時にgrapheme境界と文書長へclamp。タブ切替はview stateを再読込し、一時UI状態だけをresetする

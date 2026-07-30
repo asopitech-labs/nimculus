@@ -3841,6 +3841,46 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         receiveNativeCommand("closeTabRequest".cstring)
     except ValueError:
       discard
+  elif name.startsWith("tabContext:"):
+    when defined(macosx):
+      try:
+        let payload = name["tabContext:".len .. ^1].split(':')
+        if payload.len != 2: return
+        let paneIndex = parseInt(payload[0])
+        let tabIndex = parseInt(payload[1])
+        if paneIndex notin 0..1 or tabIndex < 0 or tabIndex >= editorSession.tabs.len:
+          return
+        platformShowEditorTabContext(uint32(paneIndex), uint32(tabIndex))
+      except ValueError:
+        discard
+  elif name.startsWith("editorTabContext:"):
+    when defined(macosx):
+      try:
+        let payload = name["editorTabContext:".len .. ^1].split(':')
+        if payload.len != 3: return
+        let paneIndex = parseInt(payload[1])
+        let tabIndex = parseInt(payload[2])
+        if paneIndex notin 0..1 or tabIndex < 0 or tabIndex >= editorSession.tabs.len:
+          return
+        let document = documentForTab(tabIndex)
+        case payload[0]
+        of "close":
+          receiveNativeCommand(("closePaneTab:" & $paneIndex & ":" & $tabIndex).cstring)
+        of "copyPath":
+          if document == nil or document[].path.len == 0:
+            editorViewState.statusMessage = "Tab has no file path"
+          else:
+            clipboardSet(document[].path.cstring, uint32(document[].path.len))
+            editorViewState.statusMessage = "File path copied"
+        of "reveal":
+          if document == nil or document[].path.len == 0:
+            editorViewState.statusMessage = "Tab has no file path"
+          else:
+            platformRevealPath(document[].path.cstring)
+            editorViewState.statusMessage = "Revealed " & document[].path.extractFilename
+        else: discard
+      except ValueError:
+        discard
   elif name.startsWith("selectTab:"):
     let payload = name["selectTab:".len .. ^1]
     try:

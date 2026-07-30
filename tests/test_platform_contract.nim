@@ -234,6 +234,9 @@ suite "macOS platform contract":
   test "every document tab exposes an independent close target":
     check platformValidateTabBarCloseTargets()
 
+  test "editor tab context actions retain their pane and tab target":
+    check platformValidateEditorTabContext()
+
   test "editor header keeps a non-interactive truncated document breadcrumb":
     check platformValidateEditorContextHeader()
 

@@ -2064,6 +2064,8 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusTabBarOverlay : NSView
 @property(nonatomic) BOOL secondary;
 - (void)dispatchTabAtPoint:(NSPoint)point;
+- (void)dispatchTabContextAtPoint:(NSPoint)point;
+- (NSUInteger)tabIndexAtPoint:(NSPoint)point;
 - (void)selectTabFromMenu:(NSMenuItem *)sender;
 - (void)showTabListAtPoint:(NSPoint)point;
 @end
@@ -2533,6 +2535,17 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 - (void)mouseDown:(NSEvent *)event {
   [self dispatchTabAtPoint:[self convertPoint:event.locationInWindow fromView:nil]];
 }
+- (void)rightMouseDown:(NSEvent *)event {
+  [self dispatchTabContextAtPoint:[self convertPoint:event.locationInWindow fromView:nil]];
+}
+- (void)dispatchTabContextAtPoint:(NSPoint)point {
+  if (!g_command_callback) return;
+  NSUInteger index = [self tabIndexAtPoint:point];
+  if (index == NSNotFound) return;
+  NSString *command = [NSString stringWithFormat:@"tabContext:%u:%lu",
+    self.secondary ? 1 : 0, (unsigned long)index];
+  g_command_callback(command.UTF8String);
+}
 - (void)selectTabFromMenu:(NSMenuItem *)sender {
   if (!g_command_callback || sender.tag < 0) return;
   NSString *command = [NSString stringWithFormat:@"selectPaneTab:%u:%ld",
@@ -2554,6 +2567,20 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   }
   [menu popUpMenuPositioningItem:[menu itemAtIndex:MIN(active, menu.numberOfItems - 1)]
     atLocation:point inView:self];
+}
+- (NSUInteger)tabIndexAtPoint:(NSPoint)point {
+  NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
+  if (titles.count == 0) return NSNotFound;
+  NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
+  const CGFloat navigationWidth = titles.count > 1 ? 70.0 : 0.0;
+  const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - navigationWidth);
+  if (point.x < 0.0 || point.x >= tabAreaWidth) return NSNotFound;
+  NSUInteger first = 0, visible = 0;
+  visibleTabRange(titles.count, active, tabAreaWidth, &first, &visible);
+  CGFloat tabWidth = MAX(1.0, tabAreaWidth / visible);
+  NSUInteger visualIndex = MIN(visible - 1,
+    (NSUInteger)MAX(0.0, floor(point.x / tabWidth)));
+  return first + visualIndex;
 }
 - (void)dispatchTabAtPoint:(NSPoint)point {
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
@@ -2578,9 +2605,9 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   NSUInteger first = 0, visible = 0;
   visibleTabRange(titles.count, active, tabAreaWidth, &first, &visible);
   CGFloat tabWidth = MAX(1.0, tabAreaWidth / visible);
-  NSUInteger visualIndex = MIN(visible - 1,
-    (NSUInteger)MAX(0.0, floor(point.x / tabWidth)));
-  NSUInteger index = first + visualIndex;
+  NSUInteger index = [self tabIndexAtPoint:point];
+  if (index == NSNotFound) return;
+  NSUInteger visualIndex = index - first;
   if (point.x >= (visualIndex + 1) * tabWidth - 28.0) {
     NSString *command = [NSString stringWithFormat:@"closePaneTab:%u:%lu",
       self.secondary ? 1 : 0, (unsigned long)index];
@@ -4919,6 +4946,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
 }
 
+- (void)dispatchEditorTabContext:(NSMenuItem *)sender {
+  if (g_command_callback && [sender.representedObject isKindOfClass:[NSString class]]) {
+    g_command_callback(((NSString *)sender.representedObject).UTF8String);
+  }
+}
+
 - (NSTextField *)workspacePathField:(NSString *)placeholder {
   NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(0, 0, 320, 24)];
   field.placeholderString = placeholder;
@@ -6140,6 +6173,10 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
     BOOL closeSecond = strcmp(g_validation_command, "closePaneTab:0:1") == 0;
     [tabs dispatchTabAtPoint:NSMakePoint(240.0, 12.0)];
     BOOL selectSecond = strcmp(g_validation_command, "selectPaneTab:0:1") == 0;
+    [tabs dispatchTabContextAtPoint:NSMakePoint(20.0, 12.0)];
+    BOOL contextFirst = strcmp(g_validation_command, "tabContext:0:0") == 0;
+    [tabs dispatchTabContextAtPoint:NSMakePoint(380.0, 12.0)];
+    BOOL contextNavigationIgnored = strcmp(g_validation_command, "tabContext:0:0") == 0;
     [tabs release];
     replaceOwnedArray(&g_editor_tab_titles, @[@"one", @"two", @"three", @"four", @"five"]);
     g_editor_active_tab = 2;
@@ -6159,7 +6196,33 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
     g_editor_active_tab = previousActive;
     [previousTitles release];
     g_command_callback = previousCallback;
-    return closeFirst && closeSecond && selectSecond && previousTab && nextTab && selectOverflowItem;
+    return closeFirst && closeSecond && selectSecond && contextFirst &&
+      contextNavigationIgnored && previousTab && nextTab && selectOverflowItem;
+  }
+}
+
+bool nimculus_platform_validate_editor_tab_context(void) {
+  @autoreleasepool {
+    NimculusCommandCallback previousCallback = g_command_callback;
+    g_command_callback = validationCommandCallback;
+    NimculusAppDelegate *delegate = [[NimculusAppDelegate alloc] init];
+    NSMenuItem *copyPath = [[NSMenuItem alloc] initWithTitle:@"Copy File Path"
+      action:nil keyEquivalent:@""];
+    copyPath.representedObject = @"editorTabContext:copyPath:1:4";
+    [delegate dispatchEditorTabContext:copyPath];
+    BOOL copiesTargetPath = strcmp(g_validation_command,
+      "editorTabContext:copyPath:1:4") == 0;
+    NSMenuItem *close = [[NSMenuItem alloc] initWithTitle:@"Close Tab"
+      action:nil keyEquivalent:@""];
+    close.representedObject = @"editorTabContext:close:0:2";
+    [delegate dispatchEditorTabContext:close];
+    BOOL closesTargetTab = strcmp(g_validation_command,
+      "editorTabContext:close:0:2") == 0;
+    [copyPath release];
+    [close release];
+    [delegate release];
+    g_command_callback = previousCallback;
+    return copiesTargetPath && closesTargetTab;
   }
 }
 
@@ -7348,6 +7411,31 @@ void nimculus_platform_show_git_history_context(uint32_t item_index) {
       entry[1], item_index];
   }
   [menu popUpMenuPositioningItem:nil atLocation:[NSEvent mouseLocation] inView:nil];
+}
+void nimculus_platform_show_editor_tab_context(uint32_t pane_index, uint32_t tab_index) {
+  NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
+  if (!delegate) return;
+  NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Editor Tab"] autorelease];
+  NSArray<NSArray<NSString *> *> *items = @[
+    @[@"Close Tab", @"close"], @[@"Copy File Path", @"copyPath"],
+    @[@"Reveal in Finder", @"reveal"]
+  ];
+  for (NSArray<NSString *> *entry in items) {
+    NSMenuItem *item = [menu addItemWithTitle:entry[0]
+      action:@selector(dispatchEditorTabContext:) keyEquivalent:@""];
+    item.target = delegate;
+    item.representedObject = [NSString stringWithFormat:@"editorTabContext:%@:%u:%u",
+      entry[1], pane_index, tab_index];
+  }
+  [menu popUpMenuPositioningItem:nil atLocation:[NSEvent mouseLocation] inView:nil];
+}
+
+void nimculus_platform_reveal_path(const char *path) {
+  if (!path || path[0] == '\0') return;
+  NSString *filePath = [NSString stringWithUTF8String:path];
+  if (filePath.length > 0) {
+    [[NSWorkspace sharedWorkspace] selectFile:filePath inFileViewerRootedAtPath:@""];
+  }
 }
 void nimculus_platform_show_git_commit_sheet(void) {
   NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];

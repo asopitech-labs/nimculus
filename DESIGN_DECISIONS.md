@@ -5546,3 +5546,22 @@ traversing files or reloading their contents; workspace roots remain visible.
 **Consequences.** The file manager stays usable after navigating large trees,
 and all common navigation actions are visible at the point of use. Native
 contract and GUI E2E invoke the commands through the public buttons.
+
+## UI-061: Keep editor-tab actions at the tab that invoked them
+
+**Context.** Zed exposes tab actions from the tab itself. In a split editor,
+Nimculus already kept a pane-local click and close target, but users had to
+activate a tab before using file-oriented actions elsewhere. That made it too
+easy for a context action to apply to the active tab rather than the tab that
+the user selected.
+
+**Decision.** A secondary click on a macOS editor tab dispatches its pane and
+tab index to a native menu containing Close Tab, Copy File Path, and Reveal in
+Finder. The action payload retains both indices. Close reuses
+`closePaneTab` and therefore the existing Save / Don't Save / Cancel flow;
+copy and reveal are no-ops with an explanatory status for an untitled tab.
+
+**Consequences.** File-oriented tab actions are available at their point of
+use without bypassing unsaved-work protection or changing selection merely to
+run an action. Native contracts cover both hit testing and action payload
+dispatch.
