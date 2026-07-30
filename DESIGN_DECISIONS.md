@@ -5704,3 +5704,20 @@ transitions. The named registry entries remain configurable through
 
 **Consequences.** Activity-bar and keyboard actions share one dispatch path,
 and custom keymaps can override every default without Cocoa-specific logic.
+
+## M12-038: Workspace panel shortcuts toggle focus, not visibility
+
+**Context.** Zed binds Files, Outline, and Git to `ToggleFocus`: a second
+shortcut returns to the editor while retaining the panel and its layout. The
+first Nimculus shortcut implementation used the older visibility toggle,
+which closed the dock and created unnecessary layout changes.
+
+**Decision.** Model panel focus separately from dock visibility. A focused
+panel shortcut returns native first responder ownership to the Metal editor;
+an unfocused or hidden panel activates its dock and makes the native sidebar
+the first responder. The default keeps the panel open, matching Zed's normal
+`close_panel_on_toggle = false` behavior.
+
+**Consequences.** Keyboard navigation works immediately after opening a
+panel, a second invocation returns typing to the editor, and panel selection
+survives the round trip.

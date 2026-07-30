@@ -491,7 +491,7 @@ Task stdout/stderrはPOSIX pipeをnon-blockingでpollし、プロセス終了前
 
 設定live reloadはmtimeの秒精度に依存せず、ファイル内容のリビジョンで同一秒内の編集も検出する。
 
-keymap reload時はregistryを初期状態から再構築し、削除された旧bindingを残さない。標準編集操作、保存、タブ切替、設定をカスタムkeymapの対象へ登録する。Zed互換の既定操作として`Cmd+Shift+E`（Files）、`Cmd+Shift+B`（Outline）、`Control+Shift+G`（Git）をactivity barと共通のdispatch経路へ登録し、settings keymapから上書きできる。
+keymap reload時はregistryを初期状態から再構築し、削除された旧bindingを残さない。標準編集操作、保存、タブ切替、設定をカスタムkeymapの対象へ登録する。Zed互換の既定操作として`Cmd+Shift+E`（Files）、`Cmd+Shift+B`（Outline）、`Control+Shift+G`（Git）をactivity barと共通のdispatch経路へ登録し、settings keymapから上書きできる。これらは表示だけを切り替えず、未フォーカス時はパネルへ、フォーカス済み時は開いたままエディタへ戻る`ToggleFocus`契約にする。
 
 **進捗：** 🟡 自動検証済み・macOS E2E準備完了
 

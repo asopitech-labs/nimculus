@@ -172,6 +172,20 @@ proc togglePanel*(state: var WorkspaceUiState, panel: PanelKind) =
   else:
     state.openPanel(panel)
 
+proc togglePanelFocus*(state: var WorkspaceUiState, panel: PanelKind): bool =
+  ## Mirrors Zed's ToggleFocus contract: make a panel visible and focused when
+  ## it is not focused; otherwise return keyboard focus to the editor without
+  ## hiding the panel. Keeping visibility separate from focus avoids layout
+  ## churn on a keyboard-only round trip.
+  let side = if panelBelongsTo(panel, dockLeft): dockLeft else: dockBottom
+  let panelRegion = if side == dockLeft: regionLeftDock else: regionBottomDock
+  let isActive = state.dock(side).isOpen and state.dock(side).activePanel == panel
+  if isActive and state.focusedRegion == panelRegion:
+    state.focusedRegion = regionCenter
+    return false
+  state.openPanel(panel)
+  true
+
 proc panelList*(state: WorkspaceUiState, panel: PanelKind): PanelListState =
   state.panelLists[panel]
 

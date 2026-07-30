@@ -4491,10 +4491,22 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           refreshWorkspacePreview()
     of "__toggle_files__":
       when defined(macosx):
-        editorWorkspaceUi.togglePanel(panelFiles)
+        let didFocusPanel = editorWorkspaceUi.togglePanelFocus(panelFiles)
+        if didFocusPanel:
+          editorSidebarMode = sidebarFiles
         setupDemoUi()
-        if editorWorkspaceUi.leftDock.isOpen and activeWorkspace != nil:
+        if didFocusPanel and activeWorkspace == nil:
+          let emptyPanel = "Files\n────────\nOpen Folder…"
+          editorWorkspaceUi.replacePanelItems(panelFiles, @["open-workspace"])
+          platformSetWorkspaceOpen(false)
+          platformSetEditorSidebar(emptyPanel.cstring, uint32(emptyPanel.len), 1,
+            uint32(sidebarFiles))
+          syncNativeSidebarSelection()
+          editorViewState.statusMessage = "Open a folder to start a workspace"
+        elif didFocusPanel and activeWorkspace != nil:
           refreshWorkspacePreview()
+        if didFocusPanel: platformFocusEditorSidebar()
+        else: platformFocusEditor()
     of "__reveal_active_file__":
       when defined(macosx): revealActiveDocumentInWorkspace()
     of "__collapse_all_files__":
@@ -4507,22 +4519,28 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         syncNativeSymbolTree()
     of "__toggle_outline__":
       when defined(macosx):
-        editorWorkspaceUi.togglePanel(panelOutline)
+        let didFocusPanel = editorWorkspaceUi.togglePanelFocus(panelOutline)
         setupDemoUi()
-        if editorWorkspaceUi.leftDock.isOpen:
+        if didFocusPanel:
           editorSidebarMode = sidebarOutline
           syncNativeSymbolTree()
+          platformFocusEditorSidebar()
+        else:
+          platformFocusEditor()
     of "__toggle_git__":
       when defined(macosx):
         let wasActive = editorWorkspaceUi.leftDock.isOpen and
           editorWorkspaceUi.leftDock.activePanel == panelGit
         if wasActive:
-          editorWorkspaceUi.togglePanel(panelGit)
+          let didFocusPanel = editorWorkspaceUi.togglePanelFocus(panelGit)
           setupDemoUi()
+          if didFocusPanel: platformFocusEditorSidebar()
+          else: platformFocusEditor()
         else:
           # Reuse the existing asynchronous Git status path rather than
           # inventing a second source-control presenter.
           receiveNativeCommand("commandPalette:git status".cstring)
+          platformFocusEditorSidebar()
     of "git status":
       when defined(macosx):
         editorWorkspaceUi.openPanel(panelGit)

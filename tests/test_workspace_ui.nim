@@ -20,6 +20,18 @@ suite "workspace UI state":
     check not state.bottomDock.isOpen
     check state.leftDock.isOpen
 
+  test "panel focus toggle returns to the editor without hiding the panel":
+    var state = initWorkspaceUi()
+    state.focusCenter()
+    check state.togglePanelFocus(panelGit)
+    check state.leftDock.isOpen
+    check state.leftDock.activePanel == panelGit
+    check state.focusedRegion == regionLeftDock
+    check not state.togglePanelFocus(panelGit)
+    check state.leftDock.isOpen
+    check state.leftDock.activePanel == panelGit
+    check state.focusedRegion == regionCenter
+
   test "panel lists preserve selection by stable key across refreshes":
     var state = initWorkspaceUi()
     state.replacePanelItems(panelFiles, ["/workspace/a.nim", "/workspace/b.nim"])

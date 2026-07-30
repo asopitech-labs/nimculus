@@ -8187,6 +8187,18 @@ void nimculus_platform_set_editor_sidebar_visible(bool visible) {
   [view updateTerminalFrame];
   [view drawFrame];
 }
+void nimculus_platform_focus_editor_sidebar(void) {
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view || !g_editor_sidebar_visible) return;
+  NimculusOutlineOverlay *outline = outlineOverlayForView(view);
+  if (outline && outline.enclosingScrollView && !outline.enclosingScrollView.hidden) {
+    [view.window makeFirstResponder:outline];
+  }
+}
+void nimculus_platform_focus_editor(void) {
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (view && view.window) [view.window makeFirstResponder:view];
+}
 void nimculus_platform_set_workspace_open(bool open) {
   g_workspace_open = open ? YES : NO;
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
