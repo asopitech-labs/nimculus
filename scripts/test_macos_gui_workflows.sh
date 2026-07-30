@@ -17,26 +17,6 @@ app_process_is_ours() {
   [[ "$(ps -p "$APP_PID" -o command= 2>/dev/null || true)" == "$APP_COMMAND"* ]]
 }
 
-owned_app_pids() {
-  # Match both the exact executable and this run's unique temporary document.
-  # This cannot select a developer's interactive Nimculus process.
-  ps -axo pid=,command= | awk -v executable="$ROOT_DIR/nimculus/main" \
-    -v document="$TMP_ROOT/project/main.nim" \
-    '$2 == executable && index($0, document) > 0 { print $1 }'
-}
-
-terminate_owned_app_processes() {
-  local pid
-  for pid in $(owned_app_pids); do kill -TERM "$pid" 2>/dev/null || true; done
-  for _ in $(seq 1 10); do
-    [[ -z "$(owned_app_pids)" ]] && return 0
-    sleep 0.1
-  done
-  for pid in $(owned_app_pids); do kill -KILL "$pid" 2>/dev/null || true; done
-  sleep 0.1
-  [[ -z "$(owned_app_pids)" ]]
-}
-
 cleanup() {
   # This test must never use a process-group signal: nimble and Codex can
   # share a controlling terminal with the shell that launched the harness.
@@ -54,14 +34,14 @@ cleanup() {
     if app_process_is_ours; then kill -KILL "$APP_PID" 2>/dev/null || true; fi
     wait "$APP_PID" 2>/dev/null || true
   fi
-  # AppKit is not expected to fork here, but audit the unique test document
-  # after reaping the direct child. If that assumption changes, clean up only
-  # processes proven to belong to this temporary E2E workspace and fail loud.
-  if ! terminate_owned_app_processes; then
-    echo "Nimculus GUI E2E left an owned app process alive: $(owned_app_pids)" >&2
+  # Never scan-and-signal by command line. A developer can have an unrelated
+  # Nimculus, Terminal, or Codex process with a similar argument list. The
+  # sole lifecycle authority here is the exact direct child PID above.
+  if app_process_is_ours; then
+    echo "Nimculus GUI E2E direct child did not exit: $APP_PID" >&2
     exit 1
   fi
-  rm -rf "$TMP_ROOT"
+  find "$TMP_ROOT" -depth -delete 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -105,6 +85,14 @@ tell application "System Events"
   tell (first process whose unix id is targetPid)
     set frontmost to true
     if not (exists window 1) then error "Nimculus window did not open"
+    -- Zed applies a functional normal-window minimum. Confirm that AppKit
+    -- refuses an impossible content size before exercising the workspace.
+    set size of window 1 to {100, 100}
+    delay 0.3
+    set constrainedSize to size of window 1
+    if item 1 of constrainedSize < 360 or item 2 of constrainedSize < 240 then error "Nimculus window minimum size was not enforced"
+    set size of window 1 to {960, 640}
+    delay 0.3
     repeat with title in {"Files", "Search", "Git"}
       if not (exists button (contents of title) of window 1) then error "Missing workspace action: " & (contents of title)
     end repeat

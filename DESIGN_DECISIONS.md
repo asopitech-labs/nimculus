@@ -6026,3 +6026,22 @@ ratio, rather than merely applying the floor during paint.
 **Consequences.** Split views retain a practical text-input surface during
 dragging, while the layout stays well-defined even under externally imposed
 small sizes. The workspace and native window contracts verify both limits.
+
+## QA-014: Give GUI E2E authority over one exact process only
+
+**Context.** A GUI harness must close its own temporary app after the
+workflow, but command-line matching can accidentally select a developer's
+interactive Nimculus, Terminal, or Codex process. This is especially unsafe
+on a logged-in macOS development desktop.
+
+**Decision.** Record the PID and full command prefix of the one direct child
+started by the GUI workflow. Cleanup verifies that exact PID before sending a
+signal; it never enumerates and signals matching processes. Any unexpected
+descendant is reported rather than terminated. The workflow also resizes its
+own window below the supported floor and verifies AppKit keeps it at least
+360pt × 240pt before running Files, Search, split-pane, and Git interactions.
+
+**Consequences.** Consolidated GUI E2E covers functional layout limits without
+becoming an authority over the developer session. The acceptance fixture's
+Files, Search, split, Git Changes/History, and Stage/Unstage paths are tested
+in one app run while unrelated processes remain outside its lifecycle scope.
