@@ -17,6 +17,7 @@ import nimculus/tree_sitter
 import nimculus/workspace
 import nimculus/session
 import nimculus/persistence_scheduler
+import nimculus/poll_scheduler
 import nimculus/lsp_editor_bridge
 import nimculus/lsp
 import nimculus/editor_diagnostics
@@ -549,6 +550,7 @@ var recoveryFilePath = ""
 var crashReportPath = ""
 var settingsFilePath = ""
 var sessionPersistence: PersistenceSchedule
+var workspaceMaintenance: PollSchedule
 var lastNativeEditorStatus = ""
 var suppressRecoveryWrite = false
 var discardDirtyOnExit = false
@@ -2279,6 +2281,8 @@ proc cancelWorkspaceSearch() =
 proc pollWorkspaceSearch() =
   when defined(macosx):
     flushScheduledSessionPersistence()
+    let hasActiveJob = workspaceSearchJob != nil or workspaceQuickOpenJob != nil
+    if not workspaceMaintenance.shouldPoll(epochTime(), hasActiveJob): return
     let changed = if activeWorkspace == nil: @[] else: activeWorkspace.changedPaths()
     if not externalAlertShown:
       for index, tab in editorSession.tabs:

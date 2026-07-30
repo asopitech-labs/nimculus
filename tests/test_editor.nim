@@ -12,6 +12,7 @@ import nimculus/editor_view
 import nimculus/session
 import nimculus/atomic_io
 import nimculus/persistence_scheduler
+import nimculus/poll_scheduler
 
 suite "session persistence scheduling":
   test "edits debounce while bounding crash recovery delay":
@@ -36,6 +37,19 @@ suite "session persistence scheduling":
     schedule.clear()
     check not schedule.pending
     check not schedule.isDue(100.0)
+
+suite "workspace polling schedule":
+  test "idle maintenance is bounded while active search remains responsive":
+    var schedule: PollSchedule
+    check schedule.shouldPoll(0.0, active = false)
+    check not schedule.shouldPoll(0.49, active = false)
+    check schedule.shouldPoll(0.5, active = false)
+    check schedule.shouldPoll(0.51, active = true)
+    check schedule.shouldPoll(0.52, active = true)
+    check not schedule.shouldPoll(0.75, active = false)
+    check schedule.shouldPoll(1.0, active = false)
+    schedule.reset()
+    check schedule.shouldPoll(0.1, active = false)
 
 suite "M4 editor buffer":
   test "piece table edits and undo redo preserve content":

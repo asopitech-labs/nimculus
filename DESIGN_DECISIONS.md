@@ -5672,3 +5672,19 @@ existing polling cadence for terminal, Git, LSP, and workspace jobs.
 but an idle editor no longer mutates AppKit chrome at 20 Hz. Text shaping and
 glyph rasterization now also use the shared content viewport, avoiding rows
 that the right/bottom chrome clip would discard.
+
+## M20-009: Keep workspace polling responsive only while work is active
+
+**Context.** FSEvents already queues changed paths asynchronously, but the
+macOS fallback timer still acquired the workspace change lock and called
+`stat` for every open document every 50 ms even when no search, quick-open,
+or filesystem change was pending.
+
+**Decision.** A small deterministic scheduler preserves the 50 ms cadence
+while an incremental search or quick-open job is active. With no active job,
+workspace maintenance runs at most every 500 ms. Session persistence retains
+its own deadline check and is not delayed by this cadence.
+
+**Consequences.** Search streams remain interactive, while an idle editor
+does substantially less lock, allocation, and filesystem work. FSEvents and
+external-change notices remain bounded to half a second when idle.
