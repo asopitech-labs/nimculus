@@ -2814,6 +2814,11 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     button.bezelStyle = NSBezelStyleTexturedRounded;
     button.identifier = entry[2];
     button.toolTip = entry[1];
+    // An SF Symbol's accessibility description is not consistently exposed
+    // as the button's AX name by AppKit. The activity bar is icon-only, so
+    // make its user-visible destination an explicit accessibility label for
+    // VoiceOver and for the public GUI acceptance workflow.
+    button.accessibilityLabel = entry[1];
     [button setFrameSize:NSMakeSize(28.0, 26.0)];
     [self addArrangedSubview:button];
   }
@@ -6081,6 +6086,11 @@ bool nimculus_platform_validate_activity_bar(void) {
       [((NSButton *)buttons[2]).toolTip isEqualToString:@"Git"] &&
       [((NSButton *)buttons[3]).toolTip isEqualToString:@"Terminal"] &&
       [((NSButton *)buttons[4]).toolTip isEqualToString:@"Split"] &&
+      [((NSButton *)buttons[0]).accessibilityLabel isEqualToString:@"Files"] &&
+      [((NSButton *)buttons[1]).accessibilityLabel isEqualToString:@"Outline"] &&
+      [((NSButton *)buttons[2]).accessibilityLabel isEqualToString:@"Git"] &&
+      [((NSButton *)buttons[3]).accessibilityLabel isEqualToString:@"Terminal"] &&
+      [((NSButton *)buttons[4]).accessibilityLabel isEqualToString:@"Split"] &&
       ((NSButton *)buttons[0]).contentTintColor != nil &&
       ![((NSButton *)buttons[0]).contentTintColor
         isEqual:((NSButton *)buttons[1]).contentTintColor] &&
