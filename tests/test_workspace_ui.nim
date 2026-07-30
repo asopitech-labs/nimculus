@@ -73,6 +73,15 @@ suite "workspace UI state":
     check layout.regionAt(Point(x: px(10), y: px(10))) == regionLeftDock
     check layout.regionAt(Point(x: px(500), y: px(590))) == regionStatus
 
+  test "right-presented project dock maps its divider and drag to logical width":
+    var state = initWorkspaceUi()
+    check state.dockResizeDivider(dockLeft, 1200, dockOnRight = true) == 960
+    check dockResizeRequest(dockLeft, 840, 1200, dockOnRight = true) == 360
+    state.resizeDock(dockLeft,
+      dockResizeRequest(dockLeft, 840, 1200, dockOnRight = true), 1200)
+    check state.leftDock.size == 360
+    check state.dockResizeDivider(dockLeft, 1200, dockOnRight = true) == 840
+
   test "bottom dock takes space from the center instead of overlaying it":
     var state = initWorkspaceUi()
     let closed = state.layout(Size(width: px(960), height: px(640)))

@@ -136,6 +136,10 @@ var activePointerNode = NodeId(0)
 var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 var demoSecondaryEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 var demoBottomDockBounds = Rect(size: Size(width: px(0), height: px(0)))
+# Match Zed's macOS workspace: Project is presented on the right while the
+# core still owns it as the logical left dock. Other platforms preserve their
+# native left-side presentation.
+const MacProjectDockOnRight = defined(macosx)
 when defined(macosx) or defined(windows):
   var appSettings: SettingsStore
   var editorLspSemanticTokens: seq[LspSemanticToken]
@@ -234,7 +238,6 @@ proc setupDemoUi() =
   # core's logical left dock (commands, focus, and persistence) and map only
   # the macOS presentation to the right; other platforms retain their own
   # native convention without inheriting an artificial shared abstraction.
-  const MacProjectDockOnRight = true
   let contentX = if MacProjectDockOnRight: 0'f32 else: leftDockWidth
   let contentWidth = max(0'f32, viewportWidth - leftDockWidth)
   demoBottomDockBounds = Rect(origin: Point(x: px(contentX),
@@ -5400,12 +5403,15 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     let workspaceLayout = editorWorkspaceUi.layout(Size(
       width: px(if metrics.widthPoints > 0: float32(metrics.widthPoints) else: 960'f32),
       height: px(if metrics.heightPoints > 0: float32(metrics.heightPoints) else: 640'f32)))
-    let leftDividerX = float32(workspaceLayout.leftDock.origin.x + workspaceLayout.leftDock.size.width)
+    let leftDividerX = editorWorkspaceUi.dockResizeDivider(dockLeft,
+      float32(metrics.widthPoints), dockOnRight = MacProjectDockOnRight)
     let bottomDividerY = float32(workspaceLayout.bottomDock.origin.y)
     if editorWorkspaceUi.isResizingDock:
       if kind == pointerMove:
         if editorWorkspaceUi.resizingDock == dockLeft:
-          editorWorkspaceUi.resizeDock(dockLeft, float32(event.x), float32(metrics.widthPoints))
+          editorWorkspaceUi.resizeDock(dockLeft, dockResizeRequest(dockLeft,
+            float32(event.x), float32(metrics.widthPoints),
+            dockOnRight = MacProjectDockOnRight), float32(metrics.widthPoints))
         else:
           editorWorkspaceUi.resizeDock(dockBottom,
             float32(metrics.heightPoints) - uiY - DefaultStatusHeight,

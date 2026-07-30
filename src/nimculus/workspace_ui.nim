@@ -251,6 +251,29 @@ proc beginDockResize*(state: var WorkspaceUiState, side: DockSide) =
 proc endDockResize*(state: var WorkspaceUiState) =
   state.isResizingDock = false
 
+proc dockResizeDivider*(state: WorkspaceUiState, side: DockSide,
+                        available: float32, dockOnRight = false): float32 =
+  ## Return the visible divider coordinate on its resize axis. Workspace state
+  ## stores the Project dock logically on the left; macOS may present it on
+  ## the right, as Zed does, without changing that cross-platform ownership.
+  let size = state.dock(side).size
+  case side
+  of dockLeft:
+    if dockOnRight: max(0'f32, available - size) else: size
+  of dockBottom:
+    max(0'f32, available - size)
+
+proc dockResizeRequest*(side: DockSide, pointer, available: float32,
+                        dockOnRight = false): float32 =
+  ## Convert a visible pointer coordinate to the logical dock size. This is
+  ## the inverse of `dockResizeDivider`, so right-side Project docks resize
+  ## from their left edge rather than accidentally using a left-side width.
+  case side
+  of dockLeft:
+    if dockOnRight: max(0'f32, available - pointer) else: max(0'f32, pointer)
+  of dockBottom:
+    max(0'f32, available - pointer)
+
 proc resizeDock*(state: var WorkspaceUiState, side: DockSide, requested: float32,
                  available: float32) =
   let current = state.dock(side)

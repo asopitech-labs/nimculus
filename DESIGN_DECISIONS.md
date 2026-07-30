@@ -5533,6 +5533,23 @@ a cancellation boundary broader than the one granted to the application.
 Detached language-server helpers remain external-process lifecycle
 responsibility, as specified by UI-057.
 
+## UI-060: Invert resize coordinates for the macOS right Project dock
+
+**Context.** Zed presents the Project dock on the right on macOS. Nimculus
+already maps the logical left dock to that presentation for layout and paint,
+but its drag handler still used the pointer x-coordinate as if the dock were
+on the left. The right-side divider therefore could not set the intended
+width.
+
+**Decision.** Keep dock ownership platform-neutral in `WorkspaceUiState` and
+add explicit forward/inverse coordinate helpers. For a right-presented dock,
+the divider is `window width - dock width` and a drag requests `window width -
+pointer x`.
+
+**Consequences.** The macOS Project dock now resizes from its visible edge,
+while Windows/Linux can retain left-side presentation without inheriting a
+macOS-specific layout abstraction. Unit coverage verifies the round trip.
+
 ## UI-059: Keep workspace-search controls inside the Search panel
 
 **Context.** The Search activity-bar item could open a query sheet, but once
