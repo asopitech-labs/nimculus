@@ -764,6 +764,15 @@ static NimculusPaintRegion editorTextViewport(const double rect[4]) {
   return viewport;
 }
 
+static NSUInteger editorVisibleLineCapacity(const double rect[4], CGFloat lineHeight) {
+  if (lineHeight <= 0.0) return 1;
+  // Cull with the same four-sided content mask used at Core Text, glyph
+  // geometry, and Metal submission. Rendering lines for the pane's scrollbar
+  // and bottom chrome wastes shaping/raster work even when the final scissor
+  // stops their pixels.
+  return (NSUInteger)MAX(1.0, ceil(editorTextViewport(rect).height / lineHeight));
+}
+
 static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
                              id<MTLDevice> device, CGSize logicalSize,
                              NimculusPaintCommand paint) {
@@ -1269,7 +1278,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   NSUInteger startLine = MIN(g_editor_scroll_line, lines.count);
   const CGFloat lineHeight = editorLineHeight();
   NSUInteger visibleLines = MIN(lines.count - startLine,
-    (NSUInteger)MAX(1.0, ceil(g_editor_rect[3] / lineHeight)));
+    editorVisibleLineCapacity(g_editor_rect, lineHeight));
   NSUInteger lineStartByte = editorLineUTF8Offset(startLine, lines);
   NSUInteger lineStartUnit = editorLineUTF16Offset(startLine, lines);
   if (g_editor_soft_wrap) {
@@ -1842,7 +1851,7 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
   NSUInteger startLine = MIN(g_editor_scroll_line, lines.count);
   const CGFloat lineHeight = editorLineHeight();
   NSUInteger visibleLines = MIN(lines.count - startLine,
-    (NSUInteger)MAX(1.0, ceil(g_editor_rect[3] / lineHeight)));
+    editorVisibleLineCapacity(g_editor_rect, lineHeight));
   NSUInteger lineStartByte = editorLineUTF8Offset(startLine, lines);
   CGSize editorSize = CGSizeMake(MAX(1.0, g_editor_rect[2]),
                                  MAX(1.0, g_editor_rect[3]));
@@ -5741,6 +5750,7 @@ bool nimculus_platform_validate_editor_text_viewport(void) {
     fabs(viewport.y - 66.0f) < 0.01f &&
     fabs(viewport.width - 264.0f) < 0.01f &&
     fabs(viewport.height - 148.0f) < 0.01f &&
+    editorVisibleLineCapacity(pane, 20.0) == 8 &&
     rightVisible.width == 0.0f && bottomVisible.height == 0.0f;
 }
 

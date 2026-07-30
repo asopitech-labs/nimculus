@@ -5669,4 +5669,6 @@ This follows Zed/GPUI's notification-driven refresh model while retaining the
 existing polling cadence for terminal, Git, LSP, and workspace jobs.
 
 **Consequences.** Background services still become visible at the same time,
-but an idle editor no longer mutates AppKit chrome at 20 Hz.
+but an idle editor no longer mutates AppKit chrome at 20 Hz. Text shaping and
+glyph rasterization now also use the shared content viewport, avoiding rows
+that the right/bottom chrome clip would discard.
