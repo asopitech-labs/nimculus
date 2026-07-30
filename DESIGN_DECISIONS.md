@@ -5495,3 +5495,20 @@ treated as authority to signal a broader group.
 shared launcher. Cancellation remains bounded for the direct child; external
 tools that deliberately detach descendants are responsible for their own
 lifecycle rather than inheriting broad signal authority from the editor.
+
+## UI-058: Keep workspace-search controls inside the Search panel
+
+**Context.** The Search activity-bar item could open a query sheet, but once
+results were visible there was no panel-local way to begin another search or
+cancel a streaming search. Users had to rediscover the command palette or the
+Edit menu.
+
+**Decision.** Reserve a compact Search header in sidebar mode `panelSearch`.
+It provides icon-first, fully accessible `New workspace search` and `Cancel
+workspace search` controls. Both route through the established command
+boundary, so cancellation remains a harmless no-op after completion.
+
+**Consequences.** Workspace search is a self-contained navigation surface:
+the active document remains visible while a user can refine, restart, or stop
+search directly from its results. Native contract and GUI E2E cover the two
+controls.

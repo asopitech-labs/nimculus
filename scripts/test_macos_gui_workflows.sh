@@ -136,6 +136,8 @@ tell application "System Events"
       if (value of area as text) contains "Search: Nimculus" then set workspaceSearchVisible to true
     end repeat
     if not workspaceSearchVisible then error "Workspace Search did not render in its sidebar"
+    if not (exists button "New workspace search" of window 1) then error "Search panel did not expose New Search"
+    if not (exists button "Cancel workspace search" of window 1) then error "Search panel did not expose Cancel Search"
 
     click button "Split" of window 1
     delay 0.5

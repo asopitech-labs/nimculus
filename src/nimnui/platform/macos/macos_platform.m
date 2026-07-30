@@ -2094,6 +2094,11 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
  - (void)reloadActions;
 @end
 
+@interface NimculusSearchSidebarActions : NSStackView
+@property(nonatomic, retain) NSButton *newSearchButton;
+@property(nonatomic, retain) NSButton *cancelSearchButton;
+@end
+
 @interface NimculusWorkspaceToolbar : NSStackView
 - (void)reloadSelection;
 @end
@@ -2849,6 +2854,51 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 }
 @end
 
+// Search needs an always-discoverable restart/cancel path in its own panel.
+// Keeping these actions in the panel header mirrors Zed's Search controls and
+// avoids trapping a user in a result list behind the command palette.
+@implementation NimculusSearchSidebarActions
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+  self.alignment = NSLayoutAttributeCenterY;
+  self.distribution = NSStackViewDistributionFill;
+  self.spacing = 4.0;
+  self.newSearchButton = [NSButton buttonWithTitle:@"New Search" target:self
+    action:@selector(newSearch:)];
+  self.cancelSearchButton = [NSButton buttonWithTitle:@"Cancel Search" target:self
+    action:@selector(cancelSearch:)];
+  NSArray<NSArray *> *entries = @[
+    @[self.newSearchButton, @"magnifyingglass", @"New workspace search"],
+    @[self.cancelSearchButton, @"xmark", @"Cancel workspace search"]
+  ];
+  for (NSArray *entry in entries) {
+    NSButton *button = entry[0];
+    if (@available(macOS 11.0, *)) {
+      button.image = [NSImage imageWithSystemSymbolName:entry[1]
+        accessibilityDescription:entry[2]];
+      button.imagePosition = NSImageOnly;
+    }
+    styleWorkspaceNavigationButton(button, NO, YES);
+    button.toolTip = entry[2];
+    button.accessibilityLabel = entry[2];
+    [button setFrameSize:NSMakeSize(26.0, 24.0)];
+    [self addArrangedSubview:button];
+  }
+  return self;
+}
+- (void)dealloc { [_newSearchButton release]; [_cancelSearchButton release]; [super dealloc]; }
+- (void)newSearch:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("commandPalette:workspace search");
+}
+- (void)cancelSearch:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("cancelWorkspaceSearch");
+}
+@end
+
 // Zed places workspace-level panel controls in persistent chrome rather than
 // leaving an empty strip above editor tabs. Keep the controls native and route
 // every action through the existing Nim command boundary.
@@ -3407,6 +3457,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     filesActions.hidden = YES;
     [self addSubview:filesActions];
     [filesActions release];
+    NimculusSearchSidebarActions *searchActions = [[NimculusSearchSidebarActions alloc]
+      initWithFrame:NSZeroRect];
+    searchActions.hidden = YES;
+    [self addSubview:searchActions];
+    [searchActions release];
     NimculusLineNumberOverlay *lineNumbers = [[NimculusLineNumberOverlay alloc]
       initWithFrame:NSZeroRect];
     [self addSubview:lineNumbers];
@@ -3565,6 +3620,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusGitChangesActions *gitChangesActions = nil;
   NimculusActivityBar *activityBar = nil;
   NimculusFilesSidebarActions *filesActions = nil;
+  NimculusSearchSidebarActions *searchActions = nil;
   NimculusWorkspaceToolbar *workspaceToolbar = nil;
   NimculusLineNumberOverlay *lineNumbers = nil;
   NimculusIndentGuideOverlay *indentGuides = nil;
@@ -3598,6 +3654,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusGitRefreshButton class]]) gitRefresh = (NimculusGitRefreshButton *)subview;
     if ([subview isKindOfClass:[NimculusGitChangesActions class]]) gitChangesActions = (NimculusGitChangesActions *)subview;
     if ([subview isKindOfClass:[NimculusFilesSidebarActions class]]) filesActions = (NimculusFilesSidebarActions *)subview;
+    if ([subview isKindOfClass:[NimculusSearchSidebarActions class]]) searchActions = (NimculusSearchSidebarActions *)subview;
     if ([subview isKindOfClass:[NimculusWorkspaceToolbar class]]) workspaceToolbar = (NimculusWorkspaceToolbar *)subview;
     if ([subview isKindOfClass:[NimculusActivityBar class]]) activityBar = (NimculusActivityBar *)subview;
   }
@@ -3623,9 +3680,10 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     BOOL showGitTabs = g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 &&
       g_editor_sidebar_mode <= 4;
     BOOL showFilesActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 1;
+    BOOL showSearchActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 5;
     BOOL showGitChangesActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 3;
     CGFloat sidebarToolbarHeight = showGitChangesActions ? 56.0 :
-      (showGitTabs || showFilesActions) ? 30.0 : 0.0;
+      (showGitTabs || showFilesActions || showSearchActions) ? 30.0 : 0.0;
     NSScrollView *scroll = outline.enclosingScrollView;
     if (scroll) {
       scroll.hidden = !g_editor_sidebar_visible;
@@ -3701,6 +3759,15 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       CGFloat actionWidth = g_workspace_open ? 56.0 : 28.0;
       filesActions.frame = NSMakeRect(sidebarControlX + width - actionWidth - 4.0,
         g_editor_rect[1] + g_editor_rect[3] - 27.0, actionWidth, 24.0);
+    }
+  }
+  if (searchActions) {
+    BOOL showSearchActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 5;
+    searchActions.hidden = !showSearchActions;
+    if (showSearchActions) {
+      CGFloat width = sidebarWidth;
+      searchActions.frame = NSMakeRect(sidebarControlX + width - 56.0,
+        g_editor_rect[1] + g_editor_rect[3] - 27.0, 52.0, 24.0);
     }
   }
   if (workspaceToolbar) {
@@ -6268,6 +6335,27 @@ bool nimculus_platform_validate_files_sidebar_actions(void) {
     g_command_callback = previousCallback;
     g_workspace_open = previousWorkspaceOpen;
     return workspaceActions && emptyActions && terminalAction;
+  }
+}
+
+bool nimculus_platform_validate_search_sidebar_actions(void) {
+  @autoreleasepool {
+    NimculusCommandCallback previousCallback = g_command_callback;
+    g_command_callback = validationCommandCallback;
+    NimculusSearchSidebarActions *actions = [[NimculusSearchSidebarActions alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 56.0, 24.0)];
+    [actions newSearch:actions.newSearchButton];
+    BOOL newSearch = strcmp(g_validation_command,
+      "commandPalette:workspace search") == 0;
+    [actions cancelSearch:actions.cancelSearchButton];
+    BOOL cancelSearch = strcmp(g_validation_command, "cancelWorkspaceSearch") == 0;
+    BOOL presentation = [actions.newSearchButton.accessibilityLabel
+      isEqualToString:@"New workspace search"] &&
+      [actions.cancelSearchButton.accessibilityLabel
+      isEqualToString:@"Cancel workspace search"];
+    [actions release];
+    g_command_callback = previousCallback;
+    return newSearch && cancelSearch && presentation;
   }
 }
 

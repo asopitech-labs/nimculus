@@ -384,6 +384,9 @@ suite "macOS platform contract":
   test "Files sidebar exposes New File and New Folder actions":
     check platformValidateFilesSidebarActions()
 
+  test "Search sidebar exposes New Search and Cancel Search actions":
+    check platformValidateSearchSidebarActions()
+
   test "workspace toolbar exposes primary panel actions":
     check platformValidateWorkspaceToolbar()
 

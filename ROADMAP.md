@@ -399,6 +399,8 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 
 検索状態管理：**[x]** Workspace切替、Workspace Search/Quick Open切替、空クエリで古い検索ジョブと結果を破棄する。**[x]** ripgrepの同一ファイル複数一致を個別結果として保持する。**[x]** ripgrepのキャンセル・出力上限超過を有限待ち＋強制終了で回収し、UIスレッドを無期限に待たせない。
 
+Search パネル：**[x]** 結果一覧のまま再検索を始める `New Search` と、実行中ジョブを止める `Cancel Search` を常設ヘッダーに配置する。両方ともアクセシビリティ名とnative command contractを持ち、検索結果を本文へ置換しない。
+
 永続化identity：**[x]** sessionのworkspace rootとrecent fileをcanonical path単位でload/save時に統合し、symlink別名による重複FSEvents watcher・Open Recent項目を防止する。
 
 ### M7：Tree-sitter
