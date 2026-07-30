@@ -2076,6 +2076,11 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusGitRefreshButton : NSButton
 @end
 
+@interface NimculusGitChangesActions : NSStackView
+@property(nonatomic, retain) NSButton *stageAllButton;
+@property(nonatomic, retain) NSButton *unstageAllButton;
+@end
+
 @interface NimculusFilesSidebarActions : NSStackView
  - (void)reloadActions;
 @end
@@ -2691,6 +2696,45 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 }
 @end
 
+// Zed keeps bulk staging in the Changes header, rather than hiding it behind
+// a command palette. Keep the compact icon affordances native on macOS while
+// retaining full accessible labels and direct command routing.
+@implementation NimculusGitChangesActions
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+  self.alignment = NSLayoutAttributeCenterY;
+  self.distribution = NSStackViewDistributionFill;
+  self.spacing = 4.0;
+  self.stageAllButton = [NSButton buttonWithTitle:@"Stage All" target:self
+    action:@selector(stageAll:)];
+  self.unstageAllButton = [NSButton buttonWithTitle:@"Unstage All" target:self
+    action:@selector(unstageAll:)];
+  NSArray<NSArray *> *entries = @[
+    @[self.stageAllButton, @"plus.square", @"Stage all changes"],
+    @[self.unstageAllButton, @"minus.square", @"Unstage all changes"]
+  ];
+  for (NSArray *entry in entries) {
+    NSButton *button = entry[0];
+    if (@available(macOS 11.0, *)) {
+      button.image = [NSImage imageWithSystemSymbolName:entry[1]
+        accessibilityDescription:entry[2]];
+      button.imagePosition = NSImageOnly;
+    }
+    styleWorkspaceNavigationButton(button, NO, YES);
+    button.toolTip = entry[2];
+    button.accessibilityLabel = entry[2];
+    [button setFrameSize:NSMakeSize(26.0, 24.0)];
+    [self addArrangedSubview:button];
+  }
+  return self;
+}
+- (void)dealloc { [_stageAllButton release]; [_unstageAllButton release]; [super dealloc]; }
+- (void)stageAll:(id)sender { (void)sender; if (g_command_callback) g_command_callback("commandPalette:git stage all"); }
+- (void)unstageAll:(id)sender { (void)sender; if (g_command_callback) g_command_callback("commandPalette:git unstage all"); }
+@end
+
 // Zed exposes project creation from the Project Panel itself. Keep the action
 // visible in Nimculus Files while delegating prompts and validation to the
 // existing macOS/Nim workspace path.
@@ -3272,6 +3316,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     gitRefresh.hidden = YES;
     [self addSubview:gitRefresh];
     [gitRefresh release];
+    NimculusGitChangesActions *gitChangesActions = [[NimculusGitChangesActions alloc]
+      initWithFrame:NSZeroRect];
+    gitChangesActions.hidden = YES;
+    [self addSubview:gitChangesActions];
+    [gitChangesActions release];
     NimculusFilesSidebarActions *filesActions = [[NimculusFilesSidebarActions alloc]
       initWithFrame:NSZeroRect];
     filesActions.hidden = YES;
@@ -3432,6 +3481,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusGitSidebarTabs *gitTabs = nil;
   NimculusGitCommitButton *gitCommit = nil;
   NimculusGitRefreshButton *gitRefresh = nil;
+  NimculusGitChangesActions *gitChangesActions = nil;
   NimculusActivityBar *activityBar = nil;
   NimculusFilesSidebarActions *filesActions = nil;
   NimculusWorkspaceToolbar *workspaceToolbar = nil;
@@ -3465,6 +3515,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusGitSidebarTabs class]]) gitTabs = (NimculusGitSidebarTabs *)subview;
     if ([subview isKindOfClass:[NimculusGitCommitButton class]]) gitCommit = (NimculusGitCommitButton *)subview;
     if ([subview isKindOfClass:[NimculusGitRefreshButton class]]) gitRefresh = (NimculusGitRefreshButton *)subview;
+    if ([subview isKindOfClass:[NimculusGitChangesActions class]]) gitChangesActions = (NimculusGitChangesActions *)subview;
     if ([subview isKindOfClass:[NimculusFilesSidebarActions class]]) filesActions = (NimculusFilesSidebarActions *)subview;
     if ([subview isKindOfClass:[NimculusWorkspaceToolbar class]]) workspaceToolbar = (NimculusWorkspaceToolbar *)subview;
     if ([subview isKindOfClass:[NimculusActivityBar class]]) activityBar = (NimculusActivityBar *)subview;
@@ -3491,7 +3542,9 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     BOOL showGitTabs = g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 &&
       g_editor_sidebar_mode <= 4;
     BOOL showFilesActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 1;
-    CGFloat sidebarToolbarHeight = (showGitTabs || showFilesActions) ? 30.0 : 0.0;
+    BOOL showGitChangesActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 3;
+    CGFloat sidebarToolbarHeight = showGitChangesActions ? 56.0 :
+      (showGitTabs || showFilesActions) ? 30.0 : 0.0;
     NSScrollView *scroll = outline.enclosingScrollView;
     if (scroll) {
       scroll.hidden = !g_editor_sidebar_visible;
@@ -3549,6 +3602,14 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       CGFloat commitWidth = compact ? 30.0 : 76.0;
       gitRefresh.frame = NSMakeRect(sidebarControlX + width - commitWidth - 36.0,
         g_editor_rect[1] + g_editor_rect[3] - 27.0, 28.0, 24.0);
+    }
+  }
+  if (gitChangesActions) {
+    BOOL showGitChangesActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 3;
+    gitChangesActions.hidden = !showGitChangesActions;
+    if (showGitChangesActions) {
+      gitChangesActions.frame = NSMakeRect(sidebarControlX,
+        g_editor_rect[1] + g_editor_rect[3] - 53.0, 56.0, 24.0);
     }
   }
   if (filesActions) {
@@ -6020,9 +6081,19 @@ bool nimculus_platform_validate_git_sidebar_tabs(void) {
     BOOL refreshPresentation = [refresh.toolTip isEqualToString:@"Refresh Git panel"] &&
       [refresh.accessibilityLabel isEqualToString:@"Refresh Git panel"];
     [refresh release];
+    NimculusGitChangesActions *changesActions = [[NimculusGitChangesActions alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 56.0, 24.0)];
+    [changesActions stageAll:changesActions.stageAllButton];
+    BOOL stageAll = strcmp(g_validation_command, "commandPalette:git stage all") == 0;
+    [changesActions unstageAll:changesActions.unstageAllButton];
+    BOOL unstageAll = strcmp(g_validation_command, "commandPalette:git unstage all") == 0;
+    BOOL changesPresentation = [changesActions.stageAllButton.accessibilityLabel
+      isEqualToString:@"Stage all changes"] &&
+      [changesActions.unstageAllButton.accessibilityLabel isEqualToString:@"Unstage all changes"];
+    [changesActions release];
     g_command_callback = previousCallback;
     return history && branches && changes && appearance && commitAction && commitPresentation &&
-      refreshAction && refreshPresentation;
+      refreshAction && refreshPresentation && stageAll && unstageAll && changesPresentation;
   }
 }
 
