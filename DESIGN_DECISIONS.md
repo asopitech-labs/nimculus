@@ -6008,3 +6008,20 @@ overlay rather than drawing into adjacent UI.
 **Consequences.** Native chrome now follows the same four-sided containment
 rule as Metal text. The GUI contract exercises a 148pt × 78pt pane and proves
 that each overlay frame and its children remain contained.
+
+## UI-068: Preserve usable workspace and pane minimum sizes
+
+**Context.** Zed prevents normal windows from shrinking below 360pt × 240pt
+and keeps side-by-side panes at least 80pt wide and stacked panes at least
+100pt high when space permits. Nimculus previously stored a split ratio only,
+so a divider could collapse a pane despite enough available space.
+
+**Decision.** Apply Zed's normal-window 360pt × 240pt content minimum through
+AppKit. In the platform-independent PaneTree, clamp each divider against a
+recursive 80pt width / 100pt height minimum extent. If a window is already
+smaller than the aggregate minimum, retain the requested ratio and never
+produce a negative rectangle.
+
+**Consequences.** Split views retain a practical text-input surface during
+dragging, while the layout stays well-defined even under externally imposed
+small sizes. The workspace and native window contracts verify both limits.

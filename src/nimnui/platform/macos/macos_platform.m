@@ -5949,6 +5949,10 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
   // This is the same window-level capability boundary used by Zed's macOS
   // platform rather than emulating fullscreen in the renderer.
   self.window.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
+  // Keep the full editor workspace functional when resized. This matches
+  // Zed's 360 × 240pt normal-window floor and prevents native sidebar/tab
+  // chrome from being asked to compose into an impossible content rect.
+  self.window.contentMinSize = NSMakeSize(360.0, 240.0);
   self.window.title = @"Nimculus";
   self.window.acceptsMouseMovedEvents = YES;
   self.window.delegate = self;
@@ -6113,6 +6117,7 @@ bool nimculus_platform_validate_window_lifecycle(void) {
       backing:NSBackingStoreBuffered defer:NO];
     if (window) {
       window.collectionBehavior = NSWindowCollectionBehaviorFullScreenPrimary;
+      window.contentMinSize = NSMakeSize(360.0, 240.0);
       NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
         NSMakeRect(0.0, 0.0, 640.0, 480.0)];
       if (view) {
@@ -6137,7 +6142,8 @@ bool nimculus_platform_validate_window_lifecycle(void) {
         NSWindowStyleMask requiredMask = NSWindowStyleMaskResizable |
           NSWindowStyleMaskMiniaturizable;
         BOOL windowStatesValid = (window.styleMask & requiredMask) == requiredMask &&
-          (window.collectionBehavior & NSWindowCollectionBehaviorFullScreenPrimary) != 0;
+          (window.collectionBehavior & NSWindowCollectionBehaviorFullScreenPrimary) != 0 &&
+          window.contentMinSize.width == 360.0 && window.contentMinSize.height == 240.0;
         valid = initial && resized && screensValid && windowStatesValid;
       }
       [window close];

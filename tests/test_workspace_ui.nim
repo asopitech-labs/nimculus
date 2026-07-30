@@ -154,3 +154,20 @@ suite "workspace UI state":
     check state.paneIndexAt(bounds, Point(x: px(400), y: px(40))) == 1
     check state.focusPane(layout.panes[1].id)
     check state.focusedPane == layout.panes[1].id
+
+  test "split panes retain Zed-compatible minimum extents when space permits":
+    var sideBySide = initWorkspaceUi(tabCount = 1)
+    check sideBySide.splitFocusedPane(paneVertical, 0.1'f32)
+    let wide = sideBySide.center.paneLayout(Rect(origin: Point(x: px(0), y: px(0)),
+      size: Size(width: px(300), height: px(240))))
+    check float32(wide.panes[0].bounds.size.width) == MinimumPaneWidth
+    check float32(wide.panes[1].bounds.size.width) ==
+      300'f32 - PaneDividerThickness - MinimumPaneWidth
+
+    var stacked = initWorkspaceUi(tabCount = 1)
+    check stacked.splitFocusedPane(paneHorizontal, 0.1'f32)
+    let tall = stacked.center.paneLayout(Rect(origin: Point(x: px(0), y: px(0)),
+      size: Size(width: px(300), height: px(260))))
+    check float32(tall.panes[0].bounds.size.height) == MinimumPaneHeight
+    check float32(tall.panes[1].bounds.size.height) ==
+      260'f32 - PaneDividerThickness - MinimumPaneHeight

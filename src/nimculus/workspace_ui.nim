@@ -92,6 +92,12 @@ const
   DefaultDockMinimumSize* = 160'f32
   MinimumCenterWidth* = 360'f32
   MinimumCenterHeight* = 180'f32
+  ## Match Zed's PaneGroup floor: a side-by-side editor remains wide enough
+  ## for a cursor and line content, while a stacked editor keeps one readable
+  ## text row plus its chrome. The window can be smaller than the aggregate
+  ## floor, but divider dragging must not collapse a pane when room exists.
+  MinimumPaneWidth* = 80'f32
+  MinimumPaneHeight* = 100'f32
   PaneDividerThickness* = 2'f32
 
 proc normalizedRatio*(ratio: float32): float32 =
@@ -325,6 +331,17 @@ proc paneLayout*(tree: PaneTree, bounds: Rect): PaneLayout =
   ## Mirrors Zed's PaneGroup traversal: a single tree owns both the leaf
   ## rectangles and the split handles used for painting and hit testing.
   var computed: PaneLayout
+  proc minimumExtent(tree: PaneTree, axis: PaneAxis): float32 =
+    if tree.isNil: return 0'f32
+    if tree.kind == paneLeaf:
+      return if axis == paneVertical: MinimumPaneWidth else: MinimumPaneHeight
+    let first = minimumExtent(tree.first, axis)
+    let second = minimumExtent(tree.second, axis)
+    if tree.axis == axis:
+      first + PaneDividerThickness + second
+    else:
+      max(first, second)
+
   proc append(tree: PaneTree, rect: Rect, layout: var PaneLayout) =
     if tree.isNil: return
     if tree.kind == paneLeaf:
@@ -333,7 +350,17 @@ proc paneLayout*(tree: PaneTree, bounds: Rect): PaneLayout =
     let sideBySide = tree.axis == paneVertical
     let available = max(0'f32, (if sideBySide: float32(rect.size.width)
       else: float32(rect.size.height)) - PaneDividerThickness)
-    let firstLength = available * normalizedRatio(tree.ratio)
+    let preferredFirst = available * normalizedRatio(tree.ratio)
+    let firstMinimum = minimumExtent(tree.first, tree.axis)
+    let secondMinimum = minimumExtent(tree.second, tree.axis)
+    # When the available extent can honor both panes, clamp the divider to
+    # Zed's per-pane floor. If the window itself is already smaller than that
+    # aggregate floor, preserve the requested ratio rather than producing a
+    # negative sibling rectangle.
+    let firstLength = if available >= firstMinimum + secondMinimum:
+        min(available - secondMinimum, max(firstMinimum, preferredFirst))
+      else:
+        preferredFirst
     if sideBySide:
       let firstRect = Rect(origin: rect.origin,
         size: Size(width: px(firstLength), height: rect.size.height))
