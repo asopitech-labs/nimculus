@@ -5477,3 +5477,21 @@ payload; the editor verifies the directory remains inside the workspace.
 streaming limits, and canonical-path rules with global search. A workspace
 test proves that a scoped job returns the selected subtree while excluding a
 sibling with the same match.
+
+## UI-057: Never signal a shared process group from a UI cancellation action
+
+**Context.** Nimculus is normally launched from Terminal or a Codex session.
+Process-group cancellation can therefore terminate the interactive launcher
+when a child inherits or races a group boundary. The GUI E2E previously also
+used a group-level cleanup path.
+
+**Decision.** Git, task, LSP, updater, PTY, and GUI E2E cancellation address
+only the direct process each subsystem created. PTY shutdown additionally uses
+`waitpid(WNOHANG)` immediately before a signal, proving that its PID is still
+an unreaped child and cannot be a reused PID. Background descendants are not
+treated as authority to signal a broader group.
+
+**Consequences.** A cancelled helper cannot terminate Codex, Terminal, or a
+shared launcher. Cancellation remains bounded for the direct child; external
+tools that deliberately detach descendants are responsible for their own
+lifecycle rather than inheriting broad signal authority from the editor.

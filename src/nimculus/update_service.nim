@@ -22,9 +22,6 @@ type
 
   UpdateDownloadJob* = ref object
     process: Process
-    ## Set only after verifying the POSIX spawn-created child group. A failed
-    ## setup leaves cancellation scoped to the direct process.
-    processGroupId*: Pid
     release*: UpdateRelease
     destination*: string
     partialDestination: string
@@ -63,42 +60,20 @@ proc appendBoundedOutput(current, chunk: string, limit: int):
   if chunk.len <= remaining: return (current & chunk, false)
   (current & chunk[0 ..< remaining], true)
 
-when defined(posix):
-  proc getpgid(pid: Pid): Pid {.importc, header: "<unistd.h>".}
-
 proc updateProcessOptions(): set[ProcessOption] =
-  result = {poUsePath, poStdErrToStdOut}
-  when defined(posix):
-    ## Set the child group before exec so a fast helper cannot escape a
-    ## parent-side setpgid race during app shutdown or timeout handling.
-    result.incl(poDaemon)
+  {poUsePath, poStdErrToStdOut}
 
-proc verifiedUpdateProcessGroup(process: Process): Pid =
-  when defined(posix):
-    if process == nil: return
-    let pid = Pid(processID(process))
-    if pid > 0 and getpgid(pid) == pid: return pid
-
-proc terminateUpdateProcess(process: Process, processGroupId: Pid = 0): int =
+proc terminateUpdateProcess(process: Process): int =
   ## Keep an interrupted update from holding the Cocoa shutdown path forever.
   if process == nil: return -1
   if process.running:
-    when defined(posix):
-      if processGroupId > 0:
-        discard kill(-processGroupId, SIGTERM)
-      else:
-        process.terminate()
-    else:
-      process.terminate()
+    ## Updater helpers are cancellable children, not an entitlement to signal
+    ## their process group.  This keeps the GUI shutdown path isolated from
+    ## its launcher and from Codex/Terminal sessions.
+    process.terminate()
     result = process.waitForExit(UpdateProcessGracePeriodMs)
     if result < 0:
-      when defined(posix):
-        if processGroupId > 0:
-          discard kill(-processGroupId, SIGKILL)
-        else:
-          process.kill()
-      else:
-        process.kill()
+      process.kill()
       result = process.waitForExit(UpdateProcessGracePeriodMs)
   else:
     result = process.peekExitCode()
@@ -133,7 +108,6 @@ proc runProcessBounded(command: string, args: openArray[string],
   try:
     let process = startProcess(command, args = @args,
       options = updateProcessOptions())
-    let processGroupId = verifiedUpdateProcessGroup(process)
     let outputStream = process.peekableOutputStream()
     let startedAt = epochTime()
     while true:
@@ -153,7 +127,7 @@ proc runProcessBounded(command: string, args: openArray[string],
         process.close()
         return
       if timeoutMs > 0 and (epochTime() - startedAt) * 1_000.0 >= float64(timeoutMs):
-        result.exitCode = terminateUpdateProcess(process, processGroupId)
+        result.exitCode = terminateUpdateProcess(process)
         let bounded = appendBoundedOutput(result.output,
           "update tool timed out\n", maxOutputBytes)
         result.output = bounded.output
@@ -267,7 +241,6 @@ proc startUpdateDownload*(release: UpdateRelease, destination: string): UpdateDo
       "--show-error", "--proto", "=https", "--tlsv1.2", "--max-filesize",
       $MaxUpdateArtifactBytes, "--output", result.partialDestination,
       release.url], options = updateProcessOptions())
-    result.processGroupId = verifiedUpdateProcessGroup(result.process)
     result.done = false
   except CatchableError:
     result.done = true
@@ -276,7 +249,7 @@ proc cancelUpdateDownload*(job: UpdateDownloadJob) =
   ## Cancellation is deliberately idempotent: it is used by both the UI and
   ## the macOS quit path, where a partial DMG must never survive as an update.
   if job == nil or job.done: return
-  discard terminateUpdateProcess(job.process, job.processGroupId)
+  discard terminateUpdateProcess(job.process)
   job.done = true
   job.success = false
   removeIfPresent(job.partialDestination)

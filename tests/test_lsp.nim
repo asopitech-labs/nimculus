@@ -1,13 +1,9 @@
 import std/json
 import std/os
 import std/strutils
+import std/times
 import std/unittest
 import nimculus/lsp
-
-when defined(macosx):
-  import std/posix
-
-  proc getpgid(pid: Pid): Pid {.importc, header: "<unistd.h>".}
 
 suite "M8 LSP protocol foundation":
   test "encodes Content-Length as UTF-8 byte length":
@@ -97,33 +93,11 @@ suite "M8 LSP protocol foundation":
     check messages[0]["params"]["message"].getStr == "日本語"
 
   when defined(macosx):
-    test "stops a language server process group with its descendants":
-      let childPidPath = "/tmp/nimculus-test-lsp-child-pid"
-      let childTermPath = "/tmp/nimculus-test-lsp-child-term"
-      if fileExists(childPidPath): removeFile(childPidPath)
-      if fileExists(childTermPath): removeFile(childTermPath)
-      defer:
-        if fileExists(childPidPath): removeFile(childPidPath)
-        if fileExists(childTermPath): removeFile(childTermPath)
-      # The child writes an acknowledgement only from its TERM trap. This
-      # verifies that stop signals the entire verified process group, without
-      # confusing an already-dead zombie with a live helper process.
-      let client = startLspProcess("/bin/sh", ["-c",
-        "trap '' TERM; (trap 'echo term > " & childTermPath &
-        "; exit' TERM; while :; do sleep 1; done) & child=$!; echo $child > " &
-        childPidPath & "; wait"])
-      check client.processGroupId > 0
-      for _ in 0 ..< 20:
-        if fileExists(childPidPath): break
-        sleep(10)
-      check fileExists(childPidPath)
-      let childPid = Pid(parseInt(readFile(childPidPath).strip))
-      check getpgid(childPid) == client.processGroupId
+    test "stops an unresponsive language-server child in bounded time":
+      let client = startLspProcess("/bin/sh", ["-c", "trap '' TERM; while :; do sleep 1; done"])
+      let started = epochTime()
       discard client.stop()
-      for _ in 0 ..< 100:
-        if fileExists(childTermPath): break
-        sleep(10)
-      check fileExists(childTermPath)
+      check epochTime() - started < 3.0
 
   test "releases an exited language server before restart":
     let client = startLspProcess("/bin/sh", ["-c", "exit 0"])

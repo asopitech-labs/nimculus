@@ -40,10 +40,6 @@ type
   TaskJob* = ref object
     process: Process
     output: Stream
-    ## Set only after verifying the POSIX spawn-created child group. Keeping
-    ## this optional prevents a failed group setup from ever signaling the
-    ## editor's own process group.
-    processGroupId*: Pid
     result*: TaskResult
     done*: bool
 
@@ -125,26 +121,8 @@ proc taskEnvironment(spec: TaskSpec): StringTableRef =
   for entry in spec.environment:
     if entry.key.len > 0: result[entry.key] = entry.value
 
-when defined(posix):
-  proc getpgid(pid: Pid): Pid {.importc, header: "<unistd.h>".}
-
 proc taskProcessOptions(): set[ProcessOption] =
-  result = {poUsePath, poStdErrToStdOut}
-  when defined(posix):
-    # Nim's POSIX spawn path implements poDaemon with
-    # POSIX_SPAWN_SETPGROUP. Unlike a parent-side setpgid call, this happens
-    # before exec and cannot race a fast shell command.
-    result.incl(poDaemon)
-
-proc configureTaskProcessGroup(job: TaskJob) =
-  ## Match Zed's Unix task ownership: descendants belong to the task, not the
-  ## editor. Verify the child-side spawn group before ever using kill(-pid).
-  when defined(posix):
-    if job == nil or job.process == nil: return
-    let pid = Pid(processID(job.process))
-    if pid <= 0: return
-    if getpgid(pid) == pid:
-      job.processGroupId = pid
+  {poUsePath, poStdErrToStdOut}
 
 proc startTask*(spec: TaskSpec): TaskJob =
   if spec.command.strip.len == 0:
@@ -155,7 +133,6 @@ proc startTask*(spec: TaskSpec): TaskJob =
       env = taskEnvironment(spec), options = taskProcessOptions())
     result = TaskJob(process: process, output: process.peekableOutputStream(),
       result: TaskResult(status: taskRunning, exitCode: -1))
-    result.configureTaskProcessGroup()
   except CatchableError as error:
     result = TaskJob(done: true,
       result: TaskResult(status: taskFailed, exitCode: -1, output: error.msg))
@@ -163,22 +140,15 @@ proc startTask*(spec: TaskSpec): TaskJob =
 proc cancel*(job: TaskJob) =
   if job == nil or job.done: return
   if job.process != nil and job.process.running:
-    when defined(posix):
-      if job.processGroupId > 0:
-        discard kill(-job.processGroupId, SIGTERM)
-      else:
-        job.process.terminate()
-    else:
-      job.process.terminate()
+    ## Do not signal a process group here.  The editor is frequently launched
+    ## from an interactive terminal, and a group-level signal is an unsafe
+    ## boundary for a UI action: it can include the launcher or its tools.
+    ## The Process handle represents the task leader we created, so it is the
+    ## only process cancellation is allowed to address.
+    job.process.terminate()
     let exitCode = job.process.waitForExit(1_000)
     if exitCode < 0:
-      when defined(posix):
-        if job.processGroupId > 0:
-          discard kill(-job.processGroupId, SIGKILL)
-        else:
-          job.process.kill()
-      else:
-        job.process.kill()
+      job.process.kill()
       discard job.process.waitForExit(1_000)
   let tail = job.readAvailable()
   if tail.len > 0:

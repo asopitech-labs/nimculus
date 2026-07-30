@@ -414,17 +414,10 @@ suite "M10 terminal core":
       check "nimculus-zsh:" in received
       check "/tmp" in received
 
-    test "macOS PTY close terminates its command process group":
+    test "macOS PTY close terminates its direct shell child":
       let pty = newTerminalPty("/bin/sh", "/tmp", 40, 8)
       let childPid = pty.childPid
-      # A negative-PID signal is permitted only when this particular PTY owns
-      # its process group. Some shell/job-control configurations move the
-      # interactive shell after forkpty; exercise the descendant case only
-      # when that ownership proof holds, and otherwise verify the direct-child
-      # fallback without manufacturing an orphaned background process.
-      let ownsGroup = pty.terminalOwnsProcessGroup()
-      let command = if ownsGroup: "sleep 30 & wait\n" else: "sleep 30\n"
-      check pty.writeInput(command) > 0
+      check pty.writeInput("exec sleep 30\n") > 0
       var accepted = false
       for _ in 0 ..< 20:
         if "sleep 30" in pty.pollOutput():
@@ -433,12 +426,7 @@ suite "M10 terminal core":
         sleep(10)
       check accepted
       pty.close()
-      # With group ownership, the shell and background command must disappear
-      # together. Otherwise close owns only the direct child by design.
-      if ownsGroup:
-        check kill(-childPid, 0) == -1
-      else:
-        check kill(childPid, 0) == -1
+      check kill(childPid, 0) == -1
       check errno == ESRCH
 
     test "macOS PTY close remains bounded when its shell ignores SIGTERM":

@@ -1184,6 +1184,14 @@ elif defined(macosx):
     let waited = waitpid(pid, status, WNOHANG)
     waited == pid or (waited < 0 and errno == ECHILD)
 
+  proc terminalChildIsLive(pid: Pid): bool =
+    ## `waitpid(..., WNOHANG)` proves that this PID is still our unreaped
+    ## child.  A bare `kill(pid, ...)` after the child has been reaped could
+    ## otherwise address an unrelated process after PID reuse.
+    if pid <= 0: return false
+    var status: cint
+    waitpid(pid, status, WNOHANG) == 0
+
   proc terminalOwnsProcessGroup*(pty: TerminalPty): bool =
     ## A negative PID signal addresses a process *group*. Never infer that
     ## the PTY child owns such a group from forkpty alone: a failed or raced
@@ -1247,17 +1255,13 @@ elif defined(macosx):
     pty.screen.resize(columns, rows)
 
   proc terminateTerminalProcessGroup(pty: TerminalPty, signal: cint) =
-    ## A shell can leave a pipeline running after it receives SIGTERM.  The
-    ## terminal owns the whole child group, so signal that group as well as
-    ## the leader.  The second call is a safe fallback if a platform's
-    ## forkpty/session setup did not retain the expected group id.
+    ## A terminal shell can leave a pipeline running after it receives a
+    ## signal, but the editor must never make a group-level signal part of its
+    ## shutdown contract.  In particular, a UI close action must not be able
+    ## to reach its interactive launcher.  Address only the forkpty child.
     if pty == nil or pty.childPid <= 0: return
     let pid = pty.childPid
-    # Group delivery is an optimization for shell descendants, not a right to
-    # signal any group numerically matching a stale PID. Revalidate at the
-    # exact signal boundary; otherwise terminate only the direct child.
-    if pty.terminalOwnsProcessGroup(): discard kill(-pid, signal)
-    discard kill(pid, signal)
+    if terminalChildIsLive(pid): discard kill(pid, signal)
 
   proc reapTerminalChild(pid: Pid) =
     var status: cint
@@ -1269,11 +1273,9 @@ elif defined(macosx):
       let waited = waitpid(pid, status, WNOHANG)
       if waited == pid or (waited < 0 and errno == ECHILD): return
       sleep(10)
-    # Reap is invoked from TerminalPty.close, so preserve the same ownership
-    # check used for the initial graceful signal.
-    # The direct child PID is still sufficient if the group has changed.
-    if getpgid(pid) == pid: discard kill(-pid, SIGKILL)
-    discard kill(pid, SIGKILL)
+    # Reap is invoked from TerminalPty.close.  Preserve the direct-child-only
+    # boundary used for the initial graceful signal.
+    if terminalChildIsLive(pid): discard kill(pid, SIGKILL)
     for _ in 0 ..< 100:
       let waited = waitpid(pid, status, WNOHANG)
       if waited == pid or (waited < 0 and errno == ECHILD): return

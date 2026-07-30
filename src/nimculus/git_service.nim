@@ -56,9 +56,6 @@ type
   GitJob* = ref object
     process: Process
     output: Stream
-    ## Set only after verifying the POSIX spawn-created child group. This
-    ## prevents cancellation from ever signaling the editor's own group.
-    processGroupId*: Pid
     done*: bool
     cancelled*: bool
     result*: GitResult
@@ -120,28 +117,11 @@ proc poll*(job: GitJob): bool
 proc startGitJobInput*(repository: GitRepository, args: openArray[string],
                        input: string): GitJob
 
-when defined(posix):
-  proc getpgid(pid: Pid): Pid {.importc, header: "<unistd.h>".}
-
 proc gitProcessOptions(): set[ProcessOption] =
-  result = {poUsePath, poStdErrToStdOut}
-  when defined(posix):
-    ## Nim maps poDaemon to POSIX_SPAWN_SETPGROUP. Establish the ownership
-    ## boundary in the child before exec, rather than racing setpgid here.
-    result.incl(poDaemon)
-
-proc configureGitProcessGroup(job: GitJob) =
-  ## Git hooks and credential helpers are descendants of this job. Verify the
-  ## child-side group before using kill(-pid), so a failed setup is harmless.
-  when defined(posix):
-    if job == nil or job.process == nil: return
-    let pid = Pid(processID(job.process))
-    if pid > 0 and getpgid(pid) == pid:
-      job.processGroupId = pid
+  {poUsePath, poStdErrToStdOut}
 
 proc newGitJob(process: Process): GitJob =
   result = GitJob(process: process, output: process.peekableOutputStream())
-  result.configureGitProcessGroup()
 
 proc newGitRepository*(root: string): GitRepository =
   let absolute = absolutePath(root)
@@ -229,22 +209,13 @@ proc cancel*(job: GitJob) =
   if job == nil or job.done: return
   job.cancelled = true
   if job.process != nil and job.process.running:
-    when defined(posix):
-      if job.processGroupId > 0:
-        discard kill(-job.processGroupId, SIGTERM)
-      else:
-        job.process.terminate()
-    else:
-      job.process.terminate()
+    ## Cancelling a Git refresh must never propagate to the terminal that
+    ## launched Nimculus.  Keep the cancellation boundary to the exact child
+    ## Process created for this job.
+    job.process.terminate()
     let exitCode = job.process.waitForExit(1_000)
     if exitCode < 0:
-      when defined(posix):
-        if job.processGroupId > 0:
-          discard kill(-job.processGroupId, SIGKILL)
-        else:
-          job.process.kill()
-      else:
-        job.process.kill()
+      job.process.kill()
       discard job.process.waitForExit(1_000)
   job.absorbOutput()
   if job.process != nil: job.process.close()

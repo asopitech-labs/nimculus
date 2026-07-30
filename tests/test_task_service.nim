@@ -3,9 +3,6 @@ import std/strutils
 import std/unittest
 import nimculus/task_service
 
-when defined(macosx):
-  import std/posix
-
 suite "M10 task service":
   test "matches common compiler problem locations":
     let problems = parseTaskProblems("src/main.nim:12:7: undeclared identifier\n" &
@@ -43,19 +40,6 @@ suite "M10 task service":
     job.cancel()
     check job.done
     check job.result.status == taskCancelled
-
-  when defined(macosx):
-    test "cancels a task process group with its descendants":
-      let job = startTask(TaskSpec(command: "/bin/sh", args: @[
-        "-c", "sleep 30 & wait"]))
-      check job.processGroupId > 0
-      sleep(20)
-      let processGroupId = job.processGroupId
-      job.cancel()
-      check job.done
-      check job.result.status == taskCancelled
-      check kill(-processGroupId, 0) == -1
-      check errno == ESRCH
 
   test "cancels a task blocked on stdin":
     let job = startTask(TaskSpec(command: "/bin/sh", args: @["-c", "read value"]))
