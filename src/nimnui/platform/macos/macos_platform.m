@@ -5744,6 +5744,20 @@ bool nimculus_platform_validate_editor_text_viewport(void) {
     rightVisible.width == 0.0f && bottomVisible.height == 0.0f;
 }
 
+bool nimculus_platform_validate_status_update_deduplication(void) {
+  @autoreleasepool {
+    NSString *previous = [g_editor_status retain];
+    nimculus_platform_set_editor_status("Nimculus status deduplication");
+    NSString *first = g_editor_status;
+    nimculus_platform_set_editor_status("Nimculus status deduplication");
+    BOOL valid = first == g_editor_status &&
+      [g_editor_status isEqualToString:@"Nimculus status deduplication"];
+    [g_editor_status release];
+    g_editor_status = previous;
+    return valid;
+  }
+}
+
 bool nimculus_platform_validate_damage_rebuild(void) {
   // A new retained target must ignore a stale/partial damage list. Only an
   // initialized scene with at least one damage region may take the partial
@@ -7874,8 +7888,13 @@ void nimculus_platform_set_editor_context(const char *utf8) {
   [view updateTerminalFrame];
 }
 void nimculus_platform_set_editor_status(const char *utf8) {
-  replaceOwnedString(&g_editor_status, (utf8 && strlen(utf8) > 0)
-    ? [NSString stringWithUTF8String:utf8] : @"Ready");
+  const char *value = (utf8 && strlen(utf8) > 0) ? utf8 : "Ready";
+  // The workspace timer polls asynchronous services frequently. Do not turn
+  // an unchanged status label into an AppKit string replacement/layout pass
+  // on every poll; GPUI likewise refreshes a window in response to state
+  // notification rather than a fixed idle mutation.
+  if (g_editor_status && strcmp(g_editor_status.UTF8String, value) == 0) return;
+  replaceOwnedString(&g_editor_status, [NSString stringWithUTF8String:value]);
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
   for (NSView *subview in view.subviews) {

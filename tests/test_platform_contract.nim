@@ -133,6 +133,9 @@ suite "macOS platform contract":
   test "native editor text viewport excludes pane right and bottom chrome":
     check platformValidateEditorTextViewport()
 
+  test "native status overlay skips unchanged AppKit values":
+    check platformValidateStatusUpdateDeduplication()
+
   test "native retained scene rebuilds fully for a new target":
     check platformValidateDamageRebuild()
 

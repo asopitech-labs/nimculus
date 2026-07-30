@@ -549,6 +549,7 @@ var recoveryFilePath = ""
 var crashReportPath = ""
 var settingsFilePath = ""
 var sessionPersistence: PersistenceSchedule
+var lastNativeEditorStatus = ""
 var suppressRecoveryWrite = false
 var discardDirtyOnExit = false
 when defined(macosx):
@@ -2382,6 +2383,14 @@ proc activeEditorSelection(): tuple[startByte, endByte: int] =
 proc moveActiveEditorCursor(offset: int, selecting = false) =
   editorSession.moveActivePaneCursor(editorViewState, offset, selecting)
 
+proc syncNativeEditorStatus(document: ptr FileDocument) =
+  when defined(macosx):
+    let status = if document != nil: editorViewState.statusBarText(document[].buffer)
+      else: editorViewState.statusMessage
+    if status == lastNativeEditorStatus: return
+    lastNativeEditorStatus = status
+    platformSetEditorStatus(status.cstring)
+
 proc syncEditorCursor() =
   when defined(macosx):
     let document = activeDocument()
@@ -2406,10 +2415,8 @@ proc syncEditorCursor() =
     platformSetEditorSoftWrap(editorViewState.softWrap)
     platformSetEditorIndentGuides(editorViewState.showIndentGuides,
       uint32(max(1, editorViewState.indentWidth)))
-    let status = if document != nil: editorViewState.statusBarText(document[].buffer)
-      else: editorViewState.statusMessage
     platformSetEditorContext(editorContextText(document).cstring)
-    platformSetEditorStatus(status.cstring)
+    syncNativeEditorStatus(document)
     var tabTitles: seq[string]
     for index, tab in editorSession.tabs:
       tabTitles.add(editorSession.tabDisplayLabel(index) &
@@ -2836,11 +2843,9 @@ when defined(macosx):
     pollNativeTask()
     pollNativeUpdate()
     pollNativeTerminal()
-    let idleDocument = activeDocument()
-    let idleStatus = if idleDocument != nil: editorViewState.statusBarText(idleDocument[].buffer)
-      else: editorViewState.statusMessage
-    platformSetEditorStatus(idleStatus.cstring)
-    if lspBridge == nil: return
+    if lspBridge == nil:
+      syncNativeEditorStatus(activeDocument())
+      return
     let document = activeDocument()
     if document != nil:
       discard lspBridge.tickHover(document[].buffer)
@@ -2851,10 +2856,7 @@ when defined(macosx):
       navigateToDefinition()
       applyPendingFormatting()
       pollNativeLspFeatureResults()
-    let finalDocument = activeDocument()
-    let finalStatus = if finalDocument != nil: editorViewState.statusBarText(finalDocument[].buffer)
-      else: editorViewState.statusMessage
-    platformSetEditorStatus(finalStatus.cstring)
+    syncNativeEditorStatus(activeDocument())
 
   proc acceptCurrentCompletion() =
     let document = activeDocument()

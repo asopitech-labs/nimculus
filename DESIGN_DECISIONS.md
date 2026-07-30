@@ -5654,3 +5654,19 @@ macOS workspace timer and Windows/native idle path only flush a due request.
 **Consequences.** Continuous editing retains bounded crash-recovery latency
 without serializing unchanged sessions at timer/frame cadence, reducing CPU,
 I/O, and allocation churn on large open files.
+
+## M20-008: Make native status updates state-driven
+
+**Context.** The macOS timer polls asynchronous workspace services every
+50 ms. Its idle callback replaced the same `NSTextField` string twice per
+poll even when no status changed, causing needless Objective-C allocation and
+layout activity in an otherwise idle editor.
+
+**Decision.** Track the last status sent from the editor core and update the
+native overlay only when the visible value differs. The Objective-C boundary
+also compares its owned status string, making direct callers idempotent.
+This follows Zed/GPUI's notification-driven refresh model while retaining the
+existing polling cadence for terminal, Git, LSP, and workspace jobs.
+
+**Consequences.** Background services still become visible at the same time,
+but an idle editor no longer mutates AppKit chrome at 20 Hz.
