@@ -62,6 +62,10 @@ Files のコンテキストメニューは `Open in Terminal` を提供する。
 Terminal.app は起動しない。native contract はコンテキスト操作の command dispatch を
 検証する。
 
+Files、Outline、Search、Git status/history/branchesの共有native sidebarは、矢印と
+Enterに加えてTab／Shift+Tab／Escapeでエディタへ戻れる。パネルは閉じず、Metal editor
+をfirst responderへ復帰して、次の入力がサイドバーのAppKit text overlayに残らないようにする。
+
 ### M6 更新：Find in Folder
 
 ディレクトリの Files コンテキストメニューは `Find in Folder…` を提供する。検索 job は

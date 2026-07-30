@@ -5738,3 +5738,18 @@ input routing.
 **Consequences.** The shortcut has predictable two-step behavior, terminal
 input is not stolen by the sidebar's native text view, and the existing PTY
 process remains untouched when merely changing focus.
+
+## M6-023: Give every native workspace sidebar an editor-focus exit
+
+**Context.** The Files and Git sidebar uses an AppKit text overlay so it can
+receive arrows and Enter. It lacked the familiar `Tab`, `Shift+Tab`, and
+`Escape` route back to the editor, forcing a pointer click before editing.
+
+**Decision.** Dispatch Tab and Escape from the shared sidebar overlay as
+`sidebarFocusEditor`. The Nimculus core updates workspace focus state and
+restores the Metal editor as the native first responder. This applies equally
+to Files, Outline, Search, Git status, history, and branch lists.
+
+**Consequences.** Sidebar navigation always has a keyboard exit and no panel
+is hidden merely to return to editing. The native dispatch contract exercises
+both keys without depending on a user window.

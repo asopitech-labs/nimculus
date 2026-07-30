@@ -2367,7 +2367,8 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)keyDown:(NSEvent *)event {
   if (!g_command_callback) { [super keyDown:event]; return; }
   const unsigned short key = event.keyCode;
-  const char *command = key == 126 ? "sidebarPrevious" :
+  const char *command = (key == 48 || key == 53) ? "sidebarFocusEditor" :
+    key == 126 ? "sidebarPrevious" :
     key == 125 ? "sidebarNext" : key == 115 ? "sidebarFirst" :
     key == 119 ? "sidebarLast" : (key == 36 || key == 76) ? "sidebarOpenSelected" : NULL;
   if (command) {
@@ -6387,7 +6388,20 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
     g_editor_sidebar_mode = 3;
     [sidebar dispatchSidebarStageToggle:0];
     BOOL stageToggle = strcmp(g_validation_command, "sidebarStageToggle:0") == 0;
-    BOOL valid = selected && opened && headerIgnored && mappedSelection && mappedOpen && stageToggle;
+    NSEvent *tab = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:0 timestamp:0.0 windowNumber:0 context:nil
+      characters:@"\t" charactersIgnoringModifiers:@"\t" isARepeat:NO keyCode:48];
+    NSEvent *escape = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:0 timestamp:0.0 windowNumber:0 context:nil
+      characters:@"\033" charactersIgnoringModifiers:@"\033" isARepeat:NO keyCode:53];
+    strcpy(g_validation_command, "unchanged");
+    if (tab) [sidebar keyDown:tab];
+    BOOL tabFocusesEditor = strcmp(g_validation_command, "sidebarFocusEditor") == 0;
+    strcpy(g_validation_command, "unchanged");
+    if (escape) [sidebar keyDown:escape];
+    BOOL escapeFocusesEditor = strcmp(g_validation_command, "sidebarFocusEditor") == 0;
+    BOOL valid = selected && opened && headerIgnored && mappedSelection && mappedOpen &&
+      stageToggle && tabFocusesEditor && escapeFocusesEditor;
     [sidebar release];
     free(g_editor_sidebar_line_items);
     g_editor_sidebar_line_items = previousLineItems;

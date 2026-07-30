@@ -4735,6 +4735,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           syncNativeSidebarSelection()
       except ValueError:
         editorViewState.statusMessage = "Invalid sidebar selection"
+  elif name == "sidebarFocusEditor":
+    when defined(macosx):
+      editorWorkspaceUi.focusCenter()
+      platformFocusEditor()
   elif name in ["sidebarPrevious", "sidebarNext", "sidebarFirst", "sidebarLast"]:
     when defined(macosx):
       let panel = workspacePanelForSidebarMode(editorSidebarMode)
