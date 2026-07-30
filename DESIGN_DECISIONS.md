@@ -5721,3 +5721,20 @@ the first responder. The default keeps the panel open, matching Zed's normal
 **Consequences.** Keyboard navigation works immediately after opening a
 panel, a second invocation returns typing to the editor, and panel selection
 survives the round trip.
+
+## M10-025: Make the terminal toggle focus-aware
+
+**Context.** Zed's macOS default keymap binds `Ctrl+\`` to
+`terminal_panel::Toggle`. Its panel contract focuses a visible but unfocused
+terminal before closing it. Nimculus had no default binding and closed an
+otherwise visible terminal immediately.
+
+**Decision.** Register `Ctrl+\`` as the configurable `toggleTerminal`
+command. If the terminal is visible but does not own input, the command moves
+focus to it; only an already-focused terminal is hidden. The native Metal view
+remains the first responder, because it owns both editor IME handling and PTY
+input routing.
+
+**Consequences.** The shortcut has predictable two-step behavior, terminal
+input is not stolen by the sidebar's native text view, and the existing PTY
+process remains untouched when merely changing focus.

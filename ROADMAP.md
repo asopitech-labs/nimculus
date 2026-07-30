@@ -472,7 +472,7 @@ macOS PTY outputはCocoa idleごとにEAGAINまで読み、1回64 KiBの上限�
 
 Task出力のproblem matcherは、標準的な`path:line:column: message`と`path:line: message`を`TaskProblem`へ変換し、終了ステータス表示へ問題件数を反映する。
 
-Task stdout/stderrはPOSIX pipeをnon-blockingでpollし、プロセス終了前からTask Output overlayへ増分反映する。
+Task stdout/stderrはPOSIX pipeをnon-blockingでpollし、プロセス終了前からTask Output overlayへ増分反映する。Zed互換の既定ショートカット`Ctrl+\``は、可視だが未フォーカスのターミナルを先にフォーカスし、フォーカス済みの場合だけbottom dockを閉じる。
 
 ### M11：macOS 配布基盤 — `v0.5.0-beta`
 

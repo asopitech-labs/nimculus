@@ -73,6 +73,11 @@ suite "M2 UI foundation":
     check git.keyCode == 5
     check git.modifiers == {controlModifier, shiftModifier}
 
+  test "Zed-style terminal toggle retains the Control-grave binding":
+    let terminal = shortcutFromKeyBinding("ctrl+backtick")
+    check terminal.keyCode == 50
+    check terminal.modifiers == {controlModifier}
+
   test "row layout distributes children and preserves parent":
     var tree = newUiTree()
     let root = tree.addNode()

@@ -447,6 +447,10 @@ proc setupShortcutRegistry() =
     name: "toggleGit",
     shortcut: Shortcut(keyCode: 5, modifiers: {controlModifier, shiftModifier}),
     action: nativeShortcutAction("commandPalette:toggle git")))
+  shortcutRegistry.register(Command(
+    name: "toggleTerminal",
+    shortcut: Shortcut(keyCode: 50, modifiers: {controlModifier}),
+    action: nativeShortcutAction("commandPalette:toggle terminal")))
   # Keep all commands addressable from settings keymaps. They have no default
   # shortcut here when AppKit owns the standard menu equivalent; custom
   # bindings are installed below and are resolved before interpretKeyEvents.
@@ -1622,9 +1626,15 @@ when defined(macosx):
 
   proc toggleNativeTerminal() =
     if editorTerminalVisible:
-      editorTerminalVisible = false
-      editorTerminalFocused = false
-      platformSetTerminalVisible(false)
+      # Match Zed's terminal-panel Toggle: a visible terminal first receives
+      # focus, and only a second invocation while it owns input closes it.
+      if not editorTerminalFocused:
+        editorTerminalFocused = true
+        platformFocusEditor()
+      else:
+        editorTerminalVisible = false
+        editorTerminalFocused = false
+        platformSetTerminalVisible(false)
       return
     if editorTerminal == nil or editorTerminal.closed:
       newNativeTerminal()
@@ -4429,7 +4439,9 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "__toggle_terminal__":
       when defined(macosx):
         toggleNativeTerminal()
-        if editorTerminalVisible: editorWorkspaceUi.openPanel(panelTerminal)
+        if editorTerminalVisible:
+          editorWorkspaceUi.openPanel(panelTerminal)
+          platformFocusEditor()
         elif editorTaskOutputVisible: editorWorkspaceUi.openPanel(panelTasks)
         else: editorWorkspaceUi.bottomDock.isOpen = false
         setupDemoUi()
