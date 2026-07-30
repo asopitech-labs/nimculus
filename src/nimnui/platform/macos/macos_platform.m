@@ -159,6 +159,12 @@ static NSData *g_clipboard_utf8_data = nil;
 static char g_dialog_path[PATH_MAX] = {0};
 static BOOL g_editor_dirty = NO;
 static BOOL g_close_decision = NO;
+// External edits are advisory: a source-control operation, formatter, or
+// another editor must never turn the document window into a modal dead end.
+// Retain this action panel explicitly because this backend uses manual
+// Objective-C ownership.
+static NSPanel *g_external_change_panel = nil;
+static id g_external_change_action_target = nil;
 
 // This backend is compiled with manual Objective-C ownership. Globals below
 // outlive an autorelease pool, so every replacement must retain its new value
@@ -2241,6 +2247,25 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusEditorAnnotationOverlay : NSView
 @end
 
+@interface NimculusExternalChangeActionTarget : NSObject
+- (void)reload:(id)sender;
+- (void)keepEditing:(id)sender;
+@end
+
+static void dismissExternalChangePanel(const char *command) {
+  NSPanel *panel = g_external_change_panel;
+  id target = g_external_change_action_target;
+  g_external_change_panel = nil;
+  g_external_change_action_target = nil;
+  NSWindow *parent = panel.parentWindow;
+  if (parent) [parent removeChildWindow:panel];
+  [panel orderOut:nil];
+  [panel close];
+  [panel release];
+  [target release];
+  if (g_command_callback) g_command_callback(command);
+}
+
 @implementation NimculusDocumentSearchField
 - (void)cancelOperation:(id)sender { (void)sender; [self.searchOverlay close:nil]; }
 @end
@@ -3776,6 +3801,17 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     if (y > self.bounds.size.height || x > self.bounds.size.width) continue;
     [text drawAtPoint:NSMakePoint(x, y) withAttributes:attributes];
   }
+}
+@end
+
+@implementation NimculusExternalChangeActionTarget
+- (void)reload:(id)sender {
+  (void)sender;
+  dismissExternalChangePanel("reloadExternal");
+}
+- (void)keepEditing:(id)sender {
+  (void)sender;
+  dismissExternalChangePanel("keepExternal");
 }
 @end
 
@@ -6054,33 +6090,70 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
 
 void nimculus_platform_show_external_change(const char *path) {
   @autoreleasepool {
+    // One decision panel represents the single pending external-change state
+    // in the editor core. Do not stack prompts while FSEvents is coalescing.
+    if (g_external_change_panel) return;
     NSString *filePath = path ? [NSString stringWithUTF8String:path] : @"file";
-    NSAlert *alert = [[NSAlert alloc] init];
-    alert.messageText = @"File changed on disk";
-    alert.informativeText = [NSString stringWithFormat:@"%@ was changed by another application.", filePath];
-    [alert addButtonWithTitle:@"Reload"];
-    [alert addButtonWithTitle:@"Keep Editing"];
     NimculusMetalView *view = (NimculusMetalView *)g_active_view;
     NSWindow *window = view.window;
     if (!window) {
-      // This can only occur while a window is closing. A synchronous modal at
-      // that point can strand the main loop, so acknowledge the disk state and
-      // keep the in-memory buffer instead.
-      [alert release];
+      // This can only occur while a window is closing. Preserve the in-memory
+      // buffer; presenting a transient panel without an owner would strand it.
       if (g_command_callback) g_command_callback("keepExternal");
       return;
     }
-    // This notification is raised from the recurring idle callback. As in
-    // Zed's macOS prompt implementation, start a non-blocking window sheet;
-    // `runModal` here would suspend Metal frame presentation while waiting for
-    // the user's decision.
-    [alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse response) {
-      if (g_command_callback) {
-        g_command_callback(response == NSAlertFirstButtonReturn
-          ? "reloadExternal" : "keepExternal");
-      }
-    }];
-    [alert release];
+    // An NSAlert sheet still disables the document window. This compact child
+    // panel is deliberately non-modal: users can keep typing, save, switch
+    // tabs, or choose Reload without an unexpected interruption.
+    const CGFloat width = 420.0;
+    const CGFloat height = 112.0;
+    NSRect parentFrame = window.frame;
+    NSRect frame = NSMakeRect(NSMaxX(parentFrame) - width - 18.0,
+      NSMaxY(parentFrame) - height - 58.0, width, height);
+    NSPanel *panel = [[NSPanel alloc] initWithContentRect:frame
+      styleMask:NSWindowStyleMaskBorderless backing:NSBackingStoreBuffered defer:NO];
+    panel.opaque = NO;
+    panel.backgroundColor = [NSColor windowBackgroundColor];
+    panel.hasShadow = YES;
+    panel.level = NSFloatingWindowLevel;
+    panel.hidesOnDeactivate = NO;
+    panel.becomesKeyOnlyIfNeeded = YES;
+    panel.accessibilityLabel = @"External file change notification";
+
+    NSView *content = [[[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, width, height)] autorelease];
+    NSTextField *title = [[[NSTextField alloc] initWithFrame:NSMakeRect(16.0, 76.0, width - 32.0, 20.0)] autorelease];
+    title.stringValue = @"File changed on disk";
+    title.font = [NSFont boldSystemFontOfSize:13.0];
+    title.bezeled = NO; title.drawsBackground = NO; title.editable = NO; title.selectable = NO;
+    [content addSubview:title];
+    NSTextField *detail = [[[NSTextField alloc] initWithFrame:NSMakeRect(16.0, 48.0, width - 32.0, 18.0)] autorelease];
+    detail.stringValue = [NSString stringWithFormat:@"%@ was changed by another application.", filePath.lastPathComponent];
+    detail.font = [NSFont systemFontOfSize:12.0];
+    detail.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    detail.bezeled = NO; detail.drawsBackground = NO; detail.editable = NO; detail.selectable = YES;
+    [content addSubview:detail];
+
+    NimculusExternalChangeActionTarget *target = [[NimculusExternalChangeActionTarget alloc] init];
+    NSButton *keep = [[[NSButton alloc] initWithFrame:NSMakeRect(width - 218.0, 14.0, 104.0, 26.0)] autorelease];
+    keep.title = @"Keep Editing";
+    keep.bezelStyle = NSBezelStyleRounded;
+    keep.target = target;
+    keep.action = @selector(keepEditing:);
+    keep.accessibilityLabel = @"Keep editing this file";
+    [content addSubview:keep];
+    NSButton *reload = [[[NSButton alloc] initWithFrame:NSMakeRect(width - 106.0, 14.0, 90.0, 26.0)] autorelease];
+    reload.title = @"Reload";
+    reload.bezelStyle = NSBezelStyleRounded;
+    reload.keyEquivalent = @"r";
+    reload.target = target;
+    reload.action = @selector(reload:);
+    reload.accessibilityLabel = @"Reload changed file";
+    [content addSubview:reload];
+    panel.contentView = content;
+    g_external_change_panel = panel;
+    g_external_change_action_target = target;
+    [window addChildWindow:panel ordered:NSWindowAbove];
+    [panel orderFront:nil];
   }
 }
 
@@ -7733,14 +7806,23 @@ bool nimculus_platform_validate_external_change_sheet(void) {
     [window makeKeyAndOrderFront:nil];
     nimculus_platform_show_external_change("/tmp/nimculus-external-change.txt");
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
-    NSWindow *sheet = window.attachedSheet;
-    BOOL attached = sheet != nil;
-    if (sheet) [window endSheet:sheet returnCode:NSAlertFirstButtonReturn];
+    NSPanel *panel = g_external_change_panel;
+    // This is intentionally not a sheet: the parent must stay usable while
+    // the notification awaits a choice.
+    BOOL visible = panel != nil && panel.visible && window.attachedSheet == nil;
+    BOOL parentAcceptsInput = [window makeFirstResponder:view] && window.firstResponder == view;
+    NSButton *reload = nil;
+    for (NSView *subview in panel.contentView.subviews) {
+      if ([subview isKindOfClass:[NSButton class]] &&
+          [((NSButton *)subview).title isEqualToString:@"Reload"]) {
+        reload = (NSButton *)subview;
+        break;
+      }
+    }
+    if (reload) [reload performClick:nil];
     [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
     BOOL reloaded = strcmp(g_validation_command, "reloadExternal") == 0;
-    // NSAlert also owns a sheet transform until the following run-loop turns.
-    // Complete it before the temporary test window is released.
-    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
+    BOOL dismissed = g_external_change_panel == nil && window.attachedSheet == nil;
     g_command_callback = previousCallback;
     g_active_view = previousView;
     [window orderOut:nil];
@@ -7751,7 +7833,7 @@ bool nimculus_platform_validate_external_change_sheet(void) {
     // so later platform contracts observe the same global state as production
     // code does after a sheet closes.
     g_metrics = previousMetrics;
-    return attached && reloaded;
+    return visible && parentAcceptsInput && reload != nil && reloaded && dismissed;
   }
 }
 

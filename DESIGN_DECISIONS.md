@@ -6114,3 +6114,24 @@ inherits the document-only top inset.
 controls are immediately discoverable at the top of their panel. Pane-local
 overlays retain their existing top-edge containment. The non-modal native
 overlay contract exercises the revised sidebar and commit-editor bounds.
+
+## UI-072: External file changes must not block the editor window
+
+**Context.** External-change detection used an asynchronous `NSAlert` sheet.
+Although it did not enter a nested modal run loop, AppKit still disabled the
+parent document window while the sheet was present. A formatter, Git operation,
+or another editor could therefore interrupt typing and leave the application
+apparently stopped.
+
+**Decision.** Present one compact floating child notification with explicit
+`Reload` and `Keep Editing` actions instead of an attached sheet. It remains
+visible until one action is chosen, but the document window stays interactive:
+the user can continue editing, save, navigate, or switch tabs. The notification
+tracks the single pending external-change decision already maintained by the
+editor core, so coalesced FSEvents cannot stack prompts.
+
+**Consequences.** External modifications remain explicit and never overwrite an
+in-memory buffer automatically, while they no longer block normal work. The
+native contract verifies that no sheet is attached, the parent retains first
+responder input, and the Reload action dismisses the notification and reaches
+the editor command callback.

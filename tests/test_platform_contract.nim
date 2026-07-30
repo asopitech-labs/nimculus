@@ -161,9 +161,9 @@ suite "macOS platform contract":
   test "Finder launch events wait for the Nim file callback":
     check platformValidateDeferredFileOpenEvents()
 
-  test "external file changes use a non-blocking window sheet":
+  test "external file changes use a non-modal action notification":
     if skipNativeSheetService():
-      echo "  [SKIP] external-change sheet contract (auxiliary GUI service excluded)"
+      echo "  [SKIP] external-change notification contract (auxiliary GUI service excluded)"
     elif platformValidateExternalChangeSheet():
       check true
     elif nativeGuiValidationRequired():
