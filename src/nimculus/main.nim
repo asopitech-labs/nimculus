@@ -5047,10 +5047,13 @@ when isMainModule:
       openActiveWorkspace(restoredRoot)
     else:
       # LaunchServices starts app bundles with `/` as their current directory.
-      # Treating it as a project makes an empty launch enumerate the entire
-      # machine and hides the welcome UI behind an irrelevant Files dock.
-      editorWorkspaceUi.leftDock.isOpen = false
+      # Treating it as a project would enumerate the entire machine. Keep the
+      # Files dock instead, with its explicit Open Folder action: this is the
+      # useful Zed-like entry point for an empty launch.
+      editorWorkspaceUi.leftDock.isOpen = true
+      editorWorkspaceUi.leftDock.activePanel = panelFiles
       editorWorkspaceUi.focusedRegion = regionCenter
+      editorSidebarMode = sidebarFiles
       setupDemoUi()
     if activeWorkspace != nil and editorSession.workspaceRoots.len > 1:
       for root in editorSession.workspaceRoots[1 .. ^1]:
@@ -5059,8 +5062,18 @@ when isMainModule:
       refreshWorkspacePreview()
     applySettingsKeymap()
     applySettingsTheme()
-    let outline = "Outline\n────────\nNo symbols"
-    platformSetEditorOutline(outline.cstring, uint32(outline.len), 0)
+    if activeWorkspace == nil:
+      let files = "Files\n────────\nOpen Folder…"
+      editorWorkspaceUi.replacePanelItems(panelFiles, @["open-workspace"])
+      platformSetWorkspaceOpen(false)
+      platformSetEditorSidebar(files.cstring, uint32(files.len), 1,
+        uint32(sidebarFiles))
+      syncNativeSidebarSelection()
+    else:
+      # openActiveWorkspace has already populated Files. Refresh after the
+      # native view is available so restored sessions cannot fall back to an
+      # empty Outline presenter.
+      refreshWorkspacePreview()
     let lspCommand = getEnv("NIMCULUS_LSP_COMMAND",
       appSettings.stringSetting("lsp.command", ""))
     if lspCommand.len > 0:

@@ -2606,8 +2606,8 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   if (!self) return nil;
   self.orientation = NSUserInterfaceLayoutOrientationHorizontal;
   self.alignment = NSLayoutAttributeCenterY;
-  self.distribution = NSStackViewDistributionFillEqually;
-  self.spacing = 6.0;
+  self.distribution = NSStackViewDistributionFill;
+  self.spacing = 4.0;
   [self reloadActions];
   return self;
 }
@@ -2619,19 +2619,26 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   }
   [previous release];
   NSArray<NSArray<NSString *> *> *buttons = g_workspace_open ? @[
-    @[@"New File", @"createWorkspaceFile:"], @[@"New Folder", @"createWorkspaceDirectory:"]
-  ] : @[@[@"Open Folder…", @"openWorkspaceFolder:"]];
+    @[@"New File", @"document.badge.plus", @"createWorkspaceFile:"],
+    @[@"New Folder", @"folder.badge.plus", @"createWorkspaceDirectory:"]
+  ] : @[@[@"Open Folder…", @"folder.badge.plus", @"openWorkspaceFolder:"]];
   for (NSUInteger index = 0; index < buttons.count; index++) {
     NSArray<NSString *> *entry = buttons[index];
     NSButton *button = [NSButton buttonWithTitle:entry[0] target:self
       action:@selector(dispatchWorkspaceAction:)];
-    // The Files toolbar is part of the primary project workflow. Do not leave
-    // it to AppKit's low-contrast textured bezel on a dark editor surface.
-    // New File/Open Folder is the leading action; a second creation action is
-    // intentionally quieter but still fully readable.
-    styleWorkspaceNavigationButton(button, index == 0, NO);
+    // Project creation belongs in the compact project header, not in a row of
+    // text buttons that displaces the tree. Keep a full accessible label and
+    // tooltip while following Zed's icon-first header affordances.
+    if (@available(macOS 11.0, *)) {
+      button.image = [NSImage imageWithSystemSymbolName:entry[1]
+        accessibilityDescription:entry[0]];
+      button.imagePosition = NSImageOnly;
+    }
+    styleWorkspaceNavigationButton(button, NO, YES);
     button.toolTip = entry[0];
-    button.identifier = entry[1];
+    button.accessibilityLabel = entry[0];
+    button.identifier = entry[2];
+    [button setFrameSize:NSMakeSize(26.0, 24.0)];
     [self addArrangedSubview:button];
   }
 }
@@ -2722,7 +2729,8 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     @[@"folder", @"Files", @"commandPalette:show files"],
     @[@"list.bullet", @"Outline", @"commandPalette:show outline"],
     @[@"arrow.triangle.branch", @"Git", @"commandPalette:git status"],
-    @[@"terminal", @"Terminal", @"commandPalette:toggle terminal"]
+    @[@"terminal", @"Terminal", @"commandPalette:toggle terminal"],
+    @[@"rectangle.split.2x1", @"Split", @"splitEditor"]
   ];
   for (NSArray<NSString *> *entry in buttons) {
     NSButton *button = [NSButton buttonWithTitle:entry[1] target:self
@@ -2746,6 +2754,17 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     if (![view isKindOfClass:[NSButton class]]) continue;
     NSButton *button = (NSButton *)view;
     NSString *command = button.identifier;
+    if ([command isEqualToString:@"splitEditor"] || [command isEqualToString:@"closeSplit"]) {
+      const BOOL split = g_secondary_editor_visible;
+      button.identifier = split ? @"closeSplit" : @"splitEditor";
+      button.toolTip = split ? @"Close Split" : @"Split";
+      if (@available(macOS 11.0, *)) {
+        button.image = [NSImage imageWithSystemSymbolName:
+          (split ? @"rectangle.split.2x1.fill" : @"rectangle.split.2x1")
+          accessibilityDescription:button.toolTip];
+      }
+      command = button.identifier;
+    }
     BOOL active = [command isEqualToString:@"commandPalette:show files"] ?
         g_editor_sidebar_visible && g_editor_sidebar_mode == 1 :
       [command isEqualToString:@"commandPalette:show outline"] ?
@@ -3143,10 +3162,6 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     filesActions.hidden = YES;
     [self addSubview:filesActions];
     [filesActions release];
-    NimculusWorkspaceToolbar *workspaceToolbar = [[NimculusWorkspaceToolbar alloc]
-      initWithFrame:NSZeroRect];
-    [self addSubview:workspaceToolbar];
-    [workspaceToolbar release];
     NimculusLineNumberOverlay *lineNumbers = [[NimculusLineNumberOverlay alloc]
       initWithFrame:NSZeroRect];
     [self addSubview:lineNumbers];
@@ -3389,16 +3404,17 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     filesActions.hidden = !showFilesActions;
     if (showFilesActions) {
       CGFloat width = sidebarWidth;
-      filesActions.frame = NSMakeRect(sidebarControlX, g_editor_rect[1] + g_editor_rect[3] - 27.0,
-        MAX(1.0, width - 8.0), 24.0);
+      CGFloat actionWidth = g_workspace_open ? 56.0 : 28.0;
+      filesActions.frame = NSMakeRect(sidebarControlX + width - actionWidth - 4.0,
+        g_editor_rect[1] + g_editor_rect[3] - 27.0, actionWidth, 24.0);
     }
   }
   if (workspaceToolbar) {
-    workspaceToolbar.hidden = g_welcome_visible;
-    [workspaceToolbar reloadSelection];
-    workspaceToolbar.frame = NSMakeRect(g_editor_rect[0] + 8.0,
-      g_editor_rect[1] + g_editor_rect[3] + 29.0,
-      MAX(1.0, g_editor_rect[2] - 16.0), 22.0);
+    // Navigation belongs in the persistent activity bar, as in Zed.  The
+    // old text-button row stole vertical space from documents and duplicated
+    // the same actions. Keep its implementation only for compatibility with
+    // existing native callers; do not compose it into the workspace.
+    workspaceToolbar.hidden = YES;
   }
   if (lineNumbers) {
     lineNumbers.hidden = g_welcome_visible || !g_editor_line_numbers;
@@ -5866,6 +5882,7 @@ bool nimculus_platform_validate_activity_bar(void) {
     uint32_t previousMode = g_editor_sidebar_mode;
     BOOL previousSidebarVisible = g_editor_sidebar_visible;
     BOOL previousTerminalVisible = g_terminal_visible;
+    BOOL previousSecondaryVisible = g_secondary_editor_visible;
     g_command_callback = validationCommandCallback;
     g_editor_sidebar_visible = YES;
     g_editor_sidebar_mode = 1;
@@ -5873,11 +5890,12 @@ bool nimculus_platform_validate_activity_bar(void) {
     NimculusActivityBar *bar = [[NimculusActivityBar alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 30.0, 180.0)];
     NSArray<NSView *> *buttons = bar.arrangedSubviews;
-    BOOL presentation = buttons.count == 4 &&
+    BOOL presentation = buttons.count == 5 &&
       [((NSButton *)buttons[0]).toolTip isEqualToString:@"Files"] &&
       [((NSButton *)buttons[1]).toolTip isEqualToString:@"Outline"] &&
       [((NSButton *)buttons[2]).toolTip isEqualToString:@"Git"] &&
       [((NSButton *)buttons[3]).toolTip isEqualToString:@"Terminal"] &&
+      [((NSButton *)buttons[4]).toolTip isEqualToString:@"Split"] &&
       ((NSButton *)buttons[0]).contentTintColor != nil &&
       ![((NSButton *)buttons[0]).contentTintColor
         isEqual:((NSButton *)buttons[1]).contentTintColor] &&
@@ -5888,12 +5906,20 @@ bool nimculus_platform_validate_activity_bar(void) {
     g_terminal_visible = YES;
     [bar reloadSelection];
     BOOL terminalSelected = ((NSButton *)buttons[3]).contentTintColor != nil;
+    [bar dispatchWorkspaceCommand:(NSButton *)buttons[4]];
+    BOOL split = strcmp(g_validation_command, "splitEditor") == 0;
+    g_secondary_editor_visible = YES;
+    [bar reloadSelection];
+    BOOL closePresentation = [((NSButton *)buttons[4]).toolTip isEqualToString:@"Close Split"];
+    [bar dispatchWorkspaceCommand:(NSButton *)buttons[4]];
+    BOOL closeSplit = strcmp(g_validation_command, "closeSplit") == 0;
     [bar release];
     g_editor_sidebar_mode = previousMode;
     g_editor_sidebar_visible = previousSidebarVisible;
     g_terminal_visible = previousTerminalVisible;
+    g_secondary_editor_visible = previousSecondaryVisible;
     g_command_callback = previousCallback;
-    return presentation && git && terminalSelected;
+    return presentation && git && terminalSelected && split && closePresentation && closeSplit;
   }
 }
 
