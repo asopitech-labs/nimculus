@@ -37,6 +37,7 @@ bool nimculus_platform_validate_sidebar_context_dispatch(void);
 bool nimculus_platform_validate_git_sidebar_tabs(void);
 bool nimculus_platform_validate_files_sidebar_actions(void);
 bool nimculus_platform_validate_sidebar_scroll_container(void);
+bool nimculus_platform_validate_sidebar_bounds(void);
 bool nimculus_platform_validate_secondary_highlight_isolation(void);
 void nimculus_platform_get_metrics(NimculusPlatformMetrics *metrics);
 typedef struct NimculusInputLatencyStats {

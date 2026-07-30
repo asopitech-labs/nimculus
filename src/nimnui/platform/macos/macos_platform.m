@@ -4386,12 +4386,24 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     g_editor_rect[0] + g_editor_rect[2] + 8.0 : 0.0;
   const CGFloat dockAvailableWidth = g_editor_sidebar_on_right ?
     self.bounds.size.width - dockOuterX - 8.0 : g_editor_rect[0] - 12.0;
-  const CGFloat sidebarWidth = MAX(140.0, dockAvailableWidth - activityBarWidth);
+  // The logical workspace intentionally gives the editor priority when a
+  // window is narrowed below the combined dock + center minimum.  Do not
+  // undo that decision at the AppKit boundary by forcing a 140pt sidebar:
+  // that placed the native Files/Git views beyond the right edge while the
+  // logical dock had already collapsed.  A presented sidebar needs room for
+  // its own controls *and* the activity bar; otherwise preserve the dock's
+  // logical open state but hide this transient presentation until the window
+  // is wide enough again.
+  const CGFloat minimumSidebarContentWidth = 124.0;
+  const CGFloat requestedSidebarWidth = dockAvailableWidth - activityBarWidth;
+  const BOOL sidebarPresented = g_editor_sidebar_visible &&
+    requestedSidebarWidth >= minimumSidebarContentWidth;
+  const CGFloat sidebarWidth = MAX(1.0, requestedSidebarWidth);
   const CGFloat activityBarX = g_editor_sidebar_on_right ? dockOuterX + sidebarWidth : 4.0;
   const CGFloat sidebarX = g_editor_sidebar_on_right ? dockOuterX : 8.0 + activityBarWidth;
   const CGFloat sidebarControlX = sidebarX + 4.0;
   if (activityBar) {
-    activityBar.hidden = g_welcome_visible || !g_editor_sidebar_visible;
+    activityBar.hidden = g_welcome_visible || !sidebarPresented;
     if (!activityBar.hidden) {
       activityBar.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(activityBarX, g_editor_rect[1] + 4.0, 30.0,
@@ -4401,16 +4413,16 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
   if (outline) {
     CGFloat width = sidebarWidth;
-    BOOL showGitTabs = g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 &&
+    BOOL showGitTabs = sidebarPresented && g_editor_sidebar_mode >= 2 &&
       g_editor_sidebar_mode <= 4;
-    BOOL showFilesActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 1;
-    BOOL showSearchActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 5;
-    BOOL showGitChangesActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 3;
+    BOOL showFilesActions = sidebarPresented && g_editor_sidebar_mode == 1;
+    BOOL showSearchActions = sidebarPresented && g_editor_sidebar_mode == 5;
+    BOOL showGitChangesActions = sidebarPresented && g_editor_sidebar_mode == 3;
     CGFloat sidebarToolbarHeight = showGitChangesActions ? 56.0 :
       (showGitTabs || showFilesActions || showSearchActions) ? 30.0 : 0.0;
     NSScrollView *scroll = outline.enclosingScrollView;
     if (scroll) {
-      scroll.hidden = !g_editor_sidebar_visible;
+      scroll.hidden = !sidebarPresented;
       scroll.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(sidebarX, g_editor_rect[1] + sidebarToolbarHeight, width,
           MAX(1.0, g_editor_rect[3] - sidebarToolbarHeight)));
@@ -4427,7 +4439,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     }
   }
   if (gitTabs) {
-    BOOL showGitTabs = g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 &&
+    BOOL showGitTabs = sidebarPresented && g_editor_sidebar_mode >= 2 &&
       g_editor_sidebar_mode <= 4;
     gitTabs.hidden = !showGitTabs;
     if (showGitTabs) {
@@ -4446,7 +4458,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     }
   }
   if (gitCommit) {
-    BOOL showGitCommit = g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 &&
+    BOOL showGitCommit = sidebarPresented && g_editor_sidebar_mode >= 2 &&
       g_editor_sidebar_mode <= 4;
     gitCommit.hidden = !showGitCommit;
     if (showGitCommit) {
@@ -4460,7 +4472,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     }
   }
   if (gitRefresh) {
-    BOOL showGitRefresh = g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 &&
+    BOOL showGitRefresh = sidebarPresented && g_editor_sidebar_mode >= 2 &&
       g_editor_sidebar_mode <= 4;
     gitRefresh.hidden = !showGitRefresh;
     if (showGitRefresh) {
@@ -4473,7 +4485,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     }
   }
   if (gitChangesActions) {
-    BOOL showGitChangesActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 3;
+    BOOL showGitChangesActions = sidebarPresented && g_editor_sidebar_mode == 3;
     gitChangesActions.hidden = !showGitChangesActions;
     if (showGitChangesActions) {
       gitChangesActions.frame = appKitFrameForLogicalTopRect(self,
@@ -4482,7 +4494,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     }
   }
   if (filesActions) {
-    BOOL showFilesActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 1;
+    BOOL showFilesActions = sidebarPresented && g_editor_sidebar_mode == 1;
     filesActions.hidden = !showFilesActions;
     if (showFilesActions) {
       CGFloat width = sidebarWidth;
@@ -4493,7 +4505,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     }
   }
   if (searchActions) {
-    BOOL showSearchActions = g_editor_sidebar_visible && g_editor_sidebar_mode == 5;
+    BOOL showSearchActions = sidebarPresented && g_editor_sidebar_mode == 5;
     searchActions.hidden = !showSearchActions;
     if (showSearchActions) {
       CGFloat width = sidebarWidth;
@@ -7362,6 +7374,61 @@ bool nimculus_platform_validate_sidebar_scroll_container(void) {
     [previousText release];
     [view release];
     return valid;
+  }
+}
+
+bool nimculus_platform_validate_sidebar_bounds(void) {
+  // Keep the native presentation subordinate to the logical workspace dock.
+  // A narrow window can intentionally collapse that dock to protect the
+  // editor's minimum width; no AppKit subview may then escape the root view.
+  @autoreleasepool {
+    id previousView = g_active_view;
+    const double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
+      g_editor_rect[2], g_editor_rect[3]};
+    BOOL previousSidebarVisible = g_editor_sidebar_visible;
+    BOOL previousSidebarOnRight = g_editor_sidebar_on_right;
+    BOOL previousWelcomeVisible = g_welcome_visible;
+    NimculusMetalView *view = [[NimculusMetalView alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 520.0, 420.0)];
+    if (!view) return false;
+    g_active_view = view;
+    g_editor_sidebar_visible = YES;
+    g_editor_sidebar_on_right = YES;
+    g_welcome_visible = NO;
+
+    // The logical 160pt dock leaves only 106pt after its activity bar. It is
+    // too narrow for Files/Git controls, so both native presenters must be
+    // hidden rather than overrunning the root view.
+    g_editor_rect[0] = 28.0; g_editor_rect[1] = 80.0;
+    g_editor_rect[2] = 332.0; g_editor_rect[3] = 300.0;
+    [view updateTerminalFrame];
+    NimculusOutlineOverlay *outline = outlineOverlayForView(view);
+    NimculusActivityBar *activityBar = nil;
+    for (NSView *subview in view.subviews) {
+      if ([subview isKindOfClass:[NimculusActivityBar class]]) {
+        activityBar = (NimculusActivityBar *)subview;
+        break;
+      }
+    }
+    NSScrollView *scroll = outline.enclosingScrollView;
+    BOOL hiddenWhenCollapsed = scroll && activityBar && scroll.hidden && activityBar.hidden;
+
+    // Once the actual dock can host both its content and activity bar, the
+    // same views reappear and every frame is wholly inside the AppKit root.
+    [view setFrame:NSMakeRect(0.0, 0.0, 640.0, 420.0)];
+    [view updateTerminalFrame];
+    BOOL shownWhenUsable = scroll && activityBar && !scroll.hidden && !activityBar.hidden;
+    BOOL containedWhenUsable = shownWhenUsable &&
+      NSContainsRect(view.bounds, scroll.frame) &&
+      NSContainsRect(view.bounds, activityBar.frame);
+
+    memcpy(g_editor_rect, previousRect, sizeof(previousRect));
+    g_editor_sidebar_visible = previousSidebarVisible;
+    g_editor_sidebar_on_right = previousSidebarOnRight;
+    g_welcome_visible = previousWelcomeVisible;
+    g_active_view = previousView;
+    [view release];
+    return hiddenWhenCollapsed && containedWhenUsable;
   }
 }
 

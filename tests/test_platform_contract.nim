@@ -405,6 +405,9 @@ suite "macOS platform contract":
   test "sidebar supports scrolling long file and Git history lists":
     check platformValidateSidebarScrollContainer()
 
+  test "right sidebar never exceeds a narrowed logical dock":
+    check platformValidateSidebarBounds()
+
   # This must remain last: it releases global Metal, AppKit bridge, and CPU
   # resources exactly as applicationWillTerminate does.
   test "native platform teardown releases retained renderer resources":

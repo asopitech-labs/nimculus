@@ -6071,3 +6071,24 @@ the Metal editor. Pane-local containment is structural for both renderer and
 native controls, including narrow split panes. The existing native overlay
 contract now compares converted AppKit frames against converted pane bounds and
 locks the top-edge placement of tab/header and non-modal search controls.
+
+## UI-070: Let a narrowed workspace collapse native sidebar presentation
+
+**Context.** The logical workspace protects the editor minimum width by
+shrinking its side dock when a macOS window becomes narrow. The AppKit bridge
+then reintroduced a fixed 140pt sidebar width, so Files, Git, and the activity
+bar could extend beyond the window's right edge even though the logical dock
+had already collapsed.
+
+**Decision.** Derive native sidebar presentation from the actual post-layout
+dock width. A sidebar is shown only when there is room for its 124pt content
+area and the 38pt activity bar. Until then its logical open state remains
+unchanged, but every native sidebar child is hidden. Once space returns, the
+same panel reappears without changing workspace state. When presented, its
+width is the available dock width rather than a visual minimum that can exceed
+the AppKit root.
+
+**Consequences.** Window resize cannot create right-edge native overflow.
+The native contract checks both a collapsed 520pt window and a widened window,
+proving that Files/Git presentation is hidden in the former and fully bounded
+in the latter.

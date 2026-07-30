@@ -10,7 +10,7 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 |---|---|---|
 | M0：モノレポ基盤 | ✅ 完了 | Apple Silicon のローカル build / test / benchmark / lint、およびmacOS CI（run 29635844053）を確認済み |
 | M1：macOS ウィンドウと Metal 描画 | 🟡 自動E2E済み・実機確認対象 | Cocoa / Metal / Retina / 基本入力を実装。自動E2Eでnative contract、起動、描画境界を確認済み。物理hardware確認は受け入れ記録へ集約 |
-| M2：NimNUI 基礎 UI システム | 🟡 自動E2E済み・実機確認対象 | UIツリー、レイアウト、状態、イベント、PaintList、macOS入力を実装。自動E2Eで統合基準を確認済み。個別GUI操作は受け入れ記録へ集約 |
+| M2：NimNUI 基礎 UI システム | 🟡 自動E2E済み・実機確認対象 | UIツリー、レイアウト、状態、イベント、PaintList、macOS入力を実装。縮小時は論理dockの実効幅に合わせてnative sidebarを隠し、右端へ描画しない。自動E2Eで統合基準を確認済み。個別GUI操作は受け入れ記録へ集約 |
 | M3：macOS テキスト描画と IME | 🟡 自動E2E済み・実機確認対象 | Core Text、glyph atlas、動的Metal文字描画、Tree-sitter構文色、marked text表示、IME、候補位置、clipboardを実装。日本語IMEの対話確認は受け入れ記録へ集約 |
 | M4：エディタバッファと編集コア | ✅ 完了 | Piece Table、原子的編集、Undo/Redo、複数カーソル、位置変換、fuzz、候補構造比較を実装・検証済み |
 | M5：macOS 最小実用エディタ | 🟡 自動E2E済み・実機確認対象 | 編集サービス、plain-text fallbackを含む動的文書表示、構文色、macOSメニュー/IME/Finder接続、Application Supportへのsession復元・crash recovery、`Cmd+,`の設定パネル導線を実装。Find/Replace/Go to LineとCommand PaletteはZed同様の非モーダルなエディタ内バーとして実装。Metalの上原点座標とAppKit child frameの下原点座標を境界で変換し、tab/breadcrumb・Git control・検索barをpane上端、行番号・サイドバー・overlayを本文と同じpaneへ配置する。二paneの対話操作は受け入れ記録へ集約 |
