@@ -507,6 +507,7 @@ var activeWorkspace: Workspace
 var workspaceSearchJob: SearchJob
 var workspaceQuickOpenJob: FuzzySearchJob
 var workspaceSearchQuery = ""
+var workspaceSearchScope = ""
 var workspaceSearchResults: seq[SearchResult]
 var workspaceSearchCancelled = false
 var workspaceQuickOpenQuery = ""
@@ -1971,6 +1972,7 @@ proc openActiveWorkspace(path: string) =
     reloadWorkspaceSettings(activeWorkspace.root)
     activeWorkspace.startWatching()
     workspaceSearchQuery = ""
+    workspaceSearchScope = ""
     workspaceQuickOpenQuery = ""
     workspaceSearchResults.setLen(0)
     workspaceSearchCancelled = false
@@ -2103,7 +2105,9 @@ proc renderWorkspaceSearch() =
   when defined(macosx) or defined(windows):
     if activeWorkspace == nil or workspaceSearchQuery.len == 0: return
     workspacePreviewMode = "search"
-    var lines = @["Search: " & workspaceSearchQuery, "────────"]
+    let scopeLabel = if workspaceSearchScope.len > 0:
+      " — " & workspaceSearchScope.extractFilename else: ""
+    var lines = @["Search: " & workspaceSearchQuery & scopeLabel, "────────"]
     let visibleCount = min(workspaceSearchResults.len, 100)
     for index in 0 ..< visibleCount:
       let result = workspaceSearchResults[index]
@@ -2144,6 +2148,7 @@ proc renderQuickOpen() =
     if activeWorkspace == nil or workspaceQuickOpenQuery.len == 0: return
     workspacePreviewMode = "quickOpen"
     workspaceSearchQuery = ""
+    workspaceSearchScope = ""
     # Native sidebar selection reserves its first two lines for title and
     # separator, just like Files/Git. Keep that contract so a result's visual
     # row and its activation index are identical.
@@ -2178,7 +2183,7 @@ proc renderQuickOpen() =
       platformSetEditorSelection(0, 0)
       platformSetEditorText(text.cstring, uint32(text.len))
 
-proc showWorkspaceSearch(query: string) =
+proc showWorkspaceSearch(query: string, scopePath = "") =
   when defined(macosx) or defined(windows):
     if workspaceSearchJob != nil: workspaceSearchJob.cancelSearch()
     workspaceSearchJob = nil
@@ -2186,12 +2191,13 @@ proc showWorkspaceSearch(query: string) =
     workspaceQuickOpenJob = nil
     workspaceQuickOpenQuery = ""
     workspaceSearchQuery = query
+    workspaceSearchScope = scopePath
     workspaceSearchResults.setLen(0)
     workspaceSearchCancelled = false
     if activeWorkspace == nil or query.len == 0:
       if activeWorkspace != nil: refreshWorkspacePreview()
       return
-    workspaceSearchJob = activeWorkspace.startSearch(query)
+    workspaceSearchJob = activeWorkspace.startSearch(query, scopePath = scopePath)
     renderWorkspaceSearch()
 
 proc showQuickOpen(query: string) =
@@ -2202,6 +2208,7 @@ proc showQuickOpen(query: string) =
     workspaceQuickOpenJob = nil
     workspacePreviewMode = "quickOpen"
     workspaceSearchQuery = ""
+    workspaceSearchScope = ""
     workspaceSearchResults.setLen(0)
     workspaceSearchCancelled = false
     workspaceQuickOpenQuery = query
@@ -2238,7 +2245,8 @@ proc pollWorkspaceSearch() =
         workspaceSearchJob.cancelSearch()
         workspaceSearchResults.setLen(0)
         workspaceSearchCancelled = false
-        workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery)
+        workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery,
+          scopePath = workspaceSearchScope)
       elif workspaceQuickOpenJob != nil:
         workspaceQuickOpenJob.cancelFuzzySearch()
         workspacePreviewEntries.setLen(0)
@@ -2246,7 +2254,8 @@ proc pollWorkspaceSearch() =
       elif workspacePreviewMode == "search" and workspaceSearchQuery.len > 0:
         workspaceSearchResults.setLen(0)
         workspaceSearchCancelled = false
-        workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery)
+        workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery,
+          scopePath = workspaceSearchScope)
       elif workspacePreviewMode == "tree":
         refreshWorkspacePreview()
       elif workspacePreviewMode == "quickOpen":
@@ -2915,7 +2924,8 @@ when defined(windows):
         workspaceSearchJob.cancelSearch()
         workspaceSearchResults.setLen(0)
         workspaceSearchCancelled = false
-        workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery)
+        workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery,
+          scopePath = workspaceSearchScope)
       elif workspaceQuickOpenJob != nil:
         workspaceQuickOpenJob.cancelFuzzySearch()
         workspacePreviewEntries.setLen(0)
@@ -4733,6 +4743,24 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
             editorViewState.statusMessage = "Unknown Git history action"
         except ValueError:
           editorViewState.statusMessage = "Invalid Git history item"
+  elif name.startsWith("workspaceSearchIn:"):
+    when defined(macosx):
+      let fields = name["workspaceSearchIn:".len .. ^1].split('\x1f', maxsplit = 1)
+      if fields.len != 2 or fields[1].strip.len == 0:
+        editorViewState.statusMessage = "Folder search requires a query"
+      else:
+        let scope = canonicalOpenPath(fields[0])
+        var belongsToWorkspace = false
+        if activeWorkspace != nil:
+          for configuredRoot in activeWorkspace.rootPaths:
+            let root = canonicalOpenPath(configuredRoot)
+            if scope == root or scope.startsWith(root / ""):
+              belongsToWorkspace = true
+              break
+        if not belongsToWorkspace or not dirExists(scope):
+          editorViewState.statusMessage = "Search folder is outside workspace"
+        else:
+          showWorkspaceSearch(fields[1].strip, scope)
   elif name.startsWith("workspaceSearch:"):
     showWorkspaceSearch(name[16 .. ^1])
   elif name.startsWith("workspaceFileHistory:"):

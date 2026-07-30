@@ -353,15 +353,28 @@ proc invalidateEntryCache(workspace: Workspace, path: string) =
     workspace.entries.del(key)
 
 proc startSearch*(workspace: Workspace, query: string,
-                  token: CancelToken = nil): SearchJob =
+                  token: CancelToken = nil, scopePath = ""): SearchJob =
   result = SearchJob(workspace: workspace, query: query,
     token: if token == nil: newCancelToken() else: token,
     truncated: false, maxResults: MaxWorkspaceSearchResults, totalResults: 0)
   if query.len == 0:
     result.complete = true
     return
-  for root in workspace.roots:
-    result.pendingDirectories.add((root: root, relative: ""))
+  if scopePath.len == 0:
+    for root in workspace.roots:
+      result.pendingDirectories.add((root: root, relative: ""))
+  else:
+    try:
+      # Reuse the workspace's canonical root/relative resolver. It covers
+      # symlink aliases and multi-root projects consistently with file
+      # operations, rather than rebuilding path-boundary rules in search.
+      let location = workspace.splitWorkspacePath(scopePath)
+      if dirExists(location.root / location.relative):
+        result.pendingDirectories.add((root: location.root, relative: location.relative))
+    except ValueError:
+      discard
+  if result.pendingDirectories.len == 0:
+    result.complete = true
 
 proc cancelSearch*(job: SearchJob) =
   if job != nil:

@@ -62,6 +62,13 @@ Files のコンテキストメニューは `Open in Terminal` を提供する。
 Terminal.app は起動しない。native contract はコンテキスト操作の command dispatch を
 検証する。
 
+### M6 更新：Find in Folder
+
+ディレクトリの Files コンテキストメニューは `Find in Folder…` を提供する。検索 job は
+workspace の canonical root/relative path resolver を再利用し、選択ディレクトリだけを
+探索キューへ入れる。シンボリックリンクと複数 root の境界を全体検索と同じ規則で扱い、
+sibling ディレクトリの結果を返さないことを unit test で確認する。
+
 各マイルストーンはunit/integration test、native Cocoa/Metal contract、self-hosted macOS CIで進める。個別のGUI実機確認は完了ゲートにしない。M12とM20の自動基準がそろったrelease candidateで、物理入力機器・日本語入力ソース・複数ディスプレイを含む確認を[`docs/MACOS_MANUAL_ACCEPTANCE.md`](./docs/MACOS_MANUAL_ACCEPTANCE.md)の一回のmacOS E2E受け入れとして実施する。
 
 ## macOS E2E 受け入れの実行時点

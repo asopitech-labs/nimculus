@@ -4794,6 +4794,28 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
 }
 
+- (void)dispatchWorkspaceSearchInFolder:(id)sender {
+  (void)sender;
+  if (g_workspace_context_path.length > 0 && g_workspace_context_is_directory) {
+    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+    alert.messageText = @"Find in Folder";
+    alert.informativeText = g_workspace_context_path;
+    NSTextField *field = [self workspacePathField:@"Search text"];
+    alert.accessoryView = field;
+    [alert addButtonWithTitle:@"Search"];
+    [alert addButtonWithTitle:@"Cancel"];
+    NSString *directory = [g_workspace_context_path copy];
+    [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+      if (response == NSAlertFirstButtonReturn && g_command_callback && field.stringValue.length > 0) {
+        NSString *command = [NSString stringWithFormat:@"workspaceSearchIn:%@\x1f%@",
+          directory, field.stringValue];
+        g_command_callback(command.UTF8String);
+      }
+      [directory release];
+    }];
+  }
+}
+
 - (void)copyWorkspaceContextPath:(id)sender {
   (void)sender;
   if (g_workspace_context_path.length > 0 && g_command_callback) {
@@ -7168,6 +7190,9 @@ void nimculus_platform_show_workspace_entry_context(const char *path, bool is_di
   }
   [menu addItemWithTitle:@"Reveal in Finder" action:@selector(revealWorkspaceContextEntry:) keyEquivalent:@""];
   [menu addItemWithTitle:@"Open in Terminal" action:@selector(dispatchWorkspaceOpenTerminal:) keyEquivalent:@""];
+  if (g_workspace_context_is_directory) {
+    [menu addItemWithTitle:@"Find in Folder…" action:@selector(dispatchWorkspaceSearchInFolder:) keyEquivalent:@""];
+  }
   [menu addItemWithTitle:@"Copy Path" action:@selector(copyWorkspaceContextPath:) keyEquivalent:@""];
   [menu addItemWithTitle:@"Copy Relative Path" action:@selector(copyWorkspaceContextRelativePath:) keyEquivalent:@""];
   [menu addItem:[NSMenuItem separatorItem]];

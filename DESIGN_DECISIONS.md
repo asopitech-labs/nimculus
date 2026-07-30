@@ -5460,3 +5460,20 @@ Nimculus PTY in that directory. It never launches Terminal.app.
 The context-menu native contract verifies its explicit command payload, while
 the existing PTY suite verifies working-directory creation and bounded
 shutdown behavior.
+
+## UI-056: Scope folder search through the workspace path resolver
+
+**Context.** `Find in Folder…` needs to search the selected directory without
+duplicating traversal logic or accidentally scanning sibling directories. Raw
+prefix matching is unsafe for symlink aliases and multi-root workspaces.
+
+**Decision.** Extend the cooperative `SearchJob` with an optional scope path.
+It resolves that path through `Workspace.splitWorkspacePath`, then initializes
+the existing lazy directory queue with exactly its registered root and relative
+directory. The macOS context menu sends the directory and query as a structured
+payload; the editor verifies the directory remains inside the workspace.
+
+**Consequences.** Folder search shares all ignore rules, cancellation,
+streaming limits, and canonical-path rules with global search. A workspace
+test proves that a scoped job returns the selected subtree while excluding a
+sibling with the same match.

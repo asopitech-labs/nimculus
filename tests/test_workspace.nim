@@ -122,6 +122,24 @@ suite "M6 workspace":
     check cancelled.isComplete
     removeFile(root / "a.txt"); removeFile(root / "b.txt"); removeDir(root)
 
+  test "search job scopes traversal to a selected workspace directory":
+    let root = getTempDir() / "nimculus-m6-search-scope"
+    let selected = root / "selected"
+    let sibling = root / "sibling"
+    createDir(root); createDir(selected); createDir(sibling)
+    writeFile(selected / "inside.txt", "needle")
+    writeFile(sibling / "outside.txt", "needle")
+    let workspace = openWorkspace(root)
+    let job = workspace.startSearch("needle", scopePath = selected)
+    var results: seq[SearchResult]
+    while not job.isComplete:
+      results.add(job.pollSearch(maxFiles = 2, maxLines = 32))
+    check results.len == 1
+    # macOS canonicalizes /var to /private/var for workspace entries.
+    check results[0].path.endsWith(DirSep & "selected" & DirSep & "inside.txt")
+    removeFile(selected / "inside.txt"); removeFile(sibling / "outside.txt")
+    removeDir(selected); removeDir(sibling); removeDir(root)
+
   test "changed paths are normalized and coalesced":
     let root = getTempDir() / "nimculus-m6-change-set"
     createDir(root)
