@@ -10,9 +10,39 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP_ROOT="${TMPDIR:-/tmp}/nimculus-gui-workflows-$$"
 APP_PID=""
+APP_COMMAND=""
+
+app_process_is_ours() {
+  [[ -n "$APP_PID" ]] || return 1
+  [[ "$(ps -p "$APP_PID" -o command= 2>/dev/null || true)" == "$APP_COMMAND"* ]]
+}
+
+owned_app_pids() {
+  # Match both the exact executable and this run's unique temporary document.
+  # This cannot select a developer's interactive Nimculus process.
+  ps -axo pid=,command= | awk -v executable="$ROOT_DIR/nimculus/main" \
+    -v document="$TMP_ROOT/project/main.nim" \
+    '$2 == executable && index($0, document) > 0 { print $1 }'
+}
+
+terminate_owned_app_processes() {
+  local pid
+  for pid in $(owned_app_pids); do kill -TERM "$pid" 2>/dev/null || true; done
+  for _ in $(seq 1 10); do
+    [[ -z "$(owned_app_pids)" ]] && return 0
+    sleep 0.1
+  done
+  for pid in $(owned_app_pids); do kill -KILL "$pid" 2>/dev/null || true; done
+  sleep 0.1
+  [[ -z "$(owned_app_pids)" ]]
+}
 
 cleanup() {
-  if [[ -n "$APP_PID" ]]; then
+  # This test must never use a process-group signal: nimble and Codex can
+  # share a controlling terminal with the shell that launched the harness.
+  # Terminate only the executable PID that this script started, after checking
+  # its command line still identifies it as our isolated acceptance instance.
+  if app_process_is_ours; then
     kill -TERM "$APP_PID" 2>/dev/null || true
     # A GUI workflow can leave a PTY session active. Never let the harness
     # wait indefinitely for an AppKit quit path: give it the same bounded
@@ -21,8 +51,15 @@ cleanup() {
       if ! kill -0 "$APP_PID" 2>/dev/null; then break; fi
       sleep 0.1
     done
-    if kill -0 "$APP_PID" 2>/dev/null; then kill -KILL "$APP_PID" 2>/dev/null || true; fi
+    if app_process_is_ours; then kill -KILL "$APP_PID" 2>/dev/null || true; fi
     wait "$APP_PID" 2>/dev/null || true
+  fi
+  # AppKit is not expected to fork here, but audit the unique test document
+  # after reaping the direct child. If that assumption changes, clean up only
+  # processes proven to belong to this temporary E2E workspace and fail loud.
+  if ! terminate_owned_app_processes; then
+    echo "Nimculus GUI E2E left an owned app process alive: $(owned_app_pids)" >&2
+    exit 1
   fi
   rm -rf "$TMP_ROOT"
 }
@@ -48,6 +85,7 @@ nimble build
 # fleet of restored Untitled tabs in the user's next interactive launch.
 HOME="$TMP_ROOT/home" "$ROOT_DIR/nimculus/main" "$TMP_ROOT/project/main.nim" >"$TMP_ROOT/app.log" 2>&1 &
 APP_PID=$!
+APP_COMMAND="$ROOT_DIR/nimculus/main $TMP_ROOT/project/main.nim"
 
 for _ in $(seq 1 40); do
   # Do not select an arbitrary already-running Nimculus instance by name.
