@@ -368,7 +368,11 @@ suite "macOS platform contract":
     platformSetEditorSidebar(history.cstring, uint32(history.len), 1, 2)
     check true
 
-  test "sidebar rows dispatch a stable item index to Nim":
+  test "sidebar rows keep Git section headers out of native dispatch":
+    let changes = "Git Status\n────────\nStaged (1)\nM   src/main.nim\nUnstaged (1)\n M  src/main.nim"
+    var lineItems = [-1'i32, -1'i32, -1'i32, 0'i32, -1'i32, 1'i32]
+    platformSetEditorSidebar(changes.cstring, uint32(changes.len), 2, 3)
+    platformSetEditorSidebarLineItems(addr lineItems[0], uint32(lineItems.len))
     check platformValidateSidebarDispatch()
 
   test "Files sidebar dispatches a native context-menu item":

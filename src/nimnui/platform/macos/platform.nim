@@ -144,6 +144,7 @@ proc platformSetEditorText*(text: cstring, length: uint32) {.importc: "nimculus_
 proc platformSetSecondaryEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_secondary_editor_text", cdecl.}
 proc platformSetEditorOutline*(text: cstring, length, symbolCount: uint32) {.importc: "nimculus_platform_set_editor_outline", cdecl.}
 proc platformSetEditorSidebar*(text: cstring, length, itemCount, mode: uint32) {.importc: "nimculus_platform_set_editor_sidebar", cdecl.}
+proc platformSetEditorSidebarLineItems*(items: ptr int32, count: uint32) {.importc: "nimculus_platform_set_editor_sidebar_line_items", cdecl.}
 proc platformSetEditorSidebarSelection*(itemIndex: uint32) {.importc: "nimculus_platform_set_editor_sidebar_selection", cdecl.}
 proc platformSetEditorSidebarVisible*(visible: bool) {.importc: "nimculus_platform_set_editor_sidebar_visible", cdecl.}
 proc platformSetEditorSidebarOnRight*(onRight: bool) {.importc: "nimculus_platform_set_editor_sidebar_on_right", cdecl.}

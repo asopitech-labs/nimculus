@@ -562,6 +562,10 @@ when defined(macosx):
   var editorSecondaryGitPath = ""
   var editorGitHistory: seq[GitCommit]
   var editorGitHistoryPath = ""
+  # Keep the porcelain result separately from the rendered rows. A partially
+  # staged path renders once under Staged and once under Unstaged, but a later
+  # branch-name repaint must never treat those two rows as two Git entries.
+  var editorGitStatusSourceEntries: seq[GitStatusEntry]
   var editorGitStatusEntries: seq[GitStatusEntry]
   var editorGitPanelBranch = ""
   var editorGitStatusGeneration = 0'u64
@@ -764,6 +768,7 @@ when defined(macosx):
     setupDemoUi()
     editorSidebarMode = sidebarGitStatus
     editorGitRepository = nil
+    editorGitStatusSourceEntries.setLen(0)
     editorGitStatusEntries.setLen(0)
     editorWorkspaceUi.replacePanelItems(panelGit, @["open-workspace"])
     let text = "Git\n────────\nNo repository found\nOpen Folder…"
@@ -797,34 +802,64 @@ when defined(macosx):
     let title = if editorGitPanelBranch.len > 0:
       "Git Status — " & editorGitPanelBranch else: "Git Status"
     var lines = @[title, "────────"]
+    var lineItems: seq[int32] = @[-1'i32, -1'i32]
     var conflicts: seq[GitStatusEntry]
-    var ordinary: seq[GitStatusEntry]
+    var staged: seq[GitStatusEntry]
+    var unstaged: seq[GitStatusEntry]
     for entry in entries:
-      if entry.conflict: conflicts.add(entry) else: ordinary.add(entry)
-    for entry in conflicts & ordinary:
-      if lines.len - 2 >= MaxPanelEntries: break
-      let state = $entry.indexStatus & $entry.worktreeStatus
-      let label = if entry.conflict: "CONFLICT " else: state & " "
-      let path = if entry.originalPath.len > 0:
-        entry.originalPath & " → " & entry.path else: entry.path
-      lines.add(label & path)
-    if entries.len > MaxPanelEntries:
-      lines.add("… " & $(entries.len - MaxPanelEntries) & " additional entry(s) omitted")
+      if entry.conflict:
+        conflicts.add(entry)
+      else:
+        # A partially staged file intentionally appears in both sections, as
+        # it does in Zed: each section describes the corresponding index or
+        # worktree state rather than hiding one half of the file's changes.
+        if entry.indexStatus notin {' ', '?', '!'}: staged.add(entry)
+        if entry.worktreeStatus != ' ' or entry.indexStatus in {'?', '!'}:
+          unstaged.add(entry)
+    var displayed: seq[GitStatusEntry]
+    var panelKeys: seq[string]
+    var omitted = 0
+    proc appendSection(name: string, section: openArray[GitStatusEntry],
+                       kind: string) =
+      if section.len == 0: return
+      lines.add(name & " (" & $section.len & ")")
+      lineItems.add(-1'i32)
+      for entry in section:
+        if displayed.len >= MaxPanelEntries:
+          inc omitted
+          continue
+        let state = if kind == "conflict": "CONFLICT" elif kind == "staged":
+          $entry.indexStatus & " " else: " " & $entry.worktreeStatus
+        let path = if entry.originalPath.len > 0:
+          entry.originalPath & " → " & entry.path else: entry.path
+        lines.add(state & "  " & path)
+        displayed.add(entry)
+        panelKeys.add(kind & "\x1f" & $entry.indexStatus & $entry.worktreeStatus &
+          "\x1f" & entry.path)
+        lineItems.add(int32(displayed.high))
+    appendSection("Conflicts", conflicts, "conflict")
+    appendSection("Staged", staged, "staged")
+    appendSection("Unstaged", unstaged, "unstaged")
+    if displayed.len == 0:
+      lines.add("No changes")
+      lineItems.add(-1'i32)
+    if omitted > 0:
+      lines.add("… " & $omitted & " additional entry(s) omitted")
+      lineItems.add(-1'i32)
     # Status is the primary Git sidebar surface, not an editor/output result.
     # Rendering the same list into the output panel duplicated its title and
     # obscured the document after every refresh. Reserve that panel for an
     # explicit detail action such as commit show, blame, task output, or LSP.
     # The scrollable sidebar owns the complete status list and file actions.
     editorSidebarMode = sidebarGitStatus
-    editorGitStatusEntries = conflicts & ordinary
+    editorGitStatusEntries = displayed
     editorGitEntriesGeneration = editorGitStatusGeneration
-    if editorGitStatusEntries.len > MaxPanelEntries:
-      editorGitStatusEntries.setLen(MaxPanelEntries)
     let sidebarText = lines.join("\n")
-    editorWorkspaceUi.replacePanelItems(panelGit,
-      editorGitStatusEntries.mapIt($it.indexStatus & $it.worktreeStatus & "\x1f" & it.path))
+    editorWorkspaceUi.replacePanelItems(panelGit, panelKeys)
     platformSetEditorSidebar(sidebarText.cstring, uint32(sidebarText.len),
       uint32(editorGitStatusEntries.len), uint32(sidebarGitStatus))
+    if lineItems.len > 0:
+      platformSetEditorSidebarLineItems(unsafeAddr lineItems[0], uint32(lineItems.len))
     syncNativeSidebarSelection()
 
   proc renderNativeGitBranches(branches: seq[GitBranch]) =
@@ -912,6 +947,7 @@ when defined(macosx):
         if entry.conflict: inc conflicts
       inc editorGitStatusGeneration
       refreshNativeGitPanelBranch(editorGitRepository)
+      editorGitStatusSourceEntries = entries
       renderNativeGitStatus(entries)
       editorViewState.statusMessage = "Git: " & $entries.len &
         " changed file(s), " & $conflicts & " conflict(s)"
@@ -943,6 +979,7 @@ when defined(macosx):
       let entries = parseStatus(job.result.output)
       inc editorGitStatusGeneration
       refreshNativeGitPanelBranch(editorGitRepository)
+      editorGitStatusSourceEntries = entries
       renderNativeGitStatus(entries)
       editorViewState.statusMessage = "Git: " & editorGitActionSource & " complete"
     elif action == "commit" or action == "amend":
@@ -1794,9 +1831,9 @@ when defined(macosx):
     # The branch can arrive before or after porcelain status. Repaint only an
     # already-visible Changes list; no Git command or filesystem access occurs
     # on this path.
-    if editorSidebarMode == sidebarGitStatus and editorGitStatusEntries.len > 0 and
+    if editorSidebarMode == sidebarGitStatus and editorGitStatusSourceEntries.len > 0 and
         editorGitEntriesGeneration == editorGitBranchGeneration:
-      renderNativeGitStatus(editorGitStatusEntries)
+      renderNativeGitStatus(editorGitStatusSourceEntries)
 
   proc editorVisibleLineCount(): int =
     ## Keep cursor reveal, syntax requests, and native text rendering on the

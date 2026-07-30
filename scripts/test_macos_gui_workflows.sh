@@ -90,6 +90,12 @@ tell application "System Events"
     delay 0.5
     if not (exists button "Changes" of window 1) then error "Git panel did not expose Changes"
     if not (exists button "History" of window 1) then error "Git panel did not expose History"
+    if not (exists button "Branches" of window 1) then error "Git panel did not expose Branches"
+    if not (exists button "Refresh Git panel" of window 1) then error "Git panel did not expose Refresh"
+    click button "History" of window 1
+    delay 0.5
+    click button "Refresh Git panel" of window 1
+    delay 0.5
 
     click button "Terminal" of window 1
     delay 0.5

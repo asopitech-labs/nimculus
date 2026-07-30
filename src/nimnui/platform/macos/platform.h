@@ -134,6 +134,10 @@ void nimculus_platform_set_editor_outline(const char *utf8, uint32_t length,
                                           uint32_t symbol_count);
 void nimculus_platform_set_editor_sidebar(const char *utf8, uint32_t length,
                                           uint32_t item_count, uint32_t mode);
+// Maps each rendered sidebar line to a logical item index. A negative value
+// makes the line presentational only (for example, a Git section header).
+void nimculus_platform_set_editor_sidebar_line_items(const int32_t *items,
+                                                     uint32_t count);
 void nimculus_platform_set_editor_sidebar_selection(uint32_t item_index);
 void nimculus_platform_set_editor_sidebar_visible(bool visible);
 void nimculus_platform_set_editor_sidebar_on_right(bool on_right);

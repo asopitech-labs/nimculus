@@ -121,6 +121,11 @@ static BOOL g_editor_sidebar_visible = YES;
 static BOOL g_editor_sidebar_on_right = NO;
 static BOOL g_workspace_open = YES;
 static NSUInteger g_editor_sidebar_selected_index = NSNotFound;
+// Most sidebars use the historical two-line header followed by one row per
+// item. Git status also has non-interactive section headers, so retain an
+// explicit line-to-item map rather than making AppKit infer row positions.
+static int32_t *g_editor_sidebar_line_items = NULL;
+static uint32_t g_editor_sidebar_line_item_count = 0;
 static NSString *g_theme_background = @"#1f2329";
 static NSString *g_theme_foreground = @"#d7dae0";
 static NSString *g_theme_accent = @"#4daafc";
@@ -487,6 +492,8 @@ static void releasePlatformResources(void) {
   [g_editor_lines release]; g_editor_lines = nil;
   free(g_editor_line_utf16_offsets); g_editor_line_utf16_offsets = NULL;
   free(g_editor_line_utf8_offsets); g_editor_line_utf8_offsets = NULL;
+  free(g_editor_sidebar_line_items); g_editor_sidebar_line_items = NULL;
+  g_editor_sidebar_line_item_count = 0;
   g_editor_line_count = 0;
   [g_secondary_editor_lines release]; g_secondary_editor_lines = nil;
   free(g_secondary_editor_line_utf16_offsets); g_secondary_editor_line_utf16_offsets = NULL;
@@ -2258,6 +2265,12 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 }
 - (NSUInteger)sidebarItemForLine:(NSUInteger)line {
   if (g_editor_outline_symbol_count == 0 || line < 2) return NSNotFound;
+  if (g_editor_sidebar_line_items) {
+    if (line >= g_editor_sidebar_line_item_count) return NSNotFound;
+    int32_t item = g_editor_sidebar_line_items[line];
+    return item < 0 || (uint32_t)item >= g_editor_outline_symbol_count
+      ? NSNotFound : (NSUInteger)item;
+  }
   NSUInteger item = line - 2;
   return item < g_editor_outline_symbol_count ? item : NSNotFound;
 }
@@ -3065,6 +3078,21 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
         } range:marker];
       }
     } else if (g_editor_sidebar_mode == 3) {
+      if (g_editor_sidebar_line_items && line < g_editor_sidebar_line_item_count &&
+          g_editor_sidebar_line_items[line] < 0) {
+        // Git's section labels are hierarchy, never file state or a clickable
+        // row. Keep them quiet and semibold so the three change groups scan
+        // like Zed's collapsible sections without pretending to be a status.
+        [presented addAttributes:@{
+          NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold],
+          NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
+            [NSColor labelColor]) colorWithAlphaComponent:0.72]
+        } range:range];
+        if (newline.location == NSNotFound) break;
+        cursor = NSMaxRange(newline);
+        line++;
+        continue;
+      }
       // Surface conflicts and Git's two-column porcelain status separately
       // from the file path, following the Git panel's status-first scan.
       NSUInteger prefixLength = [content hasPrefix:@"CONFLICT "] ? 8 :
@@ -6035,6 +6063,15 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
     NimculusCommandCallback previousCallback = g_command_callback;
     uint32_t previousMode = g_editor_sidebar_mode;
     uint32_t previousCount = g_editor_outline_symbol_count;
+    uint32_t previousLineItemCount = g_editor_sidebar_line_item_count;
+    int32_t *previousLineItems = NULL;
+    if (previousLineItemCount > 0 && g_editor_sidebar_line_items) {
+      previousLineItems = calloc(previousLineItemCount, sizeof(int32_t));
+      if (previousLineItems) memcpy(previousLineItems, g_editor_sidebar_line_items,
+        previousLineItemCount * sizeof(int32_t));
+    }
+    free(g_editor_sidebar_line_items); g_editor_sidebar_line_items = NULL;
+    g_editor_sidebar_line_item_count = 0;
     g_validation_command[0] = '\0';
     g_command_callback = validationCommandCallback;
     g_editor_sidebar_mode = 1;
@@ -6045,8 +6082,20 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
     BOOL selected = strcmp(g_validation_command, "sidebarSelect:1") == 0;
     [sidebar dispatchSidebarLine:3 open:YES];
     BOOL opened = strcmp(g_validation_command, "sidebarOpen:1") == 0;
-    BOOL valid = selected && opened;
+    int32_t lineItems[] = {-1, -1, -1, 0, 1};
+    nimculus_platform_set_editor_sidebar_line_items(lineItems, 5);
+    strcpy(g_validation_command, "unchanged");
+    [sidebar dispatchSidebarLine:2 open:NO];
+    BOOL headerIgnored = strcmp(g_validation_command, "unchanged") == 0;
+    [sidebar dispatchSidebarLine:3 open:NO];
+    BOOL mappedSelection = strcmp(g_validation_command, "sidebarSelect:0") == 0;
+    [sidebar dispatchSidebarLine:4 open:YES];
+    BOOL mappedOpen = strcmp(g_validation_command, "sidebarOpen:1") == 0;
+    BOOL valid = selected && opened && headerIgnored && mappedSelection && mappedOpen;
     [sidebar release];
+    free(g_editor_sidebar_line_items);
+    g_editor_sidebar_line_items = previousLineItems;
+    g_editor_sidebar_line_item_count = previousLineItems ? previousLineItemCount : 0;
     g_editor_outline_symbol_count = previousCount;
     g_editor_sidebar_mode = previousMode;
     g_command_callback = previousCallback;
@@ -7646,6 +7695,8 @@ void nimculus_platform_set_secondary_editor_text(const char *utf8, uint32_t leng
 void nimculus_platform_set_editor_outline(const char *utf8, uint32_t length,
                                           uint32_t symbol_count) {
   g_editor_sidebar_mode = 0;
+  free(g_editor_sidebar_line_items); g_editor_sidebar_line_items = NULL;
+  g_editor_sidebar_line_item_count = 0;
   replaceOwnedUTF8String(&g_editor_outline_text, utf8, length,
     @"Outline\n────────\nNo symbols");
   g_editor_outline_symbol_count = symbol_count;
@@ -7658,6 +7709,8 @@ void nimculus_platform_set_editor_outline(const char *utf8, uint32_t length,
 void nimculus_platform_set_editor_sidebar(const char *utf8, uint32_t length,
                                           uint32_t item_count, uint32_t mode) {
   g_editor_sidebar_mode = mode;
+  free(g_editor_sidebar_line_items); g_editor_sidebar_line_items = NULL;
+  g_editor_sidebar_line_item_count = 0;
   replaceOwnedUTF8String(&g_editor_outline_text, utf8, length,
     @"Project\n────────\nNo items");
   g_editor_outline_symbol_count = item_count;
@@ -7672,6 +7725,28 @@ void nimculus_platform_set_editor_sidebar(const char *utf8, uint32_t length,
   }
   [view updateTerminalFrame];
 }
+void nimculus_platform_set_editor_sidebar_line_items(const int32_t *items,
+                                                     uint32_t count) {
+  free(g_editor_sidebar_line_items); g_editor_sidebar_line_items = NULL;
+  g_editor_sidebar_line_item_count = 0;
+  if (items && count > 0) {
+    g_editor_sidebar_line_items = calloc(count, sizeof(int32_t));
+    if (!g_editor_sidebar_line_items) return;
+    memcpy(g_editor_sidebar_line_items, items, count * sizeof(int32_t));
+    g_editor_sidebar_line_item_count = count;
+  }
+}
+
+static NSUInteger editorSidebarLineForItem(NSUInteger item) {
+  if (g_editor_sidebar_line_items) {
+    for (uint32_t line = 0; line < g_editor_sidebar_line_item_count; line++) {
+      if (g_editor_sidebar_line_items[line] == (int32_t)item) return line;
+    }
+    return NSNotFound;
+  }
+  return item + 2;
+}
+
 void nimculus_platform_set_editor_sidebar_selection(uint32_t item_index) {
   g_editor_sidebar_selected_index = item_index == UINT32_MAX ? NSNotFound : item_index;
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
@@ -7683,7 +7758,11 @@ void nimculus_platform_set_editor_sidebar_selection(uint32_t item_index) {
     [outline setSelectedRange:NSMakeRange(0, 0)];
     return;
   }
-  NSUInteger line = g_editor_sidebar_selected_index + 2;
+  NSUInteger line = editorSidebarLineForItem(g_editor_sidebar_selected_index);
+  if (line == NSNotFound) {
+    [outline setSelectedRange:NSMakeRange(0, 0)];
+    return;
+  }
   NSUInteger start = 0;
   for (NSUInteger current = 0; current < line && start < outline.string.length; current++) {
     NSRange newline = [outline.string rangeOfString:@"\n" options:0
