@@ -2042,6 +2042,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)showGoToLineBar;
 - (void)showWorkspaceSearchBar;
 - (void)showQuickOpenBar;
+- (void)showSettingsEditorWithTheme:(NSString *)theme editorFontSize:(NSString *)editorFontSize
+                   terminalFontSize:(NSString *)terminalFontSize editorFontFamily:(NSString *)editorFontFamily
+                 terminalFontFamily:(NSString *)terminalFontFamily shell:(NSString *)shell;
 - (void)showCommandPalette;
 - (void)showGitCommitEditor;
 @end
@@ -2053,6 +2056,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @class NimculusDocumentSearchOverlay;
 @class NimculusCommandPaletteOverlay;
 @class NimculusGitCommitOverlay;
+@class NimculusSettingsOverlay;
 @interface NimculusDocumentSearchField : NSSearchField
 @property(nonatomic, assign) NimculusDocumentSearchOverlay *searchOverlay;
 @end
@@ -2064,6 +2068,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @end
 @interface NimculusGitCommitField : NSTextField
 @property(nonatomic, assign) NimculusGitCommitOverlay *commitOverlay;
+@end
+@interface NimculusSettingsTextField : NSTextField
+@property(nonatomic, assign) NimculusSettingsOverlay *settingsOverlay;
 @end
 @interface NimculusCommandPaletteOverlay : NSView <NSComboBoxDelegate>
 @property(nonatomic, retain) NSComboBox *field;
@@ -2077,6 +2084,19 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic, retain) NSButton *commitButton;
 @property(nonatomic, retain) NSButton *closeButton;
 - (void)show;
+@end
+@interface NimculusSettingsOverlay : NSView
+@property(nonatomic, retain) NSPopUpButton *themePopup;
+@property(nonatomic, retain) NSTextField *editorSizeField;
+@property(nonatomic, retain) NSTextField *terminalSizeField;
+@property(nonatomic, retain) NSTextField *editorFontField;
+@property(nonatomic, retain) NSTextField *terminalFontField;
+@property(nonatomic, retain) NSTextField *shellField;
+@property(nonatomic, retain) NSButton *applyButton;
+@property(nonatomic, retain) NSButton *closeButton;
+- (void)showWithTheme:(NSString *)theme editorFontSize:(NSString *)editorFontSize
+      terminalFontSize:(NSString *)terminalFontSize editorFontFamily:(NSString *)editorFontFamily
+    terminalFontFamily:(NSString *)terminalFontFamily shell:(NSString *)shell;
 @end
 @interface NimculusDocumentSearchOverlay : NSView <NSTextFieldDelegate>
 @property(nonatomic, retain) NSSearchField *queryField;
@@ -2197,6 +2217,10 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 
 @implementation NimculusGitCommitField
 - (void)cancelOperation:(id)sender { (void)sender; [self.commitOverlay close:nil]; }
+@end
+
+@implementation NimculusSettingsTextField
+- (void)cancelOperation:(id)sender { (void)sender; [self.settingsOverlay close:nil]; }
 @end
 
 @implementation NimculusCommandPaletteOverlay
@@ -2380,6 +2404,110 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   self.hidden = YES;
   [self.window makeFirstResponder:self.superview];
 }
+@end
+
+// Zed keeps settings in a dedicated editing surface. This compact native
+// form exposes the supported global settings without putting a sheet in front
+// of the document; validation and persistence stay in Nim.
+@implementation NimculusSettingsOverlay
+
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.wantsLayer = YES;
+  self.layer.cornerRadius = 8.0;
+  self.layer.borderWidth = 1.0;
+  self.layer.borderColor = [[NSColor separatorColor] colorWithAlphaComponent:0.8].CGColor;
+  self.layer.backgroundColor = [[NSColor windowBackgroundColor]
+    colorWithAlphaComponent:0.99].CGColor;
+  NSArray<NSString *> *labels = @[@"Appearance", @"Editor font size", @"Terminal font size",
+    @"Editor font family", @"Terminal font family", @"Terminal shell"];
+  for (NSUInteger index = 0; index < labels.count; index++) {
+    NSTextField *label = [NSTextField labelWithString:labels[index]];
+    label.alignment = NSTextAlignmentRight;
+    label.font = [NSFont systemFontOfSize:12.0];
+    label.tag = 940 + index;
+    [self addSubview:label];
+  }
+  self.themePopup = [[[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO] autorelease];
+  [self.themePopup addItemsWithTitles:@[@"system", @"light", @"dark"]];
+  [self addSubview:self.themePopup];
+  NSArray<NSTextField *> *fields = @[
+    [[[NimculusSettingsTextField alloc] initWithFrame:NSZeroRect] autorelease],
+    [[[NimculusSettingsTextField alloc] initWithFrame:NSZeroRect] autorelease],
+    [[[NimculusSettingsTextField alloc] initWithFrame:NSZeroRect] autorelease],
+    [[[NimculusSettingsTextField alloc] initWithFrame:NSZeroRect] autorelease],
+    [[[NimculusSettingsTextField alloc] initWithFrame:NSZeroRect] autorelease]
+  ];
+  self.editorSizeField = fields[0]; self.terminalSizeField = fields[1];
+  self.editorFontField = fields[2]; self.terminalFontField = fields[3]; self.shellField = fields[4];
+  for (NSTextField *field in fields) {
+    ((NimculusSettingsTextField *)field).settingsOverlay = self;
+    [self addSubview:field];
+  }
+  self.applyButton = [NSButton buttonWithTitle:@"Apply" target:self action:@selector(apply:)];
+  self.applyButton.bezelStyle = NSBezelStyleTexturedRounded;
+  self.closeButton = [NSButton buttonWithTitle:@"Close" target:self action:@selector(close:)];
+  self.closeButton.bezelStyle = NSBezelStyleTexturedRounded;
+  [self addSubview:self.applyButton];
+  [self addSubview:self.closeButton];
+  self.toolTip = @"Nimculus Settings";
+  return self;
+}
+
+- (void)dealloc {
+  [_themePopup release]; [_editorSizeField release]; [_terminalSizeField release];
+  [_editorFontField release]; [_terminalFontField release]; [_shellField release];
+  [_applyButton release]; [_closeButton release];
+  [super dealloc];
+}
+
+- (void)layout {
+  [super layout];
+  const CGFloat labelX = 12.0, labelWidth = 132.0, fieldX = 154.0;
+  const CGFloat fieldWidth = MAX(120.0, self.bounds.size.width - fieldX - 12.0);
+  const CGFloat rowHeight = 28.0;
+  NSArray<NSView *> *controls = @[self.themePopup, self.editorSizeField, self.terminalSizeField,
+    self.editorFontField, self.terminalFontField, self.shellField];
+  for (NSUInteger index = 0; index < controls.count; index++) {
+    CGFloat y = self.bounds.size.height - 42.0 - index * rowHeight;
+    NSView *label = [self viewWithTag:940 + index];
+    label.frame = NSMakeRect(labelX, y + 3.0, labelWidth, 22.0);
+    controls[index].frame = NSMakeRect(fieldX, y, fieldWidth, 24.0);
+  }
+  self.applyButton.frame = NSMakeRect(self.bounds.size.width - 174.0, 10.0, 78.0, 26.0);
+  self.closeButton.frame = NSMakeRect(self.bounds.size.width - 88.0, 10.0, 76.0, 26.0);
+}
+
+- (void)showWithTheme:(NSString *)theme editorFontSize:(NSString *)editorFontSize
+      terminalFontSize:(NSString *)terminalFontSize editorFontFamily:(NSString *)editorFontFamily
+    terminalFontFamily:(NSString *)terminalFontFamily shell:(NSString *)shell {
+  NSInteger index = [self.themePopup indexOfItemWithTitle:theme ?: @"system"];
+  [self.themePopup selectItemAtIndex:index >= 0 ? index : 0];
+  self.editorSizeField.stringValue = editorFontSize ?: @"14";
+  self.terminalSizeField.stringValue = terminalFontSize ?: @"12";
+  self.editorFontField.stringValue = editorFontFamily ?: @"Menlo";
+  self.terminalFontField.stringValue = terminalFontFamily ?: @"Menlo";
+  self.shellField.stringValue = shell ?: @"/bin/zsh";
+  self.hidden = NO;
+  [self setNeedsLayout:YES];
+  [self layoutSubtreeIfNeeded];
+  [self.window makeFirstResponder:self.editorSizeField];
+  [self.editorSizeField selectText:nil];
+}
+
+- (void)apply:(id)sender {
+  (void)sender;
+  if (g_command_callback) {
+    NSString *command = [NSString stringWithFormat:@"settingsApply:%@\x1f%@\x1f%@\x1f%@\x1f%@\x1f%@",
+      self.themePopup.titleOfSelectedItem ?: @"system", self.editorSizeField.stringValue ?: @"14",
+      self.terminalSizeField.stringValue ?: @"12", self.editorFontField.stringValue ?: @"Menlo",
+      self.terminalFontField.stringValue ?: @"Menlo", self.shellField.stringValue ?: @"/bin/zsh"];
+    g_command_callback(command.UTF8String);
+  }
+}
+
+- (void)close:(id)sender { (void)sender; self.hidden = YES; [self.window makeFirstResponder:self.superview]; }
 @end
 
 @implementation NimculusDocumentSearchOverlay
@@ -4091,6 +4219,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     gitCommitEditor.hidden = YES;
     [self addSubview:gitCommitEditor];
     [gitCommitEditor release];
+    NimculusSettingsOverlay *settingsEditor =
+      [[NimculusSettingsOverlay alloc] initWithFrame:NSZeroRect];
+    settingsEditor.hidden = YES;
+    [self addSubview:settingsEditor];
+    [settingsEditor release];
     [self updateTrackingAreas];
   }
   return self;
@@ -4170,6 +4303,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusDocumentSearchOverlay *documentSearch = nil;
   NimculusCommandPaletteOverlay *commandPalette = nil;
   NimculusGitCommitOverlay *gitCommitEditor = nil;
+  NimculusSettingsOverlay *settingsEditor = nil;
   for (NSView *subview in self.subviews) {
     if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) lineNumbers = (NimculusLineNumberOverlay *)subview;
     if ([subview isKindOfClass:[NimculusIndentGuideOverlay class]]) indentGuides = (NimculusIndentGuideOverlay *)subview;
@@ -4188,6 +4322,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) documentSearch = (NimculusDocumentSearchOverlay *)subview;
     if ([subview isKindOfClass:[NimculusCommandPaletteOverlay class]]) commandPalette = (NimculusCommandPaletteOverlay *)subview;
     if ([subview isKindOfClass:[NimculusGitCommitOverlay class]]) gitCommitEditor = (NimculusGitCommitOverlay *)subview;
+    if ([subview isKindOfClass:[NimculusSettingsOverlay class]]) settingsEditor = (NimculusSettingsOverlay *)subview;
     if ([subview isKindOfClass:[NimculusGitSidebarTabs class]]) gitTabs = (NimculusGitSidebarTabs *)subview;
     if ([subview isKindOfClass:[NimculusGitCommitButton class]]) gitCommit = (NimculusGitCommitButton *)subview;
     if ([subview isKindOfClass:[NimculusGitRefreshButton class]]) gitRefresh = (NimculusGitRefreshButton *)subview;
@@ -4391,6 +4526,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       commitWidth, 36.0);
     [gitCommitEditor setNeedsLayout:YES];
   }
+  if (settingsEditor && !settingsEditor.hidden) {
+    const CGFloat settingsWidth = MIN(500.0, MAX(340.0, g_editor_rect[2] - 24.0));
+    settingsEditor.frame = NSMakeRect(g_editor_rect[0] + (g_editor_rect[2] - settingsWidth) / 2.0,
+      g_editor_rect[1] + (g_editor_rect[3] - 230.0) / 2.0, settingsWidth, 230.0);
+    [settingsEditor setNeedsLayout:YES];
+  }
   if (!terminal || !terminalSessions || !outputBar || !taskOutput) return;
   BOOL panelVisible = g_terminal_visible || g_task_output_visible;
   CGFloat height = panelVisible ? MIN(180.0, MAX(72.0, g_editor_rect[3] * 0.42)) : 0.0;
@@ -4475,6 +4616,20 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   for (NSView *subview in self.subviews) {
     if ([subview isKindOfClass:[NimculusGitCommitOverlay class]]) {
       [(NimculusGitCommitOverlay *)subview show];
+      [self updateTerminalFrame];
+      return;
+    }
+  }
+}
+
+- (void)showSettingsEditorWithTheme:(NSString *)theme editorFontSize:(NSString *)editorFontSize
+                   terminalFontSize:(NSString *)terminalFontSize editorFontFamily:(NSString *)editorFontFamily
+                 terminalFontFamily:(NSString *)terminalFontFamily shell:(NSString *)shell {
+  for (NSView *subview in self.subviews) {
+    if ([subview isKindOfClass:[NimculusSettingsOverlay class]]) {
+      [(NimculusSettingsOverlay *)subview showWithTheme:theme editorFontSize:editorFontSize
+        terminalFontSize:terminalFontSize editorFontFamily:editorFontFamily
+        terminalFontFamily:terminalFontFamily shell:shell];
       [self updateTerminalFrame];
       return;
     }
@@ -5161,59 +5316,9 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
                  terminalFontSize:(NSString *)terminalFontSize
                   editorFontFamily:(NSString *)editorFontFamily
                 terminalFontFamily:(NSString *)terminalFontFamily shell:(NSString *)shell {
-  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-  alert.messageText = @"Nimculus Settings";
-  alert.informativeText = @"Changes are written to the global settings file and applied immediately.";
-  NSStackView *fields = [[[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 420, 160)] autorelease];
-  fields.orientation = NSUserInterfaceLayoutOrientationVertical;
-  fields.alignment = NSLayoutAttributeWidth;
-  fields.spacing = 8.0;
-
-  NSStackView *(^row)(NSString *, NSView *) = ^NSStackView *(NSString *label, NSView *control) {
-    NSTextField *title = [NSTextField labelWithString:label];
-    title.alignment = NSTextAlignmentRight;
-    title.translatesAutoresizingMaskIntoConstraints = NO;
-    [title.widthAnchor constraintEqualToConstant:128.0].active = YES;
-    NSStackView *line = [[[NSStackView alloc] initWithFrame:NSMakeRect(0, 0, 420, 24)] autorelease];
-    line.orientation = NSUserInterfaceLayoutOrientationHorizontal;
-    line.spacing = 8.0;
-    [line addArrangedSubview:title];
-    [line addArrangedSubview:control];
-    return line;
-  };
-
-  NSPopUpButton *themePopup = [[[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 270, 24) pullsDown:NO] autorelease];
-  [themePopup addItemsWithTitles:@[@"system", @"light", @"dark"]];
-  NSInteger themeIndex = [themePopup indexOfItemWithTitle:theme ?: @"system"];
-  [themePopup selectItemAtIndex:themeIndex >= 0 ? themeIndex : 0];
-  themePopup.identifier = @"theme";
-  NSTextField *editorSize = [NSTextField textFieldWithString:editorFontSize ?: @"14"];
-  editorSize.identifier = @"editorFontSize";
-  NSTextField *terminalSize = [NSTextField textFieldWithString:terminalFontSize ?: @"12"];
-  terminalSize.identifier = @"terminalFontSize";
-  NSTextField *editorFont = [NSTextField textFieldWithString:editorFontFamily ?: @"Menlo"];
-  editorFont.identifier = @"editorFontFamily";
-  NSTextField *terminalFont = [NSTextField textFieldWithString:terminalFontFamily ?: @"Menlo"];
-  terminalFont.identifier = @"terminalFontFamily";
-  NSTextField *shellField = [NSTextField textFieldWithString:shell ?: @"/bin/zsh"];
-  shellField.identifier = @"shell";
-  [fields addArrangedSubview:row(@"Appearance", themePopup)];
-  [fields addArrangedSubview:row(@"Editor font size", editorSize)];
-  [fields addArrangedSubview:row(@"Terminal font size", terminalSize)];
-  [fields addArrangedSubview:row(@"Editor font family", editorFont)];
-  [fields addArrangedSubview:row(@"Terminal font family", terminalFont)];
-  [fields addArrangedSubview:row(@"Terminal shell", shellField)];
-  alert.accessoryView = fields;
-  [alert addButtonWithTitle:@"Apply"];
-  [alert addButtonWithTitle:@"Cancel"];
-  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
-    if (response != NSAlertFirstButtonReturn || !g_command_callback) return;
-    NSString *command = [NSString stringWithFormat:@"settingsApply:%@\x1f%@\x1f%@\x1f%@\x1f%@\x1f%@",
-      themePopup.titleOfSelectedItem ?: @"system", editorSize.stringValue ?: @"14",
-      terminalSize.stringValue ?: @"12", editorFont.stringValue ?: @"Menlo",
-      terminalFont.stringValue ?: @"Menlo", shellField.stringValue ?: @"/bin/zsh"];
-    g_command_callback(command.UTF8String);
-  }];
+  [self.view showSettingsEditorWithTheme:theme editorFontSize:editorFontSize
+    terminalFontSize:terminalFontSize editorFontFamily:editorFontFamily
+    terminalFontFamily:terminalFontFamily shell:shell];
 }
 
 - (void)previousTab:(id)sender {
@@ -7281,6 +7386,23 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     [delegate presentGitCommitSheet];
     [commitEditor.messageField cancelOperation:nil];
     BOOL commitEscaped = commitEditor.hidden && window.firstResponder == view;
+    [delegate showSettingsPanelWithTheme:@"dark" editorFontSize:@"15" terminalFontSize:@"13"
+      editorFontFamily:@"Menlo" terminalFontFamily:@"SF Mono" shell:@"/bin/zsh"];
+    NimculusSettingsOverlay *settings = nil;
+    for (NSView *subview in view.subviews) {
+      if ([subview isKindOfClass:[NimculusSettingsOverlay class]]) {
+        settings = (NimculusSettingsOverlay *)subview;
+        break;
+      }
+    }
+    BOOL settingsVisible = settings && !settings.hidden && window.attachedSheet == nil &&
+      window.firstResponder == settings.editorSizeField.currentEditor &&
+      [settings.themePopup.titleOfSelectedItem isEqualToString:@"dark"];
+    [settings apply:nil];
+    BOOL settingsDispatched = strcmp(g_validation_command,
+      "settingsApply:dark\03715\03713\037Menlo\037SF Mono\037/bin/zsh") == 0;
+    [settings.editorSizeField cancelOperation:nil];
+    BOOL settingsEscaped = settings.hidden && window.firstResponder == view;
     g_command_callback = previousCallback;
     g_active_view = previousView;
     delegate.view = nil;
@@ -7294,7 +7416,8 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
       visibleWorkspaceSearch && workspaceSearchDispatched && visibleQuickOpen &&
       quickOpenDispatched && dismissed &&
       paletteVisible && paletteFiltered && paletteDispatched && paletteEscaped &&
-      commitVisible && commitDispatched && commitEscaped;
+      commitVisible && commitDispatched && commitEscaped && settingsVisible &&
+      settingsDispatched && settingsEscaped;
   }
 }
 

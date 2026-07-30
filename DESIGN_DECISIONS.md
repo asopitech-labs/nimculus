@@ -5974,3 +5974,20 @@ not run a filesystem search for every keystroke.
 **Consequences.** File navigation has the same non-modal, editor-preserving
 entry behavior as document and workspace search. The native overlay contract
 verifies query dispatch and focus restoration without an attached sheet.
+
+## UI-066: Edit supported settings without blocking the workspace
+
+**Context.** The initial settings UI used an `NSAlert` with six controls. It
+blocked the document despite settings already having an explicit validation,
+persistence, and live-reload command boundary.
+
+**Decision.** Render the supported global settings as a centered native form
+above the active editor: appearance, editor and terminal font sizes, font
+families, and terminal shell. Apply serializes the same six fields into the
+existing `settingsApply:` command; Esc and Close leave the persisted settings
+unchanged and return focus to the editor.
+
+**Consequences.** Cmd+, is a usable editing surface rather than a blocking
+prompt. The native contract covers populated values, Apply dispatch, absence
+of a sheet, and Esc focus restoration; Nim remains responsible for validation
+and atomic settings-file updates.

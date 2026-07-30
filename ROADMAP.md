@@ -519,6 +519,8 @@ keymap reload時はregistryを初期状態から再構築し、削除された�
 
 **macOS 要件：** Command キー中心の標準キーマップ、Option キーの単語移動、標準編集操作、システム外観連動、Light / Dark 切替（アクセントカラー連動は任意）。
 
+`Cmd+,` は sheet で文書を停止せず、theme、editor/terminal font size、font family、terminal shellを編集して既存の設定検証・live reloadへ渡す非モーダルな設定フォームを表示する。
+
 システム外観はAppKitの`viewDidChangeEffectiveAppearance`通知を受け、`theme: "system"`でLight / Darkへ即時追従する。`theme: "light"` / `"dark"`による明示指定と`themeColors.background`による個別上書きを優先する。
 
 ### M13：Windows 対応 — `v0.7.0-beta`
