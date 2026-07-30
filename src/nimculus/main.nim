@@ -4532,10 +4532,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         setupDemoUi()
         if activeWorkspace == nil:
           editorSidebarMode = sidebarFiles
-          let emptyPanel = "Files\n────────\nOpen Folder…"
-          editorWorkspaceUi.replacePanelItems(panelFiles, @["open-workspace"])
+          let emptyPanel = "Files\n────────\nOpen a folder to start a workspace."
+          editorWorkspaceUi.replacePanelItems(panelFiles, @[])
           platformSetWorkspaceOpen(false)
-          platformSetEditorSidebar(emptyPanel.cstring, uint32(emptyPanel.len), 1,
+          platformSetEditorSidebar(emptyPanel.cstring, uint32(emptyPanel.len), 0,
             uint32(sidebarFiles))
           editorViewState.statusMessage = "Open a folder to start a workspace"
         else:
@@ -4547,10 +4547,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorSidebarMode = sidebarFiles
         setupDemoUi()
         if didFocusPanel and activeWorkspace == nil:
-          let emptyPanel = "Files\n────────\nOpen Folder…"
-          editorWorkspaceUi.replacePanelItems(panelFiles, @["open-workspace"])
+          let emptyPanel = "Files\n────────\nOpen a folder to start a workspace."
+          editorWorkspaceUi.replacePanelItems(panelFiles, @[])
           platformSetWorkspaceOpen(false)
-          platformSetEditorSidebar(emptyPanel.cstring, uint32(emptyPanel.len), 1,
+          platformSetEditorSidebar(emptyPanel.cstring, uint32(emptyPanel.len), 0,
             uint32(sidebarFiles))
           syncNativeSidebarSelection()
           editorViewState.statusMessage = "Open a folder to start a workspace"
@@ -5709,10 +5709,10 @@ when isMainModule:
     applySettingsKeymap()
     applySettingsTheme()
     if activeWorkspace == nil:
-      let files = "Files\n────────\nOpen Folder…"
-      editorWorkspaceUi.replacePanelItems(panelFiles, @["open-workspace"])
+      let files = "Files\n────────\nOpen a folder to start a workspace."
+      editorWorkspaceUi.replacePanelItems(panelFiles, @[])
       platformSetWorkspaceOpen(false)
-      platformSetEditorSidebar(files.cstring, uint32(files.len), 1,
+      platformSetEditorSidebar(files.cstring, uint32(files.len), 0,
         uint32(sidebarFiles))
       syncNativeSidebarSelection()
     else:

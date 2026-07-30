@@ -3549,18 +3549,19 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     NSButton *button = [NSButton buttonWithTitle:entry[0] target:self
       action:@selector(dispatchWorkspaceAction:)];
     // Project creation belongs in the compact project header, not in a row of
-    // text buttons that displaces the tree. Keep a full accessible label and
-    // tooltip while following Zed's icon-first header affordances.
+    // text buttons that displaces the tree. A project-less window is the one
+    // exception: an icon alone is too easy to miss in an otherwise empty dock,
+    // so keep the explicit Open Folder label as the primary next action.
     if (@available(macOS 11.0, *)) {
       button.image = [NSImage imageWithSystemSymbolName:entry[1]
         accessibilityDescription:entry[0]];
-      button.imagePosition = NSImageOnly;
+      button.imagePosition = g_workspace_open ? NSImageOnly : NSImageLeft;
     }
     styleWorkspaceNavigationButton(button, NO, YES);
     button.toolTip = entry[0];
     button.accessibilityLabel = entry[0];
     button.identifier = entry[2];
-    [button setFrameSize:NSMakeSize(26.0, 24.0)];
+    [button setFrameSize:NSMakeSize(g_workspace_open ? 26.0 : 112.0, 24.0)];
     [self addArrangedSubview:button];
   }
 }
@@ -4546,7 +4547,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     filesActions.hidden = !showFilesActions;
     if (showFilesActions) {
       CGFloat width = sidebarWidth;
-      CGFloat actionWidth = g_workspace_open ? 116.0 : 28.0;
+      CGFloat actionWidth = g_workspace_open ? 116.0 : 120.0;
       filesActions.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(sidebarControlX + width - actionWidth - 4.0,
           sidebarTop + 3.0, actionWidth, 24.0));
@@ -7279,7 +7280,9 @@ bool nimculus_platform_validate_files_sidebar_actions(void) {
     [actions reloadActions];
     buttons = actions.arrangedSubviews;
     BOOL emptyActions = buttons.count == 1 &&
-      [((NSButton *)buttons[0]).title isEqualToString:@"Open Folder…"];
+      [((NSButton *)buttons[0]).title isEqualToString:@"Open Folder…"] &&
+      ((NSButton *)buttons[0]).imagePosition == NSImageLeft &&
+      ((NSButton *)buttons[0]).frame.size.width >= 112.0;
     [actions release];
     g_command_callback = validationCommandCallback;
     g_workspace_open = YES;
