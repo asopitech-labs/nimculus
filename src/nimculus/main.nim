@@ -121,6 +121,11 @@ var demoButton = NodeId(0)
 var demoSplitNode = NodeId(0)
 var demoScrollNode = NodeId(0)
 var editorWorkspaceUi: WorkspaceUiState
+when defined(macosx):
+  # Layout composition needs these visibility facts before the platform-owned
+  # terminal/task services are declared below.
+  var editorTaskOutputVisible = false
+  var editorTerminalVisible = false
 var demoSplitRatio = 0.5'f32
 var demoSplitDragging = false
 var demoSplitEnabled = false
@@ -186,6 +191,13 @@ proc setupDemoUi() =
   ## Keep rendering state synchronized with the document session at the
   ## composition boundary. Pane ownership remains independent: a split
   ## duplicates a viewport, never a document buffer.
+  when defined(macosx):
+    # The bottom dock has no persistent content of its own: terminal PTYs and
+    # task output both cease to exist when the app exits. Never reserve editor
+    # space for restored dock metadata unless a native presenter is actually
+    # visible. This makes the render layout match the AppKit overlay contract.
+    if not editorTerminalVisible and not editorTaskOutputVisible:
+      editorWorkspaceUi.bottomDock.isOpen = false
   let hasDocument = activeDocument() != nil
   syncWorkspaceUiTabs()
   demoTree = newUiTree()
@@ -248,7 +260,10 @@ proc setupDemoUi() =
   # tabs and a resized pane has no unambiguous bottom boundary.
   const EditorTabStripHeight = 28'f32
   const EditorTopInset = 52'f32 + EditorTabStripHeight
-  const EditorBottomInset = 58'f32
+  # The status bar is the only persistent chrome below the editor. Reserving
+  # the former 58pt here created an empty pseudo-panel at every startup and
+  # made normal files appear to stop well above the window bottom.
+  const EditorBottomInset = DefaultStatusHeight + 8'f32
   let editorHeight = max(0'f32, float32(workspaceLayout.center.size.height) -
     EditorTopInset - EditorBottomInset)
   let editor = Rect(origin: Point(x: px(contentX + 28'f32), y: px(EditorTopInset)),
@@ -556,12 +571,10 @@ when defined(macosx):
   var editorTaskJob: TaskJob
   var editorTaskCommand = ""
   var editorTaskOutput = ""
-  var editorTaskOutputVisible = false
   var editorTaskProblems: seq[TaskProblem]
   var editorTerminal: TerminalPty
   var editorTerminals: seq[TerminalPty]
   var editorTerminalIndex = -1
-  var editorTerminalVisible = false
   var editorTerminalFocused = false
   var editorTerminalSelection = TerminalSelection()
   var editorTerminalSelecting = false
@@ -1036,6 +1049,8 @@ when defined(macosx):
     editorTaskOutputVisible = true
     platformSetTaskOutputVisible(true)
     platformSetTaskOutputCancellable(true)
+    editorWorkspaceUi.openPanel(panelTasks)
+    setupDemoUi()
     let title = "Task — " & command
     platformSetTaskOutputTitle(title.cstring, uint32(title.len))
     editorTaskJob = startTask(TaskSpec(command: "/bin/zsh",
