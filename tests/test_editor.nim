@@ -379,6 +379,33 @@ suite "M5 editor services":
     check session.tabs.len == 2
     check session.activeTab == 1
 
+  test "reopen closed tab reloads the newest clean path without reviving discarded text":
+    let root = getTempDir() / "nimculus-reopen-closed-tab"
+    if dirExists(root): removeDir(root)
+    createDir(root)
+    defer:
+      if dirExists(root): removeDir(root)
+    let firstPath = root / "first.nim"
+    let secondPath = root / "second.nim"
+    writeFile(firstPath, "first disk\n")
+    writeFile(secondPath, "second disk\n")
+    var session: EditorSession
+    session.addTab(openDocument(firstPath))
+    session.addTab(openDocument(secondPath))
+    check session.setTabPinned(1, true)
+    check session.closeTabAt(0)
+    check session.tabs.len == 1
+    writeFile(secondPath, "second changed on disk\n")
+    let reopened = session.reopenClosedTab()
+    check reopened == 0
+    check session.tabs[0].pinned
+    check session.tabs[0].document.buffer.toString() == "second changed on disk\n"
+    var dirty = newDocument()
+    dirty.buffer.edit(Edit(startByte: 0, endByte: 0, text: "discarded"))
+    session.addTab(dirty)
+    check session.closeActiveTab(forceDirty = true)
+    check session.reopenClosedTab() == -1
+
   test "closing a dirty non-active tab requires an explicit decision":
     var session: EditorSession
     var document = newDocument()

@@ -4443,13 +4443,15 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NSMenuItem *save = [[NSMenuItem alloc] initWithTitle:@"Save" action:@selector(saveDocument:) keyEquivalent:@"s"];
   NSMenuItem *saveAs = [[NSMenuItem alloc] initWithTitle:@"Save As…" action:@selector(saveAsDocument:) keyEquivalent:@"S"];
   NSMenuItem *close = [[NSMenuItem alloc] initWithTitle:@"Close Tab" action:@selector(closeDocument:) keyEquivalent:@"w"];
+  NSMenuItem *reopenClosed = [[NSMenuItem alloc] initWithTitle:@"Reopen Closed Tab"
+    action:@selector(reopenClosedTab:) keyEquivalent:@""];
   newDocument.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   open.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   save.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   saveAs.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
   close.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   [fileMenu addItem:newDocument]; [fileMenu addItem:open]; [fileMenu addItem:save];
-  [fileMenu addItem:saveAs]; [fileMenu addItem:close];
+  [fileMenu addItem:saveAs]; [fileMenu addItem:close]; [fileMenu addItem:reopenClosed];
   [fileMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Open Recent…"
     action:@selector(openRecent:) keyEquivalent:@""]];
   [fileMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Add Workspace Folder…"
@@ -4751,6 +4753,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   field.numberOfVisibleItems = 12;
   [field addItemsWithObjectValues:@[
     @"new", @"save", @"find", @"toggle files", @"reveal active file",
+    @"reopen closed tab",
     @"toggle git", @"git status", @"git log", @"git branches", @"git file history",
     @"split editor", @"close split", @"toggle soft wrap", @"open settings",
     @"toggle terminal", @"new terminal", @"toggle task output",
@@ -5161,6 +5164,11 @@ bool nimculus_platform_move_item_to_trash(const char *path) {
 - (void)closeDocument:(id)sender {
   (void)sender;
   if (g_command_callback) g_command_callback("closeTabRequest");
+}
+
+- (void)reopenClosedTab:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("reopenClosedTab");
 }
 
 - (void)createTextAtlas:(id<MTLDevice>)device {
@@ -5856,6 +5864,7 @@ bool nimculus_platform_validate_main_menu(void) {
     NSMenuItem *save = menuItemWithTitle(fileItem.submenu, @"Save");
     NSMenuItem *saveAs = menuItemWithTitle(fileItem.submenu, @"Save As…");
     NSMenuItem *close = menuItemWithTitle(fileItem.submenu, @"Close Tab");
+    NSMenuItem *reopenClosed = menuItemWithTitle(fileItem.submenu, @"Reopen Closed Tab");
     NSMenuItem *redo = menuItemWithTitle(editItem.submenu, @"Redo");
     NSMenuItem *palette = menuItemWithTitle(editItem.submenu, @"Command Palette…");
     NSMenuItem *fullScreen = menuItemWithTitle(viewItem.submenu, @"Enter Full Screen");
@@ -5874,7 +5883,7 @@ bool nimculus_platform_validate_main_menu(void) {
         (NSEventModifierFlagCommand | NSEventModifierFlagShift) &&
       [saveAs.keyEquivalent isEqualToString:@"S"] &&
       close.keyEquivalentModifierMask == NSEventModifierFlagCommand &&
-      [close.keyEquivalent isEqualToString:@"w"] &&
+      [close.keyEquivalent isEqualToString:@"w"] && reopenClosed.action == @selector(reopenClosedTab:) &&
       redo.keyEquivalentModifierMask ==
         (NSEventModifierFlagCommand | NSEventModifierFlagShift) &&
       [redo.keyEquivalent isEqualToString:@"z"] &&

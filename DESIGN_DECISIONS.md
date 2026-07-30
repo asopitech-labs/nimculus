@@ -5601,3 +5601,21 @@ Unpin and Unpin All. The bridge rebinds both pane selections after a move.
 while a pin action in one split pane cannot silently change the document shown
 by its sibling. Unit, session-round-trip, and native context-action contracts
 cover the state boundary.
+
+## UI-064: Reopen closed tabs from paths, never discarded buffers
+
+**Context.** Zed's Reopen Closed Item is navigation-history based and skips
+items without reopenable paths. Retaining full `PieceTable` values for a local
+closed-tab stack would make closing a large file fail to release memory. It
+would also allow a `Don't Save` decision to be silently undone.
+
+**Decision.** Keep a bounded LIFO history of 32 clean, named closed tabs with
+their path, title, pin state, and pane-local view states. Reopen loads the
+current file content from disk, skips unavailable paths, and never records
+untitled or dirty/discarded buffers. File > Reopen Closed Tab and the Command
+Palette both use the same command.
+
+**Consequences.** Reopen remains useful after a close while respecting an
+explicit discard, reflects external file changes, and does not retain closed
+large-file buffers in memory. The restored tab preserves pin/view metadata
+and rebinds split-pane selections.

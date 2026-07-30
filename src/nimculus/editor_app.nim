@@ -36,9 +36,17 @@ type
     ## state belongs to the item too, otherwise switching tabs leaks the last
     ## document's secondary cursor and scroll position into the next one.
     secondaryView*: EditorViewState
+  ClosedEditorTab* = object
+    ## A bounded, path-backed record. Do not retain PieceTable contents after
+    ## closing a file: a large closed document must release its memory, and a
+    ## reopen should reflect the current on-disk file.
+    path*, title*: string
+    pinned*: bool
+    view*, secondaryView*: EditorViewState
   SplitDirection* = enum splitVertical, splitHorizontal
   EditorSession* = object
     tabs*: seq[EditorTab]
+    closedTabs*: seq[ClosedEditorTab]
     activeTab*: int
     split*: bool
     splitDirection*: SplitDirection
@@ -256,6 +264,42 @@ proc unpinAllTabs*(session: var EditorSession): bool =
       changed = true
   changed
 
+proc recordClosedTab(session: var EditorSession, tab: EditorTab) =
+  ## Zed's reopen history is path-oriented. Untitled buffers and discarded
+  ## dirty text intentionally do not enter it, which avoids resurrecting a
+  ## user's explicit Don't Save choice.
+  if tab.document.path.len == 0 or tab.document.buffer.isDirty: return
+  session.closedTabs.add(ClosedEditorTab(path: tab.document.path, title: tab.title,
+    pinned: tab.pinned, view: tab.view, secondaryView: tab.secondaryView))
+  const maxClosedTabs = 32
+  if session.closedTabs.len > maxClosedTabs:
+    session.closedTabs.delete(0)
+
+proc remapTabIndexForInsert(index, destination: int): int =
+  if index >= destination and index >= 0: index + 1 else: index
+
+proc reopenClosedTab*(session: var EditorSession): int =
+  ## Reopen the newest viable file path. A deleted/moved path is skipped,
+  ## matching Zed's path-backed closed-item history instead of restoring a
+  ## stale in-memory buffer.
+  while session.closedTabs.len > 0:
+    let closed = session.closedTabs.pop()
+    if closed.path.len == 0 or not fileExists(closed.path) or dirExists(closed.path):
+      continue
+    try:
+      let document = openDocument(closed.path)
+      let destination = if closed.pinned: session.pinnedTabCount() else: session.tabs.len
+      session.activeTab = remapTabIndexForInsert(session.activeTab, destination)
+      session.splitSecondaryTab = remapTabIndexForInsert(session.splitSecondaryTab, destination)
+      session.tabs.insert(EditorTab(document: document, title: closed.title,
+        pinned: closed.pinned, view: closed.view, secondaryView: closed.secondaryView),
+        destination)
+      session.activeTab = destination
+      return destination
+    except CatchableError:
+      discard
+  -1
+
 proc tabIndexForPath*(session: EditorSession, path: string): int =
   ## Every file-bearing feature (Finder, Save As, LSP, and navigation) must
   ## identify a document the same way. Keep one buffer for symlink and macOS
@@ -332,6 +376,7 @@ proc switchTab*(session: var EditorSession, view: var EditorViewState,
 proc closeTabAt*(session: var EditorSession, tabIndex: int, forceDirty = false): bool =
   if tabIndex < 0 or tabIndex >= session.tabs.len: return false
   if session.tabs[tabIndex].document.buffer.isDirty and not forceDirty: return false
+  session.recordClosedTab(session.tabs[tabIndex])
   session.tabs.delete(tabIndex)
   if session.activeTab > tabIndex: dec session.activeTab
   elif session.activeTab == tabIndex: session.activeTab = min(tabIndex, session.tabs.high)

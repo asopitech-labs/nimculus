@@ -435,7 +435,7 @@ proc setupShortcutRegistry() =
   # bindings are installed below and are resolved before interpretKeyEvents.
   for name in [
       # Application and menu commands.
-    "save", "newDocument", "closeTabRequest", "openSettings", "splitEditor", "splitEditorHorizontal", "closeSplit", "undo", "redo",
+    "save", "newDocument", "closeTabRequest", "reopenClosedTab", "openSettings", "splitEditor", "splitEditorHorizontal", "closeSplit", "undo", "redo",
       "cut", "copy", "paste", "selectAll", "previousTab", "nextTab",
       # AppKit NSText movement/editing selectors. Keeping these names at the
         # application boundary lets settings override Command/Option behavior
@@ -3773,6 +3773,28 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           refreshEditorSyntax()
         syncEditorCursor()
       persistSession()
+  elif name == "reopenClosedTab":
+    editorSession.saveActiveView(editorViewState)
+    editorSession.saveSecondaryActiveView(editorSession.secondaryView)
+    let reopened = editorSession.reopenClosedTab()
+    if reopened < 0:
+      editorViewState.statusMessage = "No closed file to reopen"
+    else:
+      syncWorkspaceUiTabs()
+      if editorWorkspaceUi.center != nil:
+        discard editorWorkspaceUi.selectPaneTab(editorWorkspaceUi.center.firstPane().id,
+          editorSession.activeTab)
+        if editorSession.split and editorWorkspaceUi.center.kind == paneSplit:
+          discard editorWorkspaceUi.selectPaneTab(editorWorkspaceUi.center.second.pane.id,
+            editorSession.effectiveSplitSecondaryTab())
+      editorSession.loadActiveView(editorViewState)
+      editorSession.loadSecondaryActiveView()
+      resetImeState()
+      resetEditorTransientState()
+      editorViewState.statusMessage = "Reopened " & editorSession.displayTitle(reopened)
+      syncEditorCursor()
+      refreshEditorSyntax()
+      persistSession()
   elif name in ["previousTab", "nextTab"]:
     let delta = if name == "previousTab": -1 else: 1
     let pane = editorWorkspaceUi.focusedPane
@@ -4128,6 +4150,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command in ["split", "split editor", "split vertical"]: "splitEditor"
       elif command in ["split horizontal", "split editor horizontally"]: "splitEditorHorizontal"
       elif command in ["close split", "unsplit"]: "closeSplit"
+      elif command in ["reopen closed tab", "reopen closed file"]: "reopenClosedTab"
       elif command.startsWith("workspace search "): "__workspace_search__"
       elif command.startsWith("quick open "): "__quick_open__"
       elif command in ["show files", "show explorer", "show project"]: "__show_files__"
@@ -4152,6 +4175,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "new": receiveNativeCommand("newDocument".cstring)
     of "save":
       receiveNativeCommand("save".cstring)
+    of "reopenClosedTab":
+      receiveNativeCommand("reopenClosedTab".cstring)
     of "find":
       when defined(macosx):
         platformShowFindDocument()
