@@ -7509,6 +7509,37 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
       NSContainsRect(sidebar, commitEditor.frame) &&
       search.clipsToBounds && palette.clipsToBounds &&
       commitEditor.clipsToBounds && settings.clipsToBounds;
+    NimculusLineNumberOverlay *lineNumbers = nil;
+    NimculusIndentGuideOverlay *indentGuides = nil;
+    NimculusTabBarOverlay *primaryTabs = nil;
+    NimculusWelcomeOverlay *welcome = nil;
+    for (NSView *subview in view.subviews) {
+      if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) {
+        lineNumbers = (NimculusLineNumberOverlay *)subview;
+      } else if ([subview isKindOfClass:[NimculusIndentGuideOverlay class]]) {
+        indentGuides = (NimculusIndentGuideOverlay *)subview;
+      } else if ([subview isKindOfClass:[NimculusTabBarOverlay class]] &&
+                 !((NimculusTabBarOverlay *)subview).secondary) {
+        primaryTabs = (NimculusTabBarOverlay *)subview;
+      } else if ([subview isKindOfClass:[NimculusWelcomeOverlay class]]) {
+        welcome = (NimculusWelcomeOverlay *)subview;
+      }
+    }
+    // Frame placement, not a child's `isFlipped` declaration, decides where
+    // native chrome appears in the root AppKit view. Assert representative
+    // content, chrome and welcome frames against the same logical pane that
+    // bounds Metal text and editor overlays.
+    const NSRect expectedLineNumbers = appKitFrameForLogicalTopRect(view,
+      NSMakeRect(0.0, g_editor_rect[1], MAX(36.0, g_editor_rect[0] - 8.0),
+        g_editor_rect[3]));
+    const NSRect expectedTabs = appKitFrameForLogicalTopRect(view,
+      NSMakeRect(g_editor_rect[0], g_editor_rect[1] + g_editor_rect[3],
+        g_editor_rect[2], 28.0));
+    BOOL nativeChromeAligned = lineNumbers && indentGuides && primaryTabs && welcome &&
+      NSEqualRects(lineNumbers.frame, expectedLineNumbers) &&
+      NSEqualRects(indentGuides.frame, pane) &&
+      NSEqualRects(primaryTabs.frame, expectedTabs) &&
+      NSEqualRects(welcome.frame, pane);
     memcpy(g_editor_rect, previousEditorRect, sizeof(previousEditorRect));
     g_command_callback = previousCallback;
     g_active_view = previousView;
@@ -7524,7 +7555,7 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
       quickOpenDispatched && dismissed &&
       paletteVisible && paletteFiltered && paletteDispatched && paletteEscaped &&
       commitVisible && commitDispatched && commitEscaped && settingsVisible &&
-      settingsDispatched && settingsEscaped && overlaysBounded;
+      settingsDispatched && settingsEscaped && overlaysBounded && nativeChromeAligned;
   }
 }
 
