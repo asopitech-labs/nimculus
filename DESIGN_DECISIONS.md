@@ -6080,13 +6080,14 @@ then reintroduced a fixed 140pt sidebar width, so Files, Git, and the activity
 bar could extend beyond the window's right edge even though the logical dock
 had already collapsed.
 
-**Decision.** Derive native sidebar presentation from the actual post-layout
-dock width. A sidebar is shown only when there is room for its 124pt content
-area and the 38pt activity bar. Until then its logical open state remains
-unchanged, but every native sidebar child is hidden. Once space returns, the
-same panel reappears without changing workspace state. When presented, its
-width is the available dock width rather than a visual minimum that can exceed
-the AppKit root.
+**Decision.** Derive both Metal workspace composition and native sidebar
+presentation from the actual post-layout dock width. A sidebar is shown only
+when there is room for its 124pt content area, 38pt activity bar, and outer
+spacing. Until then its logical open state remains unchanged, but the dock as
+a whole is absent from the visual composition and its width returns to the
+editor. Once space returns, the same panel reappears without changing workspace
+state. When presented, its width is the available dock width rather than a
+visual minimum that can exceed the AppKit root.
 
 **Consequences.** Window resize cannot create right-edge native overflow.
 The native contract checks both a collapsed 520pt window and a widened window,

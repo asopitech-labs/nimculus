@@ -84,6 +84,12 @@ suite "workspace UI state":
     state.resetDockSize(dockLeft)
     check state.leftDock.size == DefaultLeftDockWidth
 
+  test "a native dock presentation yields its space when it cannot fit":
+    check dockPresentationWidth(160'f32, 178'f32) == 0'f32
+    check dockPresentationWidth(178'f32, 178'f32) == 178'f32
+    check dockPresentationWidth(240'f32, 178'f32) == 240'f32
+    check dockPresentationWidth(-1'f32, 178'f32) == 0'f32
+
   test "bottom dock takes space from the center instead of overlaying it":
     var state = initWorkspaceUi()
     let closed = state.layout(Size(width: px(960), height: px(640)))

@@ -103,6 +103,17 @@ const
 proc normalizedRatio*(ratio: float32): float32 =
   min(0.9'f32, max(0.1'f32, ratio))
 
+proc dockPresentationWidth*(logicalWidth, minimumPresenterWidth: float32): float32 =
+  ## A platform presenter may need more room than the logical dock has after
+  ## the workspace protects its center minimum. In that case the visual dock
+  ## must disappear as a whole: leaving its Metal background while hiding the
+  ## native controls creates a non-functional empty panel.
+  let width = max(0'f32, logicalWidth)
+  if minimumPresenterWidth > 0'f32 and width < minimumPresenterWidth:
+    0'f32
+  else:
+    width
+
 proc newPane(id: int, tabIndices: seq[int] = @[], activeTabIndex = -1): PaneTree =
   PaneTree(kind: paneLeaf, pane: PaneState(id: PaneId(id), tabIndices: tabIndices,
     activeTabIndex: activeTabIndex))

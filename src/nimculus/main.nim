@@ -232,7 +232,19 @@ proc setupDemoUi() =
   let bounds = demoTree.node(button.node).bounds
   let workspaceLayout = editorWorkspaceUi.layout(
     Size(width: px(viewportWidth), height: px(viewportHeight)))
-  let leftDockWidth = float32(workspaceLayout.leftDock.size.width)
+  let logicalDockWidth = float32(workspaceLayout.leftDock.size.width)
+  # The native Project presenter needs 124pt of content plus the 38pt
+  # activity bar and the 16pt outer spacing used by the AppKit boundary. If
+  # the logical dock has already yielded that space to the editor, retire the
+  # dock as one visual unit rather than leaving an empty Metal gutter beside
+  # a hidden native sidebar. Its open/panel state remains in WorkspaceUiState
+  # and returns automatically when the window is widened again.
+  const MacNativeSidebarMinimumDockWidth = 178'f32
+  let nativePresenterMinimum = if MacProjectDockOnRight:
+    MacNativeSidebarMinimumDockWidth else: 0'f32
+  let leftDockWidth = dockPresentationWidth(logicalDockWidth,
+    nativePresenterMinimum)
+  let sidebarCanPresent = not MacProjectDockOnRight or leftDockWidth > 0'f32
   let bottomDockHeight = float32(workspaceLayout.bottomDock.size.height)
   # Zed's current macOS workspace presents Project on the right. Preserve the
   # core's logical left dock (commands, focus, and persistence) and map only
@@ -393,7 +405,7 @@ proc setupDemoUi() =
   platformSetEditorRect(float64(float32(primaryEditor.origin.x)), float64(float32(primaryEditor.origin.y)),
                         float64(float32(primaryEditor.size.width)), float64(float32(primaryEditor.size.height)))
   when defined(macosx):
-    platformSetEditorSidebarVisible(editorWorkspaceUi.leftDock.isOpen)
+    platformSetEditorSidebarVisible(editorWorkspaceUi.leftDock.isOpen and sidebarCanPresent)
     platformSetEditorSidebarOnRight(MacProjectDockOnRight)
     platformSetTerminalPanelRect(float64(float32(demoBottomDockBounds.origin.x)),
       float64(float32(demoBottomDockBounds.origin.y)),
