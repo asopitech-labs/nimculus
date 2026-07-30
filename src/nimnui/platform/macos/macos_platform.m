@@ -2294,10 +2294,11 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   g_command_callback(command.UTF8String);
 }
 - (void)dispatchSidebarContext:(NSUInteger)item {
-  // Files, History, and Status have explicit row menus. Branches deliberately
-  // switch on activation only, so right-click must not emit a dead command.
+  // Every interactive sidebar mode has an explicit row-context contract.
+  // Branch activation remains checkout, while its context menu is for
+  // non-destructive branch-oriented actions such as copying its name.
   if (item == NSNotFound || !g_command_callback || g_editor_sidebar_mode < 1 ||
-      g_editor_sidebar_mode > 3) return;
+      g_editor_sidebar_mode > 4) return;
   NSString *command = [NSString stringWithFormat:@"sidebarContext:%lu", (unsigned long)item];
   g_command_callback(command.UTF8String);
 }
@@ -4946,6 +4947,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
 }
 
+- (void)dispatchGitBranchContext:(NSMenuItem *)sender {
+  if (g_command_callback && [sender.representedObject isKindOfClass:[NSString class]]) {
+    g_command_callback(((NSString *)sender.representedObject).UTF8String);
+  }
+}
+
 - (void)dispatchEditorTabContext:(NSMenuItem *)sender {
   if (g_command_callback && [sender.representedObject isKindOfClass:[NSString class]]) {
     g_command_callback(((NSString *)sender.representedObject).UTF8String);
@@ -6226,6 +6233,24 @@ bool nimculus_platform_validate_editor_tab_context(void) {
   }
 }
 
+bool nimculus_platform_validate_git_branch_context(void) {
+  @autoreleasepool {
+    NimculusCommandCallback previousCallback = g_command_callback;
+    g_command_callback = validationCommandCallback;
+    NimculusAppDelegate *delegate = [[NimculusAppDelegate alloc] init];
+    NSMenuItem *copy = [[NSMenuItem alloc] initWithTitle:@"Copy Branch Name"
+      action:nil keyEquivalent:@""];
+    copy.representedObject = @"gitBranchContext:copy:3";
+    [delegate dispatchGitBranchContext:copy];
+    BOOL preservesRow = strcmp(g_validation_command,
+      "gitBranchContext:copy:3") == 0;
+    [copy release];
+    [delegate release];
+    g_command_callback = previousCallback;
+    return preservesRow;
+  }
+}
+
 bool nimculus_platform_validate_editor_context_header(void) {
   @autoreleasepool {
     NSString *previous = [g_editor_context retain];
@@ -6313,9 +6338,8 @@ bool nimculus_platform_validate_sidebar_context_dispatch(void) {
     [sidebar dispatchSidebarContext:1];
     BOOL status = strcmp(g_validation_command, "sidebarContext:1") == 0;
     g_editor_sidebar_mode = 4;
-    strcpy(g_validation_command, "unchanged");
     [sidebar dispatchSidebarContext:1];
-    BOOL branches = strcmp(g_validation_command, "unchanged") == 0;
+    BOOL branches = strcmp(g_validation_command, "sidebarContext:1") == 0;
     BOOL valid = files && history && status && branches;
     [sidebar release];
     g_editor_outline_symbol_count = previousCount;
@@ -7410,6 +7434,17 @@ void nimculus_platform_show_git_history_context(uint32_t item_index) {
     item.representedObject = [NSString stringWithFormat:@"gitHistoryContext:%@:%u",
       entry[1], item_index];
   }
+  [menu popUpMenuPositioningItem:nil atLocation:[NSEvent mouseLocation] inView:nil];
+}
+void nimculus_platform_show_git_branch_context(uint32_t item_index) {
+  NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
+  if (!delegate) return;
+  NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Git Branch"] autorelease];
+  NSMenuItem *item = [menu addItemWithTitle:@"Copy Branch Name"
+    action:@selector(dispatchGitBranchContext:) keyEquivalent:@""];
+  item.target = delegate;
+  item.representedObject = [NSString stringWithFormat:@"gitBranchContext:copy:%u",
+    item_index];
   [menu popUpMenuPositioningItem:nil atLocation:[NSEvent mouseLocation] inView:nil];
 }
 void nimculus_platform_show_editor_tab_context(uint32_t pane_index, uint32_t tab_index) {

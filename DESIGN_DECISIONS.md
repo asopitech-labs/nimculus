@@ -5565,3 +5565,20 @@ copy and reveal are no-ops with an explanatory status for an untitled tab.
 use without bypassing unsaved-work protection or changing selection merely to
 run an action. Native contracts cover both hit testing and action payload
 dispatch.
+
+## UI-062: Branch context actions are non-destructive by default
+
+**Context.** Zed provides a copy-branch-name action alongside branch
+management. Nimculus rendered the local-branch list and supported a safe
+primary-click checkout, but a secondary click was deliberately ignored. That
+removed a common non-destructive Git action from the point where the branch
+name is visible.
+
+**Decision.** Branch sidebar rows now expose Copy Branch Name in a native
+context menu. The command retains the row index, verifies that the Branches
+panel is still current, and copies only the branch value returned by Git.
+Checkout remains the primary-click action and uses `git switch --no-guess`.
+
+**Consequences.** Users can reuse a branch name without changing the
+worktree. The sidebar's context-menu contract covers Branches as well as
+Files, History, and Changes.

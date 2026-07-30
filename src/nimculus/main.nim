@@ -4719,8 +4719,30 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           # section: Staged means Unstage, Unstaged means Stage. Conflicts
           # intentionally expose no implicit resolution action.
           platformShowGitStatusContext(uint32(index), uint32(ord(projection)))
+        elif editorSidebarMode == sidebarGitBranches and index >= 0 and
+            index < editorGitBranches.len:
+          discard editorWorkspaceUi.selectPanelItem(panelGit, index)
+          syncNativeSidebarSelection()
+          platformShowGitBranchContext(uint32(index))
       except ValueError:
         editorViewState.statusMessage = "Invalid workspace context item"
+  elif name.startsWith("gitBranchContext:"):
+    when defined(macosx):
+      let parts = name.split(':')
+      if parts.len != 3 or parts[1] != "copy":
+        editorViewState.statusMessage = "Invalid Git branch action"
+      else:
+        try:
+          let index = parseInt(parts[2])
+          if editorSidebarMode != sidebarGitBranches or index < 0 or
+              index >= editorGitBranches.len:
+            editorViewState.statusMessage = "Git branch is unavailable"
+          else:
+            let branch = editorGitBranches[index].name
+            clipboardSet(branch.cstring, uint32(branch.len))
+            editorViewState.statusMessage = "Git branch copied: " & branch
+        except ValueError:
+          editorViewState.statusMessage = "Invalid Git branch action"
   elif name.startsWith("gitStatusContext:"):
     when defined(macosx):
       let parts = name.split(':')

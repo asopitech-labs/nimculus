@@ -45,6 +45,7 @@ proc platformValidateTerminalSessionBar*(): bool {.importc: "nimculus_platform_v
 proc platformValidateOutputPanelBar*(): bool {.importc: "nimculus_platform_validate_output_panel_bar", cdecl.}
 proc platformValidateTabBarCloseTargets*(): bool {.importc: "nimculus_platform_validate_tab_bar_close_targets", cdecl.}
 proc platformValidateEditorTabContext*(): bool {.importc: "nimculus_platform_validate_editor_tab_context", cdecl.}
+proc platformValidateGitBranchContext*(): bool {.importc: "nimculus_platform_validate_git_branch_context", cdecl.}
 proc platformValidateSidebarDispatch*(): bool {.importc: "nimculus_platform_validate_sidebar_dispatch", cdecl.}
 proc platformValidateSidebarContextDispatch*(): bool {.importc: "nimculus_platform_validate_sidebar_context_dispatch", cdecl.}
 proc platformValidateGitSidebarTabs*(): bool {.importc: "nimculus_platform_validate_git_sidebar_tabs", cdecl.}
@@ -102,6 +103,7 @@ proc platformSetFileCallback*(callback: FileCallback) {.importc: "nimculus_platf
 proc platformShowWorkspaceEntryContext*(path: cstring, isDirectory: bool) {.importc: "nimculus_platform_show_workspace_entry_context", cdecl.}
 proc platformShowGitStatusContext*(itemIndex, projection: uint32) {.importc: "nimculus_platform_show_git_status_context", cdecl.}
 proc platformShowGitHistoryContext*(itemIndex: uint32) {.importc: "nimculus_platform_show_git_history_context", cdecl.}
+proc platformShowGitBranchContext*(itemIndex: uint32) {.importc: "nimculus_platform_show_git_branch_context", cdecl.}
 proc platformShowEditorTabContext*(paneIndex, tabIndex: uint32) {.importc: "nimculus_platform_show_editor_tab_context", cdecl.}
 proc platformRevealPath*(path: cstring) {.importc: "nimculus_platform_reveal_path", cdecl.}
 proc platformSetCommandCallback*(callback: CommandCallback) {.importc: "nimculus_platform_set_command_callback", cdecl.}

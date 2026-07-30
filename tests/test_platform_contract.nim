@@ -237,6 +237,9 @@ suite "macOS platform contract":
   test "editor tab context actions retain their pane and tab target":
     check platformValidateEditorTabContext()
 
+  test "Git branch context action retains its selected branch row":
+    check platformValidateGitBranchContext()
+
   test "editor header keeps a non-interactive truncated document breadcrumb":
     check platformValidateEditorContextHeader()
 

@@ -446,6 +446,8 @@ Gitキャンセルは直接起動したGit子プロセスへSIGTERM後1秒のbou
 
 Git History UI：**[x]** ZedのHistory tabと同じく、取得開始時の`Loading Commit History…`、失敗時、空履歴、読み込み完了を別状態としてサイドバーに表示する。File HistoryのRefreshは、後からフォーカスした文書ではなく、その履歴を生成したrepository/pathへ固定する。
 
+Git Branches UI：**[x]** Zedのbranch actionと同じく、Branches行の右クリックから選択したbranch名をclipboardへコピーできる。primary clickは既存の安全な`git switch --no-guess`のままとし、context actionは作業ツリーを変更しない。
+
 **完了条件：** 大規模リポジトリで UI を停止させず、Git 処理をキャンセルでき、Worktree ごとに状態を分離できる。
 
 ### M10：macOS 統合ターミナルとタスク — `v0.4.0-alpha`
