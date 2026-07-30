@@ -45,6 +45,13 @@ macOS の Quick Open は検索結果をエディタ本文へ描画せず、Files
 から `main` を検索し、結果タイトルがサイドバーのアクセシブルなテキスト領域に
 現れることを検証する。
 
+### M6 更新：Workspace Search の独立パネル
+
+macOS の全文検索は `Search` 活動バー項目と左ドックの独立パネルを持つ。結果は
+パス・行・列・一致行を示し、選択またはEnterでフォーカス中のエディタペインの
+該当位置を開く。ストリーミング検索中も本文表示を置き換えない。隔離 GUI E2E は
+`Find in Workspace…` から検索し、`Search:` 結果がサイドバーに現れることを確認する。
+
 各マイルストーンはunit/integration test、native Cocoa/Metal contract、self-hosted macOS CIで進める。個別のGUI実機確認は完了ゲートにしない。M12とM20の自動基準がそろったrelease candidateで、物理入力機器・日本語入力ソース・複数ディスプレイを含む確認を[`docs/MACOS_MANUAL_ACCEPTANCE.md`](./docs/MACOS_MANUAL_ACCEPTANCE.md)の一回のmacOS E2E受け入れとして実施する。
 
 ## macOS E2E 受け入れの実行時点

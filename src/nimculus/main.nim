@@ -515,7 +515,8 @@ var workspaceExpandedDirectories: seq[string]
 var workspacePreviewMode = ""
 var workspaceRevealPath = ""
 type EditorSidebarMode = enum
-  sidebarOutline, sidebarFiles, sidebarGitHistory, sidebarGitStatus, sidebarGitBranches
+  sidebarOutline, sidebarFiles, sidebarGitHistory, sidebarGitStatus, sidebarGitBranches,
+  sidebarWorkspaceSearch
 
 type GitStatusProjection = enum
   ## A partial file is intentionally rendered in both sections. Preserve this
@@ -529,6 +530,7 @@ proc workspacePanelForSidebarMode(mode: EditorSidebarMode): PanelKind =
   of sidebarFiles: panelFiles
   of sidebarGitHistory, sidebarGitStatus, sidebarGitBranches: panelGit
   of sidebarOutline: panelOutline
+  of sidebarWorkspaceSearch: panelSearch
 
 when defined(macosx):
   proc syncNativeSidebarSelection() =
@@ -2099,10 +2101,9 @@ proc renderWorkspaceSearch() =
   when defined(macosx) or defined(windows):
     if activeWorkspace == nil or workspaceSearchQuery.len == 0: return
     workspacePreviewMode = "search"
-    workspacePreviewEntries.setLen(0)
-    var lines = @["Search: " & workspaceSearchQuery]
+    var lines = @["Search: " & workspaceSearchQuery, "────────"]
     for result in workspaceSearchResults:
-      if lines.len >= 12: break
+      if lines.len >= 102: break
       lines.add(result.path & ":" & $result.line & ":" & $result.column & " " & result.text)
     if workspaceSearchJob != nil and not workspaceSearchJob.isComplete:
       lines.add("… search continues")
@@ -2111,13 +2112,28 @@ proc renderWorkspaceSearch() =
     if workspaceSearchResults.len == 0 and workspaceSearchJob != nil and
         workspaceSearchJob.isComplete:
       lines.add("No matches")
-    platformSetEditorHighlights(nil, 0)
-    platformSetEditorComposition("".cstring)
-    platformSetEditorScrollLine(0)
-    platformSetEditorCursorByte(0, 0)
-    platformSetEditorSelection(0, 0)
     let text = lines.join("\n")
-    platformSetEditorText(text.cstring, uint32(text.len))
+    when defined(macosx):
+      # A workspace grep is navigation state, not a replacement document.
+      # Keep the active editor (and any split) visible while presenting the
+      # streaming result list in its own dock, following Zed's Search panel.
+      editorWorkspaceUi.openPanel(panelSearch)
+      editorWorkspaceUi.leftDock.isOpen = true
+      editorSidebarMode = sidebarWorkspaceSearch
+      editorWorkspaceUi.replacePanelItems(panelSearch,
+        workspaceSearchResults.mapIt(it.path & "\x1f" & $it.line & ":" & $it.column))
+      platformSetEditorSidebar(text.cstring, uint32(text.len),
+        uint32(min(workspaceSearchResults.len, 100)), uint32(sidebarWorkspaceSearch))
+      syncNativeSidebarSelection()
+      setupDemoUi()
+    else:
+      workspacePreviewEntries.setLen(0)
+      platformSetEditorHighlights(nil, 0)
+      platformSetEditorComposition("".cstring)
+      platformSetEditorScrollLine(0)
+      platformSetEditorCursorByte(0, 0)
+      platformSetEditorSelection(0, 0)
+      platformSetEditorText(text.cstring, uint32(text.len))
 
 proc renderQuickOpen() =
   when defined(macosx) or defined(windows):
@@ -4505,6 +4521,19 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
               refreshWorkspacePreview()
             else:
               openFilesDockEntry(entry.path)
+        of sidebarWorkspaceSearch:
+          if index >= 0 and index < workspaceSearchResults.len:
+            let match = workspaceSearchResults[index]
+            openFilesDockEntry(match.path)
+            let target = if editorSession.split and editorSession.splitActivePane == 1:
+              secondaryPaneDocument() else: activeDocument()
+            if target != nil:
+              let lineIndex = max(0, match.line - 1)
+              let lineStart = target[].buffer.byteOffsetAtLineColumn(lineIndex, 0)
+              moveActiveEditorCursor(min(target[].buffer.toString().len,
+                lineStart + max(0, match.column - 1)))
+              syncEditorCursor()
+              refreshEditorSyntax()
         of sidebarGitHistory:
           if index >= 0 and index < editorGitHistory.len:
             # A history list belongs to the repository that produced it, not

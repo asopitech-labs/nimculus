@@ -5411,3 +5411,20 @@ surface until it has an equivalent native project panel.
 **Consequences.** File discovery behaves as workspace navigation rather than a
 temporary document. The GUI E2E opens File > Quick Open, enters a query, and
 asserts that its title appears in the sidebar accessibility text area.
+
+## UI-053: Give workspace search its own navigation panel
+
+**Context.** Full-text workspace search used the same editor-replacement
+surface as the former Quick Open implementation. It obscured the current file
+and lacked a persistent activity-bar destination while results streamed.
+
+**Decision.** Add a persisted-safe `panelSearch` value at the end of the
+workspace panel enum and expose it through macOS Search activity-bar and
+toolbar controls. Render path, line, column, and text results into this native
+sidebar; activating a row opens the result in the focused editor pane and
+moves its cursor to the matched position.
+
+**Consequences.** Search, Files, Outline, and Git are distinct UI states with
+their own stable selection keys. Workspace search no longer mutates document
+presentation, and GUI E2E verifies `Find in Workspace…` produces a `Search:`
+sidebar result.

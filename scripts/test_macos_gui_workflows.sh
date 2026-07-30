@@ -105,7 +105,7 @@ tell application "System Events"
   tell (first process whose unix id is targetPid)
     set frontmost to true
     if not (exists window 1) then error "Nimculus window did not open"
-    repeat with title in {"Files", "Git", "Terminal"}
+    repeat with title in {"Files", "Search", "Git", "Terminal"}
       if not (exists button (contents of title) of window 1) then error "Missing workspace action: " & (contents of title)
     end repeat
 
@@ -124,6 +124,18 @@ tell application "System Events"
       if (value of area as text) contains "Quick Open: main" then set quickOpenVisible to true
     end repeat
     if not quickOpenVisible then error "Quick Open did not render in the Files sidebar"
+
+    click menu item "Find in Workspace…" of menu "Edit" of menu bar item "Edit" of menu bar 1
+    delay 0.3
+    if not (exists sheet 1) then error "Workspace Search did not present a sheet"
+    set value of text field 1 of sheet 1 to "Nimculus"
+    click button "Search" of sheet 1
+    delay 0.8
+    set workspaceSearchVisible to false
+    repeat with area in every text area of window 1
+      if (value of area as text) contains "Search: Nimculus" then set workspaceSearchVisible to true
+    end repeat
+    if not workspaceSearchVisible then error "Workspace Search did not render in its sidebar"
 
     click button "Split" of window 1
     delay 0.5

@@ -2862,6 +2862,7 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   self.spacing = 6.0;
   NSArray<NSArray<NSString *> *> *buttons = @[
     @[@"Files", @"commandPalette:show files"],
+    @[@"Search", @"commandPalette:workspace search"],
     @[@"Outline", @"commandPalette:show outline"],
     @[@"Git", @"commandPalette:git status"],
     @[@"Terminal", @"commandPalette:toggle terminal"],
@@ -2895,6 +2896,8 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     }
     BOOL active = [command isEqualToString:@"commandPalette:show files"] ?
         g_editor_sidebar_visible && g_editor_sidebar_mode == 1 :
+      [command isEqualToString:@"commandPalette:workspace search"] ?
+        g_editor_sidebar_visible && g_editor_sidebar_mode == 5 :
       [command isEqualToString:@"commandPalette:show outline"] ?
         g_editor_sidebar_visible && g_editor_sidebar_mode == 0 :
       [command isEqualToString:@"commandPalette:git status"] ?
@@ -2925,6 +2928,7 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   self.spacing = 7.0;
   NSArray<NSArray<NSString *> *> *buttons = @[
     @[@"folder", @"Files", @"commandPalette:show files"],
+    @[@"magnifyingglass", @"Search", @"commandPalette:workspace search"],
     @[@"list.bullet", @"Outline", @"commandPalette:show outline"],
     @[@"arrow.triangle.branch", @"Git", @"commandPalette:git status"],
     @[@"terminal", @"Terminal", @"commandPalette:toggle terminal"],
@@ -2970,6 +2974,8 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     }
     BOOL active = [command isEqualToString:@"commandPalette:show files"] ?
         g_editor_sidebar_visible && g_editor_sidebar_mode == 1 :
+      [command isEqualToString:@"commandPalette:workspace search"] ?
+        g_editor_sidebar_visible && g_editor_sidebar_mode == 5 :
       [command isEqualToString:@"commandPalette:show outline"] ?
         g_editor_sidebar_visible && g_editor_sidebar_mode == 0 :
       [command isEqualToString:@"commandPalette:git status"] ?
@@ -6234,32 +6240,35 @@ bool nimculus_platform_validate_workspace_toolbar(void) {
     NimculusWorkspaceToolbar *toolbar = [[NimculusWorkspaceToolbar alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 360.0, 22.0)];
     NSArray<NSView *> *buttons = toolbar.arrangedSubviews;
-    BOOL presentation = buttons.count == 5 &&
+    BOOL presentation = buttons.count == 6 &&
       [((NSButton *)buttons[0]).title isEqualToString:@"Files"] &&
-      [((NSButton *)buttons[1]).title isEqualToString:@"Outline"] &&
-      [((NSButton *)buttons[2]).title isEqualToString:@"Git"] &&
-      [((NSButton *)buttons[3]).title isEqualToString:@"Terminal"] &&
-      [((NSButton *)buttons[4]).title isEqualToString:@"Split"];
+      [((NSButton *)buttons[1]).title isEqualToString:@"Search"] &&
+      [((NSButton *)buttons[2]).title isEqualToString:@"Outline"] &&
+      [((NSButton *)buttons[3]).title isEqualToString:@"Git"] &&
+      [((NSButton *)buttons[4]).title isEqualToString:@"Terminal"] &&
+      [((NSButton *)buttons[5]).title isEqualToString:@"Split"];
     g_editor_sidebar_visible = YES;
     g_editor_sidebar_mode = 2;
     g_terminal_visible = YES;
     [toolbar reloadSelection];
-    BOOL selection = ((NSButton *)buttons[2]).contentTintColor != nil &&
-      ((NSButton *)buttons[3]).contentTintColor != nil &&
-      ![((NSButton *)buttons[2]).contentTintColor
+    BOOL selection = ((NSButton *)buttons[3]).contentTintColor != nil &&
+      ((NSButton *)buttons[4]).contentTintColor != nil &&
+      ![((NSButton *)buttons[3]).contentTintColor
         isEqual:((NSButton *)buttons[0]).contentTintColor] &&
-      !((NSButton *)buttons[2]).bordered &&
-      ((NSButton *)buttons[2]).layer.backgroundColor != nil;
-    [toolbar dispatchWorkspaceCommand:(NSButton *)buttons[2]];
-    BOOL git = strcmp(g_validation_command, "commandPalette:git status") == 0;
+      !((NSButton *)buttons[3]).bordered &&
+      ((NSButton *)buttons[3]).layer.backgroundColor != nil;
+    [toolbar dispatchWorkspaceCommand:(NSButton *)buttons[1]];
+    BOOL search = strcmp(g_validation_command, "commandPalette:workspace search") == 0;
     [toolbar dispatchWorkspaceCommand:(NSButton *)buttons[3]];
-    BOOL terminal = strcmp(g_validation_command, "commandPalette:toggle terminal") == 0;
+    BOOL git = strcmp(g_validation_command, "commandPalette:git status") == 0;
     [toolbar dispatchWorkspaceCommand:(NSButton *)buttons[4]];
+    BOOL terminal = strcmp(g_validation_command, "commandPalette:toggle terminal") == 0;
+    [toolbar dispatchWorkspaceCommand:(NSButton *)buttons[5]];
     BOOL split = strcmp(g_validation_command, "splitEditor") == 0;
     g_secondary_editor_visible = YES;
     [toolbar reloadSelection];
-    BOOL closePresentation = [((NSButton *)buttons[4]).title isEqualToString:@"Close Split"];
-    [toolbar dispatchWorkspaceCommand:(NSButton *)buttons[4]];
+    BOOL closePresentation = [((NSButton *)buttons[5]).title isEqualToString:@"Close Split"];
+    [toolbar dispatchWorkspaceCommand:(NSButton *)buttons[5]];
     BOOL closeSplit = strcmp(g_validation_command, "closeSplit") == 0;
     [toolbar release];
     g_editor_sidebar_mode = previousMode;
@@ -6267,7 +6276,7 @@ bool nimculus_platform_validate_workspace_toolbar(void) {
     g_terminal_visible = previousTerminalVisible;
     g_secondary_editor_visible = previousSecondaryVisible;
     g_command_callback = previousCallback;
-    return presentation && selection && git && terminal && split && closePresentation && closeSplit;
+    return presentation && selection && search && git && terminal && split && closePresentation && closeSplit;
   }
 }
 
@@ -6285,33 +6294,37 @@ bool nimculus_platform_validate_activity_bar(void) {
     NimculusActivityBar *bar = [[NimculusActivityBar alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 30.0, 180.0)];
     NSArray<NSView *> *buttons = bar.arrangedSubviews;
-    BOOL presentation = buttons.count == 5 &&
+    BOOL presentation = buttons.count == 6 &&
       [((NSButton *)buttons[0]).toolTip isEqualToString:@"Files"] &&
-      [((NSButton *)buttons[1]).toolTip isEqualToString:@"Outline"] &&
-      [((NSButton *)buttons[2]).toolTip isEqualToString:@"Git"] &&
-      [((NSButton *)buttons[3]).toolTip isEqualToString:@"Terminal"] &&
-      [((NSButton *)buttons[4]).toolTip isEqualToString:@"Split"] &&
+      [((NSButton *)buttons[1]).toolTip isEqualToString:@"Search"] &&
+      [((NSButton *)buttons[2]).toolTip isEqualToString:@"Outline"] &&
+      [((NSButton *)buttons[3]).toolTip isEqualToString:@"Git"] &&
+      [((NSButton *)buttons[4]).toolTip isEqualToString:@"Terminal"] &&
+      [((NSButton *)buttons[5]).toolTip isEqualToString:@"Split"] &&
       [((NSButton *)buttons[0]).accessibilityLabel isEqualToString:@"Files"] &&
-      [((NSButton *)buttons[1]).accessibilityLabel isEqualToString:@"Outline"] &&
-      [((NSButton *)buttons[2]).accessibilityLabel isEqualToString:@"Git"] &&
-      [((NSButton *)buttons[3]).accessibilityLabel isEqualToString:@"Terminal"] &&
-      [((NSButton *)buttons[4]).accessibilityLabel isEqualToString:@"Split"] &&
+      [((NSButton *)buttons[1]).accessibilityLabel isEqualToString:@"Search"] &&
+      [((NSButton *)buttons[2]).accessibilityLabel isEqualToString:@"Outline"] &&
+      [((NSButton *)buttons[3]).accessibilityLabel isEqualToString:@"Git"] &&
+      [((NSButton *)buttons[4]).accessibilityLabel isEqualToString:@"Terminal"] &&
+      [((NSButton *)buttons[5]).accessibilityLabel isEqualToString:@"Split"] &&
       ((NSButton *)buttons[0]).contentTintColor != nil &&
       ![((NSButton *)buttons[0]).contentTintColor
         isEqual:((NSButton *)buttons[1]).contentTintColor] &&
       !((NSButton *)buttons[0]).bordered &&
       ((NSButton *)buttons[0]).layer.backgroundColor != nil;
-    [bar dispatchWorkspaceCommand:(NSButton *)buttons[2]];
+    [bar dispatchWorkspaceCommand:(NSButton *)buttons[1]];
+    BOOL search = strcmp(g_validation_command, "commandPalette:workspace search") == 0;
+    [bar dispatchWorkspaceCommand:(NSButton *)buttons[3]];
     BOOL git = strcmp(g_validation_command, "commandPalette:git status") == 0;
     g_terminal_visible = YES;
     [bar reloadSelection];
-    BOOL terminalSelected = ((NSButton *)buttons[3]).contentTintColor != nil;
-    [bar dispatchWorkspaceCommand:(NSButton *)buttons[4]];
+    BOOL terminalSelected = ((NSButton *)buttons[4]).contentTintColor != nil;
+    [bar dispatchWorkspaceCommand:(NSButton *)buttons[5]];
     BOOL split = strcmp(g_validation_command, "splitEditor") == 0;
     g_secondary_editor_visible = YES;
     [bar reloadSelection];
-    BOOL closePresentation = [((NSButton *)buttons[4]).toolTip isEqualToString:@"Close Split"];
-    [bar dispatchWorkspaceCommand:(NSButton *)buttons[4]];
+    BOOL closePresentation = [((NSButton *)buttons[5]).toolTip isEqualToString:@"Close Split"];
+    [bar dispatchWorkspaceCommand:(NSButton *)buttons[5]];
     BOOL closeSplit = strcmp(g_validation_command, "closeSplit") == 0;
     [bar release];
     g_editor_sidebar_mode = previousMode;
@@ -6319,7 +6332,7 @@ bool nimculus_platform_validate_activity_bar(void) {
     g_terminal_visible = previousTerminalVisible;
     g_secondary_editor_visible = previousSecondaryVisible;
     g_command_callback = previousCallback;
-    return presentation && git && terminalSelected && split && closePresentation && closeSplit;
+    return presentation && search && git && terminalSelected && split && closePresentation && closeSplit;
   }
 }
 

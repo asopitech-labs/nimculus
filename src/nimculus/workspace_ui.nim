@@ -12,7 +12,8 @@ type
     regionNone, regionLeftDock, regionCenter, regionBottomDock, regionStatus
 
   PanelKind* = enum
-    panelFiles, panelGit, panelOutline, panelTerminal, panelTasks
+    # Keep new values at the end: panel ordinals are persisted in sessions.
+    panelFiles, panelGit, panelOutline, panelTerminal, panelTasks, panelSearch
 
   DockSide* = enum
     dockLeft, dockBottom
@@ -146,7 +147,7 @@ proc dock*(state: WorkspaceUiState, side: DockSide): DockState =
 
 proc panelBelongsTo*(panel: PanelKind, side: DockSide): bool =
   case side
-  of dockLeft: panel in {panelFiles, panelGit, panelOutline}
+  of dockLeft: panel in {panelFiles, panelGit, panelOutline, panelSearch}
   of dockBottom: panel in {panelTerminal, panelTasks}
 
 proc openPanel*(state: var WorkspaceUiState, panel: PanelKind) =
