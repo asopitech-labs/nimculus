@@ -5793,11 +5793,12 @@ only pointer activation could change it. Zed's project panel reserves Right
 for expanding and Left for collapsing the selected directory.
 
 **Decision.** Dispatch left/right arrow keys from the native sidebar to
-`sidebarCollapseSelected` and `sidebarExpandSelected`. The core changes only
-the selected directory's membership in the existing expansion list, then
-refreshes the bounded workspace projection; files and non-Files panels are
-left unchanged.
+`sidebarCollapseSelected` and `sidebarExpandSelected`. Right expands a closed
+directory or advances into an open directory's first visible child. Left
+collapses an open directory; for a closed directory or file it selects the
+visible parent. The core changes only existing expansion state, then refreshes
+the bounded workspace projection.
 
 **Consequences.** Tree exploration is keyboard complete without triggering
-file loads or a broad workspace rescan. Repeated Left/Right on an already
-collapsed/expanded directory is a no-op.
+file loads or a broad workspace rescan. Repeated Right descends through the
+visible tree and repeated Left returns toward the root.

@@ -4773,6 +4773,14 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       if index < 0 or index >= workspacePreviewEntries.len:
         return
       let entry = workspacePreviewEntries[index]
+      if name == "sidebarCollapseSelected" and
+          entry.kind != WorkspaceFileKind.directory:
+        let parent = entry.path.parentDir
+        for parentIndex, candidate in workspacePreviewEntries:
+          if candidate.kind == WorkspaceFileKind.directory and candidate.path == parent:
+            discard editorWorkspaceUi.selectPanelItem(panelFiles, parentIndex)
+            syncNativeSidebarSelection()
+            return
       if entry.kind != WorkspaceFileKind.directory:
         return
       var expandedIndex = -1
@@ -4783,9 +4791,23 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       if name == "sidebarExpandSelected" and expandedIndex < 0:
         workspaceExpandedDirectories.add(entry.path)
         refreshWorkspacePreview()
+      elif name == "sidebarExpandSelected" and index + 1 < workspacePreviewEntries.len:
+        # Zed advances into an already-expanded directory on Right, so a
+        # second key press moves from its label to its first visible child.
+        discard editorWorkspaceUi.selectPanelItem(panelFiles, index + 1)
+        syncNativeSidebarSelection()
       elif name == "sidebarCollapseSelected" and expandedIndex >= 0:
         workspaceExpandedDirectories.delete(expandedIndex)
         refreshWorkspacePreview()
+      elif name == "sidebarCollapseSelected":
+        # A collapsed directory yields to its visible parent. This also keeps
+        # keyboard navigation inside the bounded tree projection.
+        let parent = entry.path.parentDir
+        for parentIndex, candidate in workspacePreviewEntries:
+          if candidate.kind == WorkspaceFileKind.directory and candidate.path == parent:
+            discard editorWorkspaceUi.selectPanelItem(panelFiles, parentIndex)
+            syncNativeSidebarSelection()
+            break
   elif name in ["sidebarPrevious", "sidebarNext", "sidebarFirst", "sidebarLast"]:
     when defined(macosx):
       let panel = workspacePanelForSidebarMode(editorSidebarMode)

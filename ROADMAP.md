@@ -411,7 +411,7 @@ Search パネル：**[x]** 結果一覧のまま再検索を始める `New Searc
 
 Files パネル：**[x]** ZedのProject Panelにならい、New File/New Folderに加え、現在の編集ファイルまでの祖先だけを展開する`Reveal Active File`と、ファイル内容を再走査せず展開状態をリセットする`Collapse All`を常設ヘッダーへ置く。
 
-Filesツリーは選択中のディレクトリに対してRightで展開、Leftで折りたたみを行う。既存の展開状態だけを更新してboundedな表示投影を再構築し、ファイル内容の読込や全ワークスペース走査は行わない。
+Filesツリーは選択中のディレクトリに対してRightで展開（展開済みなら最初の可視childへ移動）、Leftで折りたたみ（折りたたみ済みのdirectory／fileならparentを選択）を行う。既存の展開状態だけを更新してboundedな表示投影を再構築し、ファイル内容の読込や全ワークスペース走査は行わない。
 
 永続化identity：**[x]** sessionのworkspace rootとrecent fileをcanonical path単位でload/save時に統合し、symlink別名による重複FSEvents watcher・Open Recent項目を防止する。
 
