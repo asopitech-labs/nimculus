@@ -4412,7 +4412,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if (scroll) {
       scroll.hidden = !g_editor_sidebar_visible;
       scroll.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(sidebarX, g_editor_rect[1], width,
+        NSMakeRect(sidebarX, g_editor_rect[1] + sidebarToolbarHeight, width,
           MAX(1.0, g_editor_rect[3] - sidebarToolbarHeight)));
       scroll.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
       outline.textContainer.containerSize = NSMakeSize(MAX(1.0, width - 16.0), CGFLOAT_MAX);
@@ -4434,7 +4434,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       CGFloat width = sidebarWidth;
       BOOL compactCommit = width < 350.0;
       gitTabs.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(sidebarControlX, g_editor_rect[1] + g_editor_rect[3] - 27.0,
+        NSMakeRect(sidebarControlX, g_editor_rect[1] + 3.0,
           MAX(1.0, width - (compactCommit ? 72.0 : 118.0)), 24.0));
       // Sidebar modes are ordered History, Status, Branches for the Nim
       // command layer, while the visible Zed-like navigation is Changes,
@@ -4456,7 +4456,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       CGFloat commitWidth = compact ? 30.0 : 76.0;
       gitCommit.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(sidebarControlX + width - commitWidth - 4.0,
-          g_editor_rect[1] + g_editor_rect[3] - 27.0, commitWidth, 24.0));
+          g_editor_rect[1] + 3.0, commitWidth, 24.0));
     }
   }
   if (gitRefresh) {
@@ -4469,7 +4469,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       CGFloat commitWidth = compact ? 30.0 : 76.0;
       gitRefresh.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(sidebarControlX + width - commitWidth - 36.0,
-          g_editor_rect[1] + g_editor_rect[3] - 27.0, 28.0, 24.0));
+          g_editor_rect[1] + 3.0, 28.0, 24.0));
     }
   }
   if (gitChangesActions) {
@@ -4478,7 +4478,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if (showGitChangesActions) {
       gitChangesActions.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(sidebarControlX,
-          g_editor_rect[1] + g_editor_rect[3] - 53.0, 56.0, 24.0));
+          g_editor_rect[1] + 29.0, 56.0, 24.0));
     }
   }
   if (filesActions) {
@@ -4489,7 +4489,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       CGFloat actionWidth = g_workspace_open ? 116.0 : 28.0;
       filesActions.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(sidebarControlX + width - actionWidth - 4.0,
-          g_editor_rect[1] + g_editor_rect[3] - 27.0, actionWidth, 24.0));
+          g_editor_rect[1] + 3.0, actionWidth, 24.0));
     }
   }
   if (searchActions) {
@@ -4499,7 +4499,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       CGFloat width = sidebarWidth;
       searchActions.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(sidebarControlX + width - 56.0,
-          g_editor_rect[1] + g_editor_rect[3] - 27.0, 52.0, 24.0));
+          g_editor_rect[1] + 3.0, 52.0, 24.0));
     }
   }
   if (workspaceToolbar) {
@@ -4528,7 +4528,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   if (tabs) {
     tabs.hidden = g_editor_tab_titles.count == 0;
     tabs.frame = appKitFrameForLogicalTopRect(self,
-      NSMakeRect(g_editor_rect[0], g_editor_rect[1] + g_editor_rect[3],
+      NSMakeRect(g_editor_rect[0], g_editor_rect[1] - 28.0,
         g_editor_rect[2], 28.0));
     tabs.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     [tabs setNeedsDisplay:YES];
@@ -4537,7 +4537,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     secondaryTabs.hidden = !g_secondary_editor_visible || g_secondary_editor_tab_titles.count == 0;
     secondaryTabs.frame = appKitFrameForLogicalTopRect(self,
       NSMakeRect(g_secondary_editor_rect[0],
-        g_secondary_editor_rect[1] + g_secondary_editor_rect[3],
+        g_secondary_editor_rect[1] - 28.0,
         g_secondary_editor_rect[2], 28.0));
     secondaryTabs.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     [secondaryTabs setNeedsDisplay:YES];
@@ -4549,7 +4549,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     context.hidden = g_welcome_visible || g_editor_context.length == 0;
     context.frame = appKitFrameForLogicalTopRect(self,
       NSMakeRect(g_editor_rect[0] + 12.0,
-        g_editor_rect[1] + g_editor_rect[3] + 29.0,
+        g_editor_rect[1] - 52.0,
         MAX(1.0, g_editor_rect[2] - 24.0), 20.0));
     context.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
   }
@@ -4575,7 +4575,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     documentSearch.frame = appKitFrameForLogicalTopRect(self,
       editorOverlayFrame(preferredWidth, preferredHeight,
         g_editor_rect[0] + g_editor_rect[2] - preferredWidth - 8.0,
-        g_editor_rect[1] + g_editor_rect[3] - preferredHeight - 8.0));
+        g_editor_rect[1] + 8.0));
     [documentSearch setNeedsLayout:YES];
   }
   if (commandPalette && !commandPalette.hidden) {
@@ -4583,7 +4583,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     commandPalette.frame = appKitFrameForLogicalTopRect(self,
       editorOverlayFrame(paletteWidth, 40.0,
         g_editor_rect[0] + (g_editor_rect[2] - paletteWidth) / 2.0,
-        g_editor_rect[1] + g_editor_rect[3] - 52.0));
+        g_editor_rect[1] + 12.0));
     [commandPalette setNeedsLayout:YES];
   }
   if (gitCommitEditor && !gitCommitEditor.hidden) {
@@ -4594,7 +4594,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       MAX(1.0, sidebarWidth), MAX(1.0, g_editor_rect[3]));
     gitCommitEditor.frame = appKitFrameForLogicalTopRect(self,
       boundedOverlayFrame(sidebarRect, commitWidth, 36.0,
-        commitX, g_editor_rect[1] + g_editor_rect[3] - 62.0));
+        commitX, g_editor_rect[1] + 32.0));
     [gitCommitEditor setNeedsLayout:YES];
   }
   if (settingsEditor && !settingsEditor.hidden) {
@@ -7503,10 +7503,22 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
       g_editor_rect[0] - 12.0 - 38.0);
     const NSRect sidebar = appKitFrameForLogicalTopRect(view,
       NSMakeRect(46.0, g_editor_rect[1], validationSidebarWidth, g_editor_rect[3]));
+    const NSRect expectedSearch = appKitFrameForLogicalTopRect(view,
+      editorOverlayFrame(MIN(420.0, MAX(1.0, g_editor_rect[2] - 16.0)), 36.0,
+        g_editor_rect[0] + g_editor_rect[2] -
+          MIN(420.0, MAX(1.0, g_editor_rect[2] - 16.0)) - 8.0,
+        g_editor_rect[1] + 8.0));
+    const CGFloat paletteWidth = MIN(560.0, MAX(1.0, g_editor_rect[2] - 24.0));
+    const NSRect expectedPalette = appKitFrameForLogicalTopRect(view,
+      editorOverlayFrame(paletteWidth, 40.0,
+        g_editor_rect[0] + (g_editor_rect[2] - paletteWidth) / 2.0,
+        g_editor_rect[1] + 12.0));
     BOOL overlaysBounded = NSContainsRect(pane, search.frame) &&
       NSContainsRect(pane, palette.frame) &&
       NSContainsRect(pane, settings.frame) &&
       NSContainsRect(sidebar, commitEditor.frame) &&
+      NSEqualRects(search.frame, expectedSearch) &&
+      NSEqualRects(palette.frame, expectedPalette) &&
       search.clipsToBounds && palette.clipsToBounds &&
       commitEditor.clipsToBounds && settings.clipsToBounds;
     NimculusLineNumberOverlay *lineNumbers = nil;
@@ -7533,7 +7545,7 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
       NSMakeRect(0.0, g_editor_rect[1], MAX(36.0, g_editor_rect[0] - 8.0),
         g_editor_rect[3]));
     const NSRect expectedTabs = appKitFrameForLogicalTopRect(view,
-      NSMakeRect(g_editor_rect[0], g_editor_rect[1] + g_editor_rect[3],
+      NSMakeRect(g_editor_rect[0], g_editor_rect[1] - 28.0,
         g_editor_rect[2], 28.0));
     BOOL nativeChromeAligned = lineNumbers && indentGuides && primaryTabs && welcome &&
       NSEqualRects(lineNumbers.frame, expectedLineNumbers) &&

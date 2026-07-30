@@ -6058,12 +6058,16 @@ not the coordinate system in which its parent places that frame.
 **Decision.** Keep the root Metal view bottom-origin for the existing
 `NSTextInputClient` screen/caret conversion and input bridge. Add one
 `appKitFrameForLogicalTopRect` boundary conversion and apply it to every
-logical workspace child frame. The Metal text viewport, native overlay bounds,
-and AppKit child frames now describe the same visible pane. The status and
-terminal panel retain their explicit bottom-origin placement because they
-already convert from logical workspace coordinates at their own boundary.
+logical workspace child frame. Convert legacy toolbar/header offsets into
+top-origin expressions at the same time: tabs and breadcrumbs precede the
+text viewport; Find and Command Palette begin at its top; Git controls precede
+their scrollable list. The Metal text viewport, native overlay bounds, and
+AppKit child frames now describe the same visible pane. The status and terminal
+panel retain their explicit bottom-origin placement because they already
+convert from logical workspace coordinates at their own boundary.
 
 **Consequences.** Native chrome is no longer vertically mirrored relative to
 the Metal editor. Pane-local containment is structural for both renderer and
 native controls, including narrow split panes. The existing native overlay
-contract now compares converted AppKit frames against converted pane bounds.
+contract now compares converted AppKit frames against converted pane bounds and
+locks the top-edge placement of tab/header and non-modal search controls.
