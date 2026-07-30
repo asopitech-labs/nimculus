@@ -1847,12 +1847,20 @@ proc restoreSession() =
   demoSplitRatio = editorSession.effectiveSplitRatio
   demoSplitEnabled = editorSession.split
   demoSplitDirection = editorSession.splitDirection
+  # Bottom-panel processes are not restorable. Clear the persisted open bit
+  # before constructing the workspace too, so the next persistence write
+  # cannot reintroduce an empty dock from stale session metadata.
+  editorSession.workspaceBottomDockOpen = false
   editorWorkspaceUi = initWorkspaceUi(editorSession)
   # Project navigation is the primary Zed-like startup surface. Restoring an
   # old Outline selection leaves an empty, low-value pane beside the editor
   # and obscures the files users need to act on first.
   editorWorkspaceUi.leftDock.isOpen = true
   editorWorkspaceUi.leftDock.activePanel = panelFiles
+  # A terminal or task cannot survive process relaunch. Restoring only this
+  # dock's geometry while its native presenter is absent leaves an inert blank
+  # region over the editor, so always reopen it through an explicit action.
+  editorWorkspaceUi.bottomDock.isOpen = false
   editorWorkspaceUi.focusedRegion = regionCenter
   editorSidebarMode = sidebarFiles
   if editorSession.split:
@@ -3049,6 +3057,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
         when defined(macosx): editorLspSignatureText = ""
         editorSession.recordRecent(filePath)
         syncRecentFiles()
+        setupDemoUi()
         syncEditorCursor()
         refreshEditorSyntax()
         persistSession()
@@ -3065,6 +3074,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       if document != nil: editorViewState.moveCursor(0)
       editorSession.recordRecent(filePath)
       syncRecentFiles()
+      setupDemoUi()
       syncEditorCursor()
       refreshEditorSyntax()
       persistSession()
