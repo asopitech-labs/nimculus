@@ -4739,6 +4739,13 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     when defined(macosx):
       editorWorkspaceUi.focusCenter()
       platformFocusEditor()
+  elif name == "sidebarStageToggleSelected":
+    when defined(macosx):
+      let index = editorWorkspaceUi.panelSelectedIndex(panelGit)
+      if editorSidebarMode != sidebarGitStatus or index < 0:
+        editorViewState.statusMessage = "Git status item is unavailable"
+      else:
+        receiveNativeCommand(("sidebarStageToggle:" & $index).cstring)
   elif name in ["sidebarPrevious", "sidebarNext", "sidebarFirst", "sidebarLast"]:
     when defined(macosx):
       let panel = workspacePanelForSidebarMode(editorSidebarMode)

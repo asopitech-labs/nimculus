@@ -5753,3 +5753,19 @@ to Files, Outline, Search, Git status, history, and branch lists.
 **Consequences.** Sidebar navigation always has a keyboard exit and no panel
 is hidden merely to return to editing. The native dispatch contract exercises
 both keys without depending on a user window.
+
+## M9-021: Preserve Space semantics for Files and Git Changes
+
+**Context.** Zed uses Space as an open action in the project panel and as the
+stage/unstage toggle in its Changes list. Nimculus only exposed these actions
+through pointer activation or context menus, despite already tracking a stable
+selected sidebar item.
+
+**Decision.** The native sidebar dispatches Space to `sidebarOpenSelected` for
+Files, Outline, Search, Git history, and branches. In Git status mode it emits
+`sidebarStageToggleSelected`, which resolves the selected Git projection and
+reuses the existing stage/unstage safety checks.
+
+**Consequences.** Keyboard actions retain the same conflict, staged, and
+unstaged rules as pointer actions; no Git command is created until a real
+selectable change is focused.
