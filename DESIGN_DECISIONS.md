@@ -5515,6 +5515,24 @@ but the interactive acceptance layer cannot create or disconnect a terminal
 session.  A dedicated disposable GUI host may add terminal UI acceptance in
 the future only after proving it cannot share a developer's terminal session.
 
+## M8-035: Keep LSP shutdown and its test at the direct-child boundary
+
+**Context.** LSP shutdown is deliberately limited to the server process
+created by Nimculus.  An old bridge test nevertheless started a TERM-ignoring
+shell plus a background helper and asserted group-wide termination.  After the
+application correctly stopped sending process-group signals, that test left
+the helper's parent shell orphaned under `launchd`.
+
+**Decision.** The bridge regression fixture is now one TERM-ignoring direct
+server process.  Shutdown proves the bridge releases that direct process
+within its bounded fallback path; it creates no background helper and makes no
+claim of descendant ownership.
+
+**Consequences.** The test cannot leave a process behind and cannot exercise
+a cancellation boundary broader than the one granted to the application.
+Detached language-server helpers remain external-process lifecycle
+responsibility, as specified by UI-057.
+
 ## UI-059: Keep workspace-search controls inside the Search panel
 
 **Context.** The Search activity-bar item could open a query sheet, but once

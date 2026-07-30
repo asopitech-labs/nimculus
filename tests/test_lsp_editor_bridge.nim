@@ -7,32 +7,17 @@ import nimculus/lsp_editor_bridge
 
 suite "LSP editor bridge":
   when defined(posix):
-    test "shutdown stops an unresponsive server group without writing didClose":
-      let childReadyPath = "/tmp/nimculus-test-lsp-bridge-child-ready"
-      let childTermPath = "/tmp/nimculus-test-lsp-bridge-child-term"
-      if fileExists(childReadyPath): removeFile(childReadyPath)
-      if fileExists(childTermPath): removeFile(childTermPath)
-      defer:
-        if fileExists(childReadyPath): removeFile(childReadyPath)
-        if fileExists(childTermPath): removeFile(childTermPath)
-      # A TERM acknowledgement from the child proves shutdown reaches helpers
-      # through the process group without relying on zombie reaping timing.
+    test "shutdown bounds an unresponsive direct server without writing didClose":
+      # The application is authorized to stop only the exact LSP process it
+      # started.  Do not create a background child here: testing process-group
+      # termination both contradicts that boundary and can leak an orphan when
+      # the parent ignores TERM.
       let bridge = newLspEditorBridge("/bin/sh", ["-c",
-        "trap '' TERM; (trap 'echo term > " & childTermPath &
-        "; exit' TERM; while :; do sleep 1; done) & echo ready > " &
-        childReadyPath & "; wait"])
+        "trap '' TERM; while :; do sleep 1; done"])
       bridge.updateDocument("/tmp/shutdown.nim", "discard")
       check bridge.session != nil
-      for _ in 0 ..< 100:
-        if fileExists(childReadyPath): break
-        sleep(10)
-      check fileExists(childReadyPath)
       bridge.shutdown()
       check bridge.session == nil
-      for _ in 0 ..< 100:
-        if fileExists(childTermPath): break
-        sleep(10)
-      check fileExists(childTermPath)
 
   test "encodes file URIs and language IDs":
     check fileUri("/tmp/a b.nim") == "file:///tmp/a%20b.nim"
