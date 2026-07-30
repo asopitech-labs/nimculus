@@ -6045,3 +6045,25 @@ own window below the supported floor and verifies AppKit keeps it at least
 becoming an authority over the developer session. The acceptance fixture's
 Files, Search, split, Git Changes/History, and Stage/Unstage paths are tested
 in one app run while unrelated processes remain outside its lifecycle scope.
+
+## UI-069: Convert logical top-origin frames at the AppKit boundary
+
+**Context.** NimNUI and the Metal scene use top-origin logical coordinates,
+while the macOS root `NSView` remains bottom-origin. Several native child
+views (tabs, line numbers, sidebar controls, welcome content, and editor
+overlays) had their logical `y` coordinate assigned directly to an AppKit
+frame. A child declaring `isFlipped` changes its internal drawing coordinates,
+not the coordinate system in which its parent places that frame.
+
+**Decision.** Keep the root Metal view bottom-origin for the existing
+`NSTextInputClient` screen/caret conversion and input bridge. Add one
+`appKitFrameForLogicalTopRect` boundary conversion and apply it to every
+logical workspace child frame. The Metal text viewport, native overlay bounds,
+and AppKit child frames now describe the same visible pane. The status and
+terminal panel retain their explicit bottom-origin placement because they
+already convert from logical workspace coordinates at their own boundary.
+
+**Consequences.** Native chrome is no longer vertically mirrored relative to
+the Metal editor. Pane-local containment is structural for both renderer and
+native controls, including narrow split panes. The existing native overlay
+contract now compares converted AppKit frames against converted pane bounds.
