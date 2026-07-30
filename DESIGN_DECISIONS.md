@@ -5991,3 +5991,20 @@ unchanged and return focus to the editor.
 prompt. The native contract covers populated values, Apply dispatch, absence
 of a sheet, and Esc focus restoration; Nim remains responsible for validation
 and atomic settings-file updates.
+
+## UI-067: Constrain native editor overlays to their owning pane
+
+**Context.** The Metal document surface clips text to its content viewport,
+but native search, command-palette, commit, and settings overlays previously
+kept visual minimum sizes. In a narrow split pane this could put an overlay or
+one of its controls beyond the right or bottom edge of its owner.
+
+**Decision.** Clamp every native overlay frame to the active editor pane (or
+the Git sidebar for the commit editor), including height as well as width.
+Each overlay clips its child controls to its own bounds. Usability at normal
+window sizes retains the preferred dimensions; constrained panes shrink the
+overlay rather than drawing into adjacent UI.
+
+**Consequences.** Native chrome now follows the same four-sided containment
+rule as Metal text. The GUI contract exercises a 148pt × 78pt pane and proves
+that each overlay frame and its children remain contained.

@@ -216,6 +216,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 - [x] 基本コントロール（Label、Button、Scroll view、Split pane、Tab bar、Context menu、Popup、Tooltip）の状態・配置・入力・PaintList経路
 - [x] `PaintList`の描画コマンドをmacOS native ABI経由でMetalへ転送（rectangle、border、rounded rectangle、shadow、caret、selection、scrollbarの基本描画）
 - [x] Text placeholder / image commandをnative Metalへ転送し、元geometryと累積affine transformをMetal頂点へ適用（実文字はM3、画像はRGBA8 texture ID登録・描画APIを実装。未登録IDはplaceholder）
+- [x] native検索・Command Palette・Git commit・設定オーバーレイを所有ペインへ四辺クランプし、狭い分割ペインでも右端・下端や隣接UIへはみ出さないことをGUI契約で検証
 
 **完了条件：**
 

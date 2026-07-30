@@ -764,6 +764,30 @@ static NimculusPaintRegion editorTextViewport(const double rect[4]) {
   return viewport;
 }
 
+// Native overlays are children of the Metal view, not sheets.  They must
+// therefore obey the same pane boundary as the editor texture: a split pane
+// or a very small window must never let their frame (or child controls) spill
+// into a neighbouring pane, the sidebar, or the bottom status area.
+static NSRect boundedOverlayFrame(NSRect container, CGFloat requestedWidth,
+                                  CGFloat requestedHeight, CGFloat requestedX,
+                                  CGFloat requestedY) {
+  const CGFloat width = MIN(MAX(1.0, requestedWidth), MAX(1.0, container.size.width));
+  const CGFloat height = MIN(MAX(1.0, requestedHeight), MAX(1.0, container.size.height));
+  const CGFloat minX = container.origin.x;
+  const CGFloat maxX = container.origin.x + container.size.width - width;
+  const CGFloat minY = container.origin.y;
+  const CGFloat maxY = container.origin.y + container.size.height - height;
+  return NSMakeRect(MIN(MAX(requestedX, minX), MAX(minX, maxX)),
+    MIN(MAX(requestedY, minY), MAX(minY, maxY)), width, height);
+}
+
+static NSRect editorOverlayFrame(CGFloat requestedWidth, CGFloat requestedHeight,
+                                 CGFloat requestedX, CGFloat requestedY) {
+  return boundedOverlayFrame(NSMakeRect(g_editor_rect[0], g_editor_rect[1],
+    MAX(1.0, g_editor_rect[2]), MAX(1.0, g_editor_rect[3])), requestedWidth,
+    requestedHeight, requestedX, requestedY);
+}
+
 static NSUInteger editorVisibleLineCapacity(const double rect[4], CGFloat lineHeight) {
   if (lineHeight <= 0.0) return 1;
   // Cull with the same four-sided content mask used at Core Text, glyph
@@ -2228,7 +2252,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
   if (!self) return nil;
+  self.clipsToBounds = YES;
   self.wantsLayer = YES;
+  self.layer.masksToBounds = YES;
   self.layer.cornerRadius = 8.0;
   self.layer.borderWidth = 1.0;
   self.layer.borderColor = [[NSColor separatorColor] colorWithAlphaComponent:0.8].CGColor;
@@ -2347,7 +2373,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
   if (!self) return nil;
+  self.clipsToBounds = YES;
   self.wantsLayer = YES;
+  self.layer.masksToBounds = YES;
   self.layer.cornerRadius = 6.0;
   self.layer.borderWidth = 1.0;
   self.layer.borderColor = [[NSColor separatorColor] colorWithAlphaComponent:0.8].CGColor;
@@ -2414,7 +2442,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
   if (!self) return nil;
+  self.clipsToBounds = YES;
   self.wantsLayer = YES;
+  self.layer.masksToBounds = YES;
   self.layer.cornerRadius = 8.0;
   self.layer.borderWidth = 1.0;
   self.layer.borderColor = [[NSColor separatorColor] colorWithAlphaComponent:0.8].CGColor;
@@ -2515,7 +2545,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
   if (!self) return nil;
+  self.clipsToBounds = YES;
   self.wantsLayer = YES;
+  self.layer.masksToBounds = YES;
   self.layer.cornerRadius = 6.0;
   self.layer.borderWidth = 1.0;
   self.layer.borderColor = [[NSColor separatorColor] colorWithAlphaComponent:0.8].CGColor;
@@ -4509,30 +4541,35 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     [annotations setNeedsDisplay:YES];
   }
   if (documentSearch && !documentSearch.hidden) {
-    const CGFloat searchWidth = MIN(420.0, MAX(260.0, g_editor_rect[2] - 16.0));
-    const CGFloat searchHeight = documentSearch.mode == 1 ? 64.0 : 36.0;
-    documentSearch.frame = NSMakeRect(g_editor_rect[0] + g_editor_rect[2] - searchWidth - 8.0,
-      g_editor_rect[1] + g_editor_rect[3] - searchHeight - 8.0, searchWidth, searchHeight);
+    const CGFloat preferredWidth = MIN(420.0, MAX(1.0, g_editor_rect[2] - 16.0));
+    const CGFloat preferredHeight = documentSearch.mode == 1 ? 64.0 : 36.0;
+    documentSearch.frame = editorOverlayFrame(preferredWidth, preferredHeight,
+      g_editor_rect[0] + g_editor_rect[2] - preferredWidth - 8.0,
+      g_editor_rect[1] + g_editor_rect[3] - preferredHeight - 8.0);
     [documentSearch setNeedsLayout:YES];
   }
   if (commandPalette && !commandPalette.hidden) {
-    const CGFloat paletteWidth = MIN(560.0, MAX(300.0, g_editor_rect[2] - 24.0));
-    commandPalette.frame = NSMakeRect(g_editor_rect[0] + (g_editor_rect[2] - paletteWidth) / 2.0,
-      g_editor_rect[1] + g_editor_rect[3] - 52.0, paletteWidth, 40.0);
+    const CGFloat paletteWidth = MIN(560.0, MAX(1.0, g_editor_rect[2] - 24.0));
+    commandPalette.frame = editorOverlayFrame(paletteWidth, 40.0,
+      g_editor_rect[0] + (g_editor_rect[2] - paletteWidth) / 2.0,
+      g_editor_rect[1] + g_editor_rect[3] - 52.0);
     [commandPalette setNeedsLayout:YES];
   }
   if (gitCommitEditor && !gitCommitEditor.hidden) {
-    const CGFloat commitWidth = MIN(420.0, MAX(260.0, sidebarWidth - 8.0));
+    const CGFloat commitWidth = MIN(420.0, MAX(1.0, sidebarWidth - 8.0));
     const CGFloat commitX = g_editor_sidebar_on_right ? sidebarX + 4.0 :
       sidebarX + sidebarWidth - commitWidth - 4.0;
-    gitCommitEditor.frame = NSMakeRect(commitX, g_editor_rect[1] + g_editor_rect[3] - 62.0,
-      commitWidth, 36.0);
+    const NSRect sidebarRect = NSMakeRect(sidebarX, g_editor_rect[1],
+      MAX(1.0, sidebarWidth), MAX(1.0, g_editor_rect[3]));
+    gitCommitEditor.frame = boundedOverlayFrame(sidebarRect, commitWidth, 36.0,
+      commitX, g_editor_rect[1] + g_editor_rect[3] - 62.0);
     [gitCommitEditor setNeedsLayout:YES];
   }
   if (settingsEditor && !settingsEditor.hidden) {
-    const CGFloat settingsWidth = MIN(500.0, MAX(340.0, g_editor_rect[2] - 24.0));
-    settingsEditor.frame = NSMakeRect(g_editor_rect[0] + (g_editor_rect[2] - settingsWidth) / 2.0,
-      g_editor_rect[1] + (g_editor_rect[3] - 230.0) / 2.0, settingsWidth, 230.0);
+    const CGFloat settingsWidth = MIN(500.0, MAX(1.0, g_editor_rect[2] - 24.0));
+    settingsEditor.frame = editorOverlayFrame(settingsWidth, 230.0,
+      g_editor_rect[0] + (g_editor_rect[2] - settingsWidth) / 2.0,
+      g_editor_rect[1] + (g_editor_rect[3] - 230.0) / 2.0);
     [settingsEditor setNeedsLayout:YES];
   }
   if (!terminal || !terminalSessions || !outputBar || !taskOutput) return;
@@ -7291,6 +7328,8 @@ bool nimculus_platform_validate_sidebar_scroll_container(void) {
 
 bool nimculus_platform_validate_application_alert_sheet(void) {
   NimculusPlatformMetrics previousMetrics = g_metrics;
+  const double previousEditorRect[4] = {g_editor_rect[0], g_editor_rect[1],
+    g_editor_rect[2], g_editor_rect[3]};
   @autoreleasepool {
     NSApplication *application = [NSApplication sharedApplication];
     (void)application;
@@ -7408,6 +7447,29 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
       "settingsApply:dark\03715\03713\037Menlo\037SF Mono\037/bin/zsh") == 0;
     [settings.editorSizeField cancelOperation:nil];
     BOOL settingsEscaped = settings.hidden && window.firstResponder == view;
+    // A narrow split pane used to retain the overlays' visual minimum width,
+    // which could put native controls beyond the editor's right/bottom edge.
+    // Exercise all four overlay kinds against a deliberately tiny pane.
+    g_editor_rect[0] = 240.0; g_editor_rect[1] = 30.0;
+    g_editor_rect[2] = 148.0; g_editor_rect[3] = 78.0;
+    search.hidden = NO;
+    palette.hidden = NO;
+    commitEditor.hidden = NO;
+    settings.hidden = NO;
+    [view updateTerminalFrame];
+    const NSRect pane = NSMakeRect(g_editor_rect[0], g_editor_rect[1],
+      g_editor_rect[2], g_editor_rect[3]);
+    const CGFloat validationSidebarWidth = MAX(140.0,
+      g_editor_rect[0] - 12.0 - 38.0);
+    const NSRect sidebar = NSMakeRect(46.0, g_editor_rect[1],
+      validationSidebarWidth, g_editor_rect[3]);
+    BOOL overlaysBounded = NSContainsRect(pane, search.frame) &&
+      NSContainsRect(pane, palette.frame) &&
+      NSContainsRect(pane, settings.frame) &&
+      NSContainsRect(sidebar, commitEditor.frame) &&
+      search.clipsToBounds && palette.clipsToBounds &&
+      commitEditor.clipsToBounds && settings.clipsToBounds;
+    memcpy(g_editor_rect, previousEditorRect, sizeof(previousEditorRect));
     g_command_callback = previousCallback;
     g_active_view = previousView;
     delegate.view = nil;
@@ -7422,7 +7484,7 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
       quickOpenDispatched && dismissed &&
       paletteVisible && paletteFiltered && paletteDispatched && paletteEscaped &&
       commitVisible && commitDispatched && commitEscaped && settingsVisible &&
-      settingsDispatched && settingsEscaped;
+      settingsDispatched && settingsEscaped && overlaysBounded;
   }
 }
 
