@@ -11,6 +11,31 @@ import nimculus/editor_app
 import nimculus/editor_view
 import nimculus/session
 import nimculus/atomic_io
+import nimculus/persistence_scheduler
+
+suite "session persistence scheduling":
+  test "edits debounce while bounding crash recovery delay":
+    var schedule: PersistenceSchedule
+    schedule.schedule(0.0)
+    check schedule.pending
+    check schedule.startedAt == 0.0
+    check schedule.dueAt == 1.0
+
+    schedule.schedule(0.8)
+    check schedule.dueAt == 1.8
+    check not schedule.isDue(1.79)
+    check schedule.isDue(1.8)
+
+    # Continuous input must still flush at most five seconds after the first
+    # unsaved edit, rather than continually pushing recovery farther away.
+    schedule.schedule(4.8)
+    check schedule.dueAt == 5.0
+    check not schedule.isDue(4.99)
+    check schedule.isDue(5.0)
+
+    schedule.clear()
+    check not schedule.pending
+    check not schedule.isDue(100.0)
 
 suite "M4 editor buffer":
   test "piece table edits and undo redo preserve content":

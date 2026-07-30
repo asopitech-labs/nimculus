@@ -5637,3 +5637,20 @@ remapping helper and rebinds both split-pane selections.
 close actions, overflow navigation, or per-pane document identity. The native
 tab contract and editor-core remapping test cover the dispatch and state
 boundaries.
+
+## M20-007: Debounce session persistence without weakening recovery
+
+**Context.** The macOS workspace timer and native idle callback each triggered
+full session serialization on the same shared tick counter. In an active AppKit
+event loop that repeatedly writes `session.json`, including every buffer's
+state, even when neither document nor workspace state changed.
+
+**Decision.** Explicit durable transitions (save, tab/workspace layout
+changes, close, and quit) still call `persistSession` immediately. Ordinary
+editor edits instead schedule a trailing persistence write one second after
+the last event, capped at five seconds from the first pending edit. Both the
+macOS workspace timer and Windows/native idle path only flush a due request.
+
+**Consequences.** Continuous editing retains bounded crash-recovery latency
+without serializing unchanged sessions at timer/frame cadence, reducing CPU,
+I/O, and allocation churn on large open files.

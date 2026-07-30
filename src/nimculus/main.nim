@@ -16,6 +16,7 @@ import nimculus/editor_syntax
 import nimculus/tree_sitter
 import nimculus/workspace
 import nimculus/session
+import nimculus/persistence_scheduler
 import nimculus/lsp_editor_bridge
 import nimculus/lsp
 import nimculus/editor_diagnostics
@@ -547,7 +548,7 @@ var sessionFilePath = ""
 var recoveryFilePath = ""
 var crashReportPath = ""
 var settingsFilePath = ""
-var persistenceTick = 0
+var sessionPersistence: PersistenceSchedule
 var suppressRecoveryWrite = false
 var discardDirtyOnExit = false
 when defined(macosx):
@@ -1906,8 +1907,22 @@ proc persistSession() =
       removeFile(recoveryFilePath)
     suppressRecoveryWrite = false
     discardDirtyOnExit = false
+    sessionPersistence.clear()
   except CatchableError:
     discard
+
+proc scheduleSessionPersistence() =
+  ## Text input can arrive at frame rate. Persisting the full session from
+  ## both the AppKit timer and idle callback serialized every open buffer over
+  ## and over again while typing. Debounce ordinary edits, but cap the delay
+  ## so crash recovery is never deferred indefinitely during continuous input.
+  if sessionFilePath.len == 0: return
+  let now = epochTime()
+  sessionPersistence.schedule(now)
+
+proc flushScheduledSessionPersistence() =
+  if sessionPersistence.isDue(epochTime()):
+    persistSession()
 
 proc syncRecentFiles() =
   when defined(macosx):
@@ -2262,8 +2277,7 @@ proc cancelWorkspaceSearch() =
 
 proc pollWorkspaceSearch() =
   when defined(macosx):
-    inc persistenceTick
-    if persistenceTick mod 20 == 0: persistSession()
+    flushScheduledSessionPersistence()
     let changed = if activeWorkspace == nil: @[] else: activeWorkspace.changedPaths()
     if not externalAlertShown:
       for index, tab in editorSession.tabs:
@@ -3005,9 +3019,7 @@ when defined(windows):
     pollWindowsTerminal()
     pollWindowsTask()
     pollWindowsWorkspace()
-    inc persistenceTick
-    if persistenceTick mod 20 == 0:
-      persistSession()
+    flushScheduledSessionPersistence()
 
 proc receiveNativeTextValue(value: string, composing: bool) =
   when defined(macosx):
@@ -3039,6 +3051,7 @@ proc receiveNativeTextValue(value: string, composing: bool) =
         editorViewState.moveCursor(selected.startByte + value.len)
       syncEditorCursor()
       refreshEditorSyntax()
+      scheduleSessionPersistence()
       when defined(macosx):
         requestEditorCompletion()
 
@@ -3472,6 +3485,7 @@ proc handleSecondaryEditorCommand(name: string, document: ptr FileDocument): boo
   else: return false
   editorSession.secondaryView = view
   syncEditorCursor()
+  scheduleSessionPersistence()
   true
 
 proc receiveNativeCommand(command: cstring) {.cdecl.} =
@@ -5191,16 +5205,19 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       editorViewState.moveCursor(start)
       syncEditorCursor()
       refreshEditorSyntax()
+      scheduleSessionPersistence()
   elif name == "undo" and document != nil:
     if document[].buffer.undo():
       editorViewState.moveCursor(min(editorViewState.cursor, document[].buffer.toString().len))
       syncEditorCursor()
       refreshEditorSyntax()
+      scheduleSessionPersistence()
   elif name == "redo" and document != nil:
     if document[].buffer.redo():
       editorViewState.moveCursor(min(editorViewState.cursor, document[].buffer.toString().len))
       syncEditorCursor()
       refreshEditorSyntax()
+      scheduleSessionPersistence()
   elif name == "copy" and document != nil:
     let selected = editorViewState.selectedRange()
     let copied = document[].buffer.substring(selected.startByte, selected.endByte)
@@ -5214,6 +5231,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       editorViewState.moveCursor(selected.startByte)
       refreshEditorSyntax()
       syncEditorCursor()
+      scheduleSessionPersistence()
   elif name == "paste":
     receiveNativeTextValue(clipboardGet(), false)
   elif name == "selectAll" and document != nil:

@@ -584,6 +584,8 @@ DAP client、launch、attach、breakpoints、stack frames、variables、watches�
 
 **CI計測ゲート：** GUIログイン済みself-hosted macOS workflowは、通常M20、100 MiB editor、100,000ファイルworkspaceの各ベンチをRunner一時nimcacheで実行する。これによりキャッシュを永続化せず、スケール計測が少なくとも実行可能であることを継続確認する。
 
+**実装済み安定化：** session/recoveryの全量JSON保存は、編集のたびに即時実行せず、最後の通常編集から1秒後にまとめて実行する。連続入力でも最初の未保存編集から最大5秒で必ず保存し、保存・tab/workspaceレイアウト変更・close・quitは従来どおり即時保存する。macOSのworkspace timerとnative idle callbackは期限到来時だけをflushするため、アイドル／入力周期で同一sessionを繰り返し直列化しない。この時間契約は単体テストとGUI E2Eで検証する。
+
 **目標：** macOS 通常起動 1 秒未満、空ワークスペース 50〜100MB 以内、60Hz で安定描画、120Hz を阻害しない設計、100MB 級ファイル、10 万ファイル級ワークスペース、8 時間連続利用、長時間アイドルでメモリが増加し続けないこと。
 
 ### M21：v1.0 正式リリース
