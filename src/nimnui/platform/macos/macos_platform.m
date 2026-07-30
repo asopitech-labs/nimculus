@@ -2608,6 +2608,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)showFind:(BOOL)replace {
   self.mode = replace ? 1 : 0;
   self.queryField.placeholderString = @"Find";
+  self.queryField.accessibilityLabel = @"Find in Document";
   self.hidden = NO;
   [self setNeedsLayout:YES];
   [self layoutSubtreeIfNeeded];
@@ -2628,6 +2629,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)showWorkspaceSearch {
   self.mode = 3;
   self.queryField.placeholderString = @"Search workspace";
+  self.queryField.accessibilityLabel = @"Search workspace";
   self.hidden = NO;
   [self setNeedsLayout:YES];
   [self layoutSubtreeIfNeeded];
@@ -2638,6 +2640,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)showQuickOpen {
   self.mode = 4;
   self.queryField.placeholderString = @"Quick Open: file name or path";
+  self.queryField.accessibilityLabel = @"Quick Open: file name or path";
   self.hidden = NO;
   [self setNeedsLayout:YES];
   [self layoutSubtreeIfNeeded];
@@ -7335,12 +7338,14 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     [delegate goToLine:nil];
     BOOL visibleLine = !search.hidden && search.mode == 2 && !search.lineField.hidden;
     [delegate findInWorkspace:nil];
-    BOOL visibleWorkspaceSearch = !search.hidden && search.mode == 3 && !search.queryField.hidden;
+    BOOL visibleWorkspaceSearch = !search.hidden && search.mode == 3 && !search.queryField.hidden &&
+      [search.queryField.accessibilityLabel isEqualToString:@"Search workspace"];
     search.queryField.stringValue = @"Nimculus";
     [search findNext:nil];
     BOOL workspaceSearchDispatched = strcmp(g_validation_command, "workspaceSearch:Nimculus") == 0;
     [delegate quickOpen:nil];
-    BOOL visibleQuickOpen = !search.hidden && search.mode == 4 && !search.queryField.hidden;
+    BOOL visibleQuickOpen = !search.hidden && search.mode == 4 && !search.queryField.hidden &&
+      [search.queryField.accessibilityLabel isEqualToString:@"Quick Open: file name or path"];
     search.queryField.stringValue = @"main.nim";
     [search findNext:nil];
     BOOL quickOpenDispatched = strcmp(g_validation_command, "quickOpen:main.nim") == 0;

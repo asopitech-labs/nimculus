@@ -121,9 +121,9 @@ tell application "System Events"
 
     click menu item "Quick Open…" of menu "File" of menu bar item "File" of menu bar 1
     delay 0.3
-    if not (exists sheet 1) then error "Quick Open did not present a sheet"
-    set value of text field 1 of sheet 1 to "main"
-    click button "Search" of sheet 1
+    if not (exists text field "Quick Open: file name or path" of window 1) then error "Quick Open overlay did not open"
+    set value of text field "Quick Open: file name or path" of window 1 to "main"
+    key code 36
     delay 0.8
     set quickOpenVisible to false
     repeat with area in every text area of window 1
@@ -133,9 +133,9 @@ tell application "System Events"
 
     click menu item "Find in Workspace…" of menu "Edit" of menu bar item "Edit" of menu bar 1
     delay 0.3
-    if not (exists sheet 1) then error "Workspace Search did not present a sheet"
-    set value of text field 1 of sheet 1 to "Nimculus"
-    click button "Search" of sheet 1
+    if not (exists text field "Search workspace" of window 1) then error "Workspace Search overlay did not open"
+    set value of text field "Search workspace" of window 1 to "Nimculus"
+    key code 36
     delay 0.8
     set workspaceSearchVisible to false
     repeat with area in every text area of window 1
