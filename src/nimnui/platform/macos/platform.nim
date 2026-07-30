@@ -159,6 +159,7 @@ proc platformFocusEditor*() {.importc: "nimculus_platform_focus_editor", cdecl.}
 proc platformSetEditorSidebarOnRight*(onRight: bool) {.importc: "nimculus_platform_set_editor_sidebar_on_right", cdecl.}
 proc platformSetWorkspaceOpen*(open: bool) {.importc: "nimculus_platform_set_workspace_open", cdecl.}
 proc platformOpenWorkspaceFolder*() {.importc: "nimculus_platform_open_workspace_folder", cdecl.}
+proc platformRenameWorkspaceEntry*(path: cstring, isDirectory: bool) {.importc: "nimculus_platform_rename_workspace_entry", cdecl.}
 proc platformSetTerminalVisible*(visible: bool) {.importc: "nimculus_platform_set_terminal_visible", cdecl.}
 proc platformSetTerminalSessions*(titles: cstring, length, activeIndex: uint32) {.importc: "nimculus_platform_set_terminal_sessions", cdecl.}
 proc platformSetTerminalText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_terminal_text", cdecl.}

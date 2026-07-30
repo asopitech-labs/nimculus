@@ -5802,3 +5802,18 @@ the bounded workspace projection.
 **Consequences.** Tree exploration is keyboard complete without triggering
 file loads or a broad workspace rescan. Repeated Right descends through the
 visible tree and repeated Left returns toward the root.
+
+## M6-025: Route Files-panel Rename directly to the existing sheet
+
+**Context.** The native context menu already had a Rename sheet that retains
+the selected path across asynchronous completion, and the core already
+validates same-root renames. The Zed-compatible F2 entry point was absent.
+
+**Decision.** F2 dispatches `sidebarRenameSelected`; the core resolves the
+selected Files row and invokes the existing native Rename sheet with that
+exact path. Workspace root rows are refused because a multi-root workspace
+does not own their parent names.
+
+**Consequences.** Rename does not depend on pointer context menus, retains
+the established validation and FSEvents refresh path, and cannot accidentally
+rename a workspace root.

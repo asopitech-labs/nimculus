@@ -4765,6 +4765,19 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         editorViewState.statusMessage = "Git status item is unavailable"
       else:
         receiveNativeCommand(("sidebarStageToggle:" & $index).cstring)
+  elif name == "sidebarRenameSelected":
+    when defined(macosx):
+      if editorSidebarMode != sidebarFiles or activeWorkspace == nil:
+        return
+      let index = editorWorkspaceUi.panelSelectedIndex(panelFiles)
+      if index < 0 or index >= workspacePreviewEntries.len:
+        return
+      let entry = workspacePreviewEntries[index]
+      if entry.relativePath.len == 0:
+        editorViewState.statusMessage = "Workspace root cannot be renamed"
+      else:
+        platformRenameWorkspaceEntry(entry.path.cstring,
+          entry.kind == WorkspaceFileKind.directory)
   elif name in ["sidebarCollapseSelected", "sidebarExpandSelected"]:
     when defined(macosx):
       if editorSidebarMode != sidebarFiles or activeWorkspace == nil:

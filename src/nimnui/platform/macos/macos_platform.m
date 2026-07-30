@@ -2371,7 +2371,8 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     key == 49 ? (g_editor_sidebar_mode == 3 ? "sidebarStageToggleSelected" : "sidebarOpenSelected") :
     key == 126 ? "sidebarPrevious" :
     key == 125 ? "sidebarNext" : key == 123 ? "sidebarCollapseSelected" :
-    key == 124 ? "sidebarExpandSelected" : key == 115 ? "sidebarFirst" :
+    key == 124 ? "sidebarExpandSelected" : key == 120 ? "sidebarRenameSelected" :
+    key == 115 ? "sidebarFirst" :
     key == 119 ? "sidebarLast" : (key == 36 || key == 76) ? "sidebarOpenSelected" : NULL;
   if (command) {
     g_command_callback(command);
@@ -6424,9 +6425,16 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
     strcpy(g_validation_command, "unchanged");
     if (right) [sidebar keyDown:right];
     BOOL rightExpandsDirectory = strcmp(g_validation_command, "sidebarExpandSelected") == 0;
+    NSEvent *rename = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:0 timestamp:0.0 windowNumber:0 context:nil
+      characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:120];
+    strcpy(g_validation_command, "unchanged");
+    if (rename) [sidebar keyDown:rename];
+    BOOL renameSelected = strcmp(g_validation_command, "sidebarRenameSelected") == 0;
     BOOL valid = selected && opened && headerIgnored && mappedSelection && mappedOpen &&
       stageToggle && tabFocusesEditor && escapeFocusesEditor && spaceStagesGitChange &&
-      spaceOpensSidebarItem && leftCollapsesDirectory && rightExpandsDirectory;
+      spaceOpensSidebarItem && leftCollapsesDirectory && rightExpandsDirectory &&
+      renameSelected;
     [sidebar release];
     free(g_editor_sidebar_line_items);
     g_editor_sidebar_line_items = previousLineItems;
@@ -7517,6 +7525,15 @@ void nimculus_platform_show_workspace_entry_context(const char *path, bool is_di
   trash.keyEquivalentModifierMask = 0;
   for (NSMenuItem *item in menu.itemArray) item.target = delegate;
   [menu popUpMenuPositioningItem:nil atLocation:[NSEvent mouseLocation] inView:nil];
+}
+void nimculus_platform_rename_workspace_entry(const char *path, bool is_directory) {
+  if (!path || path[0] == '\0') return;
+  replaceOwnedString(&g_workspace_context_path, [NSString stringWithUTF8String:path]);
+  g_workspace_context_is_directory = is_directory ? YES : NO;
+  NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
+  if (delegate && [delegate respondsToSelector:@selector(renameWorkspaceContextEntry:)]) {
+    [delegate performSelector:@selector(renameWorkspaceContextEntry:) withObject:nil];
+  }
 }
 void nimculus_platform_show_git_status_context(uint32_t item_index,
                                                uint32_t projection) {

@@ -413,6 +413,8 @@ Files パネル：**[x]** ZedのProject Panelにならい、New File/New Folder�
 
 Filesツリーは選択中のディレクトリに対してRightで展開（展開済みなら最初の可視childへ移動）、Leftで折りたたみ（折りたたみ済みのdirectory／fileならparentを選択）を行う。既存の展開状態だけを更新してboundedな表示投影を再構築し、ファイル内容の読込や全ワークスペース走査は行わない。
 
+FilesツリーのF2は選択したファイル／ディレクトリを既存のmacOS Rename sheetへ渡す。renameは同一workspace root内に制限され、workspace root行のrenameは拒否する。
+
 永続化identity：**[x]** sessionのworkspace rootとrecent fileをcanonical path単位でload/save時に統合し、symlink別名による重複FSEvents watcher・Open Recent項目を防止する。
 
 ### M7：Tree-sitter
