@@ -105,7 +105,7 @@ tell application "System Events"
   tell (first process whose unix id is targetPid)
     set frontmost to true
     if not (exists window 1) then error "Nimculus window did not open"
-    repeat with title in {"Files", "Search", "Git", "Terminal"}
+    repeat with title in {"Files", "Search", "Git"}
       if not (exists button (contents of title) of window 1) then error "Missing workspace action: " & (contents of title)
     end repeat
 
@@ -181,12 +181,12 @@ tell application "System Events"
     click button "Refresh Git panel" of window 1
     delay 0.5
 
-    click button "Terminal" of window 1
-    delay 0.5
-    -- The session-bar controls are custom native views and their individual
-    -- Accessibility names differ by macOS release. This workflow asserts the
-    -- public Terminal navigation dispatch; PTY creation/input/resize/close is
-    -- covered by the terminal integration suite in the consolidated E2E.
+    -- Do not open the integrated terminal from the GUI acceptance harness.
+    -- Closing a PTY master can cause macOS to deliver SIGHUP to processes in
+    -- that terminal's session.  The harness must never exercise a path which
+    -- could affect a developer's Codex/Terminal session. PTY creation,
+    -- input, resize, and direct-child shutdown are covered by isolated
+    -- terminal integration tests instead.
   end tell
 end tell
 APPLESCRIPT

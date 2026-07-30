@@ -5496,7 +5496,26 @@ shared launcher. Cancellation remains bounded for the direct child; external
 tools that deliberately detach descendants are responsible for their own
 lifecycle rather than inheriting broad signal authority from the editor.
 
-## UI-058: Keep workspace-search controls inside the Search panel
+## UI-058: Keep GUI acceptance independent of terminal-session hangups
+
+**Context.** The GUI acceptance workflow opened the integrated Terminal only to
+assert that its activity-bar control dispatched.  That creates and then closes
+a PTY during cleanup.  On macOS, closing a PTY master may deliver `SIGHUP` to
+processes in its terminal session; that is an unacceptable risk in an
+environment where Codex or a developer shell can be active.
+
+**Decision.** The Accessibility GUI workflow covers Files, Search, editor
+splits, and Git, but never opens the integrated Terminal.  Terminal behavior
+is verified by isolated integration tests that spawn only temporary fixture
+processes.  The GUI workflow's cleanup continues to signal only its exact,
+separately launched Nimculus PID.
+
+**Consequences.** The integrated E2E still validates the terminal subsystem,
+but the interactive acceptance layer cannot create or disconnect a terminal
+session.  A dedicated disposable GUI host may add terminal UI acceptance in
+the future only after proving it cannot share a developer's terminal session.
+
+## UI-059: Keep workspace-search controls inside the Search panel
 
 **Context.** The Search activity-bar item could open a query sheet, but once
 results were visible there was no panel-local way to begin another search or
