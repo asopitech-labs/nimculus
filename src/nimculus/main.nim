@@ -5417,29 +5417,33 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     ## presenter. Restrict capture to the divider so normal sidebar rows keep
     ## their native click behavior while the user has a direct affordance for
     ## persistent panel sizing.
-    let workspaceLayout = editorWorkspaceUi.layout(Size(
-      width: px(if metrics.widthPoints > 0: float32(metrics.widthPoints) else: 960'f32),
-      height: px(if metrics.heightPoints > 0: float32(metrics.heightPoints) else: 640'f32)))
+    let viewportWidth = if metrics.widthPoints > 0: float32(metrics.widthPoints) else: 960'f32
+    let viewportHeight = if metrics.heightPoints > 0: float32(metrics.heightPoints) else: 640'f32
+    let workspaceViewport = Size(width: px(viewportWidth), height: px(viewportHeight))
+    let workspaceLayout = editorWorkspaceUi.layout(workspaceViewport)
+    let logicalDockWidth = float32(workspaceLayout.leftDock.size.width)
+    let presentedDockWidth = dockPresentationWidth(logicalDockWidth,
+      if MacProjectDockOnRight: 178'f32 else: 0'f32)
     let leftDividerX = editorWorkspaceUi.dockResizeDivider(dockLeft,
-      float32(metrics.widthPoints), dockOnRight = MacProjectDockOnRight)
+      viewportWidth, dockOnRight = MacProjectDockOnRight)
     let bottomDividerY = float32(workspaceLayout.bottomDock.origin.y)
     if editorWorkspaceUi.isResizingDock:
       if kind == pointerMove:
         if editorWorkspaceUi.resizingDock == dockLeft:
           editorWorkspaceUi.resizeDock(dockLeft, dockResizeRequest(dockLeft,
-            float32(event.x), float32(metrics.widthPoints),
-            dockOnRight = MacProjectDockOnRight), float32(metrics.widthPoints))
+            float32(event.x), viewportWidth,
+            dockOnRight = MacProjectDockOnRight), viewportWidth)
         else:
           editorWorkspaceUi.resizeDock(dockBottom,
-            float32(metrics.heightPoints) - uiY - DefaultStatusHeight,
-            float32(metrics.heightPoints))
+            viewportHeight - uiY - DefaultStatusHeight, viewportHeight)
         setupDemoUi()
         return
       elif kind == pointerUp:
         editorWorkspaceUi.endDockResize()
         persistSession()
         return
-    if kind == pointerDown and editorWorkspaceUi.leftDock.isOpen and
+    if kind == pointerDown and presentedDockWidth > 0'f32 and
+        editorWorkspaceUi.leftDock.isOpen and
         abs(float32(event.x) - leftDividerX) <= 4'f32:
       editorWorkspaceUi.beginDockResize(dockLeft)
       return
@@ -5448,7 +5452,9 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       editorWorkspaceUi.beginDockResize(dockBottom)
       return
     if kind == pointerDown:
-      case workspaceLayout.regionAt(point)
+      case workspaceLayout.presentedRegionAt(workspaceViewport, point,
+          dockOnRight = MacProjectDockOnRight,
+          presentedDockWidth = presentedDockWidth)
       of regionLeftDock: editorWorkspaceUi.focusedRegion = regionLeftDock
       of regionBottomDock: editorWorkspaceUi.focusedRegion = regionBottomDock
       of regionCenter: editorWorkspaceUi.focusCenter()

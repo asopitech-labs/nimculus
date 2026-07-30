@@ -6092,4 +6092,6 @@ visual minimum that can exceed the AppKit root.
 **Consequences.** Window resize cannot create right-edge native overflow.
 The native contract checks both a collapsed 520pt window and a widened window,
 proving that Files/Git presentation is hidden in the former and fully bounded
-in the latter.
+in the latter. Pointer region and divider hit-testing consume the same
+projected dock width, so a retired dock cannot steal editor focus or begin an
+invisible resize drag.

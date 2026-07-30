@@ -334,6 +334,32 @@ proc regionAt*(layout: WorkspaceLayout, point: Point): WorkspaceRegion =
   elif layout.center.contains(point): regionCenter
   else: regionNone
 
+proc presentedRegionAt*(layout: WorkspaceLayout, viewport: Size, point: Point,
+                        dockOnRight: bool, presentedDockWidth: float32): WorkspaceRegion =
+  ## Layout owns logical dock identity, while a platform may project that dock
+  ## to the opposite edge or retire it below its native presentation minimum.
+  ## Hit-testing must use that same projected geometry; otherwise an invisible
+  ## dock can still steal focus or begin a resize drag.
+  if layout.status.contains(point): return regionStatus
+  let width = max(0'f32, float32(viewport.width))
+  let dockWidth = max(0'f32, min(width, presentedDockWidth))
+  let dockHeight = max(0'f32, float32(layout.leftDock.size.height))
+  let dockX = if dockOnRight: width - dockWidth else: 0'f32
+  let contentX = if dockOnRight: 0'f32 else: dockWidth
+  let contentWidth = max(0'f32, width - dockWidth)
+  let bottomHeight = max(0'f32, float32(layout.bottomDock.size.height))
+  if bottomHeight > 0'f32:
+    let bottom = Rect(origin: Point(x: px(contentX), y: layout.bottomDock.origin.y),
+      size: Size(width: px(contentWidth), height: layout.bottomDock.size.height))
+    if bottom.contains(point): return regionBottomDock
+  if dockWidth > 0'f32:
+    let dock = Rect(origin: Point(x: px(dockX), y: layout.leftDock.origin.y),
+      size: Size(width: px(dockWidth), height: px(dockHeight)))
+    if dock.contains(point): return regionLeftDock
+  let center = Rect(origin: Point(x: px(contentX), y: layout.center.origin.y),
+    size: Size(width: px(contentWidth), height: layout.center.size.height))
+  if center.contains(point): regionCenter else: regionNone
+
 proc firstPane*(tree: PaneTree): PaneState =
   if tree.isNil: return
   if tree.kind == paneLeaf: tree.pane else: tree.first.firstPane()

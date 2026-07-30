@@ -90,6 +90,24 @@ suite "workspace UI state":
     check dockPresentationWidth(240'f32, 178'f32) == 240'f32
     check dockPresentationWidth(-1'f32, 178'f32) == 0'f32
 
+  test "right dock hit testing follows its visible presentation":
+    let viewport = Size(width: px(520), height: px(600))
+    var state = initWorkspaceUi()
+    let narrowed = state.layout(viewport)
+    let narrowedDock = dockPresentationWidth(float32(narrowed.leftDock.size.width), 178'f32)
+    check narrowedDock == 0'f32
+    check narrowed.presentedRegionAt(viewport, Point(x: px(500), y: px(120)),
+      dockOnRight = true, presentedDockWidth = narrowedDock) == regionCenter
+
+    let widenedViewport = Size(width: px(640), height: px(600))
+    let widened = state.layout(widenedViewport)
+    let widenedDock = dockPresentationWidth(float32(widened.leftDock.size.width), 178'f32)
+    check widenedDock == 240'f32
+    check widened.presentedRegionAt(widenedViewport, Point(x: px(500), y: px(120)),
+      dockOnRight = true, presentedDockWidth = widenedDock) == regionLeftDock
+    check widened.presentedRegionAt(widenedViewport, Point(x: px(100), y: px(120)),
+      dockOnRight = true, presentedDockWidth = widenedDock) == regionCenter
+
   test "bottom dock takes space from the center instead of overlaying it":
     var state = initWorkspaceUi()
     let closed = state.layout(Size(width: px(960), height: px(640)))
