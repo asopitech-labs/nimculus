@@ -3849,6 +3849,14 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "gitCommitPrompt":
     when defined(macosx):
       platformShowGitCommitSheet()
+  elif name == "gitRefreshPanel":
+    ## Refresh must preserve the currently selected Git surface. A Changes
+    ## refresh must not unexpectedly switch to History, and vice versa.
+    when defined(macosx):
+      case editorSidebarMode
+      of sidebarGitHistory: receiveNativeCommand("commandPalette:git log".cstring)
+      of sidebarGitBranches: receiveNativeCommand("commandPalette:git branches".cstring)
+      else: receiveNativeCommand("commandPalette:git status".cstring)
   elif name == "gitCommitMessageEmpty":
     editorViewState.statusMessage = "Git commit requires a message"
   elif name.startsWith("commandPalette:"):

@@ -2061,6 +2061,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)setCompact:(BOOL)compact;
 @end
 
+@interface NimculusGitRefreshButton : NSButton
+@end
+
 @interface NimculusFilesSidebarActions : NSStackView
  - (void)reloadActions;
 @end
@@ -2630,6 +2633,29 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 - (void)requestCommit:(id)sender {
   (void)sender;
   if (g_command_callback) g_command_callback("gitCommitPrompt");
+}
+@end
+
+@implementation NimculusGitRefreshButton
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.bezelStyle = NSBezelStyleTexturedRounded;
+  self.title = @"↻";
+  self.toolTip = @"Refresh Git panel";
+  self.accessibilityLabel = @"Refresh Git panel";
+  if (@available(macOS 11.0, *)) {
+    self.image = [NSImage imageWithSystemSymbolName:@"arrow.clockwise"
+      accessibilityDescription:self.accessibilityLabel];
+    self.imagePosition = NSImageOnly;
+  }
+  self.target = self;
+  self.action = @selector(refreshGit:);
+  return self;
+}
+- (void)refreshGit:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("gitRefreshPanel");
 }
 @end
 
@@ -3204,6 +3230,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     gitCommit.hidden = YES;
     [self addSubview:gitCommit];
     [gitCommit release];
+    NimculusGitRefreshButton *gitRefresh = [[NimculusGitRefreshButton alloc]
+      initWithFrame:NSZeroRect];
+    gitRefresh.hidden = YES;
+    [self addSubview:gitRefresh];
+    [gitRefresh release];
     NimculusFilesSidebarActions *filesActions = [[NimculusFilesSidebarActions alloc]
       initWithFrame:NSZeroRect];
     filesActions.hidden = YES;
@@ -3363,6 +3394,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusOutlineOverlay *outline = outlineOverlayForView(self);
   NimculusGitSidebarTabs *gitTabs = nil;
   NimculusGitCommitButton *gitCommit = nil;
+  NimculusGitRefreshButton *gitRefresh = nil;
   NimculusActivityBar *activityBar = nil;
   NimculusFilesSidebarActions *filesActions = nil;
   NimculusWorkspaceToolbar *workspaceToolbar = nil;
@@ -3395,6 +3427,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusEditorAnnotationOverlay class]]) annotations = (NimculusEditorAnnotationOverlay *)subview;
     if ([subview isKindOfClass:[NimculusGitSidebarTabs class]]) gitTabs = (NimculusGitSidebarTabs *)subview;
     if ([subview isKindOfClass:[NimculusGitCommitButton class]]) gitCommit = (NimculusGitCommitButton *)subview;
+    if ([subview isKindOfClass:[NimculusGitRefreshButton class]]) gitRefresh = (NimculusGitRefreshButton *)subview;
     if ([subview isKindOfClass:[NimculusFilesSidebarActions class]]) filesActions = (NimculusFilesSidebarActions *)subview;
     if ([subview isKindOfClass:[NimculusWorkspaceToolbar class]]) workspaceToolbar = (NimculusWorkspaceToolbar *)subview;
     if ([subview isKindOfClass:[NimculusActivityBar class]]) activityBar = (NimculusActivityBar *)subview;
@@ -3446,7 +3479,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       CGFloat width = sidebarWidth;
       BOOL compactCommit = width < 350.0;
       gitTabs.frame = NSMakeRect(sidebarControlX, g_editor_rect[1] + g_editor_rect[3] - 27.0,
-        MAX(1.0, width - (compactCommit ? 40.0 : 86.0)), 24.0);
+        MAX(1.0, width - (compactCommit ? 72.0 : 118.0)), 24.0);
       // Sidebar modes are ordered History, Status, Branches for the Nim
       // command layer, while the visible Zed-like navigation is Changes,
       // History, Branches. Do not derive this presentation mapping from enum
@@ -3467,6 +3500,18 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       CGFloat commitWidth = compact ? 30.0 : 76.0;
       gitCommit.frame = NSMakeRect(sidebarControlX + width - commitWidth - 4.0,
         g_editor_rect[1] + g_editor_rect[3] - 27.0, commitWidth, 24.0);
+    }
+  }
+  if (gitRefresh) {
+    BOOL showGitRefresh = g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 &&
+      g_editor_sidebar_mode <= 4;
+    gitRefresh.hidden = !showGitRefresh;
+    if (showGitRefresh) {
+      CGFloat width = sidebarWidth;
+      BOOL compact = width < 350.0;
+      CGFloat commitWidth = compact ? 30.0 : 76.0;
+      gitRefresh.frame = NSMakeRect(sidebarControlX + width - commitWidth - 36.0,
+        g_editor_rect[1] + g_editor_rect[3] - 27.0, 28.0, 24.0);
     }
   }
   if (filesActions) {
@@ -5924,8 +5969,16 @@ bool nimculus_platform_validate_git_sidebar_tabs(void) {
     BOOL commitPresentation = [commit.title isEqualToString:@"Commit…"] &&
       [commit.toolTip isEqualToString:@"Commit staged changes"];
     [commit release];
+    NimculusGitRefreshButton *refresh = [[NimculusGitRefreshButton alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 28.0, 24.0)];
+    [refresh refreshGit:refresh];
+    BOOL refreshAction = strcmp(g_validation_command, "gitRefreshPanel") == 0;
+    BOOL refreshPresentation = [refresh.toolTip isEqualToString:@"Refresh Git panel"] &&
+      [refresh.accessibilityLabel isEqualToString:@"Refresh Git panel"];
+    [refresh release];
     g_command_callback = previousCallback;
-    return history && branches && changes && appearance && commitAction && commitPresentation;
+    return history && branches && changes && appearance && commitAction && commitPresentation &&
+      refreshAction && refreshPresentation;
   }
 }
 
