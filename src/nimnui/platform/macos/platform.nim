@@ -104,7 +104,7 @@ proc platformShowWorkspaceEntryContext*(path: cstring, isDirectory: bool) {.impo
 proc platformShowGitStatusContext*(itemIndex, projection: uint32) {.importc: "nimculus_platform_show_git_status_context", cdecl.}
 proc platformShowGitHistoryContext*(itemIndex: uint32) {.importc: "nimculus_platform_show_git_history_context", cdecl.}
 proc platformShowGitBranchContext*(itemIndex: uint32) {.importc: "nimculus_platform_show_git_branch_context", cdecl.}
-proc platformShowEditorTabContext*(paneIndex, tabIndex: uint32) {.importc: "nimculus_platform_show_editor_tab_context", cdecl.}
+proc platformShowEditorTabContext*(paneIndex, tabIndex: uint32, isPinned, hasPinnedTabs: bool) {.importc: "nimculus_platform_show_editor_tab_context", cdecl.}
 proc platformRevealPath*(path: cstring) {.importc: "nimculus_platform_reveal_path", cdecl.}
 proc platformSetCommandCallback*(callback: CommandCallback) {.importc: "nimculus_platform_set_command_callback", cdecl.}
 proc platformSetIdleCallback*(callback: IdleCallback) {.importc: "nimculus_platform_set_idle_callback", cdecl.}

@@ -323,6 +323,52 @@ suite "M5 editor services":
     check session.displayTitle(1) == "Untitled 2"
     check session.displayTitle(2) == "Untitled 3"
 
+  test "pinning tabs preserves pane document identity and session order":
+    var session: EditorSession
+    var first = newDocument()
+    first.buffer.edit(Edit(startByte: 0, endByte: 0, text: "first"))
+    var second = newDocument()
+    second.buffer.edit(Edit(startByte: 0, endByte: 0, text: "second"))
+    var third = newDocument()
+    third.buffer.edit(Edit(startByte: 0, endByte: 0, text: "third"))
+    session.addTab(first)
+    session.addTab(second)
+    session.addTab(third)
+    session.activeTab = 2
+    session.split = true
+    session.splitSecondaryTab = 1
+    check session.setTabPinned(2, true)
+    check session.tabs[0].document.buffer.toString() == "third"
+    check session.activeTab == 0
+    check session.splitSecondaryTab == 2
+    check session.tabDisplayLabel(0).startsWith("📌 ")
+    check session.setTabPinned(2, true)
+    check session.tabs[0].document.buffer.toString() == "third"
+    check session.tabs[1].document.buffer.toString() == "second"
+    check session.activeTab == 0
+    check session.splitSecondaryTab == 1
+    check session.unpinAllTabs()
+    check session.pinnedTabCount() == 0
+    check not session.tabDisplayLabel(0).startsWith("📌 ")
+
+  test "pinned tab state survives session restore":
+    let path = getTempDir() / "nimculus-pinned-tab-session.json"
+    defer:
+      if fileExists(path): removeFile(path)
+    var session: EditorSession
+    session.addTab(newDocument())
+    session.addTab(newDocument())
+    session.tabs[0].title = "first"
+    session.tabs[1].title = "second"
+    check session.setTabPinned(1, true)
+    session.saveSession(path)
+    let restored = loadSession(path)
+    check restored.tabs.len == 2
+    check restored.tabs[0].title == "second"
+    check restored.tabs[0].pinned
+    check restored.tabs[1].title == "first"
+    check not restored.tabs[1].pinned
+
   test "closing a non-active tab retains the active document":
     var session: EditorSession
     session.addTab(newDocument())

@@ -5582,3 +5582,22 @@ Checkout remains the primary-click action and uses `git switch --no-guess`.
 **Consequences.** Users can reuse a branch name without changing the
 worktree. The sidebar's context-menu contract covers Branches as well as
 Files, History, and Changes.
+
+## UI-063: Pinning is tab order, not a transient decoration
+
+**Context.** Zed models pinned tabs as a contiguous prefix in each pane. A
+purely visual pin in Nimculus would still let a narrow tab strip hide the
+important document, and would lose meaning at relaunch. The current editor
+session remains the shared document store for both split panes, so moving an
+item also has to preserve both pane selections.
+
+**Decision.** `EditorTab` owns persisted `pinned` state. Pinning moves the
+tab to the end of the pinned prefix; unpinning moves it after that prefix.
+The editor session remaps primary and secondary tab indices as it moves an
+item. The native strip draws a pin marker and its context menu offers Pin /
+Unpin and Unpin All. The bridge rebinds both pane selections after a move.
+
+**Consequences.** Fixed tabs stay first in overflow and after session restore,
+while a pin action in one split pane cannot silently change the document shown
+by its sibling. Unit, session-round-trip, and native context-action contracts
+cover the state boundary.

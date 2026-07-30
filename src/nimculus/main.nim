@@ -2398,7 +2398,7 @@ proc syncEditorCursor() =
     platformSetEditorStatus(status.cstring)
     var tabTitles: seq[string]
     for index, tab in editorSession.tabs:
-      tabTitles.add(editorSession.displayTitle(index) &
+      tabTitles.add(editorSession.tabDisplayLabel(index) &
         (if tab.document.buffer.isDirty: " •" else: ""))
     let tabsText = tabTitles.join("\n")
     let primaryTab = if editorWorkspaceUi.center != nil:
@@ -2441,7 +2441,7 @@ proc syncEditorCursor() =
       cdouble(float32(demoEditorBounds.origin.y) + 6.0'f32 + float(visibleLine) * lineHeight))
     var tabTitles: seq[string]
     for index, tab in editorSession.tabs:
-      tabTitles.add(editorSession.displayTitle(index) &
+      tabTitles.add(editorSession.tabDisplayLabel(index) &
         (if tab.document.buffer.isDirty: " •" else: ""))
     let tabsText = tabTitles.join("\n")
     platformSetEditorTabs(tabsText.cstring, uint32(tabsText.len),
@@ -2467,7 +2467,7 @@ when defined(macosx):
     let text = document[].buffer.toString()
     var tabTitles: seq[string]
     for index, editorTab in editorSession.tabs:
-      tabTitles.add(editorSession.displayTitle(index) &
+      tabTitles.add(editorSession.tabDisplayLabel(index) &
         (if editorTab.document.buffer.isDirty: " •" else: ""))
     let tabsText = tabTitles.join("\n")
     platformSetSecondaryEditorTabs(tabsText.cstring, uint32(tabsText.len), uint32(tab))
@@ -3850,7 +3850,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         let tabIndex = parseInt(payload[1])
         if paneIndex notin 0..1 or tabIndex < 0 or tabIndex >= editorSession.tabs.len:
           return
-        platformShowEditorTabContext(uint32(paneIndex), uint32(tabIndex))
+        platformShowEditorTabContext(uint32(paneIndex), uint32(tabIndex),
+          editorSession.tabs[tabIndex].pinned, editorSession.pinnedTabCount() > 0)
       except ValueError:
         discard
   elif name.startsWith("editorTabContext:"):
@@ -3864,6 +3865,31 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           return
         let document = documentForTab(tabIndex)
         case payload[0]
+        of "pin", "unpin":
+          let pin = payload[0] == "pin"
+          if editorSession.setTabPinned(tabIndex, pin):
+            # PaneState currently mirrors EditorSession's item store. Rebind
+            # both pane selections after the item moves so a pin operation in
+            # one pane cannot make the sibling point at a different document.
+            syncWorkspaceUiTabs()
+            if editorWorkspaceUi.center != nil:
+              discard editorWorkspaceUi.selectPaneTab(editorWorkspaceUi.center.firstPane().id,
+                editorSession.activeTab)
+              if editorSession.split and editorWorkspaceUi.center.kind == paneSplit:
+                discard editorWorkspaceUi.selectPaneTab(editorWorkspaceUi.center.second.pane.id,
+                  editorSession.effectiveSplitSecondaryTab())
+            editorViewState.statusMessage = if pin: "Tab pinned" else: "Tab unpinned"
+            persistSession()
+            syncEditorCursor()
+          else:
+            editorViewState.statusMessage = if pin: "Tab is already pinned" else: "Tab is not pinned"
+        of "unpinAll":
+          if editorSession.unpinAllTabs():
+            editorViewState.statusMessage = "All tabs unpinned"
+            persistSession()
+            syncEditorCursor()
+          else:
+            editorViewState.statusMessage = "No pinned tabs"
         of "close":
           receiveNativeCommand(("closePaneTab:" & $paneIndex & ":" & $tabIndex).cstring)
         of "copyPath":

@@ -6219,6 +6219,12 @@ bool nimculus_platform_validate_editor_tab_context(void) {
     [delegate dispatchEditorTabContext:copyPath];
     BOOL copiesTargetPath = strcmp(g_validation_command,
       "editorTabContext:copyPath:1:4") == 0;
+    NSMenuItem *pin = [[NSMenuItem alloc] initWithTitle:@"Pin Tab"
+      action:nil keyEquivalent:@""];
+    pin.representedObject = @"editorTabContext:pin:0:3";
+    [delegate dispatchEditorTabContext:pin];
+    BOOL pinsTargetTab = strcmp(g_validation_command,
+      "editorTabContext:pin:0:3") == 0;
     NSMenuItem *close = [[NSMenuItem alloc] initWithTitle:@"Close Tab"
       action:nil keyEquivalent:@""];
     close.representedObject = @"editorTabContext:close:0:2";
@@ -6226,10 +6232,11 @@ bool nimculus_platform_validate_editor_tab_context(void) {
     BOOL closesTargetTab = strcmp(g_validation_command,
       "editorTabContext:close:0:2") == 0;
     [copyPath release];
+    [pin release];
     [close release];
     [delegate release];
     g_command_callback = previousCallback;
-    return copiesTargetPath && closesTargetTab;
+    return copiesTargetPath && pinsTargetTab && closesTargetTab;
   }
 }
 
@@ -7447,14 +7454,18 @@ void nimculus_platform_show_git_branch_context(uint32_t item_index) {
     item_index];
   [menu popUpMenuPositioningItem:nil atLocation:[NSEvent mouseLocation] inView:nil];
 }
-void nimculus_platform_show_editor_tab_context(uint32_t pane_index, uint32_t tab_index) {
+void nimculus_platform_show_editor_tab_context(uint32_t pane_index, uint32_t tab_index,
+                                               bool is_pinned, bool has_pinned_tabs) {
   NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
   if (!delegate) return;
   NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Editor Tab"] autorelease];
-  NSArray<NSArray<NSString *> *> *items = @[
-    @[@"Close Tab", @"close"], @[@"Copy File Path", @"copyPath"],
-    @[@"Reveal in Finder", @"reveal"]
-  ];
+  NSMutableArray<NSArray<NSString *> *> *items = [NSMutableArray arrayWithArray:@[
+    @[is_pinned ? @"Unpin Tab" : @"Pin Tab", is_pinned ? @"unpin" : @"pin"]
+  ]];
+  if (has_pinned_tabs) [items addObject:@[@"Unpin All Tabs", @"unpinAll"]];
+  [items addObject:@[@"Close Tab", @"close"]];
+  [items addObject:@[@"Copy File Path", @"copyPath"]];
+  [items addObject:@[@"Reveal in Finder", @"reveal"]];
   for (NSArray<NSString *> *entry in items) {
     NSMenuItem *item = [menu addItemWithTitle:entry[0]
       action:@selector(dispatchEditorTabContext:) keyEquivalent:@""];

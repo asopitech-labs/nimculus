@@ -25,6 +25,10 @@ type
   EditorTab* = object
     document*: FileDocument
     title*: string
+    ## Pinned tabs retain their document identity and stay before ordinary
+    ## tabs. The session owns this state so it survives a relaunch and both
+    ## split panes see the same ordering.
+    pinned*: bool
     ## Per-tab transient editor state, matching Zed's item-owned selections
     ## and scroll position rather than sharing one pane state across buffers.
     view*: EditorViewState
@@ -199,6 +203,58 @@ proc displayTitle*(session: EditorSession, index: int): string =
       inc total
       if candidate <= index: inc ordinal
   result = if total > 1: title & " " & $ordinal else: title
+
+proc tabDisplayLabel*(session: EditorSession, index: int): string =
+  ## Keep the stored title clean for Save As/session semantics while making
+  ## pin state continuously visible in the native tab strip and tab picker.
+  result = if index >= 0 and index < session.tabs.len and session.tabs[index].pinned:
+    "📌 " else: ""
+  result.add(session.displayTitle(index))
+
+proc pinnedTabCount*(session: EditorSession): int =
+  for tab in session.tabs:
+    if tab.pinned: inc result
+
+proc remapTabIndex(index, source, destination: int): int =
+  ## Remap an index after moving one item from source to destination.
+  if index == source: return destination
+  if source < destination and index > source and index <= destination:
+    return index - 1
+  if destination < source and index >= destination and index < source:
+    return index + 1
+  index
+
+proc moveTab*(session: var EditorSession, source, destination: int): bool =
+  ## Move an item without losing primary/secondary pane document identity.
+  if source < 0 or source >= session.tabs.len or destination < 0 or
+      destination >= session.tabs.len or source == destination:
+    return false
+  let tab = session.tabs[source]
+  session.tabs.delete(source)
+  session.tabs.insert(tab, destination)
+  session.activeTab = remapTabIndex(session.activeTab, source, destination)
+  session.splitSecondaryTab = remapTabIndex(session.splitSecondaryTab, source, destination)
+  true
+
+proc setTabPinned*(session: var EditorSession, index: int, pinned: bool): bool =
+  ## Zed keeps pinned items as a contiguous prefix. Do the same rather than
+  ## merely decorating a tab: pinned items stay predictably reachable when a
+  ## tab strip overflows.
+  if index < 0 or index >= session.tabs.len or session.tabs[index].pinned == pinned:
+    return false
+  let boundary = session.pinnedTabCount()
+  session.tabs[index].pinned = pinned
+  let destination = if pinned: boundary else: boundary - 1
+  discard session.moveTab(index, destination)
+  true
+
+proc unpinAllTabs*(session: var EditorSession): bool =
+  var changed = false
+  for index in 0 ..< session.tabs.len:
+    if session.tabs[index].pinned:
+      session.tabs[index].pinned = false
+      changed = true
+  changed
 
 proc tabIndexForPath*(session: EditorSession, path: string): int =
   ## Every file-bearing feature (Finder, Save As, LSP, and navigation) must

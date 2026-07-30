@@ -119,6 +119,7 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
     if originalIndex == session.effectiveSplitSecondaryTab(): savedSecondary = tabs.len
     var serializedTab = %*{"path": tab.document.path, "title": tab.title,
       "dirty": saveDirty,
+      "pinned": tab.pinned,
       "view": serializedView(tab.view),
       "splitView": serializedView(tab.secondaryView)}
     if tab.document.path.len == 0 or saveDirty:
@@ -248,6 +249,7 @@ proc loadSession*(path: string): EditorSession =
         if adopted:
           let savedTitle = jsonString(item, "title", "")
           if savedTitle.len > 0: result.tabs[tabIndex].title = savedTitle
+          result.tabs[tabIndex].pinned = jsonBool(item, "pinned", false)
         if adopted and item.hasKey("view") and item["view"].kind == JObject:
           let text = result.tabs[tabIndex].document.buffer.toString()
           result.tabs[tabIndex].view = loadView(item["view"], text)
