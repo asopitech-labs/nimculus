@@ -2823,7 +2823,9 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   [previous release];
   NSArray<NSArray<NSString *> *> *buttons = g_workspace_open ? @[
     @[@"New File", @"document.badge.plus", @"createWorkspaceFile:"],
-    @[@"New Folder", @"folder.badge.plus", @"createWorkspaceDirectory:"]
+    @[@"New Folder", @"folder.badge.plus", @"createWorkspaceDirectory:"],
+    @[@"Reveal Active File", @"scope", @"commandPalette:reveal active file"],
+    @[@"Collapse All", @"rectangle.compress.vertical", @"commandPalette:collapse all files"]
   ] : @[@[@"Open Folder…", @"folder.badge.plus", @"openWorkspaceFolder:"]];
   for (NSUInteger index = 0; index < buttons.count; index++) {
     NSArray<NSString *> *entry = buttons[index];
@@ -2846,6 +2848,10 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   }
 }
 - (void)dispatchWorkspaceAction:(NSButton *)sender {
+  if ([sender.identifier hasPrefix:@"commandPalette:"]) {
+    if (g_command_callback) g_command_callback(sender.identifier.UTF8String);
+    return;
+  }
   SEL action = NSSelectorFromString(sender.identifier);
   id delegate = [NSApp delegate];
   if (delegate && [delegate respondsToSelector:action]) {
@@ -3756,7 +3762,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     filesActions.hidden = !showFilesActions;
     if (showFilesActions) {
       CGFloat width = sidebarWidth;
-      CGFloat actionWidth = g_workspace_open ? 56.0 : 28.0;
+      CGFloat actionWidth = g_workspace_open ? 116.0 : 28.0;
       filesActions.frame = NSMakeRect(sidebarControlX + width - actionWidth - 4.0,
         g_editor_rect[1] + g_editor_rect[3] - 27.0, actionWidth, 24.0);
     }
@@ -6314,9 +6320,11 @@ bool nimculus_platform_validate_files_sidebar_actions(void) {
     NimculusFilesSidebarActions *actions = [[NimculusFilesSidebarActions alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 240.0, 24.0)];
     NSArray<NSView *> *buttons = actions.arrangedSubviews;
-    BOOL workspaceActions = buttons.count == 2 &&
+    BOOL workspaceActions = buttons.count == 4 &&
       [((NSButton *)buttons[0]).title isEqualToString:@"New File"] &&
-      [((NSButton *)buttons[1]).title isEqualToString:@"New Folder"];
+      [((NSButton *)buttons[1]).title isEqualToString:@"New Folder"] &&
+      [((NSButton *)buttons[2]).accessibilityLabel isEqualToString:@"Reveal Active File"] &&
+      [((NSButton *)buttons[3]).accessibilityLabel isEqualToString:@"Collapse All"];
     g_workspace_open = NO;
     [actions reloadActions];
     buttons = actions.arrangedSubviews;
@@ -6324,6 +6332,16 @@ bool nimculus_platform_validate_files_sidebar_actions(void) {
       [((NSButton *)buttons[0]).title isEqualToString:@"Open Folder…"];
     [actions release];
     g_command_callback = validationCommandCallback;
+    g_workspace_open = YES;
+    actions = [[NimculusFilesSidebarActions alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 240.0, 24.0)];
+    [actions dispatchWorkspaceAction:(NSButton *)actions.arrangedSubviews[2]];
+    BOOL revealAction = strcmp(g_validation_command,
+      "commandPalette:reveal active file") == 0;
+    [actions dispatchWorkspaceAction:(NSButton *)actions.arrangedSubviews[3]];
+    BOOL collapseAction = strcmp(g_validation_command,
+      "commandPalette:collapse all files") == 0;
+    [actions release];
     replaceOwnedString(&g_workspace_context_path, @"/tmp/nimculus-workspace-entry/main.nim");
     NimculusAppDelegate *delegate = [NimculusAppDelegate new];
     [delegate performSelector:@selector(dispatchWorkspaceOpenTerminal:) withObject:nil];
@@ -6334,7 +6352,7 @@ bool nimculus_platform_validate_files_sidebar_actions(void) {
     [previousContextPath release];
     g_command_callback = previousCallback;
     g_workspace_open = previousWorkspaceOpen;
-    return workspaceActions && emptyActions && terminalAction;
+    return workspaceActions && emptyActions && revealAction && collapseAction && terminalAction;
   }
 }
 

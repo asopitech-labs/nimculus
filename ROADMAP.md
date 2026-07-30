@@ -401,6 +401,8 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 
 Search パネル：**[x]** 結果一覧のまま再検索を始める `New Search` と、実行中ジョブを止める `Cancel Search` を常設ヘッダーに配置する。両方ともアクセシビリティ名とnative command contractを持ち、検索結果を本文へ置換しない。
 
+Files パネル：**[x]** ZedのProject Panelにならい、New File/New Folderに加え、現在の編集ファイルまでの祖先だけを展開する`Reveal Active File`と、ファイル内容を再走査せず展開状態をリセットする`Collapse All`を常設ヘッダーへ置く。
+
 永続化identity：**[x]** sessionのworkspace rootとrecent fileをcanonical path単位でload/save時に統合し、symlink別名による重複FSEvents watcher・Open Recent項目を防止する。
 
 ### M7：Tree-sitter

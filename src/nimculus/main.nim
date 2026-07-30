@@ -2118,6 +2118,18 @@ proc revealActiveDocumentInWorkspace() =
   refreshWorkspacePreview()
   editorViewState.statusMessage = "Revealed " & documentPath.extractFilename
 
+proc collapseAllWorkspaceEntries() =
+  ## Keep workspace roots visible but collapse every directory below their
+  ## header. This is the Project Panel's fast reset after a deep reveal or a
+  ## large manual expansion; it never traverses or reloads file contents.
+  if activeWorkspace == nil:
+    editorViewState.statusMessage = "Workspace not open"
+    return
+  workspaceExpandedDirectories.setLen(0)
+  workspaceRevealPath = ""
+  refreshWorkspacePreview()
+  editorViewState.statusMessage = "Collapsed workspace folders"
+
 proc workspaceRelativePayload(name, prefix: string): string =
   if not name.startsWith(prefix) or name.len <= prefix.len: return ""
   name[prefix.len .. ^1].strip
@@ -4056,6 +4068,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command in ["toggle files", "toggle explorer", "toggle project"]: "__toggle_files__"
       elif command in ["reveal active file", "reveal in files", "reveal in explorer"]:
         "__reveal_active_file__"
+      elif command in ["collapse all files", "collapse all folders", "collapse workspace folders"]:
+        "__collapse_all_files__"
       elif command in ["show outline", "show symbols"]: "__show_outline__"
       elif command in ["toggle outline", "toggle symbols"]: "__toggle_outline__"
       elif command in ["toggle git", "toggle source control"]: "__toggle_git__"
@@ -4322,6 +4336,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           refreshWorkspacePreview()
     of "__reveal_active_file__":
       when defined(macosx): revealActiveDocumentInWorkspace()
+    of "__collapse_all_files__":
+      when defined(macosx): collapseAllWorkspaceEntries()
     of "__show_outline__":
       when defined(macosx):
         editorWorkspaceUi.openPanel(panelOutline)

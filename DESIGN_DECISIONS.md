@@ -5530,3 +5530,19 @@ that created the list.
 **Consequences.** The Git panel's visible state accurately represents the
 asynchronous operation, has no stale clickable rows during loading or failure,
 and file-history refresh remains stable even when editor focus changes.
+
+## UI-060: Make Files-panel tree navigation continuously reachable
+
+**Context.** Zed's Project Panel exposes both fast hierarchy reset and
+selection-oriented navigation. Nimculus had `Reveal Active File` internally,
+but it was only discoverable through the command palette, while a deeply
+expanded tree had no single reset action.
+
+**Decision.** Add icon-first `Reveal Active File` and `Collapse All` actions
+to the Files header next to New File/New Folder. Reveal expands only the
+active file's ancestors. Collapse clears the expanded-directory state without
+traversing files or reloading their contents; workspace roots remain visible.
+
+**Consequences.** The file manager stays usable after navigating large trees,
+and all common navigation actions are visible at the point of use. Native
+contract and GUI E2E invoke the commands through the public buttons.

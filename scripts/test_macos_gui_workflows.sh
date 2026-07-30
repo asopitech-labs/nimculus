@@ -112,6 +112,12 @@ tell application "System Events"
     click button "Files" of window 1
     delay 0.5
     if not (exists button "New File" of window 1) then error "Files panel did not expose New File"
+    if not (exists button "Reveal Active File" of window 1) then error "Files panel did not expose Reveal Active File"
+    if not (exists button "Collapse All" of window 1) then error "Files panel did not expose Collapse All"
+    click button "Collapse All" of window 1
+    delay 0.3
+    click button "Reveal Active File" of window 1
+    delay 0.3
 
     click menu item "Quick Open…" of menu "File" of menu bar item "File" of menu bar 1
     delay 0.3
