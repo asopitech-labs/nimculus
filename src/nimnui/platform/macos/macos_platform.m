@@ -2040,6 +2040,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)updateTerminalFrame;
 - (void)showDocumentFindBar:(BOOL)replace;
 - (void)showGoToLineBar;
+- (void)showCommandPalette;
 @end
 
 // Zed keeps buffer search in the pane chrome instead of making the editor
@@ -2047,11 +2048,20 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 // document surface, lets the document continue rendering, and returns focus
 // to the editor when dismissed.
 @class NimculusDocumentSearchOverlay;
+@class NimculusCommandPaletteOverlay;
 @interface NimculusDocumentSearchField : NSSearchField
 @property(nonatomic, assign) NimculusDocumentSearchOverlay *searchOverlay;
 @end
 @interface NimculusDocumentLineField : NSTextField
 @property(nonatomic, assign) NimculusDocumentSearchOverlay *searchOverlay;
+@end
+@interface NimculusCommandPaletteField : NSComboBox
+@property(nonatomic, assign) NimculusCommandPaletteOverlay *commandPalette;
+@end
+@interface NimculusCommandPaletteOverlay : NSView <NSComboBoxDelegate>
+@property(nonatomic, retain) NSComboBox *field;
+@property(nonatomic, retain) NSButton *closeButton;
+- (void)show;
 @end
 @interface NimculusDocumentSearchOverlay : NSView <NSTextFieldDelegate>
 @property(nonatomic, retain) NSSearchField *queryField;
@@ -2162,6 +2172,81 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 
 @implementation NimculusDocumentLineField
 - (void)cancelOperation:(id)sender { (void)sender; [self.searchOverlay close:nil]; }
+@end
+
+@implementation NimculusCommandPaletteField
+- (void)cancelOperation:(id)sender { (void)sender; [self.commandPalette close:nil]; }
+@end
+
+@implementation NimculusCommandPaletteOverlay
+
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.wantsLayer = YES;
+  self.layer.cornerRadius = 8.0;
+  self.layer.borderWidth = 1.0;
+  self.layer.borderColor = [[NSColor separatorColor] colorWithAlphaComponent:0.8].CGColor;
+  self.layer.backgroundColor = [[NSColor windowBackgroundColor]
+    colorWithAlphaComponent:0.99].CGColor;
+  self.field = [[[NimculusCommandPaletteField alloc] initWithFrame:NSZeroRect] autorelease];
+  ((NimculusCommandPaletteField *)self.field).commandPalette = self;
+  self.field.placeholderString = @"Execute a command…";
+  self.field.completes = YES;
+  self.field.numberOfVisibleItems = 12;
+  self.field.delegate = self;
+  self.field.target = self;
+  self.field.action = @selector(execute:);
+  [self.field addItemsWithObjectValues:@[
+    @"new", @"save", @"find", @"toggle files", @"reveal active file",
+    @"reopen closed tab", @"toggle git", @"git status", @"git log",
+    @"git branches", @"git file history", @"split editor", @"close split",
+    @"toggle soft wrap", @"open settings", @"toggle terminal", @"new terminal",
+    @"toggle task output", @"go to definition", @"find references", @"document symbols"
+  ]];
+  [self addSubview:self.field];
+  self.closeButton = [NSButton buttonWithTitle:@"×" target:self action:@selector(close:)];
+  self.closeButton.bezelStyle = NSBezelStyleTexturedRounded;
+  self.closeButton.toolTip = @"Close Command Palette (Esc)";
+  self.closeButton.accessibilityLabel = self.closeButton.toolTip;
+  [self addSubview:self.closeButton];
+  self.toolTip = @"Command Palette";
+  return self;
+}
+
+- (void)dealloc { [_field release]; [_closeButton release]; [super dealloc]; }
+
+- (void)layout {
+  [super layout];
+  self.field.frame = NSMakeRect(8.0, 7.0, MAX(1.0, self.bounds.size.width - 50.0), 26.0);
+  self.closeButton.frame = NSMakeRect(self.bounds.size.width - 36.0, 7.0, 28.0, 26.0);
+}
+
+- (void)show {
+  self.field.stringValue = @"";
+  self.hidden = NO;
+  [self setNeedsLayout:YES];
+  [self layoutSubtreeIfNeeded];
+  [self.window makeFirstResponder:self.field];
+}
+
+- (void)execute:(id)sender {
+  (void)sender;
+  NSString *command = [self.field.stringValue
+    stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+  if (command.length == 0 || !g_command_callback) return;
+  [self close:nil];
+  NSString *dispatch = [NSString stringWithFormat:@"commandPalette:%@", command];
+  g_command_callback(dispatch.UTF8String);
+}
+
+- (void)close:(id)sender {
+  (void)sender;
+  self.hidden = YES;
+  [self.window makeFirstResponder:self.superview];
+}
+
+- (void)cancelOperation:(id)sender { (void)sender; [self close:nil]; }
 @end
 
 @implementation NimculusDocumentSearchOverlay
@@ -3833,6 +3918,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     documentSearch.hidden = YES;
     [self addSubview:documentSearch];
     [documentSearch release];
+    NimculusCommandPaletteOverlay *commandPalette =
+      [[NimculusCommandPaletteOverlay alloc] initWithFrame:NSZeroRect];
+    commandPalette.hidden = YES;
+    [self addSubview:commandPalette];
+    [commandPalette release];
     [self updateTrackingAreas];
   }
   return self;
@@ -3910,6 +4000,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusTaskOutputOverlay *taskOutput = nil;
   NimculusEditorAnnotationOverlay *annotations = nil;
   NimculusDocumentSearchOverlay *documentSearch = nil;
+  NimculusCommandPaletteOverlay *commandPalette = nil;
   for (NSView *subview in self.subviews) {
     if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) lineNumbers = (NimculusLineNumberOverlay *)subview;
     if ([subview isKindOfClass:[NimculusIndentGuideOverlay class]]) indentGuides = (NimculusIndentGuideOverlay *)subview;
@@ -3926,6 +4017,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) taskOutput = (NimculusTaskOutputOverlay *)subview;
     if ([subview isKindOfClass:[NimculusEditorAnnotationOverlay class]]) annotations = (NimculusEditorAnnotationOverlay *)subview;
     if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) documentSearch = (NimculusDocumentSearchOverlay *)subview;
+    if ([subview isKindOfClass:[NimculusCommandPaletteOverlay class]]) commandPalette = (NimculusCommandPaletteOverlay *)subview;
     if ([subview isKindOfClass:[NimculusGitSidebarTabs class]]) gitTabs = (NimculusGitSidebarTabs *)subview;
     if ([subview isKindOfClass:[NimculusGitCommitButton class]]) gitCommit = (NimculusGitCommitButton *)subview;
     if ([subview isKindOfClass:[NimculusGitRefreshButton class]]) gitRefresh = (NimculusGitRefreshButton *)subview;
@@ -4115,6 +4207,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       g_editor_rect[1] + g_editor_rect[3] - searchHeight - 8.0, searchWidth, searchHeight);
     [documentSearch setNeedsLayout:YES];
   }
+  if (commandPalette && !commandPalette.hidden) {
+    const CGFloat paletteWidth = MIN(560.0, MAX(300.0, g_editor_rect[2] - 24.0));
+    commandPalette.frame = NSMakeRect(g_editor_rect[0] + (g_editor_rect[2] - paletteWidth) / 2.0,
+      g_editor_rect[1] + g_editor_rect[3] - 52.0, paletteWidth, 40.0);
+    [commandPalette setNeedsLayout:YES];
+  }
   if (!terminal || !terminalSessions || !outputBar || !taskOutput) return;
   BOOL panelVisible = g_terminal_visible || g_task_output_visible;
   CGFloat height = panelVisible ? MIN(180.0, MAX(72.0, g_editor_rect[3] * 0.42)) : 0.0;
@@ -4159,6 +4257,16 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   for (NSView *subview in self.subviews) {
     if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) {
       [(NimculusDocumentSearchOverlay *)subview showGoToLine];
+      [self updateTerminalFrame];
+      return;
+    }
+  }
+}
+
+- (void)showCommandPalette {
+  for (NSView *subview in self.subviews) {
+    if ([subview isKindOfClass:[NimculusCommandPaletteOverlay class]]) {
+      [(NimculusCommandPaletteOverlay *)subview show];
       [self updateTerminalFrame];
       return;
     }
@@ -4982,30 +5090,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 
 - (void)openCommandPalette:(id)sender {
   (void)sender;
-  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
-  alert.messageText = @"Command Palette";
-  alert.informativeText = @"Choose a command or type an exact command.";
-  NSComboBox *field = [[[NSComboBox alloc] initWithFrame:NSMakeRect(0, 0, 360, 26)] autorelease];
-  field.placeholderString = @"Type to filter commands";
-  field.completes = YES;
-  field.numberOfVisibleItems = 12;
-  [field addItemsWithObjectValues:@[
-    @"new", @"save", @"find", @"toggle files", @"reveal active file",
-    @"reopen closed tab",
-    @"toggle git", @"git status", @"git log", @"git branches", @"git file history",
-    @"split editor", @"close split", @"toggle soft wrap", @"open settings",
-    @"toggle terminal", @"new terminal", @"toggle task output",
-    @"go to definition", @"find references", @"document symbols"
-  ]];
-  alert.accessoryView = field;
-  [alert addButtonWithTitle:@"Run"];
-  [alert addButtonWithTitle:@"Cancel"];
-  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
-    if (response == NSAlertFirstButtonReturn && g_command_callback) {
-      NSString *command = [NSString stringWithFormat:@"commandPalette:%@", field.stringValue];
-      g_command_callback(command.UTF8String);
-    }
-  }];
+  [self.view showCommandPalette];
 }
 
 - (void)cancelWorkspaceSearch:(id)sender {
@@ -6982,6 +7067,23 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     [search close:nil];
     BOOL dismissed = search.hidden && window.attachedSheet == nil &&
       window.firstResponder == view;
+    [delegate openCommandPalette:nil];
+    NimculusCommandPaletteOverlay *palette = nil;
+    for (NSView *subview in view.subviews) {
+      if ([subview isKindOfClass:[NimculusCommandPaletteOverlay class]]) {
+        palette = (NimculusCommandPaletteOverlay *)subview;
+        break;
+      }
+    }
+    BOOL paletteVisible = palette && !palette.hidden && window.attachedSheet == nil &&
+      window.firstResponder == palette.field.currentEditor;
+    palette.field.stringValue = @"toggle files";
+    [palette execute:nil];
+    BOOL paletteDispatched = strcmp(g_validation_command, "commandPalette:toggle files") == 0 &&
+      palette.hidden && window.firstResponder == view;
+    [delegate openCommandPalette:nil];
+    [palette.field cancelOperation:nil];
+    BOOL paletteEscaped = palette.hidden && window.firstResponder == view;
     g_command_callback = previousCallback;
     g_active_view = previousView;
     delegate.view = nil;
@@ -6991,7 +7093,8 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     [delegate release];
     [window release];
     g_metrics = previousMetrics;
-    return visibleFind && dispatched && escaped && visibleReplace && visibleLine && dismissed;
+    return visibleFind && dispatched && escaped && visibleReplace && visibleLine && dismissed &&
+      paletteVisible && paletteDispatched && paletteEscaped;
   }
 }
 

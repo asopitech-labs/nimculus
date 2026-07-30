@@ -13,7 +13,7 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | M2：NimNUI 基礎 UI システム | 🟡 自動E2E済み・実機確認対象 | UIツリー、レイアウト、状態、イベント、PaintList、macOS入力を実装。自動E2Eで統合基準を確認済み。個別GUI操作は受け入れ記録へ集約 |
 | M3：macOS テキスト描画と IME | 🟡 自動E2E済み・実機確認対象 | Core Text、glyph atlas、動的Metal文字描画、Tree-sitter構文色、marked text表示、IME、候補位置、clipboardを実装。日本語IMEの対話確認は受け入れ記録へ集約 |
 | M4：エディタバッファと編集コア | ✅ 完了 | Piece Table、原子的編集、Undo/Redo、複数カーソル、位置変換、fuzz、候補構造比較を実装・検証済み |
-| M5：macOS 最小実用エディタ | 🟡 自動E2E済み・実機確認対象 | 編集サービス、plain-text fallbackを含む動的文書表示、構文色、macOSメニュー/IME/Finder接続、Application Supportへのsession復元・crash recovery、`Cmd+,`の設定パネル導線を実装。Find/Replace/Go to LineはZed同様の非モーダルなエディタ内バーとして実装。二paneの対話操作は受け入れ記録へ集約 |
+| M5：macOS 最小実用エディタ | 🟡 自動E2E済み・実機確認対象 | 編集サービス、plain-text fallbackを含む動的文書表示、構文色、macOSメニュー/IME/Finder接続、Application Supportへのsession復元・crash recovery、`Cmd+,`の設定パネル導線を実装。Find/Replace/Go to LineとCommand PaletteはZed同様の非モーダルなエディタ内バーとして実装。二paneの対話操作は受け入れ記録へ集約 |
 | M6：macOS プロジェクト・ワークスペース | 🟡 自動E2E済み・実機確認対象 | workspace、FSEvents、検索、Worktree、10万ファイル計測を実装。ZedのProject Panelと同様に、複数rootを個別に展開できるファイルツリーを編集本文から分離したmacOSサイドバーへ表示。`Reveal Active File`はアクティブ文書の祖先だけを展開し、列挙上限時も対象root・祖先を優先してツリーへ表示 |
 | M7：Tree-sitter | 🟡 自動検証済み・E2E対象 | Nim/Rust/TypeScript/TSX/Python/JSON/MarkdownのFFI、増分解析、構文状態、可視範囲ハイライト、RGBA Metalテクスチャ接続を実装 |
 | M8：LSPクライアント | 🟡 自動検証済み・E2E対象 | JSON-RPC、stdio、stale response破棄、主要LSP UIを実装。実Language Serverとの一連操作はE2Eで確認 |
@@ -388,7 +388,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 
 **完了条件：**
 
-- [x] macOS標準メニュー・ファイルダイアログを利用できる（AppDelegate生成メニュー、Cmd+O/S/W/,/Shift+Cmd+P、Finder openFiles、nimculus URLのnative contractに加え、Cmd+Oの`NSOpenPanel`、未保存文書の通常Cmd+S用`NSSavePanel`を接続。Find/Replace/Go to Lineはwindow sheetでなくエディタ内overlayへ接続し、Open/Save/未保存Closeと検索overlayのnative Cocoa contractで非同期性・入力・focus復帰を確認。GUIでのファイル選択操作は未確認）
+- [x] macOS標準メニュー・ファイルダイアログを利用できる（AppDelegate生成メニュー、Cmd+O/S/W/,/Shift+Cmd+P、Finder openFiles、nimculus URLのnative contractに加え、Cmd+Oの`NSOpenPanel`、未保存文書の通常Cmd+S用`NSSavePanel`を接続。Find/Replace/Go to LineとCommand Paletteはwindow sheetでなくエディタ内overlayへ接続し、Open/Save/未保存Closeとeditor overlayのnative Cocoa contractで非同期性・入力・focus復帰を確認。GUIでのファイル選択操作は未確認）
 - [x] 日本語ファイルを安全に編集・保存できる（CRLF/atomic save/permission、native text/IME/Save As候補名、実`.app` cold-startを自動検証。対話的なIME編集とSave Panel確定はmacOS E2Eで確認）
 - [x] CRLF / LFを扱える
 - [x] 外部変更を検出できる（Apple Silicon macOSの`.app`実機で日本語ファイルを外部更新し、Reload / Keep Editingの非同期sheet表示と背面本文の保持を確認）

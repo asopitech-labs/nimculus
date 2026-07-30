@@ -7,8 +7,8 @@ proc nativeGuiValidationRequired(): bool =
 proc skipNativeSheetService(): bool =
   getEnv("NIMCULUS_SKIP_NATIVE_SHEET_CONTRACTS") == "1"
 
-suite "macOS document search overlay contracts":
-  test "document search, replace, and line navigation stay non-modal":
+suite "macOS editor overlay contracts":
+  test "document search and command palette stay non-modal":
     if skipNativeSheetService():
       echo "  [SKIP] document search overlay contract (auxiliary GUI service excluded)"
     elif platformValidateApplicationAlertSheet():

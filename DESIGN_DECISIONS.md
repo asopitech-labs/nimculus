@@ -5905,3 +5905,20 @@ it returns first responder status to `NimculusMetalView`.
 **Consequences.** Cmd+F, Replace, and Cmd+L remain keyboard-first while the
 document stays visible and responsive. The native contract proves the three
 modes, live command routing, lack of an attached sheet, and focus restoration.
+
+## UI-062: Present the command palette as editor chrome, not an alert
+
+**Context.** The old `NSAlert` command palette blocked the app behind a sheet.
+Zed's `CommandPalette` uses a focused picker with command completion, runs the
+selected action after dismissal, and restores the previous editor focus.
+
+**Decision.** Place a native `NSComboBox` command palette over the active
+editor rectangle. Its curated, command-dispatch-compatible entries are
+completion candidates; typed commands retain the existing `commandPalette:`
+boundary. Enter hides the palette before dispatching and Esc restores the
+Metal editor first responder. No `NSAlert` or attached sheet is used.
+
+**Consequences.** Shift+Cmd+P no longer strands a document behind a dialog,
+while keyboard completion and exact command input remain available. The native
+overlay contract verifies visibility, Enter dispatch, absence of a sheet, and
+Esc focus restoration.
