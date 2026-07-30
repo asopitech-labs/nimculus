@@ -2104,8 +2104,9 @@ proc renderWorkspaceSearch() =
     if activeWorkspace == nil or workspaceSearchQuery.len == 0: return
     workspacePreviewMode = "search"
     var lines = @["Search: " & workspaceSearchQuery, "────────"]
-    for result in workspaceSearchResults:
-      if lines.len >= 102: break
+    let visibleCount = min(workspaceSearchResults.len, 100)
+    for index in 0 ..< visibleCount:
+      let result = workspaceSearchResults[index]
       lines.add(result.path & ":" & $result.line & ":" & $result.column & " " & result.text)
     if workspaceSearchJob != nil and not workspaceSearchJob.isComplete:
       lines.add("… search continues")
@@ -2123,9 +2124,10 @@ proc renderWorkspaceSearch() =
       editorWorkspaceUi.leftDock.isOpen = true
       editorSidebarMode = sidebarWorkspaceSearch
       editorWorkspaceUi.replacePanelItems(panelSearch,
-        workspaceSearchResults.mapIt(it.path & "\x1f" & $it.line & ":" & $it.column))
+        workspaceSearchResults[0 ..< visibleCount].mapIt(
+          it.path & "\x1f" & $it.line & ":" & $it.column))
       platformSetEditorSidebar(text.cstring, uint32(text.len),
-        uint32(min(workspaceSearchResults.len, 100)), uint32(sidebarWorkspaceSearch))
+        uint32(visibleCount), uint32(sidebarWorkspaceSearch))
       syncNativeSidebarSelection()
       setupDemoUi()
     else:
@@ -2146,8 +2148,9 @@ proc renderQuickOpen() =
     # separator, just like Files/Git. Keep that contract so a result's visual
     # row and its activation index are identical.
     var lines = @["Quick Open: " & workspaceQuickOpenQuery, "────────"]
-    for entry in workspacePreviewEntries:
-      if lines.len >= 12: break
+    let visibleCount = min(workspacePreviewEntries.len, 100)
+    for index in 0 ..< visibleCount:
+      let entry = workspacePreviewEntries[index]
       lines.add(entry.relativePath)
     if workspaceQuickOpenJob != nil and not workspaceQuickOpenJob.isComplete:
       lines.add("… searching workspace")
@@ -2162,9 +2165,9 @@ proc renderQuickOpen() =
       editorWorkspaceUi.leftDock.isOpen = true
       editorSidebarMode = sidebarFiles
       editorWorkspaceUi.replacePanelItems(panelFiles,
-        workspacePreviewEntries.mapIt(it.path))
+        workspacePreviewEntries[0 ..< visibleCount].mapIt(it.path))
       platformSetEditorSidebar(text.cstring, uint32(text.len),
-        uint32(workspacePreviewEntries.len), uint32(sidebarFiles))
+        uint32(visibleCount), uint32(sidebarFiles))
       syncNativeSidebarSelection()
       setupDemoUi()
     else:

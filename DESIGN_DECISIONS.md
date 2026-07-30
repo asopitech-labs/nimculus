@@ -5429,6 +5429,22 @@ their own stable selection keys. Workspace search no longer mutates document
 presentation, and GUI E2E verifies `Find in Workspace…` produces a `Search:`
 sidebar result.
 
+## UI-055: Bound navigation lists at the presentation boundary
+
+**Context.** Quick Open displayed ten entries while exposing up to one hundred
+to native sidebar selection; Workspace Search displayed one hundred while its
+panel state retained up to 256. Keyboard navigation could therefore select a
+row that had no visual counterpart.
+
+**Decision.** Apply a shared presentation boundary per surface: the native
+sidebar text, item count, and panel selection keys all use the same first 100
+entries. Search jobs may retain additional source results for later refreshes,
+but they are not selectable until rendered.
+
+**Consequences.** Visible rows and activation indices remain one-to-one for
+mouse, keyboard, and accessibility clients. The bound also limits native text
+layout work while background search remains streaming and cancellable.
+
 ## UI-054: Open an integrated terminal from a project entry
 
 **Context.** The Project Panel exposed navigation and file operations, but a
