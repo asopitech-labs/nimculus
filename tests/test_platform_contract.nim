@@ -130,6 +130,9 @@ suite "macOS platform contract":
   test "native split pane geometry keeps hit regions disjoint":
     check platformValidateEditorPaneGeometry()
 
+  test "native editor text viewport excludes pane right and bottom chrome":
+    check platformValidateEditorTextViewport()
+
   test "native retained scene rebuilds fully for a new target":
     check platformValidateDamageRebuild()
 

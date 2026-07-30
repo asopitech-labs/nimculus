@@ -728,6 +728,23 @@ static NimculusPaintRegion intersectPaintRegions(NimculusPaintRegion a,
   return result;
 }
 
+// An editor pane is not itself a text viewport.  The pane also owns its
+// border, the reserved scrollbar edge, and a small vertical safety margin.
+// Keeping this geometry in one place mirrors Zed's content-bounds mask and
+// prevents any renderer (atlas or Core Text texture) from painting into that
+// chrome.  Do not use the pane rectangle as a text clip.
+static NimculusPaintRegion editorTextViewport(const double rect[4]) {
+  const double horizontalInset = 8.0;
+  const double verticalInset = 4.0;
+  const double width = MAX(0.0, rect[2] - horizontalInset * 2.0);
+  const double height = MAX(0.0, rect[3] - verticalInset * 2.0);
+  NimculusPaintRegion viewport = {
+    (float)(rect[0] + horizontalInset), (float)(rect[1] + verticalInset),
+    (float)width, (float)height
+  };
+  return viewport;
+}
+
 static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
                              id<MTLDevice> device, CGSize logicalSize,
                              NimculusPaintCommand paint) {
@@ -1192,7 +1209,16 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   // The atlas is the primary committed-text renderer. The Core Text texture
   // remains an overlay for selection, marked composition, and caret, with a
   // complete-text fallback only when atlas generation is unavailable.
-  if (updateAtlas) updateEditorGlyphAtlas(device, text);
+  // The atlas lays out one physical line per source line.  A soft-wrapped
+  // document must therefore use the Core Text frame exclusively; retaining
+  // atlas vertices would draw the unwrapped line a second time over that
+  // frame.  Clear the retained vertices as part of the mode transition.
+  if (updateAtlas && !g_editor_soft_wrap) {
+    updateEditorGlyphAtlas(device, text);
+  } else if (g_editor_soft_wrap) {
+    g_glyph_rendering_available = NO;
+    resetGlyphVertices();
+  }
   const BOOL drawFallbackText = !g_glyph_rendering_available || g_editor_soft_wrap;
   const BOOL drawColorEmojiFallback = textContainsColorEmoji(text) &&
     g_glyph_rendering_available && !g_editor_soft_wrap;
@@ -1207,6 +1233,14 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   CGColorSpaceRelease(colorSpace);
   if (!context) return;
   CGContextScaleCTM(context, scale, scale);
+  // Match the Metal scissor with a second, asset-level clip.  A texture can
+  // be reused across damage passes, so leaving pixels in its pane chrome
+  // would permit stale text to reappear if a later pass has a wider clip.
+  // The four-sided content viewport is the only valid destination for editor
+  // text, selections, composition, and caret pixels.
+  CGContextClipToRect(context, CGRectMake(8.0, 4.0,
+    MAX(0.0, g_editor_rect[2] - 16.0),
+    MAX(0.0, g_editor_rect[3] - 8.0)));
   CTFontRef font = editorFont();
   NSColor *baseColor = themeHexColor(g_theme_foreground,
     [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]);
@@ -1724,6 +1758,24 @@ static void appendGlyphQuad(CGSize sceneSize, CGRect editorRect, CGFloat scale,
   CGFloat y0 = editorRect.origin.y + editorRect.size.height -
     (bottomOrigin + entry.bounds_height);
   CGFloat y1 = editorRect.origin.y + editorRect.size.height - bottomOrigin;
+  // Enforce the text viewport before vertices ever reach Metal.  Scissoring
+  // remains the GPU safety net, but clamping geometry here makes it
+  // impossible for a partially visible glyph to carry coordinates into the
+  // scrollbar, tab strip, or status bar.
+  NimculusPaintRegion viewport = editorTextViewport(g_editor_rect);
+  CGFloat clipLeft = viewport.x;
+  CGFloat clipRight = viewport.x + viewport.width;
+  CGFloat clipTop = viewport.y;
+  CGFloat clipBottom = viewport.y + viewport.height;
+  CGFloat unclippedX0 = x0;
+  CGFloat unclippedX1 = x1;
+  CGFloat unclippedY0 = y0;
+  CGFloat unclippedY1 = y1;
+  x0 = MAX(x0, clipLeft);
+  x1 = MIN(x1, clipRight);
+  y0 = MAX(y0, clipTop);
+  y1 = MIN(y1, clipBottom);
+  if (x1 <= x0 || y1 <= y0) return;
   float u0 = (float)entry.x / 2048.0f;
   float u1 = (float)(entry.x + entry.width) / 2048.0f;
   // CGBitmapContext stores the baseline-facing rows at the beginning of the
@@ -1731,13 +1783,20 @@ static void appendGlyphQuad(CGSize sceneSize, CGRect editorRect, CGFloat scale,
   // so map the screen-bottom vertices to the atlas start without flipping.
   float v0 = (float)entry.y / 2048.0f;
   float v1 = (float)(entry.y + entry.height) / 2048.0f;
+  const CGFloat unclippedWidth = unclippedX1 - unclippedX0;
+  const CGFloat unclippedHeight = unclippedY1 - unclippedY0;
+  float clippedU0 = u0 + (float)((x0 - unclippedX0) / unclippedWidth) * (u1 - u0);
+  float clippedU1 = u0 + (float)((x1 - unclippedX0) / unclippedWidth) * (u1 - u0);
+  // v1 belongs to the screen-top vertex and v0 to the screen-bottom vertex.
+  float clippedVTop = v1 + (float)((y0 - unclippedY0) / unclippedHeight) * (v0 - v1);
+  float clippedVBottom = v1 + (float)((y1 - unclippedY0) / unclippedHeight) * (v0 - v1);
   NimculusGlyphVertex vertices[6] = {
-    {normalizedX(x0, sceneSize.width), normalizedY(y1, sceneSize.height), u0, v0, red, green, blue, alpha},
-    {normalizedX(x1, sceneSize.width), normalizedY(y1, sceneSize.height), u1, v0, red, green, blue, alpha},
-    {normalizedX(x0, sceneSize.width), normalizedY(y0, sceneSize.height), u0, v1, red, green, blue, alpha},
-    {normalizedX(x0, sceneSize.width), normalizedY(y0, sceneSize.height), u0, v1, red, green, blue, alpha},
-    {normalizedX(x1, sceneSize.width), normalizedY(y1, sceneSize.height), u1, v0, red, green, blue, alpha},
-    {normalizedX(x1, sceneSize.width), normalizedY(y0, sceneSize.height), u1, v1, red, green, blue, alpha}
+    {normalizedX(x0, sceneSize.width), normalizedY(y1, sceneSize.height), clippedU0, clippedVBottom, red, green, blue, alpha},
+    {normalizedX(x1, sceneSize.width), normalizedY(y1, sceneSize.height), clippedU1, clippedVBottom, red, green, blue, alpha},
+    {normalizedX(x0, sceneSize.width), normalizedY(y0, sceneSize.height), clippedU0, clippedVTop, red, green, blue, alpha},
+    {normalizedX(x0, sceneSize.width), normalizedY(y0, sceneSize.height), clippedU0, clippedVTop, red, green, blue, alpha},
+    {normalizedX(x1, sceneSize.width), normalizedY(y1, sceneSize.height), clippedU1, clippedVBottom, red, green, blue, alpha},
+    {normalizedX(x1, sceneSize.width), normalizedY(y0, sceneSize.height), clippedU1, clippedVTop, red, green, blue, alpha}
   };
   (void)scale;
   for (NSUInteger index = 0; index < 6; index++) appendGlyphVertex(vertices[index]);
@@ -3507,6 +3566,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
           0.15f, 0.48f, 0.92f, 1.0f);
       }
     }
+    // Text is rendered through three independent paths (glyph atlas, primary
+    // Core Text texture, and secondary Core Text texture). Every path must
+    // share the *content* viewport mask; the editor pane itself includes
+    // border/scrollbar space and must never be used as the clip.
+    NimculusPaintRegion primaryEditorRegion = editorTextViewport(g_editor_rect);
+    NimculusPaintRegion secondaryEditorRegion = editorTextViewport(g_secondary_editor_rect);
     if (g_glyph_pipeline && g_glyph_atlas_texture && g_glyph_vertex_count > 0) {
       id<MTLBuffer> glyphBuffer = [drawable.texture.device newBufferWithBytes:g_glyph_vertices
         length:sizeof(NimculusGlyphVertex) * g_glyph_vertex_count
@@ -3515,13 +3580,15 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       [encoder setVertexBuffer:glyphBuffer offset:0 atIndex:0];
       [encoder setFragmentTexture:g_glyph_atlas_texture atIndex:0];
       if (fullSceneRebuild) {
-        MTLScissorRect fullScissor = {0, 0, scene.width, scene.height};
-        [encoder setScissorRect:fullScissor];
+        setScissorForRegion(encoder, primaryEditorRegion, logicalSize, drawableSize);
         [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
           vertexCount:g_glyph_vertex_count];
       } else {
         for (uint32_t i = 0; i < g_paint_dirty_count; i++) {
-          setScissorForRegion(encoder, g_paint_dirty_regions[i], logicalSize, drawableSize);
+          NimculusPaintRegion visible = intersectPaintRegions(g_paint_dirty_regions[i],
+                                                               primaryEditorRegion);
+          if (visible.width <= 0 || visible.height <= 0) continue;
+          setScissorForRegion(encoder, visible, logicalSize, drawableSize);
           [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
             vertexCount:g_glyph_vertex_count];
         }
@@ -3545,12 +3612,14 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       [encoder setVertexBuffer:textBuffer offset:0 atIndex:0];
       [encoder setFragmentTexture:g_text_texture atIndex:0];
       if (fullSceneRebuild) {
-        MTLScissorRect fullScissor = {0, 0, scene.width, scene.height};
-        [encoder setScissorRect:fullScissor];
+        setScissorForRegion(encoder, primaryEditorRegion, logicalSize, drawableSize);
         [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
       } else {
         for (uint32_t i = 0; i < g_paint_dirty_count; i++) {
-          setScissorForRegion(encoder, g_paint_dirty_regions[i], logicalSize, drawableSize);
+          NimculusPaintRegion visible = intersectPaintRegions(g_paint_dirty_regions[i],
+                                                               primaryEditorRegion);
+          if (visible.width <= 0 || visible.height <= 0) continue;
+          setScissorForRegion(encoder, visible, logicalSize, drawableSize);
           [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
         }
       }
@@ -3566,9 +3635,18 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       [encoder setRenderPipelineState:g_text_pipeline];
       [encoder setVertexBuffer:buffer offset:0 atIndex:0];
       [encoder setFragmentTexture:g_secondary_text_texture atIndex:0];
-      MTLScissorRect scissor = {0, 0, scene.width, scene.height};
-      [encoder setScissorRect:scissor];
-      [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+      if (fullSceneRebuild) {
+        setScissorForRegion(encoder, secondaryEditorRegion, logicalSize, drawableSize);
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+      } else {
+        for (uint32_t i = 0; i < g_paint_dirty_count; i++) {
+          NimculusPaintRegion visible = intersectPaintRegions(g_paint_dirty_regions[i],
+                                                               secondaryEditorRegion);
+          if (visible.width <= 0 || visible.height <= 0) continue;
+          setScissorForRegion(encoder, visible, logicalSize, drawableSize);
+          [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+        }
+      }
       [buffer release];
     }
     [encoder endEncoding];
@@ -5126,6 +5204,20 @@ bool nimculus_platform_validate_editor_pane_geometry(void) {
   [previousText release];
   [previousSecondaryText release];
   return valid;
+}
+
+bool nimculus_platform_validate_editor_text_viewport(void) {
+  const double pane[4] = {40.0, 60.0, 300.0, 180.0};
+  NimculusPaintRegion viewport = editorTextViewport(pane);
+  NimculusPaintRegion outsideRight = {340.0f, 60.0f, 12.0f, 180.0f};
+  NimculusPaintRegion outsideBottom = {40.0f, 240.0f, 300.0f, 12.0f};
+  NimculusPaintRegion rightVisible = intersectPaintRegions(viewport, outsideRight);
+  NimculusPaintRegion bottomVisible = intersectPaintRegions(viewport, outsideBottom);
+  return fabs(viewport.x - 48.0f) < 0.01f &&
+    fabs(viewport.y - 64.0f) < 0.01f &&
+    fabs(viewport.width - 284.0f) < 0.01f &&
+    fabs(viewport.height - 172.0f) < 0.01f &&
+    rightVisible.width == 0.0f && bottomVisible.height == 0.0f;
 }
 
 bool nimculus_platform_validate_damage_rebuild(void) {

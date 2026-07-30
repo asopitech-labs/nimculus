@@ -480,7 +480,7 @@ var workspacePreviewMode = ""
 var workspaceRevealPath = ""
 type EditorSidebarMode = enum
   sidebarOutline, sidebarFiles, sidebarGitHistory, sidebarGitStatus, sidebarGitBranches
-var editorSidebarMode = sidebarOutline
+var editorSidebarMode = sidebarFiles
 
 proc workspacePanelForSidebarMode(mode: EditorSidebarMode): PanelKind =
   case mode
@@ -1800,6 +1800,13 @@ proc restoreSession() =
   demoSplitEnabled = editorSession.split
   demoSplitDirection = editorSession.splitDirection
   editorWorkspaceUi = initWorkspaceUi(editorSession)
+  # Project navigation is the primary Zed-like startup surface. Restoring an
+  # old Outline selection leaves an empty, low-value pane beside the editor
+  # and obscures the files users need to act on first.
+  editorWorkspaceUi.leftDock.isOpen = true
+  editorWorkspaceUi.leftDock.activePanel = panelFiles
+  editorWorkspaceUi.focusedRegion = regionCenter
+  editorSidebarMode = sidebarFiles
   if editorSession.split:
     discard editorWorkspaceUi.splitFocusedPane(if editorSession.splitDirection == splitVertical:
       paneVertical else: paneHorizontal, editorSession.effectiveSplitRatio)
