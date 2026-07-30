@@ -5428,3 +5428,19 @@ moves its cursor to the matched position.
 their own stable selection keys. Workspace search no longer mutates document
 presentation, and GUI E2E verifies `Find in Workspace…` produces a `Search:`
 sidebar result.
+
+## UI-054: Open an integrated terminal from a project entry
+
+**Context.** The Project Panel exposed navigation and file operations, but a
+developer who wanted a shell in a selected subdirectory had to open a terminal
+at the workspace root and change directory manually.
+
+**Decision.** Add `Open in Terminal` to the native Files context menu. The
+editor canonicalizes the selected path, uses a directory itself or a file's
+parent, verifies it is beneath a configured workspace root, then starts a new
+Nimculus PTY in that directory. It never launches Terminal.app.
+
+**Consequences.** File navigation and terminal work form one in-app workflow.
+The context-menu native contract verifies its explicit command payload, while
+the existing PTY suite verifies working-directory creation and bounded
+shutdown behavior.

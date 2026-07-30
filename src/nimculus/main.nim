@@ -1453,8 +1453,10 @@ when defined(macosx):
     editorViewState.statusMessage = "Terminal " & $(index + 1) & "/" &
       $editorTerminals.len
 
-  proc newNativeTerminal() =
-    let cwd = if activeWorkspace != nil and activeWorkspace.rootPaths.len > 0:
+  proc newNativeTerminal(workingDirectory = "") =
+    let cwd = if workingDirectory.len > 0:
+      workingDirectory
+    elif activeWorkspace != nil and activeWorkspace.rootPaths.len > 0:
       activeWorkspace.rootPaths[0]
     elif activeDocument() != nil and activeDocument()[].path.len > 0:
       splitFile(absolutePath(activeDocument()[].path)).dir
@@ -4745,6 +4747,24 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           startNativeGitAction(repository, "file history", relative, [
             "log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00", "-n", "100",
             "--", relative])
+  elif name.startsWith("workspaceOpenTerminal:"):
+    when defined(macosx):
+      let selectedPath = canonicalOpenPath(name["workspaceOpenTerminal:".len .. ^1])
+      let cwd = if dirExists(selectedPath): selectedPath else: selectedPath.parentDir
+      var belongsToWorkspace = false
+      if activeWorkspace != nil:
+        for configuredRoot in activeWorkspace.rootPaths:
+          let root = canonicalOpenPath(configuredRoot)
+          if cwd == root or cwd.startsWith(root / ""):
+            belongsToWorkspace = true
+            break
+      if not belongsToWorkspace or not dirExists(cwd):
+        editorViewState.statusMessage = "Terminal path is outside workspace"
+      else:
+        newNativeTerminal(cwd)
+        if editorTerminalVisible: editorWorkspaceUi.openPanel(panelTerminal)
+        setupDemoUi()
+        resizeNativeTerminals()
   elif name.startsWith("workspaceCopyPath:"):
     let path = name["workspaceCopyPath:".len .. ^1]
     if path.len > 0:

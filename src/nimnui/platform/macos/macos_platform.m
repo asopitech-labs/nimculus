@@ -4785,6 +4785,15 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
 }
 
+- (void)dispatchWorkspaceOpenTerminal:(id)sender {
+  (void)sender;
+  if (g_workspace_context_path.length > 0 && g_command_callback) {
+    NSString *command = [NSString stringWithFormat:@"workspaceOpenTerminal:%@",
+      g_workspace_context_path];
+    g_command_callback(command.UTF8String);
+  }
+}
+
 - (void)copyWorkspaceContextPath:(id)sender {
   (void)sender;
   if (g_workspace_context_path.length > 0 && g_command_callback) {
@@ -6210,6 +6219,8 @@ bool nimculus_platform_validate_git_sidebar_tabs(void) {
 bool nimculus_platform_validate_files_sidebar_actions(void) {
   @autoreleasepool {
     BOOL previousWorkspaceOpen = g_workspace_open;
+    NimculusCommandCallback previousCallback = g_command_callback;
+    NSString *previousContextPath = [g_workspace_context_path retain];
     g_workspace_open = YES;
     NimculusFilesSidebarActions *actions = [[NimculusFilesSidebarActions alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 240.0, 24.0)];
@@ -6223,8 +6234,18 @@ bool nimculus_platform_validate_files_sidebar_actions(void) {
     BOOL emptyActions = buttons.count == 1 &&
       [((NSButton *)buttons[0]).title isEqualToString:@"Open Folder…"];
     [actions release];
+    g_command_callback = validationCommandCallback;
+    replaceOwnedString(&g_workspace_context_path, @"/tmp/nimculus-workspace-entry/main.nim");
+    NimculusAppDelegate *delegate = [NimculusAppDelegate new];
+    [delegate performSelector:@selector(dispatchWorkspaceOpenTerminal:) withObject:nil];
+    BOOL terminalAction = strcmp(g_validation_command,
+      "workspaceOpenTerminal:/tmp/nimculus-workspace-entry/main.nim") == 0;
+    [delegate release];
+    replaceOwnedString(&g_workspace_context_path, previousContextPath ?: @"");
+    [previousContextPath release];
+    g_command_callback = previousCallback;
     g_workspace_open = previousWorkspaceOpen;
-    return workspaceActions && emptyActions;
+    return workspaceActions && emptyActions && terminalAction;
   }
 }
 
@@ -7146,6 +7167,7 @@ void nimculus_platform_show_workspace_entry_context(const char *path, bool is_di
     [menu addItemWithTitle:@"View History" action:@selector(dispatchWorkspaceHistoryContextEntry:) keyEquivalent:@""];
   }
   [menu addItemWithTitle:@"Reveal in Finder" action:@selector(revealWorkspaceContextEntry:) keyEquivalent:@""];
+  [menu addItemWithTitle:@"Open in Terminal" action:@selector(dispatchWorkspaceOpenTerminal:) keyEquivalent:@""];
   [menu addItemWithTitle:@"Copy Path" action:@selector(copyWorkspaceContextPath:) keyEquivalent:@""];
   [menu addItemWithTitle:@"Copy Relative Path" action:@selector(copyWorkspaceContextRelativePath:) keyEquivalent:@""];
   [menu addItem:[NSMenuItem separatorItem]];

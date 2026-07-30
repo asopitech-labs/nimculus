@@ -52,6 +52,14 @@ macOS の全文検索は `Search` 活動バー項目と左ドックの独立パ�
 該当位置を開く。ストリーミング検索中も本文表示を置き換えない。隔離 GUI E2E は
 `Find in Workspace…` から検索し、`Search:` 結果がサイドバーに現れることを確認する。
 
+### M6/M10 更新：Files から統合ターミナルへ
+
+Files のコンテキストメニューは `Open in Terminal` を提供する。フォルダはその場所、
+ファイルは親ディレクトリを working directory とする新しい Nimculus PTY session を
+開く。パスは canonical 化して workspace root 配下であることを検証し、外部
+Terminal.app は起動しない。native contract はコンテキスト操作の command dispatch を
+検証する。
+
 各マイルストーンはunit/integration test、native Cocoa/Metal contract、self-hosted macOS CIで進める。個別のGUI実機確認は完了ゲートにしない。M12とM20の自動基準がそろったrelease candidateで、物理入力機器・日本語入力ソース・複数ディスプレイを含む確認を[`docs/MACOS_MANUAL_ACCEPTANCE.md`](./docs/MACOS_MANUAL_ACCEPTANCE.md)の一回のmacOS E2E受け入れとして実施する。
 
 ## macOS E2E 受け入れの実行時点
