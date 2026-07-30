@@ -221,7 +221,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 **完了条件：**
 
 - [x] 分割ペインをドラッグ操作できる（split ratioをnative pointer eventへ接続、GUI操作未確認）
-- [x] Zedと同じ通常ウィンドウ最小360×240ptと、分割ペイン最小幅80pt／最小高100ptを適用。空間がある限りdivider操作で入力可能なペインを潰さず、極小外部サイズでも負の矩形を生成しない
+- [x] Zedと同じ通常ウィンドウ最小360×240ptと、分割ペイン最小幅80pt／最小高100ptを適用。空間がある限りdivider操作で入力可能なペインを潰さず、保存比率も同じ境界へ正規化し、極小外部サイズでも負の矩形を生成しない
 - [x] スクロール領域を正しくclipする（layout/PaintListと2x Metal scissor contractで自動検証。実操作はmacOS E2Eで確認）
 - [x] フォーカス移動の基盤が機能する（disabled controlのスキップを含むunit test済み）
 - [x] Command キーを含むショートカットを処理できる（`NimculusMetalView.keyDown:`へ送ったCmd+Shift+Pが、正規化済み修飾子でshortcut callbackへ一回だけ届き、通常入力／テキスト解釈へ伝播しないnative Cocoa contractを確認）

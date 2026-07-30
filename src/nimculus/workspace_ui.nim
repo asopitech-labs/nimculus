@@ -327,21 +327,42 @@ proc firstPane*(tree: PaneTree): PaneState =
   if tree.isNil: return
   if tree.kind == paneLeaf: tree.pane else: tree.first.firstPane()
 
+proc minimumPaneExtent(tree: PaneTree, axis: PaneAxis): float32 =
+  ## The minimum space this subtree needs along `axis`. A split on that axis
+  ## adds its children; an orthogonal split overlays their requirement.
+  if tree.isNil: return 0'f32
+  if tree.kind == paneLeaf:
+    return if axis == paneVertical: MinimumPaneWidth else: MinimumPaneHeight
+  let first = minimumPaneExtent(tree.first, axis)
+  let second = minimumPaneExtent(tree.second, axis)
+  if tree.axis == axis:
+    first + PaneDividerThickness + second
+  else:
+    max(first, second)
+
+proc clampedRootSplitRatio*(state: WorkspaceUiState, bounds: Rect,
+                            requested: float32): float32 =
+  ## Convert a drag ratio into the persistent ratio only after applying the
+  ## same Zed-compatible pane floor used by layout. This prevents a divider
+  ## from visually stopping at a minimum while session state records a value
+  ## that would unexpectedly expand/collapse after the window is resized.
+  result = normalizedRatio(requested)
+  if state.center.isNil or state.center.kind != paneSplit: return
+  let axis = state.center.axis
+  let available = max(0'f32, (if axis == paneVertical:
+    float32(bounds.size.width) else: float32(bounds.size.height)) - PaneDividerThickness)
+  if available <= 0'f32: return
+  let firstMinimum = minimumPaneExtent(state.center.first, axis)
+  let secondMinimum = minimumPaneExtent(state.center.second, axis)
+  if available < firstMinimum + secondMinimum: return
+  let first = min(available - secondMinimum,
+    max(firstMinimum, available * result))
+  result = normalizedRatio(first / available)
+
 proc paneLayout*(tree: PaneTree, bounds: Rect): PaneLayout =
   ## Mirrors Zed's PaneGroup traversal: a single tree owns both the leaf
   ## rectangles and the split handles used for painting and hit testing.
   var computed: PaneLayout
-  proc minimumExtent(tree: PaneTree, axis: PaneAxis): float32 =
-    if tree.isNil: return 0'f32
-    if tree.kind == paneLeaf:
-      return if axis == paneVertical: MinimumPaneWidth else: MinimumPaneHeight
-    let first = minimumExtent(tree.first, axis)
-    let second = minimumExtent(tree.second, axis)
-    if tree.axis == axis:
-      first + PaneDividerThickness + second
-    else:
-      max(first, second)
-
   proc append(tree: PaneTree, rect: Rect, layout: var PaneLayout) =
     if tree.isNil: return
     if tree.kind == paneLeaf:
@@ -351,8 +372,8 @@ proc paneLayout*(tree: PaneTree, bounds: Rect): PaneLayout =
     let available = max(0'f32, (if sideBySide: float32(rect.size.width)
       else: float32(rect.size.height)) - PaneDividerThickness)
     let preferredFirst = available * normalizedRatio(tree.ratio)
-    let firstMinimum = minimumExtent(tree.first, tree.axis)
-    let secondMinimum = minimumExtent(tree.second, tree.axis)
+    let firstMinimum = minimumPaneExtent(tree.first, tree.axis)
+    let secondMinimum = minimumPaneExtent(tree.second, tree.axis)
     # When the available extent can honor both panes, clamp the divider to
     # Zed's per-pane floor. If the window itself is already smaller than that
     # aggregate floor, preserve the requested ratio rather than producing a

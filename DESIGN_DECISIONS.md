@@ -6020,7 +6020,8 @@ so a divider could collapse a pane despite enough available space.
 AppKit. In the platform-independent PaneTree, clamp each divider against a
 recursive 80pt width / 100pt height minimum extent. If a window is already
 smaller than the aggregate minimum, retain the requested ratio and never
-produce a negative rectangle.
+produce a negative rectangle. Divider drags persist that same constrained
+ratio, rather than merely applying the floor during paint.
 
 **Consequences.** Split views retain a practical text-input surface during
 dragging, while the layout stays well-defined even under externally imposed

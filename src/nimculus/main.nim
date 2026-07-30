@@ -5501,7 +5501,9 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           uiY - float32(editorBounds.origin.y)
         else:
           float32(event.x) - float32(editorBounds.origin.x)
-      editorSession.setSplitRatio(position / axisLength)
+      let constrainedRatio = editorWorkspaceUi.clampedRootSplitRatio(editorBounds,
+        position / axisLength)
+      editorSession.setSplitRatio(constrainedRatio)
       demoSplitRatio = editorSession.effectiveSplitRatio
       discard editorWorkspaceUi.setRootSplitRatio(demoSplitRatio)
       setupDemoUi()

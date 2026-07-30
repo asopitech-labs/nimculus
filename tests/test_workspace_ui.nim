@@ -158,11 +158,15 @@ suite "workspace UI state":
   test "split panes retain Zed-compatible minimum extents when space permits":
     var sideBySide = initWorkspaceUi(tabCount = 1)
     check sideBySide.splitFocusedPane(paneVertical, 0.1'f32)
-    let wide = sideBySide.center.paneLayout(Rect(origin: Point(x: px(0), y: px(0)),
-      size: Size(width: px(300), height: px(240))))
+    let sideBySideBounds = Rect(origin: Point(x: px(0), y: px(0)),
+      size: Size(width: px(300), height: px(240)))
+    let wide = sideBySide.center.paneLayout(sideBySideBounds)
     check float32(wide.panes[0].bounds.size.width) == MinimumPaneWidth
     check float32(wide.panes[1].bounds.size.width) ==
       300'f32 - PaneDividerThickness - MinimumPaneWidth
+    let expectedMinimumRatio = MinimumPaneWidth / (300'f32 - PaneDividerThickness)
+    check abs(sideBySide.clampedRootSplitRatio(sideBySideBounds, 0.1'f32) -
+      expectedMinimumRatio) < 0.001'f32
 
     var stacked = initWorkspaceUi(tabCount = 1)
     check stacked.splitFocusedPane(paneHorizontal, 0.1'f32)
