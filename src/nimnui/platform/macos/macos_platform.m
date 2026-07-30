@@ -101,6 +101,7 @@ static NSUInteger *g_secondary_editor_line_utf16_offsets = NULL;
 static NSUInteger *g_secondary_editor_line_utf8_offsets = NULL;
 static NSUInteger g_secondary_editor_line_count = 0;
 static NSString *g_editor_status = @"Ready";
+static NSString *g_editor_context = @"";
 static NSArray<NSString *> *g_editor_tab_titles = nil;
 static NSUInteger g_editor_active_tab = 0;
 static NSArray<NSString *> *g_secondary_editor_tab_titles = nil;
@@ -491,6 +492,7 @@ static void releasePlatformResources(void) {
   free(g_secondary_editor_line_utf8_offsets); g_secondary_editor_line_utf8_offsets = NULL;
   g_secondary_editor_line_count = 0;
   [g_editor_status release]; g_editor_status = nil;
+  [g_editor_context release]; g_editor_context = nil;
   [g_editor_outline_text release]; g_editor_outline_text = nil;
   [g_terminal_text release]; g_terminal_text = nil;
   [g_task_output_text release]; g_task_output_text = nil;
@@ -2075,6 +2077,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusStatusOverlay : NSTextField
 @end
 
+@interface NimculusEditorContextOverlay : NSTextField
+@end
+
 @interface NimculusEditorAnnotationOverlay : NSView
 @end
 
@@ -2788,6 +2793,11 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 - (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
 @end
 
+@implementation NimculusEditorContextOverlay
+- (BOOL)acceptsFirstResponder { return NO; }
+- (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
+@end
+
 @implementation NimculusEditorAnnotationOverlay
 - (BOOL)isFlipped { return YES; }
 - (NSView *)hitTest:(NSPoint)point { return nil; }
@@ -3183,6 +3193,22 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       initWithFrame:NSZeroRect];
     secondaryTabs.secondary = YES;
     [self addSubview:secondaryTabs];
+    NimculusEditorContextOverlay *context = [[NimculusEditorContextOverlay alloc]
+      initWithFrame:NSZeroRect];
+    context.editable = NO;
+    context.selectable = NO;
+    context.bezeled = NO;
+    context.drawsBackground = NO;
+    context.alignment = NSTextAlignmentLeft;
+    context.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    context.stringValue = g_editor_context;
+    context.font = [NSFont systemFontOfSize:12.0 weight:NSFontWeightMedium];
+    context.textColor = [themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0])
+      colorWithAlphaComponent:0.72];
+    context.toolTip = @"Current document";
+    [self addSubview:context];
+    [context release];
     NimculusWelcomeOverlay *welcome = [[NimculusWelcomeOverlay alloc]
       initWithFrame:NSZeroRect];
     welcome.hidden = !g_welcome_visible;
@@ -3314,6 +3340,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusIndentGuideOverlay *indentGuides = nil;
   NimculusTabBarOverlay *tabs = nil;
   NimculusTabBarOverlay *secondaryTabs = nil;
+  NimculusEditorContextOverlay *context = nil;
   NimculusWelcomeOverlay *welcome = nil;
   NimculusStatusOverlay *status = nil;
   NimculusTerminalOverlay *terminal = nil;
@@ -3328,6 +3355,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       if (((NimculusTabBarOverlay *)subview).secondary) secondaryTabs = (NimculusTabBarOverlay *)subview;
       else tabs = (NimculusTabBarOverlay *)subview;
     }
+    if ([subview isKindOfClass:[NimculusEditorContextOverlay class]]) context = (NimculusEditorContextOverlay *)subview;
     if ([subview isKindOfClass:[NimculusWelcomeOverlay class]]) welcome = (NimculusWelcomeOverlay *)subview;
     if ([subview isKindOfClass:[NimculusStatusOverlay class]]) status = (NimculusStatusOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) terminal = (NimculusTerminalOverlay *)subview;
@@ -3456,6 +3484,16 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       g_secondary_editor_rect[2], 28.0);
     secondaryTabs.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     [secondaryTabs setNeedsDisplay:YES];
+  }
+  if (context) {
+    // This sits in the compact header above the tab strip. It is deliberately
+    // a native macOS label: document navigation remains readable while Metal
+    // repaints only dirty editor content beneath it.
+    context.hidden = g_welcome_visible || g_editor_context.length == 0;
+    context.frame = NSMakeRect(g_editor_rect[0] + 12.0,
+      g_editor_rect[1] + g_editor_rect[3] + 29.0,
+      MAX(1.0, g_editor_rect[2] - 24.0), 20.0);
+    context.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
   }
   if (welcome) {
     welcome.hidden = !g_welcome_visible;
@@ -7132,6 +7170,19 @@ void nimculus_platform_set_secondary_editor_tabs(const char *utf8, uint32_t leng
       break;
     }
   }
+}
+void nimculus_platform_set_editor_context(const char *utf8) {
+  replaceOwnedString(&g_editor_context, (utf8 && strlen(utf8) > 0)
+    ? [NSString stringWithUTF8String:utf8] : @"");
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusEditorContextOverlay class]]) {
+      ((NSTextField *)subview).stringValue = g_editor_context;
+      break;
+    }
+  }
+  [view updateTerminalFrame];
 }
 void nimculus_platform_set_editor_status(const char *utf8) {
   replaceOwnedString(&g_editor_status, (utf8 && strlen(utf8) > 0)

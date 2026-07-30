@@ -126,6 +126,7 @@ proc platformSetEditorLineNumbers*(visible: bool) {.importc: "nimculus_platform_
 proc platformSetEditorSoftWrap*(enabled: bool) {.importc: "nimculus_platform_set_editor_soft_wrap", cdecl.}
 proc platformSetEditorTabs*(titles: cstring, length, activeIndex: uint32) {.importc: "nimculus_platform_set_editor_tabs", cdecl.}
 proc platformSetSecondaryEditorTabs*(titles: cstring, length, activeIndex: uint32) {.importc: "nimculus_platform_set_secondary_editor_tabs", cdecl.}
+proc platformSetEditorContext*(text: cstring) {.importc: "nimculus_platform_set_editor_context", cdecl.}
 proc platformSetEditorStatus*(text: cstring) {.importc: "nimculus_platform_set_editor_status", cdecl.}
 proc platformSetWelcomeVisible*(visible: bool) {.importc: "nimculus_platform_set_welcome_visible", cdecl.}
 proc platformSetCloseDecision*(allow: bool) {.importc: "nimculus_platform_set_close_decision", cdecl.}

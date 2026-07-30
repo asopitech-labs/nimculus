@@ -609,6 +609,26 @@ when defined(macosx):
   proc scheduleNativeGitHunks(document: ptr FileDocument)
   proc scheduleNativeSecondaryGitHunks(document: ptr FileDocument)
 
+  proc editorContextText(document: ptr FileDocument): string =
+    ## Keep the compact native header meaningful even when several similarly
+    ## named tabs are open. Workspace-relative breadcrumbs avoid leaking an
+    ## unreadable absolute path into the editor chrome.
+    if document == nil:
+      return ""
+    if document[].path.len == 0:
+      return editorSession.displayTitle(editorSession.activeTab)
+    if activeWorkspace != nil:
+      try:
+        let location = activeWorkspace.splitWorkspacePath(document[].path)
+        let root = location.root.extractFilename
+        let relative = location.relative.replace("/", " › ")
+        return if root.len > 0 and relative.len > 0: root & " › " & relative
+          elif relative.len > 0: relative
+          else: root
+      except CatchableError:
+        discard
+    document[].path
+
   proc gitRepositoryForDocument(document: ptr FileDocument): GitRepository =
     # Zed's Git panel is owned by a workspace repository, not by an editor
     # buffer. An untitled editor (or no editor at all) must still be able to
@@ -2212,6 +2232,7 @@ proc syncEditorCursor() =
       uint32(max(1, editorViewState.indentWidth)))
     let status = if document != nil: editorViewState.statusBarText(document[].buffer)
       else: editorViewState.statusMessage
+    platformSetEditorContext(editorContextText(document).cstring)
     platformSetEditorStatus(status.cstring)
     var tabTitles: seq[string]
     for index, tab in editorSession.tabs:
