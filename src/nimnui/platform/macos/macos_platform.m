@@ -2367,7 +2367,12 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)keyDown:(NSEvent *)event {
   if (!g_command_callback) { [super keyDown:event]; return; }
   const unsigned short key = event.keyCode;
-  const char *command = (key == 48 || key == 53) ? "sidebarFocusEditor" :
+  const NSEventModifierFlags modifiers = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+  const BOOL gitPanelShortcut = g_editor_sidebar_mode >= 2 && g_editor_sidebar_mode <= 4 &&
+    (modifiers & NSEventModifierFlagCommand) != 0;
+  const char *command = gitPanelShortcut && key == 18 ? "commandPalette:git status" :
+    gitPanelShortcut && key == 19 ? "commandPalette:git log" :
+    (key == 48 || key == 53) ? "sidebarFocusEditor" :
     key == 49 ? (g_editor_sidebar_mode == 3 ? "sidebarStageToggleSelected" : "sidebarOpenSelected") :
     key == 126 ? "sidebarPrevious" :
     key == 125 ? "sidebarNext" : key == 123 ? "sidebarCollapseSelected" :
@@ -6431,10 +6436,25 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
     strcpy(g_validation_command, "unchanged");
     if (rename) [sidebar keyDown:rename];
     BOOL renameSelected = strcmp(g_validation_command, "sidebarRenameSelected") == 0;
+    g_editor_sidebar_mode = 3;
+    NSEvent *changesTab = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:NSEventModifierFlagCommand timestamp:0.0
+      windowNumber:0 context:nil characters:@"1" charactersIgnoringModifiers:@"1"
+      isARepeat:NO keyCode:18];
+    NSEvent *historyTab = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:NSEventModifierFlagCommand timestamp:0.0
+      windowNumber:0 context:nil characters:@"2" charactersIgnoringModifiers:@"2"
+      isARepeat:NO keyCode:19];
+    strcpy(g_validation_command, "unchanged");
+    if (changesTab) [sidebar keyDown:changesTab];
+    BOOL changesTabShortcut = strcmp(g_validation_command, "commandPalette:git status") == 0;
+    strcpy(g_validation_command, "unchanged");
+    if (historyTab) [sidebar keyDown:historyTab];
+    BOOL historyTabShortcut = strcmp(g_validation_command, "commandPalette:git log") == 0;
     BOOL valid = selected && opened && headerIgnored && mappedSelection && mappedOpen &&
       stageToggle && tabFocusesEditor && escapeFocusesEditor && spaceStagesGitChange &&
       spaceOpensSidebarItem && leftCollapsesDirectory && rightExpandsDirectory &&
-      renameSelected;
+      renameSelected && changesTabShortcut && historyTabShortcut;
     [sidebar release];
     free(g_editor_sidebar_line_items);
     g_editor_sidebar_line_items = previousLineItems;

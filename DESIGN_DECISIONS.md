@@ -5817,3 +5817,17 @@ does not own their parent names.
 **Consequences.** Rename does not depend on pointer context menus, retains
 the established validation and FSEvents refresh path, and cannot accidentally
 rename a workspace root.
+
+## M9-022: Make Git Changes and History keyboard-addressable
+
+**Context.** The macOS Git sidebar renders Zed-like Changes, History, and
+Branches tabs. Only pointer tab clicks reached the existing asynchronous Git
+commands, while Zed reserves `Cmd+1` and `Cmd+2` for Changes and History.
+
+**Decision.** When a Git sidebar mode owns first responder, dispatch
+`Cmd+1` to the existing `git status` command and `Cmd+2` to `git log`. These
+remain commands rather than a native-only selected-tab mutation, so loading,
+cancellation, stale-job handling, and focus remain identical to pointer use.
+
+**Consequences.** Git history has a keyboard entry point without duplicate
+repository state. The native sidebar contract verifies both command bindings.

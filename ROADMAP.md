@@ -465,6 +465,8 @@ Git Branches UI：**[x]** Zedのbranch actionと同じく、Branches行の右ク
 
 Git Changesのnative sidebarは、Zedと同じくSpaceで選択変更をstage/unstageする。Files、Search、Git history/branchesではSpaceは選択項目を開く。いずれもpointer操作と同じcommand経路を使い、conflictや未選択項目を暗黙に変更しない。
 
+Git sidebarではZed互換の`Cmd+1`（Changes）と`Cmd+2`（History）を提供し、pointer tabと同じ非同期status/historyロード経路へ接続する。
+
 ### M10：macOS 統合ターミナルとタスク — `v0.4.0-alpha`
 
 **進捗：** 🟡 自動検証済み・macOS E2E対象
