@@ -15,18 +15,38 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | M4：エディタバッファと編集コア | ✅ 完了 | Piece Table、原子的編集、Undo/Redo、複数カーソル、位置変換、fuzz、候補構造比較を実装・検証済み |
 | M5：macOS 最小実用エディタ | 🟡 自動E2E済み・実機確認対象 | 編集サービス、plain-text fallbackを含む動的文書表示、構文色、macOSメニュー/IME/Finder接続、Application Supportへのsession復元・crash recovery、`Cmd+,`の設定パネル導線を実装。Find/Replace/Go to LineとCommand PaletteはZed同様の非モーダルなエディタ内バーとして実装。標準AppKit titlebarの下でbreadcrumb・tab・本文を56ptの連続chromeへ圧縮し、Project/Git headerもworkspace上端へ揃える。Metalの上原点座標とAppKit child frameの下原点座標を境界で変換し、行番号・サイドバー・overlayを本文と同じpaneへ配置する。二paneの対話操作は受け入れ記録へ集約 |
 | M6：macOS プロジェクト・ワークスペース | 🟡 自動E2E済み・実機確認対象 | workspace、FSEvents、検索、Worktree、10万ファイル計測を実装。ZedのProject Panelと同様に、複数rootを個別に展開できるファイルツリーを編集本文から分離したmacOSサイドバーへ表示。`Reveal Active File`はアクティブ文書の祖先だけを展開し、列挙上限時も対象root・祖先を優先してツリーへ表示 |
-| M7：Tree-sitter | 🟡 自動検証済み・E2E対象 | Nim/Rust/TypeScript/TSX/Python/JSON/MarkdownのFFI、増分解析、構文状態、可視範囲ハイライト、RGBA Metalテクスチャ接続を実装 |
-| M8：LSPクライアント | 🟡 自動検証済み・E2E対象 | JSON-RPC、stdio、stale response破棄、主要LSP UIを実装。実Language Serverとの一連操作はE2Eで確認 |
+| M7：Tree-sitter | 🟡 自動E2E済み・実機確認対象 | Nim/Rust/TypeScript/TSX/Python/JSON/MarkdownのFFI、増分解析、構文状態、可視範囲ハイライト、RGBA Metalテクスチャ接続を実装。統合E2Eで全test・native contract・benchmarkを通過 |
+| M8：LSPクライアント | 🟡 自動E2E済み・実機確認対象 | JSON-RPC、stdio、stale response破棄、主要LSP UIを実装。統合E2EでLSP bridgeのunit/integrationを通過。実Language Serverとの対話は受け入れ記録へ集約 |
 | M9：macOS Git統合 | 🟡 自動E2E済み・実機確認対象 | 非同期status/diff、gutter、hunk stage/unstage、commit/amend/log/blame/checkoutを実装。`git status`はconflictを先頭で明示する最大1000件のクリック可能な一覧を表示し、選んだ既存ファイルを開ける。暗黙の解決操作は行わない。commit/amend成功後はhunkと最新100件の履歴を非同期で再読込する。`git file history`はアクティブなファイルに限定して履歴サイドバーへ表示し、そこから選んだcommitも当該ファイルのpatchだけを表示する。`git blame`はcursor行の要約と、最大500行のauthor/hash付き一覧を表示する。`git branches`はクリック可能なlocal branch一覧を表示し、`git switch <branch>`と同じ安全な`--no-guess`で切替・clean tab再読込を行う。Git履歴はスクロール可能な専用サイドバーへ最新100件を表示し、選択したcommitのmetadata・統計・patchはexternal diffを起動せず出力パネルへ表示 |
-| M10：macOSターミナル・タスク | 🟡 自動検証済み・E2E対象 | PTY、VT/ANSI、複数session、task/cancel/problem matcher/output panelを実装。`Close Terminal`は検証済みの直接PTY子プロセスだけを終了し、残りのsessionを選択する。連続利用はE2Eで確認 |
+| M10：macOSターミナル・タスク | 🟡 自動E2E済み・実機確認対象 | PTY、VT/ANSI、複数session、task/cancel/problem matcher/output panelを実装。`Close Terminal`は検証済みの直接PTY子プロセスだけを終了し、残りのsessionを選択する。統合E2EでPTY/task/native contractと短時間Soakを通過 |
 | M11：macOS配布基盤 | 🟡 機能実装済み・Developer ID承認待ち | `.app`、生成アイコン、署名、hardened runtime、ZIP/DMG、notarization/stapling、更新検証、crash reportを実装。Zedのbundle工程を参考に、ZIP/DMG生成直後とnotarization後の再生成時に非空検証と`hdiutil verify`を行う。`scripts/verify_macos_package.sh`でDMGをreadonly mountし、内部`.app`の署名検証と実アプリcold-startまでCIで確認する。`NIMCULUS_REQUIRE_NOTARIZATION=1`ではstaplerとGatekeeperをapp/DMG双方へ適用する。`.github/workflows/macos-release.yml`は手動実行時にrunner一時keychainへDeveloper ID証明書を導入し、App Store Connect API keyでnotarytool→stapling→strict verificationを行う。ICNS生成のSwift module cacheも各package runの一時cacheへ固定してユーザー領域へ残さない。notarytoolはkeychain profileまたはApp Store Connect API keyを優先し、従来のApple ID方式も後方互換で利用できる。更新成果物を1 GiBに制限し、`.part`へダウンロードしてサイズ/SHA-256検証後にdestinationへ移動、非同期中のサイズ超過を停止・削除、更新ツール出力を64 KiB上限の非ブロッキングrunnerで消費、更新helperは直接起動した子プロセスだけを停止、DMGのmount root・検証対象・detach対象を一致させ、処理後にmount directory/DMGをcleanupする。adhoc署名による`.app`・icon・ZIP/DMG・mount後cold-startスモークは成功。Developer IDとApple資格情報による承認は保留し、macOS機能の実装・検証は継続する |
-| M12：設定・テーマ・キーバインド | 🟡 自動検証済み・E2E準備完了 | 階層設定、schema、live reload、keymap、theme/icon theme、font・terminal・LSP設定、AppKit外観通知によるsystem appearance連動を実装。ここでmacOS E2Eを開始する |
+| M12：設定・テーマ・キーバインド | 🟡 自動E2E済み・実機確認対象 | 階層設定、schema、live reload、keymap、theme/icon theme、font・terminal・LSP設定、AppKit外観通知によるsystem appearance連動を実装。統合E2Eで設定・テーマ・キーマップのunit/integrationと実アプリ起動を通過 |
 | M13：Windows対応 | ⏸ macOS完了まで凍結 | macOS M0〜M12とM20の受け入れ完了後に再開する。既存Windows実装の追加拡張・トライアンドエラーは行わない。Windows workflowは`workflow_dispatch`専用とし、macOS の既定テスト／CIはWindows専用テスト・クロスコンパイルを実行しない |
 | M14：WSLリモート | ⚪ 未着手 | Windows版完了後にagent、remote file、LSP、Git、terminal、reconnectを実装する |
 | M15：Linux対応 | ⚪ 未着手 | WSL基盤の後にWayland優先、X11 fallback、IME、PTY、packagingを実装する |
 | M16：SSHリモート | ⚪ 未着手 | WSLプロトコルを一般化し、SSH agentとremote開発を実装する |
 | M17〜M19：拡張・AI・DAP | ⚪ 未着手 | 拡張API、CLIエージェント、DAPクライアントを順次実装する |
-| M20〜M21：安定化・v1.0 | 🟡 M20自動E2E済み・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録する。2026-07-29の[release-candidate E2E成功](https://github.com/asopitech-labs/nimculus/actions/runs/30413726097)で、最新macOS HEADに対する全test、native contract、benchmark、3回cold-start、20秒soak、adhoc DMG起動を確認済み。8時間実機実行、remote latency、正式配布は未完了 |
+| M20〜M21：安定化・v1.0 | 🟡 M20自動E2E済み・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録する。2026-07-31のHEAD [`6bdde20`](https://github.com/asopitech-labs/nimculus/commit/6bdde20)で、全test、native contract、benchmark、cold-start、短時間Soak、adhoc DMG起動、隔離GUI workflowを一つのローカル統合E2Eで確認済み。8時間実機実行、remote latency、正式配布は未完了 |
+
+### 2026-07-31 更新：統合E2EとWelcome surface
+
+Apple Silicon macOSで次の一括コマンドを実行し、`macos_e2e_complete`まで成功した。
+
+```sh
+NIMCULUS_E2E_SKIP_DEPS=1 \
+NIMCULUS_E2E_COLD_START_RUNS=1 \
+NIMCULUS_E2E_SOAK_SECONDS=2 \
+NIMCULUS_E2E_SOAK_INTERVAL_SECONDS=1 \
+NIMCULUS_E2E_SOAK_TIMEOUT_SECONDS=12 \
+NIMCULUS_E2E_GUI_WORKFLOWS=1 \
+nimble macosE2E
+```
+
+この実行はbuild、Cocoa/Metal native contract、unit/integration、benchmark、cold start、短時間Soak、
+adhoc署名DMGのmount後cold-start、Files / Quick Open / Workspace Search / split / Git Changes・Historyの
+GUI workflowを一つの受け入れログへ集約した。Welcomeはworkspaceを開いた直後も中央の開始面として残し、
+Filesとactivity barを隠さない。物理IME、trackpad、複数display、実Language Server、長時間利用、
+Developer ID/notarizationは機能実装を止めるゲートにせず、別受け入れ項目として残す。
 
 ### M9 更新：Changes の操作モデル
 

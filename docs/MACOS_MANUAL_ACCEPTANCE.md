@@ -18,6 +18,12 @@ macOS CIを完了条件とする。物理入力機器・日本語入力ソース
 このHEADには、クリック可能なGit status・branch picker・file history、bounded blame表示、
 Reveal Active File、大規模ツリーのreveal優先、および個別terminal session終了を含む。
 
+2026-07-31にはHEAD `6bdde20`でローカルの統合E2Eも成功した。全test、native contract、benchmark、
+cold-start、短時間soak、adhoc署名DMGのmount後cold-start、および隔離GUI workflowを一つの実行へ
+集約し、workspace Welcome、Files、Quick Open、Workspace Search、縦横split、Git Changes/History、
+Stage All/Unstage Allを実アプリで確認した。Welcomeはworkspaceを開いた直後も中央の開始面として表示し、
+Filesとactivity barを維持する。補助XPCを必要とするnative sheetと物理IME候補位置の契約は明示skipした。
+
 この証跡は自動化できるrelease-candidate基準を満たす。一方で、物理日本語IME、trackpad、
 複数ディスプレイ、実Language Serverの対話操作、2時間/8時間の連続利用、Developer ID署名・
 notarizationは、この成功結果から完了とは主張しない。それらは利用可能な環境または資格情報で
