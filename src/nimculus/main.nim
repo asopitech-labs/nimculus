@@ -2150,6 +2150,17 @@ proc refreshWorkspacePreview() =
     when defined(macosx):
       editorWorkspaceUi.replacePanelItems(panelFiles,
         workspacePreviewEntries.mapIt(it.path))
+      # Keep the Project tree aligned with the active editor, as Zed does:
+      # revealing a document expands its ancestry and selects the concrete
+      # row rather than merely moving it closer to the top of the list.
+      var revealedIndex = -1
+      if workspaceRevealPath.len > 0:
+        for index, entry in workspacePreviewEntries:
+          if entry.path == workspaceRevealPath:
+            revealedIndex = index
+            break
+      if revealedIndex >= 0:
+        discard editorWorkspaceUi.selectPanelItem(panelFiles, revealedIndex)
       # File watcher and workspace mutations refresh this cache in the
       # background. They must not steal the active Git/Outline panel just
       # because Files happens to be the data source being updated. Present
@@ -2160,7 +2171,13 @@ proc refreshWorkspacePreview() =
         editorSidebarMode = sidebarFiles
         platformSetEditorSidebar(text.cstring, uint32(text.len),
           uint32(workspacePreviewEntries.len), uint32(sidebarFiles))
-        syncNativeSidebarSelection()
+        if revealedIndex >= 0:
+          # The generic dock selection may still point at the workspace root
+          # after a list refresh. The active document is the stronger source
+          # of truth for Files presentation.
+          platformSetEditorSidebarSelection(uint32(revealedIndex))
+        else:
+          syncNativeSidebarSelection()
     else:
       # The macOS sidebar is intentionally native-only until another platform
       # needs the same interaction contract. Keep the established Win32
@@ -3299,6 +3316,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
         editorSession.recordRecent(filePath)
         syncRecentFiles()
         setupDemoUi()
+        revealActiveDocumentInWorkspace()
         syncEditorCursor()
         refreshEditorSyntax()
         persistSession()
@@ -3316,6 +3334,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       editorSession.recordRecent(filePath)
       syncRecentFiles()
       setupDemoUi()
+      revealActiveDocumentInWorkspace()
       syncEditorCursor()
       refreshEditorSyntax()
       persistSession()

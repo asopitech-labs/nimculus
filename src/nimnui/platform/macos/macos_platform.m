@@ -2247,6 +2247,8 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusEditorAnnotationOverlay : NSView
 @end
 
+static NSUInteger editorSidebarLineForItem(NSUInteger item);
+
 @interface NimculusExternalChangeActionTarget : NSObject
 - (void)reload:(id)sender;
 - (void)keepEditing:(id)sender;
@@ -2912,6 +2914,38 @@ static void dismissExternalChangePanel(const char *command) {
 - (BOOL)acceptsFirstResponder { return YES; }
 - (NSView *)hitTest:(NSPoint)point {
   return NSPointInRect(point, self.bounds) ? self : nil;
+}
+- (void)drawRect:(NSRect)dirtyRect {
+  // NSTextView draws an inactive selection with the system's pale grey,
+  // ignoring selectedTextAttributes. The project tree is normally inactive
+  // while the editor owns first responder, so paint its logical selection
+  // ourselves before text instead of using NSTextView's text selection.
+  [super drawRect:dirtyRect];
+  if (g_editor_sidebar_selected_index != NSNotFound &&
+      g_editor_sidebar_selected_index < g_editor_outline_symbol_count) {
+    NSUInteger line = editorSidebarLineForItem(g_editor_sidebar_selected_index);
+    NSUInteger start = 0;
+    for (NSUInteger current = 0; current < line && start < self.string.length; current++) {
+      NSRange newline = [self.string rangeOfString:@"\n" options:0
+        range:NSMakeRange(start, self.string.length - start)];
+      if (newline.location == NSNotFound) { start = self.string.length; break; }
+      start = NSMaxRange(newline);
+    }
+    if (start < self.string.length) {
+      NSUInteger glyph = [self.layoutManager glyphIndexForCharacterAtIndex:start];
+      NSRange glyphRange = NSMakeRange(0, 0);
+      NSRect row = [self.layoutManager lineFragmentRectForGlyphAtIndex:glyph
+        effectiveRange:&glyphRange];
+      row.origin.x = 0.0;
+      row.size.width = self.bounds.size.width;
+      if (NSIntersectsRect(row, dirtyRect)) {
+        [[themeHexColor(g_theme_selection,
+          [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
+          colorWithAlphaComponent:0.56] setFill];
+        NSRectFillUsingOperation(row, NSCompositingOperationSourceOver);
+      }
+    }
+  }
 }
 - (NSUInteger)sidebarItemForLine:(NSUInteger)line {
   if (g_editor_outline_symbol_count == 0 || line < 2) return NSNotFound;
@@ -3836,6 +3870,17 @@ static NimculusOutlineOverlay *outlineOverlayForView(NSView *view) {
 // rendering the workspace as an editor-sized block of plain text.
 static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
   if (!outline) return;
+  // The Files/Git tree commonly remains visible while the editor owns first
+  // responder. Use the active theme for its retained selection instead of
+  // AppKit's high-contrast inactive-text selection, which otherwise turns an
+  // active project row into a bright white strip.
+  outline.selectedTextAttributes = @{
+    NSBackgroundColorAttributeName: [themeHexColor(g_theme_selection,
+      [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
+      colorWithAlphaComponent:0.76],
+    NSForegroundColorAttributeName: themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedWhite:0.93 alpha:1.0])
+  };
   NSString *text = g_editor_outline_text ?: @"";
   NSColor *foreground = themeHexColor(g_theme_foreground,
     [NSColor colorWithCalibratedWhite:0.84 alpha:1.0]);
@@ -9181,11 +9226,13 @@ void nimculus_platform_set_editor_sidebar_selection(uint32_t item_index) {
   if (g_editor_sidebar_selected_index == NSNotFound ||
       g_editor_sidebar_selected_index >= g_editor_outline_symbol_count) {
     [outline setSelectedRange:NSMakeRange(0, 0)];
+    [outline setNeedsDisplay:YES];
     return;
   }
   NSUInteger line = editorSidebarLineForItem(g_editor_sidebar_selected_index);
   if (line == NSNotFound) {
     [outline setSelectedRange:NSMakeRange(0, 0)];
+    [outline setNeedsDisplay:YES];
     return;
   }
   NSUInteger start = 0;
@@ -9199,11 +9246,13 @@ void nimculus_platform_set_editor_sidebar_selection(uint32_t item_index) {
   while (end < outline.string.length && [outline.string characterAtIndex:end] != '\n') end++;
   if (start >= outline.string.length) {
     [outline setSelectedRange:NSMakeRange(0, 0)];
+    [outline setNeedsDisplay:YES];
     return;
   }
   NSRange range = NSMakeRange(start, end - start);
-  [outline setSelectedRange:range];
+  [outline setSelectedRange:NSMakeRange(0, 0)];
   [outline scrollRangeToVisible:range];
+  [outline setNeedsDisplay:YES];
 }
 void nimculus_platform_set_editor_sidebar_visible(bool visible) {
   g_editor_sidebar_visible = visible ? YES : NO;
