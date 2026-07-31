@@ -1337,6 +1337,14 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     for (NSUInteger visibleIndex = 0; visibleIndex < visible.count; visibleIndex++) {
       NSString *visibleLine = visible[visibleIndex];
       NSUInteger documentLine = startLine + visibleIndex;
+      if (documentLine == g_editor_cursor_line && visibleLine.length > 0) {
+        NSColor *currentLine = [themeHexColor(g_theme_selection,
+          [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
+          colorWithAlphaComponent:0.16];
+        [wrappedAttributed addAttribute:(id)kCTBackgroundColorAttributeName
+          value:(id)currentLine.CGColor
+          range:NSMakeRange(wrappedLineUnit, visibleLine.length)];
+      }
       NimculusGitHunkSpan *hunks = g_rendering_secondary_editor
         ? g_secondary_git_hunks : g_git_hunks;
       uint32_t hunkCount = g_rendering_secondary_editor
