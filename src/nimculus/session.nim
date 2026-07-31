@@ -53,7 +53,9 @@ proc loadView(node: JsonNode, text: string): EditorViewState =
   result.selection.active = floorGraphemeBoundary(text, jsonInt(node, "active", 0))
   result.scrollLine = max(0, jsonInt(node, "scrollLine", 0))
   result.showLineNumbers = jsonBool(node, "showLineNumbers", true)
-  result.softWrap = jsonBool(node, "softWrap", false)
+  # A missing preference uses the safe macOS default. An explicit false is
+  # retained so users who choose horizontal, unwrapped editing keep it.
+  result.softWrap = jsonBool(node, "softWrap", true)
   result.showIndentGuides = jsonBool(node, "showIndentGuides", true)
   result.indentWidth = max(1, jsonInt(node, "indentWidth", 2))
 

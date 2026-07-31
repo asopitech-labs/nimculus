@@ -354,6 +354,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 - [x] editor viewport内のpointer downから選択を開始し、drag中はviewport外でもpointer-upまで継続
 - [x] 検索、置換（Find/Replace/Go to Lineは本文を遮らないnative editor overlay。入力中の検索、Replace All、Escによるエディタへのfocus復帰を接続）
 - [x] ソフトラップをCore Text native描画へ接続し、Command Paletteの`toggle soft wrap`で切替。状態はsessionへ保存。カーソル、IME候補位置、クリックhit-test、行番号、syntax/selection/diagnostic描画、LSP annotationも同じ表示行マッピングを使用し、スクロール/インデントガイドもView状態とnative表示へ接続
+- [x] macOSの新規ビューと欠落したsession設定ではソフトラップを既定有効にし、横スクロールUIがない状態で長い行を右端で切らない。明示的な無効設定は保持する
 - [x] ステータスバーをnative overlayへ接続し、行・列・未保存状態と保存・検索・LSP・Git・Task状態を表示
 - [x] 標準ショートカット基盤
 - [x] Undo / Redo の標準 `Cmd+Z` / `Cmd+Shift+Z` をネイティブメニューと編集コアへ接続

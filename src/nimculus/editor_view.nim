@@ -14,7 +14,10 @@ type
     statusMessage*: string
 
 proc newEditorView*(): EditorViewState =
-  EditorViewState(showLineNumbers: true, softWrap: false,
+  # macOS currently has no horizontal editor scrollbar. Keep long lines
+  # visible inside the content viewport by default; an explicitly persisted
+  # false value still lets users choose the Zed-style unwrapped view.
+  EditorViewState(showLineNumbers: true, softWrap: true,
     showIndentGuides: true, indentWidth: 2)
 
 proc cursor*(view: EditorViewState): int = view.selection.active

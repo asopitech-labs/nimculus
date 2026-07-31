@@ -15,6 +15,9 @@ import nimculus/persistence_scheduler
 import nimculus/poll_scheduler
 
 suite "session persistence scheduling":
+  test "new editor views keep long lines inside the macOS viewport":
+    check newEditorView().softWrap
+
   test "edits debounce while bounding crash recovery delay":
     var schedule: PersistenceSchedule
     schedule.schedule(0.0)
