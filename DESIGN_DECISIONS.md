@@ -6256,3 +6256,21 @@ of Cocoa. Movement commands collapse additional selections as in a normal
 single-caret navigation, so the behavior is predictable when leaving a
 multi-selection operation. The native array is capped at 256 entries to keep
 per-frame ABI work bounded.
+
+## UI-077: Synchronize the selected tab at the session/UI composition boundary
+
+**Context.** `EditorSession.activeTab` is updated when a startup path, Finder
+open event, or Files-panel activation selects a document. The macOS workspace
+also keeps a pane-local tab index. If a restored single-pane index remained
+valid after a new document was activated, the editor could render one document
+while highlighting a different tab.
+
+**Decision.** For a non-split editor, synchronize the first pane's tab index
+from `EditorSession.activeTab` whenever the session tab collection is refreshed.
+Split panes retain independent pane-local selections. This keeps the document,
+breadcrumb, caret/IME target, and highlighted tab on one activation boundary,
+including direct startup paths and Finder/Open With.
+
+**Consequences.** A file opened from the command line or Finder is immediately
+represented by the selected tab, and the tab label cannot drift from the
+document shown in the editor. Split-pane tab ownership remains unchanged.

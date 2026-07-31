@@ -565,6 +565,16 @@ when defined(macosx):
 
 proc syncWorkspaceUiTabs() =
   editorWorkspaceUi.syncRootTabs(editorSession.tabs.len, editorSession.activeTab)
+  # With one editor pane, EditorSession.activeTab is the canonical focused
+  # document. Keep the pane-owned tab selection synchronized at this
+  # composition boundary as well. Startup file arguments and Finder/Open With
+  # callbacks can add or activate a tab after the workspace tree was restored;
+  # leaving the old pane index valid would highlight a different tab from the
+  # document rendered in the editor (the exact mismatch users see in Zed-like
+  # tab surfaces).
+  if not editorSession.split and editorWorkspaceUi.center != nil:
+    discard editorWorkspaceUi.selectPaneTab(editorWorkspaceUi.center.firstPane().id,
+      editorSession.activeTab)
 var activeWorkspace: Workspace
 var workspaceSearchJob: SearchJob
 var workspaceQuickOpenJob: FuzzySearchJob
