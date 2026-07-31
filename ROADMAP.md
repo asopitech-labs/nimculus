@@ -290,6 +290,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 - [x] ligature、glyph positioning、fallback run、BiDi（Core Text shaping経路）
 - [x] glyph atlasの配置・再利用基盤（Core Text glyph runをfont・scale・glyph ID・4x4 subpixel variantでキャッシュし、量子化originとfractional raster offsetを一致させてMetal R8 textureへ配置）
 - [x] atlas拡張、cache eviction、Metal texture、可視範囲描画、サブピクセル位置（2048px shelf atlas、容量超過時の全体eviction、可視行のみのquad生成、eviction時は全visible quadを新atlasへ再構築し再構築後も収まらなければCore Text全文fallback、native cache-hit/eviction smoke test）
+- [x] Core Text文字とLSP/inlay annotationを同じ本文viewportへクリップし、右側scrollbar・分割境界・下側status chromeへのAppKit描画漏れを防止（native viewport contractで境界を固定）
 - [x] スクロール行をnative text texture、カーソル、IME候補位置、構文ハイライトへ同期
 - [x] Workspace / search / Quick Openのpreview text surface切替時にselection、caret、scroll、compositionをリセット
 - [x] エディタ矩形の高さから可視行数を算出し、描画・スクロール・構文ハイライト範囲を統一

@@ -799,6 +799,14 @@ static CGRect editorTextViewportCoreGraphicsRect(const double rect[4]) {
     MAX(1.0, viewport.width), MAX(1.0, viewport.height));
 }
 
+// AppKit annotation text is drawn in the flipped, top-left coordinate space
+// of the Metal view. Keep its clip in that same space; converting this to a
+// Core Graphics rectangle would invert the top/bottom safety margins again.
+static NSRect editorAnnotationClipRect(const double rect[4]) {
+  NimculusPaintRegion viewport = editorTextViewport(rect);
+  return NSMakeRect(viewport.x, viewport.y, viewport.width, viewport.height);
+}
+
 // Native overlays are children of the Metal view, not sheets.  They must
 // therefore obey the same pane boundary as the editor texture: a split pane
 // or a very small window must never let their frame (or child controls) spill
@@ -3941,6 +3949,14 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 - (NSView *)hitTest:(NSPoint)point { return nil; }
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
+  // This view intentionally spans the Metal root so annotation coordinates
+  // remain aligned with editorPointForUTF16Offset. Its drawing, however,
+  // belongs only to the text content viewport. Without this clip an inlay
+  // hint can paint over the scrollbar, split boundary, sidebar, or status
+  // area even though the underlying editor texture is correctly scissored.
+  const NSRect textClip = editorAnnotationClipRect(g_editor_rect);
+  if (NSIsEmptyRect(textClip)) return;
+  NSRectClip(textClip);
   NSDictionary *attributes = @{
     NSFontAttributeName: [NSFont fontWithName:@"Menlo-Italic" size:11.0] ?:
       [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular],
@@ -3959,8 +3975,8 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     CGPoint point = editorPointForUTF16Offset(documentOffset);
     CGFloat x = (CGFloat)g_editor_rect[0] + point.x;
     CGFloat y = (CGFloat)g_editor_rect[1] + point.y + 2.0;
-    if (y < g_editor_rect[1]) continue;
-    if (y > self.bounds.size.height || x > self.bounds.size.width) continue;
+    if (x >= NSMaxX(textClip) || y >= NSMaxY(textClip)) continue;
+    if (x + 1.0 < NSMinX(textClip) || y + 1.0 < NSMinY(textClip)) continue;
     [text drawAtPoint:NSMakePoint(x, y) withAttributes:attributes];
   }
 }
@@ -6931,6 +6947,17 @@ bool nimculus_platform_validate_editor_text_viewport(void) {
     fabs(coreGraphicsViewport.size.height - 148.0) < 0.01 &&
     editorVisibleLineCapacity(pane, 20.0) == 8 &&
     rightVisible.width == 0.0f && bottomVisible.height == 0.0f;
+}
+
+bool nimculus_platform_validate_editor_annotation_viewport(void) {
+  const double pane[4] = {40.0, 60.0, 300.0, 180.0};
+  NSRect clip = editorAnnotationClipRect(pane);
+  return fabs(NSMinX(clip) - 48.0) < 0.01 &&
+    fabs(NSMinY(clip) - 66.0) < 0.01 &&
+    fabs(NSWidth(clip) - 264.0) < 0.01 &&
+    fabs(NSHeight(clip) - 148.0) < 0.01 &&
+    NSMaxX(clip) <= pane[0] + pane[2] - 28.0 + 0.01 &&
+    NSMaxY(clip) <= pane[1] + pane[3] - 26.0 + 0.01;
 }
 
 bool nimculus_platform_validate_status_update_deduplication(void) {

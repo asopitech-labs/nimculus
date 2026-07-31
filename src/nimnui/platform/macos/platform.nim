@@ -13,6 +13,7 @@ proc platformValidateWindowDelegate*(): bool {.importc: "nimculus_platform_valid
 proc platformValidateFullscreenTransition*(): bool {.importc: "nimculus_platform_validate_fullscreen_transition", cdecl.}
 proc platformValidateEditorPaneGeometry*(): bool {.importc: "nimculus_platform_validate_editor_pane_geometry", cdecl.}
 proc platformValidateEditorTextViewport*(): bool {.importc: "nimculus_platform_validate_editor_text_viewport", cdecl.}
+proc platformValidateEditorAnnotationViewport*(): bool {.importc: "nimculus_platform_validate_editor_annotation_viewport", cdecl.}
 proc platformValidateStatusUpdateDeduplication*(): bool {.importc: "nimculus_platform_validate_status_update_deduplication", cdecl.}
 proc platformValidateDamageRebuild*(): bool {.importc: "nimculus_platform_validate_damage_rebuild", cdecl.}
 proc platformValidateScrollClipPixels*(): bool {.importc: "nimculus_platform_validate_scroll_clip_pixels", cdecl.}

@@ -311,6 +311,9 @@ suite "macOS platform contract":
     check platformEditorTextUtf8Length() == uint32(nulText.len)
     platformSetEditorText("".cstring, 0)
 
+  test "editor annotations stay inside the text viewport":
+    check platformValidateEditorAnnotationViewport()
+
   test "native line index resolves a deep ten-thousand-line cursor position":
     let lineCount = 10_000
     let text = "x\n".repeat(lineCount - 1) & "終"
