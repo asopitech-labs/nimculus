@@ -662,10 +662,29 @@ proc sendNotification*(client: LspProcess, methodName: string,
   if params != nil: request["params"] = params
   client.send(request)
 
+when defined(posix):
+  proc lspOutputReadable(client: LspProcess): bool =
+    ## osproc.hasData uses an unbounded select timeout. That is appropriate
+    ## for a blocking reader, but not for the editor's foreground poll: an
+    ## idle language server must never stop input, rendering, or other LSP
+    ## sessions. Probe the pipe with a zero timeout instead.
+    if client == nil or client.process == nil: return false
+    let stream = cast[NimculusFileStream](client.output)
+    if stream == nil or stream.f == nil: return false
+    let fd = cint(getOsFileHandle(stream.f))
+    if fd < 0: return false
+    var readSet: TFdSet = default(TFdSet)
+    FD_ZERO(readSet)
+    FD_SET(fd, readSet)
+    var timeout = Timeval(tv_sec: posix.Time(0), tv_usec: Suseconds(0))
+    let ready = posix.select(fd + 1, addr(readSet), nil, nil, addr(timeout))
+    ready > 0 and FD_ISSET(fd, readSet) != 0
+
 proc readMessages*(client: LspProcess): seq[JsonNode] =
-  ## Read one blocking pipe chunk and decode all complete messages in it.
-  ## Call this from the app's worker/event task, never from the rendering
-  ## callback; the decoder itself remains incremental and non-lossy.
+  ## Read one available pipe chunk and decode all complete messages in it.
+  ## The readiness probe and POSIX pipe are non-blocking so this can run from
+  ## the app's event task without delaying rendering or keyboard input; the
+  ## decoder itself remains incremental and non-lossy.
   if client == nil or client.process == nil or client.state != lspRunning: return
   ## Decode frames retained from an earlier bounded poll before reading more
   ## stdout. This is the foreground side of the same backpressure boundary as
@@ -675,7 +694,11 @@ proc readMessages*(client: LspProcess): seq[JsonNode] =
   ## A pipe read is allowed to block until the requested buffer is filled on
   ## some platforms. Wait for readiness first so a short LSP response is not
   ## held hostage by the 4 KiB scratch buffer.
-  if not client.process.hasData():
+  when defined(posix):
+    let readable = lspOutputReadable(client)
+  else:
+    let readable = client.process.hasData()
+  if not readable:
     # No readable bytes is the normal idle state for a non-blocking poll. Only
     # transition the process when the child has actually exited; otherwise an
     # editor with an idle language server would be marked failed between

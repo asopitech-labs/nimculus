@@ -1,5 +1,6 @@
 import std/unittest
 import std/os
+import std/times
 import nimculus/editor_buffer
 import nimculus/editor_diagnostics
 import nimculus/lsp
@@ -95,12 +96,16 @@ suite "LSP editor bridge":
         "sys.stdout.buffer.write(frame(init)); sys.stdout.buffer.flush(); time.sleep(10)\n"
       let bridge = newLspEditorBridge("python3", ["-u", "-c", server])
       defer: bridge.stop()
+      var longestPoll = 0.0
       for _ in 0 ..< 100:
         bridge.updateDocument("/tmp/primary.nim", "let primary = 1")
         bridge.syncDocument("/tmp/secondary.nim", "let secondary = 2")
+        let pollStarted = epochTime()
         discard bridge.poll()
+        longestPoll = max(longestPoll, epochTime() - pollStarted)
         if bridge.openedDocumentCount == 2: break
         sleep(10)
+      check longestPoll < 0.5
       check bridge.openedDocumentCount == 2
       check bridge.documentVersion("/tmp/primary.nim") == 1
       check bridge.documentVersion("/tmp/secondary.nim") == 1

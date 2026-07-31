@@ -88,6 +88,7 @@ suite "M8 LSP protocol foundation":
     for _ in 0 ..< 8:
       messages = client.readMessages()
       if messages.len > 0: break
+      sleep(10)
     check messages.len == 1
     check messages[0]["method"].getStr == "initialized"
     check messages[0]["params"]["message"].getStr == "日本語"
@@ -250,7 +251,11 @@ suite "M8 LSP protocol foundation":
       "sys.stdout.buffer.write(frame(init)+frame(diag)); sys.stdout.buffer.flush(); time.sleep(2)\n"
     let session = startLspSession("python3", ["-u", "-c", server], "", "Nimculus")
     defer: session.stop()
-    var messages = session.poll()
+    var messages: seq[JsonNode]
+    for _ in 0 ..< 100:
+      messages = session.poll()
+      if messages.len > 0: break
+      sleep(10)
     check messages.len >= 1
     check session.state == lspSessionReady
     check session.diagnosticsFor("file:///a.nim").len == 1
