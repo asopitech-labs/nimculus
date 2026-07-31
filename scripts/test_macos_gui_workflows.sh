@@ -66,7 +66,7 @@ nimble build
 # Keep the acceptance app's session, recovery data, and settings isolated from
 # the developer's real macOS profile. A GUI test must never manufacture a
 # fleet of restored Untitled tabs in the user's next interactive launch.
-HOME="$TMP_ROOT/home" "$ROOT_DIR/nimculus/main" "$TMP_ROOT/project/main.nim" >"$TMP_ROOT/app.log" 2>&1 &
+HOME="$TMP_ROOT/home" "$ROOT_DIR/nimculus/main" "$TMP_ROOT/project" >"$TMP_ROOT/app.log" 2>&1 &
 APP_PID=$!
 APP_COMMAND="$ROOT_DIR/nimculus/main $TMP_ROOT/project/main.nim"
 
@@ -96,6 +96,7 @@ tell application "System Events"
     repeat with title in {"Files", "Search", "Git"}
       if not (exists button (contents of title) of window 1) then error "Missing workspace action: " & (contents of title)
     end repeat
+    if not (exists static text "Open a project or start editing a file." of window 1) then error "Workspace Welcome surface did not open"
 
     click button "Files" of window 1
     delay 0.5

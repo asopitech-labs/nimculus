@@ -16,6 +16,15 @@ UTF-8/UTF-16 hit-test、NSTextInputClientのIME候補位置、selection、diagno
 underline、glyph atlasのすべてが同じオフセットを消費する。soft wrapを再度
 有効にした時は横オフセットを0へ戻し、縦のラップ表示と不整合を起こさない。
 
+## UI-077: ワークスペースの空エディタはWelcomeを表示しFilesを残す
+
+フォルダを開いた直後にアクティブ文書がない状態は、編集可能な空バッファ
+ではなく、ユーザーが次の操作を選ぶワークスペース入口である。中央にだけ
+Welcome（Open Folder、Open File、New File、Open Recent）を表示し、Files
+ツリーとactivity barは残す。これによりフォルダを開いたのに本文が空白で
+操作対象が見えない状態を避け、ZedのProject Panelと中央entry surfaceの
+役割分担に合わせる。文書を開いた時点でWelcomeと関連overlayを隠す。
+
 ## UI-075: Filesの選択identityはアクティブ文書のcanonical pathで再解決する
 
 ZedのProject Panelでは、アクティブなエディタ項目がファイルツリーの

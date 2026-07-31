@@ -2074,10 +2074,10 @@ proc openActiveWorkspace(path: string) =
     activeWorkspace = openWorkspace(path)
     when defined(macosx):
       platformSetWorkspaceOpen(true)
-      # A workspace is already a useful editing surface even before its first
-      # document opens. Do not leave the launch welcome page covering its
-      # Files tree and project commands.
-      platformSetWelcomeVisible(false)
+      # Keep the center entry surface until the first document opens. The
+      # native implementation leaves the workspace Files tree visible beside
+      # it, so opening a folder never produces a blank editor.
+      platformSetWelcomeVisible(activeDocument() == nil)
     workspaceExpandedDirectories = activeWorkspace.rootPaths
     workspaceRevealPath = ""
     reloadWorkspaceSettings(activeWorkspace.root)
@@ -2508,9 +2508,11 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
 proc syncEditorCursor() =
   when defined(macosx):
     let document = activeDocument()
-    # An empty editor in an open workspace is not the same as a fresh launch:
-    # keep the project surface available rather than covering it with Welcome.
-    platformSetWelcomeVisible(document == nil and activeWorkspace == nil)
+    # An empty editor still needs an actionable entry surface. Keep the open
+    # workspace's Files tree visible, but show Welcome in the center until a
+    # document is opened; a blank editor with only line 1 is not a usable
+    # application state.
+    platformSetWelcomeVisible(document == nil)
     let visibleLines = editorVisibleLineCount()
     if document != nil:
       # Undo/redo and external reload can shorten or reshape the buffer
@@ -5817,7 +5819,7 @@ when isMainModule:
       syncEditorCursor()
       refreshEditorSyntax()
     else:
-      platformSetWelcomeVisible(activeWorkspace == nil)
+      platformSetWelcomeVisible(activeDocument() == nil)
       persistSession()
   elif defined(windows):
     setupPersistencePaths()

@@ -4550,7 +4550,10 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   const CGFloat sidebarX = g_editor_sidebar_on_right ? dockOuterX : 8.0 + activityBarWidth;
   const CGFloat sidebarControlX = sidebarX + 4.0;
   if (activityBar) {
-    activityBar.hidden = g_welcome_visible || !sidebarPresented;
+    // Welcome owns only the document center. Keep the activity bar and Files
+    // tree available while a workspace has no active document so the user can
+    // still navigate the project without dismissing the entry surface.
+    activityBar.hidden = !sidebarPresented;
     if (!activityBar.hidden) {
       activityBar.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(activityBarX, sidebarTop + 4.0, 30.0,

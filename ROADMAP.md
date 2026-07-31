@@ -359,6 +359,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 - [x] 標準ショートカット基盤
 - [x] Undo / Redo の標準 `Cmd+Z` / `Cmd+Shift+Z` をネイティブメニューと編集コアへ接続
 - [x] macOS標準の上下移動、行頭/行末、文書先頭/末尾、改行、TabをNSTextInputClientから編集コアへ接続
+- [x] フォルダを開いた直後にアクティブ文書がない場合、中央Welcome surfaceを表示し、Files/activity barを操作可能なまま保持
 - [x] `Cmd+F`のnative Findダイアログとactive documentの一致選択
 - [x] native Replace All editor overlayと編集コアの置換結果同期
 - [x] native Go to Lineダイアログとgrapheme境界への位置移動
