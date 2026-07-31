@@ -206,9 +206,9 @@ Nimculus は `PaneTree` の葉ごとに tab index を持ち、secondary presente
 | Cocoa API / 更新 API | 要求される文書 | 監査結果 | 対応 |
 | --- | --- | --- | --- |
 | `attributedSubstring` / `attributedString` | focused pane | 対応済み | 維持 |
-| `setMarkedText` / `insertText` の UTF-16→UTF-8 変換 | focused pane | `insertText` は修正中 | secondary text を使用 |
-| `firstRectForCharacterRange` | focused pane の text、scroll、rect | text index の切替が必要 | text state も一時切替 |
-| `characterIndexForPoint` | focused pane の text、line index、rect、scroll、wrap | text / line index の切替が不足 | 全 text state を一時切替 |
+| `setMarkedText` / `insertText` の UTF-16→UTF-8 変換 | focused pane | 対応済み | focused pane の text と selection を使用 |
+| `firstRectForCharacterRange` | focused pane の text、scroll、rect | 対応済み | focused pane の text、scroll、rect を使用 |
+| `characterIndexForPoint` | focused pane の text、line index、rect、scroll、wrap | 対応済み | focused pane の text / line index / viewport を使用 |
 | secondary cursor byte→座標 | secondary text、line index、scroll、wrap | 対応済み | 維持 |
 | secondary selection byte→UTF-16 | secondary text | primary text を誤参照 | secondary text を使用 |
 | pointer byte hit test | secondary text、rect、scroll | 対応済み | 維持 |

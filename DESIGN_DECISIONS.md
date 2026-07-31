@@ -6274,3 +6274,23 @@ including direct startup paths and Finder/Open With.
 **Consequences.** A file opened from the command line or Finder is immediately
 represented by the selected tab, and the tab label cannot drift from the
 document shown in the editor. Split-pane tab ownership remains unchanged.
+
+## UI-078: Keep the native Files selection row readable while inactive
+
+**Context.** The macOS Files panel uses an `NSTextView` so keyboard navigation,
+selection, and accessibility stay native, while NimNUI supplies the full-width
+theme selection background. AppKit paints an inactive selection after the text
+view's own attributes. Painting the theme row afterward therefore covered the
+selected filename, and the two coordinate systems also differed by half of the
+fixed row height.
+
+**Decision.** Keep AppKit's semantic selected range, position the custom row
+background using the fixed 18pt line fragment's half-line correction, and
+redraw the selected glyph range after the theme background. The native text
+selection remains available to keyboard/accessibility consumers, while the
+visible row uses NimNUI's selection color and retains readable foreground text.
+
+**Consequences.** Files, Git, and Outline selections share one readable native
+presentation even when the editor owns first responder. Stable row alignment is
+preserved across workspace refreshes without a one-row visual drift or a pale
+inactive strip hiding the selected path.

@@ -3079,12 +3079,12 @@ static void dismissExternalChangePanel(const char *command) {
       NSRange glyphRange = NSMakeRange(0, 0);
       NSRect row = [self.layoutManager lineFragmentRectForGlyphAtIndex:glyph
         effectiveRange:&glyphRange];
-      // NSTextView's layout manager reports this fragment in the text
-      // container's baseline coordinate. The custom inactive-selection paint
-      // is drawn in the view coordinate, where that rect lands one row above
-      // the glyphs on macOS. Move it by exactly one line fragment so the
-      // visual row and the native selection identity agree.
-      row.origin.y += row.size.height;
+      // The layout manager's fragment is anchored at the glyph top, while
+      // AppKit's inactive selection is vertically centered within the fixed
+      // 18pt line fragment. The overlay owns the full-width theme background,
+      // so use the half-line correction that keeps both presentations on the
+      // same visual row in the flipped NSTextView coordinate space.
+      row.origin.y += row.size.height * 0.5;
       row.origin.x = 0.0;
       row.size.width = self.bounds.size.width;
       if (NSIntersectsRect(row, dirtyRect)) {
@@ -3092,6 +3092,18 @@ static void dismissExternalChangePanel(const char *command) {
           [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
           colorWithAlphaComponent:0.56] setFill];
         NSRectFillUsingOperation(row, NSCompositingOperationSourceOver);
+
+        // AppKit paints an inactive selection after the text view's own
+        // attributes, so redraw the selected glyphs on top of our full-width
+        // theme row. This preserves keyboard/accessibility selection while
+        // keeping the filename readable when the editor owns focus.
+        NSUInteger end = start;
+        while (end < self.string.length && [self.string characterAtIndex:end] != '\n') end++;
+        NSRange selectedCharacters = NSMakeRange(start, end - start);
+        NSRange selectedGlyphs = [self.layoutManager
+          glyphRangeForCharacterRange:selectedCharacters actualCharacterRange:NULL];
+        [self.layoutManager drawGlyphsForGlyphRange:selectedGlyphs
+          atPoint:self.textContainerOrigin];
       }
     }
   }
