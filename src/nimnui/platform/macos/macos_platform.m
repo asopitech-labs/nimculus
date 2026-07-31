@@ -434,6 +434,12 @@ typedef struct NimculusGlyphVertex {
 static NimculusGlyphVertex *g_glyph_vertices = NULL;
 static uint32_t g_glyph_vertex_count = 0;
 static uint32_t g_glyph_vertex_capacity = 0;
+// Terminal cells use the same Core Text glyph atlas as the editor, but keep a
+// separate vertex batch and viewport. This prevents a terminal redraw from
+// inheriting the editor's scroll origin or text clip.
+static NimculusGlyphVertex *g_terminal_glyph_vertices = NULL;
+static uint32_t g_terminal_glyph_vertex_count = 0;
+static uint32_t g_terminal_glyph_vertex_capacity = 0;
 static id<MTLTexture> g_scene_texture = nil;
 static NSMutableDictionary<NSNumber *, id<MTLTexture>> *g_image_textures = nil;
 static BOOL g_scene_initialized = NO;
@@ -474,6 +480,8 @@ static void releasePlatformResources(void) {
   [g_queue release]; g_queue = nil;
   free(g_glyph_vertices); g_glyph_vertices = NULL;
   g_glyph_vertex_count = 0; g_glyph_vertex_capacity = 0;
+  free(g_terminal_glyph_vertices); g_terminal_glyph_vertices = NULL;
+  g_terminal_glyph_vertex_count = 0; g_terminal_glyph_vertex_capacity = 0;
   free(g_paint_commands); g_paint_commands = NULL; g_paint_count = 0;
   free(g_paint_dirty_regions); g_paint_dirty_regions = NULL; g_paint_dirty_count = 0;
   free(g_highlights); g_highlights = NULL; g_highlight_count = 0;
@@ -533,6 +541,7 @@ bool nimculus_platform_validate_resource_teardown(void) {
     g_glyph_atlas_entries == nil && g_pipeline == nil &&
     g_text_pipeline == nil && g_glyph_pipeline == nil &&
     g_image_pipeline == nil && g_queue == nil && g_glyph_vertices == NULL &&
+    g_terminal_glyph_vertices == NULL &&
     g_paint_commands == NULL && g_paint_dirty_regions == NULL &&
     g_highlights == NULL && g_secondary_highlights == NULL && g_diagnostics == NULL &&
     g_secondary_diagnostics == NULL && g_git_hunks == NULL && g_secondary_git_hunks == NULL &&
@@ -541,7 +550,8 @@ bool nimculus_platform_validate_resource_teardown(void) {
     g_glyph_vertex_count == 0 && g_paint_count == 0 &&
     g_paint_dirty_count == 0 && g_highlight_count == 0 && g_secondary_highlight_count == 0 &&
     g_diagnostic_count == 0 && g_git_hunk_count == 0 &&
-    g_terminal_run_count == 0 && g_editor_annotation_count == 0;
+    g_terminal_run_count == 0 && g_terminal_glyph_vertex_count == 0 &&
+    g_editor_annotation_count == 0;
 }
 
 static void markSceneFullyDirty(void) {
@@ -2225,6 +2235,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @end
 
 @interface NimculusOutlineOverlay : NSTextView
+@property(nonatomic) NSUInteger pressedSidebarLine;
+@property(nonatomic) BOOL hasPressedSidebarLine;
+@property(nonatomic) BOOL suppressMouseUpOpen;
 @end
 
 @interface NimculusLineNumberOverlay : NSView
@@ -3048,6 +3061,8 @@ static void dismissExternalChangePanel(const char *command) {
 }
 - (void)mouseDown:(NSEvent *)event {
   [self.window makeFirstResponder:self];
+  self.hasPressedSidebarLine = NO;
+  self.suppressMouseUpOpen = NO;
   NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
   NSUInteger index = [self characterIndexForInsertionAtPoint:point];
   NSUInteger line = 0;
@@ -3055,10 +3070,15 @@ static void dismissExternalChangePanel(const char *command) {
     if ([self.string characterAtIndex:offset] == '\n') line++;
   }
   NSUInteger item = [self sidebarItemForLine:line];
+  self.pressedSidebarLine = line;
+  self.hasPressedSidebarLine = item != NSNotFound;
   // Changes rows have a visible leading check control. This targets the
   // rendered section: a partial file appears twice, with opposite actions.
   if (g_editor_sidebar_mode == 3 && item != NSNotFound && point.x < 30.0 &&
       g_command_callback) {
+    // The checkbox gesture is complete on mouseDown. Do not let the later
+    // mouseUp also open the file; one user action must produce one command.
+    self.suppressMouseUpOpen = YES;
     [self dispatchSidebarStageToggle:item];
     return;
   }
@@ -3070,13 +3090,25 @@ static void dismissExternalChangePanel(const char *command) {
   // disclosure state, and Git/search rows dispatch their destination. The
   // previous implementation required a double click, leaving a selected row
   // visually active but functionally inert until a second gesture.
+  if (self.suppressMouseUpOpen) {
+    self.suppressMouseUpOpen = NO;
+    self.hasPressedSidebarLine = NO;
+    return;
+  }
   NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
   NSUInteger index = [self characterIndexForInsertionAtPoint:point];
   NSUInteger line = 0;
   for (NSUInteger offset = 0; offset < MIN(index, self.string.length); offset++) {
     if ([self.string characterAtIndex:offset] == '\n') line++;
   }
-  if (event.clickCount >= 1) [self dispatchSidebarLine:line open:YES];
+  // A drag or a release outside the pressed row is not an activation. This
+  // keeps file-tree navigation deterministic and leaves room for the native
+  // drag-and-drop path without accidentally opening a neighbouring row.
+  if (event.clickCount >= 1 && self.hasPressedSidebarLine &&
+      line == self.pressedSidebarLine) {
+    [self dispatchSidebarLine:line open:YES];
+  }
+  self.hasPressedSidebarLine = NO;
 }
 - (void)rightMouseDown:(NSEvent *)event {
   [self.window makeFirstResponder:self];
@@ -4185,6 +4217,169 @@ static void applyTerminalRuns(NSTextView *terminal) {
   [attributed release];
 }
 
+static NimculusPaintRegion terminalContentViewport(void) {
+  double x = g_editor_rect[0];
+  double width = g_editor_rect[2];
+  double height = g_terminal_visible || g_task_output_visible
+    ? MIN(180.0, MAX(72.0, g_editor_rect[3] * 0.42)) : 0.0;
+  double top = g_editor_rect[1] + g_editor_rect[3] - height;
+  if (g_terminal_panel_rect[2] > 0.0 && g_terminal_panel_rect[3] > 0.0) {
+    x = g_terminal_panel_rect[0];
+    width = g_terminal_panel_rect[2];
+    height = g_terminal_panel_rect[3];
+    top = g_terminal_panel_rect[1];
+  }
+  const double sessionBarHeight = g_terminal_visible ? 27.0 : 0.0;
+  NimculusPaintRegion result = {
+    (float)x, (float)(top + sessionBarHeight),
+    (float)MAX(1.0, width),
+    (float)MAX(1.0, height - sessionBarHeight)
+  };
+  return result;
+}
+
+static void appendTerminalGlyphVertex(NimculusGlyphVertex vertex) {
+  if (g_terminal_glyph_vertex_count == g_terminal_glyph_vertex_capacity) {
+    uint32_t capacity = g_terminal_glyph_vertex_capacity == 0
+      ? 1024 : g_terminal_glyph_vertex_capacity * 2;
+    NimculusGlyphVertex *vertices = realloc(g_terminal_glyph_vertices,
+      sizeof(NimculusGlyphVertex) * capacity);
+    if (!vertices) return;
+    g_terminal_glyph_vertices = vertices;
+    g_terminal_glyph_vertex_capacity = capacity;
+  }
+  g_terminal_glyph_vertices[g_terminal_glyph_vertex_count++] = vertex;
+}
+
+static void appendTerminalGlyphQuad(CGSize sceneSize, NimculusPaintRegion viewport,
+                                    NimculusGlyphAtlasEntry entry, CGFloat x,
+                                    CGFloat baseline, CGFloat red, CGFloat green,
+                                    CGFloat blue, CGFloat alpha) {
+  if (entry.width == 0 || entry.height == 0 || sceneSize.width <= 0 ||
+      sceneSize.height <= 0 || viewport.width <= 0 || viewport.height <= 0) return;
+  CGFloat x0 = x + entry.bounds_x;
+  CGFloat x1 = x0 + entry.bounds_width;
+  CGFloat y0 = baseline - entry.bounds_y - entry.bounds_height;
+  CGFloat y1 = baseline - entry.bounds_y;
+  const CGFloat clipLeft = viewport.x;
+  const CGFloat clipRight = viewport.x + viewport.width;
+  const CGFloat clipTop = viewport.y;
+  const CGFloat clipBottom = viewport.y + viewport.height;
+  CGFloat unclippedX0 = x0, unclippedX1 = x1;
+  CGFloat unclippedY0 = y0, unclippedY1 = y1;
+  x0 = MAX(x0, clipLeft); x1 = MIN(x1, clipRight);
+  y0 = MAX(y0, clipTop); y1 = MIN(y1, clipBottom);
+  if (x1 <= x0 || y1 <= y0) return;
+  float u0 = (float)entry.x / 2048.0f;
+  float u1 = (float)(entry.x + entry.width) / 2048.0f;
+  float v0 = (float)entry.y / 2048.0f;
+  float v1 = (float)(entry.y + entry.height) / 2048.0f;
+  float clippedU0 = u0 + (float)((x0 - unclippedX0) /
+    MAX(0.001, unclippedX1 - unclippedX0)) * (u1 - u0);
+  float clippedU1 = u0 + (float)((x1 - unclippedX0) /
+    MAX(0.001, unclippedX1 - unclippedX0)) * (u1 - u0);
+  float clippedVTop = v1 + (float)((y0 - unclippedY0) /
+    MAX(0.001, unclippedY1 - unclippedY0)) * (v0 - v1);
+  float clippedVBottom = v1 + (float)((y1 - unclippedY0) /
+    MAX(0.001, unclippedY1 - unclippedY0)) * (v0 - v1);
+  NimculusGlyphVertex vertices[6] = {
+    {normalizedX(x0, sceneSize.width), normalizedY(y1, sceneSize.height), clippedU0, clippedVBottom, red, green, blue, alpha},
+    {normalizedX(x1, sceneSize.width), normalizedY(y1, sceneSize.height), clippedU1, clippedVBottom, red, green, blue, alpha},
+    {normalizedX(x0, sceneSize.width), normalizedY(y0, sceneSize.height), clippedU0, clippedVTop, red, green, blue, alpha},
+    {normalizedX(x0, sceneSize.width), normalizedY(y0, sceneSize.height), clippedU0, clippedVTop, red, green, blue, alpha},
+    {normalizedX(x1, sceneSize.width), normalizedY(y1, sceneSize.height), clippedU1, clippedVBottom, red, green, blue, alpha},
+    {normalizedX(x1, sceneSize.width), normalizedY(y0, sceneSize.height), clippedU1, clippedVTop, red, green, blue, alpha}
+  };
+  for (NSUInteger index = 0; index < 6; index++) appendTerminalGlyphVertex(vertices[index]);
+}
+
+static void terminalRunColorComponents(NimculusTerminalRun run, BOOL foreground,
+                                       CGFloat *red, CGFloat *green, CGFloat *blue) {
+  NSColor *color = terminalColor(foreground ? run.foreground_kind : run.background_kind,
+    foreground ? run.foreground_index : run.background_index,
+    foreground ? run.foreground_red : run.background_red,
+    foreground ? run.foreground_green : run.background_green,
+    foreground ? run.foreground_blue : run.background_blue, foreground);
+  NSColor *rgb = [color colorUsingColorSpace:[NSColorSpace genericRGBColorSpace]];
+  if (!rgb) return;
+  *red = rgb.redComponent; *green = rgb.greenComponent; *blue = rgb.blueComponent;
+}
+
+static void updateTerminalGlyphAtlas(id<MTLDevice> device) {
+  free(g_terminal_glyph_vertices);
+  g_terminal_glyph_vertices = NULL;
+  g_terminal_glyph_vertex_count = 0;
+  g_terminal_glyph_vertex_capacity = 0;
+  if (!device || g_terminal_run_count == 0 || g_terminal_text.length == 0) return;
+  CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+  ensureGlyphAtlas(device, scale);
+  NimculusPaintRegion viewport = terminalContentViewport();
+  CGSize sceneSize = CGSizeMake(MAX(1.0, (CGFloat)g_metrics.width_points),
+                                MAX(1.0, (CGFloat)g_metrics.height_points));
+  NSFont *baseFont = terminalBaseFont();
+  if (!baseFont) return;
+  const CGFloat cellWidth = terminalCellWidth();
+  const CGFloat lineHeight = terminalLineHeight();
+  for (uint32_t index = 0; index < g_terminal_run_count; index++) {
+    NimculusTerminalRun run = g_terminal_runs[index];
+    NSUInteger start = utf16OffsetForUTF8Bytes(g_terminal_text, run.start_byte);
+    NSUInteger end = utf16OffsetForUTF8Bytes(g_terminal_text, run.end_byte);
+    if (end <= start || start >= g_terminal_text.length) continue;
+    end = MIN(end, g_terminal_text.length);
+    NSFont *font = baseFont;
+    if (run.flags & 1) font = [[NSFontManager sharedFontManager]
+      convertFont:font toHaveTrait:NSBoldFontMask] ?: font;
+    if (run.flags & 4) font = [[NSFontManager sharedFontManager]
+      convertFont:font toHaveTrait:NSItalicFontMask] ?: font;
+    CGFloat red = 0.85, green = 0.90, blue = 1.0;
+    terminalRunColorComponents(run, YES, &red, &green, &blue);
+    CGFloat alpha = (run.flags & 2) ? 0.65 : 1.0;
+    if (run.flags & 16) terminalRunColorComponents(run, NO, &red, &green, &blue);
+    NSDictionary *attributes = @{
+      (id)kCTFontAttributeName: (id)font,
+      (id)kCTForegroundColorAttributeName:
+        (id)[NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1.0].CGColor
+    };
+    NSAttributedString *attributed = [[NSAttributedString alloc]
+      initWithString:[g_terminal_text substringWithRange:NSMakeRange(start, end - start)]
+      attributes:attributes];
+    CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
+    CFArrayRef runs = CTLineGetGlyphRuns(line);
+    for (CFIndex runIndex = 0; runIndex < CFArrayGetCount(runs); runIndex++) {
+      CTRunRef textRun = (CTRunRef)CFArrayGetValueAtIndex(runs, runIndex);
+      NSDictionary *runAttributes = (__bridge NSDictionary *)CTRunGetAttributes(textRun);
+      CTFontRef ctFont = (__bridge CTFontRef)[runAttributes objectForKey:(id)kCTFontAttributeName];
+      if (!ctFont) continue;
+      CFIndex glyphCount = CTRunGetGlyphCount(textRun);
+      if (glyphCount == 0) continue;
+      CGGlyph *glyphs = malloc(sizeof(CGGlyph) * (NSUInteger)glyphCount);
+      CGPoint *positions = malloc(sizeof(CGPoint) * (NSUInteger)glyphCount);
+      CFIndex *stringIndices = malloc(sizeof(CFIndex) * (NSUInteger)glyphCount);
+      if (!glyphs || !positions || !stringIndices) {
+        free(glyphs); free(positions); free(stringIndices); continue;
+      }
+      CTRunGetGlyphs(textRun, CFRangeMake(0, glyphCount), glyphs);
+      CTRunGetPositions(textRun, CFRangeMake(0, glyphCount), positions);
+      CTRunGetStringIndices(textRun, CFRangeMake(0, glyphCount), stringIndices);
+      for (CFIndex glyphIndex = 0; glyphIndex < glyphCount; glyphIndex++) {
+        NSUInteger localIndex = stringIndices[glyphIndex] == kCFNotFound ? 0 :
+          (NSUInteger)stringIndices[glyphIndex];
+        if (colorEmojiAtUTF16Index(g_terminal_text, start + localIndex, NULL) ||
+            fontIsColorEmoji(ctFont)) continue;
+        NimculusGlyphAtlasEntry entry;
+        if (!atlasEntryForGlyph(device, ctFont, glyphs[glyphIndex], scale, 0, 0, &entry)) continue;
+        CGFloat originX = viewport.x + (CGFloat)run.column * cellWidth + positions[glyphIndex].x;
+        CGFloat baseline = viewport.y + (CGFloat)run.row * lineHeight + lineHeight - 3.0;
+        appendTerminalGlyphQuad(sceneSize, viewport, entry, originX, baseline,
+          red, green, blue, alpha);
+      }
+      free(glyphs); free(positions); free(stringIndices);
+    }
+    CFRelease(line);
+    [attributed release];
+  }
+}
+
 bool nimculus_platform_validate_terminal_overlay_runs(void) {
   // Keep the cell-grid and AppKit text boundaries coupled: a terminal run
   // carries UTF-8 ranges for styling but row/column/cell-width coordinates
@@ -4218,10 +4413,25 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     BOOL underlined = [[wideAttributes objectForKey:NSUnderlineStyleAttributeName] integerValue] != 0;
     BOOL stricken = [[lastAttributes objectForKey:NSStrikethroughStyleAttributeName] integerValue] != 0;
     BOOL selected = NSEqualRanges(terminal.selectedRange, NSMakeRange(1, 3));
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    NimculusPlatformMetrics previousMetrics = g_metrics;
+    BOOL previousVisible = g_terminal_visible;
+    g_metrics.scale_factor = 2.0;
+    g_metrics.width_points = 960;
+    g_metrics.height_points = 640;
+    g_terminal_visible = YES;
+    updateTerminalGlyphAtlas(device);
+    BOOL gpuBatch = device && g_terminal_glyph_vertex_count > 0;
+    g_terminal_visible = previousVisible;
+    g_metrics = previousMetrics;
+    [device release];
     BOOL valid = [storage.string isEqualToString:@"A日\nB"] && bold && linked && underlined &&
-      stricken && selected;
+      stricken && selected && gpuBatch;
     [terminal release];
     nimculus_platform_set_terminal_runs("", 0, NULL, 0);
+    id<MTLDevice> cleanupDevice = MTLCreateSystemDefaultDevice();
+    updateTerminalGlyphAtlas(cleanupDevice);
+    [cleanupDevice release];
     nimculus_platform_set_terminal_selection(0, 0, 0, 0);
     return valid;
   }
@@ -4912,6 +5122,10 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     // invalidated rectangles.
     const BOOL fullSceneRebuild = sceneNeedsFullRebuild(g_scene_initialized,
                                                         g_paint_dirty_count);
+    // Terminal cells are laid out from the same run data that feeds the
+    // AppKit fallback. Rebuild their Metal batch after the editor has updated
+    // the shared glyph atlas, then render it into the retained scene below.
+    updateTerminalGlyphAtlas(drawable.texture.device);
     MTLRenderPassDescriptor *pass = [MTLRenderPassDescriptor renderPassDescriptor];
     pass.colorAttachments[0].texture = scene;
     pass.colorAttachments[0].loadAction = g_scene_initialized ? MTLLoadActionLoad : MTLLoadActionClear;
@@ -5066,6 +5280,46 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
         }
       }
       [buffer release];
+    }
+    NimculusPaintRegion terminalViewport = terminalContentViewport();
+    if (g_terminal_run_count > 0 && (g_terminal_visible || g_task_output_visible) &&
+        terminalViewport.width > 0 && terminalViewport.height > 0) {
+      setScissorForRegion(encoder, terminalViewport, logicalSize, drawableSize);
+      if (g_pipeline) {
+        [encoder setRenderPipelineState:g_pipeline];
+        const CGFloat cellWidth = terminalCellWidth();
+        const CGFloat lineHeight = terminalLineHeight();
+        for (uint32_t index = 0; index < g_terminal_run_count; index++) {
+          NimculusTerminalRun run = g_terminal_runs[index];
+          // A default background is already supplied by the panel. Draw only
+          // explicit backgrounds and inverse cells, matching Zed's sparse
+          // background region list instead of filling every terminal cell.
+          if (run.background_kind == 0 && !(run.flags & 16)) continue;
+          CGFloat red = 0.025, green = 0.030, blue = 0.045;
+          terminalRunColorComponents(run, (run.flags & 16) ? YES : NO,
+            &red, &green, &blue);
+          CGFloat width = cellWidth * MAX(1U, run.cell_width);
+          drawColoredRectangle(encoder, drawable.texture.device, logicalSize,
+            terminalViewport.x + cellWidth * run.column,
+            terminalViewport.y + lineHeight * run.row,
+            width, lineHeight, red, green, blue, 1.0);
+        }
+      }
+      if (g_glyph_pipeline && g_glyph_atlas_texture &&
+          g_terminal_glyph_vertex_count > 0) {
+        id<MTLBuffer> terminalGlyphBuffer = [drawable.texture.device
+          newBufferWithBytes:g_terminal_glyph_vertices
+          length:sizeof(NimculusGlyphVertex) * g_terminal_glyph_vertex_count
+          options:MTLResourceStorageModeShared];
+        if (terminalGlyphBuffer) {
+          [encoder setRenderPipelineState:g_glyph_pipeline];
+          [encoder setVertexBuffer:terminalGlyphBuffer offset:0 atIndex:0];
+          [encoder setFragmentTexture:g_glyph_atlas_texture atIndex:0];
+          [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
+            vertexCount:g_terminal_glyph_vertex_count];
+          [terminalGlyphBuffer release];
+        }
+      }
     }
     [encoder endEncoding];
     g_scene_initialized = YES;
@@ -7707,7 +7961,10 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
       [search.queryField.accessibilityLabel isEqualToString:@"Quick Open: file name or path"];
     search.queryField.stringValue = @"main.nim";
     [search findNext:nil];
-    BOOL quickOpenDispatched = strcmp(g_validation_command, "quickOpen:main.nim") == 0;
+    // Quick Open Return opens the selected result. The distinct command keeps
+    // typing (`quickOpen:`) separate from activation (`quickOpenOpen:`), so a
+    // pending asynchronous search cannot be mistaken for a mere query update.
+    BOOL quickOpenDispatched = strcmp(g_validation_command, "quickOpenOpen:main.nim") == 0;
     [search close:nil];
     BOOL dismissed = search.hidden && window.attachedSheet == nil &&
       window.firstResponder == view;
@@ -8876,7 +9133,12 @@ void nimculus_platform_set_terminal_panel_rect(double x, double y, double width,
   g_terminal_panel_rect[1] = MAX(0.0, y);
   g_terminal_panel_rect[2] = MAX(0.0, width);
   g_terminal_panel_rect[3] = MAX(0.0, height);
-  if (g_active_view) [(NimculusMetalView *)g_active_view updateTerminalFrame];
+  if (g_active_view) {
+    [(NimculusMetalView *)g_active_view updateTerminalFrame];
+    if (g_queue) updateTerminalGlyphAtlas(g_queue.device);
+    markSceneFullyDirty();
+    [g_active_view drawFrame];
+  }
 }
 void nimculus_platform_set_secondary_editor_rect(bool visible, double x, double y,
                                                  double width, double height) {
@@ -9406,6 +9668,7 @@ void nimculus_platform_set_terminal_visible(bool visible) {
   g_terminal_visible = visible ? YES : NO;
   if (g_active_view) {
     [(NimculusMetalView *)g_active_view updateTerminalFrame];
+    markSceneFullyDirty();
     [g_active_view drawFrame];
   }
 }
@@ -9429,6 +9692,8 @@ void nimculus_platform_set_terminal_sessions(const char *utf8, uint32_t length,
 }
 void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length) {
   replaceOwnedUTF8String(&g_terminal_text, utf8, length, @"");
+  if (g_queue) updateTerminalGlyphAtlas(g_queue.device);
+  markSceneFullyDirty();
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (view) {
     NSTextView *terminal = nil;
@@ -9443,6 +9708,7 @@ void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length) {
     applyTerminalSelection(terminal);
     [terminal scrollRangeToVisible:NSMakeRange(terminal.string.length, 0)];
   }
+  [view drawFrame];
 }
 void nimculus_platform_set_terminal_runs(const char *utf8, uint32_t length,
                                          const NimculusTerminalRun *runs, uint32_t count) {
@@ -9464,6 +9730,8 @@ void nimculus_platform_set_terminal_runs(const char *utf8, uint32_t length,
       }
     }
   }
+  if (g_queue) updateTerminalGlyphAtlas(g_queue.device);
+  markSceneFullyDirty();
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
   for (NSView *subview in view.subviews) {
@@ -9474,6 +9742,7 @@ void nimculus_platform_set_terminal_runs(const char *utf8, uint32_t length,
       break;
     }
   }
+  [view drawFrame];
 }
 void nimculus_platform_set_theme_colors(const char *background, const char *foreground,
                                         const char *accent, const char *selection,
@@ -9507,6 +9776,8 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
     outline.textColor = themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]);
   }
+  if (g_queue) updateTerminalGlyphAtlas(g_queue.device);
+  markSceneFullyDirty();
   [view drawFrame];
 }
 static void updateTerminalFonts(void) {
@@ -9527,6 +9798,9 @@ static void updateTerminalFonts(void) {
     outline.font = [NSFont fontWithName:g_editor_font_name size:g_editor_font_size] ?:
       [NSFont monospacedSystemFontOfSize:g_editor_font_size weight:NSFontWeightRegular];
   }
+  if (g_queue) updateTerminalGlyphAtlas(g_queue.device);
+  markSceneFullyDirty();
+  [view drawFrame];
 }
 void nimculus_platform_set_terminal_font_size(double size) {
   g_terminal_font_size = MIN(48.0, MAX(6.0, size > 0.0 ? size : 12.0));
@@ -9556,6 +9830,7 @@ void nimculus_platform_set_terminal_selection(uint32_t start_row, uint32_t start
   g_terminal_selection_start_column = start_column;
   g_terminal_selection_end_row = end_row;
   g_terminal_selection_end_column = end_column;
+  markSceneFullyDirty();
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (view) {
     for (NSView *subview in view.subviews) {
