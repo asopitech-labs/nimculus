@@ -62,6 +62,7 @@ static BOOL g_secondary_editor_visible = NO;
 // secondary Core Text fallback state separate from the active NSTextInputClient
 // state used by the primary editing surface.
 static double g_secondary_editor_cursor[2] = {8.0, 12.0};
+static NSUInteger g_secondary_editor_cursor_line = 0;
 static NSUInteger g_secondary_editor_scroll_line = 0;
 static NSUInteger g_secondary_editor_selection_start = 0;
 static NSUInteger g_secondary_editor_selection_end = 0;
@@ -79,6 +80,7 @@ static uint32_t g_paint_count = 0;
 static NimculusPaintRegion *g_paint_dirty_regions = NULL;
 static uint32_t g_paint_dirty_count = 0;
 static double g_editor_cursor[2] = {8.0, 12.0};
+static NSUInteger g_editor_cursor_line = 0;
 static CGFloat g_editor_font_size = 14.0;
 static CGFloat g_editor_line_height = 18.0;
 static NSString *g_editor_font_name = @"Menlo";
@@ -1429,6 +1431,16 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
     NSUInteger lineEndUnit = lineStartUnit + lineText.length;
     NSUInteger documentLine = startLine + displayIndex;
+    NSUInteger cursorLine = g_editor_cursor_line;
+    if (documentLine == cursorLine) {
+      NSColor *currentLine = [themeHexColor(g_theme_selection,
+        [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
+        colorWithAlphaComponent:0.16];
+      CGContextSetFillColorWithColor(context, currentLine.CGColor);
+      CGContextFillRect(context, CGRectMake(0.0,
+        logicalHeight - lineHeight * (displayIndex + 1) - 3.0,
+        MAX(1.0, g_editor_rect[2]), lineHeight));
+    }
     NimculusGitHunkSpan *hunks = g_rendering_secondary_editor
       ? g_secondary_git_hunks : g_git_hunks;
     uint32_t hunkCount = g_rendering_secondary_editor
@@ -1640,6 +1652,7 @@ static void rebuildSecondaryEditorTexture(id<MTLDevice> device) {
     g_editor_rect[2], g_editor_rect[3]};
   double previousCursor[2] = {g_editor_cursor[0], g_editor_cursor[1]};
   NSUInteger previousScrollLine = g_editor_scroll_line;
+  NSUInteger previousCursorLine = g_editor_cursor_line;
   NSUInteger previousSelectionStart = g_editor_selection_start;
   NSUInteger previousSelectionEnd = g_editor_selection_end;
   BOOL previousSoftWrap = g_editor_soft_wrap;
@@ -1648,6 +1661,7 @@ static void rebuildSecondaryEditorTexture(id<MTLDevice> device) {
   memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
   memcpy(g_editor_cursor, g_secondary_editor_cursor, sizeof(g_editor_cursor));
   g_editor_scroll_line = g_secondary_editor_scroll_line;
+  g_editor_cursor_line = g_secondary_editor_cursor_line;
   g_editor_selection_start = g_secondary_editor_selection_start;
   g_editor_selection_end = g_secondary_editor_selection_end;
   g_editor_soft_wrap = g_secondary_editor_soft_wrap;
@@ -1666,6 +1680,7 @@ static void rebuildSecondaryEditorTexture(id<MTLDevice> device) {
   memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
   memcpy(g_editor_cursor, previousCursor, sizeof(g_editor_cursor));
   g_editor_scroll_line = previousScrollLine;
+  g_editor_cursor_line = previousCursorLine;
   g_editor_selection_start = previousSelectionStart;
   g_editor_selection_end = previousSelectionEnd;
   g_editor_soft_wrap = previousSoftWrap;
@@ -8645,6 +8660,7 @@ void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t lin
   NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) return;
   NSUInteger lineIndex = MIN((NSUInteger)line, lines.count - 1);
+  g_editor_cursor_line = lineIndex;
   NSUInteger lineStartByte = editorLineUTF8Offset(lineIndex, lines);
   NSString *lineText = lines[lineIndex];
   NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
@@ -8809,6 +8825,7 @@ void nimculus_platform_set_secondary_editor_cursor_byte(uint32_t byte_offset, ui
   NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) { swapEditorTextState(); return; }
   NSUInteger lineIndex = MIN((NSUInteger)line, lines.count - 1);
+  g_secondary_editor_cursor_line = lineIndex;
   NSUInteger lineStartByte = editorLineUTF8Offset(lineIndex, lines);
   NSString *lineText = lines[lineIndex];
   NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
