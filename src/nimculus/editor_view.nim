@@ -8,6 +8,7 @@ type
   EditorViewState* = object
     selection*: Selection
     scrollLine*: int
+    scrollX*: float32
     showLineNumbers*, softWrap*, showIndentGuides*: bool
     indentWidth*: int
     commandPaletteOpen*: bool

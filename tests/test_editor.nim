@@ -553,9 +553,11 @@ suite "M5 editor services":
     session.addTab(openDocument(path))
     session.tabs[0].view.moveCursor(3)
     session.tabs[0].view.scrollLine = 2
+    session.tabs[0].view.scrollX = 184.5'f32
     session.splitEditor(splitHorizontal, 0.31)
     session.secondaryView.moveCursor(2)
     session.secondaryView.scrollLine = 1
+    session.secondaryView.scrollX = 96.25'f32
     discard session.activateSplitPane(1)
     session.workspaceRoots = @[getTempDir()]
     session.workspaceLeftDockOpen = false
@@ -573,13 +575,16 @@ suite "M5 editor services":
     check restored.workspaceRoots == @[canonicalOpenPath(getTempDir())]
     check restored.tabs[0].view.cursor == 3
     check restored.tabs[0].view.scrollLine == 2
+    check abs(restored.tabs[0].view.scrollX - 184.5'f32) < 0.001'f32
     check restored.splitDirection == splitHorizontal
     check abs(restored.effectiveSplitRatio - 0.31'f32) < 0.001'f32
     check restored.splitActivePane == 1
     check restored.secondaryView.cursor == 2
     check restored.secondaryView.scrollLine == 1
+    check abs(restored.secondaryView.scrollX - 96.25'f32) < 0.001'f32
     check restored.tabs[0].secondaryView.cursor == 2
     check restored.tabs[0].secondaryView.scrollLine == 1
+    check abs(restored.tabs[0].secondaryView.scrollX - 96.25'f32) < 0.001'f32
     check not restored.workspaceLeftDockOpen
     check restored.workspaceLeftDockSize == 312'f32
     check restored.workspaceLeftPanel == 2

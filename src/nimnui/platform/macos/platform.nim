@@ -120,12 +120,16 @@ proc platformEditorByteOffsetAtPoint*(x, y: cdouble): uint32 {.importc: "nimculu
 proc platformSecondaryEditorByteOffsetAtPoint*(x, y: cdouble): uint32 {.importc: "nimculus_platform_secondary_editor_byte_offset_at_point", cdecl.}
 proc platformEditorUtf16OffsetAtPoint*(x, y: cdouble): uint32 {.importc: "nimculus_platform_editor_utf16_offset_at_point", cdecl.}
 proc platformSetEditorScrollLine*(line: uint32) {.importc: "nimculus_platform_set_editor_scroll_line", cdecl.}
+proc platformSetEditorScrollX*(offset: cdouble) {.importc: "nimculus_platform_set_editor_scroll_x", cdecl.}
+proc platformEditorScrollX*(): cdouble {.importc: "nimculus_platform_editor_scroll_x", cdecl.}
 proc platformSetEditorRect*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_editor_rect", cdecl.}
 proc platformSetTerminalPanelRect*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_terminal_panel_rect", cdecl.}
 proc platformSetSecondaryEditorRect*(visible: bool, x, y, width, height: cdouble) {.importc: "nimculus_platform_set_secondary_editor_rect", cdecl.}
 proc platformSetSecondaryEditorCursorByte*(byteOffset, line: uint32) {.importc: "nimculus_platform_set_secondary_editor_cursor_byte", cdecl.}
 proc platformSetSecondaryEditorSelection*(startByte, endByte: uint32) {.importc: "nimculus_platform_set_secondary_editor_selection", cdecl.}
 proc platformSetSecondaryEditorScrollLine*(line: uint32) {.importc: "nimculus_platform_set_secondary_editor_scroll_line", cdecl.}
+proc platformSetSecondaryEditorScrollX*(offset: cdouble) {.importc: "nimculus_platform_set_secondary_editor_scroll_x", cdecl.}
+proc platformSecondaryEditorScrollX*(): cdouble {.importc: "nimculus_platform_secondary_editor_scroll_x", cdecl.}
 proc platformSetSecondaryEditorSoftWrap*(enabled: bool) {.importc: "nimculus_platform_set_secondary_editor_soft_wrap", cdecl.}
 proc platformSetEditorInputPane*(pane: uint32) {.importc: "nimculus_platform_set_editor_input_pane", cdecl.}
 proc platformEditorPaneAtPoint*(x, y: cdouble): uint32 {.importc: "nimculus_platform_editor_pane_at_point", cdecl.}

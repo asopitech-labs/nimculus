@@ -2520,8 +2520,11 @@ proc syncEditorCursor() =
       editorViewState.ensureCursorVisible(document[].buffer, visibleLines)
     let location = if document == nil: (line: 0, column: 0) else:
       document[].buffer.lineColumn(editorViewState.cursor)
+    if editorViewState.softWrap: editorViewState.scrollX = 0'f32
     platformSetEditorScrollLine(uint32(max(0, editorViewState.scrollLine)))
+    platformSetEditorScrollX(cdouble(max(0'f32, editorViewState.scrollX)))
     platformSetEditorCursorByte(uint32(editorViewState.cursor), uint32(max(0, location.line)))
+    editorViewState.scrollX = float32(max(0.0, platformEditorScrollX()))
     let selection = if document == nil: (startByte: 0, endByte: 0) else:
       editorViewState.selectedRange()
     platformSetEditorSelection(uint32(selection.startByte), uint32(selection.endByte))
@@ -2609,10 +2612,14 @@ when defined(macosx):
     let tabsText = tabTitles.join("\n")
     platformSetSecondaryEditorTabs(tabsText.cstring, uint32(tabsText.len), uint32(tab))
     platformSetSecondaryEditorText(text.cstring, uint32(text.len))
+    if view.softWrap: view.scrollX = 0'f32
     platformSetSecondaryEditorScrollLine(uint32(max(0, view.scrollLine)))
+    platformSetSecondaryEditorScrollX(cdouble(max(0'f32, view.scrollX)))
     platformSetSecondaryEditorSoftWrap(view.softWrap)
     platformSetSecondaryEditorCursorByte(uint32(view.cursor),
       uint32(max(0, location.line)))
+    view.scrollX = float32(max(0.0, platformSecondaryEditorScrollX()))
+    editorSession.tabs[tab].secondaryView = view
     platformSetSecondaryEditorSelection(uint32(selection.startByte), uint32(selection.endByte))
     syncSecondaryNativeDiagnostics(document)
 
@@ -4262,10 +4269,13 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "toggleSoftWrap":
     if editorSession.split and editorSession.splitActivePane == 1:
       editorSession.secondaryView.softWrap = not editorSession.secondaryView.softWrap
+      if editorSession.secondaryView.softWrap:
+        editorSession.secondaryView.scrollX = 0'f32
       editorViewState.statusMessage = if editorSession.secondaryView.softWrap:
         "Soft wrap enabled in secondary pane" else: "Soft wrap disabled in secondary pane"
     else:
       editorViewState.softWrap = not editorViewState.softWrap
+      if editorViewState.softWrap: editorViewState.scrollX = 0'f32
       editorViewState.statusMessage = if editorViewState.softWrap:
         "Soft wrap enabled" else: "Soft wrap disabled"
     syncEditorCursor()
@@ -5524,16 +5534,34 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       lspBridge.hideHover()
       syncNativeHover()
     if document != nil and kind == scroll and inEditor:
-      let delta = scrollLineDelta(editorScrollRemainder, float32(event.deltaY),
-        event.preciseScrolling)
       let maxScroll = max(0, document[].buffer.lineStarts.len - editorVisibleLineCount())
       let pane = if demoSplitEnabled:
         max(0, editorWorkspaceUi.paneIndexAt(demoTree.node(demoScrollNode).bounds, point)) else: 0
+      let modifiers = macOSModifiers(event.modifiers)
+      let shiftScroll = shiftModifier in modifiers
+      let horizontalDelta = if abs(float32(event.deltaX)) > 0.01'f32:
+          float32(event.deltaX)
+        elif shiftScroll: float32(event.deltaY) else: 0'f32
+      let verticalDelta = if shiftScroll and abs(float32(event.deltaX)) <= 0.01'f32:
+          0'f32 else: float32(event.deltaY)
       if pane == 1:
-        editorSession.secondaryView.scrollLine = max(0, min(maxScroll,
-          editorSession.secondaryView.scrollLine + delta))
+        if not editorSession.secondaryView.softWrap and abs(horizontalDelta) > 0.01'f32:
+          editorSession.secondaryView.scrollX = max(0'f32,
+            editorSession.secondaryView.scrollX + horizontalDelta)
+        if abs(verticalDelta) > 0.01'f32:
+          let delta = scrollLineDelta(editorScrollRemainder, verticalDelta,
+            event.preciseScrolling)
+          editorSession.secondaryView.scrollLine = max(0, min(maxScroll,
+            editorSession.secondaryView.scrollLine + delta))
       else:
-        editorViewState.scrollLine = max(0, min(maxScroll, editorViewState.scrollLine + delta))
+        if not editorViewState.softWrap and abs(horizontalDelta) > 0.01'f32:
+          editorViewState.scrollX = max(0'f32,
+            editorViewState.scrollX + horizontalDelta)
+        if abs(verticalDelta) > 0.01'f32:
+          let delta = scrollLineDelta(editorScrollRemainder, verticalDelta,
+            event.preciseScrolling)
+          editorViewState.scrollLine = max(0, min(maxScroll,
+            editorViewState.scrollLine + delta))
       syncEditorCursor()
       refreshEditorSyntax()
     if document != nil and kind == pointerDown and inEditor:

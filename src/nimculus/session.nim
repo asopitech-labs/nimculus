@@ -42,7 +42,8 @@ proc normalizedSessionPaths(paths: openArray[string], directoriesOnly = false): 
 
 proc serializedView(view: EditorViewState): JsonNode =
   %*{"anchor": view.selection.anchor, "active": view.selection.active,
-      "scrollLine": view.scrollLine, "showLineNumbers": view.showLineNumbers,
+      "scrollLine": view.scrollLine, "scrollX": view.scrollX,
+      "showLineNumbers": view.showLineNumbers,
       "softWrap": view.softWrap, "showIndentGuides": view.showIndentGuides,
       "indentWidth": view.indentWidth}
 
@@ -52,6 +53,7 @@ proc loadView(node: JsonNode, text: string): EditorViewState =
   result.selection.anchor = floorGraphemeBoundary(text, jsonInt(node, "anchor", 0))
   result.selection.active = floorGraphemeBoundary(text, jsonInt(node, "active", 0))
   result.scrollLine = max(0, jsonInt(node, "scrollLine", 0))
+  result.scrollX = max(0'f32, jsonFloat(node, "scrollX", 0'f32))
   result.showLineNumbers = jsonBool(node, "showLineNumbers", true)
   # A missing preference uses the safe macOS default. An explicit false is
   # retained so users who choose horizontal, unwrapped editing keep it.
