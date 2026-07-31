@@ -339,7 +339,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 - [x] Cmd+W / Cmd+Q の未保存変更確認（Save / Don't Save / Cancel）
 - [x] Cmd+W / File > Closeはactive tabを閉じ、最後のtab以外ではwindowを終了しない
 - [x] Cmd+Qは全dirty tabをSave All / Don't Save / Cancelで解決してから終了する
-- [x] macOS外部変更AlertからReload / Keep Editingを選択する経路
+- [x] macOS外部変更通知からReload / Keep Editingを選択する経路（親エディタを無効化しないnon-modal child panel）
 - [x] タブ。タブタイトル・dirty表示・クリックによるactive tab切替をnative overlayへ接続
 - [x] タブの右クリックメニュー（Close Tab、Copy File Path、Reveal in Finder）。Closeは既存の未保存変更確認を必ず経由する
 - [x] Zedと同じ固定タブ。Pin / Unpin / Unpin Allを右クリックから操作し、固定タブを先頭に順序化、split paneの参照とsession復元を維持する
@@ -350,6 +350,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 - [x] タブごとのprimary / secondary selection、scroll、表示設定を分離し、session保存・復元時にgrapheme境界と文書長へclamp。タブ切替はview stateを再読込し、一時UI状態だけをresetする
 - [x] Untitledタブの本文、dirty状態、改行形式、view stateをsessionへ保存・復元
 - [x] 行番号をnative非編集overlayへ接続し、本文更新・スクロール・フォント変更で再描画。`showLineNumbers`による表示切替、カーソル、選択、Go to line相当の位置モデルも実装
+- [x] 主・副paneのカーソル行を独立して保持し、soft wrapを含む可視テキスト描画へテーマ連動のcurrent-line背景を適用
 - [x] editor viewport内のpointer downから選択を開始し、drag中はviewport外でもpointer-upまで継続
 - [x] 検索、置換（Find/Replace/Go to Lineは本文を遮らないnative editor overlay。入力中の検索、Replace All、Escによるエディタへのfocus復帰を接続）
 - [x] ソフトラップをCore Text native描画へ接続し、Command Paletteの`toggle soft wrap`で切替。状態はsessionへ保存。カーソル、IME候補位置、クリックhit-test、行番号、syntax/selection/diagnostic描画、LSP annotationも同じ表示行マッピングを使用し、スクロール/インデントガイドもView状態とnative表示へ接続
@@ -395,7 +396,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 - [x] macOS標準メニュー・ファイルダイアログを利用できる（AppDelegate生成メニュー、Cmd+O/S/W/,/Shift+Cmd+P、Finder openFiles、nimculus URLのnative contractに加え、Cmd+Oの`NSOpenPanel`、未保存文書の通常Cmd+S用`NSSavePanel`を接続。Find/Replace/Go to LineとCommand Paletteはwindow sheetでなくエディタ内overlayへ接続し、Open/Save/未保存Closeとeditor overlayのnative Cocoa contractで非同期性・入力・focus復帰を確認。GUIでのファイル選択操作は未確認）
 - [x] 日本語ファイルを安全に編集・保存できる（CRLF/atomic save/permission、native text/IME/Save As候補名、実`.app` cold-startを自動検証。対話的なIME編集とSave Panel確定はmacOS E2Eで確認）
 - [x] CRLF / LFを扱える
-- [x] 外部変更を検出できる（Apple Silicon macOSの`.app`実機で日本語ファイルを外部更新し、Reload / Keep Editingの非同期sheet表示と背面本文の保持を確認）
+- [x] 外部変更を検出できる（Apple Silicon macOSの`.app`実機で日本語ファイルを外部更新し、Reload / Keep Editingのnon-modal通知と背面本文の保持を確認）
 - [x] 外部変更のReloadでcursor、selection、scroll、表示設定を保持し、新文書境界へclamp
 - [x] 連続編集・大量編集のストレステストを実行できる
 
@@ -418,6 +419,8 @@ Files パネル：**[x]** ZedのProject Panelにならい、New File/New Folder�
 Filesツリーは選択中のディレクトリに対してRightで展開（展開済みなら最初の可視childへ移動）、Leftで折りたたみ（折りたたみ済みのdirectory／fileならparentを選択）を行う。既存の展開状態だけを更新してboundedな表示投影を再構築し、ファイル内容の読込や全ワークスペース走査は行わない。
 
 FilesツリーのF2は選択したファイル／ディレクトリを既存のmacOS Rename sheetへ渡す。renameは同一workspace root内に制限され、workspace root行のrenameは拒否する。
+
+Filesツリーは**[x]** active documentの祖先を自動展開し、現在のファイル行をtheme selection色で保持する。標準icon themeはNim／Markdown／JSON／shellなどの拡張子を区別し、設定のcustom icon themeによる上書きを維持する。
 
 永続化identity：**[x]** sessionのworkspace rootとrecent fileをcanonical path単位でload/save時に統合し、symlink別名による重複FSEvents watcher・Open Recent項目を防止する。
 
