@@ -2959,6 +2959,12 @@ static void dismissExternalChangePanel(const char *command) {
       NSRange glyphRange = NSMakeRange(0, 0);
       NSRect row = [self.layoutManager lineFragmentRectForGlyphAtIndex:glyph
         effectiveRange:&glyphRange];
+      // NSTextView's layout manager reports this fragment in the text
+      // container's baseline coordinate. The custom inactive-selection paint
+      // is drawn in the view coordinate, where that rect lands one row above
+      // the glyphs on macOS. Move it by exactly one line fragment so the
+      // visual row and the native selection identity agree.
+      row.origin.y += row.size.height;
       row.origin.x = 0.0;
       row.size.width = self.bounds.size.width;
       if (NSIntersectsRect(row, dirtyRect)) {

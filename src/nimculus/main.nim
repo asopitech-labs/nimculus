@@ -2106,10 +2106,27 @@ proc refreshWorkspacePreview() =
     workspacePreviewMode = "tree"
     workspacePreviewEntries.setLen(0)
     var lines = @["Files", "────────"]
+    # The active document is the presentation source of truth. A watcher
+    # refresh can happen after the document callback and before
+    # workspaceRevealPath is updated, so derive a canonical target here too.
+    var revealTarget = canonicalOpenPath(workspaceRevealPath)
+    let currentDocument = activeDocument()
+    if currentDocument != nil and currentDocument[].path.len > 0:
+      revealTarget = canonicalOpenPath(currentDocument[].path)
+    var revealRoot = ""
+    var revealRelative = ""
+    if revealTarget.len > 0:
+      try:
+        let location = activeWorkspace.splitWorkspacePath(revealTarget)
+        revealRoot = location.root
+        revealRelative = normalizedPath(location.relative)
+      except CatchableError:
+        discard
     # Follow Zed's Project Panel ordering: expanded children are emitted
     # directly below their directory, while traversal remains lazy and bounded.
     proc containsReveal(path: string): bool =
-      workspaceRevealPath == path or workspaceRevealPath.startsWith(path / "")
+      let candidate = canonicalOpenPath(path)
+      revealTarget == candidate or revealTarget.startsWith(candidate / "")
     proc appendDirectory(root, relative: string, depth: int) =
       if workspacePreviewEntries.len >= 192: return
       var children = activeWorkspace.listChildrenAt(root, relative)
@@ -2154,9 +2171,13 @@ proc refreshWorkspacePreview() =
       # revealing a document expands its ancestry and selects the concrete
       # row rather than merely moving it closer to the top of the list.
       var revealedIndex = -1
-      if workspaceRevealPath.len > 0:
+      if revealTarget.len > 0:
         for index, entry in workspacePreviewEntries:
-          if entry.path == workspaceRevealPath:
+          let sameCanonicalPath = canonicalOpenPath(entry.path) == revealTarget
+          let sameWorkspaceIdentity = revealRoot.len > 0 and
+            entry.rootPath == revealRoot and
+            normalizedPath(entry.relativePath) == revealRelative
+          if sameCanonicalPath or sameWorkspaceIdentity:
             revealedIndex = index
             break
       if revealedIndex >= 0:

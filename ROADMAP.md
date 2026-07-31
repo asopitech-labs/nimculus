@@ -421,7 +421,7 @@ Filesツリーは選択中のディレクトリに対してRightで展開（展�
 
 FilesツリーのF2は選択したファイル／ディレクトリを既存のmacOS Rename sheetへ渡す。renameは同一workspace root内に制限され、workspace root行のrenameは拒否する。
 
-Filesツリーは**[x]** active documentの祖先を自動展開し、現在のファイル行をtheme selection色で保持する。標準icon themeはNim／Markdown／JSON／shellなどの拡張子を区別し、設定のcustom icon themeによる上書きを維持する。
+Filesツリーは**[x]** active documentの祖先を自動展開し、canonical pathで再解決した現在のファイル行をtheme selection色で保持する。標準icon themeはNim／Markdown／JSON／shellなどの拡張子を区別し、設定のcustom icon themeによる上書きを維持する。
 
 永続化identity：**[x]** sessionのworkspace rootとrecent fileをcanonical path単位でload/save時に統合し、symlink別名による重複FSEvents watcher・Open Recent項目を防止する。
 

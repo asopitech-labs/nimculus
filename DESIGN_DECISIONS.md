@@ -8,6 +8,16 @@ macOS版は現時点で横スクロールバーを提供していないため、
 セッション設定では `softWrap=true` を既定にする。保存済みの明示的な
 `false` は保持し、将来の横スクロール実装を待たずに選択肢を失わせない。
 
+## UI-075: Filesの選択identityはアクティブ文書のcanonical pathで再解決する
+
+ZedのProject Panelでは、アクティブなエディタ項目がファイルツリーの
+選択行として常に表示される。FSEventsや外部ファイル更新でツリーが再構築
+されるときも、行番号ではなくcanonical pathで現在の文書を再検索する。
+これにより、ルート行を選択したまま実際のファイルを開いているように見える
+状態を防ぎ、表示・selection・キーボード操作の対象を同じ項目へ揃える。
+AppKitの非アクティブ選択色は使わず、`NSTextView`の行フラグメントを1行分
+補正したテーマ色の背景を描画して、選択identityと視覚行を一致させる。
+
 ## UI-001: UI を機能の入口として扱う
 
 ZedのWorkspace、Dock、Pane、ProjectPanelを調査した結果、Nimculusの既存UIは
