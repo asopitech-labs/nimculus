@@ -1,4 +1,5 @@
 import std/strutils
+import std/algorithm
 import std/unicode
 import std/math
 import nimculus/editor_buffer
@@ -7,6 +8,11 @@ import nimnui/text
 type
   EditorViewState* = object
     selection*: Selection
+    ## Zed keeps selections as an ordered collection owned by the editor item.
+    ## `selection` remains the primary selection for compatibility with the
+    ## existing pane/session boundary; additional selections are all edited
+    ## atomically with it.
+    additionalSelections*: seq[Selection]
     scrollLine*: int
     scrollX*: float32
     showLineNumbers*, softWrap*, showIndentGuides*: bool
@@ -22,6 +28,45 @@ proc newEditorView*(): EditorViewState =
     showIndentGuides: true, indentWidth: 2)
 
 proc cursor*(view: EditorViewState): int = view.selection.active
+
+proc selections*(view: EditorViewState): seq[Selection] =
+  result = @[view.selection]
+  result.add(view.additionalSelections)
+
+proc selectionRanges*(view: EditorViewState): seq[tuple[startByte, endByte: int]] =
+  ## Return disjoint, document-order ranges. The editor buffer rejects
+  ## overlaps, so collapse duplicate/overlapping carets before every edit.
+  var ranges: seq[tuple[startByte, endByte: int]]
+  for selection in view.selections:
+    let startByte = min(selection.anchor, selection.active)
+    let endByte = max(selection.anchor, selection.active)
+    ranges.add((startByte: startByte, endByte: endByte))
+  ranges.sort(proc(a, b: tuple[startByte, endByte: int]): int =
+    if a.startByte != b.startByte: cmp(a.startByte, b.startByte)
+    else: cmp(a.endByte, b.endByte))
+  for range in ranges:
+    if result.len == 0 or range.startByte > result[^1].endByte:
+      result.add(range)
+    elif range.endByte > result[^1].endByte:
+      result[^1].endByte = range.endByte
+
+proc clearAdditionalSelections*(view: var EditorViewState) =
+  view.additionalSelections.setLen(0)
+
+proc floorGraphemeBoundary*(text: string, offset: int): int
+
+proc addCaret*(view: var EditorViewState, byteOffset: int, text: string): bool =
+  ## Add a collapsed caret without disturbing the primary selection. This is
+  ## the Option-click entry point used by Zed-like editors.
+  let offset = floorGraphemeBoundary(text, max(0, min(byteOffset, text.len)))
+  for selection in view.selections:
+    if selection.anchor == offset and selection.active == offset: return false
+  view.additionalSelections.add(Selection(anchor: offset, active: offset))
+  true
+
+proc makeSingleSelection*(view: var EditorViewState, anchor, active: int) =
+  view.selection = Selection(anchor: anchor, active: active)
+  view.clearAdditionalSelections()
 
 proc moveCursor*(view: var EditorViewState, byteOffset: int, selecting = false) =
   if not selecting: view.selection.anchor = byteOffset
@@ -170,6 +215,22 @@ proc clampSelectionToText*(view: var EditorViewState, text: string) =
     min(max(0, view.selection.anchor), text.len))
   view.selection.active = floorGraphemeBoundary(text,
     min(max(0, view.selection.active), text.len))
+  for index in 0 ..< view.additionalSelections.len:
+    view.additionalSelections[index].anchor = floorGraphemeBoundary(text,
+      min(max(0, view.additionalSelections[index].anchor), text.len))
+    view.additionalSelections[index].active = floorGraphemeBoundary(text,
+      min(max(0, view.additionalSelections[index].active), text.len))
+  var unique: seq[Selection]
+  for selection in view.additionalSelections:
+    var duplicate = false
+    for existing in unique:
+      if existing.anchor == selection.anchor and existing.active == selection.active:
+        duplicate = true
+        break
+    if not duplicate and not (selection.anchor == view.selection.anchor and
+        selection.active == view.selection.active):
+      unique.add(selection)
+  view.additionalSelections = unique
 
 proc lineNumber*(buffer: PieceTable, line: int): string = $(line + 1)
 

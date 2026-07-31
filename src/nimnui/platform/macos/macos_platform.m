@@ -67,6 +67,9 @@ static NSUInteger g_secondary_editor_scroll_line = 0;
 static CGFloat g_secondary_editor_scroll_x = 0.0;
 static NSUInteger g_secondary_editor_selection_start = 0;
 static NSUInteger g_secondary_editor_selection_end = 0;
+#define NIMCULUS_MAX_EDITOR_SELECTIONS 256
+static NimculusEditorSelection g_secondary_editor_selections[NIMCULUS_MAX_EDITOR_SELECTIONS];
+static uint32_t g_secondary_editor_selection_count = 0;
 static BOOL g_secondary_editor_soft_wrap = NO;
 static NSUInteger g_editor_input_pane = 0;
 static NSUInteger g_editor_hover_pane = 0;
@@ -91,6 +94,16 @@ static NSUInteger g_editor_scroll_line = 0;
 static CGFloat g_editor_scroll_x = 0.0;
 static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
+static NimculusEditorSelection g_editor_selections[NIMCULUS_MAX_EDITOR_SELECTIONS];
+static uint32_t g_editor_selection_count = 0;
+
+static NimculusEditorSelection *editorSelections(void) {
+  return g_rendering_secondary_editor ? g_secondary_editor_selections : g_editor_selections;
+}
+
+static uint32_t editorSelectionCount(void) {
+  return g_rendering_secondary_editor ? g_secondary_editor_selection_count : g_editor_selection_count;
+}
 static NSString *g_editor_text = @"";
 static NSString *g_secondary_editor_text = @"";
 // Rebuild these once when committed editor text changes. Text rendering,
@@ -1187,6 +1200,21 @@ static CGPoint editorPointForUTF16Offset(NSUInteger documentOffset) {
                      12.0 + visibleLine * editorLineHeight());
 }
 
+static CGPoint editorPointForUTF8Offset(NSUInteger byteOffset) {
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
+  if (lines.count == 0) return CGPointMake(8.0, 12.0);
+  NSUInteger bounded = MIN(byteOffset, (NSUInteger)[g_editor_text lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
+  NSUInteger lineIndex = 0;
+  for (NSUInteger index = 1; index < lines.count; index++) {
+    if (editorLineUTF8Offset(index, lines) > bounded) break;
+    lineIndex = index;
+  }
+  NSUInteger localByte = bounded - editorLineUTF8Offset(lineIndex, lines);
+  NSString *lineText = lines[lineIndex];
+  NSUInteger localUnit = utf16OffsetForUTF8Bytes(lineText, localByte);
+  return editorPointForUTF16Offset(editorLineUTF16Offset(lineIndex, lines) + localUnit);
+}
+
 // Keep the insertion point reachable after keyboard navigation or a paste.
 // The renderer, hit-test, and NSTextInputClient all consume the same
 // scroll-adjusted logical point, so cursor-following belongs at this native
@@ -1384,6 +1412,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     editorVisibleLineCapacity(g_editor_rect, lineHeight));
   NSUInteger lineStartByte = editorLineUTF8Offset(startLine, lines);
   NSUInteger lineStartUnit = editorLineUTF16Offset(startLine, lines);
+  NimculusEditorSelection *editorSelectionsForRender = editorSelections();
+  uint32_t editorSelectionCountForRender = editorSelectionCount();
   if (g_editor_soft_wrap) {
     NSArray<NSString *> *visible = [lines subarrayWithRange:NSMakeRange(startLine, lines.count - startLine)];
     NSString *wrappedText = [visible componentsJoinedByString:@"\n"];
@@ -1443,11 +1473,15 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       [wrappedAttributed addAttribute:(id)kCTForegroundColorAttributeName
         value:(id)color.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
     }
-    if (g_editor_selection_end > g_editor_selection_start &&
-        g_editor_selection_end > lineStartByte &&
-        g_editor_selection_start < lineStartByte + wrappedByteLength) {
-      NSUInteger startByte = MAX(g_editor_selection_start, lineStartByte) - lineStartByte;
-      NSUInteger endByte = MIN(g_editor_selection_end, lineStartByte + wrappedByteLength) - lineStartByte;
+    for (uint32_t selectionIndex = 0; selectionIndex < editorSelectionCountForRender;
+         selectionIndex++) {
+      NimculusEditorSelection selection = editorSelectionsForRender[selectionIndex];
+      if (selection.end_byte <= selection.start_byte ||
+          selection.end_byte <= lineStartByte ||
+          selection.start_byte >= lineStartByte + wrappedByteLength) continue;
+      NSUInteger startByte = MAX((NSUInteger)selection.start_byte, lineStartByte) - lineStartByte;
+      NSUInteger endByte = MIN((NSUInteger)selection.end_byte,
+        lineStartByte + wrappedByteLength) - lineStartByte;
       NSUInteger startUnit = utf16OffsetForUTF8Bytes(wrappedText, startByte);
       NSUInteger endUnit = utf16OffsetForUTF8Bytes(wrappedText, endByte);
       if (endUnit > startUnit) {
@@ -1527,10 +1561,17 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         MAX(1.0, g_editor_rect[2] - 8.0), 20.0));
       break;
     }
-    if (g_editor_selection_end > g_editor_selection_start &&
-        g_editor_selection_end > lineStartUnit && g_editor_selection_start < lineEndUnit) {
-      NSUInteger startUnit = MAX(g_editor_selection_start, lineStartUnit) - lineStartUnit;
-      NSUInteger endUnit = MIN(g_editor_selection_end, lineEndUnit) - lineStartUnit;
+    for (uint32_t selectionIndex = 0; selectionIndex < editorSelectionCountForRender;
+         selectionIndex++) {
+      NimculusEditorSelection selection = editorSelectionsForRender[selectionIndex];
+      if (selection.end_byte <= selection.start_byte ||
+          selection.end_byte <= lineStartByte ||
+          selection.start_byte >= lineStartByte + lineLength) continue;
+      NSUInteger startByte = MAX((NSUInteger)selection.start_byte, lineStartByte) - lineStartByte;
+      NSUInteger endByte = MIN((NSUInteger)selection.end_byte,
+        lineStartByte + lineLength) - lineStartByte;
+      NSUInteger startUnit = utf16OffsetForUTF8Bytes(lineText, startByte);
+      NSUInteger endUnit = utf16OffsetForUTF8Bytes(lineText, endByte);
       NSColor *selectionColor = [themeHexColor(g_theme_selection,
         [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
         colorWithAlphaComponent:0.45];
@@ -1690,6 +1731,17 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     CGContextMoveToPoint(context, g_editor_cursor[0], caretY);
     CGContextAddLineToPoint(context, g_editor_cursor[0], caretY + 20.0);
     CGContextStrokePath(context);
+    // Additional carets are intentionally painted after text and selection
+    // overlays. This keeps Option-click and Cmd+D visible even when their
+    // range is collapsed, matching Zed's caret treatment.
+    for (uint32_t selectionIndex = 1;
+         selectionIndex < editorSelectionCountForRender; selectionIndex++) {
+      CGPoint point = editorPointForUTF8Offset(
+        editorSelectionsForRender[selectionIndex].cursor_byte);
+      CGContextMoveToPoint(context, point.x, logicalHeight - point.y - 4.0);
+      CGContextAddLineToPoint(context, point.x, logicalHeight - point.y + 16.0);
+      CGContextStrokePath(context);
+    }
   }
   CFRelease(font);
   CGContextRelease(context);
@@ -9389,6 +9441,9 @@ void nimculus_platform_set_secondary_editor_selection(uint32_t start_byte, uint3
   NSUInteger end = utf16OffsetForUTF8Bytes(g_secondary_editor_text ?: @"", end_byte);
   g_secondary_editor_selection_start = MIN(start, end);
   g_secondary_editor_selection_end = MAX(start, end);
+  g_secondary_editor_selection_count = 1;
+  g_secondary_editor_selections[0] = (NimculusEditorSelection){
+    .start_byte = start_byte, .end_byte = end_byte, .cursor_byte = end_byte};
   if (g_editor_input_pane == 1 && g_active_view) {
     NimculusMetalView *view = (NimculusMetalView *)g_active_view;
     view.selectedTextRange = NSMakeRange(g_secondary_editor_selection_start,
@@ -9397,6 +9452,23 @@ void nimculus_platform_set_secondary_editor_selection(uint32_t start_byte, uint3
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+void nimculus_platform_set_secondary_editor_selections(
+    const NimculusEditorSelection *selections, uint32_t count) {
+  g_secondary_editor_selection_count = MIN(count, NIMCULUS_MAX_EDITOR_SELECTIONS);
+  if (g_secondary_editor_selection_count > 0 && selections) {
+    memcpy(g_secondary_editor_selections, selections,
+      g_secondary_editor_selection_count * sizeof(NimculusEditorSelection));
+    NSUInteger start = utf16OffsetForUTF8Bytes(g_secondary_editor_text ?: @"",
+      g_secondary_editor_selections[0].start_byte);
+    NSUInteger end = utf16OffsetForUTF8Bytes(g_secondary_editor_text ?: @"",
+      g_secondary_editor_selections[0].end_byte);
+    g_secondary_editor_selection_start = MIN(start, end);
+    g_secondary_editor_selection_end = MAX(start, end);
+  }
+  if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
+  markSceneFullyDirty();
+  if (g_active_view) [g_active_view drawFrame];
 }
 void nimculus_platform_set_secondary_editor_scroll_line(uint32_t line) {
   g_secondary_editor_scroll_line = line;
@@ -9697,10 +9769,30 @@ void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_by
   NSUInteger end = utf16OffsetForUTF8Bytes(g_editor_text ?: @"", end_byte);
   g_editor_selection_start = MIN(start, end);
   g_editor_selection_end = MAX(start, end);
+  g_editor_selection_count = 1;
+  g_editor_selections[0] = (NimculusEditorSelection){
+    .start_byte = start_byte, .end_byte = end_byte, .cursor_byte = end_byte};
   if (g_editor_input_pane == 0 && g_active_view) {
     NimculusMetalView *view = (NimculusMetalView *)g_active_view;
     view.selectedTextRange = NSMakeRange(g_editor_selection_start,
       g_editor_selection_end - g_editor_selection_start);
+  }
+  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  markSceneFullyDirty();
+  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+}
+void nimculus_platform_set_editor_selections(const NimculusEditorSelection *selections,
+                                             uint32_t count) {
+  g_editor_selection_count = MIN(count, NIMCULUS_MAX_EDITOR_SELECTIONS);
+  if (g_editor_selection_count > 0 && selections) {
+    memcpy(g_editor_selections, selections,
+      g_editor_selection_count * sizeof(NimculusEditorSelection));
+    NSUInteger start = utf16OffsetForUTF8Bytes(g_editor_text ?: @"",
+      g_editor_selections[0].start_byte);
+    NSUInteger end = utf16OffsetForUTF8Bytes(g_editor_text ?: @"",
+      g_editor_selections[0].end_byte);
+    g_editor_selection_start = MIN(start, end);
+    g_editor_selection_end = MAX(start, end);
   }
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   markSceneFullyDirty();

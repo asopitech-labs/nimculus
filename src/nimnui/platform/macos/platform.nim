@@ -130,6 +130,8 @@ proc platformSetTerminalPanelRect*(x, y, width, height: cdouble) {.importc: "nim
 proc platformSetSecondaryEditorRect*(visible: bool, x, y, width, height: cdouble) {.importc: "nimculus_platform_set_secondary_editor_rect", cdecl.}
 proc platformSetSecondaryEditorCursorByte*(byteOffset, line: uint32) {.importc: "nimculus_platform_set_secondary_editor_cursor_byte", cdecl.}
 proc platformSetSecondaryEditorSelection*(startByte, endByte: uint32) {.importc: "nimculus_platform_set_secondary_editor_selection", cdecl.}
+proc platformSetSecondaryEditorSelections*(selections: ptr NativeEditorSelection,
+    count: uint32) {.importc: "nimculus_platform_set_secondary_editor_selections", cdecl.}
 proc platformSetSecondaryEditorScrollLine*(line: uint32) {.importc: "nimculus_platform_set_secondary_editor_scroll_line", cdecl.}
 proc platformSetSecondaryEditorScrollX*(offset: cdouble) {.importc: "nimculus_platform_set_secondary_editor_scroll_x", cdecl.}
 proc platformSecondaryEditorScrollX*(): cdouble {.importc: "nimculus_platform_secondary_editor_scroll_x", cdecl.}
@@ -155,6 +157,8 @@ proc platformRequestQuit*() {.importc: "nimculus_platform_request_quit", cdecl.}
 proc platformConfirmQuit*() {.importc: "nimculus_platform_confirm_quit", cdecl.}
 proc platformShowSavePanelAndClose*() {.importc: "nimculus_platform_show_save_panel_and_close", cdecl.}
 proc platformSetEditorSelection*(startByte, endByte: uint32) {.importc: "nimculus_platform_set_editor_selection", cdecl.}
+proc platformSetEditorSelections*(selections: ptr NativeEditorSelection,
+    count: uint32) {.importc: "nimculus_platform_set_editor_selections", cdecl.}
 proc platformSetEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_text", cdecl.}
 proc platformSetSecondaryEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_secondary_editor_text", cdecl.}
 proc platformSetEditorOutline*(text: cstring, length, symbolCount: uint32) {.importc: "nimculus_platform_set_editor_outline", cdecl.}

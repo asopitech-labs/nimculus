@@ -545,6 +545,36 @@ suite "M5 editor services":
     check view.selection.anchor == "A🙂".len
     check view.selection.active == 1
 
+  test "Zed-style multiple selections normalize and add carets":
+    var view = newEditorView()
+    let text = "one one one"
+    view.moveCursor(0)
+    check view.addCaret(4, text)
+    check not view.addCaret(4, text)
+    view.additionalSelections.add(Selection(anchor: 8, active: 11))
+    check view.selectionRanges == @[
+      (startByte: 0, endByte: 0),
+      (startByte: 4, endByte: 4),
+      (startByte: 8, endByte: 11)]
+    view.clampSelectionToText("one one")
+    check view.additionalSelections.len == 2
+    check view.additionalSelections[1] == Selection(anchor: 7, active: 7)
+
+  test "multiple selections apply one atomic edit transaction":
+    var buffer = initPieceTable("a b c")
+    var view = newEditorView()
+    view.selection = Selection(anchor: 0, active: 1)
+    view.additionalSelections = @[
+      Selection(anchor: 2, active: 3), Selection(anchor: 4, active: 5)]
+    let ranges = view.selectionRanges
+    var edits: seq[Edit]
+    for range in ranges:
+      edits.add(Edit(startByte: range.startByte, endByte: range.endByte, text: "x"))
+    buffer.applyEdits(edits)
+    check buffer.toString() == "x x x"
+    check buffer.undo()
+    check buffer.toString() == "a b c"
+
   test "session and recovery round trip":
     let path = getTempDir() / "nimculus-m5-session.txt"
     let recoveryPath = getTempDir() / "nimculus-m5-recovery.txt"
@@ -552,6 +582,7 @@ suite "M5 editor services":
     var session: EditorSession
     session.addTab(openDocument(path))
     session.tabs[0].view.moveCursor(3)
+    session.tabs[0].view.additionalSelections = @[Selection(anchor: 8, active: 8)]
     session.tabs[0].view.scrollLine = 2
     session.tabs[0].view.scrollX = 184.5'f32
     session.splitEditor(splitHorizontal, 0.31)
@@ -574,6 +605,7 @@ suite "M5 editor services":
     check restored.tabs.len == 1
     check restored.workspaceRoots == @[canonicalOpenPath(getTempDir())]
     check restored.tabs[0].view.cursor == 3
+    check restored.tabs[0].view.additionalSelections == @[Selection(anchor: 8, active: 8)]
     check restored.tabs[0].view.scrollLine == 2
     check abs(restored.tabs[0].view.scrollX - 184.5'f32) < 0.001'f32
     check restored.splitDirection == splitHorizontal

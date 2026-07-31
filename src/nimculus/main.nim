@@ -472,6 +472,25 @@ proc setupShortcutRegistry() =
     name: "toggleTerminal",
     shortcut: Shortcut(keyCode: 50, modifiers: {controlModifier}),
     action: nativeShortcutAction("commandPalette:toggle terminal")))
+  # Zed's multi-selection entry points: Cmd+D selects the next match,
+  # Cmd+Shift+L selects all matches, and Option+Shift+Up/Down add a caret in
+  # the adjacent logical line.
+  shortcutRegistry.register(Command(
+    name: "selectNext",
+    shortcut: Shortcut(keyCode: 2, modifiers: {commandModifier}),
+    action: nativeShortcutAction("selectNext")))
+  shortcutRegistry.register(Command(
+    name: "selectAllMatches",
+    shortcut: Shortcut(keyCode: 37, modifiers: {commandModifier, shiftModifier}),
+    action: nativeShortcutAction("selectAllMatches")))
+  shortcutRegistry.register(Command(
+    name: "addSelectionAbove",
+    shortcut: Shortcut(keyCode: 126, modifiers: {optionModifier, shiftModifier}),
+    action: nativeShortcutAction("addSelectionAbove")))
+  shortcutRegistry.register(Command(
+    name: "addSelectionBelow",
+    shortcut: Shortcut(keyCode: 125, modifiers: {optionModifier, shiftModifier}),
+    action: nativeShortcutAction("addSelectionBelow")))
   # Keep all commands addressable from settings keymaps. They have no default
   # shortcut here when AppKit owns the standard menu equivalent; custom
   # bindings are installed below and are resolved before interpretKeyEvents.
@@ -491,7 +510,8 @@ proc setupShortcutRegistry() =
       "insertNewline", "insertTab", "moveWordLeft", "moveWordRight",
       "selectWordLeft", "selectWordRight", "deleteBackward", "deleteForward",
       "deleteWordBackward", "deleteWordForward", "deleteToBeginningOfLine",
-      "deleteToEndOfLine", "cancel", "toggleSoftWrap"]:
+      "deleteToEndOfLine", "cancel", "toggleSoftWrap", "selectNext",
+      "selectAllMatches", "addSelectionAbove", "addSelectionBelow"]:
     var action: proc() {.closure.}
     if name == "openSettings":
       when defined(macosx):
@@ -2603,6 +2623,15 @@ proc syncEditorCursor() =
     let selection = if document == nil: (startByte: 0, endByte: 0) else:
       editorViewState.selectedRange()
     platformSetEditorSelection(uint32(selection.startByte), uint32(selection.endByte))
+    var nativeSelections: seq[NativeEditorSelection]
+    if document != nil:
+      for item in editorViewState.selections:
+        nativeSelections.add(NativeEditorSelection(
+          startByte: uint32(max(0, min(item.anchor, item.active))),
+          endByte: uint32(max(0, max(item.anchor, item.active))),
+          cursorByte: uint32(max(0, item.active))))
+    platformSetEditorSelections(if nativeSelections.len > 0: addr nativeSelections[0] else: nil,
+      uint32(nativeSelections.len))
     platformInvalidateImeCoordinates()
     platformSetEditorDirty(document != nil and document[].buffer.isDirty)
     platformSetEditorLineNumbers(editorViewState.showLineNumbers)
@@ -2696,6 +2725,14 @@ when defined(macosx):
     view.scrollX = float32(max(0.0, platformSecondaryEditorScrollX()))
     editorSession.tabs[tab].secondaryView = view
     platformSetSecondaryEditorSelection(uint32(selection.startByte), uint32(selection.endByte))
+    var nativeSelections: seq[NativeEditorSelection]
+    for item in view.selections:
+      nativeSelections.add(NativeEditorSelection(
+        startByte: uint32(max(0, min(item.anchor, item.active))),
+        endByte: uint32(max(0, max(item.anchor, item.active))),
+        cursorByte: uint32(max(0, item.active))))
+    platformSetSecondaryEditorSelections(if nativeSelections.len > 0: addr nativeSelections[0] else: nil,
+      uint32(nativeSelections.len))
     syncSecondaryNativeDiagnostics(document)
 
   proc editorOffsetAtPoint(document: ptr FileDocument, x, y: cdouble, pane = 0): int =
@@ -3269,6 +3306,11 @@ when defined(windows):
     pollWindowsWorkspace()
     flushScheduledSessionPersistence()
 
+proc focusedEditorView(): EditorViewState
+proc storeFocusedEditorView(view: EditorViewState)
+proc editEditorSelections(document: ptr FileDocument, view: var EditorViewState,
+                          replacement: string): bool
+
 proc receiveNativeTextValue(value: string, composing: bool) =
   when defined(macosx):
     if terminalOwnsInput(editorTerminalVisible, editorTerminalFocused) and
@@ -3284,19 +3326,12 @@ proc receiveNativeTextValue(value: string, composing: bool) =
       return
     platformSetEditorComposition("".cstring)
   if not composing and value.len > 0:
-    let secondary = editorSession.split and editorSession.splitActivePane == 1
-    let document = if secondary: secondaryPaneDocument() else: activeDocument()
+    let document = if editorSession.split and editorSession.splitActivePane == 1:
+      secondaryPaneDocument() else: activeDocument()
     if document != nil:
-      let secondaryTab = if secondary: editorWorkspaceUi.center.second.pane.activeTabIndex else: -1
-      let selected = if secondary:
-        editorSession.tabs[secondaryTab].secondaryView.selectedRange() else: editorViewState.selectedRange()
-      document[].buffer.edit(Edit(startByte: selected.startByte,
-        endByte: selected.endByte, text: value))
-      if secondary:
-        editorSession.tabs[secondaryTab].secondaryView.moveCursor(selected.startByte + value.len)
-        editorSession.secondaryView = editorSession.tabs[secondaryTab].secondaryView
-      else:
-        editorViewState.moveCursor(selected.startByte + value.len)
+      var view = focusedEditorView()
+      if editEditorSelections(document, view, value):
+        storeFocusedEditorView(view)
       syncEditorCursor()
       refreshEditorSyntax()
       scheduleSessionPersistence()
@@ -3626,6 +3661,151 @@ proc lineEndOffset(document: ptr FileDocument, line: int): int =
   if document == nil or document[].buffer.lineStarts.len == 0: return 0
   document[].buffer.lineEndByteOffset(line)
 
+proc focusedEditorView(): EditorViewState =
+  if editorSession.split and editorSession.splitActivePane == 1:
+    let tab = focusedPaneTabIndex()
+    if tab >= 0 and tab < editorSession.tabs.len:
+      return editorSession.tabs[tab].secondaryView
+  editorViewState
+
+proc storeFocusedEditorView(view: EditorViewState) =
+  if editorSession.split and editorSession.splitActivePane == 1:
+    let tab = focusedPaneTabIndex()
+    if tab >= 0 and tab < editorSession.tabs.len:
+      editorSession.tabs[tab].secondaryView = view
+      editorSession.secondaryView = view
+    return
+  editorViewState = view
+
+proc editEditorSelections(document: ptr FileDocument, view: var EditorViewState,
+                          replacement: string): bool =
+  if document == nil: return false
+  let text = document[].buffer.toString()
+  let selections = view.selectionRanges
+  var edits: seq[Edit]
+  var nextSelections: seq[Selection]
+  var previousEnd = -1
+  var cumulativeShift = 0
+  for selection in selections:
+    let startByte = selection.startByte
+    let endByte = selection.endByte
+    if startByte < previousEnd: continue
+    edits.add(Edit(startByte: startByte, endByte: endByte, text: replacement))
+    let newCursor = startByte + cumulativeShift + replacement.len
+    nextSelections.add(Selection(anchor: newCursor, active: newCursor))
+    cumulativeShift += replacement.len - (endByte - startByte)
+    previousEnd = endByte
+  if edits.len == 0: return false
+  document[].buffer.applyEdits(edits)
+  view.selection = nextSelections[0]
+  view.additionalSelections = if nextSelections.len > 1:
+    nextSelections[1 .. ^1] else: @[]
+  true
+
+proc deleteEditorSelections(document: ptr FileDocument, view: var EditorViewState,
+                            command: string): bool =
+  if document == nil: return false
+  let text = document[].buffer.toString()
+  let selections = view.selectionRanges
+  var edits: seq[Edit]
+  var nextSelections: seq[Selection]
+  var previousEnd = -1
+  var cumulativeShift = 0
+  for selection in selections:
+    var startByte = selection.startByte
+    var endByte = selection.endByte
+    if startByte == endByte:
+      if command == "deleteWordBackward": startByte = previousWordBoundary(text, startByte)
+      elif command == "deleteWordForward": endByte = nextWordBoundary(text, endByte)
+      elif command == "deleteToBeginningOfLine":
+        startByte = document[].buffer.lineStarts[document[].buffer.lineColumn(startByte).line]
+      elif command == "deleteToEndOfLine":
+        endByte = lineEndOffset(document, document[].buffer.lineColumn(endByte).line)
+      elif command == "deleteBackward": startByte = previousBoundary(text, startByte)
+      else: endByte = nextBoundary(text, endByte)
+    if startByte < previousEnd: continue
+    if endByte <= startByte:
+      nextSelections.add(Selection(anchor: startByte + cumulativeShift,
+        active: startByte + cumulativeShift))
+      continue
+    edits.add(Edit(startByte: startByte, endByte: endByte, text: ""))
+    let newCursor = startByte + cumulativeShift
+    nextSelections.add(Selection(anchor: newCursor, active: newCursor))
+    cumulativeShift -= endByte - startByte
+    previousEnd = endByte
+  if edits.len == 0: return false
+  document[].buffer.applyEdits(edits)
+  view.selection = nextSelections[0]
+  view.additionalSelections = if nextSelections.len > 1:
+    nextSelections[1 .. ^1] else: @[]
+  true
+
+proc copyEditorSelections(document: ptr FileDocument, view: EditorViewState): string =
+  if document == nil: return ""
+  var values: seq[string]
+  for range in view.selectionRanges:
+    if range.endByte > range.startByte:
+      values.add(document[].buffer.substring(range.startByte, range.endByte))
+  values.join("\n")
+
+proc selectAllEditorMatches(document: ptr FileDocument, view: var EditorViewState): int =
+  if document == nil: return 0
+  let text = document[].buffer.toString()
+  var selected = view.selectedRange()
+  var query = if selected.endByte > selected.startByte:
+    document[].buffer.substring(selected.startByte, selected.endByte) else: ""
+  if query.len == 0:
+    let start = previousWordBoundary(text, view.cursor)
+    let finish = nextWordBoundary(text, view.cursor)
+    if finish > start:
+      selected = (startByte: start, endByte: finish)
+      query = text[start ..< finish]
+  if query.len == 0: return 0
+  let matches = document[].search(query)
+  if matches.len == 0: return 0
+  view.selection = Selection(anchor: matches[0].startByte, active: matches[0].endByte)
+  view.additionalSelections.setLen(0)
+  if matches.len > 1:
+    for match in matches[1 .. ^1]:
+      view.additionalSelections.add(Selection(anchor: match.startByte, active: match.endByte))
+  matches.len
+
+proc selectNextEditorMatch(document: ptr FileDocument, view: var EditorViewState): bool =
+  if document == nil: return false
+  let text = document[].buffer.toString()
+  var selected = view.selectedRange()
+  if selected.endByte <= selected.startByte:
+    let start = previousWordBoundary(text, view.cursor)
+    let finish = nextWordBoundary(text, view.cursor)
+    if finish <= start: return false
+    selected = (startByte: start, endByte: finish)
+    view.selection = Selection(anchor: start, active: finish)
+  let query = document[].buffer.substring(selected.startByte, selected.endByte)
+  if query.len == 0: return false
+  let matches = document[].search(query)
+  if matches.len == 0: return false
+  for match in matches:
+    if match.startByte >= selected.endByte:
+      var overlaps = false
+      for range in view.selectionRanges:
+        if range.startByte < match.endByte and match.startByte < range.endByte:
+          overlaps = true
+          break
+      if not overlaps:
+        view.additionalSelections.add(Selection(anchor: match.startByte, active: match.endByte))
+        return true
+  for match in matches:
+    if match.startByte < selected.startByte:
+      var overlaps = false
+      for range in view.selectionRanges:
+        if range.startByte < match.endByte and match.startByte < range.endByte:
+          overlaps = true
+          break
+      if not overlaps:
+        view.additionalSelections.add(Selection(anchor: match.startByte, active: match.endByte))
+        return true
+  false
+
 proc handleSecondaryEditorCommand(name: string, document: ptr FileDocument): bool =
   ## Cocoa has one NSTextInputClient, while a split owns two view states. Once
   ## the platform selected pane 1, route every editing selector through that
@@ -3665,22 +3845,7 @@ proc handleSecondaryEditorCommand(name: string, document: ptr FileDocument): boo
   of "selectWordRight": view.moveCursor(nextWordBoundary(text, view.cursor), selecting = true)
   of "deleteBackward", "deleteForward", "deleteWordBackward", "deleteWordForward",
       "deleteToBeginningOfLine", "deleteToEndOfLine":
-    let selected = view.selectedRange()
-    var start = selected.startByte
-    var finish = selected.endByte
-    if start == finish:
-      if name == "deleteWordBackward": start = previousWordBoundary(text, start)
-      elif name == "deleteWordForward": finish = nextWordBoundary(text, finish)
-      elif name == "deleteToBeginningOfLine":
-        start = activeDocument[].buffer.lineStarts[activeDocument[].buffer.lineColumn(start).line]
-      elif name == "deleteToEndOfLine":
-        finish = lineEndOffset(activeDocument, activeDocument[].buffer.lineColumn(finish).line)
-      elif name == "deleteBackward": start = previousBoundary(text, start)
-      else: finish = nextBoundary(text, finish)
-    if finish > start:
-      activeDocument[].buffer.edit(Edit(startByte: start, endByte: finish, text: ""))
-      view.moveCursor(start)
-      refreshEditorSyntax()
+    discard deleteEditorSelections(activeDocument, view, name)
   of "undo":
     if activeDocument[].buffer.undo():
       view.moveCursor(min(view.cursor, activeDocument[].buffer.toString().len))
@@ -3690,21 +3855,26 @@ proc handleSecondaryEditorCommand(name: string, document: ptr FileDocument): boo
       view.moveCursor(min(view.cursor, activeDocument[].buffer.toString().len))
       refreshEditorSyntax()
   of "copy":
-    let selected = view.selectedRange()
-    let copied = activeDocument[].buffer.substring(selected.startByte, selected.endByte)
+    let copied = copyEditorSelections(activeDocument, view)
     clipboardSet(copied.cstring, uint32(copied.len))
   of "cut":
-    let selected = view.selectedRange()
-    let copied = activeDocument[].buffer.substring(selected.startByte, selected.endByte)
+    let copied = copyEditorSelections(activeDocument, view)
     clipboardSet(copied.cstring, uint32(copied.len))
-    if selected.endByte > selected.startByte:
-      activeDocument[].buffer.edit(Edit(startByte: selected.startByte, endByte: selected.endByte, text: ""))
-      view.moveCursor(selected.startByte)
-      refreshEditorSyntax()
+    discard deleteEditorSelections(activeDocument, view, "deleteForward")
   of "paste": receiveNativeTextValue(clipboardGet(), false)
   of "selectAll":
-    view.selection.anchor = 0
-    view.selection.active = text.len
+    view.makeSingleSelection(0, text.len)
+  of "selectNext":
+    discard selectNextEditorMatch(activeDocument, view)
+  of "selectAllMatches":
+    discard selectAllEditorMatches(activeDocument, view)
+  of "addSelectionAbove", "addSelectionBelow":
+    let location = activeDocument[].buffer.lineColumn(view.cursor)
+    let delta = if name == "addSelectionAbove": -1 else: 1
+    let targetLine = location.line + delta
+    if targetLine >= 0 and targetLine <= activeDocument[].buffer.lineStarts.high:
+      discard view.addCaret(activeDocument[].buffer.byteOffsetAtLineColumn(
+        targetLine, location.column), text)
   of "save":
     if activeDocument[].path.len == 0:
       when defined(macosx):
@@ -5497,17 +5667,21 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     imeState.composition.setLen(0)
     when defined(macosx) or defined(windows): platformSetEditorComposition("".cstring)
   elif name == "moveLeft" and document != nil:
+    editorViewState.clearAdditionalSelections()
     editorViewState.moveCursor(previousBoundary(document[].buffer.toString(),
         editorViewState.cursor))
     syncEditorCursor()
   elif name == "selectLeft" and document != nil:
+    editorViewState.clearAdditionalSelections()
     editorViewState.moveCursor(previousBoundary(document[].buffer.toString(),
         editorViewState.cursor), selecting = true)
     syncEditorCursor()
   elif name == "moveRight" and document != nil:
+    editorViewState.clearAdditionalSelections()
     editorViewState.moveCursor(nextBoundary(document[].buffer.toString(), editorViewState.cursor))
     syncEditorCursor()
   elif name in ["moveUp", "moveDown", "selectUp", "selectDown"] and document != nil:
+    editorViewState.clearAdditionalSelections()
     let location = document[].buffer.lineColumn(editorViewState.cursor)
     let delta = if name in ["moveUp", "selectUp"]: -1 else: 1
     let targetLine = max(0, min(document[].buffer.lineStarts.high, location.line + delta))
@@ -5515,25 +5689,31 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     editorViewState.moveCursor(target, selecting = name.startsWith("select"))
     syncEditorCursor()
   elif name in ["moveToBeginningOfLine", "selectToBeginningOfLine"] and document != nil:
+    editorViewState.clearAdditionalSelections()
     let location = document[].buffer.lineColumn(editorViewState.cursor)
     editorViewState.moveCursor(document[].buffer.lineStarts[location.line],
       selecting = name.startsWith("select"))
     syncEditorCursor()
   elif name in ["moveToEndOfLine", "selectToEndOfLine"] and document != nil:
+    editorViewState.clearAdditionalSelections()
     let location = document[].buffer.lineColumn(editorViewState.cursor)
     editorViewState.moveCursor(lineEndOffset(document, location.line),
       selecting = name.startsWith("select"))
     syncEditorCursor()
   elif name == "moveToBeginningOfDocument" and document != nil:
+    editorViewState.clearAdditionalSelections()
     editorViewState.moveCursor(0)
     syncEditorCursor()
   elif name == "moveToEndOfDocument" and document != nil:
+    editorViewState.clearAdditionalSelections()
     editorViewState.moveCursor(document[].buffer.toString().len)
     syncEditorCursor()
   elif name == "selectToBeginningOfDocument" and document != nil:
+    editorViewState.clearAdditionalSelections()
     editorViewState.moveCursor(0, selecting = true)
     syncEditorCursor()
   elif name == "selectToEndOfDocument" and document != nil:
+    editorViewState.clearAdditionalSelections()
     editorViewState.moveCursor(document[].buffer.toString().len, selecting = true)
     syncEditorCursor()
   elif name == "insertNewline" and document != nil:
@@ -5541,42 +5721,33 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "insertTab" and document != nil:
     receiveNativeText("\t".cstring, false)
   elif name == "selectRight" and document != nil:
+    editorViewState.clearAdditionalSelections()
     editorViewState.moveCursor(nextBoundary(document[].buffer.toString(), editorViewState.cursor),
         selecting = true)
     syncEditorCursor()
   elif name == "moveWordLeft" and document != nil:
+    editorViewState.clearAdditionalSelections()
     editorViewState.moveCursor(previousWordBoundary(document[].buffer.toString(),
         editorViewState.cursor))
     syncEditorCursor()
   elif name == "selectWordLeft" and document != nil:
+    editorViewState.clearAdditionalSelections()
     editorViewState.moveCursor(previousWordBoundary(document[].buffer.toString(),
         editorViewState.cursor), selecting = true)
     syncEditorCursor()
   elif name == "moveWordRight" and document != nil:
+    editorViewState.clearAdditionalSelections()
     editorViewState.moveCursor(nextWordBoundary(document[].buffer.toString(),
         editorViewState.cursor))
     syncEditorCursor()
   elif name == "selectWordRight" and document != nil:
+    editorViewState.clearAdditionalSelections()
     editorViewState.moveCursor(nextWordBoundary(document[].buffer.toString(),
         editorViewState.cursor), selecting = true)
     syncEditorCursor()
   elif name in ["deleteBackward", "deleteForward", "deleteWordBackward", "deleteWordForward",
                 "deleteToBeginningOfLine", "deleteToEndOfLine"] and document != nil:
-    let selected = editorViewState.selectedRange()
-    var start = selected.startByte
-    var finish = selected.endByte
-    if start == finish:
-      if name == "deleteWordBackward": start = previousWordBoundary(document[].buffer.toString(), start)
-      elif name == "deleteWordForward": finish = nextWordBoundary(document[].buffer.toString(), finish)
-      elif name == "deleteToBeginningOfLine":
-        start = document[].buffer.lineStarts[document[].buffer.lineColumn(start).line]
-      elif name == "deleteToEndOfLine":
-        finish = lineEndOffset(document, document[].buffer.lineColumn(finish).line)
-      elif name == "deleteBackward": start = previousBoundary(document[].buffer.toString(), start)
-      else: finish = nextBoundary(document[].buffer.toString(), finish)
-    if finish > start:
-      document[].buffer.edit(Edit(startByte: start, endByte: finish, text: ""))
-      editorViewState.moveCursor(start)
+    if deleteEditorSelections(document, editorViewState, name):
       syncEditorCursor()
       refreshEditorSyntax()
       scheduleSessionPersistence()
@@ -5593,25 +5764,37 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       refreshEditorSyntax()
       scheduleSessionPersistence()
   elif name == "copy" and document != nil:
-    let selected = editorViewState.selectedRange()
-    let copied = document[].buffer.substring(selected.startByte, selected.endByte)
+    let copied = copyEditorSelections(document, editorViewState)
     clipboardSet(copied.cstring, uint32(copied.len))
   elif name == "cut" and document != nil:
-    let selected = editorViewState.selectedRange()
-    let copied = document[].buffer.substring(selected.startByte, selected.endByte)
+    let copied = copyEditorSelections(document, editorViewState)
     clipboardSet(copied.cstring, uint32(copied.len))
-    if selected.endByte > selected.startByte:
-      document[].buffer.edit(Edit(startByte: selected.startByte, endByte: selected.endByte, text: ""))
-      editorViewState.moveCursor(selected.startByte)
+    if deleteEditorSelections(document, editorViewState, "deleteForward"):
       refreshEditorSyntax()
       syncEditorCursor()
       scheduleSessionPersistence()
   elif name == "paste":
     receiveNativeTextValue(clipboardGet(), false)
   elif name == "selectAll" and document != nil:
-    editorViewState.selection.anchor = 0
-    editorViewState.selection.active = document[].buffer.toString().len
+    editorViewState.makeSingleSelection(0, document[].buffer.toString().len)
     syncEditorCursor()
+  elif name == "selectNext" and document != nil:
+    if selectNextEditorMatch(document, editorViewState):
+      syncEditorCursor()
+      refreshEditorSyntax()
+  elif name == "selectAllMatches" and document != nil:
+    if selectAllEditorMatches(document, editorViewState) > 0:
+      syncEditorCursor()
+      refreshEditorSyntax()
+  elif name in ["addSelectionAbove", "addSelectionBelow"] and document != nil:
+    let location = document[].buffer.lineColumn(editorViewState.cursor)
+    let delta = if name == "addSelectionAbove": -1 else: 1
+    let targetLine = location.line + delta
+    if targetLine >= 0 and targetLine <= document[].buffer.lineStarts.high and
+        editorViewState.addCaret(document[].buffer.byteOffsetAtLineColumn(
+          targetLine, location.column), document[].buffer.toString()):
+      syncEditorCursor()
+      refreshEditorSyntax()
 
 proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   if event.isNil: return
@@ -5808,12 +5991,26 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           lspBridge.hideHover()
           editorLspSignatureText = ""
           syncNativeHover()
-        editorPointerDragging = true
+        let addSelection = optionModifier in macOSModifiers(event.modifiers)
         if editorPointerPane == 1:
-          editorSession.secondaryView.moveCursor(offset)
+          let text = document[].buffer.toString()
+          let tab = focusedPaneTabIndex()
+          if tab >= 0 and tab < editorSession.tabs.len:
+            var view = editorSession.tabs[tab].secondaryView
+            if addSelection: discard view.addCaret(offset, text)
+            else: view.makeSingleSelection(offset, offset)
+            editorSession.tabs[tab].secondaryView = view
+            editorSession.secondaryView = view
         else:
-          editorViewState.moveCursor(offset)
+          if addSelection:
+            discard editorViewState.addCaret(offset, document[].buffer.toString())
+          else:
+            editorViewState.makeSingleSelection(offset, offset)
+        editorPointerDragging = not addSelection
         syncEditorCursor()
+        if addSelection:
+          editorPointerPane = 0
+          return
       elif kind == pointerMove and not editorPointerDragging and lspBridge != nil:
         lspBridge.scheduleHover(offset)
         let bounds = if editorPointerPane == 1: demoSecondaryEditorBounds else: demoEditorBounds

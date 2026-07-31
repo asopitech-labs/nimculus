@@ -41,7 +41,11 @@ proc normalizedSessionPaths(paths: openArray[string], directoriesOnly = false): 
       result.add(identityPath)
 
 proc serializedView(view: EditorViewState): JsonNode =
+  var additional = newJArray()
+  for selection in view.additionalSelections:
+    additional.add(%*{"anchor": selection.anchor, "active": selection.active})
   %*{"anchor": view.selection.anchor, "active": view.selection.active,
+      "additionalSelections": additional,
       "scrollLine": view.scrollLine, "scrollX": view.scrollX,
       "showLineNumbers": view.showLineNumbers,
       "softWrap": view.softWrap, "showIndentGuides": view.showIndentGuides,
@@ -52,6 +56,13 @@ proc loadView(node: JsonNode, text: string): EditorViewState =
   if node == nil or node.kind != JObject: return
   result.selection.anchor = floorGraphemeBoundary(text, jsonInt(node, "anchor", 0))
   result.selection.active = floorGraphemeBoundary(text, jsonInt(node, "active", 0))
+  if node.hasKey("additionalSelections") and node["additionalSelections"].kind == JArray:
+    for item in node["additionalSelections"]:
+      if item.kind != JObject: continue
+      result.additionalSelections.add(Selection(
+        anchor: floorGraphemeBoundary(text, jsonInt(item, "anchor", 0)),
+        active: floorGraphemeBoundary(text, jsonInt(item, "active", 0))))
+    result.clampSelectionToText(text)
   result.scrollLine = max(0, jsonInt(node, "scrollLine", 0))
   result.scrollX = max(0'f32, jsonFloat(node, "scrollX", 0'f32))
   result.showLineNumbers = jsonBool(node, "showLineNumbers", true)

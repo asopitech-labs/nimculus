@@ -112,6 +112,8 @@ void nimculus_platform_set_secondary_editor_cursor_byte(uint32_t byte_offset,
                                                         uint32_t line);
 void nimculus_platform_set_secondary_editor_selection(uint32_t start_byte,
                                                       uint32_t end_byte);
+void nimculus_platform_set_secondary_editor_selections(const NimculusEditorSelection *selections,
+                                                       uint32_t count);
 void nimculus_platform_set_secondary_editor_scroll_line(uint32_t line);
 void nimculus_platform_set_secondary_editor_scroll_x(double offset);
 double nimculus_platform_secondary_editor_scroll_x(void);
@@ -138,6 +140,8 @@ void nimculus_platform_request_quit(void);
 void nimculus_platform_confirm_quit(void);
 void nimculus_platform_show_save_panel_and_close(void);
 void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_byte);
+void nimculus_platform_set_editor_selections(const NimculusEditorSelection *selections,
+                                             uint32_t count);
 void nimculus_platform_set_editor_text(const char *utf8, uint32_t length);
 void nimculus_platform_set_secondary_editor_text(const char *utf8, uint32_t length);
 void nimculus_platform_set_editor_outline(const char *utf8, uint32_t length,

@@ -57,6 +57,11 @@ typedef struct NimculusDiagnosticSpan {
   uint32_t end_byte;
   uint32_t severity;
 } NimculusDiagnosticSpan;
+typedef struct NimculusEditorSelection {
+  uint32_t start_byte;
+  uint32_t end_byte;
+  uint32_t cursor_byte;
+} NimculusEditorSelection;
 typedef struct NimculusEditorAnnotation {
   uint32_t line;
   uint32_t character;

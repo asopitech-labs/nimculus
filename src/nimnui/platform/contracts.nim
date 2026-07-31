@@ -19,6 +19,8 @@ type
     startByte*, endByte*, kind*: uint32
   NativeDiagnosticSpan* {.bycopy.} = object
     startByte*, endByte*, severity*: uint32
+  NativeEditorSelection* {.bycopy.} = object
+    startByte*, endByte*, cursorByte*: uint32
   NativeGitHunkSpan* {.bycopy.} = object
     startLine*, lineCount*, kind*: uint32
   NativePaintCommand* {.bycopy.} = object

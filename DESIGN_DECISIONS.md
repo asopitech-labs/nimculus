@@ -6227,3 +6227,32 @@ Zed keeps scroll state and viewport queries on the owning editor/pane.
 different line counts, and resizing one pane does not change the other pane's
 scroll behavior. The shared UI/editor contracts continue to own interaction
 semantics while the macOS platform layer supplies pane-specific geometry.
+
+## UI-076: Make multi-selection a user-visible editor feature
+
+**Context.** The editor buffer already supported atomic `applyEdits`, but the
+application exposed only one selection and one caret. That made the M4
+"multiple cursors" capability an internal API property rather than a usable
+macOS editor feature. Zed's editor keeps a collection of selections and routes
+text edits through all non-overlapping ranges in one transaction.
+
+**Decision.** Keep the existing primary `Selection` field as the compatibility
+boundary and add pane-owned `additionalSelections`. Normalize ranges in
+document order before editing, reject duplicates/overlaps at the view boundary,
+and apply insertion, deletion, cut, and paste through `PieceTable.applyEdits`.
+Expose macOS entry points matching the reference interaction model:
+Option-click, Cmd+D, Cmd+Shift+L, and Option+Shift+Up/Down. Persist additional
+selections with the tab view state.
+
+The Cocoa/Metal boundary receives a bounded array of UTF-8 byte ranges and
+caret positions for each pane. Core Text renders every selection inside the
+same four-sided text clip and paints additional carets after the text overlay.
+The existing single-selection setter remains valid for native contracts and
+compatibility callers.
+
+**Consequences.** Multi-selection is now visible, editable, undoable, and
+restorable in the macOS application, while the editor core remains independent
+of Cocoa. Movement commands collapse additional selections as in a normal
+single-caret navigation, so the behavior is predictable when leaving a
+multi-selection operation. The native array is capped at 256 entries to keep
+per-frame ABI work bounded.

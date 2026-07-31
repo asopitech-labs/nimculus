@@ -353,6 +353,7 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 - [x] 内容リビジョンでdirtyを判定し、保存済み内容へのUndo/Redo復帰を正しく扱う
 - [x] Undo / Redo
 - [x] 複数カーソルの原子的編集
+- [x] UI複数選択：Option-click、Cmd+D、Cmd+Shift+L、Option+Shift+Up/DownをZedのselection操作モデルに合わせ、入力・削除・cut/paste・描画・session復元へ接続
 - [x] 選択、編集グループ
 - [x] 100MB級ロードベンチマーク
 - [x] 編集・substring・UTF-8境界検証・行index lookupをpiece単位で処理し、編集時の全体flattenを回避
@@ -372,6 +373,10 @@ Nimculus および NimNUI の初期主対象を macOS とする。初期開発�
 **進捗：** 🟡 自動検証済み・macOS E2E対象
 
 **目的：** macOS で日常利用できる単一ファイルエディタを完成させる。
+
+**2026-07-31更新：** 複数選択をmacOSの実操作入口まで接続した。選択範囲は
+document-orderへ正規化し、Piece Tableの`applyEdits`で一つのUndo単位として処理する。
+Core Text／Metalのprimary・secondary paneは全選択範囲と追加caretを同じclip内へ描画する。
 
 **実装範囲：**
 
