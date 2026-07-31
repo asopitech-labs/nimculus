@@ -134,6 +134,14 @@ suite "M12 settings foundation":
     removeFile(path)
     removeDir(root)
 
+  test "ships distinct default icons for common project files":
+    let store = newSettingsStore("", "", "")
+    check store.iconForPath("src/main.nim") == "◆"
+    check store.iconForPath("README.md") == "≡"
+    check store.iconForPath("package.json") == "{}"
+    check store.iconForPath("scripts/build.sh") == "$"
+    check store.iconForPath("src", true) == "▸"
+
   test "resolves the system theme without reloading settings":
     let root = getTempDir() / "nimculus-settings-system-theme"
     createDir(root)

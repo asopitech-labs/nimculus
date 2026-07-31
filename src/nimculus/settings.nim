@@ -225,9 +225,21 @@ proc registerBuiltinThemes*(store: SettingsStore) =
     accent: "#007aff", selection: "#b9d7ff", border: "#c7cbd1", syntax: objectNode())
   store.themeRegistry["dark"] = themeWithColors("dark", "dark", dark)
   store.themeRegistry["light"] = themeWithColors("light", "light", light)
+  # Keep the default tree legible without requiring a separately installed
+  # icon font. These compact glyphs are intentionally text-safe (including in
+  # the native NSTextView fallback) while still making common source and
+  # document types visually distinguishable at a glance.
+  var fileIcons = initTable[string, string]()
+  for entry in [("nim", "◆"), ("md", "≡"), ("json", "{}"),
+      ("toml", "⚙"), ("yaml", "≋"), ("yml", "≋"), ("rs", "R"),
+      ("ts", "T"), ("tsx", "T"), ("js", "J"), ("jsx", "J"),
+      ("py", "P"), ("c", "C"), ("h", "H"), ("cpp", "C"),
+      ("hpp", "H"), ("sh", "$"), ("zsh", "$"), ("fish", "$"),
+      ("html", "◇"), ("css", "#"), ("xml", "◇"), ("txt", "·")]:
+    fileIcons[entry[0]] = entry[1]
   store.iconThemeRegistry["Nimculus Default"] = IconThemeDefinition(
     name: "Nimculus Default", directoryIcon: "▸", fileIcon: "•",
-    fileIcons: initTable[string, string]())
+    fileIcons: fileIcons)
 
 proc configuredThemeColors(node: JsonNode; fallback: ThemeColors): ThemeColors =
   result = fallback
