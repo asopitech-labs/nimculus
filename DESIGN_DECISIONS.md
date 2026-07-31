@@ -6208,3 +6208,22 @@ annotations into the wrong editor. Empty responses clear the requesting
 document's visible annotations, and a stale response cannot replace a newer
 snapshot. The native contract checks pointer, count, and owned-string
 separation for both panes.
+
+## UI-075: Keep split-pane viewport calculations local
+
+**Context.** The primary and secondary macOS editor panes can display different
+documents and have different heights in a horizontal split. Reusing the
+primary document's line count or visible-line budget for secondary scrolling
+allowed the secondary pane to overscroll, clip syntax ranges against the wrong
+buffer, and position its cursor using the wrong viewport.
+
+**Decision.** Derive the visible-line budget from each pane's actual native
+editor bounds. Route scroll clamping, trackpad fractional remainder, cursor
+visibility, and syntax visible ranges through the focused pane's document and
+view state. Keep the primary and secondary scroll remainders separate, just as
+Zed keeps scroll state and viewport queries on the owning editor/pane.
+
+**Consequences.** A horizontal split remains bounded when its documents have
+different line counts, and resizing one pane does not change the other pane's
+scroll behavior. The shared UI/editor contracts continue to own interaction
+semantics while the macOS platform layer supplies pane-specific geometry.

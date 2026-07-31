@@ -16,6 +16,12 @@ proc git(repo: string, args: varargs[string]): string =
   doAssert output.exitCode == 0, output.output
   output.output
 
+proc m9TempDir(label: string): string =
+  ## Every Git test gets a fresh directory so an interrupted test cannot make
+  ## the next `git init` fail while copying its template files.
+  getTempDir() / ("nimculus-m9-" & label & "-" & $getCurrentProcessId() & "-" &
+    $int(epochTime() * 1_000_000))
+
 suite "M9 Git service":
   test "bounds Git output at UTF-8 and line boundaries":
     let bounded = appendBoundedGitOutput("old\n", "日本語の長い出力\nnew\n", limit = 16)
@@ -47,8 +53,7 @@ suite "M9 Git service":
     check entries[2].conflict
 
   test "runs status, diff, stage, commit, log and blame":
-    let root = getTempDir() / "nimculus-m9-git"
-    if dirExists(root): removeDir(root)
+    let root = m9TempDir("git")
     createDir(root)
     defer: removeDir(root)
     discard git(root, "init", "-q")
@@ -83,10 +88,8 @@ suite "M9 Git service":
     check renamed[0].originalPath == "main.nim"
 
   test "resolves the first Git repository from workspace roots":
-    let root = getTempDir() / "nimculus-m9-workspace-root"
-    let ordinary = getTempDir() / "nimculus-m9-ordinary-root"
-    if dirExists(root): removeDir(root)
-    if dirExists(ordinary): removeDir(ordinary)
+    let root = m9TempDir("workspace-root")
+    let ordinary = m9TempDir("ordinary-root")
     createDir(root)
     createDir(ordinary)
     defer:
@@ -101,8 +104,7 @@ suite "M9 Git service":
     check repository.root == directRepository.root
 
   test "returns newest-first bounded commit history for the Git sidebar":
-    let root = getTempDir() / "nimculus-m9-history"
-    if dirExists(root): removeDir(root)
+    let root = m9TempDir("history")
     createDir(root)
     defer: removeDir(root)
     discard git(root, "init", "-q")
@@ -170,8 +172,7 @@ suite "M9 Git service":
     check job.result.exitCode == -1
 
   test "cancels a Git process that is waiting for stdin":
-    let root = getTempDir() / "nimculus-m9-blocked-job"
-    if dirExists(root): removeDir(root)
+    let root = m9TempDir("blocked-job")
     createDir(root)
     defer: removeDir(root)
     discard git(root, "init", "-q")
@@ -185,9 +186,8 @@ suite "M9 Git service":
 
   when defined(posix):
     test "cancels the direct Git child without blocking the editor":
-      let root = getTempDir() / "nimculus-m9-git-process-group"
+      let root = m9TempDir("git-process-group")
       let fakeGit = root / "git"
-      if dirExists(root): removeDir(root)
       createDir(root)
       writeFile(fakeGit, "#!/bin/sh\nexec sleep 30\n")
       setFilePermissions(fakeGit, {fpUserRead, fpUserWrite, fpUserExec})
@@ -204,9 +204,8 @@ suite "M9 Git service":
       check job.cancelled
 
     test "bounds repository probing when Git does not respond":
-      let root = getTempDir() / "nimculus-m9-probe-timeout"
+      let root = m9TempDir("probe-timeout")
       let fakeGit = root / "git"
-      if dirExists(root): removeDir(root)
       createDir(root)
       writeFile(fakeGit, "#!/bin/sh\nexec sleep 10\n")
       setFilePermissions(fakeGit, {fpUserRead, fpUserWrite, fpUserExec})
@@ -221,9 +220,8 @@ suite "M9 Git service":
       check epochTime() - started < 4.0
 
     test "drains verbose Git output before process exit":
-      let root = getTempDir() / "nimculus-m9-verbose-job"
+      let root = m9TempDir("verbose-job")
       let fakeGit = root / "git"
-      if dirExists(root): removeDir(root)
       createDir(root)
       writeFile(fakeGit, "#!/bin/sh\nhead -c 1048576 /dev/zero | tr '\\000' x\n")
       setFilePermissions(fakeGit, {fpUserRead, fpUserWrite, fpUserExec})
@@ -243,8 +241,7 @@ suite "M9 Git service":
       check job.result.output.len == 1_048_576
 
   test "stages and unstages one hunk without affecting another":
-    let root = getTempDir() / "nimculus-m9-hunk"
-    if dirExists(root): removeDir(root)
+    let root = m9TempDir("hunk")
     createDir(root)
     defer: removeDir(root)
     discard git(root, "init", "-q")

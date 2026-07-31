@@ -586,6 +586,7 @@ var externalAlertTab = -1
 var editorPointerDragging = false
 var editorPointerPane = 0
 var editorScrollRemainder = 0'f32
+var editorSecondaryScrollRemainder = 0'f32
 var sessionFilePath = ""
 var recoveryFilePath = ""
 var crashReportPath = ""
@@ -646,6 +647,7 @@ proc resetEditorTransientState() =
   ## Tab switches must preserve their cursor/selection/viewport. Only reset
   ## interaction and derived UI state which is not owned by an EditorTab.
   editorScrollRemainder = 0'f32
+  editorSecondaryScrollRemainder = 0'f32
   when defined(macosx):
     pendingLspSymbols.setLen(0)
     pendingLspSymbolDepths.setLen(0)
@@ -1961,11 +1963,19 @@ when defined(macosx):
         editorGitEntriesGeneration == editorGitBranchGeneration:
       renderNativeGitStatus(editorGitStatusSourceEntries)
 
+  proc editorVisibleLineCountForBounds(bounds: Rect): int =
+    max(1, int(ceil(float32(bounds.size.height) / 18'f32)))
+
   proc editorVisibleLineCount(): int =
     ## Keep cursor reveal, syntax requests, and native text rendering on the
     ## same viewport contract. The old fixed 12-line value left taller windows
     ## only half painted.
-    max(1, int(ceil(float32(demoEditorBounds.size.height) / 18'f32)))
+    editorVisibleLineCountForBounds(demoEditorBounds)
+
+  proc secondaryEditorVisibleLineCount(): int =
+    ## A horizontal split gives the secondary pane a different viewport height;
+    ## it must not borrow the primary pane's cursor and scroll geometry.
+    editorVisibleLineCountForBounds(demoSecondaryEditorBounds)
 
 proc setupPersistencePaths() =
   let directory = when defined(macosx):
@@ -2665,7 +2675,7 @@ when defined(macosx):
       return
     let tab = editorWorkspaceUi.center.second.pane.activeTabIndex
     var view = editorSession.tabs[tab].secondaryView
-    view.ensureCursorVisible(document[].buffer, editorVisibleLineCount())
+    view.ensureCursorVisible(document[].buffer, secondaryEditorVisibleLineCount())
     editorSession.tabs[tab].secondaryView = view
     let location = document[].buffer.lineColumn(view.cursor)
     let selection = view.selectedRange()
@@ -2948,8 +2958,6 @@ proc refreshEditorSyntax() =
         else: document[].buffer.toString().len
         (firstByte: uint32(firstByte), lastByte: uint32(lastByte))
       var ranges = @[visibleByteRange(editorViewState)]
-      if editorSession.split:
-        ranges.add(visibleByteRange(editorSession.secondaryView))
       syntaxState.visibleHighlights(ranges)
     var nativeHighlights = newSeq[NativeHighlightSpan](highlights.len)
     for index, span in highlights:
@@ -3044,7 +3052,7 @@ when defined(macosx):
       secondarySyntaxState.update(text)
     let tab = editorWorkspaceUi.center.second.pane.activeTabIndex
     let view = editorSession.tabs[tab].secondaryView
-    let visibleLines = editorVisibleLineCount()
+    let visibleLines = secondaryEditorVisibleLineCount()
     let firstLine = min(view.scrollLine, document[].buffer.lineStarts.high)
     let firstByte = document[].buffer.lineStarts[firstLine]
     let requestedLastLine = firstLine + visibleLines
@@ -5685,9 +5693,13 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       lspBridge.hideHover()
       syncNativeHover()
     if document != nil and kind == scroll and inEditor:
-      let maxScroll = max(0, document[].buffer.lineStarts.len - editorVisibleLineCount())
       let pane = if demoSplitEnabled:
         max(0, editorWorkspaceUi.paneIndexAt(demoTree.node(demoScrollNode).bounds, point)) else: 0
+      let scrollDocument = if pane == 1: secondaryPaneDocument() else: document
+      let visibleLines = if pane == 1: secondaryEditorVisibleLineCount() else:
+        editorVisibleLineCount()
+      let maxScroll = if scrollDocument == nil: 0 else:
+        max(0, scrollDocument[].buffer.lineStarts.len - visibleLines)
       let modifiers = macOSModifiers(event.modifiers)
       let shiftScroll = shiftModifier in modifiers
       let horizontalDelta = if abs(float32(event.deltaX)) > 0.01'f32:
@@ -5700,7 +5712,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           editorSession.secondaryView.scrollX = max(0'f32,
             editorSession.secondaryView.scrollX + horizontalDelta)
         if abs(verticalDelta) > 0.01'f32:
-          let delta = scrollLineDelta(editorScrollRemainder, verticalDelta,
+          let delta = scrollLineDelta(editorSecondaryScrollRemainder, verticalDelta,
             event.preciseScrolling)
           editorSession.secondaryView.scrollLine = max(0, min(maxScroll,
             editorSession.secondaryView.scrollLine + delta))
