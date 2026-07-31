@@ -158,6 +158,9 @@ static double g_editor_hover_position[2] = {8.0, 12.0};
 static NimculusEditorAnnotation *g_editor_annotations = NULL;
 static uint32_t g_editor_annotation_count = 0;
 static NSMutableArray<NSString *> *g_editor_annotation_texts = nil;
+static NimculusEditorAnnotation *g_secondary_editor_annotations = NULL;
+static uint32_t g_secondary_editor_annotation_count = 0;
+static NSMutableArray<NSString *> *g_secondary_editor_annotation_texts = nil;
 static NSString *g_clipboard_text = @"";
 static NSData *g_clipboard_utf8_data = nil;
 static char g_dialog_path[PATH_MAX] = {0};
@@ -493,10 +496,12 @@ static void releasePlatformResources(void) {
   free(g_secondary_git_hunks); g_secondary_git_hunks = NULL; g_secondary_git_hunk_count = 0;
   free(g_terminal_runs); g_terminal_runs = NULL; g_terminal_run_count = 0;
   free(g_editor_annotations); g_editor_annotations = NULL; g_editor_annotation_count = 0;
+  free(g_secondary_editor_annotations); g_secondary_editor_annotations = NULL; g_secondary_editor_annotation_count = 0;
   [g_terminal_hyperlinks release]; g_terminal_hyperlinks = nil;
   [g_terminal_session_titles release]; g_terminal_session_titles = nil;
   [g_task_output_title release]; g_task_output_title = nil;
   [g_editor_annotation_texts release]; g_editor_annotation_texts = nil;
+  [g_secondary_editor_annotation_texts release]; g_secondary_editor_annotation_texts = nil;
   [g_editor_tab_titles release]; g_editor_tab_titles = nil;
   [g_secondary_editor_tab_titles release]; g_secondary_editor_tab_titles = nil;
   [g_recent_files release]; g_recent_files = nil;
@@ -546,13 +551,13 @@ bool nimculus_platform_validate_resource_teardown(void) {
     g_paint_commands == NULL && g_paint_dirty_regions == NULL &&
     g_highlights == NULL && g_secondary_highlights == NULL && g_diagnostics == NULL &&
     g_secondary_diagnostics == NULL && g_git_hunks == NULL && g_secondary_git_hunks == NULL &&
-    g_terminal_runs == NULL && g_editor_annotations == NULL &&
+    g_terminal_runs == NULL && g_editor_annotations == NULL && g_secondary_editor_annotations == NULL &&
     g_pending_file_open_paths == nil &&
     g_glyph_vertex_count == 0 && g_paint_count == 0 &&
     g_paint_dirty_count == 0 && g_highlight_count == 0 && g_secondary_highlight_count == 0 &&
     g_diagnostic_count == 0 && g_git_hunk_count == 0 &&
     g_terminal_run_count == 0 && g_terminal_glyph_vertex_count == 0 &&
-    g_editor_annotation_count == 0;
+    g_editor_annotation_count == 0 && g_secondary_editor_annotation_count == 0;
 }
 
 static void markSceneFullyDirty(void) {
@@ -2323,7 +2328,10 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusEditorContextOverlay : NSTextField
 @end
 
-@interface NimculusEditorAnnotationOverlay : NSView
+@interface NimculusEditorAnnotationOverlay : NSView {
+  BOOL _secondary;
+}
+@property(nonatomic) BOOL secondary;
 @end
 
 static NSUInteger editorSidebarLineForItem(NSUInteger item);
@@ -3945,6 +3953,7 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 @end
 
 @implementation NimculusEditorAnnotationOverlay
+@synthesize secondary = _secondary;
 - (BOOL)isFlipped { return YES; }
 - (NSView *)hitTest:(NSPoint)point { return nil; }
 - (void)drawRect:(NSRect)dirtyRect {
@@ -3954,9 +3963,29 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   // belongs only to the text content viewport. Without this clip an inlay
   // hint can paint over the scrollbar, split boundary, sidebar, or status
   // area even though the underlying editor texture is correctly scissored.
-  const NSRect textClip = editorAnnotationClipRect(g_editor_rect);
+  const BOOL secondary = self.secondary;
+  const NSRect textClip = editorAnnotationClipRect(secondary ?
+    g_secondary_editor_rect : g_editor_rect);
   if (NSIsEmptyRect(textClip)) return;
   NSRectClip(textClip);
+  NimculusEditorAnnotation *annotations = secondary ? g_secondary_editor_annotations :
+    g_editor_annotations;
+  uint32_t annotationCount = secondary ? g_secondary_editor_annotation_count :
+    g_editor_annotation_count;
+  NSMutableArray<NSString *> *annotationTexts = secondary ?
+    g_secondary_editor_annotation_texts : g_editor_annotation_texts;
+  double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
+    g_editor_rect[2], g_editor_rect[3]};
+  NSUInteger previousScrollLine = g_editor_scroll_line;
+  CGFloat previousScrollX = g_editor_scroll_x;
+  BOOL previousSoftWrap = g_editor_soft_wrap;
+  if (secondary) {
+    memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
+    g_editor_scroll_line = g_secondary_editor_scroll_line;
+    g_editor_scroll_x = g_secondary_editor_scroll_x;
+    g_editor_soft_wrap = g_secondary_editor_soft_wrap;
+    swapEditorTextState();
+  }
   NSDictionary *attributes = @{
     NSFontAttributeName: [NSFont fontWithName:@"Menlo-Italic" size:11.0] ?:
       [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular],
@@ -3964,9 +3993,9 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
       [NSColor colorWithCalibratedRed:0.35 green:0.65 blue:0.95 alpha:0.82])
       colorWithAlphaComponent:0.78]
   };
-  for (uint32_t index = 0; index < g_editor_annotation_count; index++) {
-    if (!g_editor_annotation_texts || index >= g_editor_annotation_texts.count) continue;
-    NSString *text = g_editor_annotation_texts[index];
+  for (uint32_t index = 0; index < annotationCount; index++) {
+    if (!annotationTexts || index >= annotationTexts.count || !annotations) continue;
+    NSString *text = annotationTexts[index];
     if (text.length == 0) continue;
     NimculusEditorAnnotation annotation = g_editor_annotations[index];
     if ((NSUInteger)annotation.line < g_editor_scroll_line) continue;
@@ -3978,6 +4007,13 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     if (x >= NSMaxX(textClip) || y >= NSMaxY(textClip)) continue;
     if (x + 1.0 < NSMinX(textClip) || y + 1.0 < NSMinY(textClip)) continue;
     [text drawAtPoint:NSMakePoint(x, y) withAttributes:attributes];
+  }
+  if (secondary) {
+    swapEditorTextState();
+    memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
+    g_editor_scroll_line = previousScrollLine;
+    g_editor_scroll_x = previousScrollX;
+    g_editor_soft_wrap = previousSoftWrap;
   }
 }
 @end
@@ -4701,6 +4737,13 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     annotations.hidden = YES;
     [self addSubview:annotations];
     [annotations release];
+    NimculusEditorAnnotationOverlay *secondaryAnnotations =
+      [[NimculusEditorAnnotationOverlay alloc] initWithFrame:self.bounds];
+    secondaryAnnotations.secondary = YES;
+    secondaryAnnotations.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    secondaryAnnotations.hidden = YES;
+    [self addSubview:secondaryAnnotations];
+    [secondaryAnnotations release];
     NimculusDocumentSearchOverlay *documentSearch =
       [[NimculusDocumentSearchOverlay alloc] initWithFrame:NSZeroRect];
     documentSearch.hidden = YES;
@@ -4797,6 +4840,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusOutputPanelBar *outputBar = nil;
   NimculusTaskOutputOverlay *taskOutput = nil;
   NimculusEditorAnnotationOverlay *annotations = nil;
+  NimculusEditorAnnotationOverlay *secondaryAnnotations = nil;
   NimculusDocumentSearchOverlay *documentSearch = nil;
   NimculusCommandPaletteOverlay *commandPalette = nil;
   NimculusGitCommitOverlay *gitCommitEditor = nil;
@@ -4815,7 +4859,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusTerminalSessionBar class]]) terminalSessions = (NimculusTerminalSessionBar *)subview;
     if ([subview isKindOfClass:[NimculusOutputPanelBar class]]) outputBar = (NimculusOutputPanelBar *)subview;
     if ([subview isKindOfClass:[NimculusTaskOutputOverlay class]]) taskOutput = (NimculusTaskOutputOverlay *)subview;
-    if ([subview isKindOfClass:[NimculusEditorAnnotationOverlay class]]) annotations = (NimculusEditorAnnotationOverlay *)subview;
+    if ([subview isKindOfClass:[NimculusEditorAnnotationOverlay class]]) {
+      if (((NimculusEditorAnnotationOverlay *)subview).secondary)
+        secondaryAnnotations = (NimculusEditorAnnotationOverlay *)subview;
+      else annotations = (NimculusEditorAnnotationOverlay *)subview;
+    }
     if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) documentSearch = (NimculusDocumentSearchOverlay *)subview;
     if ([subview isKindOfClass:[NimculusCommandPaletteOverlay class]]) commandPalette = (NimculusCommandPaletteOverlay *)subview;
     if ([subview isKindOfClass:[NimculusGitCommitOverlay class]]) gitCommitEditor = (NimculusGitCommitOverlay *)subview;
@@ -5039,6 +5087,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     annotations.frame = self.bounds;
     annotations.hidden = g_editor_annotation_count == 0;
     [annotations setNeedsDisplay:YES];
+  }
+  if (secondaryAnnotations) {
+    secondaryAnnotations.frame = self.bounds;
+    secondaryAnnotations.hidden = !g_secondary_editor_visible ||
+      g_secondary_editor_annotation_count == 0;
+    [secondaryAnnotations setNeedsDisplay:YES];
   }
   if (documentSearch && !documentSearch.hidden) {
     const CGFloat preferredWidth = MIN(420.0, MAX(1.0, g_editor_rect[2] - 16.0));
@@ -10139,6 +10193,28 @@ bool nimculus_platform_validate_secondary_highlight_isolation(void) {
   return valid;
 }
 
+bool nimculus_platform_validate_secondary_annotation_isolation(void) {
+  NimculusEditorAnnotation primary = {.line = 1, .character = 2, .kind = 0,
+    .text = "primary"};
+  NimculusEditorAnnotation secondary = {.line = 4, .character = 5, .kind = 1,
+    .text = "secondary"};
+  nimculus_platform_set_editor_annotations(&primary, 1);
+  nimculus_platform_set_secondary_editor_annotations(&secondary, 1);
+  BOOL valid = g_editor_annotations != NULL &&
+    g_secondary_editor_annotations != NULL &&
+    g_editor_annotations != g_secondary_editor_annotations &&
+    g_editor_annotation_count == 1 && g_secondary_editor_annotation_count == 1 &&
+    g_editor_annotations[0].line == 1 &&
+    g_secondary_editor_annotations[0].line == 4 &&
+    g_editor_annotation_texts.count == 1 &&
+    g_secondary_editor_annotation_texts.count == 1 &&
+    [g_editor_annotation_texts[0] isEqualToString:@"primary"] &&
+    [g_secondary_editor_annotation_texts[0] isEqualToString:@"secondary"];
+  nimculus_platform_set_editor_annotations(NULL, 0);
+  nimculus_platform_set_secondary_editor_annotations(NULL, 0);
+  return valid;
+}
+
 void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans, uint32_t count) {
   free(g_highlights);
   g_highlights = NULL;
@@ -10218,6 +10294,29 @@ void nimculus_platform_set_editor_annotations(const NimculusEditorAnnotation *an
           ([NSString stringWithUTF8String:text] ?: @"") : @""];
       }
       g_editor_annotation_count = count;
+    }
+  }
+  if (g_active_view) [(NimculusMetalView *)g_active_view updateTerminalFrame];
+}
+void nimculus_platform_set_secondary_editor_annotations(
+    const NimculusEditorAnnotation *annotations, uint32_t count) {
+  free(g_secondary_editor_annotations);
+  g_secondary_editor_annotations = NULL;
+  g_secondary_editor_annotation_count = 0;
+  replaceOwnedMutableArray((NSMutableArray **)&g_secondary_editor_annotation_texts,
+    [NSMutableArray arrayWithCapacity:count]);
+  if (annotations && count > 0) {
+    g_secondary_editor_annotations = calloc(count, sizeof(NimculusEditorAnnotation));
+    if (g_secondary_editor_annotations) {
+      for (uint32_t index = 0; index < count; index++) {
+        g_secondary_editor_annotations[index].line = annotations[index].line;
+        g_secondary_editor_annotations[index].character = annotations[index].character;
+        g_secondary_editor_annotations[index].kind = annotations[index].kind;
+        const char *text = annotations[index].text;
+        [g_secondary_editor_annotation_texts addObject:text ?
+          ([NSString stringWithUTF8String:text] ?: @"") : @""];
+      }
+      g_secondary_editor_annotation_count = count;
     }
   }
   if (g_active_view) [(NimculusMetalView *)g_active_view updateTerminalFrame];

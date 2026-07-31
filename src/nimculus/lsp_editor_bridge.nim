@@ -64,7 +64,11 @@ type
     semanticTokensRequestId*: int
     semanticTokens*: seq[LspSemanticToken]
     inlayHintsRequestId*: int
+    inlayHintsRequestPath*: string
+    inlayHintsRequestVersion*: int
+    inlayHintsPath*: string
     inlayHints*: seq[LspInlayHint]
+    inlayHintsByUri*: Table[string, seq[LspInlayHint]]
     ## LSP document lifetime is independent of which pane currently owns
     ## requests. Zed keeps buffers open while panes switch focus; doing the
     ## same here preserves diagnostics for both sides of a split editor.
@@ -303,20 +307,45 @@ proc takeSemanticTokens*(bridge: LspEditorBridge): seq[LspSemanticToken] =
   result = bridge.semanticTokens
   bridge.semanticTokens.setLen(0)
 
-proc requestInlayHints*(bridge: LspEditorBridge, range: LspRange): bool =
+proc requestInlayHintsForPath*(bridge: LspEditorBridge, path: string,
+                               range: LspRange): bool =
+  ## Keep the response associated with the buffer that requested it. Split
+  ## panes can show different files while sharing one LSP session; routing by
+  ## the currently focused pane would allow a late response to decorate the
+  ## wrong buffer. This mirrors Zed's per-buffer inlay cache boundary.
   if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
-      bridge.uri.len == 0: return false
+      path.len == 0: return false
+  let uri = fileUri(path)
   bridge.cancelRequest(bridge.inlayHintsRequestId)
-  let request = inlayHintRequest(bridge.uri, range)
+  let request = inlayHintRequest(uri, range)
   try:
     bridge.inlayHintsRequestId = bridge.session.request(request.methodName, request.params).id
+    bridge.inlayHintsRequestPath = uri
+    bridge.inlayHintsRequestVersion = bridge.documents.getOrDefault(uri).version
     result = true
   except CatchableError: bridge.lastError = getCurrentExceptionMsg()
+
+proc requestInlayHints*(bridge: LspEditorBridge, range: LspRange): bool =
+  if bridge == nil: return false
+  bridge.requestInlayHintsForPath(bridge.path, range)
 
 proc takeInlayHints*(bridge: LspEditorBridge): seq[LspInlayHint] =
   if bridge == nil: return
   result = bridge.inlayHints
   bridge.inlayHints.setLen(0)
+  bridge.inlayHintsPath = ""
+
+proc takeInlayHintsWithPath*(bridge: LspEditorBridge): tuple[path: string,
+                                                            hints: seq[LspInlayHint]] =
+  if bridge == nil: return
+  result.path = filePathFromUri(bridge.inlayHintsPath)
+  result.hints = bridge.inlayHints
+  bridge.inlayHints.setLen(0)
+  bridge.inlayHintsPath = ""
+
+proc inlayHintsForPath*(bridge: LspEditorBridge, path: string): seq[LspInlayHint] =
+  if bridge == nil or path.len == 0: return
+  result = bridge.inlayHintsByUri.getOrDefault(fileUri(path))
 
 proc cancelDocumentFeatureRequests*(bridge: LspEditorBridge) =
   ## Results tied to a previous text snapshot must never reach the editor.
@@ -331,6 +360,10 @@ proc cancelDocumentFeatureRequests*(bridge: LspEditorBridge) =
   bridge.cancelRequest(bridge.signatureRequestId)
   bridge.cancelRequest(bridge.semanticTokensRequestId)
   bridge.cancelRequest(bridge.inlayHintsRequestId)
+  bridge.inlayHintsRequestPath = ""
+  bridge.inlayHintsRequestVersion = 0
+  bridge.inlayHintsPath = ""
+  bridge.inlayHints.setLen(0)
   bridge.referenceLocations.setLen(0)
   bridge.symbols.setLen(0)
   bridge.codeActions.setLen(0)
@@ -543,6 +576,9 @@ proc syncDocument*(bridge: LspEditorBridge, path, text: string) =
       bridge.session.notify("textDocument/didChange",
         didChangeNotification(document.uri, text, document.version))
       document.lastText = text
+      bridge.inlayHintsByUri.del(nextUri)
+      if bridge.inlayHintsPath == nextUri:
+        bridge.inlayHintsPath = ""
   except CatchableError:
     bridge.lastError = getCurrentExceptionMsg()
     bridge.session.state = lspSessionFailed
@@ -668,8 +704,19 @@ proc poll*(bridge: LspEditorBridge): bool =
   if bridge.inlayHintsRequestId > 0:
     let response = bridge.session.takeResponse(bridge.inlayHintsRequestId)
     if response != nil:
-      bridge.inlayHints = parseInlayHints(response)
+      let responsePath = bridge.inlayHintsRequestPath
+      let hints = parseInlayHints(response)
+      bridge.inlayHintsRequestPath = ""
+      bridge.inlayHintsPath = responsePath
+      let responseDocument = bridge.documents.getOrDefault(responsePath)
+      if responsePath.len > 0 and responseDocument.uri.len > 0 and
+          responseDocument.version == bridge.inlayHintsRequestVersion:
+        bridge.inlayHintsByUri[responsePath] = hints
+        bridge.inlayHints = hints
+      else:
+        bridge.inlayHints.setLen(0)
       bridge.inlayHintsRequestId = 0
+      bridge.inlayHintsRequestVersion = 0
       result = true
   if bridge.session.state == lspSessionReady and not bridge.opened and
       bridge.path.len > 0:
@@ -731,3 +778,7 @@ proc shutdown*(bridge: LspEditorBridge) =
   bridge.signatureHelp = LspSignatureHelp()
   bridge.semanticTokens.setLen(0)
   bridge.inlayHints.setLen(0)
+  bridge.inlayHintsByUri.clear()
+  bridge.inlayHintsRequestPath = ""
+  bridge.inlayHintsRequestVersion = 0
+  bridge.inlayHintsPath = ""

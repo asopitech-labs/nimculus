@@ -1,6 +1,7 @@
 import std/unittest
 import std/os
 import std/times
+import std/tables
 import nimculus/editor_buffer
 import nimculus/editor_diagnostics
 import nimculus/lsp
@@ -112,6 +113,21 @@ suite "LSP editor bridge":
       bridge.updateDocument("/tmp/primary.nim", "let primary = 3")
       check bridge.documentVersion("/tmp/primary.nim") == 2
       check bridge.documentVersion("/tmp/secondary.nim") == 1
+
+  test "keeps inlay hints isolated by document path":
+    let bridge = newLspEditorBridge("unused")
+    let left = absolutePath("/tmp/left.nim")
+    let right = absolutePath("/tmp/right.nim")
+    bridge.inlayHintsByUri.mgetOrPut(fileUri(left), @[]) = @[
+      LspInlayHint(position: LspPosition(line: 1, character: 2),
+        label: "left", kind: 1)]
+    bridge.inlayHintsByUri.mgetOrPut(fileUri(right), @[]) = @[
+      LspInlayHint(position: LspPosition(line: 4, character: 5),
+        label: "right", kind: 2)]
+    check bridge.inlayHintsForPath(left).len == 1
+    check bridge.inlayHintsForPath(left)[0].label == "left"
+    check bridge.inlayHintsForPath(right).len == 1
+    check bridge.inlayHintsForPath(right)[0].label == "right"
 
   test "requests completion at UTF-16 cursor and accepts a stale-safe edit":
     let server = "import sys,json,time\n" &

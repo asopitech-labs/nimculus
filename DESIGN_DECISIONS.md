@@ -6187,3 +6187,24 @@ the welcome page returns only when neither a document nor a workspace exists.
 all enter directly into the project view. Empty workspaces retain a clean
 editor canvas and the visible project tree instead of competing calls to
 action.
+
+## LSP-074: Route inlay hints by document, not focused pane
+
+**Context.** A split editor can display two documents while sharing one LSP
+session. A single inlay-hint result stored against the focused pane is unsafe:
+the response may arrive after focus changes, or a secondary document may be
+shown while the primary document remains the bridge's active request target.
+
+**Decision.** Keep an inlay-hint cache keyed by file URI and attach every
+request to its document path and document version. On a text change, invalidate
+only that document's cache and discard a response from an older version. The
+macOS native backend receives separate primary and secondary annotation
+buffers, text ownership arrays, overlays, and viewport clipping. This follows
+Zed's buffer-local inlay-hint cache boundary while preserving Nimculus's
+platform-specific Cocoa/Metal rendering contract.
+
+**Consequences.** Switching focus or changing the split layout cannot move
+annotations into the wrong editor. Empty responses clear the requesting
+document's visible annotations, and a stale response cannot replace a newer
+snapshot. The native contract checks pointer, count, and owned-string
+separation for both panes.

@@ -345,7 +345,11 @@ suite "macOS platform contract":
 
   test "editor annotation overlay contract can be cleared":
     platformSetEditorAnnotations(nil, 0)
+    platformSetSecondaryEditorAnnotations(nil, 0)
     check true
+
+  test "split panes keep independent annotation buffers":
+    check platformValidateSecondaryAnnotationIsolation()
 
   test "idle callback contract can be cleared":
     platformSetIdleCallback(nil)

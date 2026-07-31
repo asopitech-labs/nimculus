@@ -9,6 +9,7 @@ bool nimculus_platform_validate_fullscreen_transition(void);
 bool nimculus_platform_validate_editor_pane_geometry(void);
 bool nimculus_platform_validate_editor_text_viewport(void);
 bool nimculus_platform_validate_editor_annotation_viewport(void);
+bool nimculus_platform_validate_secondary_annotation_isolation(void);
 bool nimculus_platform_validate_status_update_deduplication(void);
 bool nimculus_platform_validate_damage_rebuild(void);
 bool nimculus_platform_validate_scroll_clip_pixels(void);
@@ -192,6 +193,8 @@ void nimculus_platform_set_editor_diagnostics(const NimculusDiagnosticSpan *span
 void nimculus_platform_set_secondary_editor_diagnostics(const NimculusDiagnosticSpan *spans,
                                                         uint32_t count);
 void nimculus_platform_set_editor_annotations(const NimculusEditorAnnotation *annotations, uint32_t count);
+void nimculus_platform_set_secondary_editor_annotations(const NimculusEditorAnnotation *annotations,
+                                                        uint32_t count);
 void nimculus_platform_set_editor_git_hunks(const NimculusGitHunkSpan *spans, uint32_t count);
 void nimculus_platform_set_secondary_editor_git_hunks(const NimculusGitHunkSpan *spans,
                                                        uint32_t count);

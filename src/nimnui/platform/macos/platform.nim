@@ -14,6 +14,7 @@ proc platformValidateFullscreenTransition*(): bool {.importc: "nimculus_platform
 proc platformValidateEditorPaneGeometry*(): bool {.importc: "nimculus_platform_validate_editor_pane_geometry", cdecl.}
 proc platformValidateEditorTextViewport*(): bool {.importc: "nimculus_platform_validate_editor_text_viewport", cdecl.}
 proc platformValidateEditorAnnotationViewport*(): bool {.importc: "nimculus_platform_validate_editor_annotation_viewport", cdecl.}
+proc platformValidateSecondaryAnnotationIsolation*(): bool {.importc: "nimculus_platform_validate_secondary_annotation_isolation", cdecl.}
 proc platformValidateStatusUpdateDeduplication*(): bool {.importc: "nimculus_platform_validate_status_update_deduplication", cdecl.}
 proc platformValidateDamageRebuild*(): bool {.importc: "nimculus_platform_validate_damage_rebuild", cdecl.}
 proc platformValidateScrollClipPixels*(): bool {.importc: "nimculus_platform_validate_scroll_clip_pixels", cdecl.}
@@ -198,6 +199,7 @@ proc platformSetSecondaryEditorHighlights*(spans: ptr NativeHighlightSpan, count
 proc platformSetEditorDiagnostics*(spans: ptr NativeDiagnosticSpan, count: uint32) {.importc: "nimculus_platform_set_editor_diagnostics", cdecl.}
 proc platformSetSecondaryEditorDiagnostics*(spans: ptr NativeDiagnosticSpan, count: uint32) {.importc: "nimculus_platform_set_secondary_editor_diagnostics", cdecl.}
 proc platformSetEditorAnnotations*(annotations: ptr NativeEditorAnnotation, count: uint32) {.importc: "nimculus_platform_set_editor_annotations", cdecl.}
+proc platformSetSecondaryEditorAnnotations*(annotations: ptr NativeEditorAnnotation, count: uint32) {.importc: "nimculus_platform_set_secondary_editor_annotations", cdecl.}
 proc platformSetEditorGitHunks*(spans: ptr NativeGitHunkSpan, count: uint32) {.importc: "nimculus_platform_set_editor_git_hunks", cdecl.}
 proc platformSetSecondaryEditorGitHunks*(spans: ptr NativeGitHunkSpan, count: uint32) {.importc: "nimculus_platform_set_secondary_editor_git_hunks", cdecl.}
 proc platformSetRecentFiles*(paths: ptr cstring, count: uint32) {.importc: "nimculus_platform_set_recent_files", cdecl.}

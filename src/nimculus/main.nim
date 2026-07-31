@@ -150,6 +150,9 @@ when defined(macosx) or defined(windows):
   var editorLspInlayHints: seq[LspInlayHint]
   var editorLspInlayHintPath = ""
   var editorLspInlayHintSource = ""
+  var editorLspSecondaryInlayHints: seq[LspInlayHint]
+  var editorLspSecondaryInlayHintPath = ""
+  var editorLspSecondaryInlayHintSource = ""
   var pendingLspRename: seq[LspWorkspaceEdit]
   var pendingLspCodeActions: seq[LspCodeAction]
   var pendingLspSymbols: seq[LspSymbol]
@@ -172,6 +175,7 @@ proc resetPointerInteractions()
 when defined(macosx):
   proc syncNativeHover()
   proc syncNativeInlayHints(document: ptr FileDocument)
+  proc syncNativeSecondaryInlayHints(document: ptr FileDocument)
   proc syncNativeSymbolTree()
   proc handleCompletionShortcut(event: ptr NimculusInputEvent): bool
 
@@ -1465,13 +1469,20 @@ when defined(macosx):
         lines.add(item.label & (if item.documentation.len > 0: " — " &
             item.documentation else: ""))
       showNativeLspPanel("LSP Signature Help", lines)
-    let hints = lspBridge.takeInlayHints()
-    if hints.len > 0:
-      editorLspInlayHints = hints
-      if document != nil:
+    let hintResult = lspBridge.takeInlayHintsWithPath()
+    if hintResult.path.len > 0:
+      let secondary = secondaryPaneDocument()
+      if document != nil and document[].path == hintResult.path:
+        editorLspInlayHints = hintResult.hints
         editorLspInlayHintPath = document[].path
         editorLspInlayHintSource = document[].buffer.toString()
-      syncNativeInlayHints(document)
+        syncNativeInlayHints(document)
+      elif secondary != nil and secondary[].path == hintResult.path:
+        editorLspSecondaryInlayHints = hintResult.hints
+        editorLspSecondaryInlayHintPath = secondary[].path
+        editorLspSecondaryInlayHintSource = secondary[].buffer.toString()
+        syncNativeSecondaryInlayHints(secondary)
+      let hints = hintResult.hints
       var lines: seq[string]
       for hint in hints:
         lines.add($(hint.position.line + 1) & ":" & $(hint.position.character + 1) & " " & hint.label)
@@ -2725,6 +2736,7 @@ when defined(macosx):
         uint32(nativeDiagnostics.len))
     else:
       platformSetSecondaryEditorDiagnostics(nil, 0)
+    syncNativeSecondaryInlayHints(document)
 
   proc syncNativeCompletion() =
     if lspBridge == nil or not lspBridge.completionVisible:
@@ -2745,7 +2757,18 @@ when defined(macosx):
     platformSetEditorHover(text.cstring, uint32(text.len))
 
   proc syncNativeInlayHints(document: ptr FileDocument) =
-    if document == nil or editorLspInlayHints.len == 0:
+    if document == nil:
+      platformSetEditorAnnotations(nil, 0)
+      return
+    let text = document[].buffer.toString()
+    if lspBridge != nil:
+      lspBridge.syncDocument(document[].path, text)
+    if lspBridge != nil and (editorLspInlayHintPath != document[].path or
+        editorLspInlayHintSource != text):
+      editorLspInlayHints = lspBridge.inlayHintsForPath(document[].path)
+      editorLspInlayHintPath = document[].path
+      editorLspInlayHintSource = text
+    if editorLspInlayHints.len == 0:
       platformSetEditorAnnotations(nil, 0)
       return
     var annotations = newSeq[NativeEditorAnnotation](editorLspInlayHints.len)
@@ -2755,6 +2778,32 @@ when defined(macosx):
         character: uint32(max(0, hint.position.character)),
         kind: uint32(max(0, hint.kind)), text: hint.label.cstring)
     platformSetEditorAnnotations(addr annotations[0], uint32(annotations.len))
+
+  proc syncNativeSecondaryInlayHints(document: ptr FileDocument) =
+    if document == nil:
+      editorLspSecondaryInlayHints.setLen(0)
+      editorLspSecondaryInlayHintPath = ""
+      editorLspSecondaryInlayHintSource = ""
+      platformSetSecondaryEditorAnnotations(nil, 0)
+      return
+    let text = document[].buffer.toString()
+    if lspBridge != nil:
+      lspBridge.syncDocument(document[].path, text)
+    if lspBridge != nil and (editorLspSecondaryInlayHintPath != document[].path or
+        editorLspSecondaryInlayHintSource != text):
+      editorLspSecondaryInlayHints = lspBridge.inlayHintsForPath(document[].path)
+      editorLspSecondaryInlayHintPath = document[].path
+      editorLspSecondaryInlayHintSource = text
+    if editorLspSecondaryInlayHints.len == 0:
+      platformSetSecondaryEditorAnnotations(nil, 0)
+      return
+    var annotations = newSeq[NativeEditorAnnotation](editorLspSecondaryInlayHints.len)
+    for index, hint in editorLspSecondaryInlayHints:
+      annotations[index] = NativeEditorAnnotation(
+        line: uint32(max(0, hint.position.line)),
+        character: uint32(max(0, hint.position.character)),
+        kind: uint32(max(0, hint.kind)), text: hint.label.cstring)
+    platformSetSecondaryEditorAnnotations(addr annotations[0], uint32(annotations.len))
 
   proc requestEditorCompletion() =
     let document = activeDocument()
@@ -2840,7 +2889,9 @@ proc refreshEditorSyntax() =
     when defined(macosx):
       platformSetEditorDiagnostics(nil, 0)
       editorLspInlayHints.setLen(0)
+      editorLspSecondaryInlayHints.setLen(0)
       platformSetEditorAnnotations(nil, 0)
+      platformSetSecondaryEditorAnnotations(nil, 0)
       clearNativeGitHunks()
       refreshSecondaryEditorSyntax()
     return
@@ -2954,6 +3005,10 @@ when defined(macosx):
         secondarySyntaxState = nil
       platformSetSecondaryEditorHighlights(nil, 0)
       platformSetSecondaryEditorDiagnostics(nil, 0)
+      editorLspSecondaryInlayHints.setLen(0)
+      editorLspSecondaryInlayHintPath = ""
+      editorLspSecondaryInlayHintSource = ""
+      platformSetSecondaryEditorAnnotations(nil, 0)
       resetNativeSecondaryGitHunks()
       return
     let document = secondaryPaneDocument()
@@ -2963,8 +3018,13 @@ when defined(macosx):
         secondarySyntaxState = nil
       platformSetSecondaryEditorHighlights(nil, 0)
       platformSetSecondaryEditorDiagnostics(nil, 0)
+      editorLspSecondaryInlayHints.setLen(0)
+      editorLspSecondaryInlayHintPath = ""
+      editorLspSecondaryInlayHintSource = ""
+      platformSetSecondaryEditorAnnotations(nil, 0)
       resetNativeSecondaryGitHunks()
       return
+    syncNativeSecondaryInlayHints(document)
     var grammar: GrammarKind
     try:
       grammar = grammarForPath(document[].path)
@@ -2973,6 +3033,7 @@ when defined(macosx):
         secondarySyntaxState.close()
         secondarySyntaxState = nil
       platformSetSecondaryEditorHighlights(nil, 0)
+      syncNativeSecondaryInlayHints(document)
       scheduleNativeSecondaryGitHunks(document)
       return
     let text = document[].buffer.toString()
@@ -4550,11 +4611,15 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "LSP: loading signature help"
     of "inlay hints":
       when defined(macosx):
-        if document == nil or lspBridge == nil or
-            not lspBridge.requestInlayHints(lspSelectionRange(document)):
+        if document == nil or lspBridge == nil:
           editorViewState.statusMessage = "LSP inlay hints unavailable"
         else:
-          editorViewState.statusMessage = "LSP: loading inlay hints"
+          lspBridge.syncDocument(document[].path, document[].buffer.toString())
+          if not lspBridge.requestInlayHintsForPath(document[].path,
+              lspSelectionRange(document)):
+            editorViewState.statusMessage = "LSP inlay hints unavailable"
+          else:
+            editorViewState.statusMessage = "LSP: loading inlay hints"
     of "semantic tokens":
       when defined(macosx):
         if lspBridge == nil or not lspBridge.requestSemanticTokens():
