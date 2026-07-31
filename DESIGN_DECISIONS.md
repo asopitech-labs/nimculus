@@ -6135,3 +6135,20 @@ in-memory buffer automatically, while they no longer block normal work. The
 native contract verifies that no sheet is attached, the parent retains first
 responder input, and the Reload action dismisses the notification and reaches
 the editor command callback.
+
+## UI-073: An open workspace replaces the launch welcome surface
+
+**Context.** Starting Nimculus with a project path correctly populated the
+Files tree, but the final no-document startup branch re-enabled the welcome
+surface. The project was therefore open but visually covered, making the
+primary project interactions appear unavailable.
+
+**Decision.** Treat the welcome page as a no-workspace launch surface, not as
+an empty-editor surface. Opening a workspace explicitly hides it. Cursor and
+native editor synchronisation retain that rule while no document is selected;
+the welcome page returns only when neither a document nor a workspace exists.
+
+**Consequences.** Folder launches, restored workspaces, and the Files panel
+all enter directly into the project view. Empty workspaces retain a clean
+editor canvas and the visible project tree instead of competing calls to
+action.
