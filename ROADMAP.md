@@ -13,8 +13,8 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | M2：NimNUI 基礎 UIシステム | 🟡 自動E2E済み・実機確認対象 | UIツリー、レイアウト、状態、イベント、PaintList、macOS入力を実装。縮小時は論理dockの実効幅に合わせてdock全体を退避し、空の右領域や枠外sidebarを残さずエディタ幅を回復する。描画・focus hit-test・divider dragは同じ投影dock矩形を共有し、不可視dockが入力を奪わない。自動E2Eで統合基準を確認済み。個別GUI操作は受け入れ記録へ集約 |
 | M3：macOS テキスト描画と IME | 🟡 自動E2E済み・実機確認対象 | Core Text、glyph atlas、動的Metal文字描画、Tree-sitter構文色、marked text表示、IME、候補位置、clipboardを実装。日本語IMEの対話確認は受け入れ記録へ集約 |
 | M4：エディタバッファと編集コア | ✅ 完了 | Piece Table、原子的編集、Undo/Redo、複数カーソル、位置変換、fuzz、候補構造比較を実装・検証済み |
-| M5：macOS 最小実用エディタ | 🟡 自動E2E済み・実機確認対象 | 編集サービス、plain-text fallbackを含む動的文書表示、構文色、macOSメニュー/IME/Finder接続、Application Supportへのsession復元・crash recovery、`Cmd+,`の設定パネル導線を実装。Find/Replace/Go to LineとCommand PaletteはZed同様の非モーダルなエディタ内バーとして実装。標準AppKit titlebarの下でbreadcrumb・tab・本文を56ptの連続chromeへ圧縮し、Project/Git headerもworkspace上端へ揃える。Metalの上原点座標とAppKit child frameの下原点座標を境界で変換し、行番号・サイドバー・overlayを本文と同じpaneへ配置する。二paneの対話操作は受け入れ記録へ集約 |
-| M6：macOS プロジェクト・ワークスペース | 🟡 自動E2E済み・実機確認対象 | workspace、FSEvents、検索、Worktree、10万ファイル計測を実装。ZedのProject Panelと同様に、複数rootを個別に展開できるファイルツリーを編集本文から分離したmacOSサイドバーへ表示。`Reveal Active File`はアクティブ文書の祖先だけを展開し、列挙上限時も対象root・祖先を優先してツリーへ表示 |
+| M5：macOS 最小実用エディタ | 🟡 自動E2E済み・実機確認対象 | 編集サービス、plain-text fallbackを含む動的文書表示、構文色、macOSメニュー/IME/Finder接続、Application Supportへのsession復元・crash recovery、`Cmd+,`の設定パネル導線を実装。Find/Replace/Go to LineとCommand PaletteはZed同様の非モーダルなエディタ内バーとして実装。標準AppKit titlebarの下でbreadcrumb・tab・本文を56ptの連続chromeへ圧縮し、Project/Git headerもworkspace上端へ揃える。Metalの上原点座標とAppKit child frameの下原点座標を境界で変換し、行番号・サイドバー・overlayを本文と同じpaneへ配置する。Files/Quick Openから文書を開いた後はエディタへfirst responderを戻し、次の文字入力・IME compositionを本文へ配送する |
+| M6：macOS プロジェクト・ワークスペース | 🟡 自動E2E済み・実機確認対象 | workspace、FSEvents、検索、Worktree、10万ファイル計測を実装。ZedのProject Panelと同様に、複数rootを個別に展開できるファイルツリーを編集本文から分離したmacOSサイドバーへ表示。`Reveal Active File`はアクティブ文書の祖先だけを展開し、列挙上限時も対象root・祖先を優先してツリーへ表示。Quick OpenのReturnで先頭候補を開き、New Fileは作成直後にエディタタブへ開く。Files renameは開いているbuffer、recent files、Git履歴対象パスを新しいcanonical pathへ追従させる |
 | M7：Tree-sitter | 🟡 自動E2E済み・実機確認対象 | Nim/Rust/TypeScript/TSX/Python/JSON/MarkdownのFFI、増分解析、構文状態、可視範囲ハイライト、RGBA Metalテクスチャ接続を実装。統合E2Eで全test・native contract・benchmarkを通過 |
 | M8：LSPクライアント | 🟡 自動E2E済み・実機確認対象 | JSON-RPC、stdio、stale response破棄、主要LSP UIを実装。統合E2EでLSP bridgeのunit/integrationを通過。実Language Serverとの対話は受け入れ記録へ集約 |
 | M9：macOS Git統合 | 🟡 自動E2E済み・実機確認対象 | 非同期status/diff、gutter、hunk stage/unstage、commit/amend/log/blame/checkoutを実装。`git status`はconflictを先頭で明示する最大1000件のクリック可能な一覧を表示し、選んだ既存ファイルを開ける。暗黙の解決操作は行わない。commit/amend成功後はhunkと最新100件の履歴を非同期で再読込する。`git file history`はアクティブなファイルに限定して履歴サイドバーへ表示し、そこから選んだcommitも当該ファイルのpatchだけを表示する。`git blame`はcursor行の要約と、最大500行のauthor/hash付き一覧を表示する。`git branches`はクリック可能なlocal branch一覧を表示し、`git switch <branch>`と同じ安全な`--no-guess`で切替・clean tab再読込を行う。Git履歴はスクロール可能な専用サイドバーへ最新100件を表示し、選択したcommitのmetadata・統計・patchはexternal diffを起動せず出力パネルへ表示 |
@@ -26,7 +26,7 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | M15：Linux対応 | ⚪ 未着手 | WSL基盤の後にWayland優先、X11 fallback、IME、PTY、packagingを実装する |
 | M16：SSHリモート | ⚪ 未着手 | WSLプロトコルを一般化し、SSH agentとremote開発を実装する |
 | M17〜M19：拡張・AI・DAP | ⚪ 未着手 | 拡張API、CLIエージェント、DAPクライアントを順次実装する |
-| M20〜M21：安定化・v1.0 | 🟡 M20自動E2E済み・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録する。2026-07-31のHEAD [`6bdde20`](https://github.com/asopitech-labs/nimculus/commit/6bdde20)で、全test、native contract、benchmark、cold-start、短時間Soak、adhoc DMG起動、隔離GUI workflowを一つのローカル統合E2Eで確認済み。8時間実機実行、remote latency、正式配布は未完了 |
+| M20〜M21：安定化・v1.0 | 🟡 M20自動E2E済み・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録する。2026-07-31のHEAD [`68ba328`](https://github.com/asopitech-labs/nimculus/commit/68ba328)で、全test、native contract、benchmark、cold-start、短時間Soak、adhoc DMG起動、隔離GUI workflowを一つのローカル統合E2Eで確認済み。8時間実機実行、remote latency、正式配布は未完了 |
 
 ### 2026-07-31 更新：統合E2EとWelcome surface
 
@@ -75,6 +75,8 @@ macOS の全文検索は `Search` 活動バー項目と左ドックの独立パ�
 `Find in Workspace…` から検索し、`Search:` 結果がサイドバーに現れることを確認する。
 Quick Open / Search は表示・選択・起動対象を同じ最大100件へ揃え、非表示行を
 キーボード選択できない。
+
+2026-07-31の更新では、Quick OpenのReturnを単なる再検索ではなく選択確定として扱い、非同期fuzzy検索完了後に先頭候補を開く経路を追加した。検索欄は確定後に閉じ、エディタをfirst responderへ戻す。Filesの新規ファイル作成とrenameも同じUI操作から実文書状態へ接続した。隔離GUI E2EではQuick Openの検索表示とReturn後の検索欄終了、Files、Workspace Search、split、Git Changes/History/Stage/Unstageを一括確認した。
 
 ### M6/M10 更新：Files から統合ターミナルへ
 

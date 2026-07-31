@@ -548,6 +548,7 @@ var workspaceSearchScope = ""
 var workspaceSearchResults: seq[SearchResult]
 var workspaceSearchCancelled = false
 var workspaceQuickOpenQuery = ""
+var workspaceQuickOpenOpenPending = false
 var workspacePreviewEntries: seq[WorkspaceEntry]
 var workspaceExpandedDirectories: seq[string]
 var workspacePreviewMode = ""
@@ -2212,6 +2213,41 @@ proc refreshWorkspaceAfterMutation(message: string) =
       editorViewState.statusMessage = message
       refreshWorkspacePreview()
 
+proc rebaseOpenDocuments(oldPath, newPath: string) =
+  ## Keep open buffers attached to a file after a Files-panel rename. Zed's
+  ## Project Panel and Buffer store share the rename transaction; leaving the
+  ## old path here would turn an ordinary rename into a false external-delete
+  ## alert and make the next Save write to the removed pathname.
+  let oldCanonical = canonicalOpenPath(oldPath)
+  let newCanonical = canonicalOpenPath(newPath)
+  if oldCanonical.len == 0 or newCanonical.len == 0: return
+  let oldPrefix = oldCanonical / ""
+  proc replacePrefix(path: string): string =
+    let canonical = canonicalOpenPath(path)
+    if canonical == oldCanonical:
+      return newCanonical
+    if canonical.startsWith(oldPrefix):
+      return newCanonical / canonical[oldPrefix.len .. ^1]
+    path
+  for tab in editorSession.tabs.mitems:
+    if tab.document.path.len == 0: continue
+    let rebased = replacePrefix(tab.document.path)
+    if rebased == tab.document.path: continue
+    tab.document.path = rebased
+    tab.document.acceptExternalState()
+    tab.title = splitFile(rebased).name
+  for index in 0 ..< editorSession.recentFiles.len:
+    editorSession.recentFiles[index] = replacePrefix(editorSession.recentFiles[index])
+  if workspaceRevealPath.len > 0:
+    workspaceRevealPath = replacePrefix(workspaceRevealPath)
+  if workspaceSearchScope.len > 0:
+    workspaceSearchScope = replacePrefix(workspaceSearchScope)
+  when defined(macosx):
+    if editorGitHistoryPath.len > 0:
+      editorGitHistoryPath = replacePrefix(editorGitHistoryPath)
+    if editorGitActionDocumentPath.len > 0:
+      editorGitActionDocumentPath = replacePrefix(editorGitActionDocumentPath)
+
 proc revealActiveDocumentInWorkspace() =
   ## Expand only the ancestors of the active document. This follows the
   ## project-panel reveal behavior without eagerly traversing a large root.
@@ -2372,6 +2408,7 @@ proc showQuickOpen(query: string) =
     workspaceSearchScope = ""
     workspaceSearchResults.setLen(0)
     workspaceSearchCancelled = false
+    workspaceQuickOpenOpenPending = false
     workspaceQuickOpenQuery = query
     workspacePreviewEntries.setLen(0)
     if activeWorkspace == nil or query.len == 0:
@@ -2379,6 +2416,9 @@ proc showQuickOpen(query: string) =
       return
     workspaceQuickOpenJob = activeWorkspace.startFuzzySearch(query)
     renderQuickOpen()
+
+when defined(macosx):
+  proc openFilesDockEntry(path: string)
 
 proc cancelWorkspaceSearch() =
   when defined(macosx) or defined(windows):
@@ -2429,7 +2469,15 @@ proc pollWorkspaceSearch() =
         let lengthOrder = cmp(a.relativePath.len, b.relativePath.len)
         if lengthOrder != 0: lengthOrder else: cmp(a.relativePath, b.relativePath))
       renderQuickOpen()
-      if workspaceQuickOpenJob.isComplete: workspaceQuickOpenJob = nil
+      if workspaceQuickOpenJob.isComplete:
+        workspaceQuickOpenJob = nil
+      if workspaceQuickOpenOpenPending and workspacePreviewEntries.len > 0:
+        let entry = workspacePreviewEntries[0]
+        workspaceQuickOpenOpenPending = false
+        if entry.kind == WorkspaceFileKind.directory:
+          openActiveWorkspace(entry.path)
+        else:
+          openFilesDockEntry(entry.path)
     if workspaceSearchJob == nil:
       return
     for result in workspaceSearchJob.pollSearch(maxFiles = 8, maxLines = 256):
@@ -3257,6 +3305,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
   if workspaceQuickOpenJob != nil:
     workspaceQuickOpenJob.cancelFuzzySearch()
     workspaceQuickOpenJob = nil
+  workspaceQuickOpenOpenPending = false
   if saving:
     let saveTab = when defined(macosx):
       if pendingCloseTabIndex >= 0 and pendingCloseTabIndex < editorSession.tabs.len:
@@ -3348,6 +3397,10 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
         setupDemoUi()
         revealActiveDocumentInWorkspace()
         syncEditorCursor()
+        # Opening an item from Files/Quick Open must return keyboard focus to
+        # the editor. The sidebar remains visible, but it must not keep the
+        # next typed character or IME composition after the file is opened.
+        when defined(macosx): platformFocusEditor()
         refreshEditorSyntax()
         persistSession()
         return
@@ -3366,6 +3419,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       setupDemoUi()
       revealActiveDocumentInWorkspace()
       syncEditorCursor()
+      when defined(macosx): platformFocusEditor()
       refreshEditorSyntax()
       persistSession()
     except CatchableError:
@@ -5241,6 +5295,23 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         editorViewState.statusMessage = "Copied relative path"
       except CatchableError:
         editorViewState.statusMessage = "Path is outside the workspace"
+  elif name.startsWith("quickOpenOpen:"):
+    when defined(macosx):
+      let query = name[14 .. ^1].strip
+      if query.len == 0: return
+      if workspacePreviewMode != "quickOpen" or workspaceQuickOpenQuery != query:
+        showQuickOpen(query)
+      if workspacePreviewEntries.len > 0:
+        let entry = workspacePreviewEntries[0]
+        if entry.kind == WorkspaceFileKind.directory:
+          openActiveWorkspace(entry.path)
+        else:
+          openFilesDockEntry(entry.path)
+      else:
+        # Fuzzy search is asynchronous. Keep the user's Return intent and
+        # open the first result at the same UI boundary that publishes the
+        # completed result list.
+        workspaceQuickOpenOpenPending = true
   elif name.startsWith("quickOpen:"):
     showQuickOpen(name[10 .. ^1].strip)
   elif name.startsWith("workspaceCreateFile:") and activeWorkspace != nil:
@@ -5248,8 +5319,11 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     if payload.len == 0: return
     try:
       let location = activeWorkspace.splitWorkspacePath(payload)
-      discard activeWorkspace.createFileAt(location.root, location.relative)
+      let createdPath = activeWorkspace.createFileAt(location.root, location.relative)
       refreshWorkspaceAfterMutation("Created " & payload)
+      # Match Zed's Project Panel auto-open behavior for ordinary files: the
+      # new item becomes a real editor tab, not a filesystem-only mutation.
+      if fileExists(createdPath): receiveNativeFile(createdPath.cstring, false)
     except CatchableError as error:
       editorViewState.statusMessage = "Create failed: " & error.msg
   elif name.startsWith("workspaceCreateDirectory:") and activeWorkspace != nil:
@@ -5295,9 +5369,15 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       let newLocation = activeWorkspace.splitWorkspacePath(newPayload)
       if oldLocation.root != newLocation.root:
         raise newException(ValueError, "rename must stay within one workspace root")
-      discard activeWorkspace.renameEntryAt(oldLocation.root, oldLocation.relative,
+      let oldPath = activeWorkspace.entryPathAt(oldLocation.root, oldLocation.relative)
+      let newPath = activeWorkspace.renameEntryAt(oldLocation.root, oldLocation.relative,
           newLocation.relative)
+      rebaseOpenDocuments(oldPath, newPath)
       refreshWorkspaceAfterMutation("Renamed " & oldPayload & " to " & newPayload)
+      syncRecentFiles()
+      syncEditorCursor()
+      refreshEditorSyntax()
+      persistSession()
     except CatchableError as error:
       editorViewState.statusMessage = "Rename failed: " & error.msg
   elif name.startsWith("findDocument:") and document != nil:

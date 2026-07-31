@@ -2780,9 +2780,13 @@ static void dismissExternalChangePanel(const char *command) {
   (void)sender;
   if (self.queryField.stringValue.length == 0 || !g_command_callback) return;
   NSString *format = self.mode == 3 ? @"workspaceSearch:%@" :
-    self.mode == 4 ? @"quickOpen:%@" : @"findDocument:%@";
+    self.mode == 4 ? @"quickOpenOpen:%@" : @"findDocument:%@";
   NSString *command = [NSString stringWithFormat:format, self.queryField.stringValue];
   g_command_callback(command.UTF8String);
+  // Quick Open is a navigation action. Once Return has dispatched the
+  // selection, remove the search chrome and return the responder chain to the
+  // editor, matching the normal Zed quick-open flow.
+  if (self.mode == 4) [self close:nil];
 }
 - (void)replaceAll:(id)sender {
   (void)sender;

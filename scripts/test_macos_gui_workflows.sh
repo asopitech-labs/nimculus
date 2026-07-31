@@ -41,7 +41,11 @@ cleanup() {
     echo "Nimculus GUI E2E direct child did not exit: $APP_PID" >&2
     exit 1
   fi
-  find "$TMP_ROOT" -depth -delete 2>/dev/null || true
+  if [[ "${NIMCULUS_GUI_KEEP_TMP:-0}" == "1" ]]; then
+    echo "Nimculus GUI E2E retained artifacts: $TMP_ROOT" >&2
+  else
+    find "$TMP_ROOT" -depth -delete 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 
@@ -51,6 +55,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 mkdir -p "$TMP_ROOT/project" "$TMP_ROOT/home"
+
 printf 'echo "Nimculus GUI E2E"\n' > "$TMP_ROOT/project/main.nim"
 git -C "$TMP_ROOT/project" init -q
 git -C "$TMP_ROOT/project" config user.name "Nimculus GUI E2E"
@@ -68,7 +73,7 @@ nimble build
 # fleet of restored Untitled tabs in the user's next interactive launch.
 HOME="$TMP_ROOT/home" "$ROOT_DIR/nimculus/main" "$TMP_ROOT/project" >"$TMP_ROOT/app.log" 2>&1 &
 APP_PID=$!
-APP_COMMAND="$ROOT_DIR/nimculus/main $TMP_ROOT/project/main.nim"
+APP_COMMAND="$ROOT_DIR/nimculus/main $TMP_ROOT/project"
 
 for _ in $(seq 1 40); do
   # Do not select an arbitrary already-running Nimculus instance by name.
@@ -112,14 +117,23 @@ tell application "System Events"
     delay 0.3
     if not (exists text field "Quick Open: file name or path" of window 1) then error "Quick Open overlay did not open"
     set value of text field "Quick Open: file name or path" of window 1 to "main"
-    key code 36
     delay 0.8
     set quickOpenVisible to false
     repeat with area in every text area of window 1
       if (value of area as text) contains "Quick Open: main" then set quickOpenVisible to true
     end repeat
     if not quickOpenVisible then error "Quick Open did not render in the Files sidebar"
+    key code 36
+    delay 0.8
+    if exists text field "Quick Open: file name or path" of window 1 then error "Quick Open Return did not close the search field"
 
+  end tell
+end tell
+APPLESCRIPT
+
+osascript -e "set targetPid to $APP_PID" <<'APPLESCRIPT'
+tell application "System Events"
+  tell (first process whose unix id is targetPid)
     click menu item "Find in Workspace…" of menu "Edit" of menu bar item "Edit" of menu bar 1
     delay 0.3
     if not (exists text field "Search workspace" of window 1) then error "Workspace Search overlay did not open"
@@ -189,6 +203,7 @@ else
   echo "Git GUI controls did not restore the unstaged fixture" >&2
   exit 1
 fi
+
 if ! git -C "$TMP_ROOT/project" diff --cached --quiet; then
   echo "Git GUI controls left staged fixture changes behind" >&2
   exit 1
