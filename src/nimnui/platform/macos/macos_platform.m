@@ -6167,6 +6167,14 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
   self.window.contentView = self.view;
   [self.window center];
   [self.window makeKeyAndOrderFront:nil];
+  // Activation before -[NSApplication run] is too early for LaunchServices
+  // launches: AppKit can accept the activation request before the window is
+  // ordered and leave the new document behind the launching app. Zed applies
+  // activation at the platform boundary as well as when showing a window;
+  // repeat it after the native window exists so Finder/Dock launches expose
+  // the editor as the frontmost application.
+  [[NSApplication sharedApplication] activateIgnoringOtherApps:YES];
+  [self.window orderFrontRegardless];
   self.workspaceSearchTimer = [NSTimer scheduledTimerWithTimeInterval:0.05
     target:self selector:@selector(emitWorkspaceSearchTick:) userInfo:nil repeats:YES];
 }

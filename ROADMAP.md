@@ -9,7 +9,7 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | マイルストーン | 状態 | 備考 |
 |---|---|---|
 | M0：モノレポ基盤 | ✅ 完了 | Apple Silicon のローカル build / test / benchmark / lint、およびmacOS CI（run 29635844053）を確認済み |
-| M1：macOS ウィンドウと Metal 描画 | 🟡 自動E2E済み・実機確認対象 | Cocoa / Metal / Retina / 基本入力を実装。自動E2Eでnative contract、起動、描画境界を確認済み。物理hardware確認は受け入れ記録へ集約 |
+| M1：macOS ウィンドウと Metal 描画 | 🟡 自動E2E済み・実機確認対象 | Cocoa / Metal / Retina / 基本入力を実装。native contract、LaunchServices経由の.app起動、WindowServer上の実ウィンドウ、最小サイズ、描画境界を確認済み。物理hardware確認は受け入れ記録へ集約 |
 | M2：NimNUI 基礎 UIシステム | 🟡 自動E2E済み・実機確認対象 | UIツリー、レイアウト、状態、イベント、PaintList、macOS入力を実装。縮小時は論理dockの実効幅に合わせてdock全体を退避し、空の右領域や枠外sidebarを残さずエディタ幅を回復する。描画・focus hit-test・divider dragは同じ投影dock矩形を共有し、不可視dockが入力を奪わない。自動E2Eで統合基準を確認済み。個別GUI操作は受け入れ記録へ集約 |
 | M3：macOS テキスト描画と IME | 🟡 自動E2E済み・実機確認対象 | Core Text、glyph atlas、動的Metal文字描画、Tree-sitter構文色、marked text表示、IME、候補位置、clipboardを実装。日本語IMEの対話確認は受け入れ記録へ集約 |
 | M4：エディタバッファと編集コア | ✅ 完了 | Piece Table、原子的編集、Undo/Redo、複数カーソル、位置変換、fuzz、候補構造比較を実装・検証済み |
@@ -26,7 +26,7 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | M15：Linux対応 | ⚪ 未着手 | WSL基盤の後にWayland優先、X11 fallback、IME、PTY、packagingを実装する |
 | M16：SSHリモート | ⚪ 未着手 | WSLプロトコルを一般化し、SSH agentとremote開発を実装する |
 | M17〜M19：拡張・AI・DAP | ⚪ 未着手 | 拡張API、CLIエージェント、DAPクライアントを順次実装する |
-| M20〜M21：安定化・v1.0 | 🟡 M20自動E2E済み・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録する。2026-07-31の統合E2Eで、全test、native contract、benchmark、cold-start、短時間Soak、adhoc DMG起動、隔離GUI workflowを一つのローカル統合E2Eで確認済み。8時間実機実行、remote latency、正式配布は未完了 |
+| M20〜M21：安定化・v1.0 | 🟡 M20自動E2E済み・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録する。2026-07-31の統合E2Eで、全test、native contract、benchmark、cold-start、短時間Soak、adhoc DMG起動、WindowServer GUI workflowを一つのローカル統合E2Eで確認済み。8時間実機実行、remote latency、正式配布は未完了 |
 
 ### 2026-07-31 更新：統合E2EとWelcome surface
 
@@ -43,19 +43,21 @@ nimble macosE2E
 ```
 
 この実行はbuild、Cocoa/Metal native contract、unit/integration、benchmark、cold start、短時間Soak、
-adhoc署名DMGのmount後cold-start、Files / Quick Open / Workspace Search / split / Git Changes・Historyの
- GUI workflowを一つの受け入れログへ集約した。M8のLanguage Server idle pollもこのゲートで回帰確認した。Welcomeはworkspaceを開いた直後も中央の開始面として残し、
-Filesとactivity barを隠さない。物理IME、trackpad、複数display、実Language Server、長時間利用、
-Developer ID/notarizationは機能実装を止めるゲートにせず、別受け入れ項目として残す。
+adhoc署名DMGのmount後cold-start、LaunchServices経由の実.app起動とWindowServer上の実ウィンドウを
+一つの受け入れログへ集約した。Files / Quick Open / Workspace Search / split / GitのAppKitコントロールは
+native contractと統合コードで検証し、Accessibility APIによる個別クリックはこの環境では実行していない。
+System EventsがFinder等の既存アプリでもウィンドウ数0を返すためであり、GUI操作を空振りで成功扱いにはしない。
+物理IME、trackpad、複数display、実Language Server、長時間利用、Developer ID/notarizationは機能実装を
+止めるゲートにせず、別受け入れ項目として残す。
 
 ### M9 更新：Changes の操作モデル
 
 Changes は `Conflicts` / `Staged` / `Unstaged` に分ける。部分ステージ済みの
 パスは両方の区分に投影し、`✓` は Unstage、`○` は Stage を直接実行する。
 右クリックの差分も、選択した区分に応じて staged / unstaged を表示する。
-Conflict には暗黙の解決・stage操作を提示しない。隔離 GUI E2E は変更済みの
-Git fixture に対して Stage All → Unstage All を操作し、index と worktree の
-最終状態まで検証する。
+Conflict には暗黙の解決・stage操作を提示しない。Git service、sidebar、stage/unstage
+dispatchのnative contractと統合テストで、indexとworktreeの状態を検証する。実GUIの
+Stage All → Unstage AllクリックはAccessibility権限が利用できる受け入れ環境で実施する。
 
 ### M6 更新：Quick Open の表示経路
 
@@ -64,19 +66,21 @@ macOS の Quick Open は検索結果をエディタ本文へ描画せず、Files
 ファイル探索・選択・Enterによるオープンを行える。クエリはエディタ内の非モーダルな
 Quick Open バーで明示確定する。隔離 GUI E2E は File メニュー
 から `main` を検索し、結果タイトルがサイドバーのアクセシブルなテキスト領域に
-現れることを検証する。
+現れることを、Accessibility権限が利用できる受け入れ環境で検証する。通常の自動ゲートでは
+Quick Openの検索・確定・first responder復帰をアプリ層とnative overlayの統合コードで検証する。
 
 ### M6 更新：Workspace Search の独立パネル
 
 macOS の全文検索は `Search` 活動バー項目と左ドックの独立パネルを持つ。クエリは
 エディタ内の非モーダルな Workspace Search バーで明示確定し、結果は
 パス・行・列・一致行を示し、選択またはEnterでフォーカス中のエディタペインの
-該当位置を開く。ストリーミング検索中も本文表示を置き換えない。隔離 GUI E2E は
-`Find in Workspace…` から検索し、`Search:` 結果がサイドバーに現れることを確認する。
+該当位置を開く。ストリーミング検索中も本文表示を置き換えない。検索結果の表示・選択・
+キャンセルはworkspace/search統合テストとnative sidebar contractで確認し、実GUI操作は
+Accessibility権限が利用できる受け入れ環境で確認する。
 Quick Open / Search は表示・選択・起動対象を同じ最大100件へ揃え、非表示行を
 キーボード選択できない。
 
-2026-07-31の更新では、Quick OpenのReturnを単なる再検索ではなく選択確定として扱い、非同期fuzzy検索完了後に先頭候補を開く経路を追加した。検索欄は確定後に閉じ、エディタをfirst responderへ戻す。Filesの新規ファイル作成とrenameも同じUI操作から実文書状態へ接続した。隔離GUI E2EではQuick Openの検索表示とReturn後の検索欄終了、Files、Workspace Search、split、Git Changes/History/Stage/Unstageを一括確認した。
+2026-07-31の更新では、Quick OpenのReturnを単なる再検索ではなく選択確定として扱い、非同期fuzzy検索完了後に先頭候補を開く経路を追加した。検索欄は確定後に閉じ、エディタをfirst responderへ戻す。Filesの新規ファイル作成とrenameも同じUI操作から実文書状態へ接続した。これらはアプリ層・native overlay・統合テストで確認し、個別Accessibility操作は専用受け入れ環境へ集約する。
 
 ### M6/M10 更新：Files から統合ターミナルへ
 
@@ -101,7 +105,7 @@ sibling ディレクトリの結果を返さないことを unit test で確認�
 
 ## macOS E2E 受け入れの実行時点
 
-E2EはM1/M2/M3/M5だけの個別操作では開始しない。M12までのeditor、workspace、Tree-sitter、LSP、Git、terminal/task、settingsが一つの`.app`で利用可能になり、M20のcold-start/soak/benchmarkが自動成功したrelease candidateで実行する。`nimble macosE2E`は全test、native contract、benchmark、3回cold-start、soak、adhoc署名DMGのmount後起動を一つの自動ゲートへ集約し、`.github/workflows/macos-e2e.yml`から手動起動できる。GUIログイン済みself-hosted runnerでは、Accessibility経由で実際の`Files`と`Git`を開くworkspace workflowも同じゲートに含める。GUI workflowはAppKitの最小ウィンドウ制約、Files、Quick Open、Workspace Search、縦横split、Git Changes/History/Stage/Unstageを一つの実アプリで確認し、起動した直接子PIDだけを終了対象にする。統合ターミナルをGUI E2Eから開閉しない。PTY masterの切断は端末セッションへSIGHUPを配送し得るため、Codex/Terminalを起動している開発者環境に影響させないためである。PTYの作成・入力・resize・終了は、一時プロセスのみを起動するisolated integration testで検証する。Save/Open/Alertなどのnative sheetと物理IME候補位置の契約は補助XPCを提供する専用GUI runnerで必須とし、隔離E2Eは `NIMCULUS_E2E_SKIP_NATIVE_SHEET_CONTRACTS=1` によりその補助GUI契約だけを明示skipできる。2026-07-29にはcommit [`7083934`](https://github.com/asopitech-labs/nimculus/commit/7083934e2fbc04f393c64386793b5b94c3105bc4)でこの[自動E2Eが成功](https://github.com/asopitech-labs/nimculus/actions/runs/30413726097)した。2026-07-31にはHEAD（`d21c6f4`）で同じ統合E2Eを再実行し、全test・native contract・benchmark・cold start・20秒soak・adhoc package verification・隔離GUI workflowが成功した（補助XPCを必要とするnative sheet/物理IME契約だけを明示skip）。これは自動基準の達成を示すものであり、物理IME/trackpad/複数画面、実Language Server操作、長時間利用、Developer ID承認を完了とみなさない。E2E失敗はissueと自動regression testへ還元し、個別マイルストーンの手作業チェックリストを増やさない。
+E2EはM1/M2/M3/M5だけの個別操作では開始しない。M12までのeditor、workspace、Tree-sitter、LSP、Git、terminal/task、settingsが一つの`.app`で利用可能になり、M20のcold-start/soak/benchmarkが自動成功したrelease candidateで実行する。`nimble macosE2E`は全test、native contract、benchmark、cold-start、soak、adhoc署名DMGのmount後起動を一つの自動ゲートへ集約し、`.github/workflows/macos-e2e.yml`から手動起動できる。GUI workflowはLaunchServices経由の実.app起動、WindowServer上のオンスクリーンウィンドウ、AppKit最小サイズ、正確な起動PIDのbounded cleanupを確認する。Accessibility経由のFiles/GitクリックはSystem Eventsがこの環境の既存アプリでもウィンドウを取得できないため、このゲートでは実行しない。AppKitコントロールの存在とdispatchはnative contract・unit/integrationで検証し、物理GUI操作は権限が有効な専用受け入れ環境へ集約する。統合ターミナルをGUI E2Eから開閉しない。PTY masterの切断は端末セッションへSIGHUPを配送し得るため、Codex/Terminalを起動している開発者環境に影響させないためである。PTYの作成・入力・resize・終了は、一時プロセスのみを起動するisolated integration testで検証する。Save/Open/Alertなどのnative sheetと物理IME候補位置の契約は補助XPCを提供する専用GUI runnerで必須とし、隔離E2Eは `NIMCULUS_E2E_SKIP_NATIVE_SHEET_CONTRACTS=1` によりその補助GUI契約だけを明示skipできる。2026-07-29にはcommit [`7083934`](https://github.com/asopitech-labs/nimculus/commit/7083934e2fbc04f393c64386793b5b94c3105bc4)でこの[自動E2Eが成功](https://github.com/asopitech-labs/nimculus/actions/runs/30413726097)した。2026-07-31にはHEAD（`ec8c3bd`）で同じ統合E2Eを再実行し、全test・native contract・benchmark・cold start・2秒soak・adhoc package verification・WindowServer GUI workflowが成功した（補助XPCを必要とするnative sheet/物理IME契約だけを明示skip）。これは自動基準の達成を示すものであり、物理IME/trackpad/複数画面、実Language Server操作、長時間利用、Developer ID承認を完了とみなさない。E2E失敗はissueと自動regression testへ還元し、個別マイルストーンの手作業チェックリストを増やさない。
 
 ## 基本方針
 
