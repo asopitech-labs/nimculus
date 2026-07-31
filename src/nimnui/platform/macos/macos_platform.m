@@ -3065,14 +3065,18 @@ static void dismissExternalChangePanel(const char *command) {
   [self dispatchSidebarSelection:item];
 }
 - (void)mouseUp:(NSEvent *)event {
-  if (event.clickCount < 2) return;
+  // Zed's Project Panel uses a normal click as the primary navigation
+  // gesture: files open in the preview/editor, directories toggle their
+  // disclosure state, and Git/search rows dispatch their destination. The
+  // previous implementation required a double click, leaving a selected row
+  // visually active but functionally inert until a second gesture.
   NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
   NSUInteger index = [self characterIndexForInsertionAtPoint:point];
   NSUInteger line = 0;
   for (NSUInteger offset = 0; offset < MIN(index, self.string.length); offset++) {
     if ([self.string characterAtIndex:offset] == '\n') line++;
   }
-  [self dispatchSidebarLine:line open:YES];
+  if (event.clickCount >= 1) [self dispatchSidebarLine:line open:YES];
 }
 - (void)rightMouseDown:(NSEvent *)event {
   [self.window makeFirstResponder:self];
