@@ -440,6 +440,7 @@ static uint32_t g_glyph_vertex_capacity = 0;
 static NimculusGlyphVertex *g_terminal_glyph_vertices = NULL;
 static uint32_t g_terminal_glyph_vertex_count = 0;
 static uint32_t g_terminal_glyph_vertex_capacity = 0;
+static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device);
 static id<MTLTexture> g_scene_texture = nil;
 static NSMutableDictionary<NSNumber *, id<MTLTexture>> *g_image_textures = nil;
 static BOOL g_scene_initialized = NO;
@@ -4175,13 +4176,34 @@ static CGFloat terminalLineHeight(void) {
   return MAX(1.0, height);
 }
 
+static BOOL terminalRangeContainsColorEmoji(NSRange range) {
+  if (range.length == 0 || !g_terminal_text) return NO;
+  NSUInteger end = MIN(g_terminal_text.length, NSMaxRange(range));
+  for (NSUInteger index = MIN(range.location, end); index < end; index++) {
+    if (colorEmojiAtUTF16Index(g_terminal_text, index, NULL)) return YES;
+  }
+  return NO;
+}
+
 static void applyTerminalRuns(NSTextView *terminal) {
   if (!terminal) return;
+  // The Metal cell batch is the primary presentation path for ordinary
+  // terminal glyphs. Keep AppKit's text view as an input/selection surface
+  // and as a color-emoji fallback, but do not paint a second opaque copy of
+  // the regular glyphs on top of the Metal scene.
+  const BOOL metalTerminal = g_glyph_pipeline != nil &&
+    g_glyph_atlas_texture != nil && g_terminal_glyph_vertex_count > 0;
+  NSColor *baseForeground = metalTerminal ? [NSColor clearColor] :
+    terminalColor(0, 0, 0, 0, 0, YES);
+  NSColor *baseBackground = metalTerminal ? [NSColor clearColor] :
+    terminalColor(0, 0, 0, 0, 0, NO);
+  terminal.drawsBackground = !metalTerminal;
+  if (metalTerminal) terminal.backgroundColor = [NSColor clearColor];
   NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
     initWithString:g_terminal_text ?: @"" attributes:@{
       NSFontAttributeName: terminalBaseFont(),
-      NSForegroundColorAttributeName: terminalColor(0, 0, 0, 0, 0, YES),
-      NSBackgroundColorAttributeName: terminalColor(0, 0, 0, 0, 0, NO)
+      NSForegroundColorAttributeName: baseForeground,
+      NSBackgroundColorAttributeName: baseBackground
     }];
   for (uint32_t index = 0; index < g_terminal_run_count; index++) {
     NimculusTerminalRun run = g_terminal_runs[index];
@@ -4194,6 +4216,12 @@ static void applyTerminalRuns(NSTextView *terminal) {
     NSColor *background = terminalColor(run.background_kind, run.background_index,
       run.background_red, run.background_green, run.background_blue, NO);
     if (run.flags & 16) { NSColor *swap = foreground; foreground = background; background = swap; }
+    if (metalTerminal) {
+      if (!terminalRangeContainsColorEmoji(NSMakeRange(start, end - start))) {
+        foreground = [NSColor clearColor];
+      }
+      background = [NSColor clearColor];
+    }
     NSFont *font = terminalBaseFont();
     if (run.flags & 1) font = [[NSFontManager sharedFontManager] convertFont:font toHaveTrait:NSBoldFontMask] ?: font;
     if (run.flags & 4) font = [[NSFontManager sharedFontManager] convertFont:font toHaveTrait:NSItalicFontMask] ?: font;
@@ -4378,6 +4406,14 @@ static void updateTerminalGlyphAtlas(id<MTLDevice> device) {
     CFRelease(line);
     [attributed release];
   }
+  if (g_active_view) {
+    for (NSView *subview in ((NimculusMetalView *)g_active_view).subviews) {
+      if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) {
+        applyTerminalRuns((NimculusTerminalOverlay *)subview);
+        break;
+      }
+    }
+  }
 }
 
 bool nimculus_platform_validate_terminal_overlay_runs(void) {
@@ -4420,13 +4456,19 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     g_metrics.width_points = 960;
     g_metrics.height_points = 640;
     g_terminal_visible = YES;
+    BOOL gpuPipeline = ensureGlyphValidationPipeline(device);
     updateTerminalGlyphAtlas(device);
-    BOOL gpuBatch = device && g_terminal_glyph_vertex_count > 0;
+    BOOL gpuBatch = device && gpuPipeline && g_terminal_glyph_vertex_count > 0;
+    applyTerminalRuns(terminal);
+    NSColor *metalForeground = [storage attribute:NSForegroundColorAttributeName
+      atIndex:0 effectiveRange:NULL];
+    BOOL metalSurface = gpuBatch && !terminal.drawsBackground &&
+      metalForeground.alphaComponent == 0.0;
     g_terminal_visible = previousVisible;
     g_metrics = previousMetrics;
     [device release];
     BOOL valid = [storage.string isEqualToString:@"A日\nB"] && bold && linked && underlined &&
-      stricken && selected && gpuBatch;
+      stricken && selected && gpuBatch && metalSurface;
     [terminal release];
     nimculus_platform_set_terminal_runs("", 0, NULL, 0);
     id<MTLDevice> cleanupDevice = MTLCreateSystemDefaultDevice();
