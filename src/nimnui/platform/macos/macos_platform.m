@@ -785,6 +785,20 @@ static NimculusPaintRegion editorTextViewport(const double rect[4]) {
   return viewport;
 }
 
+// Core Graphics draws into a bitmap whose origin is bottom-left, while the
+// NimNUI/Metal rectangles use a top-left origin. Keep this conversion at the
+// Core Text boundary. Passing the logical top-left y coordinate directly to
+// CGContextClipToRect/CGPathAddRect clips the top inset as the bottom inset,
+// which is exactly how fallback text can leak through the lower editor chrome.
+static CGRect editorTextViewportCoreGraphicsRect(const double rect[4]) {
+  NimculusPaintRegion viewport = editorTextViewport(rect);
+  const CGFloat logicalHeight = MAX(1.0, rect[3]);
+  const CGFloat relativeTop = viewport.y - rect[1];
+  return CGRectMake(viewport.x - rect[0],
+    logicalHeight - relativeTop - viewport.height,
+    MAX(1.0, viewport.width), MAX(1.0, viewport.height));
+}
+
 // Native overlays are children of the Metal view, not sheets.  They must
 // therefore obey the same pane boundary as the editor texture: a split pane
 // or a very small window must never let their frame (or child controls) spill
@@ -1344,8 +1358,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   // The four-sided content viewport is the only valid destination for editor
   // text, selections, composition, and caret pixels.
   NimculusPaintRegion textViewport = editorTextViewport(g_editor_rect);
-  CGContextClipToRect(context, CGRectMake(textViewport.x - g_editor_rect[0],
-    textViewport.y - g_editor_rect[1], textViewport.width, textViewport.height));
+  CGContextClipToRect(context, editorTextViewportCoreGraphicsRect(g_editor_rect));
   CTFontRef font = editorFont();
   NSColor *baseColor = themeHexColor(g_theme_foreground,
     [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]);
@@ -1452,9 +1465,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     CTFramesetterRef framesetter = CTFramesetterCreateWithAttributedString(
       (CFAttributedStringRef)wrappedAttributed);
     CGMutablePathRef path = CGPathCreateMutable();
-    CGPathAddRect(path, NULL, CGRectMake(textViewport.x - g_editor_rect[0],
-      textViewport.y - g_editor_rect[1], MAX(1.0, textViewport.width),
-      MAX(1.0, textViewport.height)));
+    CGPathAddRect(path, NULL, editorTextViewportCoreGraphicsRect(g_editor_rect));
     CTFrameRef frame = CTFramesetterCreateFrame(framesetter,
       CFRangeMake(0, wrappedText.length), path, NULL);
     if (frame) {
@@ -6905,6 +6916,7 @@ bool nimculus_platform_validate_editor_pane_geometry(void) {
 bool nimculus_platform_validate_editor_text_viewport(void) {
   const double pane[4] = {40.0, 60.0, 300.0, 180.0};
   NimculusPaintRegion viewport = editorTextViewport(pane);
+  CGRect coreGraphicsViewport = editorTextViewportCoreGraphicsRect(pane);
   NimculusPaintRegion outsideRight = {340.0f, 60.0f, 12.0f, 180.0f};
   NimculusPaintRegion outsideBottom = {40.0f, 240.0f, 300.0f, 12.0f};
   NimculusPaintRegion rightVisible = intersectPaintRegions(viewport, outsideRight);
@@ -6913,6 +6925,10 @@ bool nimculus_platform_validate_editor_text_viewport(void) {
     fabs(viewport.y - 66.0f) < 0.01f &&
     fabs(viewport.width - 264.0f) < 0.01f &&
     fabs(viewport.height - 148.0f) < 0.01f &&
+    fabs(coreGraphicsViewport.origin.x - 8.0) < 0.01 &&
+    fabs(coreGraphicsViewport.origin.y - 26.0) < 0.01 &&
+    fabs(coreGraphicsViewport.size.width - 264.0) < 0.01 &&
+    fabs(coreGraphicsViewport.size.height - 148.0) < 0.01 &&
     editorVisibleLineCapacity(pane, 20.0) == 8 &&
     rightVisible.width == 0.0f && bottomVisible.height == 0.0f;
 }
