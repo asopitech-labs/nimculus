@@ -10,13 +10,13 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 |---|---|---|
 | M0：モノレポ基盤 | ✅ 完了 | Apple Silicon のローカル build / test / benchmark / lint、およびmacOS CI（run 29635844053）を確認済み |
 | M1：macOS ウィンドウと Metal 描画 | 🟡 自動E2E済み・実機確認対象 | Cocoa / Metal / Retina / 基本入力を実装。native contract、LaunchServices経由の.app起動、WindowServer上の実ウィンドウ、最小サイズ、描画境界を確認済み。物理hardware確認は受け入れ記録へ集約 |
-| M2：NimNUI 基礎 UIシステム | 🟡 自動E2E済み・実機確認対象 | UIツリー、レイアウト、状態、イベント、PaintList、macOS入力を実装。縮小時は論理dockの実効幅に合わせてdock全体を退避し、空の右領域や枠外sidebarを残さずエディタ幅を回復する。描画・focus hit-test・divider dragは同じ投影dock矩形を共有し、不可視dockが入力を奪わない。自動E2Eで統合基準を確認済み。個別GUI操作は受け入れ記録へ集約 |
+| M2：NimNUI 基礎 UIシステム | 🟡 自動E2E済み・実機確認対象 | UIツリー、レイアウト、状態、イベント、PaintList、macOS入力を実装。縮小時は論理dockの実効幅に合わせてdock全体を退避し、空の右領域や枠外sidebarを残さずエディタ幅を回復する。描画・focus hit-test・divider dragは同じ投影dock矩形を共有し、不可視dockが入力を奪わない。AppKitのhidden stack viewもゼロサイズ制約を作らない初期フレームを持ち、画面起動時の制約衝突と入力停止を防止する。自動E2Eで統合基準を確認済み。個別GUI操作は受け入れ記録へ集約 |
 | M3：macOS テキスト描画と IME | 🟡 自動E2E済み・実機確認対象 | Core Text、glyph atlas、動的Metal文字描画、Tree-sitter構文色、marked text表示、IME、候補位置、clipboardを実装。日本語IMEの対話確認は受け入れ記録へ集約 |
 | M4：エディタバッファと編集コア | ✅ 完了 | Piece Table、原子的編集、Undo/Redo、複数カーソル、位置変換、fuzz、候補構造比較を実装・検証済み |
 | M5：macOS 最小実用エディタ | 🟡 自動E2E済み・実機確認対象 | 編集サービス、plain-text fallbackを含む動的文書表示、構文色、macOSメニュー/IME/Finder接続、Application Supportへのsession復元・crash recovery、`Cmd+,`の設定パネル導線を実装。Find/Replace/Go to LineとCommand PaletteはZed同様の非モーダルなエディタ内バーとして実装。標準AppKit titlebarの下でbreadcrumb・tab・本文を56ptの連続chromeへ圧縮し、Project/Git headerもworkspace上端へ揃える。Metalの上原点座標とAppKit child frameの下原点座標を境界で変換し、行番号・サイドバー・overlayを本文と同じpaneへ配置する。Files/Quick Openから文書を開いた後はエディタへfirst responderを戻し、次の文字入力・IME compositionを本文へ配送する |
 | M6：macOS プロジェクト・ワークスペース | 🟡 自動E2E済み・実機確認対象 | workspace、FSEvents、検索、Worktree、10万ファイル計測を実装。ZedのProject Panelと同様に、複数rootを個別に展開できるファイルツリーを編集本文から分離したmacOSサイドバーへ表示。`Reveal Active File`はアクティブ文書の祖先だけを展開し、列挙上限時も対象root・祖先を優先してツリーへ表示。Quick OpenのReturnで先頭候補を開き、New Fileは作成直後にエディタタブへ開く。Files renameは開いているbuffer、recent files、Git履歴対象パスを新しいcanonical pathへ追従させる |
 | M7：Tree-sitter | 🟡 自動E2E済み・実機確認対象 | Nim/Rust/TypeScript/TSX/Python/JSON/MarkdownのFFI、増分解析、構文状態、可視範囲ハイライト、RGBA Metalテクスチャ接続を実装。統合E2Eで全test・native contract・benchmarkを通過 |
-| M8：LSPクライアント | 🟡 自動E2E済み・実機確認対象 | JSON-RPC、stdio、stale response破棄、主要LSP UIを実装。統合E2EでLSP bridgeのunit/integrationを通過。POSIX stdoutのreadinessを0秒timeoutで確認し、アイドル中のLanguage ServerがUI入力・描画をブロックしないことを反復テストで固定。実Language Serverとの対話は受け入れ記録へ集約 |
+| M8：LSPクライアント | 🟡 自動E2E済み・実機確認対象 | JSON-RPC、stdio、stale response破棄、主要LSP UIを実装。統合E2EでLSP bridgeのunit/integrationを通過。POSIX stdoutのreadinessを0秒timeoutで確認し、アイドル中のLanguage ServerがUI入力・描画をブロックしないことを反復テストで固定。2026-07-31にTypeScript Language Server 5.3.0（TypeScript 5.9.2）を実アプリの`NIMCULUS_LSP_COMMAND`経由で起動し、server/tsserver子プロセスの生成とNimculus終了後のbounded cleanupを確認した。diagnostics/completionなどの物理GUI操作は受け入れ記録へ集約 |
 | M9：macOS Git統合 | 🟡 自動E2E済み・実機確認対象 | 非同期status/diff、gutter、hunk stage/unstage、commit/amend/log/blame/checkoutを実装。`git status`はconflictを先頭で明示する最大1000件のクリック可能な一覧を表示し、選んだ既存ファイルを開ける。暗黙の解決操作は行わない。commit/amend成功後はhunkと最新100件の履歴を非同期で再読込する。`git file history`はアクティブなファイルに限定して履歴サイドバーへ表示し、そこから選んだcommitも当該ファイルのpatchだけを表示する。`git blame`はcursor行の要約と、最大500行のauthor/hash付き一覧を表示する。`git branches`はクリック可能なlocal branch一覧を表示し、`git switch <branch>`と同じ安全な`--no-guess`で切替・clean tab再読込を行う。Git履歴はスクロール可能な専用サイドバーへ最新100件を表示し、選択したcommitのmetadata・統計・patchはexternal diffを起動せず出力パネルへ表示 |
 | M10：macOSターミナル・タスク | 🟡 自動E2E済み・実機確認対象 | PTY、VT/ANSI、複数session、task/cancel/problem matcher/output panelを実装。`Close Terminal`は検証済みの直接PTY子プロセスだけを終了し、残りのsessionを選択する。Zedのセルグリッド責務分離を参考に、Metal glyph atlasへターミナル専用の行・列・cell幅・属性付き頂点バッチ、背景矩形、viewport clipを接続し、通常文字はMetalを主表示にする。AppKitは通常文字・背景を透明化したうえでIME・選択・カラー絵文字の入力フォールバックとして保持する。統合E2EでPTY/task/native contractと短時間Soakを通過 |
 | M11：macOS配布基盤 | 🟡 機能実装済み・Developer ID承認待ち | `.app`、生成アイコン、署名、hardened runtime、ZIP/DMG、notarization/stapling、更新検証、crash reportを実装。Zedのbundle工程を参考に、ZIP/DMG生成直後とnotarization後の再生成時に非空検証と`hdiutil verify`を行う。`scripts/verify_macos_package.sh`でDMGをreadonly mountし、内部`.app`の署名検証と実アプリcold-startまでCIで確認する。`NIMCULUS_REQUIRE_NOTARIZATION=1`ではstaplerとGatekeeperをapp/DMG双方へ適用する。`.github/workflows/macos-release.yml`は手動実行時にrunner一時keychainへDeveloper ID証明書を導入し、App Store Connect API keyでnotarytool→stapling→strict verificationを行う。ICNS生成のSwift module cacheも各package runの一時cacheへ固定してユーザー領域へ残さない。notarytoolはkeychain profileまたはApp Store Connect API keyを優先し、従来のApple ID方式も後方互換で利用できる。更新成果物を1 GiBに制限し、`.part`へダウンロードしてサイズ/SHA-256検証後にdestinationへ移動、非同期中のサイズ超過を停止・削除、更新ツール出力を64 KiB上限の非ブロッキングrunnerで消費、更新helperは直接起動した子プロセスだけを停止、DMGのmount root・検証対象・detach対象を一致させ、処理後にmount directory/DMGをcleanupする。adhoc署名による`.app`・icon・ZIP/DMG・mount後cold-startスモークは成功。Developer IDとApple資格情報による承認は保留し、macOS機能の実装・検証は継続する |
@@ -112,6 +112,12 @@ E2EはM1/M2/M3/M5だけの個別操作では開始しない。M12までのeditor
 上記の2026-07-31 E2Eは`70235dc`をベースに、ZedのProject Panel操作モデルに合わせたFiles一覧行の
 通常クリック遷移修正を含む作業ツリーで実行した。WindowServer workflowは実`.app`の表示境界と
 起動PID cleanupを確認し、AppKitコントロールのdispatchはnative contractで確認している。
+
+その後のUI制約修正を含む作業ツリーでも、全test・native contract・benchmark・cold start・3秒soak・
+adhoc package verification・WindowServer GUI workflowが再成功した。実TypeScript Language Server
+smokeでは、Nimculusから`typescript-language-server --stdio`とその`tsserver`子プロセスが起動し、
+終了時に残存しないことを確認した。物理IME、trackpad、複数display、LSP機能の物理GUI操作、
+長時間利用、Developer ID/notarizationは、機能実装を止めない別受け入れ項目として残す。
 
 ## 基本方針
 

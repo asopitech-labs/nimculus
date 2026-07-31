@@ -3452,7 +3452,14 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   self = [super initWithFrame:frame];
   if (!self) return nil;
   self.wantsLayer = YES;
-  NSStackView *stack = [[NSStackView alloc] initWithFrame:NSZeroRect];
+  // Give AppKit a valid intrinsic container before the first layout pass.
+  // The view is positioned manually by -layout, but an initial zero frame
+  // creates an autoresizing-mask height==0 constraint while the fixed-height
+  // action buttons are already installed. That transient conflict causes
+  // AppKit to break button constraints and can leave the welcome surface in
+  // an unusable state when the document is still empty.
+  NSStackView *stack = [[NSStackView alloc]
+    initWithFrame:NSMakeRect(0.0, 0.0, 420.0, 250.0)];
   stack.orientation = NSUserInterfaceLayoutOrientationVertical;
   stack.alignment = NSLayoutAttributeCenterX;
   stack.spacing = 12.0;
@@ -3611,6 +3618,9 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 // retaining full accessible labels and direct command routing.
 @implementation NimculusGitChangesActions
 - (instancetype)initWithFrame:(NSRect)frame {
+  if (frame.size.width <= 0.0 || frame.size.height <= 0.0) {
+    frame = NSMakeRect(0.0, 0.0, 56.0, 24.0);
+  }
   self = [super initWithFrame:frame];
   if (!self) return nil;
   self.orientation = NSUserInterfaceLayoutOrientationHorizontal;
@@ -3650,6 +3660,9 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 // existing macOS/Nim workspace path.
 @implementation NimculusFilesSidebarActions
 - (instancetype)initWithFrame:(NSRect)frame {
+  if (frame.size.width <= 0.0 || frame.size.height <= 0.0) {
+    frame = NSMakeRect(0.0, 0.0, 120.0, 24.0);
+  }
   self = [super initWithFrame:frame];
   if (!self) return nil;
   self.orientation = NSUserInterfaceLayoutOrientationHorizontal;
@@ -3711,6 +3724,9 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 // avoids trapping a user in a result list behind the command palette.
 @implementation NimculusSearchSidebarActions
 - (instancetype)initWithFrame:(NSRect)frame {
+  if (frame.size.width <= 0.0 || frame.size.height <= 0.0) {
+    frame = NSMakeRect(0.0, 0.0, 56.0, 24.0);
+  }
   self = [super initWithFrame:frame];
   if (!self) return nil;
   self.orientation = NSUserInterfaceLayoutOrientationHorizontal;
@@ -3756,6 +3772,9 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 // every action through the existing Nim command boundary.
 @implementation NimculusWorkspaceToolbar
 - (instancetype)initWithFrame:(NSRect)frame {
+  if (frame.size.width <= 0.0 || frame.size.height <= 0.0) {
+    frame = NSMakeRect(0.0, 0.0, 360.0, 24.0);
+  }
   self = [super initWithFrame:frame];
   if (!self) return nil;
   self.orientation = NSUserInterfaceLayoutOrientationHorizontal;
@@ -3822,6 +3841,9 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 // reachable without consuming document or tree space with text-only controls.
 @implementation NimculusActivityBar
 - (instancetype)initWithFrame:(NSRect)frame {
+  if (frame.size.width <= 0.0 || frame.size.height <= 0.0) {
+    frame = NSMakeRect(0.0, 0.0, 32.0, 260.0);
+  }
   self = [super initWithFrame:frame];
   if (!self) return nil;
   self.orientation = NSUserInterfaceLayoutOrientationVertical;
