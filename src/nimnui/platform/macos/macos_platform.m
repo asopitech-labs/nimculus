@@ -7133,6 +7133,8 @@ bool nimculus_platform_validate_main_menu(void) {
 
 static uint32_t g_validation_shortcut_count = 0;
 static uint32_t g_validation_shortcut_input_count = 0;
+static uint32_t g_validation_gutter_input_count = 0;
+static NimculusInputEvent g_validation_gutter_event;
 static BOOL g_validation_scroll_seen = NO;
 static NimculusInputEvent g_validation_scroll_event;
 
@@ -7158,6 +7160,12 @@ static bool validationShortcutCallback(const NimculusInputEvent *event) {
   return true;
 }
 
+static void validationGutterInputCallback(const NimculusInputEvent *event) {
+  if (!event || event->type != NSEventTypeLeftMouseDown) return;
+  g_validation_gutter_event = *event;
+  g_validation_gutter_input_count++;
+}
+
 bool nimculus_platform_validate_shortcut_dispatch(void) {
   // Standard menu equivalents are resolved by AppKit before this view sees
   // keyDown:. This contract covers the complementary application shortcut
@@ -7181,6 +7189,35 @@ bool nimculus_platform_validate_shortcut_dispatch(void) {
       g_validation_shortcut_count == 1;
     g_input_callback = previousInputCallback;
     g_shortcut_callback = previousShortcutCallback;
+    [view release];
+    return valid;
+  }
+}
+
+bool nimculus_platform_validate_editor_gutter_input(void) {
+  // Zed resolves a gutter hit from the native mouse event before dispatching
+  // the line action. This contract covers the native half of that boundary;
+  // Nim's line/action mapping is covered by test_git_gutter.nim.
+  @autoreleasepool {
+    NimculusInputCallback previousInputCallback = g_input_callback;
+    g_validation_gutter_input_count = 0;
+    memset(&g_validation_gutter_event, 0, sizeof(g_validation_gutter_event));
+    g_input_callback = validationGutterInputCallback;
+    NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
+      NSMakeRect(0.0, 0.0, 640.0, 480.0)];
+    CGEventRef cgEvent = CGEventCreateMouseEvent(NULL, kCGEventLeftMouseDown,
+      CGPointMake(4.0, 120.0), kCGMouseButtonLeft);
+    NSEvent *event = cgEvent ? [NSEvent eventWithCGEvent:cgEvent] : nil;
+    if (cgEvent) CFRelease(cgEvent);
+    if (view && event) [view mouseDown:event];
+    BOOL valid = g_validation_gutter_input_count == 1 &&
+      g_validation_gutter_event.type == NSEventTypeLeftMouseDown &&
+      g_validation_gutter_event.button == 0 &&
+      isfinite(g_validation_gutter_event.x) &&
+      isfinite(g_validation_gutter_event.y) &&
+      g_validation_gutter_event.x >= 0.0 &&
+      g_validation_gutter_event.y >= 0.0;
+    g_input_callback = previousInputCallback;
     [view release];
     return valid;
   }

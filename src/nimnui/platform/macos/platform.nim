@@ -19,6 +19,7 @@ proc platformValidateScrollClipPixels*(): bool {.importc: "nimculus_platform_val
 proc platformValidateSceneTextureReplacement*(): bool {.importc: "nimculus_platform_validate_scene_texture_replacement", cdecl.}
 proc platformValidateMainMenu*(): bool {.importc: "nimculus_platform_validate_main_menu", cdecl.}
 proc platformValidateShortcutDispatch*(): bool {.importc: "nimculus_platform_validate_shortcut_dispatch", cdecl.}
+proc platformValidateEditorGutterInput*(): bool {.importc: "nimculus_platform_validate_editor_gutter_input", cdecl.}
 proc platformValidateOpenPanelSheet*(): bool {.importc: "nimculus_platform_validate_open_panel_sheet", cdecl.}
 proc platformValidateSavePanelSheet*(): bool {.importc: "nimculus_platform_validate_save_panel_sheet", cdecl.}
 proc platformValidateUnsavedCloseSheet*(): bool {.importc: "nimculus_platform_validate_unsaved_close_sheet", cdecl.}

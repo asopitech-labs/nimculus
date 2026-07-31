@@ -31,11 +31,13 @@ type
     completionSelected*: int
     completionRequestId*: int
     completionCursorByte*: int
+    completionVersion*: int
     completionVisible*: bool
     hoverRequestId*: int
     hoverCursorByte*: int
     hoverTargetByte*: int
     hoverDelayTicks*: int
+    hoverVersion*: int
     hoverText*: string
     hoverVisible*: bool
     definitionRequestId*: int
@@ -401,6 +403,7 @@ proc requestHover*(bridge: LspEditorBridge, buffer: PieceTable,
     let pending = bridge.session.request(request.methodName, request.params)
     bridge.hoverRequestId = pending.id
     bridge.hoverCursorByte = max(0, min(cursorByte, buffer.toString().len))
+    bridge.hoverVersion = bridge.version
     result = true
   except CatchableError:
     bridge.lastError = getCurrentExceptionMsg()
@@ -426,6 +429,7 @@ proc requestCompletion*(bridge: LspEditorBridge, buffer: PieceTable,
     let pending = bridge.session.request(request.methodName, request.params)
     bridge.completionRequestId = pending.id
     bridge.completionCursorByte = max(0, min(cursorByte, buffer.toString().len))
+    bridge.completionVersion = bridge.version
     result = true
   except CatchableError:
     bridge.lastError = getCurrentExceptionMsg()
@@ -549,7 +553,8 @@ proc updateDocument*(bridge: LspEditorBridge, path, text: string) =
   ## it. Other pane documents stay open in the same LSP session.
   if bridge == nil or path.len == 0: return
   let nextUri = fileUri(path)
-  if bridge.uri != nextUri:
+  let textChanged = bridge.uri == nextUri and bridge.lastText != text
+  if bridge.uri != nextUri or textChanged:
     bridge.hideCompletion()
     bridge.hideHover()
     bridge.hideDefinition()
@@ -585,7 +590,8 @@ proc poll*(bridge: LspEditorBridge): bool =
       let completion = parseCompletion(response)
       bridge.completionItems = completion.items
       bridge.completionSelected = 0
-      bridge.completionVisible = completion.items.len > 0
+      bridge.completionVisible = bridge.completionVersion == bridge.version and
+        completion.items.len > 0
       bridge.completionRequestId = 0
       result = true
   if bridge.hoverRequestId > 0:
@@ -593,7 +599,8 @@ proc poll*(bridge: LspEditorBridge): bool =
     if response != nil:
       let hover = parseHover(response)
       bridge.hoverText = hover.text
-      bridge.hoverVisible = hover.text.len > 0 and bridge.hoverCursorByte == bridge.hoverTargetByte
+      bridge.hoverVisible = bridge.hoverVersion == bridge.version and
+        hover.text.len > 0 and bridge.hoverCursorByte == bridge.hoverTargetByte
       bridge.hoverRequestId = 0
       result = true
   if bridge.definitionRequestId > 0:

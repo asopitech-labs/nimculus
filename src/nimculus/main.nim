@@ -22,6 +22,7 @@ import nimculus/lsp_editor_bridge
 import nimculus/lsp
 import nimculus/editor_diagnostics
 import nimculus/git_service
+import nimculus/git_gutter
 import nimculus/task_service
 import nimculus/update_service
 import nimculus/terminal
@@ -1117,18 +1118,21 @@ when defined(macosx):
     cancelNativeGitAction()
 
   proc handleGitGutterClick(document: ptr FileDocument, bounds: Rect,
-                            scrollLine: int, uiY: float32, modifiers: uint32): bool =
+                            scrollLine: int, uiX, uiY: float32,
+                            modifiers: uint32): bool =
     if document == nil or document[].path.len == 0: return false
     let repository = gitRepositoryForDocument(document)
     let relative = gitRelativePathForDocument(document, repository)
     if repository == nil or relative.len == 0: return false
-    let line = max(0, int(floor((uiY - float32(bounds.origin.y) - 4'f32) /
-      18'f32)) + scrollLine)
+    let action = gitGutterActionAt(uiX, uiY,
+      float32(bounds.origin.x), float32(bounds.origin.y), 8'f32, scrollLine,
+      modifiers)
+    if action.kind == gitGutterNone: return false
     # Option-click follows the standard staged-diff convention and reverses
     # the operation against the index; a normal click stages the worktree hunk.
-    let unstage = (modifiers and (1'u32 shl 19)) != 0'u32
     startNativeGitHunkAction(repository, relative,
-      if unstage: "unstage hunk" else: "stage hunk", line)
+      if action.kind == gitGutterUnstage: "unstage hunk" else: "stage hunk",
+      action.line)
     true
 
   proc clearNativeGitHunks() =
@@ -5656,7 +5660,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           editorSession.secondaryView.scrollLine else: editorViewState.scrollLine
       if gutterDocument != nil and float32(event.x) - float32(gutterBounds.origin.x) < 8'f32 and
           handleGitGutterClick(gutterDocument, gutterBounds, gutterScrollLine,
-            uiY, event.modifiers):
+            float32(event.x), uiY, event.modifiers):
         return
     if kind == pointerDown and hit == demoSplitNode:
       if not editorSession.split:

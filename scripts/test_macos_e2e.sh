@@ -31,6 +31,7 @@ GENERATED_BINARIES=(
   tests/test_editor_syntax
   tests/test_lsp
   tests/test_lsp_editor_bridge
+  tests/test_git_gutter
   tests/test_git_service
   tests/test_terminal
   tests/test_task_service

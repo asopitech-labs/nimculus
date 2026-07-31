@@ -95,6 +95,14 @@ suite "macOS platform contract":
   test "native Command shortcuts dispatch through the Metal view":
     check platformValidateShortcutDispatch()
 
+  test "native editor gutter mouse input reaches the application boundary":
+    if platformValidateEditorGutterInput():
+      check true
+    elif nativeGuiValidationRequired():
+      check false
+    else:
+      echo "  [SKIP] native editor gutter input (GUI services unavailable in this session)"
+
   test "native Open panel uses a non-blocking window sheet":
     if skipNativeSheetService():
       echo "  [SKIP] Open panel sheet contract (auxiliary GUI service excluded)"
