@@ -478,7 +478,7 @@ Command Palette：**[x]** Zedの主要操作発見モデルに合わせ、M5〜M
 
 Files パネル：**[x]** ZedのProject Panelにならい、New File/New Folderに加え、現在の編集ファイルまでの祖先だけを展開する`Reveal Active File`と、ファイル内容を再走査せず展開状態をリセットする`Collapse All`を常設ヘッダーへ置く。macOS Files overlayはZedの選択行操作に合わせ、`Cmd+N`（新規ファイル）、`Cmd+Option+N`（新規フォルダ）、Backspace/Delete（ゴミ箱へ移動）、F2（名前変更）を同じ選択対象へ接続する。新規作成は既存のmacOS alert sheet、削除は確認sheetを経由し、workspace rootの削除は拒否する。
 
-Files パネルの主要操作：**[x]** ZedのmacOS keymapに合わせ、`Cmd+Left/Right`（全折りたたみ／全展開）、`Cmd+D`（複製）、`Cmd+X/C/V`（ファイル／ディレクトリの切り取り・コピー・貼り付け）、`Cmd+Backspace`（確認なしでゴミ箱へ移動）、`Cmd+Delete`（完全削除）、`Option+Cmd+R`（Finderで表示）、`Ctrl+Shift+Enter`（システムアプリで開く）、`Option+Cmd+Shift+F`（選択ディレクトリ内検索）を実装した。ファイル操作はworkspace root境界とsymlink境界を検証し、複数root間の貼り付けにも対応する。Command Paletteとコンテキストメニューにも同じ選択対象操作を公開し、App menuにはmacOS標準Services submenuを追加した。
+Files パネルの主要操作：**[x]** ZedのmacOS keymapに合わせ、`Cmd+Left/Right`（全折りたたみ／全展開）、`Cmd+D`（複製）、`Cmd+X/C/V`（ファイル／ディレクトリの切り取り・コピー・貼り付け）、`Cmd+Backspace`（確認なしでゴミ箱へ移動）、`Cmd+Delete`（完全削除）、`Option+Cmd+R`（Finderで表示）、`Ctrl+Shift+Enter`（システムアプリで開く）、`Option+Cmd+Shift+F`（選択ディレクトリ内検索）を実装した。ファイル操作はworkspace root境界とsymlink境界を検証し、複数root間の貼り付けにも対応する。Command Paletteとコンテキストメニューにも同じ選択対象操作を公開し、App menuにはmacOS標準Services submenuを追加した。View menuからFiles／Outline／Git／Terminal／Soft Wrapも同じコマンド経路で切り替えられる。
 
 Filesツリーは選択中のディレクトリに対してRightで展開（展開済みなら最初の可視childへ移動）、Leftで折りたたみ（折りたたみ済みのdirectory／fileならparentを選択）を行う。既存の展開状態だけを更新してboundedな表示投影を再構築し、ファイル内容の読込や全ワークスペース走査は行わない。
 

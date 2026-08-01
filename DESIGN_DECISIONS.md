@@ -6449,3 +6449,18 @@ including the top and bottom insets, instead of using the complete editor
 pane. Split-pane annotation drawing also selects the matching secondary
 annotation buffer before converting document positions. This keeps scrollbar,
 tab/status chrome, and the adjacent split pane outside every text decoration.
+
+## UI-088: Route macOS View menu actions through the existing command boundary
+
+Zed exposes workspace docks and editor presentation controls from its native
+macOS View menu. Nimculus therefore adds Files, Outline, Git, Terminal, and
+Soft Wrap entries to the AppKit View menu, but keeps the menu layer free of
+workspace or editor mutation logic. Each item carries the same command string
+used by the activity bar and command palette and dispatches through the existing
+`g_command_callback` boundary.
+
+This preserves one source of truth for focus, panel visibility, terminal
+lifecycle, and soft-wrap state. The native menu only owns labels and standard
+key equivalents; Nim owns state transitions and persistence. The native menu
+contract invokes every new item and verifies the exact command payload, so a
+visible menu item cannot silently become a presentation-only affordance.

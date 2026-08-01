@@ -6306,6 +6306,31 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NSMenuItem *fullScreen = [[NSMenuItem alloc] initWithTitle:@"Enter Full Screen" action:@selector(toggleFullScreen:) keyEquivalent:@"f"];
   fullScreen.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagControl;
   [viewMenu addItem:fullScreen];
+  [viewMenu addItem:[NSMenuItem separatorItem]];
+  NSMenuItem *toggleFiles = [[NSMenuItem alloc] initWithTitle:@"Toggle Files"
+    action:@selector(dispatchCommand:) keyEquivalent:@"e"];
+  toggleFiles.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
+  toggleFiles.representedObject = @"commandPalette:toggle files";
+  [viewMenu addItem:toggleFiles];
+  NSMenuItem *toggleOutline = [[NSMenuItem alloc] initWithTitle:@"Toggle Outline"
+    action:@selector(dispatchCommand:) keyEquivalent:@"b"];
+  toggleOutline.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
+  toggleOutline.representedObject = @"commandPalette:toggle outline";
+  [viewMenu addItem:toggleOutline];
+  NSMenuItem *toggleGit = [[NSMenuItem alloc] initWithTitle:@"Toggle Git"
+    action:@selector(dispatchCommand:) keyEquivalent:@"g"];
+  toggleGit.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
+  toggleGit.representedObject = @"commandPalette:toggle git";
+  [viewMenu addItem:toggleGit];
+  NSMenuItem *toggleTerminal = [[NSMenuItem alloc] initWithTitle:@"Toggle Terminal"
+    action:@selector(dispatchCommand:) keyEquivalent:@"`"];
+  toggleTerminal.keyEquivalentModifierMask = NSEventModifierFlagControl;
+  toggleTerminal.representedObject = @"commandPalette:toggle terminal";
+  [viewMenu addItem:toggleTerminal];
+  NSMenuItem *toggleSoftWrap = [[NSMenuItem alloc] initWithTitle:@"Toggle Soft Wrap"
+    action:@selector(dispatchCommand:) keyEquivalent:@""];
+  toggleSoftWrap.representedObject = @"toggleSoftWrap";
+  [viewMenu addItem:toggleSoftWrap];
   [viewItem setSubmenu:viewMenu];
   [mainMenu addItem:viewItem];
 
@@ -6338,6 +6363,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 - (void)openSettings:(id)sender {
   (void)sender;
   if (g_command_callback) g_command_callback("openSettingsUI");
+}
+
+- (void)dispatchCommand:(NSMenuItem *)sender {
+  if (g_command_callback && [sender.representedObject isKindOfClass:[NSString class]]) {
+    g_command_callback(((NSString *)sender.representedObject).UTF8String);
+  }
 }
 
 - (void)showSettingsPanelWithTheme:(NSString *)theme editorFontSize:(NSString *)editorFontSize
@@ -7600,6 +7631,9 @@ static NSMenuItem *menuItemWithTitle(NSMenu *menu, NSString *title) {
   return nil;
 }
 
+static char g_validation_command[64];
+static void validationCommandCallback(const char *command);
+
 bool nimculus_platform_validate_main_menu(void) {
   @autoreleasepool {
     NSApplication *application = [NSApplication sharedApplication];
@@ -7629,6 +7663,11 @@ bool nimculus_platform_validate_main_menu(void) {
     NSMenuItem *splitHorizontal = menuItemWithTitle(windowItem.submenu, @"Split Editor Horizontally");
     NSMenuItem *closeSplit = menuItemWithTitle(windowItem.submenu, @"Close Split");
     NSMenuItem *zoom = menuItemWithTitle(windowItem.submenu, @"Zoom");
+    NSMenuItem *toggleFiles = menuItemWithTitle(viewItem.submenu, @"Toggle Files");
+    NSMenuItem *toggleOutline = menuItemWithTitle(viewItem.submenu, @"Toggle Outline");
+    NSMenuItem *toggleGit = menuItemWithTitle(viewItem.submenu, @"Toggle Git");
+    NSMenuItem *toggleTerminal = menuItemWithTitle(viewItem.submenu, @"Toggle Terminal");
+    NSMenuItem *toggleSoftWrap = menuItemWithTitle(viewItem.submenu, @"Toggle Soft Wrap");
     BOOL shortcuts = settings.keyEquivalentModifierMask == NSEventModifierFlagCommand &&
       [settings.keyEquivalent isEqualToString:@","] &&
       open.keyEquivalentModifierMask == NSEventModifierFlagCommand &&
@@ -7654,15 +7693,38 @@ bool nimculus_platform_validate_main_menu(void) {
       fullScreen.keyEquivalentModifierMask ==
         (NSEventModifierFlagCommand | NSEventModifierFlagControl) &&
       minimize.keyEquivalentModifierMask == NSEventModifierFlagCommand;
+    BOOL viewActions = toggleFiles && toggleOutline && toggleGit && toggleTerminal && toggleSoftWrap &&
+      toggleFiles.action == @selector(dispatchCommand:) &&
+      toggleOutline.action == @selector(dispatchCommand:) &&
+      toggleGit.action == @selector(dispatchCommand:) &&
+      toggleTerminal.action == @selector(dispatchCommand:) &&
+      toggleSoftWrap.action == @selector(dispatchCommand:);
+    NimculusCommandCallback previousCallback = g_command_callback;
+    g_command_callback = validationCommandCallback;
+    g_validation_command[0] = '\0';
+    [delegate dispatchCommand:toggleFiles];
+    BOOL filesDispatch = strcmp(g_validation_command, "commandPalette:toggle files") == 0;
+    g_validation_command[0] = '\0';
+    [delegate dispatchCommand:toggleOutline];
+    BOOL outlineDispatch = strcmp(g_validation_command, "commandPalette:toggle outline") == 0;
+    g_validation_command[0] = '\0';
+    [delegate dispatchCommand:toggleGit];
+    BOOL gitDispatch = strcmp(g_validation_command, "commandPalette:toggle git") == 0;
+    g_validation_command[0] = '\0';
+    [delegate dispatchCommand:toggleTerminal];
+    BOOL terminalDispatch = strcmp(g_validation_command, "commandPalette:toggle terminal") == 0;
+    g_validation_command[0] = '\0';
+    [delegate dispatchCommand:toggleSoftWrap];
+    BOOL softWrapDispatch = strcmp(g_validation_command, "toggleSoftWrap") == 0;
+    g_command_callback = previousCallback;
     BOOL valid = topLevel && settings && services && services.submenu && open && save && saveAs && close && redo && palette &&
       fullScreen && minimize && zoom && split && splitHorizontal && closeSplit && shortcuts && windowActions;
+    valid = valid && viewActions && filesDispatch && outlineDispatch && gitDispatch &&
+      terminalDispatch && softWrapDispatch;
     [application setMainMenu:previousMenu];
     return valid;
   }
 }
-
-static char g_validation_command[64];
-static void validationCommandCallback(const char *command);
 
 bool nimculus_platform_validate_command_palette(void) {
   @autoreleasepool {
