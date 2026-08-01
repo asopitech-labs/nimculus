@@ -30,6 +30,26 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | M19：DAPデバッガー | 🟡 macOS基盤実装・実機確認対象 | ZedのDAP transport/client/session/debugger UI境界を参考に、Content-Length transport、stale-safe request tracker、Apple LLDB-DAPのXcode/xcrun自動解決、initialize/launch/attach、TCP remote adapter、breakpoint、continue/pause/step、stack/scopes/variables、watches、evaluate/outputを実装。Threads / Stack Frames / Scopes / Variables / WatchesをDebugサイドバーへ分離し、Enter/Spaceでthread・frame選択、scope/variableの展開・折りたたみ、frameのsource path/lineジャンプ、`runInTerminal`逆方向request応答、`startDebugging`の独立子セッションを接続。Apple `lldb-dap`の実ターゲットに対するlaunch（breakpoint→stopped→stack/scopes/variables）とattach（running target→stopOnEntry）を統合テストで確認済み。子セッションを含む実機GUI受入れと権限差異の受入れは残る |
 | M20〜M21：安定化・v1.0 | 🟡 M20自動E2E済み・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録する。2026-08-02の統合E2Eで、全test、native contract、benchmark、cold-start（298.586ms）、2秒soak、adhoc DMG起動、WindowServer GUI workflowを一つのローカル統合E2Eで確認済み。8時間実機実行、remote latency、正式配布は未完了 |
 
+## macOS実装完了判定
+
+2026-08-02時点で、macOSを主対象とするM1〜M12およびM17〜M20の実装項目は、
+コード・unit/integration test・native Cocoa/Metal contract・統合macOS E2Eの範囲で
+完了と判定する。ロードマップ表の「実機確認対象」は実装未完了を意味しない。
+
+根拠は、Apple Silicon上での `nimble test`、`nimble macosE2E`、100MiB editor／
+100,000ファイルworkspace benchmark、DMG検証、WindowServer起動、および
+Files → editor → Git History → terminalの一括GUI workflow成功である。
+
+以下は実装を止めない別受入れ項目として残す。
+
+- 物理日本語IME・trackpad・複数ディスプレイ・実ピクセル表示確認
+- 2時間／8時間の連続実機soakとremote latency計測
+- Developer ID署名・notarizationの資格情報付き配布確認
+- M19のdebugserver権限差異と子DAPセッションの実機GUI確認
+
+M13以降のWindows、WSL、Linux、SSH、およびそれらを含むM21正式版は、現在の
+macOS優先スコープでは凍結し、Windows版のトライ＆エラーは行わない。
+
 ### 2026-08-02 追補：主要macOS UIの表示境界
 
 ZedのProject Panel/Git UIの実装を再確認し、Files/Gitの長い行を単一行末尾省略へ固定、
