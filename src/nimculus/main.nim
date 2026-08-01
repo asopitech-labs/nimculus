@@ -995,6 +995,8 @@ when defined(macosx):
     ]
     for id, manifest in editorExtensionRegistry.items:
       lines.add(id & " " & manifest.version & " — " & manifest.name)
+      if manifest.wasmModule.len > 0:
+        lines.add("  WASM module validated (API " & $manifest.apiVersion & ")")
       if manifest.externalProcess.len > 0:
         lines.add("  external process (permissioned)")
     if lines.len == 2: lines.add("No extensions installed")

@@ -27,12 +27,16 @@ type
     snippets*: seq[string]
     tasks*: seq[string]
     commands*: seq[string]
+    wasmModule*: string
+    apiVersion*: int
     externalProcess*: string
     permissions*: seq[string]
 
   ExtensionRegistry* = ref object
     manifests*: Table[string, ExtensionManifest]
     roots*: seq[string]
+
+const SupportedExtensionApiVersion* = 1
 
 proc extensionError(message: string): ref ExtensionError =
   newException(ExtensionError, message)
@@ -63,6 +67,16 @@ proc parseExtensionManifest*(contents, root: string): ExtensionManifest =
   result.tasks = stringList(node, "tasks")
   result.commands = stringList(node, "commands")
   result.permissions = stringList(node, "permissions")
+  result.apiVersion = if node.hasKey("apiVersion"):
+    if node["apiVersion"].kind != JInt: raise extensionError("apiVersion must be an integer")
+    node["apiVersion"].getInt
+    else: SupportedExtensionApiVersion
+  if result.apiVersion != SupportedExtensionApiVersion:
+    raise extensionError("unsupported extension API version: " & $result.apiVersion)
+  if node.hasKey("wasmModule"):
+    if node["wasmModule"].kind != JString:
+      raise extensionError("wasmModule must be a string")
+    result.wasmModule = node["wasmModule"].getStr
   result.lspServers = initTable[string, string]()
   if node.hasKey("lspServers"):
     if node["lspServers"].kind != JObject:
@@ -80,6 +94,22 @@ proc parseExtensionManifest*(contents, root: string): ExtensionManifest =
 proc loadExtensionManifest*(path: string): ExtensionManifest =
   if not fileExists(path): raise extensionError("manifest not found: " & path)
   parseExtensionManifest(readFile(path), parentDir(path))
+
+proc validateWasmModule*(manifest: ExtensionManifest): bool =
+  ## Validate the WebAssembly container before handing it to a future host.
+  ## The module must remain under its manifest root and use the WebAssembly 1
+  ## binary header. Execution is intentionally not attempted without an
+  ## explicitly selected WASM runtime and versioned host API.
+  if manifest.wasmModule.len == 0: return true
+  let modulePath = normalizedPath(manifest.root / manifest.wasmModule)
+  let rootPath = normalizedPath(manifest.root)
+  if not (modulePath == rootPath or modulePath.startsWith(rootPath & DirSep)):
+    return false
+  if not fileExists(modulePath): return false
+  let bytes = readFile(modulePath)
+  bytes.len >= 8 and bytes[0] == '\0' and bytes[1] == 'a' and bytes[2] == 's' and
+    bytes[3] == 'm' and ord(bytes[4]) == 1 and ord(bytes[5]) == 0 and
+    ord(bytes[6]) == 0 and ord(bytes[7]) == 0
 
 proc newExtensionRegistry*(roots: openArray[string] = []): ExtensionRegistry =
   result = ExtensionRegistry(manifests: initTable[string, ExtensionManifest]())
@@ -107,8 +137,10 @@ proc discover*(registry: ExtensionRegistry): int =
       let manifestPath = directory / "extension.json"
       if not fileExists(manifestPath): continue
       try:
-        registry.register(loadExtensionManifest(manifestPath))
-        inc result
+        let manifest = loadExtensionManifest(manifestPath)
+        if manifest.validateWasmModule():
+          registry.register(manifest)
+          inc result
       except ExtensionError:
         discard
 

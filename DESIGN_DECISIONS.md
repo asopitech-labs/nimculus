@@ -6475,7 +6475,10 @@ snippet, task, and command metadata without loading code into the editor.
 External processes require an explicit `process` permission in the manifest.
 There is no Node.js runtime, VSCode API compatibility layer, or direct native
 shared-library loading. WASM and a versioned extension API remain follow-up
-work after the data-backed contract is stable.
+work after the data-backed contract is stable. The registry now negotiates
+API version 1 and validates the WebAssembly magic/version header and root-safe
+module path before registration. It still does not execute a module until an
+explicit WASM runtime and host API are selected.
 
 ## M18-090: Own CLI agent processes per session
 
