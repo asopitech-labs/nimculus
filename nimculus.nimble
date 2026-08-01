@@ -48,6 +48,9 @@ task test, "Run unit and integration tests":
   exec "nim c --mm:arc --nimcache:.nimcache/test_settings -r --path:src tests/test_settings.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/test_update_service -r --path:src tests/test_update_service.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/test_workspace_watcher -r --path:src tests/test_workspace_watcher.nim"
+  exec "nim c --mm:arc --nimcache:.nimcache/test_dap -r --path:src tests/test_dap.nim"
+  exec "nim c --mm:arc --nimcache:.nimcache/test_agent_service -r --path:src tests/test_agent_service.nim"
+  exec "nim c --mm:arc --nimcache:.nimcache/test_extension_service -r --path:src tests/test_extension_service.nim"
 
 task testWindows, "Run Windows-only tests on a Windows runner":
   exec "nim c --mm:arc --nimcache:.nimcache/test_windows_terminal -r --path:src tests/test_windows_terminal.nim"

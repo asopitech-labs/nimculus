@@ -25,8 +25,20 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | M14：WSLリモート | ⚪ 未着手 | Windows版完了後にagent、remote file、LSP、Git、terminal、reconnectを実装する |
 | M15：Linux対応 | ⚪ 未着手 | WSL基盤の後にWayland優先、X11 fallback、IME、PTY、packagingを実装する |
 | M16：SSHリモート | ⚪ 未着手 | WSLプロトコルを一般化し、SSH agentとremote開発を実装する |
-| M17〜M19：拡張・AI・DAP | ⚪ 未着手 | 拡張API、CLIエージェント、DAPクライアントを順次実装する |
-| M20〜M21：安定化・v1.0 | 🟡 M20自動E2E済み・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録する。2026-07-31の統合E2Eで、全test、native contract、benchmark、cold-start、短時間Soak、adhoc DMG起動、WindowServer GUI workflowを一つのローカル統合E2Eで確認済み。8時間実機実行、remote latency、正式配布は未完了 |
+| M17：拡張システム | 🟡 macOS基盤実装・実機確認対象 | ZedのExtensionHostの責務分離を参考に、manifest読込・global/workspace discovery・language/grammar/LSP/theme/icon/snippet/task/command登録と、external processの明示permission検証を実装。WASM実行、versioned API、インストールUIは未完了 |
+| M18：CLI AIエージェント | 🟡 macOS基盤実装・実機確認対象 | Zedのagent thread/process/worktree/output境界を参考に、直接子プロセス、複数session、prompt、bounded output、Git変更検知、diff review、approve/reject、停止を実装。Codex/Claude/OpenCodeの実CLI接続は環境設定後の受け入れ対象 |
+| M19：DAPデバッガー | 🟡 macOS基盤実装・実機確認対象 | ZedのDAP transport/client/session境界を参考に、Content-Length transport、stale-safe request tracker、initialize/launch、breakpoint、continue/pause/step、stack/outputを実装。attach、remote adapter、完全なvariables/watches UIは未完了 |
+| M20〜M21：安定化・v1.0 | 🟡 M20自動E2E済み・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録する。2026-08-02の統合E2Eで、全test、native contract、benchmark、cold-start（483.456ms）、2秒soak、adhoc DMG起動、WindowServer GUI workflowを一つのローカル統合E2Eで確認済み。8時間実機実行、remote latency、正式配布は未完了 |
+
+### 2026-08-02 更新：拡張・CLIエージェント・DAPのmacOS縦切り
+
+Zedの `crates/extension_host`、`crates/agent`、`crates/dap`、`crates/dap_adapters` を再確認し、ホストUI・プロセス所有・protocol transport・状態投影を分離した。Nimculusではその境界をmacOS共通コアへ移植し、次の入口を実装した。
+
+* Extensionsメニュー／Command Paletteからmanifestを再読込・一覧表示できる。global `~/.nimculus/extensions` とworkspace `.nimculus/extensions`を探索し、外部processはmanifestの `permissions: ["process"]` がない限り拒否する。Node.js runtimeとnative shared libraryの直接ロードは行わない
+* Agentメニュー／Command Paletteから、`NIMCULUS_AGENT_COMMAND` と引数で任意CLI agentを起動し、Taskパネルへ出力を表示できる。`agent send <prompt>`、差分レビュー、approve/reject、stopを実装し、直接起動した子プロセスだけを終了する
+* Debugメニュー／Command PaletteからDAP adapterを起動し、`NIMCULUS_DAP_COMMAND`、`NIMCULUS_DAP_ARGS`、`NIMCULUS_DAP_PROGRAM`で対象を指定できる。initialize→launch→initialized→configurationDone、breakpoint、continue/pause/step、stack trace/outputを実行し、応答の世代管理とbounded transportを行う
+
+全体の検証は個別GUI操作を実装ブロックにせず、`nimble macosE2E`へ統合した。2026-08-02実行では全unit/integration、native contract、benchmark、cold-start、短時間soak、adhoc署名packageのDMG検証、WindowServer GUI workflowが成功した。スクリーンショット取得はこの環境のScreen Recording制約で画像内容を検証できないため、ウィンドウ境界はWindowServerの `942x660` とnative viewport contractで検証し、画像成功とは扱わない。
 
 ### 2026-07-31 更新：統合E2EとWelcome surface
 

@@ -2617,6 +2617,12 @@ static void dismissExternalChangePanel(const char *command) {
     @"git branches", @"git file history", @"git blame", @"cancel git",
     @"toggle terminal", @"new terminal", @"close terminal", @"next terminal",
     @"previous terminal", @"toggle task output", @"run task", @"cancel task",
+    @"debug start", @"debug stop", @"debug continue", @"debug pause",
+    @"debug step over", @"debug step into", @"debug step out",
+    @"debug toggle breakpoint", @"debug evaluate",
+    @"agent start", @"agent stop", @"agent send", @"agent review diff",
+    @"agent approve", @"agent reject",
+    @"extensions reload", @"extensions list",
     @"go to definition", @"find references", @"document symbols", @"code actions",
     @"signature help", @"inlay hints", @"semantic tokens", @"format document",
     @"open settings", @"check for updates"
@@ -6334,6 +6340,60 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   [viewItem setSubmenu:viewMenu];
   [mainMenu addItem:viewItem];
 
+  NSMenuItem *debugItem = [[NSMenuItem alloc] initWithTitle:@"Debug" action:NULL keyEquivalent:@""];
+  NSMenu *debugMenu = [[NSMenu alloc] initWithTitle:@"Debug"];
+  NSArray<NSArray<NSString *> *> *debugCommands = @[
+    @[@"Start Debugging", @"commandPalette:debug start"],
+    @[@"Stop Debugging", @"commandPalette:debug stop"],
+    @[@"Continue", @"commandPalette:debug continue"],
+    @[@"Pause", @"commandPalette:debug pause"],
+    @[@"Step Over", @"commandPalette:debug step over"],
+    @[@"Step Into", @"commandPalette:debug step into"],
+    @[@"Step Out", @"commandPalette:debug step out"],
+    @[@"Toggle Breakpoint", @"commandPalette:debug toggle breakpoint"]
+  ];
+  for (NSArray<NSString *> *entry in debugCommands) {
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:entry[0]
+      action:@selector(dispatchCommand:) keyEquivalent:@""];
+    item.representedObject = entry[1];
+    [debugMenu addItem:item];
+  }
+  [debugItem setSubmenu:debugMenu];
+  [mainMenu addItem:debugItem];
+
+  NSMenuItem *agentItem = [[NSMenuItem alloc] initWithTitle:@"Agent" action:NULL keyEquivalent:@""];
+  NSMenu *agentMenu = [[NSMenu alloc] initWithTitle:@"Agent"];
+  NSArray<NSArray<NSString *> *> *agentCommands = @[
+    @[@"Start Agent", @"commandPalette:agent start"],
+    @[@"Stop Agent", @"commandPalette:agent stop"],
+    @[@"Review Changes", @"commandPalette:agent review diff"],
+    @[@"Approve Changes", @"commandPalette:agent approve"],
+    @[@"Reject Changes", @"commandPalette:agent reject"]
+  ];
+  for (NSArray<NSString *> *entry in agentCommands) {
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:entry[0]
+      action:@selector(dispatchCommand:) keyEquivalent:@""];
+    item.representedObject = entry[1];
+    [agentMenu addItem:item];
+  }
+  [agentItem setSubmenu:agentMenu];
+  [mainMenu addItem:agentItem];
+
+  NSMenuItem *extensionsItem = [[NSMenuItem alloc] initWithTitle:@"Extensions" action:NULL keyEquivalent:@""];
+  NSMenu *extensionsMenu = [[NSMenu alloc] initWithTitle:@"Extensions"];
+  NSArray<NSArray<NSString *> *> *extensionCommands = @[
+    @[@"Reload Extensions", @"commandPalette:extensions reload"],
+    @[@"List Extensions", @"commandPalette:extensions list"]
+  ];
+  for (NSArray<NSString *> *entry in extensionCommands) {
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:entry[0]
+      action:@selector(dispatchCommand:) keyEquivalent:@""];
+    item.representedObject = entry[1];
+    [extensionsMenu addItem:item];
+  }
+  [extensionsItem setSubmenu:extensionsMenu];
+  [mainMenu addItem:extensionsItem];
+
   NSMenuItem *windowItem = [[NSMenuItem alloc] initWithTitle:@"Window" action:NULL keyEquivalent:@""];
   NSMenu *windowMenu = [[NSMenu alloc] initWithTitle:@"Window"];
   NSMenuItem *minimize = [[NSMenuItem alloc] initWithTitle:@"Minimize" action:@selector(performMiniaturize:) keyEquivalent:@"m"];
@@ -7645,9 +7705,11 @@ bool nimculus_platform_validate_main_menu(void) {
     NSMenuItem *fileItem = menuItemWithTitle(mainMenu, @"File");
     NSMenuItem *editItem = menuItemWithTitle(mainMenu, @"Edit");
     NSMenuItem *viewItem = menuItemWithTitle(mainMenu, @"View");
+    NSMenuItem *debugItem = menuItemWithTitle(mainMenu, @"Debug");
+    NSMenuItem *agentItem = menuItemWithTitle(mainMenu, @"Agent");
     NSMenuItem *windowItem = menuItemWithTitle(mainMenu, @"Window");
     BOOL topLevel = appItem.submenu && fileItem.submenu && editItem.submenu &&
-      viewItem.submenu && windowItem.submenu;
+      viewItem.submenu && debugItem.submenu && agentItem.submenu && windowItem.submenu;
     NSMenuItem *settings = menuItemWithTitle(appItem.submenu, @"Settings…");
     NSMenuItem *services = menuItemWithTitle(appItem.submenu, @"Services");
     NSMenuItem *open = menuItemWithTitle(fileItem.submenu, @"Open…");
@@ -7668,6 +7730,19 @@ bool nimculus_platform_validate_main_menu(void) {
     NSMenuItem *toggleGit = menuItemWithTitle(viewItem.submenu, @"Toggle Git");
     NSMenuItem *toggleTerminal = menuItemWithTitle(viewItem.submenu, @"Toggle Terminal");
     NSMenuItem *toggleSoftWrap = menuItemWithTitle(viewItem.submenu, @"Toggle Soft Wrap");
+    NSMenuItem *debugStart = menuItemWithTitle(debugItem.submenu, @"Start Debugging");
+    NSMenuItem *debugStop = menuItemWithTitle(debugItem.submenu, @"Stop Debugging");
+    NSMenuItem *debugContinue = menuItemWithTitle(debugItem.submenu, @"Continue");
+    NSMenuItem *debugPause = menuItemWithTitle(debugItem.submenu, @"Pause");
+    NSMenuItem *debugStepOver = menuItemWithTitle(debugItem.submenu, @"Step Over");
+    NSMenuItem *debugStepInto = menuItemWithTitle(debugItem.submenu, @"Step Into");
+    NSMenuItem *debugStepOut = menuItemWithTitle(debugItem.submenu, @"Step Out");
+    NSMenuItem *debugBreakpoint = menuItemWithTitle(debugItem.submenu, @"Toggle Breakpoint");
+    NSMenuItem *agentStart = menuItemWithTitle(agentItem.submenu, @"Start Agent");
+    NSMenuItem *agentStop = menuItemWithTitle(agentItem.submenu, @"Stop Agent");
+    NSMenuItem *agentReview = menuItemWithTitle(agentItem.submenu, @"Review Changes");
+    NSMenuItem *agentApprove = menuItemWithTitle(agentItem.submenu, @"Approve Changes");
+    NSMenuItem *agentReject = menuItemWithTitle(agentItem.submenu, @"Reject Changes");
     BOOL shortcuts = settings.keyEquivalentModifierMask == NSEventModifierFlagCommand &&
       [settings.keyEquivalent isEqualToString:@","] &&
       open.keyEquivalentModifierMask == NSEventModifierFlagCommand &&
@@ -7699,6 +7774,22 @@ bool nimculus_platform_validate_main_menu(void) {
       toggleGit.action == @selector(dispatchCommand:) &&
       toggleTerminal.action == @selector(dispatchCommand:) &&
       toggleSoftWrap.action == @selector(dispatchCommand:);
+    BOOL debugActions = debugStart && debugStop && debugContinue && debugPause &&
+      debugStepOver && debugStepInto && debugStepOut && debugBreakpoint &&
+      debugStart.action == @selector(dispatchCommand:) &&
+      debugStop.action == @selector(dispatchCommand:) &&
+      debugContinue.action == @selector(dispatchCommand:) &&
+      debugPause.action == @selector(dispatchCommand:) &&
+      debugStepOver.action == @selector(dispatchCommand:) &&
+      debugStepInto.action == @selector(dispatchCommand:) &&
+      debugStepOut.action == @selector(dispatchCommand:) &&
+      debugBreakpoint.action == @selector(dispatchCommand:);
+    BOOL agentActions = agentStart && agentStop && agentReview && agentApprove && agentReject &&
+      agentStart.action == @selector(dispatchCommand:) &&
+      agentStop.action == @selector(dispatchCommand:) &&
+      agentReview.action == @selector(dispatchCommand:) &&
+      agentApprove.action == @selector(dispatchCommand:) &&
+      agentReject.action == @selector(dispatchCommand:);
     NimculusCommandCallback previousCallback = g_command_callback;
     g_command_callback = validationCommandCallback;
     g_validation_command[0] = '\0';
@@ -7716,11 +7807,20 @@ bool nimculus_platform_validate_main_menu(void) {
     g_validation_command[0] = '\0';
     [delegate dispatchCommand:toggleSoftWrap];
     BOOL softWrapDispatch = strcmp(g_validation_command, "toggleSoftWrap") == 0;
+    g_validation_command[0] = '\0';
+    [delegate dispatchCommand:debugStart];
+    BOOL debugStartDispatch = strcmp(g_validation_command,
+      "commandPalette:debug start") == 0;
+    g_validation_command[0] = '\0';
+    [delegate dispatchCommand:agentStart];
+    BOOL agentStartDispatch = strcmp(g_validation_command,
+      "commandPalette:agent start") == 0;
     g_command_callback = previousCallback;
     BOOL valid = topLevel && settings && services && services.submenu && open && save && saveAs && close && redo && palette &&
       fullScreen && minimize && zoom && split && splitHorizontal && closeSplit && shortcuts && windowActions;
     valid = valid && viewActions && filesDispatch && outlineDispatch && gitDispatch &&
-      terminalDispatch && softWrapDispatch;
+      terminalDispatch && softWrapDispatch && debugActions && debugStartDispatch &&
+      agentActions && agentStartDispatch;
     [application setMainMenu:previousMenu];
     return valid;
   }
@@ -7739,6 +7839,12 @@ bool nimculus_platform_validate_command_palette(void) {
       @"paste workspace entry", @"move workspace entry to trash",
       @"delete workspace entry permanently", @"open selected workspace entry with system",
       @"find in selected folder",
+      @"debug start", @"debug stop", @"debug continue", @"debug pause",
+      @"debug step over", @"debug step into", @"debug step out",
+      @"debug toggle breakpoint",
+      @"agent start", @"agent stop", @"agent send", @"agent review diff",
+      @"agent approve", @"agent reject",
+      @"extensions reload", @"extensions list",
       @"go to definition", @"find references", @"code actions", @"signature help",
       @"inlay hints", @"semantic tokens", @"format document", @"check for updates"
     ];

@@ -6464,3 +6464,36 @@ lifecycle, and soft-wrap state. The native menu only owns labels and standard
 key equivalents; Nim owns state transitions and persistence. The native menu
 contract invokes every new item and verifies the exact command payload, so a
 visible menu item cannot silently become a presentation-only affordance.
+
+## M17-089: Keep extensions manifest-driven and permissioned
+
+Zed's extension host separates discovery, manifest metadata, host registration,
+and executable extension processes. Nimculus adopts that boundary for macOS:
+`extension_service.nim` discovers `extension.json` files in global and
+workspace roots and registers language, Tree-sitter grammar, LSP, theme, icon,
+snippet, task, and command metadata without loading code into the editor.
+External processes require an explicit `process` permission in the manifest.
+There is no Node.js runtime, VSCode API compatibility layer, or direct native
+shared-library loading. WASM and a versioned extension API remain follow-up
+work after the data-backed contract is stable.
+
+## M18-090: Own CLI agent processes per session
+
+Zed's agent thread owns its process, working directory, worktree identity,
+output, and lifecycle independently of the editor buffer. Nimculus follows the
+same ownership model in `agent_service.nim`: each session has bounded UTF-8
+output, prompt input, Git change snapshots, diff/review operations, and a
+bounded stop/kill/reap path. `AgentManager` supports concurrent sessions and
+active-session selection. The UI only dispatches commands and renders output;
+it never embeds an agent runtime or assumes a vendor-specific protocol.
+
+## M19-091: Keep DAP framing and debugger state separate from UI
+
+Zed's DAP implementation uses a framed transport, monotonic request sequence,
+pending-request tracking, and a session-owned adapter process. Nimculus mirrors
+those responsibilities in `dap.nim`: Content-Length framing is byte-accurate
+and bounded, partial/multiple frames are retained safely, stale requests are
+discarded, and adapter termination is bounded. The macOS UI projects protocol
+events into the existing Task output panel and Debug menu. Reverse adapter
+requests are surfaced without blocking the event loop until a matching UI
+capability is implemented.

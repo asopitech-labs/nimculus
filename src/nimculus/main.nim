@@ -21,6 +21,9 @@ import nimculus/persistence_scheduler
 import nimculus/poll_scheduler
 import nimculus/lsp_editor_bridge
 import nimculus/lsp
+import nimculus/dap
+import nimculus/agent_service
+import nimculus/extension_service
 import nimculus/editor_diagnostics
 import nimculus/git_service
 import nimculus/git_gutter
@@ -731,6 +734,16 @@ when defined(macosx):
   var editorTerminalScrollRemainder = 0'f32
   var editorUpdateJob: UpdateDownloadJob
   var editorUpdatePath = ""
+  var editorDapSession: DapSession
+  var editorDapOutput = ""
+  var editorDapInitialized = false
+  var editorDapThreadId = -1
+  var editorDapFrameId = -1
+  var editorDapBreakpointLines: seq[int]
+  var editorAgentManager: AgentManager
+  var editorAgentOutput = ""
+  var editorAgentSessionId = -1
+  var editorExtensionRegistry: ExtensionRegistry
 
 proc resetEditorTransientState() =
   ## Tab switches must preserve their cursor/selection/viewport. Only reset
@@ -826,6 +839,275 @@ when defined(macosx):
       result = absoluteDocumentPath[prefix.len .. ^1]
 
   proc showNativeLspPanel(title: string, lines: seq[string])
+  proc taskWorkingDirectory(document: ptr FileDocument): string
+
+  proc appendNativeAgentOutput(chunk: string) =
+    if chunk.len == 0: return
+    let bounded = appendBoundedAgentOutput(editorAgentOutput, chunk)
+    editorAgentOutput = bounded.output
+    platformSetTaskOutputTitle("Agent".cstring, uint32("Agent".len))
+    platformSetTaskOutputText(editorAgentOutput.cstring, uint32(editorAgentOutput.len))
+
+  proc activeNativeAgent(): AgentSession =
+    if editorAgentManager == nil: return nil
+    editorAgentManager.active()
+
+  proc stopNativeAgent() =
+    let session = activeNativeAgent()
+    if session == nil:
+      editorViewState.statusMessage = "Agent: no active session"
+      return
+    discard editorAgentManager.stop(session.id)
+    editorAgentSessionId = -1
+    editorViewState.statusMessage = "Agent stopped"
+
+  proc startNativeAgent() =
+    let command = getEnv("NIMCULUS_AGENT_COMMAND", "").strip
+    if command.len == 0:
+      editorViewState.statusMessage = "Agent unavailable: set NIMCULUS_AGENT_COMMAND"
+      return
+    if editorAgentManager == nil: editorAgentManager = newAgentManager()
+    let document = activeDocument()
+    try:
+      let session = editorAgentManager.start(command,
+        getEnv("NIMCULUS_AGENT_ARGS", "").splitWhitespace,
+        taskWorkingDirectory(document), getEnv("NIMCULUS_AGENT_WORKTREE", ""))
+      editorAgentSessionId = session.id
+      editorAgentOutput = "Agent session #" & $session.id & " started\n"
+      editorTaskOutputVisible = true
+      editorTerminalVisible = false
+      platformSetTerminalVisible(false)
+      platformSetTaskOutputVisible(true)
+      platformSetTaskOutputCancellable(true)
+      editorWorkspaceUi.openPanel(panelTasks)
+      setupDemoUi()
+      platformSetTaskOutputTitle("Agent".cstring, uint32("Agent".len))
+      platformSetTaskOutputText(editorAgentOutput.cstring, uint32(editorAgentOutput.len))
+      editorViewState.statusMessage = "Agent running — use `agent send <prompt>`"
+    except CatchableError as error:
+      editorViewState.statusMessage = "Agent failed: " & error.msg
+
+  proc sendNativeAgentPrompt(prompt: string) =
+    let session = activeNativeAgent()
+    if session == nil or not session.isRunning:
+      editorViewState.statusMessage = "Agent is not running"
+      return
+    if prompt.strip.len == 0:
+      editorViewState.statusMessage = "Agent prompt is empty"
+      return
+    try:
+      session.sendPrompt(prompt)
+      appendNativeAgentOutput("→ " & prompt.strip & "\n")
+      editorViewState.statusMessage = "Agent prompt sent"
+    except CatchableError as error:
+      editorViewState.statusMessage = "Agent input failed: " & error.msg
+
+  proc showNativeAgentDiff() =
+    let session = activeNativeAgent()
+    if session == nil:
+      editorViewState.statusMessage = "Agent: no active session"
+      return
+    try:
+      let diff = session.currentDiff()
+      showNativeLspPanel("Agent — Review Changes", if diff.len == 0:
+        @[("No changes in " & session.worktreePath)] else: diff.splitLines)
+      editorViewState.statusMessage = if diff.len == 0: "Agent: no changes" else:
+        "Agent changes ready for review"
+    except CatchableError as error:
+      editorViewState.statusMessage = "Agent diff failed: " & error.msg
+
+  proc rejectNativeAgentChanges() =
+    let session = activeNativeAgent()
+    if session == nil:
+      editorViewState.statusMessage = "Agent: no active session"
+      return
+    if session.rejectChanges():
+      refreshWorkspacePreview()
+      editorViewState.statusMessage = "Agent changes rejected"
+    else:
+      editorViewState.statusMessage = "Agent changes could not be rejected"
+
+  proc approveNativeAgentChanges() =
+    let session = activeNativeAgent()
+    if session == nil:
+      editorViewState.statusMessage = "Agent: no active session"
+      return
+    discard session.refreshChanges()
+    editorViewState.statusMessage = "Agent changes approved"
+
+  proc pollNativeAgent() =
+    let session = activeNativeAgent()
+    if session == nil: return
+    let pollResult = session.poll()
+    if pollResult.output.len > 0: appendNativeAgentOutput(pollResult.output)
+    if pollResult.changedPaths.len > 0:
+      refreshWorkspacePreview()
+      editorViewState.statusMessage = "Agent changed " &
+        $pollResult.changedPaths.len & " file(s) — review the diff"
+    if pollResult.done:
+      editorAgentSessionId = -1
+      platformSetTaskOutputCancellable(false)
+      editorViewState.statusMessage = "Agent " & $session.state &
+        " (exit " & $pollResult.exitCode & ")"
+
+  proc reloadNativeExtensions() =
+    if editorExtensionRegistry == nil:
+      editorExtensionRegistry = newExtensionRegistry()
+    editorExtensionRegistry.clear()
+    let discovered = editorExtensionRegistry.discover()
+    editorViewState.statusMessage = "Extensions reloaded: " & $discovered
+
+  proc showNativeExtensions() =
+    if editorExtensionRegistry == nil:
+      editorViewState.statusMessage = "Extensions are not loaded"
+      return
+    var lines = @[
+      "Extensions",
+      "──────────"
+    ]
+    for id, manifest in editorExtensionRegistry.items:
+      lines.add(id & " " & manifest.version & " — " & manifest.name)
+      if manifest.externalProcess.len > 0:
+        lines.add("  external process (permissioned)")
+    if lines.len == 2: lines.add("No extensions installed")
+    showNativeLspPanel("Extensions", lines)
+
+  proc appendNativeDapOutput(line: string) =
+    if line.len == 0: return
+    if editorDapOutput.len > 0: editorDapOutput.add("\n")
+    editorDapOutput.add(line)
+    # Keep the debug panel bounded like task output. DAP adapters can emit
+    # verbose output continuously, and a debug session must never grow the
+    # editor's retained UI text without limit.
+    const maxOutput = 4 * 1024 * 1024
+    if editorDapOutput.len > maxOutput:
+      let start = editorDapOutput.len - maxOutput
+      let boundary = editorDapOutput.find('\n', start)
+      editorDapOutput = if boundary >= 0: editorDapOutput[boundary + 1 .. ^1]
+        else: editorDapOutput[start .. ^1]
+    platformSetTaskOutputTitle("Debugger".cstring, uint32("Debugger".len))
+    platformSetTaskOutputText(editorDapOutput.cstring, uint32(editorDapOutput.len))
+
+  proc stopNativeDap() =
+    if editorDapSession == nil:
+      editorViewState.statusMessage = "Debugger: no active session"
+      return
+    editorDapSession.stop()
+    editorDapSession = nil
+    editorDapInitialized = false
+    editorDapThreadId = -1
+    editorDapFrameId = -1
+    editorViewState.statusMessage = "Debugger stopped"
+
+  proc startNativeDap() =
+    if editorDapSession != nil:
+      editorViewState.statusMessage = "Debugger is already running"
+      return
+    let command = getEnv("NIMCULUS_DAP_COMMAND", "").strip
+    if command.len == 0:
+      editorViewState.statusMessage = "Debugger unavailable: set NIMCULUS_DAP_COMMAND"
+      return
+    let document = activeDocument()
+    let workingDirectory = taskWorkingDirectory(document)
+    try:
+      editorDapSession = startDapSession(command,
+        getEnv("NIMCULUS_DAP_ARGS", "").splitWhitespace, workingDirectory)
+      editorDapOutput = ""
+      editorDapBreakpointLines.setLen(0)
+      editorDapInitialized = false
+      editorDapThreadId = -1
+      editorDapFrameId = -1
+      editorTaskOutputVisible = true
+      editorTerminalVisible = false
+      platformSetTerminalVisible(false)
+      platformSetTaskOutputVisible(true)
+      platformSetTaskOutputCancellable(false)
+      editorWorkspaceUi.openPanel(panelTasks)
+      let request = editorDapSession.sendRequest("initialize", initializeArguments())
+      appendNativeDapOutput("→ initialize (#" & $request.seq & ")")
+      editorViewState.statusMessage = "Debugger: initializing"
+    except CatchableError as error:
+      editorDapSession = nil
+      editorViewState.statusMessage = "Debugger failed: " & error.msg
+
+  proc sendNativeDapRequest(command: string, arguments: JsonNode = nil): bool =
+    if editorDapSession == nil or not editorDapSession.isRunning:
+      editorViewState.statusMessage = "Debugger is not running"
+      return false
+    try:
+      let request = editorDapSession.sendRequest(command, arguments)
+      appendNativeDapOutput("→ " & command & " (#" & $request.seq & ")")
+      true
+    except CatchableError as error:
+      editorViewState.statusMessage = "Debugger request failed: " & error.msg
+      false
+
+  proc pollNativeDap() =
+    if editorDapSession == nil: return
+    for message in editorDapSession.poll():
+      case message.messageType
+      of dapResponseMessage:
+        if not message.success:
+          appendNativeDapOutput("← " & message.command & ": " & message.responseMessage)
+          editorViewState.statusMessage = "Debugger: " & message.command & " failed"
+          continue
+        appendNativeDapOutput("← " & message.command)
+        if message.command == "initialize" and not editorDapInitialized:
+          editorDapInitialized = true
+          let document = activeDocument()
+          let program = if getEnv("NIMCULUS_DAP_PROGRAM", "").len > 0:
+            getEnv("NIMCULUS_DAP_PROGRAM", "")
+            elif document != nil and document[].path.len > 0: document[].path
+            else: ""
+          discard sendNativeDapRequest("launch", launchArguments(program,
+            taskWorkingDirectory(document)))
+        elif message.command == "stackTrace" and message.body != nil:
+          if message.body.hasKey("stackFrames") and message.body["stackFrames"].kind == JArray:
+            var lines = @["Debugger — Stack Frames"]
+            for frame in message.body["stackFrames"]:
+              if frame.kind != JObject: continue
+              let name = if frame.hasKey("name"): frame["name"].getStr else: "<frame>"
+              let line = if frame.hasKey("line"): frame["line"].getInt else: 0
+              let source = if frame.hasKey("source") and frame["source"].kind == JObject and
+                  frame["source"].hasKey("path"): frame["source"]["path"].getStr else: ""
+              lines.add(name & "  " & source & ":" & $line)
+            editorDapOutput = lines.join("\n") & "\n\n" & editorDapOutput
+            platformSetTaskOutputText(editorDapOutput.cstring, uint32(editorDapOutput.len))
+        elif message.command == "scopes" or message.command == "variables":
+          if message.body != nil: appendNativeDapOutput("  " & $message.body)
+      of dapEventMessage:
+        case message.event
+        of "initialized":
+          # DAP adapters announce this event after initialize/launch.  This
+          # is the safe boundary for breakpoints and configurationDone; it
+          # avoids racing adapter capabilities with client requests.
+          let document = activeDocument()
+          if document != nil and document[].path.len > 0 and editorDapBreakpointLines.len > 0:
+            discard sendNativeDapRequest("setBreakpoints",
+              setBreakpointsArguments(document[].path, editorDapBreakpointLines))
+          discard sendNativeDapRequest("configurationDone", configurationDoneArguments())
+          editorViewState.statusMessage = "Debugger ready"
+        of "output":
+          if message.body != nil and message.body.hasKey("output"):
+            appendNativeDapOutput(message.body["output"].getStr.strip(chars = {'\n'}))
+        of "stopped":
+          if message.body != nil and message.body.hasKey("threadId"):
+            editorDapThreadId = message.body["threadId"].getInt
+            editorViewState.statusMessage = "Debugger stopped: " &
+              (if message.body.hasKey("reason"): message.body["reason"].getStr else: "breakpoint")
+            discard sendNativeDapRequest("stackTrace", stackTraceArguments(editorDapThreadId))
+        of "continued": editorViewState.statusMessage = "Debugger continued"
+        of "terminated", "exited": editorViewState.statusMessage = "Debugger terminated"
+        else: discard
+        appendNativeDapOutput("• " & message.event)
+      of dapRequestMessage:
+        # Reverse requests are intentionally visible until a matching UI
+        # capability is implemented. Never block the event loop on them.
+        appendNativeDapOutput("← adapter request: " & message.command)
+    if editorDapSession.state in {dapStopped, dapFailed}:
+      editorViewState.statusMessage = if editorDapSession.state == dapFailed:
+        "Debugger adapter exited unexpectedly" else: "Debugger stopped"
+      editorDapSession = nil
   proc renderNativeGitStatus(entries: seq[GitStatusEntry])
 
   proc refreshNativeGitPanelBranch(repository: GitRepository) =
@@ -2150,6 +2432,14 @@ when defined(macosx):
     if editorTaskJob != nil and not editorTaskJob.done:
       editorTaskJob.cancel()
     editorTaskJob = nil
+    if editorDapSession != nil:
+      editorDapSession.stop()
+    editorDapSession = nil
+    editorDapInitialized = false
+    if editorAgentManager != nil:
+      editorAgentManager.stopAll()
+    editorAgentManager = nil
+    editorAgentSessionId = -1
     if lspBridge != nil:
       lspBridge.shutdown()
     lspBridge = nil
@@ -3624,6 +3914,8 @@ when defined(macosx):
     pollNativeGitAction()
     pollNativeTask()
     pollNativeUpdate()
+    pollNativeDap()
+    pollNativeAgent()
     pollNativeTerminal()
     if lspBridge == nil:
       syncNativeEditorStatus(activeDocument())
@@ -5169,6 +5461,23 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command.startsWith("run task "): "__run_task__"
       elif command == "cancel task": "__cancel_task__"
       elif command == "run task": "__run_task__"
+      elif command in ["debug start", "start debugging", "debug launch"]: "__debug_start__"
+      elif command in ["debug stop", "stop debugging"]: "__debug_stop__"
+      elif command in ["debug continue", "continue debugging"]: "__debug_continue__"
+      elif command in ["debug pause", "pause debugging"]: "__debug_pause__"
+      elif command in ["debug step over", "step over"]: "__debug_step_over__"
+      elif command in ["debug step into", "step into"]: "__debug_step_into__"
+      elif command in ["debug step out", "step out"]: "__debug_step_out__"
+      elif command in ["debug toggle breakpoint", "toggle breakpoint"]: "__debug_toggle_breakpoint__"
+      elif command.startsWith("debug evaluate "): "__debug_evaluate__"
+      elif command == "agent start": "__agent_start__"
+      elif command == "agent stop": "__agent_stop__"
+      elif command.startsWith("agent send "): "__agent_send__"
+      elif command in ["agent review diff", "agent diff"]: "__agent_diff__"
+      elif command in ["agent approve", "agent approve changes"]: "__agent_approve__"
+      elif command in ["agent reject", "agent reject changes"]: "__agent_reject__"
+      elif command in ["extensions reload", "reload extensions"]: "__extensions_reload__"
+      elif command in ["extensions list", "list extensions"]: "__extensions_list__"
       elif command == "cancel git": "__cancel_git__"
       elif command == "save as": "saveAs"
       elif command == "replace": "replaceDocument"
@@ -5435,6 +5744,68 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "__cancel_task__":
       when defined(macosx): cancelNativeTask()
       when defined(windows): cancelWindowsTask()
+    of "__debug_start__":
+      when defined(macosx): startNativeDap()
+    of "__debug_stop__":
+      when defined(macosx): stopNativeDap()
+    of "__debug_continue__":
+      when defined(macosx): discard sendNativeDapRequest("continue",
+        continueArguments(editorDapThreadId))
+    of "__debug_pause__":
+      when defined(macosx): discard sendNativeDapRequest("pause",
+        continueArguments(editorDapThreadId))
+    of "__debug_step_over__":
+      when defined(macosx): discard sendNativeDapRequest("next",
+        continueArguments(editorDapThreadId))
+    of "__debug_step_into__":
+      when defined(macosx): discard sendNativeDapRequest("stepIn",
+        continueArguments(editorDapThreadId))
+    of "__debug_step_out__":
+      when defined(macosx): discard sendNativeDapRequest("stepOut",
+        continueArguments(editorDapThreadId))
+    of "__debug_toggle_breakpoint__":
+      when defined(macosx):
+        let document = activeDocument()
+        if document == nil or document[].path.len == 0:
+          editorViewState.statusMessage = "Breakpoint requires a saved document"
+        elif editorDapSession == nil:
+          editorViewState.statusMessage = "Debugger is not running"
+        else:
+          let line = document[].buffer.lineColumn(activeEditorCursor()).line + 1
+          let existing = editorDapBreakpointLines.find(line)
+          if existing >= 0: editorDapBreakpointLines.delete(existing)
+          else: editorDapBreakpointLines.add(line)
+          discard sendNativeDapRequest("setBreakpoints",
+            setBreakpointsArguments(document[].path, editorDapBreakpointLines))
+          editorViewState.statusMessage = if existing >= 0:
+            "Removed breakpoint at line " & $line else:
+            "Added breakpoint at line " & $line
+    of "__debug_evaluate__":
+      when defined(macosx):
+        let expression = if rawCommand.len > 16: rawCommand[16 .. ^1].strip else: ""
+        if expression.len == 0:
+          editorViewState.statusMessage = "Debug evaluate requires an expression"
+        else:
+          discard sendNativeDapRequest("evaluate", evaluateArguments(expression,
+            editorDapFrameId))
+    of "__agent_start__":
+      when defined(macosx): startNativeAgent()
+    of "__agent_stop__":
+      when defined(macosx): stopNativeAgent()
+    of "__agent_send__":
+      when defined(macosx):
+        let prompt = if rawCommand.len > 11: rawCommand[11 .. ^1].strip else: ""
+        sendNativeAgentPrompt(prompt)
+    of "__agent_diff__":
+      when defined(macosx): showNativeAgentDiff()
+    of "__agent_approve__":
+      when defined(macosx): approveNativeAgentChanges()
+    of "__agent_reject__":
+      when defined(macosx): rejectNativeAgentChanges()
+    of "__extensions_reload__":
+      when defined(macosx): reloadNativeExtensions()
+    of "__extensions_list__":
+      when defined(macosx): showNativeExtensions()
     of "__cancel_git__":
       when defined(macosx):
         if editorGitActionJob == nil or editorGitActionJob.done:
@@ -6845,6 +7216,11 @@ when isMainModule:
     # identical to subsequent root changes.
     appSettings = newSettingsStore(settingsFilePath,
       if restoredRoot.len > 0: restoredRoot / ".nimculus" / "settings.json" else: "")
+    let extensionRoots = if restoredRoot.len > 0:
+      @[getHomeDir() / ".nimculus" / "extensions", restoredRoot / ".nimculus" / "extensions"]
+      else: @[getHomeDir() / ".nimculus" / "extensions"]
+    editorExtensionRegistry = newExtensionRegistry(extensionRoots)
+    discard editorExtensionRegistry.discover()
     if restoredRoot.len > 0:
       openActiveWorkspace(restoredRoot)
     else:
