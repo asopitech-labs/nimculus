@@ -356,6 +356,9 @@ suite "macOS platform contract":
     platformSetSecondaryEditorAnnotations(nil, 0)
     check true
 
+  test "completion and hover popups remain inside the text viewport":
+    check platformValidateEditorTextPopupBounds()
+
   test "split panes keep independent annotation buffers":
     check platformValidateSecondaryAnnotationIsolation()
 

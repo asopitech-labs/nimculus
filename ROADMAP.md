@@ -86,6 +86,8 @@ Quick Open / Search は表示・選択・起動対象を同じ最大100件へ揃
 
 2026-08-02の更新では、ZedのFile Finderと同様にQuick Open／Workspace Searchの入力変更を即時のbounded searchへ接続し、Returnまで待たず検索結果を更新するようにした。Quick OpenをEscapeまたは閉じる操作で終了した場合は、検索job・保留中のファイルオープン・候補表示を破棄してFiles treeへ戻す。候補のReturn確定だけは保留中の非同期オープンを維持する。live query、候補選択、確定、dismissalはnative AppKit contractで検証する。
 
+2026-08-02の追補では、Workspace SearchもQuick Openと同じdismissal lifecycleへ統一した。検索バーのEscape／閉じる操作は`cancelWorkspaceSearch`を発行して実行中のripgrep協調jobを停止し、既に表示済みの結果はサイドバーに保持する。さらにLSP completion／hover popupは固定座標・固定幅で描画せず、Zedのeditor content boundsを参考にした共通text viewportから幅・高さ・X座標をclampし、カーソル下に収まらない場合は上側へ反転する。Core Textの下原点変換後も同じ矩形内に収まるnative contractを追加した。
+
 ### M6/M10 更新：Files から統合ターミナルへ
 
 Files のコンテキストメニューは `Open in Terminal` を提供する。フォルダはその場所、

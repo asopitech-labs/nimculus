@@ -882,6 +882,49 @@ static NSRect editorTextViewportLocalRect(const double rect[4]) {
     viewport.width, viewport.height);
 }
 
+// Completion and hover are anchored to a logical text point, but their
+// surface is still part of the editor viewport.  Zed's completion menu uses
+// the editor's content bounds as its placement authority and flips above the
+// cursor when there is no room below it.  Keep that same rule at the Core
+// Text boundary: clamp both size and origin before drawing, rather than
+// relying on a final clip to hide a popup that was laid out outside the pane.
+static NSRect editorTextPopupTopRect(const double rect[4], CGFloat localAnchorX,
+                                    CGFloat localAnchorY, CGFloat requestedWidth,
+                                    CGFloat requestedHeight) {
+  NimculusPaintRegion viewport = editorTextViewport(rect);
+  const CGFloat width = MIN(MAX(1.0, requestedWidth), MAX(1.0, viewport.width));
+  const CGFloat height = MIN(MAX(1.0, requestedHeight), MAX(1.0, viewport.height));
+  const CGFloat anchorX = rect[0] + localAnchorX;
+  const CGFloat anchorY = rect[1] + localAnchorY;
+  const CGFloat minX = viewport.x;
+  const CGFloat maxX = viewport.x + viewport.width - width;
+  const CGFloat x = MIN(MAX(anchorX, minX), MAX(minX, maxX));
+  const CGFloat belowY = anchorY + 4.0;
+  const CGFloat aboveY = anchorY - height - 4.0;
+  CGFloat y = belowY;
+  if (belowY + height > viewport.y + viewport.height) {
+    y = aboveY >= viewport.y ? aboveY : viewport.y + viewport.height - height;
+  }
+  y = MIN(MAX(y, viewport.y), MAX(viewport.y, viewport.y + viewport.height - height));
+  return NSMakeRect(x, y, width, height);
+}
+
+static CGRect editorTextPopupCoreGraphicsRect(const double rect[4], NSRect topRect) {
+  const CGFloat logicalHeight = MAX(1.0, rect[3]);
+  const CGFloat localTop = topRect.origin.y - rect[1];
+  return CGRectMake(topRect.origin.x - rect[0],
+    logicalHeight - localTop - topRect.size.height,
+    topRect.size.width, topRect.size.height);
+}
+
+static CGFloat editorTextPopupBaseline(const double rect[4], NSRect topRect,
+                                       CGFloat lineHeight, NSUInteger index,
+                                       CGFloat topPadding) {
+  const CGFloat rowTop = topRect.origin.y - rect[1] + topPadding +
+    lineHeight * (CGFloat)index;
+  return rect[3] - rowTop - lineHeight + 4.0;
+}
+
 // Native overlays are children of the Metal view, not sheets.  They must
 // therefore obey the same pane boundary as the editor texture: a split pane
 // or a very small window must never let their frame (or child controls) spill
@@ -1779,11 +1822,12 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   if (g_editor_completions.length > 0 && renderingInputPane) {
     NSArray<NSString *> *completionLines = [g_editor_completions componentsSeparatedByString:@"\n"];
     NSUInteger visibleCount = MIN((NSUInteger)6, completionLines.count);
-    CGFloat popupTop = logicalHeight - g_editor_cursor[1] - 4.0;
     CGFloat popupHeight = visibleCount * editorLineHeight() + 6.0;
+    NSRect popupTopRect = editorTextPopupTopRect(g_editor_rect, g_editor_cursor[0],
+      g_editor_cursor[1], 360.0, popupHeight);
+    CGRect popupRect = editorTextPopupCoreGraphicsRect(g_editor_rect, popupTopRect);
     CGContextSetRGBFillColor(context, 0.08, 0.10, 0.14, 0.96);
-    CGContextFillRect(context, CGRectMake(g_editor_cursor[0], popupTop - popupHeight,
-      360.0, popupHeight));
+    CGContextFillRect(context, popupRect);
     NSDictionary *completionAttributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
       (id)kCTForegroundColorAttributeName: (id)[NSColor whiteColor].CGColor };
     for (NSUInteger index = 0; index < visibleCount; index++) {
@@ -1791,8 +1835,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       NSAttributedString *line = [[NSAttributedString alloc] initWithString:lineText
         attributes:completionAttributes];
       CTLineRef completionLine = CTLineCreateWithAttributedString((CFAttributedStringRef)line);
-      CGContextSetTextPosition(context, g_editor_cursor[0] + 6.0,
-        popupTop - editorLineHeight() * (index + 1) + 3.0);
+      CGContextSetTextPosition(context, popupRect.origin.x + 6.0,
+        editorTextPopupBaseline(g_editor_rect, popupTopRect, editorLineHeight(), index, 3.0));
       CTLineDraw(completionLine, context);
       CFRelease(completionLine);
       [line release];
@@ -1801,12 +1845,13 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   if (g_editor_hover.length > 0 && renderingHoverPane) {
     NSArray<NSString *> *hoverLines = [g_editor_hover componentsSeparatedByString:@"\n"];
     NSUInteger visibleCount = MIN((NSUInteger)8, hoverLines.count);
-    CGFloat popupTop = logicalHeight - g_editor_hover_position[1] - 4.0;
     CGFloat popupHeight = visibleCount * editorLineHeight() + 8.0;
-    CGFloat popupX = MAX(8.0, g_editor_hover_position[0] - g_editor_scroll_x);
+    NSRect popupTopRect = editorTextPopupTopRect(g_editor_rect,
+      g_editor_hover_position[0] - g_editor_scroll_x, g_editor_hover_position[1],
+      460.0, popupHeight);
+    CGRect popupRect = editorTextPopupCoreGraphicsRect(g_editor_rect, popupTopRect);
     CGContextSetRGBFillColor(context, 0.06, 0.07, 0.10, 0.96);
-    CGContextFillRect(context, CGRectMake(popupX, popupTop - popupHeight,
-      460.0, popupHeight));
+    CGContextFillRect(context, popupRect);
     NSDictionary *hoverAttributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
       (id)kCTForegroundColorAttributeName: (id)[NSColor whiteColor].CGColor };
     for (NSUInteger index = 0; index < visibleCount; index++) {
@@ -1814,8 +1859,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       NSAttributedString *line = [[NSAttributedString alloc] initWithString:lineText
         attributes:hoverAttributes];
       CTLineRef hoverLine = CTLineCreateWithAttributedString((CFAttributedStringRef)line);
-      CGContextSetTextPosition(context, popupX + 6.0,
-        popupTop - editorLineHeight() * (index + 1) + 4.0);
+      CGContextSetTextPosition(context, popupRect.origin.x + 6.0,
+        editorTextPopupBaseline(g_editor_rect, popupTopRect, editorLineHeight(), index, 4.0));
       CTLineDraw(hoverLine, context);
       CFRelease(hoverLine);
       [line release];
@@ -3089,6 +3134,12 @@ static void dismissExternalChangePanel(const char *command) {
     // activation path sets suppressSearchCancellation before closing so a
     // pending Return action is not cancelled after it has been dispatched.
     g_command_callback("cancelQuickOpen");
+  } else if (!suppressCancellation && self.mode == 3 && g_command_callback) {
+    // Workspace Search has the same task lifecycle as Quick Open. Escape or
+    // the close button must stop the active ripgrep job while retaining the
+    // already-rendered results in the sidebar, matching Zed's dismissible
+    // search surface instead of leaving a hidden worker behind.
+    g_command_callback("cancelWorkspaceSearch");
   }
   self.hidden = YES;
   [self.window makeFirstResponder:self.superview];
@@ -7342,6 +7393,26 @@ bool nimculus_platform_validate_editor_annotation_viewport(void) {
     NSMaxY(clip) <= pane[1] + pane[3] - 26.0 + 0.01;
 }
 
+bool nimculus_platform_validate_editor_text_popup_bounds(void) {
+  const double pane[4] = {40.0, 60.0, 300.0, 180.0};
+  NimculusPaintRegion viewport = editorTextViewport(pane);
+  NSRect viewportTop = NSMakeRect(viewport.x, viewport.y, viewport.width, viewport.height);
+  CGRect viewportCoreGraphics = editorTextViewportCoreGraphicsRect(pane);
+  NSRect completion = editorTextPopupTopRect(pane, 260.0, 140.0, 360.0, 126.0);
+  NSRect hover = editorTextPopupTopRect(pane, 292.0, 8.0, 460.0, 168.0);
+  CGRect completionCoreGraphics = editorTextPopupCoreGraphicsRect(pane, completion);
+  CGRect hoverCoreGraphics = editorTextPopupCoreGraphicsRect(pane, hover);
+  return NSContainsRect(viewportTop, completion) && NSContainsRect(viewportTop, hover) &&
+    CGRectGetMinX(completionCoreGraphics) >= CGRectGetMinX(viewportCoreGraphics) - 0.01 &&
+    CGRectGetMaxX(completionCoreGraphics) <= CGRectGetMaxX(viewportCoreGraphics) + 0.01 &&
+    CGRectGetMinY(completionCoreGraphics) >= CGRectGetMinY(viewportCoreGraphics) - 0.01 &&
+    CGRectGetMaxY(completionCoreGraphics) <= CGRectGetMaxY(viewportCoreGraphics) + 0.01 &&
+    CGRectGetMinX(hoverCoreGraphics) >= CGRectGetMinX(viewportCoreGraphics) - 0.01 &&
+    CGRectGetMaxX(hoverCoreGraphics) <= CGRectGetMaxX(viewportCoreGraphics) + 0.01 &&
+    CGRectGetMinY(hoverCoreGraphics) >= CGRectGetMinY(viewportCoreGraphics) - 0.01 &&
+    CGRectGetMaxY(hoverCoreGraphics) <= CGRectGetMaxY(viewportCoreGraphics) + 0.01;
+}
+
 bool nimculus_platform_validate_status_update_deduplication(void) {
   @autoreleasepool {
     NSString *previous = [g_editor_status retain];
@@ -8546,6 +8617,11 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     BOOL workspaceSearchLive = strcmp(g_validation_command, "workspaceSearch:Nimculus") == 0;
     [search findNext:nil];
     BOOL workspaceSearchDispatched = strcmp(g_validation_command, "workspaceSearch:Nimculus") == 0;
+    [delegate findInWorkspace:nil];
+    g_validation_command[0] = '\0';
+    [search close:nil];
+    BOOL workspaceSearchCancelled = strcmp(g_validation_command,
+      "cancelWorkspaceSearch") == 0 && search.hidden && window.firstResponder == view;
     [delegate quickOpen:nil];
     BOOL visibleQuickOpen = !search.hidden && search.mode == 4 && !search.queryField.hidden &&
       [search.queryField.accessibilityLabel isEqualToString:@"Quick Open: file name or path"];
@@ -8723,7 +8799,7 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     [window release];
     g_metrics = previousMetrics;
     return visibleFind && dispatched && escaped && visibleReplace && visibleLine &&
-      visibleWorkspaceSearch && workspaceSearchLive && workspaceSearchDispatched && visibleQuickOpen &&
+      visibleWorkspaceSearch && workspaceSearchLive && workspaceSearchDispatched && workspaceSearchCancelled && visibleQuickOpen &&
       quickOpenLive && quickOpenArrowDispatched && quickOpenSelected &&
       quickOpenDispatched && quickOpenCancelled && dismissed &&
       paletteVisible && paletteFiltered && paletteDispatched && paletteEscaped &&
