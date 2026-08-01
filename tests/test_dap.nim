@@ -1,5 +1,6 @@
 import std/json
 import std/os
+import std/osproc
 import std/strutils
 import std/unittest
 
@@ -55,6 +56,7 @@ suite "M19 DAP transport":
     check breakpoints["source"]["path"].getStr == "/tmp/main.nim"
     check breakpoints["breakpoints"].len == 2
     check attachArguments(42, "/tmp")["processId"].getInt == 42
+    check attachArguments(42, "/tmp")["pid"].getInt == 42
     check threadsArguments().kind == JObject
 
   test "reverse requests produce correlated responses without pending state":
@@ -95,3 +97,186 @@ suite "M19 DAP transport":
     session.stop()
     check session.state == dapStopped
     removeFile(server)
+
+  when defined(macosx):
+    test "macOS lldb-dap launches a target and returns stopped stack data":
+      let xcrun = findExe("xcrun")
+      let clang = findExe("clang")
+      if xcrun.len == 0 or clang.len == 0:
+        skip()
+      let source = currentSourcePath().parentDir / "fixtures" / "dap_target.c"
+      let target = getTempDir() / "nimculus-dap-target-" & $getCurrentProcessId()
+      let compile = startProcess(clang, args = @[
+        "-g", "-O0", "-fno-omit-frame-pointer", "-o", target, source],
+        options = {poUsePath})
+      check compile.waitForExit(10_000) == 0
+      defer:
+        if fileExists(target): removeFile(target)
+      let session = startDapSession(xcrun, ["lldb-dap"], source.parentDir)
+      defer: session.stop()
+
+      let initialize = session.sendRequest("initialize", initializeArguments())
+      var launch: DapPendingRequest
+      var breakpoint: DapPendingRequest
+      var configuration: DapPendingRequest
+      var stackRequest: DapPendingRequest
+      var scopes: DapPendingRequest
+      var variables: DapPendingRequest
+      var initialized = false
+      var launched = false
+      var stopped = false
+      var stackReceived = false
+      var scopesReceived = false
+      var variablesReceived = false
+      var breakpointVerified = false
+      var valueObserved = false
+      var threadId = 0
+      var frameId = 0
+      var variableReference = 0
+
+      for _ in 0 ..< 800:
+        for message in session.poll():
+          case message.messageType
+          of dapResponseMessage:
+            if message.requestSeq == initialize.seq and message.success:
+              launch = session.sendRequest("launch", launchArguments(target,
+                source.parentDir))
+            elif launch.seq > 0 and message.requestSeq == launch.seq:
+              check message.success
+              launched = message.success
+            elif breakpoint.seq > 0 and message.requestSeq == breakpoint.seq:
+              check message.success
+              if message.success and message.body != nil and
+                  message.body.hasKey("breakpoints") and
+                  message.body["breakpoints"].kind == JArray and
+                  message.body["breakpoints"].len > 0:
+                let resolved = message.body["breakpoints"][0]
+                breakpointVerified = resolved.kind == JObject and
+                  (not resolved.hasKey("verified") or resolved["verified"].getBool)
+            elif configuration.seq > 0 and message.requestSeq == configuration.seq:
+              check message.success
+            elif stackRequest.seq > 0 and message.requestSeq == stackRequest.seq:
+              check message.success
+              if message.success and message.body != nil and
+                  message.body.hasKey("stackFrames") and
+                  message.body["stackFrames"].kind == JArray and
+                  message.body["stackFrames"].len > 0:
+                let frame = message.body["stackFrames"][0]
+                frameId = if frame.hasKey("id"): frame["id"].getInt else: 0
+                stackReceived = frameId > 0
+                if stackReceived:
+                  scopes = session.sendRequest("scopes", scopesArguments(frameId))
+            elif scopes.seq > 0 and message.requestSeq == scopes.seq:
+              check message.success
+              if message.success and message.body != nil and
+                  message.body.hasKey("scopes") and
+                  message.body["scopes"].kind == JArray:
+                for scope in message.body["scopes"]:
+                  if scope.kind == JObject and scope.hasKey("variablesReference"):
+                    variableReference = scope["variablesReference"].getInt
+                    break
+                scopesReceived = variableReference > 0
+                if scopesReceived:
+                  variables = session.sendRequest("variables",
+                    variablesArguments(variableReference))
+            elif variables.seq > 0 and message.requestSeq == variables.seq:
+              check message.success
+              variablesReceived = message.success and message.body != nil and
+                message.body.hasKey("variables") and
+                message.body["variables"].kind == JArray
+              if variablesReceived:
+                for variable in message.body["variables"]:
+                  if variable.kind == JObject and variable.hasKey("value") and
+                      variable["value"].getStr.contains("42"):
+                    valueObserved = true
+          of dapEventMessage:
+            if message.event == "initialized" and not initialized:
+              initialized = true
+              breakpoint = session.sendRequest("setBreakpoints",
+                setBreakpointsArguments(source, [5]))
+              configuration = session.sendRequest("configurationDone",
+                configurationDoneArguments())
+            elif message.event == "stopped" and not stopped:
+              stopped = true
+              threadId = if message.body != nil and message.body.hasKey("threadId"):
+                message.body["threadId"].getInt else: 0
+              if threadId > 0:
+                stackRequest = session.sendRequest("stackTrace",
+                  stackTraceArguments(threadId))
+          of dapRequestMessage:
+            session.sendResponse(message, false, %*{},
+              "reverse request is not part of this integration fixture")
+        if variablesReceived: break
+        sleep(10)
+
+      check initialized
+      check launched
+      check stopped
+      check breakpointVerified
+      check stackReceived
+      check scopesReceived
+      check variablesReceived
+      check valueObserved
+
+    test "macOS lldb-dap attaches to a running target":
+      let xcrun = findExe("xcrun")
+      let clang = findExe("clang")
+      if xcrun.len == 0 or clang.len == 0:
+        skip()
+      let source = currentSourcePath().parentDir / "fixtures" / "dap_target.c"
+      let target = getTempDir() / "nimculus-dap-attach-target-" & $getCurrentProcessId()
+      let compile = startProcess(clang, args = @[
+        "-g", "-O0", "-fno-omit-frame-pointer", "-o", target, source],
+        options = {poUsePath})
+      check compile.waitForExit(10_000) == 0
+      defer:
+        if fileExists(target): removeFile(target)
+      let targetProcess = startProcess(target, options = {poUsePath})
+      defer:
+        try:
+          if targetProcess.running:
+            targetProcess.terminate()
+            discard targetProcess.waitForExit(1_000)
+        except OSError:
+          discard
+        try:
+          targetProcess.close()
+        except OSError:
+          discard
+      let session = startDapSession(xcrun, ["lldb-dap"], source.parentDir)
+      defer: session.stop()
+
+      let initialize = session.sendRequest("initialize", initializeArguments())
+      var attach: DapPendingRequest
+      var configuration: DapPendingRequest
+      var initialized = false
+      var attached = false
+      var stopped = false
+      for _ in 0 ..< 800:
+        for message in session.poll():
+          case message.messageType
+          of dapResponseMessage:
+            if message.requestSeq == initialize.seq and message.success:
+              var arguments = attachArguments(targetProcess.processID, source.parentDir)
+              arguments["stopOnEntry"] = newJBool(true)
+              attach = session.sendRequest("attach", arguments)
+            elif attach.seq > 0 and message.requestSeq == attach.seq:
+              check message.success
+              attached = message.success
+            elif configuration.seq > 0 and message.requestSeq == configuration.seq:
+              check message.success
+          of dapEventMessage:
+            if message.event == "initialized" and not initialized:
+              initialized = true
+              configuration = session.sendRequest("configurationDone",
+                configurationDoneArguments())
+            elif message.event == "stopped":
+              stopped = true
+          of dapRequestMessage:
+            session.sendResponse(message, false, %*{},
+              "reverse request is not part of this integration fixture")
+        if stopped: break
+        sleep(10)
+      check initialized
+      check attached
+      check stopped

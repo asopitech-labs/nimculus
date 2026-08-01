@@ -6625,3 +6625,15 @@ launching `/bin/sleep` with `Not allowed to attach to process`. Nimculus treats
 that as an adapter failure, stops lldb-dap, cancels any `runInTerminal` children,
 and leaves the Debug panel in a clean no-session state; it is not converted into
 a false launch-success result.
+
+## M19-101: Preserve standard and Apple DAP attach argument names
+
+Apple's `lldb-dap` does not consume the generic DAP `processId` field for an
+attach request; it requires the adapter-specific `pid` field. The macOS client
+therefore sends both `processId` and `pid` from the shared `attachArguments`
+helper. Standard adapters can continue to consume `processId`, while Apple's
+adapter receives the field it actually implements. A real C target is compiled
+inside the macOS DAP integration test and verifies launch through a breakpoint
+to stack/scopes/variables as well as attach to a running process with
+`stopOnEntry`. This keeps the compatibility decision at the protocol boundary
+instead of hiding it in UI-only launch paths.

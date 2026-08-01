@@ -247,7 +247,10 @@ proc launchArguments*(program, cwd: string, args: seq[string] = @[]): JsonNode =
   result["args"] = values
 
 proc attachArguments*(processId: int, cwd = ""): JsonNode =
-  result = %*{"processId": processId}
+  ## DAP's generic attach argument is `processId`, while Apple's lldb-dap
+  ## consumes the LLDB-specific `pid` spelling. Keep both so the same client
+  ## boundary works with portable adapters and the native macOS adapter.
+  result = %*{"processId": processId, "pid": processId}
   if cwd.len > 0: result["cwd"] = newJString(cwd)
 
 proc setBreakpointsArguments*(source: string, lines: openArray[int]): JsonNode =
