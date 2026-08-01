@@ -12,6 +12,7 @@ TMP_BASE="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
 TMP_ROOT="$TMP_BASE/nimculus-gui-workflows-$$"
 APP_PID=""
 APP_COMMAND=""
+WORKFLOW_RESULT="$TMP_ROOT/workflow.result"
 
 app_process_is_ours() {
   [[ -n "$APP_PID" ]] || return 1
@@ -59,7 +60,8 @@ NIMCULUS_ALLOW_ADHOC=1 NIMCULUS_OUT_DIR="$TMP_ROOT/package" \
 APP_EXEC="$TMP_ROOT/package/Nimculus.app/Contents/MacOS/Nimculus"
 APP_COMMAND="$APP_EXEC $TMP_ROOT/project"
 HOME="$TMP_ROOT/home" open -n "$TMP_ROOT/package/Nimculus.app" \
-  --args "$TMP_ROOT/project" >"$TMP_ROOT/app.log" 2>&1 &
+  --args "$TMP_ROOT/project" --nimculus-gui-workflow \
+  "--nimculus-gui-workflow-result=$WORKFLOW_RESULT" >"$TMP_ROOT/app.log" 2>&1 &
 
 for _ in $(seq 1 40); do
   APP_PID="$(pgrep -f -- "$APP_COMMAND" | head -1 || true)"
@@ -120,7 +122,24 @@ if (( WINDOW_WIDTH < 360 || WINDOW_HEIGHT < 240 )); then
   exit 1
 fi
 
-# Button/menu discovery and dispatch are validated by the consolidated native
-# integration suite against the same AppKit instances. Never call an AX query
-# that can silently become a no-op on a runner and then report GUI success.
-echo "macos_gui_workflows_complete window=${WINDOW_GEOMETRY} pid=${APP_PID}"
+# The packaged app now runs one opt-in, asynchronous workflow through the same
+# command boundary as a user: Files -> editor document -> Git History -> PTY.
+# This avoids per-control manual scripting while still proving that the visible
+# surfaces are connected to their services. Accessibility scripting remains
+# intentionally out of the acceptance path because System Events can silently
+# return no windows on a GUI-login runner.
+for _ in $(seq 1 80); do
+  [[ -s "$WORKFLOW_RESULT" ]] && break
+  sleep 0.25
+done
+if [[ ! -s "$WORKFLOW_RESULT" ]]; then
+  echo "Nimculus GUI workflow did not report a result" >&2
+  sed -n '1,120p' "$TMP_ROOT/app.log" >&2 || true
+  exit 1
+fi
+WORKFLOW_RESULT_TEXT="$(tr -d '\n' < "$WORKFLOW_RESULT")"
+if [[ "$WORKFLOW_RESULT_TEXT" != ok\ * ]]; then
+  echo "Nimculus GUI workflow failed: $WORKFLOW_RESULT_TEXT" >&2
+  exit 1
+fi
+echo "macos_gui_workflows_complete window=${WINDOW_GEOMETRY} workflow=${WORKFLOW_RESULT_TEXT#ok } pid=${APP_PID}"

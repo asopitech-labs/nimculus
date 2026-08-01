@@ -6742,3 +6742,25 @@ permission contract, user-visible action, and runtime test together. The C
 library is resolved through stable Homebrew `opt` paths and rejected when its
 architecture cannot be loaded by the arm64 process; the direct Wasmtime CLI
 remains the fallback for core modules and Component execution stays optional.
+
+## QA-015: Make the macOS GUI workflow exercise user command boundaries
+
+**Context.** The earlier macOS GUI smoke proved that a packaged Nimculus
+window appeared in WindowServer, but it did not prove that Files, the editor,
+Git History, and the integrated terminal were connected as one user-visible
+workflow. Zed's visual test runner opens the Project Panel and a document
+before moving to the next surface, so the same ordering is useful here.
+
+**Decision.** Add an opt-in asynchronous workflow to the packaged application.
+The harness opens Files, opens the first workspace file, invokes Git History,
+opens a new terminal, and closes it. Git and terminal actions must enter through
+the same `commandPalette:*` dispatch used by the visible macOS commands; raw
+internal dispatch labels are not accepted as proof. The result is written to a
+temporary file, and cleanup signals only the exact app PID started by the
+harness.
+
+**Consequences.** `scripts/test_macos_gui_workflows.sh` now validates the
+Files-to-editor-to-Git-to-terminal path in one run without depending on flaky
+Accessibility scripting. This is functional integration evidence, not proof of
+physical IME behavior, pixel-perfect rendering, eight-hour stability, or signed
+notarized distribution.

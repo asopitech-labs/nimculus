@@ -184,6 +184,13 @@ when defined(macosx):
   var editorWasmComponentJob: WasmComponentJob
   var editorWasmComponentId = ""
   var editorWasmComponentCancelRequested = false
+  # A single packaged-app workflow exercises the same command/input boundary
+  # as a user without relying on flaky Accessibility scripting. The harness
+  # is opt-in and writes one result file before the app is cleaned up.
+  var macosGuiWorkflowEnabled = false
+  var macosGuiWorkflowStep = 0
+  var macosGuiWorkflowStartedAt = 0.0
+  var macosGuiWorkflowResultPath = ""
 
 proc resetPointerInteractions()
 when defined(macosx):
@@ -4792,6 +4799,63 @@ when defined(macosx):
     scheduleNativeSecondaryGitHunks(document)
 
 when defined(macosx):
+  proc finishMacosGuiWorkflow(success: bool, detail: string) =
+    let result = (if success: "ok " else: "fail ") & detail
+    if macosGuiWorkflowResultPath.len > 0:
+      try:
+        writeFile(macosGuiWorkflowResultPath, result & "\n")
+      except CatchableError:
+        discard
+    macosGuiWorkflowEnabled = false
+
+  proc pollMacosGuiWorkflow() =
+    ## Zed's visual test runner opens the Project Panel, opens a project file,
+    ## and only then advances to the next surface. Keep this workflow
+    ## asynchronous at the same boundaries as the application so Git and PTY
+    ## work never blocks the GUI idle callback.
+    if not macosGuiWorkflowEnabled: return
+    if epochTime() - macosGuiWorkflowStartedAt > 20.0:
+      finishMacosGuiWorkflow(false, "timeout step=" & $macosGuiWorkflowStep)
+      return
+    case macosGuiWorkflowStep
+    of 0:
+      if activeWorkspace == nil:
+        finishMacosGuiWorkflow(false, "workspace-not-open")
+        return
+      receiveNativeCommand("__show_files__")
+      macosGuiWorkflowStep = 1
+    of 1:
+      var candidate = ""
+      for entry in workspacePreviewEntries:
+        if entry.kind == WorkspaceFileKind.file:
+          candidate = entry.path
+          break
+      if candidate.len == 0: return
+      openFilesDockEntry(candidate)
+      if activeDocument() == nil or activeDocument()[].path.len == 0:
+        finishMacosGuiWorkflow(false, "file-open-failed")
+        return
+      macosGuiWorkflowStep = 2
+    of 2:
+      # Use the same command-palette dispatch that the visible Git History
+      # action uses. The short label "git log" is a palette command, not a
+      # direct native callback, so sending it raw would silently do nothing.
+      receiveNativeCommand("commandPalette:git log")
+      macosGuiWorkflowStep = 3
+    of 3:
+      if editorSidebarMode != sidebarGitHistory or editorGitHistory.len == 0: return
+      receiveNativeCommand("commandPalette:new terminal")
+      macosGuiWorkflowStep = 4
+    of 4:
+      if not editorTerminalVisible or editorTerminals.len == 0: return
+      receiveNativeCommand("commandPalette:close terminal")
+      macosGuiWorkflowStep = 5
+    of 5:
+      if editorTerminalVisible or editorTerminals.len != 0: return
+      finishMacosGuiWorkflow(true, "files-editor-git-history-terminal")
+    else:
+      finishMacosGuiWorkflow(false, "invalid-step=" & $macosGuiWorkflowStep)
+
   proc pollLspAndRefreshDiagnostics() =
     let document = activeDocument()
     if document != nil: syncNativeDiagnostics(document)
@@ -4816,6 +4880,7 @@ when defined(macosx):
     pollNativeDap()
     pollNativeAgent()
     pollNativeTerminal()
+    pollMacosGuiWorkflow()
     if lspBridge == nil:
       syncNativeEditorStatus(activeDocument())
       return
@@ -8375,7 +8440,8 @@ when isMainModule:
     # Match Finder/Open With handling for direct terminal launches. This runs
     # only after the native callbacks are installed, so Japanese paths and
     # workspace directories follow the same open boundary as Apple Events.
-    for startupPath in startupOpenPaths(commandLineParams()):
+    let startupArguments = commandLineParams()
+    for startupPath in startupOpenPaths(startupArguments):
       receiveNativeFile(startupPath.cstring, false)
     if activeDocument() != nil:
       syncEditorCursor()
@@ -8383,6 +8449,13 @@ when isMainModule:
     else:
       platformSetWelcomeVisible(activeDocument() == nil)
       persistSession()
+    for argument in startupArguments:
+      if argument == "--nimculus-gui-workflow":
+        macosGuiWorkflowEnabled = true
+        macosGuiWorkflowStep = 0
+        macosGuiWorkflowStartedAt = epochTime()
+      elif argument.startsWith("--nimculus-gui-workflow-result="):
+        macosGuiWorkflowResultPath = argument["--nimculus-gui-workflow-result=".len .. ^1]
   elif defined(windows):
     setupPersistencePaths()
     restoreSession()

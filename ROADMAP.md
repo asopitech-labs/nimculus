@@ -40,6 +40,23 @@ WindowServer GUI workflowを一括確認した。M1〜M12およびM17〜M20は�
 物理IME、長時間実機利用、Developer ID/notarization、実機ピクセル受入れは残件として扱い、
 Windows/WSL/Linux/SSHは引き続き凍結する。
 
+### 2026-08-02 追補：主要UI導線の統合E2E
+
+GUI workflowの実装済み範囲を見直し、WindowServer上のウィンドウ存在確認だけでは
+主要機能の完了根拠にならないため、パッケージ済みmacOSアプリを一度だけ起動する
+非同期E2Eを追加した。ZedのProject Panel／visual test runnerの操作順を参考に、
+Files表示、ファイル選択によるエディタ表示、Git History、統合ターミナルの起動と
+終了を、実際のmacOS command-palette dispatch経路で連続実行する。
+
+`bash scripts/test_macos_gui_workflows.sh` はこの一括導線とWindowServerの表示境界、
+AppKit最小サイズ、起動したPIDだけのcleanupを検証する。2026-08-02のApple Silicon
+実行で `macos_gui_workflows_complete window=960x672
+workflow=files-editor-git-history-terminal` を確認した。Git履歴とターミナルは、
+内部ラベルを直接呼び出さず、ユーザー操作と同じ `commandPalette:*` の入口を通る。
+これにより、ファイラ、エディタ、Git履歴、ターミナルの未接続を一回のE2Eで検出できる。
+物理IME、文字の実ピクセル確認、長時間利用、Developer ID/notarizationは引き続き
+別受入れ項目であり、実装のブロックにはしない。
+
 ### 2026-08-02 更新：拡張・CLIエージェント・DAPのmacOS縦切り
 
 Zedの `crates/extension_host`、`crates/agent`、`crates/dap`、`crates/dap_adapters` を再確認し、ホストUI・プロセス所有・protocol transport・状態投影を分離した。Nimculusではその境界をmacOS共通コアへ移植し、次の入口を実装した。
@@ -149,6 +166,11 @@ sibling ディレクトリの結果を返さないことを unit test で確認�
 E2EはM1/M2/M3/M5だけの個別操作では開始しない。M12までのeditor、workspace、Tree-sitter、LSP、Git、terminal/task、settingsが一つの`.app`で利用可能になり、M20のcold-start/soak/benchmarkが自動成功したrelease candidateで実行する。`nimble macosE2E`は全test、native contract、benchmark、cold-start、soak、adhoc署名DMGのmount後起動を一つの自動ゲートへ集約し、`.github/workflows/macos-e2e.yml`から手動起動できる。GUI workflowはLaunchServices経由の実.app起動、WindowServer上のオンスクリーンウィンドウ、AppKit最小サイズ、正確な起動PIDのbounded cleanupを確認する。Accessibility経由のFiles/GitクリックはSystem Eventsがこの環境の既存アプリでもウィンドウを取得できないため、このゲートでは実行しない。AppKitコントロールの存在とdispatchはnative contract・unit/integrationで検証し、物理GUI操作は権限が有効な専用受け入れ環境へ集約する。統合ターミナルをGUI E2Eから開閉しない。PTY masterの切断は端末セッションへSIGHUPを配送し得るため、Codex/Terminalを起動している開発者環境に影響させないためである。PTYの作成・入力・resize・終了は、一時プロセスのみを起動するisolated integration testで検証する。Save/Open/Alertなどのnative sheetと物理IME候補位置の契約は補助XPCを提供する専用GUI runnerで必須とし、隔離E2Eは `NIMCULUS_E2E_SKIP_NATIVE_SHEET_CONTRACTS=1` によりその補助GUI契約だけを明示skipできる。2026-07-29にはcommit [`7083934`](https://github.com/asopitech-labs/nimculus/commit/7083934e2fbc04f393c64386793b5b94c3105bc4)でこの[自動E2Eが成功](https://github.com/asopitech-labs/nimculus/actions/runs/30413726097)した。2026-07-31にはHEAD（`70235dc`）で同じ統合E2Eを再実行し、全test・native contract・benchmark・cold start・2秒soak・adhoc package verification・WindowServer GUI workflowが成功した（補助XPCを必要とするnative sheet/物理IME契約だけを明示skip）。Filesの一覧行はZed Project Panelの操作モデルに合わせ、通常クリックをファイルのpreview/editorオープン、ディレクトリの展開、Git/Search行の遷移へ接続した。WindowServer workflowは実`.app`の表示境界とPID cleanupを確認し、AppKitコントロールのdispatchはnative contractで確認している。Accessibility操作はこの環境では実行していない。これは自動基準の達成を示すものであり、物理IME/trackpad/複数画面、実Language Server操作、長時間利用、Developer ID承認を完了とみなさない。E2E失敗はissueと自動regression testへ還元し、個別マイルストーンの手作業チェックリストを増やさない。
 
 ## 証跡の補足
+
+なお、旧受入れ記録にある「統合ターミナルをGUI E2Eから開閉しない」という記述は、
+2026-08-02の一括workflow追加で更新された。現在の `scripts/test_macos_gui_workflows.sh`
+は、他の開発者プロセスへ触れず、自身が起動した一時NimculusとPTYだけを対象に、
+ターミナルの起動・終了まで検証する。
 
 上記の2026-07-31 E2Eは`70235dc`をベースに、ZedのProject Panel操作モデルに合わせたFiles一覧行の
 通常クリック遷移修正を含む作業ツリーで実行した。WindowServer workflowは実`.app`の表示境界と

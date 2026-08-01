@@ -1,6 +1,6 @@
 # Implementation review
 
-最終確認日: 2026-07-23
+最終確認日: 2026-08-02
 
 この文書は、ロードマップのチェック済み表示をコード、テスト、Apple
 Silicon macOSビルドの証拠と突き合わせたレビュー記録である。コードが
@@ -18,6 +18,7 @@ Silicon macOSビルドの証拠と突き合わせたレビュー記録である�
 - M20 rendered-frame gate: cold-start now reports drawable dimensions and requires a nonzero Metal frame count; soak completion requires at least one sampled rendered frame, not only an idle callback.
 - M5 normal editor surface: GUI-login macOS visual smoke confirmed that normal startup renders the dark editor surface, outline, line numbers, cursor, and scrollbar without the M2 blue placeholder gallery or empty-document indent-guide grid. The complete renderer gallery is now opt-in through `NIMCULUS_UI_GALLERY=1`.
 - M1 current Apple Silicon GUI smoke: current HEAD cold-start completed locally with `ready=1` and `frames=4` in 417.498 ms; this proves launch and a committed Metal frame, but not resize, physical input, Retina visual inspection, or multi-display operation.
+- Consolidated macOS GUI workflow: the packaged app now opens the Files surface, opens a workspace file in the editor, loads Git History, opens and closes an integrated PTY through the visible command-palette dispatch path, and writes a result before exact-PID cleanup. Apple Silicon run on 2026-08-02 completed as `files-editor-git-history-terminal` with a `960x672` WindowServer window. This validates service/UI wiring, not physical IME or pixel-perfect acceptance.
 
 - M0: Nimble build、テストタスク、ベンチマークタスク、`nimpretty` formatter task、`nim check` lint task、macOS CI実行成功（run 29635552288）。
 - M1: Cocoa/Metal/Retina/入力のmacOSネイティブコードがコンパイルされ、current HEADのApple Silicon cold-startでGUI起動とMetal frameを確認。GUI入力・リサイズ・Retina表示は未確認。
