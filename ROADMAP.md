@@ -51,7 +51,7 @@ macOS DAPはApple `lldb-dap`の実initializeを確認した結果、必須の`pa
 
 全体の検証は個別GUI操作を実装ブロックにせず、`nimble macosE2E`へ統合した。2026-08-02実行では全unit/integration、native contract、benchmark、cold-start、短時間soak、adhoc署名packageのDMG検証、WindowServer GUI workflowが成功した。スクリーンショット取得はこの環境のScreen Recording制約で画像内容を検証できないため、ウィンドウ境界はWindowServerの `942x660` とnative viewport contractで検証し、画像成功とは扱わない。
 
-2026-08-02のM17追補では、Zedの`since_v0_8_0/process.wit`と`CapabilityGranter::grant_exec`を照合し、Component hostへ`process.run-command`を追加した。`process`権限がないComponentにはimportを公開せず、権限付きの場合だけ直接`posix_spawnp`を使う。シェル、リダイレクト、共有process groupは使用せず、extension rootをcwdとし、manifest由来の環境変数を継承環境へ上書きする。出力はstdout/stderrそれぞれ1 MiB、実行は10秒で打ち切り、Componentのresultへ終了コードまたはsignal終了を返す。Apple Siliconのローカル環境ではx86_64 Wasmtime Cライブラリしか利用できないため実コールはskipだが、x86_64 Wasmtimeでplatform/process WIT importのlink・instantiate統合テストを通過し、arm64向けの通常ビルドとclang `-Wall -Wextra -Werror`も通過した。
+2026-08-02のM17追補では、Zedの`since_v0_8_0/process.wit`と`CapabilityGranter::grant_exec`を照合し、Component hostへ`process.run-command`を追加した。`process`権限がないComponentにはimportを公開せず、権限付きの場合だけ直接`posix_spawnp`を使う。シェル、リダイレクト、共有process groupは使用せず、extension rootをcwdとし、manifest由来の環境変数を継承環境へ上書きする。出力はstdout/stderrそれぞれ1 MiB、実行は10秒で打ち切り、Componentのresultへ終了コードまたはsignal終了を返す。x86_64 Wasmtimeでは`/bin/echo`をComponentから実際に呼び出すlink・instantiate・host callback統合テストを通過した。Apple Siliconのローカル環境では互換arm64 Wasmtime Cライブラリがないため同じ実コールはskipだが、arm64向けの通常ビルドとclang `-Wall -Wextra -Werror`は通過した。
 
 ### 2026-07-31 更新：統合E2EとWelcome surface
 

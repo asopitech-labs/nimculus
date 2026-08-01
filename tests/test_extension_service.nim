@@ -192,7 +192,7 @@ suite "M17 extension registry":
           check errorMessage.len == 0
         removeDir(root)
 
-    test "links the Zed process WIT import only with process permission":
+    test "invokes the Zed process WIT import only with process permission":
       let wasmTools = findExe("wasm-tools")
       let library = getEnv("NIMCULUS_WASMTIME_LIBRARY", "/usr/local/opt/wasmtime/lib/libwasmtime.dylib")
       if wasmTools.len == 0 or not fileExists(library):
@@ -221,6 +221,14 @@ suite "M17 extension registry":
         var status = 0
         var errorMessage = ""
         if available:
+          let denied = parseExtensionManifest("""
+            {"id":"process.denied","name":"Process Denied","version":"1",
+             "apiVersion":1,"wasmModule":"extension.component.wasm",
+             "wasmEntrypoint":"init-extension"}
+          """, root)
+          var deniedError = ""
+          check runWasmComponentInProcess(denied, deniedError) != 0
+          check deniedError.len > 0
           let manifest = parseExtensionManifest("""
             {"id":"process.runtime","name":"Process Runtime","version":"1",
              "apiVersion":1,"wasmModule":"extension.component.wasm",
