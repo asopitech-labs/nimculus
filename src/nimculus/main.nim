@@ -2497,12 +2497,14 @@ proc refreshWorkspacePreview() =
       except CatchableError:
         discard
     # Follow Zed's Project Panel ordering: expanded children are emitted
-    # directly below their directory, while traversal remains lazy and bounded.
+    # directly below their directory. Traversal remains lazy because only
+    # directories in workspaceExpandedDirectories are opened; do not impose a
+    # fixed row limit here. A fixed cap made valid files disappear from the
+    # Files panel once a repository had more than 192 visible entries.
     proc containsReveal(path: string): bool =
       let candidate = canonicalOpenPath(path)
       revealTarget == candidate or revealTarget.startsWith(candidate / "")
     proc appendDirectory(root, relative: string, depth: int) =
-      if workspacePreviewEntries.len >= 192: return
       var children = activeWorkspace.listChildrenAt(root, relative)
       children.sort(proc(a, b: WorkspaceEntry): int =
         let aPriority = if containsReveal(a.path): 0 else: 1
@@ -2519,7 +2521,6 @@ proc refreshWorkspacePreview() =
           else:
             result = cmp(a.relativePath, b.relativePath))
       for entry in children:
-        if workspacePreviewEntries.len >= 192: break
         workspacePreviewEntries.add(entry)
         let icon = appSettings.iconForPath(entry.path,
           entry.kind == WorkspaceFileKind.directory)
@@ -2538,7 +2539,6 @@ proc refreshWorkspacePreview() =
       result = cmp(aPriority, bPriority)
       if result == 0: result = cmp(a, b))
     for root in roots:
-      if workspacePreviewEntries.len >= 192: break
       let rootName = if root.extractFilename.len > 0: root.extractFilename else: root
       let expanded = root in workspaceExpandedDirectories
       workspacePreviewEntries.add(WorkspaceEntry(path: root, relativePath: "",

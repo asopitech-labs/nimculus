@@ -127,6 +127,11 @@ smokeでは、Nimculusから`typescript-language-server --stdio`とその`tsserv
 終了時に残存しないことを確認した。物理IME、trackpad、複数display、LSP機能の物理GUI操作、
 長時間利用、Developer ID/notarizationは、機能実装を止めない別受け入れ項目として残す。
 
+2026-08-02にはZed Project Panelの展開・遅延読み込みモデルを再確認し、Files一覧の人工的な192行上限を
+撤去した。表示対象は引き続き展開済みディレクトリだけを走査し、起動時にワークスペース全ファイルの内容は
+読み込まない。これにより、規模の大きいリポジトリでもファイルが固定件数の境界でUIから消えず、必要な階層を
+展開して操作できる。
+
 ## 基本方針
 
 Nimculus および NimNUI の初期主対象を macOS とする。初期開発環境は Apple Silicon 搭載 macOS を前提とし、Cocoa ウィンドウ、Metal 描画、Retina、macOS IME、標準メニュー、クリップボード、ファイルダイアログ、PTY、アプリ署名、notarization、`.app` / DMG 配布を最優先で完成させる。
