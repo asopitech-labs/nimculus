@@ -33,35 +33,57 @@ proc highlightVisible*(tree: SyntaxTree, firstByte, lastByte: uint32): seq[Highl
     if span.endByte > firstByte and span.startByte < lastByte:
       result.add(span)
 
+proc bracketPairs(source: string): seq[tuple[openByte, closeByte: int]] =
+  ## Parse balanced delimiter pairs once so matching and editor navigation use
+  ## the same nesting rules. Tree-sitter nodes remain responsible for syntax
+  ## highlighting; this small byte-level scanner keeps the hot cursor action
+  ## independent from grammar-specific node names.
+  var stack: seq[tuple[openByte: int, kind: char]]
+  for index, value in source:
+    if value in {'(', '[', '{'}:
+      stack.add((openByte: index, kind: value))
+    elif value in {')', ']', '}'}:
+      let expected = case value
+        of ')': '('
+        of ']': '['
+        else: '{'
+      if stack.len == 0 or stack[^1].kind != expected: continue
+      let opening = stack[^1].openByte
+      stack.setLen(stack.len - 1)
+      result.add((openByte: opening, closeByte: index))
+
 proc matchingBracket*(source: string, position: int): int =
-  if position < 0 or position >= source.len: return -1
-  let current = source[position]
-  let matching = case current
-    of '(': ')'
-    of '[': ']'
-    of '{': '}'
-    of ')': '('
-    of ']': '['
-    of '}': '{'
-    else: '\0'
-  if matching == '\0': return -1
-  if current in {'(', '[', '{'}:
-    var depth = 0
-    for index in position ..< source.len:
-      if source[index] == current: inc depth
-      elif source[index] == matching:
-        dec depth
-        if depth == 0: return index
-  else:
-    var depth = 0
-    var index = position
-    while index >= 0:
-      if source[index] == current: inc depth
-      elif source[index] == matching:
-        dec depth
-        if depth == 0: return index
-      dec index
+  for pair in source.bracketPairs:
+    if pair.openByte == position: return pair.closeByte
+    if pair.closeByte == position: return pair.openByte
   -1
+
+proc moveToEnclosingBracket*(source: string, startByte, endByte,
+                             cursorByte: int): int =
+  ## Match Zed's MoveToEnclosingBracket selection behavior. Prefer the
+  ## smallest enclosing pair, but prefer a pair whose delimiter is directly
+  ## under the cursor over a larger pair that merely contains it.
+  var found = false
+  var bestOpen = -1
+  var bestClose = -1
+  var bestLength = high(int)
+  var bestInBracket = false
+  for pair in source.bracketPairs:
+    let insideRange = startByte >= pair.openByte + 1 and
+      endByte <= pair.closeByte
+    let inBracket = cursorByte == pair.openByte or cursorByte == pair.closeByte
+    if not insideRange and not inBracket: continue
+    let length = pair.closeByte - pair.openByte
+    if found and length > bestLength and (bestInBracket or not insideRange): continue
+    found = true
+    bestOpen = pair.openByte
+    bestClose = pair.closeByte
+    bestLength = length
+    bestInBracket = inBracket
+  if not found: return -1
+  if cursorByte == bestClose: return bestOpen
+  if cursorByte == bestOpen: return bestClose + 1
+  bestClose
 
 proc foldRanges*(tree: SyntaxTree, source: string): seq[FoldRange] =
   for node in tree.nodes:

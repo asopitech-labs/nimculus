@@ -6350,3 +6350,23 @@ when necessary. `Cmd+Ctrl+Up/Down` and the command palette use this service
 through the focused editor selection boundary. This keeps the macOS interaction
 contract aligned with Zed while keeping the platform-independent syntax module
 free of Cocoa and editor-session state.
+
+## UI-082: Keep syntax folding as an item-owned display map
+
+Zed folds syntax ranges in a display map while preserving the underlying buffer
+and anchor positions. Nimculus follows the same boundary: `EditorViewState`
+owns byte-anchored `FoldRange` values, Tree-sitter derives candidates, and the
+macOS backend receives only a derived source-line range. The native renderer
+skips folded body lines in text, glyph atlas, line numbers, indentation guides,
+and hit testing; it never rewrites the document string or LSP byte offsets.
+
+`Cmd+Option+[` and `Cmd+Option+]` follow Zed's macOS fold/unfold bindings. The
+command palette additionally exposes current, all, toggle, and unfold actions.
+Entering a folded body automatically removes the containing fold so keyboard,
+mouse, and IME positions remain reachable. Primary and secondary panes retain
+independent fold maps.
+
+**Consequences.** Folding stays local to a view and invalid ranges are ignored.
+Syntax highlighting, diagnostics, Git annotations, and text input continue to
+address the original UTF-8 document; only their native display projection is
+compressed.

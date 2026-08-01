@@ -72,10 +72,12 @@ when not defined(windows):
   proc platformSetEditorDirty*(dirty: bool) = discard dirty
   proc platformSetEditorIndentGuides*(visible: bool, indentWidth: uint32) = discard (visible, indentWidth)
   proc platformSetEditorLineNumbers*(visible: bool) = discard visible
-  proc platformSetEditorSoftWrap*(enabled: bool) = discard enabled
-  proc platformSetEditorTabs*(titles: cstring, length, activeIndex: uint32) = discard (titles, length, activeIndex)
-  proc platformSetEditorStatus*(text: cstring) = discard text
-  proc platformSetWelcomeVisible*(visible: bool) = discard visible
+proc platformSetEditorSoftWrap*(enabled: bool) = discard enabled
+proc platformSetEditorFolds*(ranges: ptr NativeFoldRange, count: uint32) = discard (ranges, count)
+proc platformSetSecondaryEditorFolds*(ranges: ptr NativeFoldRange, count: uint32) = discard (ranges, count)
+proc platformSetEditorTabs*(titles: cstring, length, activeIndex: uint32) = discard (titles, length, activeIndex)
+proc platformSetEditorStatus*(text: cstring) = discard text
+proc platformSetWelcomeVisible*(visible: bool) = discard visible
 when not defined(windows):
   proc platformSetCloseDecision*(allow: bool) = discard allow
 proc platformRequestCloseTab*() = discard

@@ -96,6 +96,7 @@ proc macOSKeyCode(key: string): uint32 =
   of "leftbracket": 33
   of "rightbracket": 30
   of "backslash": 42
+  of "pipe", "bar", "|": 42
   of "minus": 27
   of "equal", "equals": 24
   of "grave", "backtick": 50

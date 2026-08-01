@@ -23,6 +23,8 @@ type
     startByte*, endByte*, cursorByte*: uint32
   NativeGitHunkSpan* {.bycopy.} = object
     startLine*, lineCount*, kind*: uint32
+  NativeFoldRange* {.bycopy.} = object
+    startLine*, endLine*: uint32
   NativePaintCommand* {.bycopy.} = object
     kind*: uint32
     x*, y*, width*, height*: cfloat

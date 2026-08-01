@@ -86,6 +86,20 @@ suite "M2 UI foundation":
     let next = shortcutFromKeyBinding("cmd+ctrl+down")
     check next.keyCode == 125
     check next.modifiers == {commandModifier, controlModifier}
+    let enclosing = shortcutFromKeyBinding("cmd+shift+backslash")
+    check enclosing.keyCode == 42
+    check enclosing.modifiers == {commandModifier, shiftModifier}
+    let enclosingControl = shortcutFromKeyBinding("ctrl+m")
+    check enclosingControl.keyCode == 46
+    check enclosingControl.modifiers == {controlModifier}
+
+  test "Zed-style folding shortcuts retain the Option-Command bindings":
+    let fold = shortcutFromKeyBinding("cmd+alt+leftbracket")
+    check fold.keyCode == 33
+    check fold.modifiers == {commandModifier, optionModifier}
+    let unfold = shortcutFromKeyBinding("cmd+alt+rightbracket")
+    check unfold.keyCode == 30
+    check unfold.modifiers == {commandModifier, optionModifier}
 
   test "Zed-style terminal toggle retains the Control-grave binding":
     let terminal = shortcutFromKeyBinding("ctrl+backtick")

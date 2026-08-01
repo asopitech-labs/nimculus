@@ -4,6 +4,7 @@ import std/unicode
 import std/math
 import nimculus/editor_buffer
 import nimnui/text
+import nimculus/syntax
 
 type
   EditorViewState* = object
@@ -17,6 +18,10 @@ type
     scrollX*: float32
     showLineNumbers*, softWrap*, showIndentGuides*: bool
     indentWidth*: int
+    ## Fold state is byte anchored to the document, while the native backend
+    ## receives a derived line map. Keeping it on the view matches Zed's
+    ## item-owned display map and lets split panes fold independently.
+    foldedRanges*: seq[FoldRange]
     commandPaletteOpen*: bool
     statusMessage*: string
 

@@ -185,6 +185,7 @@ when defined(macosx):
   proc updateSyntaxOutline(document: ptr FileDocument)
   proc expandNativeSyntaxSelection(expand: bool)
   proc moveNativeSyntaxSibling(next: bool)
+  proc moveNativeToEnclosingBracket()
   proc handleCompletionShortcut(event: ptr NimculusInputEvent): bool
 
 when defined(windows):
@@ -489,6 +490,24 @@ proc setupShortcutRegistry() =
     shortcut: Shortcut(keyCode: 125, modifiers: {commandModifier, controlModifier}),
     action: nativeShortcutAction("selectNextSyntaxNode")))
   shortcutRegistry.register(Command(
+    name: "moveToEnclosingBracket",
+    shortcut: Shortcut(keyCode: 42, modifiers: {commandModifier, shiftModifier}),
+    action: nativeShortcutAction("moveToEnclosingBracket")))
+  shortcutRegistry.register(Command(
+    name: "moveToEnclosingBracketControlM",
+    shortcut: Shortcut(keyCode: 46, modifiers: {controlModifier}),
+    action: nativeShortcutAction("moveToEnclosingBracket")))
+  # Zed's macOS fold bindings are Option-Cmd-[ / ]. Keep the same physical
+  # keys while routing the action through the document-owned fold map.
+  shortcutRegistry.register(Command(
+    name: "fold",
+    shortcut: Shortcut(keyCode: 33, modifiers: {commandModifier, optionModifier}),
+    action: nativeShortcutAction("fold")))
+  shortcutRegistry.register(Command(
+    name: "unfold",
+    shortcut: Shortcut(keyCode: 30, modifiers: {commandModifier, optionModifier}),
+    action: nativeShortcutAction("unfold")))
+  shortcutRegistry.register(Command(
     name: "toggleGit",
     shortcut: Shortcut(keyCode: 5, modifiers: {controlModifier, shiftModifier}),
     action: nativeShortcutAction("commandPalette:toggle git")))
@@ -536,7 +555,9 @@ proc setupShortcutRegistry() =
       "deleteWordBackward", "deleteWordForward", "deleteToBeginningOfLine",
       "deleteToEndOfLine", "cancel", "toggleSoftWrap", "selectNext",
       "selectAllMatches", "addSelectionAbove", "addSelectionBelow",
-      "selectPreviousSyntaxNode", "selectNextSyntaxNode"]:
+      "selectPreviousSyntaxNode", "selectNextSyntaxNode",
+      "moveToEnclosingBracket", "fold", "unfold", "toggleFold", "foldAll",
+      "unfoldAll", "foldRecursive", "unfoldRecursive"]:
     var action: proc() {.closure.}
     if name == "openSettings":
       when defined(macosx):
@@ -623,6 +644,9 @@ type GitStatusProjection = enum
   gitStatusConflict, gitStatusStaged, gitStatusUnstaged
 
 var editorSidebarMode = sidebarFiles
+
+proc focusedEditorView(): EditorViewState
+proc storeFocusedEditorView(view: EditorViewState)
 
 proc workspacePanelForSidebarMode(mode: EditorSidebarMode): PanelKind =
   case mode
@@ -1458,6 +1482,102 @@ when defined(macosx):
     persistSession()
     editorViewState.statusMessage = if next:
       "Selected next syntax sibling" else: "Selected previous syntax sibling"
+
+  proc moveNativeToEnclosingBracket() =
+    let document = activeDocument()
+    if document == nil:
+      editorViewState.statusMessage = "Bracket navigation unavailable"
+      return
+    let source = document[].buffer.toString()
+    let selection = activeEditorSelection()
+    let target = syntax.moveToEnclosingBracket(source, selection.startByte,
+      selection.endByte, activeEditorCursor())
+    if target < 0:
+      editorViewState.statusMessage = "No enclosing bracket"
+      return
+    moveActiveEditorCursor(floorGraphemeBoundary(source, target))
+    syncEditorCursor()
+    refreshEditorSyntax()
+    persistSession()
+    editorViewState.statusMessage = "Moved to enclosing bracket"
+
+  proc syntaxFoldCandidates(document: ptr FileDocument,
+                            state: EditorSyntaxState): seq[FoldRange] =
+    if document == nil or state == nil or state.tree == nil: return
+    let source = document[].buffer.toString()
+    for candidate in state.tree.foldRanges(source):
+      if candidate.endByte <= candidate.startByte or candidate.endByte > uint32(source.len):
+        continue
+      let startLine = document[].buffer.lineColumn(int(candidate.startByte)).line
+      let endLine = document[].buffer.lineColumn(int(candidate.endByte) - 1).line
+      if endLine > startLine:
+        result.add(candidate)
+
+  proc sameFold(left, right: FoldRange): bool =
+    left.startByte == right.startByte and left.endByte == right.endByte
+
+  proc toggleNativeFold(expand: bool, all = false) =
+    let document = if editorSession.split and editorSession.splitActivePane == 1:
+      secondaryPaneDocument() else: activeDocument()
+    let state = if editorSession.split and editorSession.splitActivePane == 1:
+      secondarySyntaxState else: syntaxState
+    if document == nil or state == nil or state.tree == nil:
+      editorViewState.statusMessage = "Folding unavailable"
+      return
+    var view = focusedEditorView()
+    let candidates = syntaxFoldCandidates(document, state)
+    if candidates.len == 0:
+      view.statusMessage = "No foldable syntax"
+      storeFocusedEditorView(view)
+      return
+    if all:
+      if expand:
+        view.foldedRanges.setLen(0)
+        view.statusMessage = "Unfolded all"
+      else:
+        view.foldedRanges = candidates
+        view.statusMessage = "Folded all"
+      storeFocusedEditorView(view)
+      syncEditorCursor()
+      refreshEditorSyntax()
+      return
+    let cursorLine = document[].buffer.lineColumn(view.cursor).line
+    var target: FoldRange
+    var found = false
+    var bestSize = high(int)
+    for candidate in candidates:
+      let startLine = document[].buffer.lineColumn(int(candidate.startByte)).line
+      let endLine = document[].buffer.lineColumn(int(candidate.endByte) - 1).line
+      if (not expand and startLine == cursorLine) or
+          (expand and startLine <= cursorLine and cursorLine <= endLine):
+        let size = int(candidate.endByte - candidate.startByte)
+        if not found or size < bestSize:
+          target = candidate
+          bestSize = size
+          found = true
+    if not found:
+      view.statusMessage = if expand: "No enclosing fold" else: "No foldable syntax on this line"
+      storeFocusedEditorView(view)
+      return
+    var existing = -1
+    for index, folded in view.foldedRanges:
+      if folded.sameFold(target):
+        existing = index
+        break
+    if expand:
+      if existing >= 0: view.foldedRanges.delete(existing)
+      else: view.statusMessage = "Already unfolded"
+      if existing >= 0: view.statusMessage = "Unfolded"
+    elif existing >= 0:
+      view.foldedRanges.delete(existing)
+      view.statusMessage = "Unfolded"
+    else:
+      view.foldedRanges.add(target)
+      view.statusMessage = "Folded"
+    storeFocusedEditorView(view)
+    syncEditorCursor()
+    refreshEditorSyntax()
+    persistSession()
 
   proc lspSelectionRange(document: ptr FileDocument): LspRange =
     if document == nil: return
@@ -2711,6 +2831,40 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
     lastNativeEditorStatus = status
     platformSetEditorStatus(status.cstring)
 
+when defined(macosx):
+  proc unfoldFoldContainingCursor(document: ptr FileDocument,
+                                  view: var EditorViewState): bool =
+    if document == nil or view.foldedRanges.len == 0: return false
+    let line = document[].buffer.lineColumn(view.cursor).line
+    var kept: seq[FoldRange]
+    for folded in view.foldedRanges:
+      let startLine = document[].buffer.lineColumn(int(folded.startByte)).line
+      let endLine = document[].buffer.lineColumn(int(folded.endByte) - 1).line
+      if line > startLine and line <= endLine:
+        result = true
+      else:
+        kept.add(folded)
+    if result: view.foldedRanges = kept
+
+  proc syncNativeEditorFolds(document: ptr FileDocument, view: EditorViewState,
+                             state: EditorSyntaxState, secondary = false) =
+    var nativeFolds: seq[NativeFoldRange]
+    if document != nil and state != nil and state.tree != nil:
+      let sourceLength = document[].buffer.toString().len
+      for folded in view.foldedRanges:
+        if folded.endByte <= folded.startByte or int(folded.endByte) > sourceLength:
+          continue
+        let startLine = document[].buffer.lineColumn(int(folded.startByte)).line
+        let endLine = document[].buffer.lineColumn(int(folded.endByte) - 1).line
+        if endLine > startLine:
+          nativeFolds.add(NativeFoldRange(startLine: uint32(startLine),
+            endLine: uint32(endLine)))
+    let folds = if nativeFolds.len > 0: addr nativeFolds[0] else: nil
+    if secondary:
+      platformSetSecondaryEditorFolds(folds, uint32(nativeFolds.len))
+    else:
+      platformSetEditorFolds(folds, uint32(nativeFolds.len))
+
 proc syncEditorCursor() =
   when defined(macosx):
     let document = activeDocument()
@@ -2719,6 +2873,8 @@ proc syncEditorCursor() =
     # document is opened; a blank editor with only line 1 is not a usable
     # application state.
     platformSetWelcomeVisible(document == nil)
+    if document != nil and unfoldFoldContainingCursor(document, editorViewState):
+      persistSession()
     let visibleLines = editorVisibleLineCount()
     if document != nil:
       # Undo/redo and external reload can shorten or reshape the buffer
@@ -2751,6 +2907,7 @@ proc syncEditorCursor() =
     platformSetEditorSoftWrap(editorViewState.softWrap)
     platformSetEditorIndentGuides(editorViewState.showIndentGuides,
       uint32(max(1, editorViewState.indentWidth)))
+    syncNativeEditorFolds(document, editorViewState, syntaxState)
     platformSetEditorContext(editorContextText(document).cstring)
     syncNativeEditorStatus(document)
     var tabTitles: seq[string]
@@ -2817,6 +2974,9 @@ when defined(macosx):
       return
     let tab = editorWorkspaceUi.center.second.pane.activeTabIndex
     var view = editorSession.tabs[tab].secondaryView
+    if unfoldFoldContainingCursor(document, view):
+      editorSession.tabs[tab].secondaryView = view
+      editorSession.secondaryView = view
     view.ensureCursorVisible(document[].buffer, secondaryEditorVisibleLineCount())
     editorSession.tabs[tab].secondaryView = view
     let location = document[].buffer.lineColumn(view.cursor)
@@ -2833,6 +2993,7 @@ when defined(macosx):
     platformSetSecondaryEditorScrollLine(uint32(max(0, view.scrollLine)))
     platformSetSecondaryEditorScrollX(cdouble(max(0'f32, view.scrollX)))
     platformSetSecondaryEditorSoftWrap(view.softWrap)
+    syncNativeEditorFolds(document, view, secondarySyntaxState, secondary = true)
     platformSetSecondaryEditorCursorByte(uint32(view.cursor),
       uint32(max(0, location.line)))
     view.scrollX = float32(max(0.0, platformSecondaryEditorScrollX()))
@@ -3425,8 +3586,6 @@ when defined(windows):
     pollWindowsWorkspace()
     flushScheduledSessionPersistence()
 
-proc focusedEditorView(): EditorViewState
-proc storeFocusedEditorView(view: EditorViewState)
 proc editEditorSelections(document: ptr FileDocument, view: var EditorViewState,
                           replacement: string): bool
 
@@ -3816,6 +3975,10 @@ proc editEditorSelections(document: ptr FileDocument, view: var EditorViewState,
     previousEnd = endByte
   if edits.len == 0: return false
   document[].buffer.applyEdits(edits)
+  # Byte-anchored fold ranges are invalidated by edits until Tree-sitter has
+  # produced a fresh display map. Recomputing them avoids hiding a different
+  # source region after an insertion shifts the old range.
+  view.foldedRanges.setLen(0)
   view.selection = nextSelections[0]
   view.additionalSelections = if nextSelections.len > 1:
     nextSelections[1 .. ^1] else: @[]
@@ -3854,6 +4017,7 @@ proc deleteEditorSelections(document: ptr FileDocument, view: var EditorViewStat
     previousEnd = endByte
   if edits.len == 0: return false
   document[].buffer.applyEdits(edits)
+  view.foldedRanges.setLen(0)
   view.selection = nextSelections[0]
   view.additionalSelections = if nextSelections.len > 1:
     nextSelections[1 .. ^1] else: @[]
@@ -4143,6 +4307,18 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     when defined(macosx): moveNativeSyntaxSibling(false)
   elif name == "selectNextSyntaxNode":
     when defined(macosx): moveNativeSyntaxSibling(true)
+  elif name == "moveToEnclosingBracket":
+    when defined(macosx): moveNativeToEnclosingBracket()
+  elif name == "fold":
+    when defined(macosx): toggleNativeFold(false)
+  elif name == "unfold":
+    when defined(macosx): toggleNativeFold(true)
+  elif name == "toggleFold":
+    when defined(macosx): toggleNativeFold(false)
+  elif name == "foldAll":
+    when defined(macosx): toggleNativeFold(false, all = true)
+  elif name in ["unfoldAll", "unfoldRecursive"]:
+    when defined(macosx): toggleNativeFold(true, all = true)
   elif name == "windowResized":
     setupDemoUi()
     when defined(macosx): resizeNativeTerminals()
@@ -4777,6 +4953,13 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         "__select_previous_syntax__"
       elif command in ["select next syntax node", "select next sibling"]:
         "__select_next_syntax__"
+      elif command in ["move to enclosing bracket", "go to matching bracket",
+          "move to matching bracket"]: "__move_to_bracket__"
+      elif command in ["fold", "fold current"]: "fold"
+      elif command in ["unfold", "unfold current"]: "unfold"
+      elif command in ["toggle fold", "toggle folding"]: "toggleFold"
+      elif command in ["fold all", "fold all code"]: "foldAll"
+      elif command in ["unfold all", "unfold all code"]: "unfoldAll"
       elif command in ["toggle git", "toggle source control"]: "__toggle_git__"
       elif command == "open settings": "openSettings"
       elif command in ["toggle soft wrap", "toggle word wrap"]: "toggleSoftWrap"
@@ -5083,6 +5266,18 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx): moveNativeSyntaxSibling(false)
     of "__select_next_syntax__":
       when defined(macosx): moveNativeSyntaxSibling(true)
+    of "__move_to_bracket__":
+      when defined(macosx): moveNativeToEnclosingBracket()
+    of "fold":
+      when defined(macosx): toggleNativeFold(false)
+    of "unfold":
+      when defined(macosx): toggleNativeFold(true)
+    of "toggleFold":
+      when defined(macosx): toggleNativeFold(false)
+    of "foldAll":
+      when defined(macosx): toggleNativeFold(false, all = true)
+    of "unfoldAll", "unfoldRecursive":
+      when defined(macosx): toggleNativeFold(true, all = true)
     of "__toggle_git__":
       when defined(macosx):
         let wasActive = editorWorkspaceUi.leftDock.isOpen and

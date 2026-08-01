@@ -142,6 +142,8 @@ proc platformSetEditorDirty*(dirty: bool) {.importc: "nimculus_platform_set_edit
 proc platformSetEditorIndentGuides*(visible: bool, indentWidth: uint32) {.importc: "nimculus_platform_set_editor_indent_guides", cdecl.}
 proc platformSetEditorLineNumbers*(visible: bool) {.importc: "nimculus_platform_set_editor_line_numbers", cdecl.}
 proc platformSetEditorSoftWrap*(enabled: bool) {.importc: "nimculus_platform_set_editor_soft_wrap", cdecl.}
+proc platformSetEditorFolds*(ranges: ptr NativeFoldRange, count: uint32) {.importc: "nimculus_platform_set_editor_folds", cdecl.}
+proc platformSetSecondaryEditorFolds*(ranges: ptr NativeFoldRange, count: uint32) {.importc: "nimculus_platform_set_secondary_editor_folds", cdecl.}
 proc platformSetEditorTabs*(titles: cstring, length, activeIndex: uint32) {.importc: "nimculus_platform_set_editor_tabs", cdecl.}
 proc platformSetSecondaryEditorTabs*(titles: cstring, length, activeIndex: uint32) {.importc: "nimculus_platform_set_secondary_editor_tabs", cdecl.}
 proc platformSetEditorContext*(text: cstring) {.importc: "nimculus_platform_set_editor_context", cdecl.}

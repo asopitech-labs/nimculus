@@ -73,6 +73,10 @@ typedef struct NimculusGitHunkSpan {
   uint32_t line_count;
   uint32_t kind;
 } NimculusGitHunkSpan;
+typedef struct NimculusFoldRange {
+  uint32_t start_line;
+  uint32_t end_line;
+} NimculusFoldRange;
 
 typedef struct NimculusPaintCommand {
   uint32_t kind;

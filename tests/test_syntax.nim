@@ -28,6 +28,11 @@ suite "M7 syntax services":
     check tree.highlightVisible(0, 8).len < tree.highlight.len
     check matchingBracket("(abc)", 0) == 4
     check matchingBracket("(abc)", 4) == 0
+    check moveToEnclosingBracket("a(b[c])", 2, 2, 2) == 6
+    check moveToEnclosingBracket("a(b[c])", 1, 1, 1) == 7
+    check moveToEnclosingBracket("a(b[c])", 6, 6, 6) == 1
+    check moveToEnclosingBracket("a(b[c])", 4, 5, 5) == 3
+    check matchingBracket("([)]", 0) == -1
     check tree.foldRanges("def f():\n  return (1)").len > 0
     check indentationLevel("def f():\n  return (1)", 12) == 1
     let expanded = tree.expandSelection(14, 15)
