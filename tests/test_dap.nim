@@ -48,6 +48,7 @@ suite "M19 DAP transport":
   test "protocol helpers produce launch and breakpoint arguments":
     let init = initializeArguments()
     check init["clientID"].getStr == "nimculus"
+    check init["pathFormat"].getStr == "path"
     check launchArguments("/tmp/app", "/tmp", @[
       "--flag", "日本語"])["args"][1].getStr == "日本語"
     let breakpoints = setBreakpointsArguments("/tmp/main.nim", [3, 8])

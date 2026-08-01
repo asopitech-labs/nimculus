@@ -10,6 +10,7 @@ import std/json
 import std/os
 import std/strutils
 import std/tables
+import std/times
 
 type
   ExtensionError* = object of CatchableError
@@ -37,6 +38,8 @@ type
     roots*: seq[string]
 
 const SupportedExtensionApiVersion* = 1
+
+proc register*(registry: ExtensionRegistry, manifest: ExtensionManifest)
 
 proc extensionError(message: string): ref ExtensionError =
   newException(ExtensionError, message)
@@ -110,6 +113,81 @@ proc validateWasmModule*(manifest: ExtensionManifest): bool =
   bytes.len >= 8 and bytes[0] == '\0' and bytes[1] == 'a' and bytes[2] == 's' and
     bytes[3] == 'm' and ord(bytes[4]) == 1 and ord(bytes[5]) == 0 and
     ord(bytes[6]) == 0 and ord(bytes[7]) == 0
+
+proc validExtensionId(id: string): bool =
+  ## An extension id becomes a directory name.  Keep the install boundary
+  ## boring and deterministic; this also prevents `..`, separators, and
+  ## platform-specific path syntax from escaping the global extension root.
+  if id.len == 0 or id in [".", ".."]: return false
+  for ch in id:
+    if not (ch in {'a'..'z', 'A'..'Z', '0'..'9', '-', '_', '.'}): return false
+  true
+
+proc copyExtensionTree(source, destination: string) =
+  createDir(destination)
+  for kind, path in walkDir(source):
+    let target = destination / lastPathPart(path)
+    case kind
+    of pcDir:
+      copyExtensionTree(path, target)
+    of pcFile:
+      copyFile(path, target)
+    of pcLinkToFile, pcLinkToDir:
+      raise extensionError("extension contains an unsupported filesystem entry: " &
+        relativePath(path, source))
+
+proc removeExtensionTree(path: string) =
+  if not dirExists(path):
+    if fileExists(path): removeFile(path)
+    return
+  for kind, child in walkDir(path):
+    case kind
+    of pcDir:
+      removeExtensionTree(child)
+    of pcFile:
+      removeFile(child)
+    of pcLinkToFile, pcLinkToDir:
+      removeFile(child)
+  removeDir(path)
+
+proc installDirectory*(registry: ExtensionRegistry, source, destinationRoot: string): ExtensionManifest =
+  ## Install a local extension directory atomically and register the copied
+  ## manifest.  The operation intentionally rejects replacement for now: a
+  ## second install must be an explicit future update/uninstall action rather
+  ## than silently overwriting a user's extension.
+  if registry == nil: raise extensionError("extension registry is nil")
+  if source.strip.len == 0 or not dirExists(source):
+    raise extensionError("extension directory not found: " & source)
+  if destinationRoot.strip.len == 0:
+    raise extensionError("extension install root is empty")
+  let sourcePath = normalizedPath(source)
+  let installRoot = normalizedPath(destinationRoot)
+  let sourceManifest = loadExtensionManifest(sourcePath / "extension.json")
+  if not validExtensionId(sourceManifest.id):
+    raise extensionError("extension id is not a safe directory name: " & sourceManifest.id)
+  if not sourceManifest.validateWasmModule():
+    raise extensionError("extension WASM module is invalid or escapes its root")
+  createDir(installRoot)
+  let destination = installRoot / sourceManifest.id
+  if normalizedPath(sourcePath) == normalizedPath(destination):
+    raise extensionError("extension is already installed at the selected destination")
+  if dirExists(destination) or fileExists(destination):
+    raise extensionError("extension is already installed: " & sourceManifest.id)
+  let temporary = installRoot / ("." & sourceManifest.id & ".installing-" &
+    $int(epochTime() * 1000.0))
+  if dirExists(temporary) or fileExists(temporary):
+    raise extensionError("extension install is already in progress: " & sourceManifest.id)
+  try:
+    copyExtensionTree(sourcePath, temporary)
+    result = loadExtensionManifest(temporary / "extension.json")
+    if not result.validateWasmModule():
+      raise extensionError("installed extension WASM module failed validation")
+    moveDir(temporary, destination)
+    result.root = destination
+    registry.register(result)
+  except CatchableError:
+    removeExtensionTree(temporary)
+    raise
 
 proc newExtensionRegistry*(roots: openArray[string] = []): ExtensionRegistry =
   result = ExtensionRegistry(manifests: initTable[string, ExtensionManifest]())

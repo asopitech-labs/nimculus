@@ -51,3 +51,35 @@ suite "M17 extension registry":
     check registry.discover() == 1
     check registry.findLanguage("markdown").id == "markdown"
     removeDir(root)
+
+  test "installs a validated local extension into the global root":
+    let root = getTempDir() / "nimculus-extension-install-test"
+    let source = root / "source"
+    let destination = root / "installed"
+    createDir(source)
+    writeFile(source / "extension.json", """
+      {"id":"sample-theme","name":"Sample Theme","version":"1.0.0",
+       "apiVersion":1,"themes":["theme.json"],"wasmModule":"extension.wasm"}
+    """)
+    writeFile(source / "theme.json", "{}")
+    writeFile(source / "extension.wasm", "\x00asm\x01\x00\x00\x00")
+    let registry = newExtensionRegistry([destination])
+    let installed = registry.installDirectory(source, destination)
+    check installed.id == "sample-theme"
+    check installed.root == destination / "sample-theme"
+    check fileExists(installed.root / "extension.json")
+    check registry.findLanguage("unknown").id == ""
+    removeDir(root)
+
+  test "rejects extension ids that can escape the install root":
+    let root = getTempDir() / "nimculus-extension-install-boundary-test"
+    let source = root / "source"
+    createDir(source)
+    writeFile(source / "extension.json", """
+      {"id":"../escape","name":"Escape","version":"1.0.0","apiVersion":1}
+    """)
+    let registry = newExtensionRegistry([root / "installed"])
+    expect ExtensionError:
+      discard registry.installDirectory(source, root / "installed")
+    check not dirExists(root / "escape")
+    removeDir(root)

@@ -2,6 +2,7 @@ import std/algorithm
 import std/json
 import std/math
 import std/os
+import std/osproc
 import std/sequtils
 import std/strutils
 import std/times
@@ -990,6 +991,37 @@ when defined(macosx):
     let discovered = editorExtensionRegistry.discover()
     editorViewState.statusMessage = "Extensions reloaded: " & $discovered
 
+  proc showNativeExtensions()
+
+  proc installNativeExtension(source: string) =
+    let installRoot = getHomeDir() / ".nimculus" / "extensions"
+    if editorExtensionRegistry == nil:
+      editorExtensionRegistry = newExtensionRegistry([installRoot])
+    try:
+      let manifest = editorExtensionRegistry.installDirectory(source, installRoot)
+      editorViewState.statusMessage = "Installed extension: " & manifest.name
+      showNativeExtensions()
+    except CatchableError as error:
+      editorViewState.statusMessage = "Extension install failed: " & error.msg
+
+  proc resolveMacosDapCommand(): string =
+    ## LLDB-DAP is Apple's system adapter on current Xcode installations.
+    ## Keep the environment override for other adapters, then use xcrun so
+    ## the selected developer directory is honored instead of hard-coding a
+    ## single Xcode bundle path.
+    let configured = getEnv("NIMCULUS_DAP_COMMAND", "").strip
+    if configured.len > 0: return configured
+    for candidate in [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/lldb-dap",
+        "/usr/bin/lldb-dap"]:
+      if fileExists(candidate): return candidate
+    let xcrun = findExe("xcrun")
+    if xcrun.len > 0:
+      let resolved = execCmdEx(quoteShell(xcrun) & " --find lldb-dap")
+      if resolved.exitCode == 0 and fileExists(resolved.output.strip):
+        return resolved.output.strip
+    ""
+
   proc showNativeExtensions() =
     if editorExtensionRegistry == nil:
       editorViewState.statusMessage = "Extensions are not loaded"
@@ -1093,10 +1125,10 @@ when defined(macosx):
     if editorDapSession != nil:
       editorViewState.statusMessage = "Debugger is already running"
       return
-    let command = getEnv("NIMCULUS_DAP_COMMAND", "").strip
+    let command = resolveMacosDapCommand()
     let remoteHost = getEnv("NIMCULUS_DAP_HOST", "").strip
     if command.len == 0 and remoteHost.len == 0:
-      editorViewState.statusMessage = "Debugger unavailable: set NIMCULUS_DAP_COMMAND or NIMCULUS_DAP_HOST"
+      editorViewState.statusMessage = "Debugger unavailable: install Xcode LLDB-DAP or set NIMCULUS_DAP_COMMAND/NIMCULUS_DAP_HOST"
       return
     let document = activeDocument()
     let workingDirectory = taskWorkingDirectory(document)
@@ -5605,6 +5637,13 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       editorWorkspaceUi.resetDockSize(dockLeft)
       setupDemoUi()
       persistSession()
+  elif name.startsWith("extensionInstall:"):
+    when defined(macosx):
+      let source = name["extensionInstall:".len .. ^1].strip
+      if source.len == 0:
+        editorViewState.statusMessage = "Extension install cancelled"
+      else:
+        installNativeExtension(source)
   elif name.startsWith("commandPalette:"):
     let rawCommand = name[15 .. ^1].strip
     let command = rawCommand.toLowerAscii
@@ -5651,6 +5690,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command in ["agent approve", "agent approve changes"]: "__agent_approve__"
       elif command in ["agent reject", "agent reject changes"]: "__agent_reject__"
       elif command in ["agent apply patch", "apply agent patch"]: "__agent_apply_patch__"
+      elif command in ["extensions install", "install extension"]: "__extensions_install__"
       elif command in ["extensions reload", "reload extensions"]: "__extensions_reload__"
       elif command in ["extensions list", "list extensions"]: "__extensions_list__"
       elif command == "cancel git": "__cancel_git__"
@@ -6019,6 +6059,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx): applyNativeAgentPatch()
     of "__extensions_reload__":
       when defined(macosx): reloadNativeExtensions()
+    of "__extensions_install__":
+      when defined(macosx): platformPromptExtensionDirectory()
     of "__extensions_list__":
       when defined(macosx): showNativeExtensions()
     of "__cancel_git__":

@@ -2624,7 +2624,7 @@ static void dismissExternalChangePanel(const char *command) {
     @"agent start", @"agent start worktree", @"agent stop", @"agent send",
     @"agent next", @"agent previous", @"agent review diff",
     @"agent approve", @"agent reject", @"agent apply patch",
-    @"extensions reload", @"extensions list",
+    @"extensions install", @"extensions reload", @"extensions list",
     @"go to definition", @"find references", @"document symbols", @"code actions",
     @"signature help", @"inlay hints", @"semantic tokens", @"format document",
     @"open settings", @"check for updates"
@@ -6394,6 +6394,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NSMenuItem *extensionsItem = [[NSMenuItem alloc] initWithTitle:@"Extensions" action:NULL keyEquivalent:@""];
   NSMenu *extensionsMenu = [[NSMenu alloc] initWithTitle:@"Extensions"];
   NSArray<NSArray<NSString *> *> *extensionCommands = @[
+    @[@"Install Extension…", @"commandPalette:extensions install"],
     @[@"Reload Extensions", @"commandPalette:extensions reload"],
     @[@"List Extensions", @"commandPalette:extensions list"]
   ];
@@ -6583,6 +6584,23 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response) {
     if (response == NSModalResponseOK && g_file_callback) {
       g_file_callback(panel.URL.path.UTF8String, false);
+    }
+  }];
+}
+
+- (void)promptExtensionDirectory:(id)sender {
+  (void)sender;
+  NSOpenPanel *panel = [NSOpenPanel openPanel];
+  panel.title = @"Install Extension";
+  panel.message = @"Choose an extension folder containing extension.json.";
+  panel.prompt = @"Install";
+  panel.canChooseFiles = NO;
+  panel.canChooseDirectories = YES;
+  panel.allowsMultipleSelection = NO;
+  [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response) {
+    if (response == NSModalResponseOK && panel.URL && g_command_callback) {
+      NSString *command = [NSString stringWithFormat:@"extensionInstall:%@", panel.URL.path];
+      g_command_callback(command.UTF8String);
     }
   }];
 }
@@ -7719,9 +7737,11 @@ bool nimculus_platform_validate_main_menu(void) {
     NSMenuItem *viewItem = menuItemWithTitle(mainMenu, @"View");
     NSMenuItem *debugItem = menuItemWithTitle(mainMenu, @"Debug");
     NSMenuItem *agentItem = menuItemWithTitle(mainMenu, @"Agent");
+    NSMenuItem *extensionsItem = menuItemWithTitle(mainMenu, @"Extensions");
     NSMenuItem *windowItem = menuItemWithTitle(mainMenu, @"Window");
     BOOL topLevel = appItem.submenu && fileItem.submenu && editItem.submenu &&
-      viewItem.submenu && debugItem.submenu && agentItem.submenu && windowItem.submenu;
+      viewItem.submenu && debugItem.submenu && agentItem.submenu &&
+      extensionsItem.submenu && windowItem.submenu;
     NSMenuItem *settings = menuItemWithTitle(appItem.submenu, @"Settings…");
     NSMenuItem *services = menuItemWithTitle(appItem.submenu, @"Services");
     NSMenuItem *open = menuItemWithTitle(fileItem.submenu, @"Open…");
@@ -7754,6 +7774,7 @@ bool nimculus_platform_validate_main_menu(void) {
     NSMenuItem *debugVariables = menuItemWithTitle(debugItem.submenu, @"Variables");
     NSMenuItem *debugThreads = menuItemWithTitle(debugItem.submenu, @"Threads");
     NSMenuItem *debugClearWatches = menuItemWithTitle(debugItem.submenu, @"Clear Watches");
+    NSMenuItem *installExtension = menuItemWithTitle(extensionsItem.submenu, @"Install Extension…");
     NSMenuItem *agentStart = menuItemWithTitle(agentItem.submenu, @"Start Agent");
     NSMenuItem *agentStop = menuItemWithTitle(agentItem.submenu, @"Stop Agent");
     NSMenuItem *agentReview = menuItemWithTitle(agentItem.submenu, @"Review Changes");
@@ -7841,7 +7862,7 @@ bool nimculus_platform_validate_main_menu(void) {
       fullScreen && minimize && zoom && split && splitHorizontal && closeSplit && shortcuts && windowActions;
     valid = valid && viewActions && filesDispatch && outlineDispatch && gitDispatch &&
       terminalDispatch && softWrapDispatch && debugActions && debugStartDispatch &&
-      agentActions && agentStartDispatch;
+      agentActions && agentStartDispatch && installExtension;
     [application setMainMenu:previousMenu];
     return valid;
   }
@@ -7867,7 +7888,7 @@ bool nimculus_platform_validate_command_palette(void) {
       @"agent start", @"agent start worktree", @"agent stop", @"agent send",
       @"agent next", @"agent previous", @"agent review diff",
       @"agent approve", @"agent reject", @"agent apply patch",
-      @"extensions reload", @"extensions list",
+      @"extensions install", @"extensions reload", @"extensions list",
       @"go to definition", @"find references", @"code actions", @"signature help",
       @"inlay hints", @"semantic tokens", @"format document", @"check for updates"
     ];
@@ -10785,6 +10806,12 @@ void nimculus_platform_set_editor_sidebar_on_right(bool on_right) {
 void nimculus_platform_open_workspace_folder(void) {
   NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
   if (delegate) [delegate openWorkspaceFolder:nil];
+}
+void nimculus_platform_prompt_extension_directory(void) {
+  NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
+  if (delegate && [delegate respondsToSelector:@selector(promptExtensionDirectory:)]) {
+    [delegate promptExtensionDirectory:nil];
+  }
 }
 void nimculus_platform_set_terminal_visible(bool visible) {
   g_terminal_visible = visible ? YES : NO;

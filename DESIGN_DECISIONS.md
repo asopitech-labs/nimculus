@@ -6531,3 +6531,26 @@ activity-bar command opens the panel without moving first responder away from
 the editor. The first implementation is intentionally read-only and
 line-oriented; later debugger work can replace rows with expandable native
 tree items without changing transport ownership or command routing.
+
+## M17-095: Install extensions through an explicit macOS sheet
+
+Zed's extension store and host keep installation, manifest discovery, and WASM
+execution as separate boundaries. Nimculus now exposes an explicit
+`Install Extension…` action in the Extensions menu and Command Palette. The
+AppKit sheet returns a local directory to Nim, where `extension_service.nim`
+validates the manifest, safe directory id, WASM container/root boundary, and
+symlink-free tree before copying into `~/.nimculus/extensions/<id>` through a
+temporary directory and same-volume rename. Existing installations are not
+silently overwritten. Since no Wasmtime-compatible runtime is bundled yet,
+the UI reports validation/registration only and never presents header
+validation as WASM execution.
+
+## M19-096: Resolve Apple's DAP adapter without an environment-only gate
+
+Apple's `lldb-dap` requires `pathFormat` during `initialize`; a direct
+protocol probe on the available Xcode adapter rejected the old request and
+accepted the corrected one. Nimculus now sends `pathFormat: "path"` and
+resolves the adapter in this order: `NIMCULUS_DAP_COMMAND`, the standard Xcode
+bundle locations, then `xcrun --find lldb-dap` so `DEVELOPER_DIR` remains
+respected. The existing command/argument/program environment variables remain
+available for non-LLDB adapters and project-specific launch configurations.
