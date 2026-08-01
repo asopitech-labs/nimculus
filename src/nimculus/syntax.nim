@@ -190,3 +190,88 @@ proc nextSyntaxNode*(tree: SyntaxTree, byteOffset: uint32): SyntaxNode =
     if node.startByte >= byteOffset and (not found or node.startByte < result.startByte):
       result = node
       found = true
+
+proc sameRange(left, right: SyntaxNode): bool =
+  left.startByte == right.startByte and left.endByte == right.endByte
+
+proc directChildren(tree: SyntaxTree, parent: SyntaxNode): seq[SyntaxNode] =
+  ## Tree-sitter's C bridge intentionally exposes a flat node stream. Recover
+  ## the immediate children from ranges so editor navigation can preserve the
+  ## same hierarchy as Zed's syntax_next_sibling/syntax_prev_sibling without
+  ## adding a second native tree-walking API. The bridge emits preorder DFS,
+  ## so once a child's end is covered all following nodes until that byte are
+  ## descendants and can be skipped in one pass.
+  var coveredEnd = parent.startByte
+  for candidate in tree.nodes:
+    if sameRange(candidate, parent) or candidate.startByte < parent.startByte or
+        candidate.endByte > parent.endByte or candidate.endByte <= candidate.startByte:
+      continue
+    if candidate.startByte >= coveredEnd:
+      result.add(candidate)
+      coveredEnd = candidate.endByte
+
+proc syntaxSibling*(tree: SyntaxTree, startByte, endByte: uint32,
+                    next: bool): tuple[startByte, endByte: uint32] =
+  ## Find a sibling range using the same hierarchical fallback as Zed:
+  ## search the current parent first, then walk up until a sibling exists.
+  result = (startByte: startByte, endByte: endByte)
+  if tree == nil or tree.nodes.len == 0: return
+
+  var current: SyntaxNode
+  var foundCurrent = false
+  var currentSize = high(uint32)
+  for node in tree.nodes:
+    if node.startByte <= startByte and node.endByte >= endByte and
+        node.endByte >= node.startByte:
+      let size = node.endByte - node.startByte
+      if not foundCurrent or size < currentSize:
+        current = node
+        currentSize = size
+        foundCurrent = true
+  if not foundCurrent: return
+
+  while true:
+    var parent: SyntaxNode
+    var foundParent = false
+    var parentSize = high(uint32)
+    for node in tree.nodes:
+      if sameRange(node, current) or node.startByte > current.startByte or
+          node.endByte < current.endByte:
+        continue
+      let size = node.endByte - node.startByte
+      if size > current.endByte - current.startByte and
+          (not foundParent or size < parentSize):
+        parent = node
+        parentSize = size
+        foundParent = true
+    if not foundParent: return
+
+    let children = tree.directChildren(parent)
+    var currentChild: SyntaxNode
+    var foundChild = false
+    var childSize = high(uint32)
+    for child in children:
+      if child.startByte <= current.startByte and child.endByte >= current.endByte:
+        let size = child.endByte - child.startByte
+        if not foundChild or size < childSize:
+          currentChild = child
+          childSize = size
+          foundChild = true
+    if foundChild:
+      var candidate: SyntaxNode
+      var foundCandidate = false
+      for child in children:
+        if next:
+          if child.startByte < currentChild.endByte: continue
+          if not foundCandidate or child.startByte < candidate.startByte:
+            candidate = child
+            foundCandidate = true
+        else:
+          if child.endByte > currentChild.startByte: continue
+          if not foundCandidate or child.endByte > candidate.endByte:
+            candidate = child
+            foundCandidate = true
+      if foundCandidate:
+        return (startByte: candidate.startByte, endByte: candidate.endByte)
+
+    current = parent

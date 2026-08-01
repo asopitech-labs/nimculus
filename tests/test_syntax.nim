@@ -38,6 +38,11 @@ suite "M7 syntax services":
     let smaller = tree.smallerSelection(larger.startByte, larger.endByte, 14)
     check smaller.startByte >= larger.startByte
     check smaller.endByte <= larger.endByte
+    let nextSibling = tree.syntaxSibling(14, 15, true)
+    let previousSibling = tree.syntaxSibling(nextSibling.startByte,
+      nextSibling.endByte, false)
+    check nextSibling.endByte > nextSibling.startByte
+    check previousSibling.endByte > previousSibling.startByte
     check tree.nextSyntaxNode(0).endByte > 0
     let items = tree.outline
     check items.len > 0

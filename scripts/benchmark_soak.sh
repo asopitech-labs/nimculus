@@ -11,6 +11,13 @@ APP_DIR="$TMP_ROOT/Nimculus.app"
 APP_BINARY="$APP_DIR/Contents/MacOS/Nimculus"
 RUN_BINARY="$APP_BINARY"
 OUTPUT_PATH="$TMP_ROOT/soak.log"
+NIM_PATH_ARGS=()
+if [[ -n "${NIMCULUS_NIM_PATHS:-}" ]]; then
+  IFS=':' read -r -a nim_paths <<< "$NIMCULUS_NIM_PATHS"
+  for nim_path in "${nim_paths[@]}"; do
+    [[ -n "$nim_path" ]] && NIM_PATH_ARGS+=("--path:$nim_path")
+  done
+fi
 
 cleanup() {
   rm -rf "$TMP_ROOT"
@@ -46,8 +53,13 @@ fi
 mkdir -p "$HOME_DIR/Library/Application Support"
 if [[ -z "${NIMCULUS_BINARY:-}" ]]; then
   mkdir -p "$(dirname "$APP_BINARY")"
-  nim c --mm:arc -d:release --nimcache:"$CACHE_DIR" \
-    --path:"$ROOT_DIR/src" -o:"$APP_BINARY" "$ROOT_DIR/src/nimculus/main.nim"
+  if (( ${#NIM_PATH_ARGS[@]} > 0 )); then
+    nim c "${NIM_PATH_ARGS[@]}" --mm:arc -d:release --nimcache:"$CACHE_DIR" \
+      --path:"$ROOT_DIR/src" -o:"$APP_BINARY" "$ROOT_DIR/src/nimculus/main.nim"
+  else
+    nim c --mm:arc -d:release --nimcache:"$CACHE_DIR" \
+      --path:"$ROOT_DIR/src" -o:"$APP_BINARY" "$ROOT_DIR/src/nimculus/main.nim"
+  fi
   cp "$ROOT_DIR/packaging/macos/Info.plist" "$APP_DIR/Contents/Info.plist"
 else
   BINARY="$NIMCULUS_BINARY"

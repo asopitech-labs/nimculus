@@ -184,6 +184,7 @@ when defined(macosx):
   proc syncNativeSymbolTree()
   proc updateSyntaxOutline(document: ptr FileDocument)
   proc expandNativeSyntaxSelection(expand: bool)
+  proc moveNativeSyntaxSibling(next: bool)
   proc handleCompletionShortcut(event: ptr NimculusInputEvent): bool
 
 when defined(windows):
@@ -480,6 +481,14 @@ proc setupShortcutRegistry() =
     shortcut: Shortcut(keyCode: 123, modifiers: {commandModifier, controlModifier}),
     action: nativeShortcutAction("shrinkSelection")))
   shortcutRegistry.register(Command(
+    name: "selectPreviousSyntaxNode",
+    shortcut: Shortcut(keyCode: 126, modifiers: {commandModifier, controlModifier}),
+    action: nativeShortcutAction("selectPreviousSyntaxNode")))
+  shortcutRegistry.register(Command(
+    name: "selectNextSyntaxNode",
+    shortcut: Shortcut(keyCode: 125, modifiers: {commandModifier, controlModifier}),
+    action: nativeShortcutAction("selectNextSyntaxNode")))
+  shortcutRegistry.register(Command(
     name: "toggleGit",
     shortcut: Shortcut(keyCode: 5, modifiers: {controlModifier, shiftModifier}),
     action: nativeShortcutAction("commandPalette:toggle git")))
@@ -526,7 +535,8 @@ proc setupShortcutRegistry() =
       "selectWordLeft", "selectWordRight", "deleteBackward", "deleteForward",
       "deleteWordBackward", "deleteWordForward", "deleteToBeginningOfLine",
       "deleteToEndOfLine", "cancel", "toggleSoftWrap", "selectNext",
-      "selectAllMatches", "addSelectionAbove", "addSelectionBelow"]:
+      "selectAllMatches", "addSelectionAbove", "addSelectionBelow",
+      "selectPreviousSyntaxNode", "selectNextSyntaxNode"]:
     var action: proc() {.closure.}
     if name == "openSettings":
       when defined(macosx):
@@ -1424,6 +1434,30 @@ when defined(macosx):
     persistSession()
     editorViewState.statusMessage = if expand:
       "Expanded syntax selection" else: "Shrank syntax selection"
+
+  proc moveNativeSyntaxSibling(next: bool) =
+    let document = activeDocument()
+    if document == nil or syntaxState == nil or syntaxState.tree == nil:
+      editorViewState.statusMessage = "Syntax navigation unavailable"
+      return
+    let selection = activeEditorSelection()
+    let target = syntaxState.tree.syntaxSibling(uint32(selection.startByte),
+      uint32(selection.endByte), next)
+    if target.startByte == uint32(selection.startByte) and
+        target.endByte == uint32(selection.endByte):
+      editorViewState.statusMessage = if next:
+        "No next syntax sibling" else: "No previous syntax sibling"
+      return
+    let source = document[].buffer.toString()
+    let start = floorGraphemeBoundary(source, int(target.startByte))
+    let finish = floorGraphemeBoundary(source, int(target.endByte))
+    moveActiveEditorCursor(start)
+    moveActiveEditorCursor(finish, true)
+    syncEditorCursor()
+    refreshEditorSyntax()
+    persistSession()
+    editorViewState.statusMessage = if next:
+      "Selected next syntax sibling" else: "Selected previous syntax sibling"
 
   proc lspSelectionRange(document: ptr FileDocument): LspRange =
     if document == nil: return
@@ -4105,6 +4139,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     when defined(macosx): expandNativeSyntaxSelection(true)
   elif name == "shrinkSelection":
     when defined(macosx): expandNativeSyntaxSelection(false)
+  elif name == "selectPreviousSyntaxNode":
+    when defined(macosx): moveNativeSyntaxSibling(false)
+  elif name == "selectNextSyntaxNode":
+    when defined(macosx): moveNativeSyntaxSibling(true)
   elif name == "windowResized":
     setupDemoUi()
     when defined(macosx): resizeNativeTerminals()
@@ -4735,6 +4773,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command in ["toggle outline", "toggle symbols"]: "__toggle_outline__"
       elif command in ["expand selection", "expand syntax selection"]: "__expand_selection__"
       elif command in ["shrink selection", "shrink syntax selection"]: "__shrink_selection__"
+      elif command in ["select previous syntax node", "select previous sibling"]:
+        "__select_previous_syntax__"
+      elif command in ["select next syntax node", "select next sibling"]:
+        "__select_next_syntax__"
       elif command in ["toggle git", "toggle source control"]: "__toggle_git__"
       elif command == "open settings": "openSettings"
       elif command in ["toggle soft wrap", "toggle word wrap"]: "toggleSoftWrap"
@@ -5037,6 +5079,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx): expandNativeSyntaxSelection(true)
     of "__shrink_selection__":
       when defined(macosx): expandNativeSyntaxSelection(false)
+    of "__select_previous_syntax__":
+      when defined(macosx): moveNativeSyntaxSibling(false)
+    of "__select_next_syntax__":
+      when defined(macosx): moveNativeSyntaxSibling(true)
     of "__toggle_git__":
       when defined(macosx):
         let wasActive = editorWorkspaceUi.leftDock.isOpen and

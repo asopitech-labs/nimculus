@@ -6336,3 +6336,17 @@ keyboard and command palette (`expand selection` / `shrink selection`) without
 adding Cocoa types to the editor core. The operation stops at the parsed
 syntax-tree leaf and reports that state instead of silently changing an
 unrelated range.
+
+## UI-081: Reconstruct syntax siblings from Tree-sitter ranges
+
+Zed's `SelectNextSyntaxNode` and `SelectPreviousSyntaxNode` operate on syntax
+siblings, and climb to a parent when the current node has no sibling. The
+Nimculus Tree-sitter bridge intentionally exposes a flat, immutable node stream
+rather than leaking Tree-sitter cursor types into the editor layer.
+
+The syntax service therefore reconstructs immediate children from strict range
+containment, selects the adjacent child, and repeats the search at the parent
+when necessary. `Cmd+Ctrl+Up/Down` and the command palette use this service
+through the focused editor selection boundary. This keeps the macOS interaction
+contract aligned with Zed while keeping the platform-independent syntax module
+free of Cocoa and editor-session state.

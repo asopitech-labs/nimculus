@@ -487,7 +487,7 @@ Filesツリーは**[x]** active documentの祖先を自動展開し、canonical 
 
 LSP document symbolのOutlineは、階層depthを保持した単一のフラット投影を使用する。可視行・native sidebar選択・Enter／Spaceによるカーソル移動は同じUTF-16 rangeへ対応し、子シンボルを重複表示しない。Tree-sitterが解析済みの場合はLSP応答前でもローカル宣言を表示する。
 
-ZedのmacOS標準キーマップに合わせ、`Cmd+Ctrl+Right/Left`をTree-sitter構文ノードのExpand/Shrink Selectionへ接続した。選択範囲・カーソル・表示更新は通常のeditor view境界を通り、範囲がなくなるとステータスで明示する。
+ZedのmacOS標準キーマップに合わせ、`Cmd+Ctrl+Right/Left`をTree-sitter構文ノードのExpand/Shrink Selectionへ、`Cmd+Ctrl+Up/Down`をSelect Previous/Next Syntax Nodeへ接続した。後者は現在ノードの直接兄弟を選択し、同じ階層に候補がない場合は親階層へ上がって次の兄弟を探す。選択範囲・カーソル・表示更新は通常のeditor view境界を通り、範囲がなくなるとステータスで明示する。キーボードとコマンドパレットは同じcommand dispatchを使用する。
 
 2026-07-31更新：LSPが未起動・未応答の文書でも、Tree-sitterが抽出したNimなどの宣言をOutlineへ即時表示するローカルフォールバックを接続した。LSP document symbolsが有効な場合は従来どおりLSP投影を優先する。
 

@@ -80,6 +80,12 @@ suite "M2 UI foundation":
     let shrink = shortcutFromKeyBinding("cmd+ctrl+left")
     check shrink.keyCode == 123
     check shrink.modifiers == {commandModifier, controlModifier}
+    let previous = shortcutFromKeyBinding("cmd+ctrl+up")
+    check previous.keyCode == 126
+    check previous.modifiers == {commandModifier, controlModifier}
+    let next = shortcutFromKeyBinding("cmd+ctrl+down")
+    check next.keyCode == 125
+    check next.modifiers == {commandModifier, controlModifier}
 
   test "Zed-style terminal toggle retains the Control-grave binding":
     let terminal = shortcutFromKeyBinding("ctrl+backtick")
