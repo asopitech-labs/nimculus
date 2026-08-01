@@ -230,6 +230,17 @@ suite "M6 workspace":
       it.relativePath == "src/secondary.nim")
     check workspace.searchWorkspace("discard").anyIt(
       it.path == canonicalWorkspaceRoot(second) / "src/secondary.nim")
+    discard workspace.createDirectory("assets")
+    writeFile(root / "assets" / "icon.txt", "asset")
+    let copiedDirectory = workspace.copyEntryBetweenRoots(root, "assets", second,
+      "copied-assets")
+    check copiedDirectory.endsWith("copied-assets")
+    check readFile(second / "copied-assets" / "icon.txt") == "asset"
+    let copiedFile = workspace.copyEntryAt(second, "src/secondary.nim", "src/copied.nim")
+    check copiedFile.endsWith("src/copied.nim")
+    check readFile(second / "src" / "copied.nim") == "discard"
+    expect IOError:
+      discard workspace.copyEntryAt(second, "src/secondary.nim", "src/copied.nim")
     check workspace.renameEntryAt(second, "src/secondary.nim", "src/renamed.nim").endsWith("src/renamed.nim")
     workspace.deleteEntryAt(second, "src/renamed.nim")
     check not fileExists(second / "src" / "renamed.nim")
@@ -238,6 +249,9 @@ suite "M6 workspace":
     discard workspace.createDirectory("empty")
     workspace.deleteEntry("empty")
     workspace.deleteEntry("src/app.nim")
+    workspace.deleteEntryAt(second, "src/copied.nim")
+    workspace.deleteEntryAt(second, "copied-assets")
+    workspace.deleteEntry("assets")
     expect ValueError:
       workspace.deleteEntry("")
     expect ValueError:

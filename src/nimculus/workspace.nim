@@ -261,6 +261,53 @@ proc renameEntryAt*(workspace: Workspace, root, relative, newRelative: string): 
 proc renameEntry*(workspace: Workspace, relative, newRelative: string): string =
   workspace.renameEntryAt(workspace.root, relative, newRelative)
 
+proc copyDirectoryContents(source, destination: string) =
+  ## Copy a Project Panel entry without crossing symlink boundaries.  The
+  ## native Files panel needs a real filesystem operation for Cmd+D and
+  ## Cmd+V; keeping it here gives every platform the same workspace-root
+  ## validation and avoids making the UI recursively walk user data.
+  if not dirExists(destination): createDir(destination)
+  for kind, child in walkDir(source, relative = false):
+    let target = destination / child.extractFilename
+    case kind
+    of pcDir:
+      if fileExists(target) or dirExists(target):
+        raise newException(IOError, "destination already exists")
+      copyDirectoryContents(child, target)
+    of pcFile:
+      if fileExists(target) or dirExists(target):
+        raise newException(IOError, "destination already exists")
+      copyFile(child, target)
+    else:
+      raise newException(IOError, "cannot copy symbolic link workspace entry")
+
+proc copyEntryBetweenRoots*(workspace: Workspace, sourceRoot, sourceRelative,
+                            destinationRoot, destinationRelative: string): string =
+  ## Copy one file or directory between registered workspace roots.
+  ## Keeping both paths capability-checked makes multi-root Project Panel
+  ## paste behave like the single-root case without accepting arbitrary paths.
+  let source = workspace.resolveEntryPathAt(sourceRoot, sourceRelative)
+  let destination = workspace.resolveEntryPathAt(destinationRoot, destinationRelative)
+  if not fileExists(source) and not dirExists(source):
+    raise newException(IOError, "path does not exist")
+  if fileExists(destination) or dirExists(destination):
+    raise newException(IOError, "destination already exists")
+  if dirExists(source) and
+      (destination == source or destination.startsWith(source & DirSep)):
+    raise newException(IOError, "cannot copy a directory into itself")
+  if dirExists(source):
+    copyDirectoryContents(source, destination)
+  else:
+    let parent = destination.parentDir
+    if not dirExists(parent): createDir(parent)
+    copyFile(source, destination)
+  destination
+
+proc copyEntryAt*(workspace: Workspace, root, relative, newRelative: string): string =
+  ## Copy one file or directory inside one registered workspace root.
+  ## `newRelative` is the complete destination path, matching renameEntryAt.
+  workspace.copyEntryBetweenRoots(root, relative, root, newRelative)
+
 proc fuzzyScore*(path, query: string): int
 proc compareFuzzyEntries*(a, b: WorkspaceEntry, query: string): int
 

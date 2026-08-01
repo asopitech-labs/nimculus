@@ -637,6 +637,13 @@ var workspacePreviewEntries: seq[WorkspaceEntry]
 var workspaceExpandedDirectories: seq[string]
 var workspacePreviewMode = ""
 var workspaceRevealPath = ""
+when defined(macosx):
+  # Project Panel copy/cut state is intentionally separate from the editor
+  # text clipboard. Zed keeps filesystem entries and document text in
+  # different transfer paths so Cmd+V in Files never inserts a path into the
+  # active buffer.
+  var workspaceClipboardPath = ""
+  var workspaceClipboardCut = false
 type EditorSidebarMode = enum
   sidebarOutline, sidebarFiles, sidebarGitHistory, sidebarGitStatus, sidebarGitBranches,
   sidebarWorkspaceSearch
@@ -2629,6 +2636,115 @@ proc rebaseOpenDocuments(oldPath, newPath: string) =
       editorGitHistoryPath = replacePrefix(editorGitHistoryPath)
     if editorGitActionDocumentPath.len > 0:
       editorGitActionDocumentPath = replacePrefix(editorGitActionDocumentPath)
+
+when defined(macosx):
+  proc selectedWorkspacePanelEntry(): WorkspaceEntry =
+    if activeWorkspace == nil or editorSidebarMode != sidebarFiles:
+      raise newException(ValueError, "Files panel is unavailable")
+    let index = editorWorkspaceUi.panelSelectedIndex(panelFiles)
+    if index < 0 or index >= workspacePreviewEntries.len:
+      raise newException(ValueError, "No workspace entry is selected")
+    workspacePreviewEntries[index]
+
+  proc workspaceDestinationForSelection(entry: WorkspaceEntry): tuple[root, relative: string] =
+    let base = if entry.kind == WorkspaceFileKind.directory: entry.path else: entry.path.parentDir
+    activeWorkspace.splitWorkspacePath(base)
+
+  proc uniqueWorkspaceCopyPath(path: string): string =
+    let parts = splitFile(path)
+    var suffix = " copy"
+    var candidate = parts.dir / (parts.name & suffix & parts.ext)
+    var index = 2
+    while fileExists(candidate) or dirExists(candidate):
+      candidate = parts.dir / (parts.name & suffix & " " & $index & parts.ext)
+      inc index
+    candidate
+
+  proc expandWorkspaceDirectoryTree(startPath: string) =
+    if activeWorkspace == nil: return
+    var pending = @[startPath]
+    while pending.len > 0:
+      let directory = pending.pop()
+      let location = activeWorkspace.splitWorkspacePath(directory)
+      if directory notin workspaceExpandedDirectories:
+        workspaceExpandedDirectories.add(directory)
+      for child in activeWorkspace.listChildrenAt(location.root, location.relative):
+        if child.kind == WorkspaceFileKind.directory:
+          pending.add(child.path)
+
+  proc duplicateSelectedWorkspaceEntry() =
+    try:
+      let entry = selectedWorkspacePanelEntry()
+      if entry.relativePath.len == 0:
+        raise newException(ValueError, "Workspace root cannot be duplicated")
+      let sourceLocation = activeWorkspace.splitWorkspacePath(entry.path)
+      let destinationPath = uniqueWorkspaceCopyPath(entry.path)
+      let destinationLocation = activeWorkspace.splitWorkspacePath(destinationPath)
+      discard activeWorkspace.copyEntryBetweenRoots(sourceLocation.root,
+        sourceLocation.relative, destinationLocation.root, destinationLocation.relative)
+      workspaceRevealPath = destinationPath
+      refreshWorkspaceAfterMutation("Duplicated " & entry.path.extractFilename)
+    except CatchableError as error:
+      editorViewState.statusMessage = "Duplicate failed: " & error.msg
+
+  proc pasteWorkspaceEntry() =
+    if workspaceClipboardPath.len == 0:
+      editorViewState.statusMessage = "No workspace entry is on the clipboard"
+      return
+    try:
+      let selected = selectedWorkspacePanelEntry()
+      let sourceLocation = activeWorkspace.splitWorkspacePath(workspaceClipboardPath)
+      if sourceLocation.relative.len == 0:
+        raise newException(ValueError, "Workspace root cannot be pasted")
+      let destinationBase = workspaceDestinationForSelection(selected)
+      let sourceName = workspaceClipboardPath.extractFilename
+      let destinationRelative = if destinationBase.relative.len == 0: sourceName
+        else: destinationBase.relative / sourceName
+      if workspaceClipboardCut and sourceLocation.root == destinationBase.root:
+        let oldPath = activeWorkspace.entryPathAt(sourceLocation.root, sourceLocation.relative)
+        let newPath = activeWorkspace.renameEntryAt(sourceLocation.root,
+          sourceLocation.relative, destinationRelative)
+        rebaseOpenDocuments(oldPath, newPath)
+        workspaceRevealPath = newPath
+      else:
+        let newPath = activeWorkspace.copyEntryBetweenRoots(sourceLocation.root,
+          sourceLocation.relative, destinationBase.root, destinationRelative)
+        if workspaceClipboardCut:
+          activeWorkspace.deleteEntryAt(sourceLocation.root, sourceLocation.relative)
+        workspaceRevealPath = newPath
+      let action = if workspaceClipboardCut: "Moved " else: "Copied "
+      editorViewState.statusMessage = action & sourceName
+      workspaceClipboardPath = ""
+      workspaceClipboardCut = false
+      refreshWorkspacePreview()
+      syncRecentFiles()
+      syncEditorCursor()
+      refreshEditorSyntax()
+      persistSession()
+    except CatchableError as error:
+      editorViewState.statusMessage = "Paste failed: " & error.msg
+
+  proc copyOrCutSelectedWorkspaceEntry(cut: bool) =
+    try:
+      let entry = selectedWorkspacePanelEntry()
+      if entry.relativePath.len == 0:
+        raise newException(ValueError, "Workspace root cannot be transferred")
+      workspaceClipboardPath = entry.path
+      workspaceClipboardCut = cut
+      editorViewState.statusMessage = (if cut: "Cut " else: "Copied ") &
+        entry.path.extractFilename
+    except CatchableError as error:
+      editorViewState.statusMessage = error.msg
+
+  proc deleteSelectedWorkspaceEntry(permanent: bool) =
+    try:
+      let entry = selectedWorkspacePanelEntry()
+      if entry.relativePath.len == 0:
+        raise newException(ValueError, "Workspace root cannot be deleted")
+      let command = if permanent: "workspaceDelete:" else: "workspaceTrash:"
+      receiveNativeCommand((command & entry.path).cstring)
+    except CatchableError as error:
+      editorViewState.statusMessage = error.msg
 
 proc revealActiveDocumentInWorkspace() =
   ## Expand only the ancestors of the active document. This follows the
@@ -5661,6 +5777,32 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         editorViewState.statusMessage = "Git status item is unavailable"
       else:
         receiveNativeCommand(("sidebarStageToggle:" & $index).cstring)
+  elif name in ["sidebarDuplicateSelected", "sidebarCopySelected", "sidebarCutSelected",
+                "sidebarPasteSelected", "sidebarTrashSelectedNoPrompt",
+                "sidebarDeleteSelected", "sidebarRevealSelected",
+                "sidebarOpenWithSystem", "sidebarSearchInSelected"]:
+    when defined(macosx):
+      if editorSidebarMode != sidebarFiles or activeWorkspace == nil:
+        return
+      try:
+        let entry = selectedWorkspacePanelEntry()
+        case name
+        of "sidebarDuplicateSelected": duplicateSelectedWorkspaceEntry()
+        of "sidebarCopySelected": copyOrCutSelectedWorkspaceEntry(false)
+        of "sidebarCutSelected": copyOrCutSelectedWorkspaceEntry(true)
+        of "sidebarPasteSelected": pasteWorkspaceEntry()
+        of "sidebarTrashSelectedNoPrompt": deleteSelectedWorkspaceEntry(false)
+        of "sidebarDeleteSelected": deleteSelectedWorkspaceEntry(true)
+        of "sidebarRevealSelected": platformRevealPath(entry.path.cstring)
+        of "sidebarOpenWithSystem": platformOpenPath(entry.path.cstring)
+        of "sidebarSearchInSelected":
+          if entry.kind != WorkspaceFileKind.directory:
+            editorViewState.statusMessage = "Find in Folder requires a directory"
+          else:
+            platformPromptWorkspaceSearchAtContext(entry.path.cstring, true)
+        else: discard
+      except CatchableError as error:
+        editorViewState.statusMessage = error.msg
   elif name == "sidebarRenameSelected":
     when defined(macosx):
       if editorSidebarMode != sidebarFiles or activeWorkspace == nil:
@@ -5693,6 +5835,21 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       else:
         platformPromptWorkspaceTrashAtContext(entry.path.cstring,
           entry.kind == WorkspaceFileKind.directory)
+  elif name in ["sidebarCollapseAll", "sidebarExpandAll"]:
+    when defined(macosx):
+      if editorSidebarMode != sidebarFiles or activeWorkspace == nil:
+        return
+      try:
+        let entry = selectedWorkspacePanelEntry()
+        if name == "sidebarCollapseAll":
+          collapseAllWorkspaceEntries()
+        else:
+          let start = if entry.kind == WorkspaceFileKind.directory: entry.path else: entry.path.parentDir
+          expandWorkspaceDirectoryTree(start)
+          refreshWorkspacePreview()
+          editorViewState.statusMessage = "Expanded workspace folders"
+      except CatchableError as error:
+        editorViewState.statusMessage = error.msg
   elif name in ["sidebarCollapseSelected", "sidebarExpandSelected"]:
     when defined(macosx):
       if editorSidebarMode != sidebarFiles or activeWorkspace == nil:

@@ -67,6 +67,8 @@ proc platformMoveItemToTrash*(path: cstring): bool {.importc: "nimculus_platform
 proc platformPromptWorkspaceFileAtContext*(path: cstring, isDirectory: bool) {.importc: "nimculus_platform_prompt_workspace_file_at_context", cdecl.}
 proc platformPromptWorkspaceDirectoryAtContext*(path: cstring, isDirectory: bool) {.importc: "nimculus_platform_prompt_workspace_directory_at_context", cdecl.}
 proc platformPromptWorkspaceTrashAtContext*(path: cstring, isDirectory: bool) {.importc: "nimculus_platform_prompt_workspace_trash_at_context", cdecl.}
+proc platformPromptWorkspaceSearchAtContext*(path: cstring, isDirectory: bool) {.importc: "nimculus_platform_prompt_workspace_search_at_context", cdecl.}
+proc platformOpenPath*(path: cstring) {.importc: "nimculus_platform_open_path", cdecl.}
 proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
 type
   InputLatencyStats* {.bycopy.} = object

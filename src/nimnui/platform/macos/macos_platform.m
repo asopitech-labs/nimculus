@@ -3465,12 +3465,26 @@ static void dismissExternalChangePanel(const char *command) {
   const BOOL filesPanelShortcut = g_editor_sidebar_mode == 1;
   const BOOL commandDown = (modifiers & NSEventModifierFlagCommand) != 0;
   const BOOL optionDown = (modifiers & NSEventModifierFlagOption) != 0;
+  const BOOL controlDown = (modifiers & NSEventModifierFlagControl) != 0;
+  const BOOL shiftDown = (modifiers & NSEventModifierFlagShift) != 0;
+  const BOOL commandOnly = commandDown && !optionDown && !controlDown && !shiftDown;
   const BOOL plainDelete = (modifiers & (NSEventModifierFlagCommand |
     NSEventModifierFlagOption | NSEventModifierFlagControl)) == 0;
   const BOOL gitPanelShortcut = g_editor_sidebar_mode >= 2 && g_editor_sidebar_mode <= 4 &&
     (modifiers & NSEventModifierFlagCommand) != 0;
   const char *command = gitPanelShortcut && key == 18 ? "commandPalette:git status" :
     gitPanelShortcut && key == 19 ? "commandPalette:git log" :
+    filesPanelShortcut && key == 36 && controlDown && shiftDown ? "sidebarOpenWithSystem" :
+    filesPanelShortcut && key == 3 && commandDown && optionDown && shiftDown ? "sidebarSearchInSelected" :
+    filesPanelShortcut && key == 15 && commandDown && optionDown && !controlDown && !shiftDown ? "sidebarRevealSelected" :
+    filesPanelShortcut && key == 2 && commandOnly ? "sidebarDuplicateSelected" :
+    filesPanelShortcut && key == 7 && commandOnly ? "sidebarCutSelected" :
+    filesPanelShortcut && key == 8 && commandOnly ? "sidebarCopySelected" :
+    filesPanelShortcut && key == 9 && commandOnly ? "sidebarPasteSelected" :
+    filesPanelShortcut && key == 51 && commandOnly ? "sidebarTrashSelectedNoPrompt" :
+    filesPanelShortcut && key == 117 && commandOnly ? "sidebarDeleteSelected" :
+    filesPanelShortcut && key == 123 && commandOnly ? "sidebarCollapseAll" :
+    filesPanelShortcut && key == 124 && commandOnly ? "sidebarExpandAll" :
     filesPanelShortcut && key == 45 && commandDown && optionDown ? "sidebarNewDirectorySelected" :
     filesPanelShortcut && key == 45 && commandDown ? "sidebarNewFileSelected" :
     filesPanelShortcut && (key == 51 || key == 117) && plainDelete ? "sidebarTrashSelected" :
@@ -8183,6 +8197,60 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
     strcpy(g_validation_command, "unchanged");
     if (delete) [sidebar keyDown:delete];
     BOOL deleteShortcut = strcmp(g_validation_command, "sidebarTrashSelected") == 0;
+    NSEvent *duplicate = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:NSEventModifierFlagCommand timestamp:0.0
+      windowNumber:0 context:nil characters:@"d" charactersIgnoringModifiers:@"d"
+      isARepeat:NO keyCode:2];
+    NSEvent *cut = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:NSEventModifierFlagCommand timestamp:0.0
+      windowNumber:0 context:nil characters:@"x" charactersIgnoringModifiers:@"x"
+      isARepeat:NO keyCode:7];
+    NSEvent *copy = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:NSEventModifierFlagCommand timestamp:0.0
+      windowNumber:0 context:nil characters:@"c" charactersIgnoringModifiers:@"c"
+      isARepeat:NO keyCode:8];
+    NSEvent *paste = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:NSEventModifierFlagCommand timestamp:0.0
+      windowNumber:0 context:nil characters:@"v" charactersIgnoringModifiers:@"v"
+      isARepeat:NO keyCode:9];
+    NSEvent *reveal = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:(NSEventModifierFlagCommand | NSEventModifierFlagOption)
+      timestamp:0.0 windowNumber:0 context:nil characters:@"r"
+      charactersIgnoringModifiers:@"r" isARepeat:NO keyCode:15];
+    NSEvent *openSystem = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:(NSEventModifierFlagControl | NSEventModifierFlagShift)
+      timestamp:0.0 windowNumber:0 context:nil characters:@"\r"
+      charactersIgnoringModifiers:@"\r" isARepeat:NO keyCode:36];
+    NSEvent *searchFolder = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:(NSEventModifierFlagCommand | NSEventModifierFlagOption |
+        NSEventModifierFlagShift) timestamp:0.0 windowNumber:0 context:nil characters:@"f"
+      charactersIgnoringModifiers:@"f" isARepeat:NO keyCode:3];
+    NSEvent *collapseAll = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:NSEventModifierFlagCommand timestamp:0.0
+      windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@""
+      isARepeat:NO keyCode:123];
+    NSEvent *expandAll = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:NSEventModifierFlagCommand timestamp:0.0
+      windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@""
+      isARepeat:NO keyCode:124];
+    strcpy(g_validation_command, "unchanged"); if (duplicate) [sidebar keyDown:duplicate];
+    BOOL duplicateShortcut = strcmp(g_validation_command, "sidebarDuplicateSelected") == 0;
+    strcpy(g_validation_command, "unchanged"); if (cut) [sidebar keyDown:cut];
+    BOOL cutShortcut = strcmp(g_validation_command, "sidebarCutSelected") == 0;
+    strcpy(g_validation_command, "unchanged"); if (copy) [sidebar keyDown:copy];
+    BOOL copyShortcut = strcmp(g_validation_command, "sidebarCopySelected") == 0;
+    strcpy(g_validation_command, "unchanged"); if (paste) [sidebar keyDown:paste];
+    BOOL pasteShortcut = strcmp(g_validation_command, "sidebarPasteSelected") == 0;
+    strcpy(g_validation_command, "unchanged"); if (reveal) [sidebar keyDown:reveal];
+    BOOL revealShortcut = strcmp(g_validation_command, "sidebarRevealSelected") == 0;
+    strcpy(g_validation_command, "unchanged"); if (openSystem) [sidebar keyDown:openSystem];
+    BOOL openSystemShortcut = strcmp(g_validation_command, "sidebarOpenWithSystem") == 0;
+    strcpy(g_validation_command, "unchanged"); if (searchFolder) [sidebar keyDown:searchFolder];
+    BOOL searchFolderShortcut = strcmp(g_validation_command, "sidebarSearchInSelected") == 0;
+    strcpy(g_validation_command, "unchanged"); if (collapseAll) [sidebar keyDown:collapseAll];
+    BOOL collapseAllShortcut = strcmp(g_validation_command, "sidebarCollapseAll") == 0;
+    strcpy(g_validation_command, "unchanged"); if (expandAll) [sidebar keyDown:expandAll];
+    BOOL expandAllShortcut = strcmp(g_validation_command, "sidebarExpandAll") == 0;
     g_editor_sidebar_mode = 3;
     NSEvent *changesTab = [NSEvent keyEventWithType:NSEventTypeKeyDown
       location:NSZeroPoint modifierFlags:NSEventModifierFlagCommand timestamp:0.0
@@ -8202,6 +8270,8 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
       stageToggle && tabFocusesEditor && escapeFocusesEditor && spaceStagesGitChange &&
       spaceOpensSidebarItem && leftCollapsesDirectory && rightExpandsDirectory &&
       renameSelected && newFileShortcut && newDirectoryShortcut && deleteShortcut &&
+      duplicateShortcut && cutShortcut && copyShortcut && pasteShortcut && revealShortcut &&
+      openSystemShortcut && searchFolderShortcut && collapseAllShortcut && expandAllShortcut &&
       changesTabShortcut && historyTabShortcut;
     [sidebar release];
     free(g_editor_sidebar_line_items);
@@ -9601,6 +9671,10 @@ void nimculus_platform_prompt_workspace_directory_at_context(const char *path, b
 void nimculus_platform_prompt_workspace_trash_at_context(const char *path, bool is_directory) {
   promptWorkspaceContextAction(path, is_directory, @selector(deleteWorkspaceContextEntry:));
 }
+void nimculus_platform_prompt_workspace_search_at_context(const char *path, bool is_directory) {
+  if (!is_directory) return;
+  promptWorkspaceContextAction(path, YES, @selector(dispatchWorkspaceSearchInFolder:));
+}
 void nimculus_platform_show_git_status_context(uint32_t item_index,
                                                uint32_t projection) {
   NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
@@ -9677,6 +9751,13 @@ void nimculus_platform_reveal_path(const char *path) {
   NSString *filePath = [NSString stringWithUTF8String:path];
   if (filePath.length > 0) {
     [[NSWorkspace sharedWorkspace] selectFile:filePath inFileViewerRootedAtPath:@""];
+  }
+}
+void nimculus_platform_open_path(const char *path) {
+  if (!path || path[0] == '\0') return;
+  NSString *filePath = [NSString stringWithUTF8String:path];
+  if (filePath.length > 0) {
+    [[NSWorkspace sharedWorkspace] openURL:[NSURL fileURLWithPath:filePath]];
   }
 }
 void nimculus_platform_show_git_commit_sheet(void) {
