@@ -202,6 +202,8 @@ AI エージェントは Codex CLI、Claude Code、OpenCode、任意 CLI を対�
 
 DAP は Nim、Rust、C/C++、Python を初期対象とし、launch、attach、breakpoint、stack、variables、watches、stepping、debug console、remote DAP を実装する。
 
+M17のComponent hostへ新しいWIT capabilityを追加する場合は、Zedの対応するWIT定義とhost実装を先に確認する。現在のmacOS `process.run-command`は`process`権限付きComponentだけへ公開し、公式Wasmtimeのrecord/list/result ABI、直接spawn、extension root cwd、継承環境への上書き、stdout/stderr各1 MiB、10秒timeoutを適用する。networkと未知importは引き続き拒否またはtrap化する。arm64環境で互換Wasmtime Cライブラリがない場合はCLI fallbackを使い、実装・ビルド・link/instantiateテストをライブラリ待ちで止めない。
+
 ## 10. テストと品質基準
 
 ### 10.1 必須テスト

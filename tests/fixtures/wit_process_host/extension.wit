@@ -1,0 +1,24 @@
+package zed:extension;
+
+interface process {
+  type env-vars = list<tuple<string, string>>;
+
+  record command {
+    command: string,
+    args: list<string>,
+    env: env-vars,
+  }
+
+  record output {
+    status: option<s32>,
+    stdout: list<u8>,
+    stderr: list<u8>,
+  }
+
+  run-command: func(command: command) -> result<output, string>;
+}
+
+world extension {
+  import process;
+  export init-extension: func();
+}

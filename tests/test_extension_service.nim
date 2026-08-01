@@ -37,6 +37,12 @@ suite "M17 extension registry":
     check extensionPermissionRequiresPrompt("filesystem-write")
     check manifest.extensionHostCapabilityString == "filesystem-read,filesystem-write"
     check manifest.validateExtensionHostPermissions().len == 0
+    let process = parseExtensionManifest("""
+      {"id":"process.tools","name":"Process Tools","version":"1",
+       "apiVersion":1,"permissions":["process"]}
+    """, "/tmp/process-tools")
+    check process.extensionHostCapabilityString == "filesystem-read,process"
+    check process.validateExtensionHostPermissions().len == 0
     expect ExtensionError:
       discard parseExtensionManifest("""
         {"id":"future.tools","name":"Future Tools","version":"1",
@@ -173,6 +179,52 @@ suite "M17 extension registry":
             {"id":"platform.runtime","name":"Platform Runtime","version":"1",
              "apiVersion":1,"wasmModule":"extension.component.wasm",
              "wasmEntrypoint":"init-extension"}
+          """, root)
+          status = runWasmComponentInProcess(manifest, errorMessage)
+        if oldLibrary.len == 0:
+          delEnv("NIMCULUS_WASMTIME_LIBRARY")
+        else:
+          putEnv("NIMCULUS_WASMTIME_LIBRARY", oldLibrary)
+        if not available:
+          echo "  [SKIP] Wasmtime Component library is unavailable for this architecture"
+        else:
+          check status == 0
+          check errorMessage.len == 0
+        removeDir(root)
+
+    test "links the Zed process WIT import only with process permission":
+      let wasmTools = findExe("wasm-tools")
+      let library = getEnv("NIMCULUS_WASMTIME_LIBRARY", "/usr/local/opt/wasmtime/lib/libwasmtime.dylib")
+      if wasmTools.len == 0 or not fileExists(library):
+        echo "  [SKIP] wasm-tools or the Wasmtime Component library is not installed"
+      else:
+        let root = getTempDir() / "nimculus-component-process-runtime-test"
+        let embedded = root / "extension.embedded.wasm"
+        let component = root / "extension.component.wasm"
+        createDir(root)
+        let fixtureRoot = normalizedPath(parentDir(currentSourcePath) / "fixtures" /
+          "wit_process_host")
+        let generator = startProcess(wasmTools, args = @[
+          "component", "embed", fixtureRoot / "extension.wit",
+          fixtureRoot / "init.wat", "--world", "extension", "-o", embedded
+        ], options = {poUsePath, poStdErrToStdOut})
+        check generator.waitForExit(10_000) == 0
+        generator.close()
+        let linker = startProcess(wasmTools, args = @[
+          "component", "new", embedded, "-o", component
+        ], options = {poUsePath, poStdErrToStdOut})
+        check linker.waitForExit(10_000) == 0
+        linker.close()
+        let oldLibrary = getEnv("NIMCULUS_WASMTIME_LIBRARY", "")
+        putEnv("NIMCULUS_WASMTIME_LIBRARY", library)
+        let available = wasmComponentHostAvailable()
+        var status = 0
+        var errorMessage = ""
+        if available:
+          let manifest = parseExtensionManifest("""
+            {"id":"process.runtime","name":"Process Runtime","version":"1",
+             "apiVersion":1,"wasmModule":"extension.component.wasm",
+             "wasmEntrypoint":"init-extension","permissions":["process"]}
           """, root)
           status = runWasmComponentInProcess(manifest, errorMessage)
         if oldLibrary.len == 0:

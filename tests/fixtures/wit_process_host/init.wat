@@ -1,0 +1,16 @@
+(module
+  (type (func (param i32 i32 i32 i32 i32 i32 i32)))
+  (type (func))
+  (type (func (param i32 i32 i32 i32) (result i32)))
+  (import "cm32p2|zed:extension/process" "run-command"
+    (func $run-command (type 0)))
+  (memory (export "cm32p2_memory") 1)
+  (func $init-extension (type 1))
+  (func $init-extension-post (type 1))
+  (func $realloc (type 2) (i32.const 0))
+  (func $initialize (type 1))
+  (export "cm32p2||init-extension" (func $init-extension))
+  (export "cm32p2||init-extension_post" (func $init-extension-post))
+  (export "cm32p2_realloc" (func $realloc))
+  (export "cm32p2_initialize" (func $initialize))
+)

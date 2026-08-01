@@ -51,6 +51,8 @@ macOS DAPはApple `lldb-dap`の実initializeを確認した結果、必須の`pa
 
 全体の検証は個別GUI操作を実装ブロックにせず、`nimble macosE2E`へ統合した。2026-08-02実行では全unit/integration、native contract、benchmark、cold-start、短時間soak、adhoc署名packageのDMG検証、WindowServer GUI workflowが成功した。スクリーンショット取得はこの環境のScreen Recording制約で画像内容を検証できないため、ウィンドウ境界はWindowServerの `942x660` とnative viewport contractで検証し、画像成功とは扱わない。
 
+2026-08-02のM17追補では、Zedの`since_v0_8_0/process.wit`と`CapabilityGranter::grant_exec`を照合し、Component hostへ`process.run-command`を追加した。`process`権限がないComponentにはimportを公開せず、権限付きの場合だけ直接`posix_spawnp`を使う。シェル、リダイレクト、共有process groupは使用せず、extension rootをcwdとし、manifest由来の環境変数を継承環境へ上書きする。出力はstdout/stderrそれぞれ1 MiB、実行は10秒で打ち切り、Componentのresultへ終了コードまたはsignal終了を返す。Apple Siliconのローカル環境ではx86_64 Wasmtime Cライブラリしか利用できないため実コールはskipだが、x86_64 Wasmtimeでplatform/process WIT importのlink・instantiate統合テストを通過し、arm64向けの通常ビルドとclang `-Wall -Wextra -Werror`も通過した。
+
 ### 2026-07-31 更新：統合E2EとWelcome surface
 
 Apple Silicon macOSで次の一括コマンドを実行し、`macos_e2e_complete`まで成功した。
@@ -677,6 +679,8 @@ WSL リモート基盤を一般化し、SSH 接続、agent 配置、鍵認証、
 **macOS実装状況：** `extension.json`の発見・API version 1検証、language definition、Tree-sitter grammar、LSP configuration、theme、icon theme、snippets、tasks、commandsのメタデータ登録を実装済み。macOSのExtensionsメニュー／Command Paletteからローカル拡張フォルダを選択し、manifest・WASMヘッダー・安全な拡張ID・symlinkを検証したうえで`~/.nimculus/extensions/<id>`へ原子的に導入できる。公式Wasmtime CLIを直接argvで起動し、extension rootだけをpreopenするWASM実行境界、runtime status、Run WASM Extension導線、Task出力・キャンセルを実装済み。Wasmtime C APIを動的解決するComponent Model/WASI Preview 2のbounded host境界も追加し、同一アーキテクチャのライブラリがある場合に限り、API/id/host capability環境、fuel・resource limit、read-only preopen、明示export呼び出しを適用する。Zedと同じ`zed:extension/platform.current-platform`を最初の実WIT host importとしてリンクし、Apple Siliconでは`mac`／`aarch64`を返す。未実装のZed importは`define_unknown_imports_as_traps`で暗黙許可せずtrap化する。Componentは専用worker、idle polling、epoch interruptionによるキャンセルまで接続し、core moduleはCLIへフォールバックする。権限名allow-list、実行・導入前の非同期Allow/Denyシート、host capability negotiationも実装済み。互換ランタイムがない場合はCLIへフォールバックし、既存拡張の上書きは未実装で明示的な更新操作が必要。次の拡張はZedの全WIT world互換ではなく、必要なhost importをversioned contractとして段階追加する。
 
 **第 2 段階：** WASM extension、external process extension、permission model、versioned API。Zedの`zed:extension/platform.current-platform`を最初の実WIT host importとして実装し、未実装importは暗黙許可せず決定的なtrapへ解決する。
+
+M17の追加host capabilityとして、`process`権限付きComponentへZed互換の`zed:extension/process.run-command`を接続する。record/list/result ABI、直接spawn、extension root cwd、環境変数、stdout/stderr各1 MiB、10秒timeout、終了コード／signal状態を実装済み。networkと未知importは引き続き拒否またはtrap化する。
 
 **禁止事項：** Node.js runtime を組み込まない。VSCode Extension API 互換を目標にしない。信頼できないネイティブ共有ライブラリを本体へ直接ロードしない。
 

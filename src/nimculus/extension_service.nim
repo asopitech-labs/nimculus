@@ -70,6 +70,8 @@ proc extensionHostCapabilities*(manifest: ExtensionManifest): seq[string] =
   result.add("filesystem-read")
   if "filesystem-write" in manifest.permissions:
     result.add("filesystem-write")
+  if "process" in manifest.permissions:
+    result.add("process")
 
 proc extensionHostCapabilityString*(manifest: ExtensionManifest): string =
   extensionHostCapabilities(manifest).join(",")

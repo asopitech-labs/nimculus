@@ -673,6 +673,20 @@ Updating a node style replaces its size constraints instead of merging stale
 values from the previous style; an omitted maximum is normalized to the
 finite internal default.
 
+## M17-003: Add Zed-compatible process WIT capability incrementally
+
+Zed's `since_v0_8_0/process.wit` defines `process.run-command` as a structured
+record/result API, and Zed's `CapabilityGranter::grant_exec` checks the command
+before spawning it. Nimculus exposes this import only when the extension
+manifest grants `process`; filesystem-only Components do not receive the
+process linker instance. The macOS host uses `posix_spawnp` with the extension
+root as cwd, passes argv without a shell, merges manifest environment pairs
+into the inherited environment, and returns bounded stdout/stderr plus an exit
+status or signal state. Each stream is capped at 1 MiB and execution is capped
+at 10 seconds. Unknown imports and `network` remain denied. The ABI is kept in
+the local Wasmtime value definitions because the application dynamically loads
+the optional C library and must still build without Wasmtime headers.
+
 ## M20-003: Measure input latency through the next presented frame
 
 Zed's input-latency tracker records the first input received in a frame

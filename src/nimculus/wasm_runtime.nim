@@ -20,13 +20,13 @@ when defined(macosx):
       {.importc: "nimculus_wasmtime_component_available", cdecl.}
   proc nimculusWasmtimeComponentRun(libraryPath, modulePath, extensionRoot,
       extensionId: cstring; apiVersion: uint32; entrypoint: cstring;
-      allowWrite: cint; capabilities: cstring; errorOut: cstring;
+      allowWrite, allowProcess: cint; capabilities: cstring; errorOut: cstring;
       errorCapacity: csize_t): cint
       {.importc: "nimculus_wasmtime_component_run", cdecl.}
   type NativeWasmComponentJob = pointer
   proc nimculusWasmtimeComponentStart(libraryPath, modulePath, extensionRoot,
       extensionId: cstring; apiVersion: uint32; entrypoint: cstring;
-      allowWrite: cint; capabilities: cstring; errorOut: cstring;
+      allowWrite, allowProcess: cint; capabilities: cstring; errorOut: cstring;
       errorCapacity: csize_t): NativeWasmComponentJob
       {.importc: "nimculus_wasmtime_component_start", cdecl.}
   proc nimculusWasmtimeComponentPoll(job: NativeWasmComponentJob;
@@ -158,6 +158,7 @@ proc startWasmComponentJob*(manifest: ExtensionManifest;
       manifest.id.cstring, uint32(manifest.apiVersion),
       manifest.wasmEntrypoint.cstring,
       (if manifest.hasPermission("filesystem-write"): 1 else: 0),
+      (if manifest.hasPermission("process"): 1 else: 0),
       manifest.extensionHostCapabilityString.cstring,
       errorBuffer.cstring, csize_t(errorBuffer.len))
     errorMessage = nativeErrorText(errorBuffer)
@@ -213,6 +214,7 @@ proc runWasmComponentInProcess*(manifest: ExtensionManifest;
       uint32(manifest.apiVersion),
       manifest.wasmEntrypoint.cstring,
       (if manifest.hasPermission("filesystem-write"): 1 else: 0),
+      (if manifest.hasPermission("process"): 1 else: 0),
       manifest.extensionHostCapabilityString.cstring,
       errorBuffer.cstring,
       csize_t(errorBuffer.len))
