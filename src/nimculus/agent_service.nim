@@ -8,6 +8,7 @@
 
 import std/os
 import std/osproc
+import std/algorithm
 import std/sequtils
 import std/streams
 import std/strutils
@@ -103,12 +104,15 @@ proc newAgentSession*(id: int, command: string, args: openArray[string] = [],
   if command.strip.len == 0: raise agentError("agent command is empty")
   if workingDirectory.len == 0 or not dirExists(workingDirectory):
     raise agentError("agent working directory does not exist")
+  if worktreePath.len > 0 and not dirExists(worktreePath):
+    raise agentError("agent worktree does not exist")
+  let processDirectory = if worktreePath.len > 0: worktreePath else: workingDirectory
   try:
-    let process = startProcess(command, workingDirectory, args,
+    let process = startProcess(command, processDirectory, args,
       options = processOptions())
     result = AgentSession(id: id, command: command, args: @args,
-      workingDirectory: workingDirectory,
-      worktreePath: if worktreePath.len > 0: worktreePath else: workingDirectory,
+      workingDirectory: processDirectory,
+      worktreePath: processDirectory,
       state: agentRunning, exitCode: -1, process: process,
       input: process.inputStream, output: process.peekableOutputStream())
     result.baselinePaths = gitStatusPaths(result.worktreePath)
@@ -253,6 +257,19 @@ proc activate*(manager: AgentManager, id: int): bool =
   if manager == nil or id notin manager.sessions: return false
   manager.activeId = id
   true
+
+proc sessionIds*(manager: AgentManager): seq[int] =
+  if manager == nil: return
+  for id in manager.sessions.keys: result.add(id)
+  result.sort()
+
+proc activateRelative*(manager: AgentManager, delta: int): bool =
+  let ids = manager.sessionIds()
+  if ids.len == 0: return false
+  let current = ids.find(manager.activeId)
+  let start = if current < 0: 0 else: current
+  let index = ((start + delta) mod ids.len + ids.len) mod ids.len
+  manager.activate(ids[index])
 
 proc stop*(manager: AgentManager, id: int): bool =
   if manager == nil or id notin manager.sessions: return false

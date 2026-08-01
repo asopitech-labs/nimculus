@@ -29,6 +29,9 @@ suite "M18 CLI agent sessions":
     check result.done
     check session.retainedOutput.contains("agent:hello")
     check "main.txt" in session.refreshChanges()
+    let patch = "diff --git a/agent.txt b/agent.txt\nnew file mode 100644\n--- /dev/null\n+++ b/agent.txt\n@@ -0,0 +1 @@\n+applied\n"
+    check session.applyPatch(patch)
+    check readFile(root / "agent.txt") == "applied\n"
     session.stop()
     removeDir(root)
 
@@ -42,8 +45,11 @@ suite "M18 CLI agent sessions":
     check manager.active.id == second.id
     check manager.activate(first.id)
     check manager.active.id == first.id
+    check manager.activateRelative(1)
+    check manager.active.id == second.id
+    check manager.activateRelative(-1)
+    check manager.active.id == first.id
     check manager.stop(second.id)
     manager.stopAll()
     check manager.active == nil
     removeDir(root)
-

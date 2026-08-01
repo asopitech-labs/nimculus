@@ -8,6 +8,7 @@
 ## adapter response.
 
 import std/json
+import std/os
 import std/osproc
 import std/streams
 import std/strutils
@@ -213,6 +214,10 @@ proc launchArguments*(program, cwd: string, args: seq[string] = @[]): JsonNode =
   for arg in args: values.add(newJString(arg))
   result["args"] = values
 
+proc attachArguments*(processId: int, cwd = ""): JsonNode =
+  result = %*{"processId": processId}
+  if cwd.len > 0: result["cwd"] = newJString(cwd)
+
 proc setBreakpointsArguments*(source: string, lines: openArray[int]): JsonNode =
   result = %*{"source": {"path": source}}
   var breakpoints = newJArray()
@@ -224,6 +229,7 @@ proc stackTraceArguments*(threadId: int, levels = 0): JsonNode =
   if levels > 0: result["levels"] = newJInt(levels)
 
 proc scopesArguments*(frameId: int): JsonNode = %*{"frameId": frameId}
+proc threadsArguments*(): JsonNode = %*{}
 proc variablesArguments*(variablesReference: int): JsonNode =
   %*{"variablesReference": variablesReference}
 proc continueArguments*(threadId: int): JsonNode = %*{"threadId": threadId}
@@ -243,6 +249,17 @@ proc startDapSession*(command: string, args: openArray[string] = [],
       output: process.peekableOutputStream(), tracker: initDapRequestTracker())
   except CatchableError as error:
     raise protocolError("could not start DAP adapter: " & error.msg)
+
+proc startDapRemoteSession*(host: string, port: int, workingDir = ""): DapSession =
+  ## Keep the UI/client contract identical for a TCP adapter.  `nc` is only a
+  ## byte-stream bridge; DAP framing, request tracking, and bounded cleanup
+  ## remain owned by this module.  This mirrors Zed's TCP transport without
+  ## adding a second decoder or an unbounded socket reader.
+  if host.strip.len == 0 or port <= 0 or port > 65535:
+    raise protocolError("invalid remote DAP endpoint")
+  let netcat = findExe("nc")
+  if netcat.len == 0: raise protocolError("nc is required for remote DAP")
+  startDapSession(netcat, [host, $port], workingDir)
 
 proc isRunning*(session: DapSession): bool =
   session != nil and session.state == dapRunning and session.process != nil and

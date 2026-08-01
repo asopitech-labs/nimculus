@@ -50,6 +50,8 @@ suite "M19 DAP transport":
     let breakpoints = setBreakpointsArguments("/tmp/main.nim", [3, 8])
     check breakpoints["source"]["path"].getStr == "/tmp/main.nim"
     check breakpoints["breakpoints"].len == 2
+    check attachArguments(42, "/tmp")["processId"].getInt == 42
+    check threadsArguments().kind == JObject
 
   test "session starts, exchanges a DAP frame, and stops its direct child":
     let server = getTempDir() / "nimculus-dap-test-server.sh"

@@ -2617,11 +2617,13 @@ static void dismissExternalChangePanel(const char *command) {
     @"git branches", @"git file history", @"git blame", @"cancel git",
     @"toggle terminal", @"new terminal", @"close terminal", @"next terminal",
     @"previous terminal", @"toggle task output", @"run task", @"cancel task",
-    @"debug start", @"debug stop", @"debug continue", @"debug pause",
+    @"debug start", @"debug attach", @"debug stop", @"debug continue", @"debug pause",
     @"debug step over", @"debug step into", @"debug step out",
-    @"debug toggle breakpoint", @"debug evaluate",
-    @"agent start", @"agent stop", @"agent send", @"agent review diff",
-    @"agent approve", @"agent reject",
+    @"debug toggle breakpoint", @"debug evaluate", @"debug watch",
+    @"debug clear watches", @"debug variables", @"debug threads",
+    @"agent start", @"agent start worktree", @"agent stop", @"agent send",
+    @"agent next", @"agent previous", @"agent review diff",
+    @"agent approve", @"agent reject", @"agent apply patch",
     @"extensions reload", @"extensions list",
     @"go to definition", @"find references", @"document symbols", @"code actions",
     @"signature help", @"inlay hints", @"semantic tokens", @"format document",
@@ -6344,13 +6346,17 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NSMenu *debugMenu = [[NSMenu alloc] initWithTitle:@"Debug"];
   NSArray<NSArray<NSString *> *> *debugCommands = @[
     @[@"Start Debugging", @"commandPalette:debug start"],
+    @[@"Attach Debugger", @"commandPalette:debug attach"],
     @[@"Stop Debugging", @"commandPalette:debug stop"],
     @[@"Continue", @"commandPalette:debug continue"],
     @[@"Pause", @"commandPalette:debug pause"],
     @[@"Step Over", @"commandPalette:debug step over"],
     @[@"Step Into", @"commandPalette:debug step into"],
     @[@"Step Out", @"commandPalette:debug step out"],
-    @[@"Toggle Breakpoint", @"commandPalette:debug toggle breakpoint"]
+    @[@"Toggle Breakpoint", @"commandPalette:debug toggle breakpoint"],
+    @[@"Variables", @"commandPalette:debug variables"],
+    @[@"Threads", @"commandPalette:debug threads"],
+    @[@"Clear Watches", @"commandPalette:debug clear watches"]
   ];
   for (NSArray<NSString *> *entry in debugCommands) {
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:entry[0]
@@ -6366,9 +6372,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NSArray<NSArray<NSString *> *> *agentCommands = @[
     @[@"Start Agent", @"commandPalette:agent start"],
     @[@"Stop Agent", @"commandPalette:agent stop"],
+    @[@"Next Agent Session", @"commandPalette:agent next"],
+    @[@"Previous Agent Session", @"commandPalette:agent previous"],
     @[@"Review Changes", @"commandPalette:agent review diff"],
     @[@"Approve Changes", @"commandPalette:agent approve"],
-    @[@"Reject Changes", @"commandPalette:agent reject"]
+    @[@"Reject Changes", @"commandPalette:agent reject"],
+    @[@"Apply Patch", @"commandPalette:agent apply patch"]
   ];
   for (NSArray<NSString *> *entry in agentCommands) {
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:entry[0]
@@ -7731,6 +7740,7 @@ bool nimculus_platform_validate_main_menu(void) {
     NSMenuItem *toggleTerminal = menuItemWithTitle(viewItem.submenu, @"Toggle Terminal");
     NSMenuItem *toggleSoftWrap = menuItemWithTitle(viewItem.submenu, @"Toggle Soft Wrap");
     NSMenuItem *debugStart = menuItemWithTitle(debugItem.submenu, @"Start Debugging");
+    NSMenuItem *debugAttach = menuItemWithTitle(debugItem.submenu, @"Attach Debugger");
     NSMenuItem *debugStop = menuItemWithTitle(debugItem.submenu, @"Stop Debugging");
     NSMenuItem *debugContinue = menuItemWithTitle(debugItem.submenu, @"Continue");
     NSMenuItem *debugPause = menuItemWithTitle(debugItem.submenu, @"Pause");
@@ -7738,6 +7748,9 @@ bool nimculus_platform_validate_main_menu(void) {
     NSMenuItem *debugStepInto = menuItemWithTitle(debugItem.submenu, @"Step Into");
     NSMenuItem *debugStepOut = menuItemWithTitle(debugItem.submenu, @"Step Out");
     NSMenuItem *debugBreakpoint = menuItemWithTitle(debugItem.submenu, @"Toggle Breakpoint");
+    NSMenuItem *debugVariables = menuItemWithTitle(debugItem.submenu, @"Variables");
+    NSMenuItem *debugThreads = menuItemWithTitle(debugItem.submenu, @"Threads");
+    NSMenuItem *debugClearWatches = menuItemWithTitle(debugItem.submenu, @"Clear Watches");
     NSMenuItem *agentStart = menuItemWithTitle(agentItem.submenu, @"Start Agent");
     NSMenuItem *agentStop = menuItemWithTitle(agentItem.submenu, @"Stop Agent");
     NSMenuItem *agentReview = menuItemWithTitle(agentItem.submenu, @"Review Changes");
@@ -7774,16 +7787,21 @@ bool nimculus_platform_validate_main_menu(void) {
       toggleGit.action == @selector(dispatchCommand:) &&
       toggleTerminal.action == @selector(dispatchCommand:) &&
       toggleSoftWrap.action == @selector(dispatchCommand:);
-    BOOL debugActions = debugStart && debugStop && debugContinue && debugPause &&
+    BOOL debugActions = debugStart && debugAttach && debugStop && debugContinue && debugPause &&
       debugStepOver && debugStepInto && debugStepOut && debugBreakpoint &&
+      debugVariables && debugThreads && debugClearWatches &&
       debugStart.action == @selector(dispatchCommand:) &&
+      debugAttach.action == @selector(dispatchCommand:) &&
       debugStop.action == @selector(dispatchCommand:) &&
       debugContinue.action == @selector(dispatchCommand:) &&
       debugPause.action == @selector(dispatchCommand:) &&
       debugStepOver.action == @selector(dispatchCommand:) &&
       debugStepInto.action == @selector(dispatchCommand:) &&
       debugStepOut.action == @selector(dispatchCommand:) &&
-      debugBreakpoint.action == @selector(dispatchCommand:);
+      debugBreakpoint.action == @selector(dispatchCommand:) &&
+      debugVariables.action == @selector(dispatchCommand:) &&
+      debugThreads.action == @selector(dispatchCommand:) &&
+      debugClearWatches.action == @selector(dispatchCommand:);
     BOOL agentActions = agentStart && agentStop && agentReview && agentApprove && agentReject &&
       agentStart.action == @selector(dispatchCommand:) &&
       agentStop.action == @selector(dispatchCommand:) &&
@@ -7839,11 +7857,13 @@ bool nimculus_platform_validate_command_palette(void) {
       @"paste workspace entry", @"move workspace entry to trash",
       @"delete workspace entry permanently", @"open selected workspace entry with system",
       @"find in selected folder",
-      @"debug start", @"debug stop", @"debug continue", @"debug pause",
+      @"debug start", @"debug attach", @"debug stop", @"debug continue", @"debug pause",
       @"debug step over", @"debug step into", @"debug step out",
-      @"debug toggle breakpoint",
-      @"agent start", @"agent stop", @"agent send", @"agent review diff",
-      @"agent approve", @"agent reject",
+      @"debug toggle breakpoint", @"debug watch", @"debug clear watches",
+      @"debug variables", @"debug threads",
+      @"agent start", @"agent start worktree", @"agent stop", @"agent send",
+      @"agent next", @"agent previous", @"agent review diff",
+      @"agent approve", @"agent reject", @"agent apply patch",
       @"extensions reload", @"extensions list",
       @"go to definition", @"find references", @"code actions", @"signature help",
       @"inlay hints", @"semantic tokens", @"format document", @"check for updates"

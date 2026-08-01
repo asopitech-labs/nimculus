@@ -740,6 +740,8 @@ when defined(macosx):
   var editorDapThreadId = -1
   var editorDapFrameId = -1
   var editorDapBreakpointLines: seq[int]
+  var editorDapAttachPid = -1
+  var editorDapWatchExpressions: seq[string]
   var editorAgentManager: AgentManager
   var editorAgentOutput = ""
   var editorAgentSessionId = -1
@@ -861,7 +863,7 @@ when defined(macosx):
     editorAgentSessionId = -1
     editorViewState.statusMessage = "Agent stopped"
 
-  proc startNativeAgent() =
+  proc startNativeAgent(worktreePath = "") =
     let command = getEnv("NIMCULUS_AGENT_COMMAND", "").strip
     if command.len == 0:
       editorViewState.statusMessage = "Agent unavailable: set NIMCULUS_AGENT_COMMAND"
@@ -871,7 +873,8 @@ when defined(macosx):
     try:
       let session = editorAgentManager.start(command,
         getEnv("NIMCULUS_AGENT_ARGS", "").splitWhitespace,
-        taskWorkingDirectory(document), getEnv("NIMCULUS_AGENT_WORKTREE", ""))
+        taskWorkingDirectory(document), if worktreePath.len > 0: worktreePath
+          else: getEnv("NIMCULUS_AGENT_WORKTREE", ""))
       editorAgentSessionId = session.id
       editorAgentOutput = "Agent session #" & $session.id & " started\n"
       editorTaskOutputVisible = true
@@ -935,6 +938,19 @@ when defined(macosx):
     discard session.refreshChanges()
     editorViewState.statusMessage = "Agent changes approved"
 
+  proc applyNativeAgentPatch() =
+    let session = activeNativeAgent()
+    let patch = getEnv("NIMCULUS_AGENT_PATCH", "")
+    if session == nil:
+      editorViewState.statusMessage = "Agent: no active session"
+    elif patch.len == 0:
+      editorViewState.statusMessage = "Agent patch unavailable: set NIMCULUS_AGENT_PATCH"
+    elif session.applyPatch(patch):
+      refreshWorkspacePreview()
+      editorViewState.statusMessage = "Agent patch applied"
+    else:
+      editorViewState.statusMessage = "Agent patch rejected by Git"
+
   proc pollNativeAgent() =
     let session = activeNativeAgent()
     if session == nil: return
@@ -949,6 +965,18 @@ when defined(macosx):
       platformSetTaskOutputCancellable(false)
       editorViewState.statusMessage = "Agent " & $session.state &
         " (exit " & $pollResult.exitCode & ")"
+
+  proc switchNativeAgent(delta: int) =
+    if editorAgentManager == nil or not editorAgentManager.activateRelative(delta):
+      editorViewState.statusMessage = "Agent: no other session"
+      return
+    let session = activeNativeAgent()
+    editorAgentSessionId = session.id
+    editorAgentOutput = session.retainedOutput
+    platformSetTaskOutputTitle(("Agent #" & $session.id).cstring,
+      uint32(("Agent #" & $session.id).len))
+    platformSetTaskOutputText(editorAgentOutput.cstring, uint32(editorAgentOutput.len))
+    editorViewState.statusMessage = "Agent session #" & $session.id & " active"
 
   proc reloadNativeExtensions() =
     if editorExtensionRegistry == nil:
@@ -997,26 +1025,41 @@ when defined(macosx):
     editorDapInitialized = false
     editorDapThreadId = -1
     editorDapFrameId = -1
+    editorDapAttachPid = -1
     editorViewState.statusMessage = "Debugger stopped"
 
-  proc startNativeDap() =
+  proc startNativeDap(attach = false) =
     if editorDapSession != nil:
       editorViewState.statusMessage = "Debugger is already running"
       return
     let command = getEnv("NIMCULUS_DAP_COMMAND", "").strip
-    if command.len == 0:
-      editorViewState.statusMessage = "Debugger unavailable: set NIMCULUS_DAP_COMMAND"
+    let remoteHost = getEnv("NIMCULUS_DAP_HOST", "").strip
+    if command.len == 0 and remoteHost.len == 0:
+      editorViewState.statusMessage = "Debugger unavailable: set NIMCULUS_DAP_COMMAND or NIMCULUS_DAP_HOST"
       return
     let document = activeDocument()
     let workingDirectory = taskWorkingDirectory(document)
+    let attachPid = if attach:
+      try: parseInt(getEnv("NIMCULUS_DAP_PID", "-1"))
+      except ValueError: -1
+      else: -1
+    if attach and attachPid <= 0:
+      editorViewState.statusMessage = "Debugger attach requires NIMCULUS_DAP_PID"
+      return
     try:
-      editorDapSession = startDapSession(command,
-        getEnv("NIMCULUS_DAP_ARGS", "").splitWhitespace, workingDirectory)
+      if remoteHost.len > 0:
+        let remotePort = try: parseInt(getEnv("NIMCULUS_DAP_PORT", "0"))
+          except ValueError: 0
+        editorDapSession = startDapRemoteSession(remoteHost, remotePort, workingDirectory)
+      else:
+        editorDapSession = startDapSession(command,
+          getEnv("NIMCULUS_DAP_ARGS", "").splitWhitespace, workingDirectory)
       editorDapOutput = ""
       editorDapBreakpointLines.setLen(0)
       editorDapInitialized = false
       editorDapThreadId = -1
       editorDapFrameId = -1
+      editorDapAttachPid = if attach: attachPid else: -1
       editorTaskOutputVisible = true
       editorTerminalVisible = false
       platformSetTerminalVisible(false)
@@ -1055,26 +1098,56 @@ when defined(macosx):
         if message.command == "initialize" and not editorDapInitialized:
           editorDapInitialized = true
           let document = activeDocument()
-          let program = if getEnv("NIMCULUS_DAP_PROGRAM", "").len > 0:
-            getEnv("NIMCULUS_DAP_PROGRAM", "")
-            elif document != nil and document[].path.len > 0: document[].path
-            else: ""
-          discard sendNativeDapRequest("launch", launchArguments(program,
-            taskWorkingDirectory(document)))
+          if editorDapAttachPid > 0:
+            discard sendNativeDapRequest("attach", attachArguments(editorDapAttachPid,
+              taskWorkingDirectory(document)))
+          else:
+            let program = if getEnv("NIMCULUS_DAP_PROGRAM", "").len > 0:
+              getEnv("NIMCULUS_DAP_PROGRAM", "")
+              elif document != nil and document[].path.len > 0: document[].path
+              else: ""
+            discard sendNativeDapRequest("launch", launchArguments(program,
+              taskWorkingDirectory(document), getEnv("NIMCULUS_DAP_PROGRAM_ARGS", "").splitWhitespace))
         elif message.command == "stackTrace" and message.body != nil:
           if message.body.hasKey("stackFrames") and message.body["stackFrames"].kind == JArray:
             var lines = @["Debugger — Stack Frames"]
+            editorDapFrameId = -1
             for frame in message.body["stackFrames"]:
               if frame.kind != JObject: continue
               let name = if frame.hasKey("name"): frame["name"].getStr else: "<frame>"
               let line = if frame.hasKey("line"): frame["line"].getInt else: 0
+              if editorDapFrameId < 0 and frame.hasKey("id"):
+                editorDapFrameId = frame["id"].getInt
               let source = if frame.hasKey("source") and frame["source"].kind == JObject and
                   frame["source"].hasKey("path"): frame["source"]["path"].getStr else: ""
               lines.add(name & "  " & source & ":" & $line)
             editorDapOutput = lines.join("\n") & "\n\n" & editorDapOutput
             platformSetTaskOutputText(editorDapOutput.cstring, uint32(editorDapOutput.len))
+            if editorDapFrameId > 0:
+              discard sendNativeDapRequest("scopes", scopesArguments(editorDapFrameId))
         elif message.command == "scopes" or message.command == "variables":
-          if message.body != nil: appendNativeDapOutput("  " & $message.body)
+          if message.body != nil:
+            if message.command == "scopes" and message.body.hasKey("scopes") and
+                message.body["scopes"].kind == JArray:
+              appendNativeDapOutput("Scopes:")
+              for scope in message.body["scopes"]:
+                if scope.kind != JObject: continue
+                let name = if scope.hasKey("name"): scope["name"].getStr else: "scope"
+                let reference = if scope.hasKey("variablesReference"):
+                  scope["variablesReference"].getInt else: 0
+                appendNativeDapOutput("  " & name)
+                if reference > 0:
+                  discard sendNativeDapRequest("variables", variablesArguments(reference))
+            elif message.command == "variables" and message.body.hasKey("variables") and
+                message.body["variables"].kind == JArray:
+              appendNativeDapOutput("Variables:")
+              for variable in message.body["variables"]:
+                if variable.kind != JObject: continue
+                let name = if variable.hasKey("name"): variable["name"].getStr else: "?"
+                let value = if variable.hasKey("value"): variable["value"].getStr else: ""
+                appendNativeDapOutput("  " & name & " = " & value)
+            else:
+              appendNativeDapOutput("  " & $message.body)
       of dapEventMessage:
         case message.event
         of "initialized":
@@ -1096,6 +1169,9 @@ when defined(macosx):
             editorViewState.statusMessage = "Debugger stopped: " &
               (if message.body.hasKey("reason"): message.body["reason"].getStr else: "breakpoint")
             discard sendNativeDapRequest("stackTrace", stackTraceArguments(editorDapThreadId))
+            for expression in editorDapWatchExpressions:
+              discard sendNativeDapRequest("evaluate", evaluateArguments(expression,
+                editorDapFrameId))
         of "continued": editorViewState.statusMessage = "Debugger continued"
         of "terminated", "exited": editorViewState.statusMessage = "Debugger terminated"
         else: discard
@@ -5462,6 +5538,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command == "cancel task": "__cancel_task__"
       elif command == "run task": "__run_task__"
       elif command in ["debug start", "start debugging", "debug launch"]: "__debug_start__"
+      elif command in ["debug attach", "attach debugger"]: "__debug_attach__"
       elif command in ["debug stop", "stop debugging"]: "__debug_stop__"
       elif command in ["debug continue", "continue debugging"]: "__debug_continue__"
       elif command in ["debug pause", "pause debugging"]: "__debug_pause__"
@@ -5470,12 +5547,20 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command in ["debug step out", "step out"]: "__debug_step_out__"
       elif command in ["debug toggle breakpoint", "toggle breakpoint"]: "__debug_toggle_breakpoint__"
       elif command.startsWith("debug evaluate "): "__debug_evaluate__"
+      elif command.startsWith("debug watch "): "__debug_watch__"
+      elif command in ["debug clear watches", "clear debug watches"]: "__debug_clear_watches__"
+      elif command in ["debug variables", "show debug variables"]: "__debug_variables__"
+      elif command in ["debug threads", "show debug threads"]: "__debug_threads__"
       elif command == "agent start": "__agent_start__"
+      elif command.startsWith("agent start worktree "): "__agent_start_worktree__"
       elif command == "agent stop": "__agent_stop__"
       elif command.startsWith("agent send "): "__agent_send__"
+      elif command == "agent next": "__agent_next__"
+      elif command == "agent previous": "__agent_previous__"
       elif command in ["agent review diff", "agent diff"]: "__agent_diff__"
       elif command in ["agent approve", "agent approve changes"]: "__agent_approve__"
       elif command in ["agent reject", "agent reject changes"]: "__agent_reject__"
+      elif command in ["agent apply patch", "apply agent patch"]: "__agent_apply_patch__"
       elif command in ["extensions reload", "reload extensions"]: "__extensions_reload__"
       elif command in ["extensions list", "list extensions"]: "__extensions_list__"
       elif command == "cancel git": "__cancel_git__"
@@ -5746,6 +5831,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(windows): cancelWindowsTask()
     of "__debug_start__":
       when defined(macosx): startNativeDap()
+    of "__debug_attach__":
+      when defined(macosx): startNativeDap(true)
     of "__debug_stop__":
       when defined(macosx): stopNativeDap()
     of "__debug_continue__":
@@ -5788,20 +5875,54 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         else:
           discard sendNativeDapRequest("evaluate", evaluateArguments(expression,
             editorDapFrameId))
+    of "__debug_watch__":
+      when defined(macosx):
+        let expression = if rawCommand.len > 12: rawCommand[12 .. ^1].strip else: ""
+        if expression.len == 0:
+          editorViewState.statusMessage = "Debug watch requires an expression"
+        elif expression notin editorDapWatchExpressions:
+          editorDapWatchExpressions.add(expression)
+          editorViewState.statusMessage = "Added debug watch: " & expression
+          if editorDapThreadId > 0:
+            discard sendNativeDapRequest("evaluate", evaluateArguments(expression,
+              editorDapFrameId))
+    of "__debug_clear_watches__":
+      when defined(macosx):
+        editorDapWatchExpressions.setLen(0)
+        editorViewState.statusMessage = "Debug watches cleared"
+    of "__debug_variables__":
+      when defined(macosx):
+        if editorDapFrameId <= 0:
+          editorViewState.statusMessage = "No stopped debugger frame"
+        else:
+          discard sendNativeDapRequest("scopes", scopesArguments(editorDapFrameId))
+    of "__debug_threads__":
+      when defined(macosx): discard sendNativeDapRequest("threads", threadsArguments())
     of "__agent_start__":
       when defined(macosx): startNativeAgent()
+    of "__agent_start_worktree__":
+      when defined(macosx):
+        let path = if rawCommand.len > 21: rawCommand[21 .. ^1].strip else: ""
+        if path.len == 0: editorViewState.statusMessage = "Agent worktree path is empty"
+        else: startNativeAgent(path)
     of "__agent_stop__":
       when defined(macosx): stopNativeAgent()
     of "__agent_send__":
       when defined(macosx):
         let prompt = if rawCommand.len > 11: rawCommand[11 .. ^1].strip else: ""
         sendNativeAgentPrompt(prompt)
+    of "__agent_next__":
+      when defined(macosx): switchNativeAgent(1)
+    of "__agent_previous__":
+      when defined(macosx): switchNativeAgent(-1)
     of "__agent_diff__":
       when defined(macosx): showNativeAgentDiff()
     of "__agent_approve__":
       when defined(macosx): approveNativeAgentChanges()
     of "__agent_reject__":
       when defined(macosx): rejectNativeAgentChanges()
+    of "__agent_apply_patch__":
+      when defined(macosx): applyNativeAgentPatch()
     of "__extensions_reload__":
       when defined(macosx): reloadNativeExtensions()
     of "__extensions_list__":

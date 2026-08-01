@@ -26,8 +26,8 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | M15：Linux対応 | ⚪ 未着手 | WSL基盤の後にWayland優先、X11 fallback、IME、PTY、packagingを実装する |
 | M16：SSHリモート | ⚪ 未着手 | WSLプロトコルを一般化し、SSH agentとremote開発を実装する |
 | M17：拡張システム | 🟡 macOS基盤実装・実機確認対象 | ZedのExtensionHostの責務分離を参考に、manifest読込・global/workspace discovery・language/grammar/LSP/theme/icon/snippet/task/command登録と、external processの明示permission検証を実装。WASM実行、versioned API、インストールUIは未完了 |
-| M18：CLI AIエージェント | 🟡 macOS基盤実装・実機確認対象 | Zedのagent thread/process/worktree/output境界を参考に、直接子プロセス、複数session、prompt、bounded output、Git変更検知、diff review、approve/reject、停止を実装。Codex/Claude/OpenCodeの実CLI接続は環境設定後の受け入れ対象 |
-| M19：DAPデバッガー | 🟡 macOS基盤実装・実機確認対象 | ZedのDAP transport/client/session境界を参考に、Content-Length transport、stale-safe request tracker、initialize/launch、breakpoint、continue/pause/step、stack/outputを実装。attach、remote adapter、完全なvariables/watches UIは未完了 |
+| M18：CLI AIエージェント | 🟡 macOS基盤実装・実機確認対象 | Zedのagent thread/process/worktree/output境界を参考に、直接子プロセス、複数session、prompt、bounded output、Git変更検知、diff review、approve/reject、patch apply、worktree割当、session切替、停止を実装。Codex/Claude/OpenCodeの実CLI接続は環境設定後の受け入れ対象 |
+| M19：DAPデバッガー | 🟡 macOS基盤実装・実機確認対象 | ZedのDAP transport/client/session/debugger UI境界を参考に、Content-Length transport、stale-safe request tracker、initialize/launch/attach、TCP remote adapter、breakpoint、continue/pause/step、stack/scopes/variables、watches、evaluate/outputを実装。各adapterの実言語受け入れは未実施 |
 | M20〜M21：安定化・v1.0 | 🟡 M20自動E2E済み・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録する。2026-08-02の統合E2Eで、全test、native contract、benchmark、cold-start（483.456ms）、2秒soak、adhoc DMG起動、WindowServer GUI workflowを一つのローカル統合E2Eで確認済み。8時間実機実行、remote latency、正式配布は未完了 |
 
 ### 2026-08-02 更新：拡張・CLIエージェント・DAPのmacOS縦切り
@@ -37,6 +37,8 @@ Zedの `crates/extension_host`、`crates/agent`、`crates/dap`、`crates/dap_ada
 * Extensionsメニュー／Command Paletteからmanifestを再読込・一覧表示できる。global `~/.nimculus/extensions` とworkspace `.nimculus/extensions`を探索し、外部processはmanifestの `permissions: ["process"]` がない限り拒否する。Node.js runtimeとnative shared libraryの直接ロードは行わない
 * Agentメニュー／Command Paletteから、`NIMCULUS_AGENT_COMMAND` と引数で任意CLI agentを起動し、Taskパネルへ出力を表示できる。`agent send <prompt>`、差分レビュー、approve/reject、stopを実装し、直接起動した子プロセスだけを終了する
 * Debugメニュー／Command PaletteからDAP adapterを起動し、`NIMCULUS_DAP_COMMAND`、`NIMCULUS_DAP_ARGS`、`NIMCULUS_DAP_PROGRAM`で対象を指定できる。initialize→launch→initialized→configurationDone、breakpoint、continue/pause/step、stack trace/outputを実行し、応答の世代管理とbounded transportを行う
+
+2026-08-02の追補では、DAPのattach（`NIMCULUS_DAP_PID`）、TCP adapter（`NIMCULUS_DAP_HOST` / `NIMCULUS_DAP_PORT`）、停止フレームからのscopes/variables取得、watch式の再評価、threads要求を追加した。CLI agentはworktree指定時にそのworktreeを実プロセスのcwdとして使用し、複数sessionのnext/previous切替と、`NIMCULUS_AGENT_PATCH`によるGit patch applyを追加した。これらはprotocol/service/native command contractで検証する。
 
 全体の検証は個別GUI操作を実装ブロックにせず、`nimble macosE2E`へ統合した。2026-08-02実行では全unit/integration、native contract、benchmark、cold-start、短時間soak、adhoc署名packageのDMG検証、WindowServer GUI workflowが成功した。スクリーンショット取得はこの環境のScreen Recording制約で画像内容を検証できないため、ウィンドウ境界はWindowServerの `942x660` とnative viewport contractで検証し、画像成功とは扱わない。
 

@@ -6497,3 +6497,18 @@ discarded, and adapter termination is bounded. The macOS UI projects protocol
 events into the existing Task output panel and Debug menu. Reverse adapter
 requests are surfaced without blocking the event loop until a matching UI
 capability is implemented.
+
+## M18-092 / M19-093: Keep worktree and remote-debug routing explicit
+
+An agent session assigned to a Git worktree must execute in that worktree; a
+metadata-only assignment would let the CLI mutate the wrong checkout. The
+agent manager therefore uses the selected worktree as the child process cwd,
+keeps it as the diff/review root, and exposes bounded next/previous session
+selection. Patch application is an explicit command and is checked with
+`git apply --check` before mutation.
+
+For DAP, launch and attach are separate protocol requests. A local adapter is
+started directly, while a remote adapter uses the macOS `nc` byte-stream bridge
+when `NIMCULUS_DAP_HOST`/`NIMCULUS_DAP_PORT` are configured. Both routes use the
+same DAP decoder, request tracker, event projection, and bounded shutdown path;
+the UI never creates a second transport implementation.
