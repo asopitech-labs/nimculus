@@ -4101,6 +4101,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     pollWorkspaceSearch()
   elif name == "cancelWorkspaceSearch":
     cancelWorkspaceSearch()
+  elif name == "expandSelection":
+    when defined(macosx): expandNativeSyntaxSelection(true)
+  elif name == "shrinkSelection":
+    when defined(macosx): expandNativeSyntaxSelection(false)
   elif name == "windowResized":
     setupDemoUi()
     when defined(macosx): resizeNativeTerminals()
