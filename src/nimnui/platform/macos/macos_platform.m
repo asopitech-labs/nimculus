@@ -872,6 +872,16 @@ static NSRect editorAnnotationClipRect(const double rect[4]) {
   return NSMakeRect(viewport.x, viewport.y, viewport.width, viewport.height);
 }
 
+// Overlays whose view frame starts at the pane origin need the same clip in
+// local coordinates. Keeping this conversion beside the shared viewport
+// definition prevents a flipped AppKit child from using the full pane and
+// painting into the scrollbar or bottom chrome.
+static NSRect editorTextViewportLocalRect(const double rect[4]) {
+  NimculusPaintRegion viewport = editorTextViewport(rect);
+  return NSMakeRect(viewport.x - rect[0], viewport.y - rect[1],
+    viewport.width, viewport.height);
+}
+
 // Native overlays are children of the Metal view, not sheets.  They must
 // therefore obey the same pane boundary as the editor texture: a split pane
 // or a very small window must never let their frame (or child controls) spill
@@ -2346,6 +2356,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic, retain) NSButton *closeButton;
 @property(nonatomic, retain) NSArray<NSString *> *commands;
 - (void)show;
+- (NSArray<NSString *> *)matchingCommandsForQuery:(NSString *)query;
 - (void)refreshCandidatesForQuery:(NSString *)query;
 @end
 @interface NimculusGitCommitOverlay : NSView
@@ -2589,37 +2600,40 @@ static void dismissExternalChangePanel(const char *command) {
 }
 
 - (void)refreshCandidatesForQuery:(NSString *)query {
-  NSString *needle = query.lowercaseString;
-  NSArray<NSString *> *matches = self.commands;
-  if (needle.length > 0) {
-    matches = [self.commands filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:
-      ^BOOL(NSString *candidate, NSDictionary *bindings) {
-        (void)bindings;
-        NSString *haystack = candidate.lowercaseString;
-        // Keep Zed's forgiving command discovery property: all query
-        // characters may be separated, so `tgtrm` still finds Toggle Terminal.
-        NSUInteger cursor = 0;
-        for (NSUInteger index = 0; index < needle.length; index++) {
-          NSRange range = [haystack rangeOfString:[needle substringWithRange:NSMakeRange(index, 1)]
-            options:0 range:NSMakeRange(cursor, haystack.length - cursor)];
-          if (range.location == NSNotFound) return NO;
-          cursor = NSMaxRange(range);
-        }
-        return YES;
-      }]];
-    matches = [matches sortedArrayUsingComparator:^NSComparisonResult(NSString *left, NSString *right) {
-      NSString *leftLower = left.lowercaseString;
-      NSString *rightLower = right.lowercaseString;
-      NSUInteger leftPrefix = [leftLower hasPrefix:needle] ? 0 :
-        ([leftLower rangeOfString:needle].location != NSNotFound ? 1 : 2);
-      NSUInteger rightPrefix = [rightLower hasPrefix:needle] ? 0 :
-        ([rightLower rangeOfString:needle].location != NSNotFound ? 1 : 2);
-      if (leftPrefix != rightPrefix) return leftPrefix < rightPrefix ? NSOrderedAscending : NSOrderedDescending;
-      return [left localizedCaseInsensitiveCompare:right];
-    }];
-  }
+  NSArray<NSString *> *matches = [self matchingCommandsForQuery:query];
   [self.field removeAllItems];
   [self.field addItemsWithObjectValues:matches];
+}
+
+- (NSArray<NSString *> *)matchingCommandsForQuery:(NSString *)query {
+  NSString *needle = query.lowercaseString;
+  NSArray<NSString *> *matches = self.commands;
+  if (needle.length == 0) return matches;
+  matches = [self.commands filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:
+    ^BOOL(NSString *candidate, NSDictionary *bindings) {
+      (void)bindings;
+      NSString *haystack = candidate.lowercaseString;
+      // Keep Zed's forgiving command discovery property: all query
+      // characters may be separated, so `tgtrm` still finds Toggle Terminal.
+      NSUInteger cursor = 0;
+      for (NSUInteger index = 0; index < needle.length; index++) {
+        NSRange range = [haystack rangeOfString:[needle substringWithRange:NSMakeRange(index, 1)]
+          options:0 range:NSMakeRange(cursor, haystack.length - cursor)];
+        if (range.location == NSNotFound) return NO;
+        cursor = NSMaxRange(range);
+      }
+      return YES;
+    }]];
+  return [matches sortedArrayUsingComparator:^NSComparisonResult(NSString *left, NSString *right) {
+    NSString *leftLower = left.lowercaseString;
+    NSString *rightLower = right.lowercaseString;
+    NSUInteger leftPrefix = [leftLower hasPrefix:needle] ? 0 :
+      ([leftLower rangeOfString:needle].location != NSNotFound ? 1 : 2);
+    NSUInteger rightPrefix = [rightLower hasPrefix:needle] ? 0 :
+      ([rightLower rangeOfString:needle].location != NSNotFound ? 1 : 2);
+    if (leftPrefix != rightPrefix) return leftPrefix < rightPrefix ? NSOrderedAscending : NSOrderedDescending;
+    return [left localizedCaseInsensitiveCompare:right];
+  }];
 }
 
 - (void)controlTextDidChange:(NSNotification *)notification {
@@ -2633,9 +2647,27 @@ static void dismissExternalChangePanel(const char *command) {
 
 - (void)execute:(id)sender {
   (void)sender;
-  NSString *command = [self.field.stringValue
+  NSString *input = [self.field.stringValue
     stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-  if (command.length == 0 || !g_command_callback) return;
+  if (input.length == 0 || !g_command_callback) return;
+  NSString *command = input;
+  NSArray<NSString *> *matches = [self matchingCommandsForQuery:input];
+  NSString *selected = self.field.objectValueOfSelectedItem;
+  // NSComboBox may leave the raw fuzzy query in stringValue even though its
+  // first result is visibly selected.  Zed confirms the selected candidate,
+  // not the search spelling; mirror that boundary while preserving commands
+  // that intentionally carry arguments (run task <command>, rename <name>,
+  // and LSP/Git argument forms).
+  BOOL explicitArgument = [input hasPrefix:@"run task "] ||
+    [input hasPrefix:@"rename "] || [input hasPrefix:@"apply code action "] ||
+    [input hasPrefix:@"git commit "] || [input hasPrefix:@"git checkout "] ||
+    [input hasPrefix:@"git switch "] || [input hasPrefix:@"open symbol "];
+  if (!explicitArgument && selected.length > 0 && [matches containsObject:selected]) {
+    command = selected;
+  } else if (!explicitArgument && matches.count > 0 &&
+      ![self.commands containsObject:input]) {
+    command = matches[0];
+  }
   [self close:nil];
   NSString *dispatch = [NSString stringWithFormat:@"commandPalette:%@", command];
   g_command_callback(dispatch.UTF8String);
@@ -3358,6 +3390,13 @@ static void dismissExternalChangePanel(const char *command) {
   (void)dirtyRect;
   NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) return;
+  // The gutter shares the editor's vertical content bounds. Its view is
+  // intentionally wider than the text viewport, but it must not continue
+  // drawing into the tab/status chrome at the bottom of a short pane.
+  NSRect gutterClip = NSMakeRect(0.0, 6.0, self.bounds.size.width,
+    MAX(0.0, self.bounds.size.height - 32.0));
+  if (NSIsEmptyRect(gutterClip)) return;
+  NSRectClip(gutterClip);
   NSUInteger first = editorFirstVisibleLine(g_editor_scroll_line, lines.count);
   NSDictionary *attributes = @{
     NSFontAttributeName: [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular],
@@ -3366,7 +3405,7 @@ static void dismissExternalChangePanel(const char *command) {
       colorWithAlphaComponent:0.58]
   };
   NSUInteger visibleRows = 0;
-  NSUInteger maxRows = (NSUInteger)MAX(1.0, ceil(self.bounds.size.height / editorLineHeight()));
+  NSUInteger maxRows = (NSUInteger)MAX(1.0, ceil(NSHeight(gutterClip) / editorLineHeight()));
   for (NSUInteger index = first; index < lines.count && visibleRows < maxRows; ) {
     if (editorLineIsFolded(index)) {
       index = editorFirstVisibleLine(index, lines.count);
@@ -3374,7 +3413,7 @@ static void dismissExternalChangePanel(const char *command) {
     }
     NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)index + 1];
     NSSize size = [number sizeWithAttributes:attributes];
-    CGFloat y = visibleRows * editorLineHeight() + 1.0;
+    CGFloat y = NSMinY(gutterClip) + visibleRows * editorLineHeight() + 1.0;
     [number drawAtPoint:NSMakePoint(MAX(2.0, self.bounds.size.width - size.width - 6.0), y)
       withAttributes:attributes];
     if (editorLineHasFoldStart(index)) {
@@ -3403,6 +3442,9 @@ static void dismissExternalChangePanel(const char *command) {
   if (!g_editor_indent_guides) return;
   NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) return;
+  NSRect textClip = editorTextViewportLocalRect(g_editor_rect);
+  if (NSIsEmptyRect(textClip)) return;
+  NSRectClip(textClip);
   CGFloat characterWidth = 7.2;
   NSUInteger indentWidth = MAX((NSUInteger)1, g_editor_indent_width);
   NSUInteger first = editorFirstVisibleLine(g_editor_scroll_line, lines.count);
@@ -3417,7 +3459,8 @@ static void dismissExternalChangePanel(const char *command) {
       index = editorFirstVisibleLine(index, lines.count);
       continue;
     }
-    if (visibleRows * lineHeight >= self.bounds.size.height) break;
+    CGFloat rowY = textClip.origin.y + visibleRows * lineHeight;
+    if (rowY >= NSMaxY(textClip)) break;
     NSString *text = lines[index];
     NSUInteger columns = 0;
     for (NSUInteger character = 0; character < text.length; character++) {
@@ -3429,7 +3472,7 @@ static void dismissExternalChangePanel(const char *command) {
     for (NSUInteger guide = indentWidth; guide <= columns; guide += indentWidth) {
       NSRect line = NSMakeRect(8.0 + characterWidth * guide -
         (g_editor_soft_wrap ? 0.0 : g_editor_scroll_x),
-        visibleRows * lineHeight, 1.0, lineHeight);
+        rowY, 1.0, lineHeight);
       NSRectFill(line);
     }
     visibleRows += g_editor_soft_wrap ? editorSoftWrapRowCount(text) : 1;
@@ -4195,7 +4238,9 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     if (!annotationTexts || index >= annotationTexts.count || !annotations) continue;
     NSString *text = annotationTexts[index];
     if (text.length == 0) continue;
-    NimculusEditorAnnotation annotation = g_editor_annotations[index];
+    NimculusEditorAnnotation *annotationSource = secondary ?
+      g_secondary_editor_annotations : g_editor_annotations;
+    NimculusEditorAnnotation annotation = annotationSource[index];
     if ((NSUInteger)annotation.line < g_editor_scroll_line) continue;
     NSUInteger documentOffset = editorDocumentOffsetForLineCharacter(
       annotation.line, annotation.character);
@@ -7209,6 +7254,7 @@ bool nimculus_platform_validate_editor_text_viewport(void) {
   const double pane[4] = {40.0, 60.0, 300.0, 180.0};
   NimculusPaintRegion viewport = editorTextViewport(pane);
   CGRect coreGraphicsViewport = editorTextViewportCoreGraphicsRect(pane);
+  NSRect localViewport = editorTextViewportLocalRect(pane);
   NimculusPaintRegion outsideRight = {340.0f, 60.0f, 12.0f, 180.0f};
   NimculusPaintRegion outsideBottom = {40.0f, 240.0f, 300.0f, 12.0f};
   NimculusPaintRegion rightVisible = intersectPaintRegions(viewport, outsideRight);
@@ -7221,6 +7267,10 @@ bool nimculus_platform_validate_editor_text_viewport(void) {
     fabs(coreGraphicsViewport.origin.y - 26.0) < 0.01 &&
     fabs(coreGraphicsViewport.size.width - 264.0) < 0.01 &&
     fabs(coreGraphicsViewport.size.height - 148.0) < 0.01 &&
+    fabs(NSMinX(localViewport) - 8.0) < 0.01 &&
+    fabs(NSMinY(localViewport) - 6.0) < 0.01 &&
+    fabs(NSWidth(localViewport) - 264.0) < 0.01 &&
+    fabs(NSHeight(localViewport) - 148.0) < 0.01 &&
     editorVisibleLineCapacity(pane, 20.0) == 8 &&
     rightVisible.width == 0.0f && bottomVisible.height == 0.0f;
 }
@@ -7450,8 +7500,12 @@ bool nimculus_platform_validate_main_menu(void) {
   }
 }
 
+static char g_validation_command[64];
+static void validationCommandCallback(const char *command);
+
 bool nimculus_platform_validate_command_palette(void) {
   @autoreleasepool {
+    NimculusCommandCallback previousCallback = g_command_callback;
     NimculusCommandPaletteOverlay *palette = [[NimculusCommandPaletteOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 48.0)];
     NSArray<NSString *> *required = @[
@@ -7465,6 +7519,20 @@ bool nimculus_platform_validate_command_palette(void) {
     for (NSString *command in required) {
       if (![palette.commands containsObject:command]) valid = NO;
     }
+    g_command_callback = validationCommandCallback;
+    g_validation_command[0] = '\0';
+    palette.field.stringValue = @"sav";
+    [palette refreshCandidatesForQuery:palette.field.stringValue];
+    [palette execute:nil];
+    BOOL fuzzySelection = strcmp(g_validation_command, "commandPalette:save") == 0;
+    g_validation_command[0] = '\0';
+    palette.field.stringValue = @"run task nimble test";
+    [palette refreshCandidatesForQuery:palette.field.stringValue];
+    [palette execute:nil];
+    BOOL argumentPreserved = strcmp(g_validation_command,
+      "commandPalette:run task nimble test") == 0;
+    valid = valid && fuzzySelection && argumentPreserved;
+    g_command_callback = previousCallback;
     [palette release];
     return valid;
   }
@@ -7700,7 +7768,6 @@ bool nimculus_platform_validate_unsaved_close_sheet(void) {
 static char g_validation_file_path[PATH_MAX];
 static BOOL g_validation_file_saving = YES;
 static uint32_t g_validation_file_open_count = 0;
-static char g_validation_command[64];
 
 static void validationFileCallback(const char *path, bool saving) {
   g_validation_file_open_count++;

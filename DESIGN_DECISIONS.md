@@ -6432,3 +6432,20 @@ commit` opens the existing commit editor instead of creating an implicit empty
 commit. Replace, go-to-line, and quick-open use AppKit overlay entry points so
 they remain non-modal and return focus to the editor consistently with the
 existing menu actions.
+
+The native combo box can retain the user's fuzzy spelling in `stringValue` even
+when the first visible result is the selected candidate. Confirmation therefore
+resolves the selected/result command before dispatching; otherwise typing `sav`
+would close the palette and send an unknown `sav` command. Explicit argument
+forms are detected before this resolution so task, rename, LSP, and Git
+commands continue to carry their user-provided suffix.
+
+## UI-087: Clip every editor overlay in the same local text viewport
+
+Metal text and Core Text already share a four-sided content viewport, but
+AppKit child overlays have their own draw coordinates. The line-number and
+indent-guide overlays therefore clip locally to the pane's text viewport,
+including the top and bottom insets, instead of using the complete editor
+pane. Split-pane annotation drawing also selects the matching secondary
+annotation buffer before converting document positions. This keeps scrollbar,
+tab/status chrome, and the adjacent split pane outside every text decoration.
