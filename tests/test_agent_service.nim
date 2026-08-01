@@ -5,6 +5,34 @@ import std/unittest
 import nimculus/agent_service
 
 suite "M18 CLI agent sessions":
+  test "resolves known CLI providers without weakening their safety flags":
+    check parseAgentProvider("codex") == agentProviderCodex
+    check parseAgentProvider("claude-code") == agentProviderClaudeCode
+    check parseAgentProvider("opencode") == agentProviderOpenCode
+    let custom = resolveAgentLaunchSpec(commandValue = "/bin/echo",
+      argumentValues = ["hello"])
+    check custom.provider == agentProviderCustom
+    check custom.command.endsWith("/bin/echo")
+    check custom.args == @["hello"]
+
+  test "auto provider selection is deterministic and PATH scoped":
+    let root = getTempDir() / ("nimculus-agent-provider-" & $getCurrentProcessId())
+    createDir(root)
+    let codex = root / "codex"
+    let claude = root / "claude"
+    writeFile(codex, "#!/bin/sh\n")
+    writeFile(claude, "#!/bin/sh\n")
+    setFilePermissions(codex, {fpUserRead, fpUserWrite, fpUserExec})
+    setFilePermissions(claude, {fpUserRead, fpUserWrite, fpUserExec})
+    let previousPath = getEnv("PATH")
+    defer: putEnv("PATH", previousPath)
+    putEnv("PATH", root)
+    let resolved = resolveAgentLaunchSpec()
+    check resolved.provider == agentProviderCodex
+    check resolved.command == codex
+    check resolved.args == @["--no-alt-screen"]
+    removeDir(root)
+
   test "bounds agent output at UTF-8 and line boundaries":
     let bounded = appendBoundedAgentOutput("old\n", "日本語\nnew", 8)
     check bounded.truncated

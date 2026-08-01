@@ -25,6 +25,19 @@ when defined(posix):
 type
   AgentProtocolError* = object of CatchableError
 
+  AgentProvider* = enum
+    agentProviderAuto,
+    agentProviderCodex,
+    agentProviderClaudeCode,
+    agentProviderOpenCode,
+    agentProviderCustom
+
+  AgentLaunchSpec* = object
+    provider*: AgentProvider
+    displayName*: string
+    command*: string
+    args*: seq[string]
+
   AgentSessionState* = enum
     agentRunning
     agentExited
@@ -59,6 +72,77 @@ type
     activeId*: int
 
 const MaxAgentOutputBytes* = 4 * 1024 * 1024
+
+proc parseAgentProvider*(value: string): AgentProvider =
+  case value.strip.toLowerAscii
+  of "codex", "codex-cli": agentProviderCodex
+  of "claude", "claude-code", "claude_code", "claude code": agentProviderClaudeCode
+  of "opencode", "open-code", "open_code", "open code": agentProviderOpenCode
+  of "custom": agentProviderCustom
+  else: agentProviderAuto
+
+proc agentProviderName*(provider: AgentProvider): string =
+  case provider
+  of agentProviderAuto: "Auto"
+  of agentProviderCodex: "Codex CLI"
+  of agentProviderClaudeCode: "Claude Code"
+  of agentProviderOpenCode: "OpenCode"
+  of agentProviderCustom: "Custom CLI"
+
+proc providerCommand(provider: AgentProvider): string =
+  case provider
+  of agentProviderCodex: "codex"
+  of agentProviderClaudeCode: "claude"
+  of agentProviderOpenCode: "opencode"
+  else: ""
+
+proc providerArgs(provider: AgentProvider): seq[string] =
+  ## Keep the known clients in their interactive mode.  Nimculus owns the
+  ## process stdin/stdout boundary and sends prompts as complete lines; no
+  ## provider-specific approval bypass or sandbox weakening is introduced.
+  case provider
+  of agentProviderCodex:
+    @["--no-alt-screen"]
+  of agentProviderClaudeCode:
+    @[]
+  of agentProviderOpenCode:
+    @[]
+  else:
+    @[]
+
+proc resolveAgentLaunchSpec*(providerValue = "", commandValue = "",
+                             argumentValues: openArray[string] = []): AgentLaunchSpec =
+  ## Resolve one launch boundary without embedding a vendor SDK.  An explicit
+  ## command always wins; otherwise a requested provider is checked first and
+  ## auto mode uses the documented priority order. `findExe` returns the exact
+  ## executable Nimculus will own, which makes stop/cleanup and diagnostics
+  ## deterministic even when PATH contains multiple shims.
+  let explicitCommand = commandValue.strip
+  if explicitCommand.len > 0:
+    result.provider = agentProviderCustom
+    result.displayName = "Custom CLI"
+    result.command = findExe(explicitCommand)
+    if result.command.len == 0 and fileExists(explicitCommand):
+      result.command = absolutePath(explicitCommand)
+    if result.command.len == 0: result.command = explicitCommand
+    result.args = @argumentValues
+    return
+
+  let requested = parseAgentProvider(providerValue)
+  let candidates = if requested == agentProviderAuto:
+      @[agentProviderCodex, agentProviderClaudeCode, agentProviderOpenCode]
+    else: @[requested]
+  for candidate in candidates:
+    let executable = findExe(providerCommand(candidate))
+    if executable.len == 0: continue
+    result.provider = candidate
+    result.displayName = candidate.agentProviderName()
+    result.command = executable
+    result.args = providerArgs(candidate)
+    if argumentValues.len > 0: result.args = @argumentValues
+    return
+  result.provider = if requested == agentProviderAuto: agentProviderAuto else: requested
+  result.displayName = if requested == agentProviderAuto: "CLI agent" else: requested.agentProviderName()
 
 proc agentError(message: string): ref AgentProtocolError =
   newException(AgentProtocolError, message)

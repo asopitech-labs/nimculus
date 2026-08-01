@@ -6490,6 +6490,20 @@ bounded stop/kill/reap path. `AgentManager` supports concurrent sessions and
 active-session selection. The UI only dispatches commands and renders output;
 it never embeds an agent runtime or assumes a vendor-specific protocol.
 
+## M18-098: Resolve supported CLI agents at the process boundary
+
+The initial macOS agent targets are Codex CLI, Claude Code, and OpenCode, but
+Nimculus must not embed a vendor SDK or silently weaken a provider's approval
+policy. `agent_service.nim` resolves an explicit `NIMCULUS_AGENT_COMMAND`
+first, then an explicit `NIMCULUS_AGENT_PROVIDER`, and finally probes the
+documented provider priority (`codex`, `claude`, `opencode`) with `findExe`.
+The Command Palette and Agent menu expose each provider explicitly as well as
+an Auto entry. Provider-specific arguments are limited to display/transport-
+safe options (`codex --no-alt-screen`); no dangerous approval or sandbox
+bypass flag is inserted. The resolved executable path and provider label are
+retained in the session UI, while the existing bounded stdin/stdout,
+worktree, diff-review, and direct-child cleanup boundary remains unchanged.
+
 ## M19-091: Keep DAP framing and debugger state separate from UI
 
 Zed's DAP implementation uses a framed transport, monotonic request sequence,

@@ -908,20 +908,28 @@ when defined(macosx):
     editorAgentSessionId = -1
     editorViewState.statusMessage = "Agent stopped"
 
-  proc startNativeAgent(worktreePath = "") =
-    let command = getEnv("NIMCULUS_AGENT_COMMAND", "").strip
-    if command.len == 0:
-      editorViewState.statusMessage = "Agent unavailable: set NIMCULUS_AGENT_COMMAND"
+  proc startNativeAgent(worktreePath = "", providerValue = "") =
+    let configuredCommand = getEnv("NIMCULUS_AGENT_COMMAND", "").strip
+    let configuredProvider = if providerValue.strip.len > 0: providerValue else:
+      getEnv("NIMCULUS_AGENT_PROVIDER", "")
+    let configuredArgs = getEnv("NIMCULUS_AGENT_ARGS", "").splitWhitespace
+    let launch = resolveAgentLaunchSpec(configuredProvider, configuredCommand,
+      configuredArgs)
+    if launch.command.len == 0:
+      let requested = if configuredProvider.strip.len > 0:
+        " for " & configuredProvider.strip else: ""
+      editorViewState.statusMessage = "Agent unavailable" & requested &
+        ": install Codex CLI, Claude Code, or OpenCode, or set NIMCULUS_AGENT_COMMAND"
       return
     if editorAgentManager == nil: editorAgentManager = newAgentManager()
     let document = activeDocument()
     try:
-      let session = editorAgentManager.start(command,
-        getEnv("NIMCULUS_AGENT_ARGS", "").splitWhitespace,
+      let session = editorAgentManager.start(launch.command, launch.args,
         taskWorkingDirectory(document), if worktreePath.len > 0: worktreePath
           else: getEnv("NIMCULUS_AGENT_WORKTREE", ""))
       editorAgentSessionId = session.id
-      editorAgentOutput = "Agent session #" & $session.id & " started\n"
+      editorAgentOutput = launch.displayName & " session #" & $session.id &
+        " started\n"
       editorTaskOutputVisible = true
       editorTerminalVisible = false
       platformSetTerminalVisible(false)
@@ -931,7 +939,8 @@ when defined(macosx):
       setupDemoUi()
       platformSetTaskOutputTitle("Agent".cstring, uint32("Agent".len))
       platformSetTaskOutputText(editorAgentOutput.cstring, uint32(editorAgentOutput.len))
-      editorViewState.statusMessage = "Agent running — use `agent send <prompt>`"
+      editorViewState.statusMessage = launch.displayName &
+        " running — use `agent send <prompt>`"
     except CatchableError as error:
       editorViewState.statusMessage = "Agent failed: " & error.msg
 
@@ -5943,6 +5952,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command in ["debug threads", "show debug threads"]: "__debug_threads__"
       elif command == "agent start": "__agent_start__"
       elif command.startsWith("agent start worktree "): "__agent_start_worktree__"
+      elif command.startsWith("agent start "): "__agent_start_provider__"
       elif command == "agent stop": "__agent_stop__"
       elif command.startsWith("agent send "): "__agent_send__"
       elif command == "agent next": "__agent_next__"
@@ -6295,6 +6305,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         discard sendNativeDapRequest("threads", threadsArguments())
     of "__agent_start__":
       when defined(macosx): startNativeAgent()
+    of "__agent_start_provider__":
+      when defined(macosx):
+        let provider = if rawCommand.len > 12: rawCommand[12 .. ^1].strip else: ""
+        startNativeAgent(providerValue = provider)
     of "__agent_start_worktree__":
       when defined(macosx):
         let path = if rawCommand.len > 21: rawCommand[21 .. ^1].strip else: ""

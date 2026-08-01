@@ -198,7 +198,7 @@ WSL では `\\wsl$` 経由の直接監視に依存しない。複数ディスト
 
 Node.js runtime を組み込まず、VSCode Extension API 互換を目標にしない。信頼できないネイティブ共有ライブラリを本体へ直接ロードしない。
 
-AI エージェントは Codex CLI、Claude Code、OpenCode、任意 CLI を対象とし、agent session、Worktree、差分レビュー、approve / reject、patch apply、停止、同時実行を提供する。特定 AI ベンダーの API に依存しない。
+AI エージェントは Codex CLI、Claude Code、OpenCode、任意 CLI を対象とし、agent session、Worktree、差分レビュー、approve / reject、patch apply、停止、同時実行を提供する。特定 AI ベンダーの API に依存しない。macOSのAgentメニュー／Command Paletteは各CLIを明示選択でき、`NIMCULUS_AGENT_COMMAND`、`NIMCULUS_AGENT_PROVIDER`、PATH自動検出の順で起動対象を解決する。承認回避やsandbox弱体化オプションを暗黙に追加しない。
 
 DAP は Nim、Rust、C/C++、Python を初期対象とし、launch、attach、breakpoint、stack、variables、watches、stepping、debug console、remote DAP を実装する。
 
