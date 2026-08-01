@@ -6525,12 +6525,15 @@ process handle rather than merely dropping the Nim reference.
 
 Zed's debugger UI keeps session navigation and inspection separate from its
 console output. Nimculus now mirrors that boundary: DAP protocol output remains
-in the bounded bottom Task Output surface, while Threads, Stack Frames,
-Variables, and Watches are projected into the macOS Debug sidebar. The Debug
-activity-bar command opens the panel without moving first responder away from
-the editor. The first implementation is intentionally read-only and
-line-oriented; later debugger work can replace rows with expandable native
-tree items without changing transport ownership or command routing.
+in the bounded bottom Task Output surface, while Threads, Stack Frames, Scopes,
+Variables, and Watches are projected into the macOS Debug sidebar. Each visible
+row is assigned a stable panel item and the AppKit line map excludes section
+headers from activation. Enter/Space selects a thread or frame, requests the
+selected scope, and expands/collapses variables through their
+`variablesReference`. The Debug activity-bar command opens the panel without
+moving first responder away from the editor. This keeps the current
+text-backed native surface compatible with a future richer tree renderer while
+already providing the user-visible debugger actions.
 
 ## M17-095: Install extensions through an explicit macOS sheet
 

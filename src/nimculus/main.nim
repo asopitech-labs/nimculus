@@ -744,10 +744,48 @@ when defined(macosx):
   var editorDapBreakpointLines: seq[int]
   var editorDapAttachPid = -1
   var editorDapWatchExpressions: seq[string]
-  var editorDapThreadLines: seq[string]
-  var editorDapStackLines: seq[string]
-  var editorDapVariableLines: seq[string]
+  type
+    DapSidebarItemKind = enum
+      dapThreadItem
+      dapFrameItem
+      dapScopeItem
+      dapVariableItem
+      dapWatchItem
+
+    DapSidebarItem = object
+      kind: DapSidebarItemKind
+      id: int
+      reference: int
+
+    DapThreadInfo = object
+      id: int
+      name: string
+
+    DapFrameInfo = object
+      id: int
+      name: string
+      source: string
+      line: int
+
+    DapScopeInfo = object
+      name: string
+      reference: int
+
+    DapVariableInfo = object
+      name: string
+      value: string
+      reference: int
+      depth: int
+
+  var editorDapThreads: seq[DapThreadInfo]
+  var editorDapFrames: seq[DapFrameInfo]
+  var editorDapScopes: seq[DapScopeInfo]
+  var editorDapVariables: seq[DapVariableInfo]
   var editorDapWatchLines: seq[string]
+  var editorDapVariableRootReference = 0
+  var editorDapVariableRequestReference = 0
+  var editorDapExpandedVariableReferences: seq[int]
+  var editorDapSidebarItems: seq[DapSidebarItem]
   var editorAgentManager: AgentManager
   var editorAgentOutput = ""
   var editorAgentSessionId = -1
@@ -1056,45 +1094,81 @@ when defined(macosx):
     platformSetTaskOutputText(editorDapOutput.cstring, uint32(editorDapOutput.len))
 
   proc renderNativeDapSidebar() =
-    ## Zed keeps debugger state in a structured panel rather than making the
-    ## output console the only way to inspect a stopped session.  Keep the
-    ## native sidebar text deliberately line-oriented for now, but preserve
-    ## the same sections and stable item boundaries so richer tree rows can be
-    ## added without changing the DAP transport.
+    ## Zed keeps debugger state in structured, keyboard-selectable lists.  The
+    ## native overlay is still text-backed, but every visible debugger row now
+    ## has a stable panel item and an action target rather than being display
+    ## only.
     var lines = @[
       "Debugger",
       "────────",
       if editorDapSession == nil: "No active session" else:
         (if editorDapThreadId > 0: "Stopped" else: "Running")
     ]
-    if editorDapThreadLines.len > 0:
-      lines.add("")
-      lines.add("Threads")
-      lines.add("───────")
-      lines.add(editorDapThreadLines)
-    if editorDapStackLines.len > 0:
-      lines.add("")
-      lines.add("Stack Frames")
-      lines.add("────────────")
-      lines.add(editorDapStackLines)
-    if editorDapVariableLines.len > 0:
-      lines.add("")
-      lines.add("Variables")
-      lines.add("─────────")
-      lines.add(editorDapVariableLines)
+    var lineItems = @[-1'i32, -1'i32, -1'i32]
+    var itemKeys: seq[string]
+    editorDapSidebarItems.setLen(0)
+    proc addHeader(text: string) =
+      lines.add(text)
+      lineItems.add(-1'i32)
+    proc addItem(text, key: string, kind: DapSidebarItemKind,
+                 id = -1, reference = 0) =
+      lines.add(text)
+      editorDapSidebarItems.add(DapSidebarItem(kind: kind, id: id,
+        reference: reference))
+      itemKeys.add(key)
+      lineItems.add(int32(editorDapSidebarItems.high))
+    if editorDapThreads.len > 0:
+      addHeader("")
+      addHeader("Threads")
+      addHeader("───────")
+      for thread in editorDapThreads:
+        addItem("#" & $thread.id & "  " & thread.name, "thread:" & $thread.id,
+          dapThreadItem, thread.id)
+    if editorDapFrames.len > 0:
+      addHeader("")
+      addHeader("Stack Frames")
+      addHeader("────────────")
+      for frame in editorDapFrames:
+        let marker = if frame.id == editorDapFrameId: "● " else: "  "
+        addItem(marker & frame.name & "  " & frame.source & ":" & $frame.line,
+          "frame:" & $frame.id, dapFrameItem, frame.id)
+    if editorDapScopes.len > 0:
+      addHeader("")
+      addHeader("Scopes")
+      addHeader("──────")
+      for scope in editorDapScopes:
+        addItem("▾ " & scope.name, "scope:" & $scope.reference,
+          dapScopeItem, reference = scope.reference)
+    if editorDapVariables.len > 0:
+      addHeader("")
+      addHeader("Variables")
+      addHeader("─────────")
+      for index, variable in editorDapVariables:
+        let expanded = variable.reference > 0 and
+          variable.reference in editorDapExpandedVariableReferences
+        let disclosure = if variable.reference <= 0: "  "
+          elif expanded: "▼ " else: "▶ "
+        let indent = repeat("  ", variable.depth)
+        addItem(indent & disclosure & variable.name & " = " & variable.value,
+          "variable:" & $index & ":" & $variable.reference,
+          dapVariableItem, reference = variable.reference)
     if editorDapWatchLines.len > 0:
-      lines.add("")
-      lines.add("Watches")
-      lines.add("───────")
-      lines.add(editorDapWatchLines)
-    if editorDapThreadLines.len == 0 and editorDapStackLines.len == 0 and
-        editorDapVariableLines.len == 0 and editorDapWatchLines.len == 0:
-      lines.add("")
-      lines.add("Start or attach a debugger to inspect the session.")
-    editorWorkspaceUi.replacePanelItems(panelDebugger, @[])
+      addHeader("")
+      addHeader("Watches")
+      addHeader("───────")
+      for index, watch in editorDapWatchLines:
+        addItem(watch, "watch:" & $index, dapWatchItem)
+    if editorDapThreads.len == 0 and editorDapFrames.len == 0 and
+        editorDapScopes.len == 0 and editorDapVariables.len == 0 and
+        editorDapWatchLines.len == 0:
+      addHeader("")
+      addHeader("Start or attach a debugger to inspect the session.")
+    editorWorkspaceUi.replacePanelItems(panelDebugger, itemKeys)
     let text = lines.join("\n")
-    platformSetEditorSidebar(text.cstring, uint32(text.len), 0,
-      uint32(sidebarDebugger))
+    platformSetEditorSidebar(text.cstring, uint32(text.len),
+      uint32(editorDapSidebarItems.len), uint32(sidebarDebugger))
+    if lineItems.len > 0:
+      platformSetEditorSidebarLineItems(addr lineItems[0], uint32(lineItems.len))
 
   proc showNativeDapSidebar() =
     editorSidebarMode = sidebarDebugger
@@ -1114,10 +1188,15 @@ when defined(macosx):
     editorDapThreadId = -1
     editorDapFrameId = -1
     editorDapAttachPid = -1
-    editorDapThreadLines.setLen(0)
-    editorDapStackLines.setLen(0)
-    editorDapVariableLines.setLen(0)
+    editorDapThreads.setLen(0)
+    editorDapFrames.setLen(0)
+    editorDapScopes.setLen(0)
+    editorDapVariables.setLen(0)
     editorDapWatchLines.setLen(0)
+    editorDapVariableRootReference = 0
+    editorDapVariableRequestReference = 0
+    editorDapExpandedVariableReferences.setLen(0)
+    editorDapSidebarItems.setLen(0)
     renderNativeDapSidebar()
     editorViewState.statusMessage = "Debugger stopped"
 
@@ -1153,10 +1232,15 @@ when defined(macosx):
       editorDapThreadId = -1
       editorDapFrameId = -1
       editorDapAttachPid = if attach: attachPid else: -1
-      editorDapThreadLines.setLen(0)
-      editorDapStackLines.setLen(0)
-      editorDapVariableLines.setLen(0)
+      editorDapThreads.setLen(0)
+      editorDapFrames.setLen(0)
+      editorDapScopes.setLen(0)
+      editorDapVariables.setLen(0)
       editorDapWatchLines.setLen(0)
+      editorDapVariableRootReference = 0
+      editorDapVariableRequestReference = 0
+      editorDapExpandedVariableReferences.setLen(0)
+      editorDapSidebarItems.setLen(0)
       editorTaskOutputVisible = true
       editorTerminalVisible = false
       platformSetTerminalVisible(false)
@@ -1209,18 +1293,23 @@ when defined(macosx):
         elif message.command == "stackTrace" and message.body != nil:
           if message.body.hasKey("stackFrames") and message.body["stackFrames"].kind == JArray:
             var lines = @["Debugger — Stack Frames"]
-            editorDapStackLines.setLen(0)
+            editorDapFrames.setLen(0)
+            editorDapScopes.setLen(0)
+            editorDapVariables.setLen(0)
+            editorDapVariableRootReference = 0
+            editorDapVariableRequestReference = 0
+            editorDapExpandedVariableReferences.setLen(0)
             editorDapFrameId = -1
             for frame in message.body["stackFrames"]:
               if frame.kind != JObject: continue
+              let id = if frame.hasKey("id"): frame["id"].getInt else: -1
               let name = if frame.hasKey("name"): frame["name"].getStr else: "<frame>"
               let line = if frame.hasKey("line"): frame["line"].getInt else: 0
-              if editorDapFrameId < 0 and frame.hasKey("id"):
-                editorDapFrameId = frame["id"].getInt
               let source = if frame.hasKey("source") and frame["source"].kind == JObject and
                   frame["source"].hasKey("path"): frame["source"]["path"].getStr else: ""
+              editorDapFrames.add(DapFrameInfo(id: id, name: name, source: source, line: line))
+              if editorDapFrameId < 0: editorDapFrameId = id
               lines.add(name & "  " & source & ":" & $line)
-              editorDapStackLines.add(name & "  " & source & ":" & $line)
             editorDapOutput = lines.join("\n") & "\n\n" & editorDapOutput
             platformSetTaskOutputText(editorDapOutput.cstring, uint32(editorDapOutput.len))
             renderNativeDapSidebar()
@@ -1230,7 +1319,11 @@ when defined(macosx):
           if message.body != nil:
             if message.command == "scopes" and message.body.hasKey("scopes") and
                 message.body["scopes"].kind == JArray:
-              editorDapVariableLines.setLen(0)
+              editorDapScopes.setLen(0)
+              editorDapVariables.setLen(0)
+              editorDapVariableRootReference = 0
+              editorDapVariableRequestReference = 0
+              editorDapExpandedVariableReferences.setLen(0)
               appendNativeDapOutput("Scopes:")
               for scope in message.body["scopes"]:
                 if scope.kind != JObject: continue
@@ -1238,29 +1331,58 @@ when defined(macosx):
                 let reference = if scope.hasKey("variablesReference"):
                   scope["variablesReference"].getInt else: 0
                 appendNativeDapOutput("  " & name)
-                editorDapVariableLines.add(name)
-                if reference > 0:
-                  discard sendNativeDapRequest("variables", variablesArguments(reference))
+                editorDapScopes.add(DapScopeInfo(name: name, reference: reference))
+                if editorDapVariableRootReference == 0 and reference > 0:
+                  editorDapVariableRootReference = reference
+              if editorDapVariableRootReference > 0:
+                editorDapVariableRequestReference = editorDapVariableRootReference
+                discard sendNativeDapRequest("variables",
+                  variablesArguments(editorDapVariableRootReference))
             elif message.command == "variables" and message.body.hasKey("variables") and
                 message.body["variables"].kind == JArray:
+              let parentReference = editorDapVariableRequestReference
+              var parsed: seq[DapVariableInfo]
               appendNativeDapOutput("Variables:")
               for variable in message.body["variables"]:
                 if variable.kind != JObject: continue
                 let name = if variable.hasKey("name"): variable["name"].getStr else: "?"
                 let value = if variable.hasKey("value"): variable["value"].getStr else: ""
+                let reference = if variable.hasKey("variablesReference"):
+                  variable["variablesReference"].getInt else: 0
                 appendNativeDapOutput("  " & name & " = " & value)
-                editorDapVariableLines.add(name & " = " & value)
+                parsed.add(DapVariableInfo(name: name, value: value,
+                  reference: reference, depth: 0))
+              if parentReference == editorDapVariableRootReference:
+                editorDapVariables = parsed
+              else:
+                var parentIndex = -1
+                for index, variable in editorDapVariables:
+                  if variable.reference == parentReference:
+                    parentIndex = index
+                    break
+                if parentIndex >= 0:
+                  let depth = editorDapVariables[parentIndex].depth + 1
+                  var insertAt = parentIndex + 1
+                  while insertAt < editorDapVariables.len and
+                      editorDapVariables[insertAt].depth > editorDapVariables[parentIndex].depth:
+                    inc insertAt
+                  for child in parsed:
+                    var nested = child
+                    nested.depth = depth
+                    editorDapVariables.insert(nested, insertAt)
+                    inc insertAt
+              editorDapVariableRequestReference = 0
             else:
               appendNativeDapOutput("  " & $message.body)
             renderNativeDapSidebar()
         elif message.command == "threads" and message.body != nil and
             message.body.hasKey("threads") and message.body["threads"].kind == JArray:
-          editorDapThreadLines.setLen(0)
+          editorDapThreads.setLen(0)
           for thread in message.body["threads"]:
             if thread.kind != JObject: continue
-            let id = if thread.hasKey("id"): $thread["id"].getInt else: "?"
+            let id = if thread.hasKey("id"): thread["id"].getInt else: -1
             let name = if thread.hasKey("name"): thread["name"].getStr else: "thread"
-            editorDapThreadLines.add("#" & id & "  " & name)
+            editorDapThreads.add(DapThreadInfo(id: id, name: name))
           renderNativeDapSidebar()
         elif message.command == "evaluate" and message.body != nil:
           let value = if message.body.hasKey("result"): message.body["result"].getStr else: $message.body
@@ -6650,7 +6772,62 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         of sidebarOutline:
           discard openNativeSymbol(index)
         of sidebarDebugger:
-          editorViewState.statusMessage = "Debugger details are read-only"
+          if index < 0 or index >= editorDapSidebarItems.len:
+            editorViewState.statusMessage = "Debugger row is unavailable"
+          else:
+            let item = editorDapSidebarItems[index]
+            case item.kind
+            of dapThreadItem:
+              editorDapThreadId = item.id
+              editorDapFrameId = -1
+              editorDapScopes.setLen(0)
+              editorDapVariables.setLen(0)
+              editorDapVariableRootReference = 0
+              editorDapVariableRequestReference = 0
+              editorDapExpandedVariableReferences.setLen(0)
+              discard sendNativeDapRequest("stackTrace", stackTraceArguments(item.id))
+            of dapFrameItem:
+              editorDapFrameId = item.id
+              editorDapScopes.setLen(0)
+              editorDapVariables.setLen(0)
+              editorDapVariableRootReference = 0
+              editorDapVariableRequestReference = 0
+              editorDapExpandedVariableReferences.setLen(0)
+              discard sendNativeDapRequest("scopes", scopesArguments(item.id))
+            of dapScopeItem:
+              editorDapVariableRootReference = item.reference
+              editorDapVariableRequestReference = item.reference
+              editorDapVariables.setLen(0)
+              editorDapExpandedVariableReferences.setLen(0)
+              discard sendNativeDapRequest("variables",
+                variablesArguments(item.reference))
+            of dapVariableItem:
+              if item.reference <= 0:
+                editorViewState.statusMessage = "Variable has no children"
+              else:
+                let expandedIndex = editorDapExpandedVariableReferences.find(item.reference)
+                var rowIndex = -1
+                for candidateIndex, candidate in editorDapVariables:
+                  if candidate.reference == item.reference:
+                    rowIndex = candidateIndex
+                    break
+                if expandedIndex >= 0 and rowIndex >= 0:
+                  let depth = editorDapVariables[rowIndex].depth
+                  var lastRow = rowIndex + 1
+                  while lastRow < editorDapVariables.len and
+                      editorDapVariables[lastRow].depth > depth:
+                    inc lastRow
+                  if lastRow > rowIndex + 1:
+                    editorDapVariables.delete(rowIndex + 1 .. lastRow - 1)
+                  editorDapExpandedVariableReferences.delete(expandedIndex)
+                elif expandedIndex < 0:
+                  editorDapExpandedVariableReferences.add(item.reference)
+                  editorDapVariableRequestReference = item.reference
+                  discard sendNativeDapRequest("variables",
+                    variablesArguments(item.reference))
+            of dapWatchItem:
+              discard
+            renderNativeDapSidebar()
       except ValueError:
         editorViewState.statusMessage = "Invalid sidebar item"
   elif name.startsWith("sidebarContext:"):

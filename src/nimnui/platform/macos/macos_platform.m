@@ -8502,13 +8502,27 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
     strcpy(g_validation_command, "unchanged");
     if (historyTab) [sidebar keyDown:historyTab];
     BOOL historyTabShortcut = strcmp(g_validation_command, "commandPalette:git log") == 0;
+    g_editor_sidebar_mode = 6;
+    g_editor_outline_symbol_count = 2;
+    int32_t debugLineItems[] = {-1, -1, -1, -1, 0, -1, 1};
+    nimculus_platform_set_editor_sidebar_line_items(debugLineItems, 7);
+    strcpy(g_validation_command, "unchanged");
+    [sidebar dispatchSidebarLine:2 open:NO];
+    BOOL debugHeaderIgnored = strcmp(g_validation_command, "unchanged") == 0;
+    strcpy(g_validation_command, "unchanged");
+    [sidebar dispatchSidebarLine:4 open:NO];
+    BOOL debugThreadSelection = strcmp(g_validation_command, "sidebarSelect:0") == 0;
+    strcpy(g_validation_command, "unchanged");
+    [sidebar dispatchSidebarLine:6 open:YES];
+    BOOL debugVariableExpansion = strcmp(g_validation_command, "sidebarOpen:1") == 0;
     BOOL valid = selected && opened && headerIgnored && mappedSelection && mappedOpen &&
       stageToggle && tabFocusesEditor && escapeFocusesEditor && spaceStagesGitChange &&
       spaceOpensSidebarItem && leftCollapsesDirectory && rightExpandsDirectory &&
       renameSelected && newFileShortcut && newDirectoryShortcut && deleteShortcut &&
       duplicateShortcut && cutShortcut && copyShortcut && pasteShortcut && revealShortcut &&
       openSystemShortcut && searchFolderShortcut && collapseAllShortcut && expandAllShortcut &&
-      changesTabShortcut && historyTabShortcut;
+      changesTabShortcut && historyTabShortcut && debugHeaderIgnored &&
+      debugThreadSelection && debugVariableExpansion;
     [sidebar release];
     free(g_editor_sidebar_line_items);
     g_editor_sidebar_line_items = previousLineItems;
