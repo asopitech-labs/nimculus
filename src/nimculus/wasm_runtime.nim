@@ -2,17 +2,26 @@
 ##
 ## Zed keeps the Wasmtime component host separate from extension discovery and
 ## only grants the guest the capabilities represented by the host linker.  The
-## first Nimculus host slice uses the official Wasmtime CLI as a process
-## boundary: it runs a validated module with only the extension directory
-## preopened, never inherits a host directory through a shell, and exposes a
-## versioned invocation plan to the task service.  A future in-process
-## Component Model linker can replace this implementation without changing the
-## manifest or UI contract.
+## The macOS host has two explicit execution boundaries: the official
+## Wasmtime CLI remains the safe asynchronous fallback, while an
+## architecture-compatible Wasmtime C API can provide a bounded in-process
+## Component Model/WASI call. The latter is dynamically resolved so the
+## editor does not link to Homebrew paths or make development headers a build
+## prerequisite.
 
 import std/os
 import std/strutils
 
 import nimculus/extension_service
+
+when defined(macosx):
+  {.compile: "wasm_component_host.c".}
+  proc nimculusWasmtimeComponentAvailable(libraryPath: cstring): cint
+      {.importc: "nimculus_wasmtime_component_available", cdecl.}
+  proc nimculusWasmtimeComponentRun(libraryPath, modulePath, extensionRoot,
+      extensionId: cstring; apiVersion: uint32; entrypoint: cstring;
+      allowWrite: cint; errorOut: cstring; errorCapacity: csize_t): cint
+      {.importc: "nimculus_wasmtime_component_run", cdecl.}
 
 type
   WasmRuntimeError* = object of ExtensionError
@@ -83,3 +92,39 @@ proc prepareWasmExecution*(manifest: ExtensionManifest;
 proc wasmRuntimeStatus*(configuredRuntime: string = ""): string =
   let runtime = resolveWasmRuntime(configuredRuntime)
   if runtime.len == 0: "unavailable (install Wasmtime)" else: runtime
+
+proc wasmComponentHostAvailable*(): bool =
+  ## Report the optional in-process host without making it a startup gate.
+  ## The C boundary rejects a library with the wrong architecture.
+  when defined(macosx):
+    nimculusWasmtimeComponentAvailable(
+      getEnv("NIMCULUS_WASMTIME_LIBRARY", "").cstring) != 0
+  else:
+    false
+
+proc runWasmComponentInProcess*(manifest: ExtensionManifest;
+    errorMessage: var string): int =
+  ## Execute a no-argument Component export. Zed's generated WIT bindings
+  ## expose `init-extension`; Nimculus also accepts an explicit manifest
+  ## entrypoint such as `run()` and strips only the Wave call suffix at this
+  ## boundary. The call is intentionally separate from the CLI plan so the
+  ## app can keep async task ownership until the native job adapter is ready.
+  when defined(macosx):
+    if manifest.wasmModule.len == 0 or not manifest.validateWasmModule():
+      errorMessage = "extension WASM module failed manifest validation"
+      return 2
+    var errorBuffer = newString(4096)
+    result = nimculusWasmtimeComponentRun(
+      getEnv("NIMCULUS_WASMTIME_LIBRARY", "").cstring,
+      normalizedPath(manifest.root / manifest.wasmModule).cstring,
+      normalizedPath(manifest.root).cstring,
+      manifest.id.cstring,
+      uint32(manifest.apiVersion),
+      manifest.wasmEntrypoint.cstring,
+      (if manifest.hasPermission("filesystem-write"): 1 else: 0),
+      errorBuffer.cstring,
+      csize_t(errorBuffer.len))
+    errorMessage = errorBuffer.strip
+  else:
+    errorMessage = "in-process Component Model is only available on macOS"
+    result = 1

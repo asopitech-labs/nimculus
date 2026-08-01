@@ -100,6 +100,20 @@ suite "M17 extension registry":
       check job.result.status == taskSucceeded
       removeDir(root)
 
+  test "keeps the optional Component host behind validation and an error boundary":
+    let root = getTempDir() / "nimculus-component-host-boundary-test"
+    createDir(root)
+    writeFile(root / "extension.wasm", "not a component")
+    let manifest = parseExtensionManifest("""
+      {"id":"component.tools","name":"Component Tools","version":"1",
+       "apiVersion":1,"wasmModule":"extension.wasm","wasmEntrypoint":"run()"}
+    """, root)
+    var errorMessage = ""
+    let status = runWasmComponentInProcess(manifest, errorMessage)
+    check status != 0
+    check errorMessage.len > 0
+    removeDir(root)
+
   test "discovers extension directories and resolves language ownership":
     let root = getTempDir() / "nimculus-extension-test"
     let extensionRoot = root / "markdown"

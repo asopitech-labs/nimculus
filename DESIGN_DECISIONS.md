@@ -6637,3 +6637,26 @@ inside the macOS DAP integration test and verifies launch through a breakpoint
 to stack/scopes/variables as well as attach to a running process with
 `stopOnEntry`. This keeps the compatibility decision at the protocol boundary
 instead of hiding it in UI-only launch paths.
+
+## M17-101: Keep the optional Component host dynamically resolved and bounded
+
+Zed's `WasmHost` compiles a Component with Wasmtime's Component Model linker,
+adds WASI, and exposes extension capabilities through an explicit host boundary.
+Nimculus now has a macOS-only first slice of that boundary in
+`wasm_component_host.c`. It resolves the official Wasmtime C API with
+`dlopen`/`dlsym` instead of linking to Homebrew or requiring development
+headers, and rejects a missing or incompatible library by retaining the CLI
+fallback. The host enables the Component Model and fuel, limits store memory
+and instance resources, provides only the extension root as `/extension`
+(read-only unless `filesystem-write` is declared), and passes the extension id
+and API version as explicit WASI values. Manifest/container validation occurs
+before the C call, and every owned Wasmtime object is released on both success
+and failure paths.
+
+The current C boundary intentionally calls only an explicit no-argument export
+(`init-extension` by default, or the manifest entrypoint with a trailing `()`
+removed). It is not yet the full Zed WIT host API and is not called
+synchronously from the UI thread. An asynchronous job adapter with safe
+cancellation, permission presentation, and versioned WIT bindings remains the
+next M17 slice. This preserves the existing responsive CLI task path while
+making the future in-process boundary concrete and testable.

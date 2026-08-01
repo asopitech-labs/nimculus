@@ -1143,6 +1143,8 @@ when defined(macosx):
           lines.add("  entrypoint: " & manifest.wasmEntrypoint)
       if manifest.externalProcess.len > 0:
         lines.add("  external process (permissioned)")
+    lines.add("  component host: " &
+      (if wasmComponentHostAvailable(): "in-process" else: "CLI fallback"))
     if lines.len == 2: lines.add("No extensions installed")
     showNativeLspPanel("Extensions", lines)
 
@@ -6522,7 +6524,9 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx): showNativeExtensions()
     of "__extensions_runtime__":
       when defined(macosx):
-        editorViewState.statusMessage = "WASM runtime: " & wasmRuntimeStatus()
+        editorViewState.statusMessage = "WASM runtime: " & wasmRuntimeStatus() &
+          "; Component host: " &
+          (if wasmComponentHostAvailable(): "in-process" else: "CLI fallback")
     of "__extensions_run__":
       when defined(macosx): runNativeWasmExtension()
     of "__extensions_run_id__":
