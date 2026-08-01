@@ -5025,6 +5025,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     let dispatchCommand =
       if command.startsWith("git commit --amend "): "__git_amend__"
       elif command.startsWith("git commit "): "__git_commit__"
+      elif command == "git commit": "gitCommitPrompt"
       elif command in ["git file history", "git history for file"]: "__git_file_history__"
       elif command.startsWith("git checkout "): "__git_checkout__"
       elif command.startsWith("git switch "): "__git_switch__"
@@ -5039,7 +5040,12 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command in ["toggle task output", "show task output"]: "__task_output__"
       elif command.startsWith("run task "): "__run_task__"
       elif command == "cancel task": "__cancel_task__"
+      elif command == "run task": "__run_task__"
       elif command == "cancel git": "__cancel_git__"
+      elif command == "save as": "saveAs"
+      elif command == "replace": "replaceDocument"
+      elif command in ["go to line", "goto line"]: "goToLine"
+      elif command == "quick open": "quickOpen"
       elif command in ["split", "split editor", "split vertical"]: "splitEditor"
       elif command in ["split horizontal", "split editor horizontally"]: "splitEditorHorizontal"
       elif command in ["close split", "unsplit"]: "closeSplit"
@@ -5094,13 +5100,26 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "new": receiveNativeCommand("newDocument".cstring)
     of "save":
       receiveNativeCommand("save".cstring)
+    of "saveAs":
+      receiveNativeCommand("saveAs".cstring)
     of "reopenClosedTab":
       receiveNativeCommand("reopenClosedTab".cstring)
     of "find":
       when defined(macosx):
         platformShowFindDocument()
+    of "replaceDocument":
+      when defined(macosx):
+        platformShowReplaceDocument()
+    of "goToLine":
+      when defined(macosx):
+        platformShowGoToLine()
+    of "quickOpen":
+      when defined(macosx):
+        platformShowQuickOpen()
     of "openSettings":
       receiveNativeCommand("openSettings".cstring)
+    of "gitCommitPrompt":
+      receiveNativeCommand("gitCommitPrompt".cstring)
     of "expandSelection":
       when defined(macosx): expandNativeSyntaxSelection(true)
     of "shrinkSelection":

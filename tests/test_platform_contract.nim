@@ -92,6 +92,9 @@ suite "macOS platform contract":
   test "native main menu exposes macOS standard command shortcuts":
     check platformValidateMainMenu()
 
+  test "command palette exposes the editor's major actions":
+    check platformValidateCommandPalette()
+
   test "native Command shortcuts dispatch through the Metal view":
     check platformValidateShortcutDispatch()
 

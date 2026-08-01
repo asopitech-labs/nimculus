@@ -2541,11 +2541,24 @@ static void dismissExternalChangePanel(const char *command) {
   self.field.target = self;
   self.field.action = @selector(execute:);
   self.commands = @[
-    @"new", @"save", @"find", @"toggle files", @"reveal active file",
-    @"reopen closed tab", @"toggle git", @"git status", @"git log",
-    @"git branches", @"git file history", @"split editor", @"close split",
-    @"toggle soft wrap", @"open settings", @"toggle terminal", @"new terminal",
-    @"toggle task output", @"go to definition", @"find references", @"document symbols"
+    @"new", @"save", @"save as", @"find", @"replace", @"go to line",
+    @"quick open", @"workspace search", @"cancel search", @"reopen closed tab",
+    @"show files", @"toggle files", @"reveal active file", @"collapse all files",
+    @"show outline", @"toggle outline", @"split editor", @"split editor horizontally",
+    @"close split", @"toggle soft wrap", @"expand selection", @"shrink selection",
+    @"select previous syntax node", @"select next syntax node",
+    @"move to enclosing bracket", @"fold", @"unfold", @"toggle fold", @"fold all",
+    @"unfold all", @"fold recursively", @"unfold recursively", @"fold at level 1",
+    @"fold at level 2", @"fold at level 3", @"fold at level 4", @"fold at level 5",
+    @"fold at level 6", @"fold at level 7", @"fold at level 8", @"fold at level 9",
+    @"toggle git", @"git status", @"git stage all", @"git unstage all",
+    @"git stage hunk", @"git unstage hunk", @"git commit", @"git log",
+    @"git branches", @"git file history", @"git blame", @"cancel git",
+    @"toggle terminal", @"new terminal", @"close terminal", @"next terminal",
+    @"previous terminal", @"toggle task output", @"run task", @"cancel task",
+    @"go to definition", @"find references", @"document symbols", @"code actions",
+    @"signature help", @"inlay hints", @"semantic tokens", @"format document",
+    @"open settings", @"check for updates"
   ];
   [self.field addItemsWithObjectValues:self.commands];
   [self addSubview:self.field];
@@ -6875,6 +6888,27 @@ void nimculus_platform_show_find_document(void) {
   }
 }
 
+void nimculus_platform_show_replace_document(void) {
+  id delegate = [NSApp delegate];
+  if ([delegate respondsToSelector:@selector(replaceInDocument:)]) {
+    [delegate performSelector:@selector(replaceInDocument:) withObject:nil];
+  }
+}
+
+void nimculus_platform_show_go_to_line(void) {
+  id delegate = [NSApp delegate];
+  if ([delegate respondsToSelector:@selector(goToLine:)]) {
+    [delegate performSelector:@selector(goToLine:) withObject:nil];
+  }
+}
+
+void nimculus_platform_show_quick_open(void) {
+  id delegate = [NSApp delegate];
+  if ([delegate respondsToSelector:@selector(quickOpen:)]) {
+    [delegate performSelector:@selector(quickOpen:) withObject:nil];
+  }
+}
+
 void nimculus_platform_show_workspace_search(void) {
   id delegate = [NSApp delegate];
   if ([delegate respondsToSelector:@selector(findInWorkspace:)]) {
@@ -7412,6 +7446,26 @@ bool nimculus_platform_validate_main_menu(void) {
     BOOL valid = topLevel && settings && open && save && saveAs && close && redo && palette &&
       fullScreen && minimize && zoom && split && splitHorizontal && closeSplit && shortcuts && windowActions;
     [application setMainMenu:previousMenu];
+    return valid;
+  }
+}
+
+bool nimculus_platform_validate_command_palette(void) {
+  @autoreleasepool {
+    NimculusCommandPaletteOverlay *palette = [[NimculusCommandPaletteOverlay alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 48.0)];
+    NSArray<NSString *> *required = @[
+      @"save as", @"replace", @"go to line", @"quick open", @"workspace search",
+      @"show files", @"show outline", @"fold recursively", @"git stage hunk",
+      @"git commit", @"cancel git", @"toggle terminal", @"cancel task",
+      @"go to definition", @"find references", @"code actions", @"signature help",
+      @"inlay hints", @"semantic tokens", @"format document", @"check for updates"
+    ];
+    BOOL valid = palette != nil && palette.commands.count >= required.count;
+    for (NSString *command in required) {
+      if (![palette.commands containsObject:command]) valid = NO;
+    }
+    [palette release];
     return valid;
   }
 }

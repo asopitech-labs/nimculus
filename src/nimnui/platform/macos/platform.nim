@@ -20,6 +20,7 @@ proc platformValidateDamageRebuild*(): bool {.importc: "nimculus_platform_valida
 proc platformValidateScrollClipPixels*(): bool {.importc: "nimculus_platform_validate_scroll_clip_pixels", cdecl.}
 proc platformValidateSceneTextureReplacement*(): bool {.importc: "nimculus_platform_validate_scene_texture_replacement", cdecl.}
 proc platformValidateMainMenu*(): bool {.importc: "nimculus_platform_validate_main_menu", cdecl.}
+proc platformValidateCommandPalette*(): bool {.importc: "nimculus_platform_validate_command_palette", cdecl.}
 proc platformValidateShortcutDispatch*(): bool {.importc: "nimculus_platform_validate_shortcut_dispatch", cdecl.}
 proc platformValidateEditorGutterInput*(): bool {.importc: "nimculus_platform_validate_editor_gutter_input", cdecl.}
 proc platformValidateOpenPanelSheet*(): bool {.importc: "nimculus_platform_validate_open_panel_sheet", cdecl.}
@@ -217,6 +218,9 @@ proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer, length
 proc platformSetPaintDirtyRegions*(regions: ptr NativePaintRegion, count: uint32) {.importc: "nimculus_platform_set_paint_dirty_regions", cdecl.}
 proc platformShowExternalChange*(path: cstring) {.importc: "nimculus_platform_show_external_change", cdecl.}
 proc platformShowFindDocument*() {.importc: "nimculus_platform_show_find_document", cdecl.}
+proc platformShowReplaceDocument*() {.importc: "nimculus_platform_show_replace_document", cdecl.}
+proc platformShowGoToLine*() {.importc: "nimculus_platform_show_go_to_line", cdecl.}
+proc platformShowQuickOpen*() {.importc: "nimculus_platform_show_quick_open", cdecl.}
 proc platformShowWorkspaceSearch*() {.importc: "nimculus_platform_show_workspace_search", cdecl.}
 proc platformShowCommandPalette*() {.importc: "nimculus_platform_show_command_palette", cdecl.}
 proc platformShowSettingsPanel*(theme, editorFontSize, terminalFontSize,

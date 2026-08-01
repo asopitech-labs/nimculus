@@ -6414,3 +6414,21 @@ rejected before a destructive sheet can appear.
 
 This keeps keyboard activation and the existing right-click menu on one native
 path without adding Cocoa state to the workspace model.
+
+## UI-086: Make implemented editor services discoverable from Command Palette
+
+Zed treats the command palette as a primary action surface, not a short list of
+the most common shortcuts. Nimculus had already implemented LSP, syntax, Git,
+workspace, terminal, task, and settings dispatch, but its native palette only
+listed a small subset of those actions. The palette now exposes the complete
+macOS no-argument action set, including replace/go-to-line/quick-open,
+Tree-sitter selection and folding, Git hunk operations, terminal/task control,
+LSP navigation/actions/signature/inlay/semantic/formatting, update checks, and
+settings.
+
+Actions that need user data retain their explicit command syntax (`rename
+<new-name>`, `run task <command>`, `apply code action <number>`). Bare `git
+commit` opens the existing commit editor instead of creating an implicit empty
+commit. Replace, go-to-line, and quick-open use AppKit overlay entry points so
+they remain non-modal and return focus to the editor consistently with the
+existing menu actions.
