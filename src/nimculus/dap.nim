@@ -140,6 +140,13 @@ proc beginRequest*(tracker: var DapRequestTracker,
   inc tracker.nextSeq
   tracker.pending[result.seq] = result
 
+proc allocateSequence*(tracker: var DapRequestTracker): int =
+  ## Adapter requests and responses share one client-owned sequence space.
+  ## Reverse requests must be answered without entering the pending-response
+  ## table, so reserve their sequence explicitly at the transport boundary.
+  result = tracker.nextSeq
+  inc tracker.nextSeq
+
 proc finishRequest*(tracker: var DapRequestTracker, requestSeq: int): bool =
   if requestSeq notin tracker.pending: return false
   tracker.pending.del(requestSeq)
@@ -196,6 +203,21 @@ proc parseMessage*(node: JsonNode): DapMessage =
 proc requestJson*(request: DapPendingRequest, arguments: JsonNode = nil): JsonNode =
   result = %*{"seq": request.seq, "type": "request", "command": request.command}
   if arguments != nil: result["arguments"] = arguments
+
+proc responseJson*(request: DapMessage, sequence: int, success = true,
+                   body: JsonNode = nil, responseMessage = ""): JsonNode =
+  ## A DAP adapter request is answered by a response carrying the adapter's
+  ## request sequence. Keep the response construction here so UI code cannot
+  ## accidentally emit an unframed or mismatched request_seq.
+  result = %*{
+    "seq": sequence,
+    "type": "response",
+    "request_seq": request.seq,
+    "command": request.command,
+    "success": success
+  }
+  if body != nil: result["body"] = body
+  if responseMessage.len > 0: result["message"] = newJString(responseMessage)
 
 proc notificationJson*(command: string, arguments: JsonNode = nil): JsonNode =
   ## DAP calls client-originated notifications "requests" on the wire, but
@@ -293,9 +315,16 @@ proc sendRequest*(session: DapSession, command: string,
 proc sendNotification*(session: DapSession, command: string,
                        arguments: JsonNode = nil) =
   if session == nil: raise protocolError("DAP session is nil")
-  let request = session.tracker.beginRequest(command)
-  discard session.tracker.finishRequest(request.seq)
-  session.sendJson(request.requestJson(arguments))
+  let sequence = session.tracker.allocateSequence()
+  var payload = %*{"seq": sequence, "type": "request", "command": command}
+  if arguments != nil: payload["arguments"] = arguments
+  session.sendJson(payload)
+
+proc sendResponse*(session: DapSession, request: DapMessage, success = true,
+                   body: JsonNode = nil, responseMessage = "") =
+  if session == nil: raise protocolError("DAP session is nil")
+  let sequence = session.tracker.allocateSequence()
+  session.sendJson(request.responseJson(sequence, success, body, responseMessage))
 
 when defined(posix):
   proc outputReadable(session: DapSession): bool =

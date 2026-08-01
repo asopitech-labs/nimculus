@@ -22,6 +22,7 @@ suite "M10 task service":
     for _ in 0 ..< 100:
       if job.poll(): break
       sleep(10)
+    check job.processId > 0
     check job.isSuccess()
     check job.result.output == "nimculus:" & expandFilename("/tmp")
 

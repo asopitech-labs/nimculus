@@ -57,6 +57,21 @@ suite "M19 DAP transport":
     check attachArguments(42, "/tmp")["processId"].getInt == 42
     check threadsArguments().kind == JObject
 
+  test "reverse requests produce correlated responses without pending state":
+    var tracker = initDapRequestTracker()
+    let reverse = parseMessage(%*{"seq": 41, "type": "request",
+      "command": "runInTerminal", "arguments": {"args": ["/bin/echo"]}})
+    let response = reverse.responseJson(tracker.allocateSequence(), true,
+      %*{"processId": 99})
+    let parsed = parseMessage(response)
+    check parsed.messageType == dapResponseMessage
+    check parsed.seq == 1
+    check parsed.requestSeq == 41
+    check parsed.command == "runInTerminal"
+    check parsed.success
+    check parsed.body["processId"].getInt == 99
+    check tracker.pendingCount == 0
+
   test "session starts, exchanges a DAP frame, and stops its direct child":
     let server = getTempDir() / "nimculus-dap-test-server.sh"
     let response = "{\"seq\":2,\"type\":\"response\",\"request_seq\":1,\"success\":true,\"command\":\"initialize\"}"

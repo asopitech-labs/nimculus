@@ -6498,8 +6498,11 @@ those responsibilities in `dap.nim`: Content-Length framing is byte-accurate
 and bounded, partial/multiple frames are retained safely, stale requests are
 discarded, and adapter termination is bounded. The macOS UI projects protocol
 events into the existing Task output panel and Debug menu. Reverse adapter
-requests are surfaced without blocking the event loop until a matching UI
-capability is implemented.
+requests are answered without blocking the event loop. `runInTerminal` starts
+the requested direct child through the bounded task service and returns its
+PID; unsupported reverse requests receive an explicit bounded failure response
+instead of leaving an adapter waiting forever. Response sequences are allocated
+from the same client sequence space without polluting pending request state.
 
 ## M18-092 / M19-093: Keep worktree and remote-debug routing explicit
 
@@ -6530,10 +6533,22 @@ Variables, and Watches are projected into the macOS Debug sidebar. Each visible
 row is assigned a stable panel item and the AppKit line map excludes section
 headers from activation. Enter/Space selects a thread or frame, requests the
 selected scope, and expands/collapses variables through their
-`variablesReference`. The Debug activity-bar command opens the panel without
+`variablesReference`. Activating a frame also opens its absolute source path in
+the focused pane, moves the pane cursor to the adapter's zero-based line, and
+keeps the line visible. The Debug activity-bar command opens the panel without
 moving first responder away from the editor. This keeps the current
 text-backed native surface compatible with a future richer tree renderer while
 already providing the user-visible debugger actions.
+
+## M19-097: Own DAP runInTerminal children through the task boundary
+
+Zed responds to DAP reverse requests through the transport rather than logging
+and abandoning them. Nimculus handles `runInTerminal` on the macOS idle path by
+validating the adapter-provided command, cwd, and string environment entries,
+starting the direct child with `TaskJob`, and returning both `processId` and
+`shellProcessId`. The job is polled without blocking AppKit and is cancelled
+before DAP/session shutdown. `startDebugging` remains an explicit negative
+response until nested-session ownership and UI routing are implemented.
 
 ## M17-095: Install extensions through an explicit macOS sheet
 
@@ -6557,3 +6572,8 @@ resolves the adapter in this order: `NIMCULUS_DAP_COMMAND`, the standard Xcode
 bundle locations, then `xcrun --find lldb-dap` so `DEVELOPER_DIR` remains
 respected. The existing command/argument/program environment variables remain
 available for non-LLDB adapters and project-specific launch configurations.
+The 2026-08-02 direct probe accepted `initialize` but macOS debugserver denied
+launching `/bin/sleep` with `Not allowed to attach to process`. Nimculus treats
+that as an adapter failure, stops lldb-dap, cancels any `runInTerminal` children,
+and leaves the Debug panel in a clean no-session state; it is not converted into
+a false launch-success result.

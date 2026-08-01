@@ -743,6 +743,7 @@ when defined(macosx):
   var editorDapFrameId = -1
   var editorDapBreakpointLines: seq[int]
   var editorDapAttachPid = -1
+  var editorDapTerminalJobs: seq[TaskJob]
   var editorDapWatchExpressions: seq[string]
   type
     DapSidebarItemKind = enum
@@ -1130,7 +1131,8 @@ when defined(macosx):
       addHeader("────────────")
       for frame in editorDapFrames:
         let marker = if frame.id == editorDapFrameId: "● " else: "  "
-        addItem(marker & frame.name & "  " & frame.source & ":" & $frame.line,
+        let displayLine = frame.line + 1
+        addItem(marker & frame.name & "  " & frame.source & ":" & $displayLine,
           "frame:" & $frame.id, dapFrameItem, frame.id)
     if editorDapScopes.len > 0:
       addHeader("")
@@ -1183,6 +1185,9 @@ when defined(macosx):
       editorViewState.statusMessage = "Debugger: no active session"
       return
     editorDapSession.stop()
+    for job in editorDapTerminalJobs:
+      if job != nil and not job.done: job.cancel()
+    editorDapTerminalJobs.setLen(0)
     editorDapSession = nil
     editorDapInitialized = false
     editorDapThreadId = -1
@@ -1267,6 +1272,25 @@ when defined(macosx):
       editorViewState.statusMessage = "Debugger request failed: " & error.msg
       false
 
+  proc pollNativeDapTerminalJobs() =
+    if editorDapTerminalJobs.len == 0: return
+    var output: seq[string]
+    var active: seq[TaskJob]
+    for job in editorDapTerminalJobs:
+      if job == nil: continue
+      discard job.poll()
+      if job.result.output.len > 0: output.add(job.result.output)
+      if job.done:
+        appendNativeDapOutput("• runInTerminal exited (" & $job.result.exitCode & ")")
+      else:
+        active.add(job)
+    editorDapTerminalJobs = active
+    if output.len > 0:
+      editorTaskOutputVisible = true
+      platformSetTaskOutputVisible(true)
+      platformSetTaskOutputText(output.join("\n").cstring,
+        uint32(output.join("\n").len))
+
   proc pollNativeDap() =
     if editorDapSession == nil: return
     for message in editorDapSession.poll():
@@ -1275,6 +1299,18 @@ when defined(macosx):
         if not message.success:
           appendNativeDapOutput("← " & message.command & ": " & message.responseMessage)
           editorViewState.statusMessage = "Debugger: " & message.command & " failed"
+          if message.command in ["initialize", "launch", "attach"]:
+            # A failed adapter handshake/target attach must not leave
+            # lldb-dap or a runInTerminal child behind. This is especially
+            # important on macOS where debugserver can reject a target after
+            # the adapter itself has already emitted process events.
+            editorDapSession.stop()
+            editorDapSession = nil
+            for job in editorDapTerminalJobs:
+              if job != nil and not job.done: job.cancel()
+            editorDapTerminalJobs.setLen(0)
+            editorDapInitialized = false
+            renderNativeDapSidebar()
           continue
         appendNativeDapOutput("← " & message.command)
         if message.command == "initialize" and not editorDapInitialized:
@@ -1284,12 +1320,21 @@ when defined(macosx):
             discard sendNativeDapRequest("attach", attachArguments(editorDapAttachPid,
               taskWorkingDirectory(document)))
           else:
-            let program = if getEnv("NIMCULUS_DAP_PROGRAM", "").len > 0:
-              getEnv("NIMCULUS_DAP_PROGRAM", "")
-              elif document != nil and document[].path.len > 0: document[].path
+            let configuredProgram = getEnv("NIMCULUS_DAP_PROGRAM", "").strip
+            let documentProgram = if document != nil and document[].path.len > 0 and
+                fileExists(document[].path) and fpUserExec in getFilePermissions(document[].path):
+              document[].path
               else: ""
-            discard sendNativeDapRequest("launch", launchArguments(program,
-              taskWorkingDirectory(document), getEnv("NIMCULUS_DAP_PROGRAM_ARGS", "").splitWhitespace))
+            let program = if configuredProgram.len > 0: configuredProgram else: documentProgram
+            if program.len == 0:
+              appendNativeDapOutput("Debugger launch requires NIMCULUS_DAP_PROGRAM or an executable active file")
+              editorViewState.statusMessage = "Debugger launch target is not configured"
+              editorDapSession.stop()
+              editorDapSession = nil
+              renderNativeDapSidebar()
+            else:
+              discard sendNativeDapRequest("launch", launchArguments(program,
+                taskWorkingDirectory(document), getEnv("NIMCULUS_DAP_PROGRAM_ARGS", "").splitWhitespace))
         elif message.command == "stackTrace" and message.body != nil:
           if message.body.hasKey("stackFrames") and message.body["stackFrames"].kind == JArray:
             var lines = @["Debugger — Stack Frames"]
@@ -1309,7 +1354,7 @@ when defined(macosx):
                   frame["source"].hasKey("path"): frame["source"]["path"].getStr else: ""
               editorDapFrames.add(DapFrameInfo(id: id, name: name, source: source, line: line))
               if editorDapFrameId < 0: editorDapFrameId = id
-              lines.add(name & "  " & source & ":" & $line)
+              lines.add(name & "  " & source & ":" & $(line + 1))
             editorDapOutput = lines.join("\n") & "\n\n" & editorDapOutput
             platformSetTaskOutputText(editorDapOutput.cstring, uint32(editorDapOutput.len))
             renderNativeDapSidebar()
@@ -1419,9 +1464,61 @@ when defined(macosx):
         else: discard
         appendNativeDapOutput("• " & message.event)
       of dapRequestMessage:
-        # Reverse requests are intentionally visible until a matching UI
-        # capability is implemented. Never block the event loop on them.
         appendNativeDapOutput("← adapter request: " & message.command)
+        try:
+          case message.command
+          of "runInTerminal":
+            var commandArgs: seq[string]
+            var cwd = taskWorkingDirectory(activeDocument())
+            var environment: seq[tuple[key, value: string]]
+            if message.arguments != nil and message.arguments.kind == JObject:
+              if message.arguments.hasKey("cwd") and
+                  message.arguments["cwd"].kind == JString:
+                cwd = message.arguments["cwd"].getStr
+              if message.arguments.hasKey("args") and
+                  message.arguments["args"].kind == JArray:
+                for argument in message.arguments["args"]:
+                  if argument.kind == JString: commandArgs.add(argument.getStr)
+              if message.arguments.hasKey("env") and
+                  message.arguments["env"].kind == JObject:
+                for key, value in message.arguments["env"]:
+                  if value.kind == JString:
+                    environment.add((key: key, value: value.getStr))
+            if commandArgs.len == 0:
+              editorDapSession.sendResponse(message, false, %*{},
+                "runInTerminal requires a non-empty args array")
+            elif not dirExists(cwd):
+              editorDapSession.sendResponse(message, false, %*{},
+                "runInTerminal working directory is unavailable")
+            else:
+              let job = startTask(TaskSpec(command: commandArgs[0],
+                args: if commandArgs.len > 1: commandArgs[1 .. ^1] else: @[],
+                workingDirectory: cwd, environment: environment))
+              if job == nil or job.done or job.processId <= 0:
+                editorDapSession.sendResponse(message, false, %*{},
+                  "runInTerminal process could not be started")
+              else:
+                editorDapTerminalJobs.add(job)
+                editorTaskOutputVisible = true
+                platformSetTaskOutputVisible(true)
+                editorWorkspaceUi.openPanel(panelTasks)
+                editorDapSession.sendResponse(message, true, %*{
+                  "processId": job.processId,
+                  "shellProcessId": job.processId
+                })
+          of "startDebugging":
+            editorDapSession.sendResponse(message, false, %*{},
+              "nested DAP sessions are not supported")
+          else:
+            editorDapSession.sendResponse(message, false, %*{},
+              "unsupported DAP reverse request: " & message.command)
+        except CatchableError as error:
+          editorViewState.statusMessage = "Debugger reverse request failed: " & error.msg
+          try:
+            editorDapSession.sendResponse(message, false, %*{}, error.msg)
+          except CatchableError:
+            discard
+    if editorDapSession == nil: return
     if editorDapSession.state in {dapStopped, dapFailed}:
       editorViewState.statusMessage = if editorDapSession.state == dapFailed:
         "Debugger adapter exited unexpectedly" else: "Debugger stopped"
@@ -2752,6 +2849,9 @@ when defined(macosx):
     if editorTaskJob != nil and not editorTaskJob.done:
       editorTaskJob.cancel()
     editorTaskJob = nil
+    for job in editorDapTerminalJobs:
+      if job != nil and not job.done: job.cancel()
+    editorDapTerminalJobs.setLen(0)
     if editorDapSession != nil:
       editorDapSession.stop()
     editorDapSession = nil
@@ -4234,6 +4334,7 @@ when defined(macosx):
     pollNativeGitAction()
     pollNativeTask()
     pollNativeUpdate()
+    pollNativeDapTerminalJobs()
     pollNativeDap()
     pollNativeAgent()
     pollNativeTerminal()
@@ -4681,6 +4782,44 @@ proc openFilesDockEntry(path: string) =
     persistSession()
   except CatchableError as error:
     editorViewState.statusMessage = "Open failed: " & error.msg
+
+when defined(macosx):
+  proc openNativeDapFrame(frame: DapFrameInfo) =
+    ## Zed activates the selected frame and opens its source at the reported
+    ## line. Keep the same user-visible boundary: selecting a frame requests
+    ## scopes, while activating it navigates the focused Nimculus pane.
+    if frame.source.len == 0:
+      editorViewState.statusMessage = "Debugger frame has no source path"
+      return
+    var sourcePath = frame.source
+    if not isAbsolute(sourcePath):
+      sourcePath = taskWorkingDirectory(activeDocument()) / sourcePath
+    sourcePath = canonicalOpenPath(sourcePath)
+    if sourcePath.len == 0 or not fileExists(sourcePath):
+      editorViewState.statusMessage = "Debugger source is unavailable: " & frame.source
+      return
+    openFilesDockEntry(sourcePath)
+    let tab = focusedPaneTabIndex()
+    let document = documentForTab(tab)
+    if document == nil or canonicalOpenPath(document[].path) != sourcePath:
+      editorViewState.statusMessage = "Debugger source could not be opened: " & sourcePath
+      return
+    # initialize advertises zero-based line/column coordinates. DAP adapters
+    # therefore report the first line as 0; the visible status is one-based.
+    let targetLine = max(0, min(frame.line, document[].buffer.lineStarts.high))
+    let byteOffset = document[].buffer.byteOffsetAtLineColumn(targetLine, 0)
+    if editorSession.split and editorSession.splitActivePane == 1:
+      var view = editorSession.tabs[tab].secondaryView
+      view.moveCursor(byteOffset)
+      view.scrollLine = targetLine
+      editorSession.tabs[tab].secondaryView = view
+      editorSession.secondaryView = view
+    else:
+      editorViewState.moveCursor(byteOffset)
+      editorViewState.scrollLine = targetLine
+    editorViewState.statusMessage = "Debugger: " & sourcePath & ":" & $(targetLine + 1)
+    syncEditorCursor()
+    refreshEditorSyntax()
 
 when defined(macosx):
   proc navigateToDefinition() =
@@ -6794,6 +6933,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
               editorDapVariableRequestReference = 0
               editorDapExpandedVariableReferences.setLen(0)
               discard sendNativeDapRequest("scopes", scopesArguments(item.id))
+              for frame in editorDapFrames:
+                if frame.id == item.id:
+                  openNativeDapFrame(frame)
+                  break
             of dapScopeItem:
               editorDapVariableRootReference = item.reference
               editorDapVariableRequestReference = item.reference

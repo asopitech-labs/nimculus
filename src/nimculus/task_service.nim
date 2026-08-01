@@ -40,6 +40,7 @@ type
   TaskJob* = ref object
     process: Process
     output: Stream
+    pid*: int
     result*: TaskResult
     done*: bool
 
@@ -132,6 +133,7 @@ proc startTask*(spec: TaskSpec): TaskJob =
     let process = startProcess(spec.command, spec.workingDirectory, spec.args,
       env = taskEnvironment(spec), options = taskProcessOptions())
     result = TaskJob(process: process, output: process.peekableOutputStream(),
+      pid: process.processID(),
       result: TaskResult(status: taskRunning, exitCode: -1))
   except CatchableError as error:
     result = TaskJob(done: true,
@@ -186,3 +188,8 @@ proc poll*(job: TaskJob): bool =
 
 proc isSuccess*(job: TaskJob): bool =
   job != nil and job.done and job.result.status == taskSucceeded
+
+proc processId*(job: TaskJob): int =
+  ## Keep the direct child identity available after the process handle is
+  ## closed. DAP `runInTerminal` responses use this identity for attach.
+  if job == nil: 0 else: job.pid
