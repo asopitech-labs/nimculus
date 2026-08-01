@@ -13,6 +13,7 @@ import nimculus/editor_buffer
 import nimculus/editor_view
 import nimculus/workspace_ui
 import nimculus/editor_syntax
+import nimculus/syntax
 import nimculus/tree_sitter
 import nimculus/workspace
 import nimculus/session
@@ -157,6 +158,10 @@ when defined(macosx) or defined(windows):
   var pendingLspCodeActions: seq[LspCodeAction]
   var pendingLspSymbols: seq[LspSymbol]
   var pendingLspSymbolDepths: seq[int]
+  ## Tree-sitter supplies a local outline even when no Language Server is
+  ## configured. Keep it separate so an LSP response can take precedence
+  ## without losing the immediate syntax fallback during server startup.
+  var pendingSyntaxSymbols: seq[LspSymbol]
 
 when defined(macosx):
   # NSSavePanel is asynchronous. Remember the tab that initiated it so a
@@ -177,6 +182,7 @@ when defined(macosx):
   proc syncNativeInlayHints(document: ptr FileDocument)
   proc syncNativeSecondaryInlayHints(document: ptr FileDocument)
   proc syncNativeSymbolTree()
+  proc updateSyntaxOutline(document: ptr FileDocument)
   proc handleCompletionShortcut(event: ptr NimculusInputEvent): bool
 
 when defined(windows):
@@ -681,7 +687,7 @@ proc resetEditorTransientState() =
   when defined(macosx):
     pendingLspSymbols.setLen(0)
     pendingLspSymbolDepths.setLen(0)
-    syncNativeSymbolTree()
+    updateSyntaxOutline(activeDocument())
 
 proc resetEditorViewState() =
   editorViewState = newEditorView()
@@ -1317,17 +1323,19 @@ when defined(macosx):
 
   proc syncNativeSymbolTree() =
     if editorSidebarMode != sidebarOutline: return
+    let symbols = if pendingLspSymbols.len > 0: pendingLspSymbols else:
+      pendingSyntaxSymbols
+    let depths = if pendingLspSymbols.len > 0: pendingLspSymbolDepths else: @[]
     var lines = @[
       "Outline",
       "────────"
     ]
-    if pendingLspSymbols.len == 0:
+    var keys: seq[string]
+    if symbols.len == 0:
       lines.add("No symbols")
     else:
-      var keys: seq[string]
-      for index, symbol in pendingLspSymbols:
-        let depth = if index < pendingLspSymbolDepths.len:
-          pendingLspSymbolDepths[index] else: 0
+      for index, symbol in symbols:
+        let depth = if index < depths.len: depths[index] else: 0
         lines.add("  ".repeat(depth) & symbol.name & "  " &
           $(symbol.range.start.line + 1))
         # A symbol name alone is not stable across overloads. The LSP range
@@ -1335,17 +1343,19 @@ when defined(macosx):
         keys.add(symbol.name & "\x1f" & $symbol.range.start.line & ":" &
           $symbol.range.start.character & ":" & $symbol.range.finish.line & ":" &
           $symbol.range.finish.character)
-      editorWorkspaceUi.replacePanelItems(panelOutline, keys)
+    editorWorkspaceUi.replacePanelItems(panelOutline, keys)
     let text = lines.join("\n")
-    platformSetEditorOutline(text.cstring, uint32(text.len), uint32(pendingLspSymbols.len))
+    platformSetEditorOutline(text.cstring, uint32(text.len), uint32(symbols.len))
     syncNativeSidebarSelection()
 
   proc openNativeSymbol(index: int): bool =
     let document = activeDocument()
-    if document == nil or index < 0 or index >= pendingLspSymbols.len:
+    let symbols = if pendingLspSymbols.len > 0: pendingLspSymbols else:
+      pendingSyntaxSymbols
+    if document == nil or index < 0 or index >= symbols.len:
       editorViewState.statusMessage = "LSP symbol is unavailable"
       return false
-    let symbol = pendingLspSymbols[index]
+    let symbol = symbols[index]
     let target = document[].buffer.byteOffsetAtUtf16Position(
       symbol.range.start.line, symbol.range.start.character)
     moveActiveEditorCursor(target)
@@ -1353,8 +1363,30 @@ when defined(macosx):
     refreshEditorSyntax()
     editorWorkspaceUi.focusCenter()
     platformFocusEditor()
-    editorViewState.statusMessage = "LSP: " & symbol.name
+    editorViewState.statusMessage = if pendingLspSymbols.len > 0:
+      "LSP: " & symbol.name else: "Outline: " & symbol.name
     true
+
+  proc updateSyntaxOutline(document: ptr FileDocument) =
+    ## Tree-sitter's local outline is the immediate editor affordance. LSP
+    ## document symbols replace it only when a valid response arrives; until
+    ## then the Outline panel must remain useful for a plain local project.
+    pendingSyntaxSymbols.setLen(0)
+    if document == nil or syntaxState == nil or syntaxState.tree == nil:
+      if editorSidebarMode == sidebarOutline: syncNativeSymbolTree()
+      return
+    for item in syntaxState.tree.outline():
+      # LspRange uses UTF-16 columns. `lineColumn` is intentionally a
+      # grapheme-column API for editor movement, so use the buffer's explicit
+      # UTF-16 conversion at this protocol boundary (important for Japanese
+      # identifiers and astral symbols before a declaration).
+      let start = document[].buffer.utf16Position(int(item.startByte))
+      let finish = document[].buffer.utf16Position(int(item.endByte))
+      pendingSyntaxSymbols.add(LspSymbol(name: item.name, kind: 0,
+        range: LspRange(
+          start: LspPosition(line: start.line, character: start.character),
+          finish: LspPosition(line: finish.line, character: finish.character))))
+    if editorSidebarMode == sidebarOutline: syncNativeSymbolTree()
 
   proc lspSelectionRange(document: ptr FileDocument): LspRange =
     if document == nil: return
@@ -2944,6 +2976,8 @@ proc refreshEditorSyntax() =
   let document = activeDocument()
   if document == nil:
     when defined(macosx):
+      pendingSyntaxSymbols.setLen(0)
+      if editorSidebarMode == sidebarOutline: syncNativeSymbolTree()
       platformSetEditorDiagnostics(nil, 0)
       editorLspInlayHints.setLen(0)
       editorLspSecondaryInlayHints.setLen(0)
@@ -2977,6 +3011,8 @@ proc refreshEditorSyntax() =
       syntaxState = nil
     when defined(macosx):
       platformSetEditorHighlights(nil, 0)
+      pendingSyntaxSymbols.setLen(0)
+      if editorSidebarMode == sidebarOutline: syncNativeSymbolTree()
       let text = document[].buffer.toString()
       platformSetEditorText(text.cstring, uint32(text.len))
       syncNativeInlayHints(document)
@@ -2993,6 +3029,8 @@ proc refreshEditorSyntax() =
     syntaxState = newEditorSyntax(document[].path, document[].buffer.toString())
   elif syntaxState != nil:
     syntaxState.update(document[].buffer.toString())
+  when defined(macosx):
+    updateSyntaxOutline(document)
   when defined(macosx):
     let highlights = if syntaxState == nil: @[] else:
       let visibleLines = editorVisibleLineCount()

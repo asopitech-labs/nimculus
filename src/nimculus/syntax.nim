@@ -1,4 +1,5 @@
 import std/strutils
+import std/unicode
 import nimculus/tree_sitter
 
 type
@@ -71,19 +72,43 @@ proc foldRanges*(tree: SyntaxTree, source: string): seq[FoldRange] =
 proc identifierChar(value: char): bool =
   value in {'a'..'z', 'A'..'Z', '0'..'9', '_'}
 
+proc identifierChar(value: Rune): bool =
+  let code = int(value)
+  value.isAlpha or (code >= ord('0') and code <= ord('9')) or
+    code == ord('_')
+
+proc firstIdentifier(value: string): string =
+  var cursor = 0
+  while cursor < value.len:
+    let rune = value.runeAt(cursor)
+    if rune.identifierChar: break
+    cursor += value.runeLenAt(cursor)
+  let start = cursor
+  while cursor < value.len:
+    let rune = value.runeAt(cursor)
+    if not rune.identifierChar: break
+    cursor += value.runeLenAt(cursor)
+  if cursor > start: result = value[start ..< cursor]
+
 proc declarationName(source, kind: string, startByte, endByte: uint32): string =
   if source.len == 0 or startByte >= uint32(source.len): return
   let finish = min(int(endByte), source.len)
   if finish <= int(startByte): return
   let declaration = source[int(startByte) ..< finish]
+  if kind in ["type_declaration", "type_symbol_declaration"]:
+    # Nim's type_declaration node starts at the declared symbol, while some
+    # grammars include the `type` keyword in the declaration span.
+    var candidate = declaration.strip
+    if candidate.startsWith("type "):
+      candidate = candidate[5 .. ^1].strip
+    return candidate.firstIdentifier
   let keywords = case kind
-    of "function_definition", "function_item": @[
+    of "function_definition", "function_item", "proc_declaration": @[
       "function", "def", "fn", "proc", "func", "method", "template"]
     of "class_definition": @["class"]
     of "struct_item": @["struct"]
-    of "proc_decl": @["proc", "func", "method", "template"]
-    of "type_declaration": @[
-      "type", "struct", "class", "interface", "enum"]
+    of "proc_decl", "template_declaration": @[
+      "proc", "func", "method", "template"]
     else: @[]
   for keyword in keywords:
     var offset = declaration.find(keyword)
@@ -92,19 +117,18 @@ proc declarationName(source, kind: string, startByte, endByte: uint32): string =
       let after = offset + keyword.len
       let afterIsBoundary = after >= declaration.len or not identifierChar(declaration[after])
       if beforeIsBoundary and afterIsBoundary:
-        var cursor = after
-        while cursor < declaration.len and not identifierChar(declaration[cursor]): inc cursor
-        let nameStart = cursor
-        while cursor < declaration.len and identifierChar(declaration[cursor]): inc cursor
-        if cursor > nameStart and not declaration[nameStart].isDigit:
-          return declaration[nameStart ..< cursor]
+        let name = declaration.substr(after).firstIdentifier
+        if name.len > 0 and not name[0].isDigit:
+          return name
       let nextOffset = offset + keyword.len
       if nextOffset >= declaration.len: break
       offset = declaration.find(keyword, nextOffset)
 
 proc outline*(tree: SyntaxTree): seq[OutlineItem] =
   for node in tree.nodes:
-    if node.kind in ["function_definition", "function_item", "class_definition", "struct_item", "proc_decl", "type_declaration"]:
+    if node.kind in ["function_definition", "function_item", "class_definition",
+        "struct_item", "proc_decl", "proc_declaration", "template_declaration",
+        "type_declaration", "type_symbol_declaration"]:
       let name = tree.source.declarationName(node.kind, node.startByte, node.endByte)
       result.add(OutlineItem(name: if name.len > 0: name else: node.kind,
         kind: node.kind, startByte: node.startByte, endByte: node.endByte))

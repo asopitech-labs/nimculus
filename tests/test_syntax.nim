@@ -38,3 +38,13 @@ suite "M7 syntax services":
     check items.anyIt(it.name == "f")
     tree.close()
     parser.close()
+
+  test "extracts Nim declarations for the native outline":
+    let parser = newTreeSitterParser(grammarNim)
+    var tree = parser.parse("type EditorState = object\nproc updateState(value: int) = discard\nproc 日本語(value: int) = discard\n")
+    let items = tree.outline
+    check items.anyIt(it.name == "EditorState")
+    check items.anyIt(it.name == "updateState")
+    check items.anyIt(it.name == "日本語")
+    tree.close()
+    parser.close()

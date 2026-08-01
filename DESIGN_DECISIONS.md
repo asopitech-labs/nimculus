@@ -6294,3 +6294,25 @@ visible row uses NimNUI's selection color and retains readable foreground text.
 presentation even when the editor owns first responder. Stable row alignment is
 preserved across workspace refreshes without a one-row visual drift or a pale
 inactive strip hiding the selected path.
+
+## UI-079: Keep Outline useful before LSP symbols arrive
+
+**Context.** Tree-sitter already parsed the active document, but the macOS
+Outline panel was populated only by asynchronous LSP document symbols. A plain
+local project, a language server that was still starting, or a server that did
+not implement document symbols therefore showed an empty panel even though the
+editor had enough syntax information to provide useful declarations.
+
+**Decision.** Project Tree-sitter outline items into the same native Outline
+contract as LSP symbols whenever the active document has no valid LSP symbol
+snapshot. Use the buffer's explicit UTF-16 position conversion when creating
+the ranges, because the editor's grapheme columns are not an LSP protocol
+position. Prefer the LSP snapshot once it arrives, and keep symbol activation
+on the same UTF-16 range in either mode.
+
+**Consequences.** Outline is immediately actionable during local editing and
+does not depend on a language-server process for its basic navigation. LSP
+hierarchy and richer symbol kinds still replace the flat local fallback when
+available. Nim declaration nodes (`proc_declaration`, `template_declaration`,
+and type declarations) now extract their declared identifier rather than a
+later enum member or raw node kind.
