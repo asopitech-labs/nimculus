@@ -674,9 +674,9 @@ WSL リモート基盤を一般化し、SSH 接続、agent 配置、鍵認証、
 
 ### M17：拡張システム
 
-**macOS実装状況：** `extension.json`の発見・API version 1検証、language definition、Tree-sitter grammar、LSP configuration、theme、icon theme、snippets、tasks、commandsのメタデータ登録を実装済み。macOSのExtensionsメニュー／Command Paletteからローカル拡張フォルダを選択し、manifest・WASMヘッダー・安全な拡張ID・symlinkを検証したうえで`~/.nimculus/extensions/<id>`へ原子的に導入できる。公式Wasmtime CLIを直接argvで起動し、extension rootだけをpreopenするWASM実行境界、runtime status、Run WASM Extension導線、Task出力・キャンセルを実装済み。Wasmtime C APIを動的解決するComponent Model/WASI Preview 2のbounded host境界も追加し、同一アーキテクチャのライブラリがある場合に限り、API/id/host capability環境、fuel・resource limit、read-only preopen、明示export呼び出しを適用する。Componentは専用worker、idle polling、epoch interruptionによるキャンセルまで接続し、core moduleはCLIへフォールバックする。権限名allow-list、実行・導入前の非同期Allow/Denyシート、host capability negotiationも実装済み。既存拡張の上書きは未実装で、明示的な更新操作が必要。次の拡張はZedの全WIT world互換ではなく、必要なhost importをversioned contractとして段階追加する。
+**macOS実装状況：** `extension.json`の発見・API version 1検証、language definition、Tree-sitter grammar、LSP configuration、theme、icon theme、snippets、tasks、commandsのメタデータ登録を実装済み。macOSのExtensionsメニュー／Command Paletteからローカル拡張フォルダを選択し、manifest・WASMヘッダー・安全な拡張ID・symlinkを検証したうえで`~/.nimculus/extensions/<id>`へ原子的に導入できる。公式Wasmtime CLIを直接argvで起動し、extension rootだけをpreopenするWASM実行境界、runtime status、Run WASM Extension導線、Task出力・キャンセルを実装済み。Wasmtime C APIを動的解決するComponent Model/WASI Preview 2のbounded host境界も追加し、同一アーキテクチャのライブラリがある場合に限り、API/id/host capability環境、fuel・resource limit、read-only preopen、明示export呼び出しを適用する。Zedと同じ`zed:extension/platform.current-platform`を最初の実WIT host importとしてリンクし、Apple Siliconでは`mac`／`aarch64`を返す。未実装のZed importは`define_unknown_imports_as_traps`で暗黙許可せずtrap化する。Componentは専用worker、idle polling、epoch interruptionによるキャンセルまで接続し、core moduleはCLIへフォールバックする。権限名allow-list、実行・導入前の非同期Allow/Denyシート、host capability negotiationも実装済み。互換ランタイムがない場合はCLIへフォールバックし、既存拡張の上書きは未実装で明示的な更新操作が必要。次の拡張はZedの全WIT world互換ではなく、必要なhost importをversioned contractとして段階追加する。
 
-**第 2 段階：** WASM extension、external process extension、permission model、versioned API。
+**第 2 段階：** WASM extension、external process extension、permission model、versioned API。Zedの`zed:extension/platform.current-platform`を最初の実WIT host importとして実装し、未実装importは暗黙許可せず決定的なtrapへ解決する。
 
 **禁止事項：** Node.js runtime を組み込まない。VSCode Extension API 互換を目標にしない。信頼できないネイティブ共有ライブラリを本体へ直接ロードしない。
 

@@ -1,0 +1,12 @@
+package zed:extension;
+
+interface platform {
+  enum os { mac, linux, windows }
+  enum architecture { aarch64, x8664 }
+  current-platform: func() -> tuple<os, architecture>;
+}
+
+world extension {
+  import platform;
+  export init-extension: func();
+}

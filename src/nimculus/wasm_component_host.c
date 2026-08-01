@@ -27,6 +27,8 @@ typedef struct wasmtime_context wasmtime_context_t;
 typedef struct wasi_config wasi_config_t;
 typedef struct wasmtime_component wasmtime_component_t;
 typedef struct wasmtime_component_linker wasmtime_component_linker_t;
+typedef struct wasmtime_component_linker_instance
+    wasmtime_component_linker_instance_t;
 typedef struct wasmtime_component_export_index wasmtime_component_export_index_t;
 typedef struct wasmtime_error wasmtime_error_t;
 
@@ -47,6 +49,36 @@ typedef struct {
   uint32_t private_one;
   uint32_t private_two;
 } wasmtime_component_func_t;
+
+/* The component callback ABI is kept local because this boundary deliberately
+ * does not require Wasmtime headers at build time. These fields mirror the
+ * stable C API layout from wasmtime/component/val.h. Only enum and tuple
+ * values are needed by the first WIT capability below. */
+typedef struct {
+  size_t size;
+  uint8_t *data;
+} wasm_name_t;
+
+typedef struct wasmtime_component_val wasmtime_component_val_t;
+typedef struct {
+  size_t size;
+  wasmtime_component_val_t *data;
+} wasmtime_component_valtuple_t;
+
+typedef union {
+  wasm_name_t enumeration;
+  wasmtime_component_valtuple_t tuple;
+} wasmtime_component_valunion_t;
+
+struct wasmtime_component_val {
+  uint8_t kind;
+  wasmtime_component_valunion_t of;
+};
+
+enum {
+  NIMCULUS_COMPONENT_TUPLE = 15,
+  NIMCULUS_COMPONENT_ENUM = 17
+};
 
 typedef void *(*fn_wasm_config_new)(void);
 typedef void (*fn_wasm_config_delete)(wasm_config_t *);
@@ -81,8 +113,25 @@ typedef wasmtime_error_t *(*fn_wasmtime_component_new)(
 typedef void (*fn_wasmtime_component_delete)(wasmtime_component_t *);
 typedef wasmtime_component_linker_t *(*fn_wasmtime_component_linker_new)(
     const wasm_engine_t *);
+typedef wasmtime_component_linker_instance_t *(*fn_wasmtime_component_linker_root)(
+    wasmtime_component_linker_t *);
+typedef void (*fn_wasmtime_component_linker_allow_shadowing)(
+    wasmtime_component_linker_t *, bool);
+typedef wasmtime_error_t *(*fn_wasmtime_component_linker_instance_add_instance)(
+    wasmtime_component_linker_instance_t *, const char *, size_t,
+    wasmtime_component_linker_instance_t **);
+typedef wasmtime_error_t *(*fn_wasmtime_component_linker_instance_add_func)(
+    wasmtime_component_linker_instance_t *, const char *, size_t,
+    wasmtime_error_t *(*)(void *, wasmtime_context_t *, const void *,
+                          wasmtime_component_val_t *, size_t,
+                          wasmtime_component_val_t *, size_t),
+    void *, void (*)(void *));
+typedef void (*fn_wasmtime_component_linker_instance_delete)(
+    wasmtime_component_linker_instance_t *);
 typedef void (*fn_wasmtime_component_linker_delete)(
     wasmtime_component_linker_t *);
+typedef wasmtime_error_t *(*fn_wasmtime_component_linker_define_unknown_imports_as_traps)(
+    wasmtime_component_linker_t *, const wasmtime_component_t *);
 typedef wasmtime_error_t *(*fn_wasmtime_component_linker_add_wasip2)(
     wasmtime_component_linker_t *);
 typedef wasmtime_error_t *(*fn_wasmtime_component_linker_instantiate)(
@@ -128,7 +177,14 @@ typedef struct {
   fn_wasmtime_component_new component_new;
   fn_wasmtime_component_delete component_delete;
   fn_wasmtime_component_linker_new linker_new;
+  fn_wasmtime_component_linker_root linker_root;
+  fn_wasmtime_component_linker_allow_shadowing linker_allow_shadowing;
+  fn_wasmtime_component_linker_instance_add_instance linker_instance_add_instance;
+  fn_wasmtime_component_linker_instance_add_func linker_instance_add_func;
+  fn_wasmtime_component_linker_instance_delete linker_instance_delete;
   fn_wasmtime_component_linker_delete linker_delete;
+  fn_wasmtime_component_linker_define_unknown_imports_as_traps
+      linker_define_unknown_imports_as_traps;
   fn_wasmtime_component_linker_add_wasip2 linker_add_wasip2;
   fn_wasmtime_component_linker_instantiate linker_instantiate;
   fn_wasmtime_component_get_export_index component_get_export_index;
@@ -198,7 +254,9 @@ static void *open_wasmtime_library(const char *requested) {
       requested,
       environment,
       "@rpath/libwasmtime.dylib",
+      "/opt/homebrew/opt/wasmtime/lib/libwasmtime.dylib",
       "/opt/homebrew/lib/libwasmtime.dylib",
+      "/usr/local/opt/wasmtime/lib/libwasmtime.dylib",
       "/usr/local/lib/libwasmtime.dylib",
       NULL};
   for (size_t index = 0; candidates[index]; ++index) {
@@ -247,7 +305,18 @@ static bool load_api(void *handle, wasmtime_api_t *api) {
   LOAD_REQUIRED(*api, handle, component_new, "wasmtime_component_new");
   LOAD_REQUIRED(*api, handle, component_delete, "wasmtime_component_delete");
   LOAD_REQUIRED(*api, handle, linker_new, "wasmtime_component_linker_new");
+  LOAD_REQUIRED(*api, handle, linker_root, "wasmtime_component_linker_root");
+  LOAD_REQUIRED(*api, handle, linker_allow_shadowing,
+                "wasmtime_component_linker_allow_shadowing");
+  LOAD_REQUIRED(*api, handle, linker_instance_add_instance,
+                "wasmtime_component_linker_instance_add_instance");
+  LOAD_REQUIRED(*api, handle, linker_instance_add_func,
+                "wasmtime_component_linker_instance_add_func");
+  LOAD_REQUIRED(*api, handle, linker_instance_delete,
+                "wasmtime_component_linker_instance_delete");
   LOAD_REQUIRED(*api, handle, linker_delete, "wasmtime_component_linker_delete");
+  LOAD_REQUIRED(*api, handle, linker_define_unknown_imports_as_traps,
+                "wasmtime_component_linker_define_unknown_imports_as_traps");
   LOAD_REQUIRED(*api, handle, linker_add_wasip2,
                 "wasmtime_component_linker_add_wasip2");
   LOAD_REQUIRED(*api, handle, linker_instantiate,
@@ -266,6 +335,76 @@ static bool load_api(void *handle, wasmtime_api_t *api) {
 }
 
 #undef LOAD_REQUIRED
+
+static bool set_component_name(wasm_name_t *name, const char *value) {
+  if (!name || !value) return false;
+  size_t length = strlen(value);
+  name->data = (uint8_t *)malloc(length);
+  if (length > 0 && !name->data) return false;
+  if (length > 0) memcpy(name->data, value, length);
+  name->size = length;
+  return true;
+}
+
+static wasmtime_error_t *current_platform_callback(
+    void *data, wasmtime_context_t *context, const void *type,
+    wasmtime_component_val_t *args, size_t nargs,
+    wasmtime_component_val_t *results, size_t nresults) {
+  (void)data;
+  (void)context;
+  (void)type;
+  (void)args;
+  if (!results || nargs != 0 || nresults != 1) return NULL;
+#if defined(__aarch64__) || defined(__arm64__)
+  const char *architecture = "aarch64";
+#else
+  const char *architecture = "x8664";
+#endif
+  wasmtime_component_val_t *tuple =
+      (wasmtime_component_val_t *)calloc(2, sizeof(*tuple));
+  if (!tuple) return NULL;
+  tuple[0].kind = NIMCULUS_COMPONENT_ENUM;
+  tuple[1].kind = NIMCULUS_COMPONENT_ENUM;
+  if (!set_component_name(&tuple[0].of.enumeration, "mac") ||
+      !set_component_name(&tuple[1].of.enumeration, architecture)) {
+    free(tuple[0].of.enumeration.data);
+    free(tuple[1].of.enumeration.data);
+    free(tuple);
+    return NULL;
+  }
+  results[0].kind = NIMCULUS_COMPONENT_TUPLE;
+  results[0].of.tuple.size = 2;
+  results[0].of.tuple.data = tuple;
+  return NULL;
+}
+
+static bool link_platform_host(wasmtime_api_t *api,
+                               wasmtime_component_linker_t *linker,
+                               char *error_out, size_t error_capacity) {
+  wasmtime_component_linker_instance_t *root = api->linker_root(linker);
+  if (!root) {
+    set_error(error_out, error_capacity,
+              "cannot access Component linker root");
+    return false;
+  }
+  wasmtime_component_linker_instance_t *platform = NULL;
+  wasmtime_error_t *error = api->linker_instance_add_instance(
+      root, "zed:extension/platform", strlen("zed:extension/platform"),
+      &platform);
+  if (error) {
+    report_wasmtime_error(api, error, error_out, error_capacity);
+    return false;
+  }
+  error = api->linker_instance_add_func(
+      platform, "current-platform", strlen("current-platform"),
+      current_platform_callback, NULL, NULL);
+  api->linker_instance_delete(platform);
+  if (error) {
+    report_wasmtime_error(api, error, error_out, error_capacity);
+    return false;
+  }
+  return true;
+}
 
 int nimculus_wasmtime_component_available(const char *library_path) {
   void *handle = open_wasmtime_library(library_path);
@@ -442,9 +581,24 @@ static int run_component(const char *library_path, const char *module_path,
     set_error(error_out, error_capacity, "cannot create Component linker");
     goto cleanup;
   }
+  /* Trap every import not implemented by this host first. Explicitly linked
+   * capabilities below are allowed to replace their trap definitions. */
+  api.linker_allow_shadowing(linker, true);
   error = api.linker_add_wasip2(linker);
   if (error) {
     report_wasmtime_error(&api, error, error_out, error_capacity);
+    goto cleanup;
+  }
+  /* Zed's generated linker defines the complete versioned import world. This
+   * native boundary is intentionally incremental: the first real host import
+   * is platform.current-platform, while every other unknown import becomes a
+   * deterministic trap instead of an accidental permissive capability. */
+  error = api.linker_define_unknown_imports_as_traps(linker, component);
+  if (error) {
+    report_wasmtime_error(&api, error, error_out, error_capacity);
+    goto cleanup;
+  }
+  if (!link_platform_host(&api, linker, error_out, error_capacity)) {
     goto cleanup;
   }
   wasmtime_component_instance_t instance = {0, 0};

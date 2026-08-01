@@ -138,6 +138,54 @@ suite "M17 extension registry":
     check errorMessage.len > 0
     removeDir(root)
 
+  when defined(macosx):
+    test "links the Zed platform WIT import in the native Component host":
+      let wasmTools = findExe("wasm-tools")
+      let library = getEnv("NIMCULUS_WASMTIME_LIBRARY", "/usr/local/opt/wasmtime/lib/libwasmtime.dylib")
+      if wasmTools.len == 0 or not fileExists(library):
+        echo "  [SKIP] wasm-tools or the Wasmtime Component library is not installed"
+      else:
+        let root = getTempDir() / "nimculus-component-platform-runtime-test"
+        let embedded = root / "extension.embedded.wasm"
+        let component = root / "extension.component.wasm"
+        createDir(root)
+        let wit = normalizedPath(parentDir(currentSourcePath) / "fixtures" /
+          "wit_platform_host" / "extension.wit")
+        let generator = startProcess(wasmTools, args = @[
+          "component", "embed", wit, normalizedPath(parentDir(currentSourcePath) /
+            "fixtures" / "wit_platform_host" / "init.wat"), "--world", "extension",
+          "-o", embedded
+        ], options = {poUsePath, poStdErrToStdOut})
+        check generator.waitForExit(10_000) == 0
+        generator.close()
+        let linker = startProcess(wasmTools, args = @[
+          "component", "new", embedded, "-o", component
+        ], options = {poUsePath, poStdErrToStdOut})
+        check linker.waitForExit(10_000) == 0
+        linker.close()
+        let oldLibrary = getEnv("NIMCULUS_WASMTIME_LIBRARY", "")
+        putEnv("NIMCULUS_WASMTIME_LIBRARY", library)
+        let available = wasmComponentHostAvailable()
+        var status = 0
+        var errorMessage = ""
+        if available:
+          let manifest = parseExtensionManifest("""
+            {"id":"platform.runtime","name":"Platform Runtime","version":"1",
+             "apiVersion":1,"wasmModule":"extension.component.wasm",
+             "wasmEntrypoint":"init-extension"}
+          """, root)
+          status = runWasmComponentInProcess(manifest, errorMessage)
+        if oldLibrary.len == 0:
+          delEnv("NIMCULUS_WASMTIME_LIBRARY")
+        else:
+          putEnv("NIMCULUS_WASMTIME_LIBRARY", oldLibrary)
+        if not available:
+          echo "  [SKIP] Wasmtime Component library is unavailable for this architecture"
+        else:
+          check status == 0
+          check errorMessage.len == 0
+        removeDir(root)
+
   test "polls an optional Component worker without blocking the caller":
     let root = getTempDir() / "nimculus-component-worker-boundary-test"
     createDir(root)

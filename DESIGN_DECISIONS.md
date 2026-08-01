@@ -6697,3 +6697,23 @@ only then extracts the ZIP in a temporary directory. The existing registry
 performs symlink rejection and atomic destination creation. This makes an
 untrusted catalog unable to grant itself a permission or overwrite an
 installed extension.
+
+## M17-104: Add the Zed platform WIT capability before the rest of the world
+
+Zed's generated Component linker adds the versioned extension world to a
+Wasmtime linker. Its first platform contract is
+`zed:extension/platform.current-platform`, which returns the operating system
+and architecture as WIT enums. Nimculus now mirrors that exact import name and
+tuple shape in the macOS native linker and returns `mac` plus `aarch64` on the
+Apple Silicon build. A checked-in WIT fixture is generated into a test
+component and used to validate the import/export boundary when an
+architecture-compatible Wasmtime C library is installed.
+
+The rest of Zed's imports are not silently treated as available. Wasmtime's
+`define_unknown_imports_as_traps` API resolves them to deterministic traps, so
+an extension cannot infer process, network, or other capabilities from a
+declaration alone. Each future WIT capability must add its host implementation,
+permission contract, user-visible action, and runtime test together. The C
+library is resolved through stable Homebrew `opt` paths and rejected when its
+architecture cannot be loaded by the arm64 process; the direct Wasmtime CLI
+remains the fallback for core modules and Component execution stays optional.

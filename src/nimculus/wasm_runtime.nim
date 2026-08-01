@@ -57,6 +57,13 @@ type
 proc wasmRuntimeError(message: string): ref WasmRuntimeError =
   newException(WasmRuntimeError, message)
 
+proc nativeErrorText(buffer: string): string =
+  ## Native APIs receive a fixed-size C buffer. Nim's `newString` keeps the
+  ## trailing NUL bytes, so strip the first terminator before exposing the
+  ## message to the editor or tests.
+  let terminator = buffer.find('\0')
+  if terminator >= 0: buffer[0 ..< terminator].strip else: buffer.strip
+
 proc executableFile(path: string): bool =
   if path.len == 0 or not fileExists(path): return false
   when defined(posix):
@@ -153,7 +160,7 @@ proc startWasmComponentJob*(manifest: ExtensionManifest;
       (if manifest.hasPermission("filesystem-write"): 1 else: 0),
       manifest.extensionHostCapabilityString.cstring,
       errorBuffer.cstring, csize_t(errorBuffer.len))
-    errorMessage = errorBuffer.strip
+    errorMessage = nativeErrorText(errorBuffer)
   else:
     errorMessage = "in-process Component Model is only available on macOS"
 
@@ -166,7 +173,7 @@ proc pollWasmComponentJob*(job: WasmComponentJob;
     var errorBuffer = newString(4096)
     result = nimculusWasmtimeComponentPoll(NativeWasmComponentJob(job.handle),
       errorBuffer.cstring, csize_t(errorBuffer.len))
-    errorMessage = errorBuffer.strip
+    errorMessage = nativeErrorText(errorBuffer)
   else:
     errorMessage = "in-process Component Model is only available on macOS"
     result = 2
@@ -209,7 +216,7 @@ proc runWasmComponentInProcess*(manifest: ExtensionManifest;
       manifest.extensionHostCapabilityString.cstring,
       errorBuffer.cstring,
       csize_t(errorBuffer.len))
-    errorMessage = errorBuffer.strip
+    errorMessage = nativeErrorText(errorBuffer)
   else:
     errorMessage = "in-process Component Model is only available on macOS"
     result = 1
