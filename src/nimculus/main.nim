@@ -746,6 +746,13 @@ when defined(macosx):
   var editorDapTerminalJobs: seq[TaskJob]
   var editorDapWatchExpressions: seq[string]
   type
+    DapChildSession = ref object
+      id: int
+      session: DapSession
+      requestKind: string
+      configuration: JsonNode
+      initialized: bool
+
     DapSidebarItemKind = enum
       dapThreadItem
       dapFrameItem
@@ -778,6 +785,8 @@ when defined(macosx):
       reference: int
       depth: int
 
+  var editorDapChildSessions: seq[DapChildSession]
+  var editorDapNextChildId = 1
   var editorDapThreads: seq[DapThreadInfo]
   var editorDapFrames: seq[DapFrameInfo]
   var editorDapScopes: seq[DapScopeInfo]
@@ -1169,6 +1178,14 @@ when defined(macosx):
       addHeader("───────")
       for index, watch in editorDapWatchLines:
         addItem(watch, "watch:" & $index, dapWatchItem)
+    if editorDapChildSessions.len > 0:
+      addHeader("")
+      addHeader("Child Sessions")
+      addHeader("──────────────")
+      for child in editorDapChildSessions:
+        if child != nil:
+          addHeader("#" & $child.id & "  " & child.requestKind & "  " &
+            (if child.initialized: "running" else: "initializing"))
     if editorDapThreads.len == 0 and editorDapFrames.len == 0 and
         editorDapScopes.len == 0 and editorDapVariables.len == 0 and
         editorDapWatchLines.len == 0:
@@ -1189,9 +1206,17 @@ when defined(macosx):
     editorWorkspaceUi.focusCenter()
     renderNativeDapSidebar()
 
+  proc stopNativeDapChildren()
+
   proc stopNativeDap() =
-    if editorDapSession == nil:
+    if editorDapSession == nil and editorDapChildSessions.len == 0:
       editorViewState.statusMessage = "Debugger: no active session"
+      return
+    stopNativeDapChildren()
+    if editorDapSession == nil:
+      editorDapInitialized = false
+      renderNativeDapSidebar()
+      editorViewState.statusMessage = "Debugger stopped"
       return
     editorDapSession.stop()
     for job in editorDapTerminalJobs:
@@ -1281,6 +1306,106 @@ when defined(macosx):
       editorViewState.statusMessage = "Debugger request failed: " & error.msg
       false
 
+  proc stopNativeDapChildren() =
+    for child in editorDapChildSessions:
+      if child != nil and child.session != nil:
+        child.session.stop()
+    editorDapChildSessions.setLen(0)
+
+  proc startNativeDapChild(request: DapMessage): bool =
+    ## Zed creates a new session from the parent's adapter and keeps the
+    ## parent request open only until the child has been accepted. The child
+    ## has its own transport, request tracker, and bounded shutdown path; it
+    ## must never replace the UI's selected parent session.
+    let arguments = request.arguments
+    let requestKind = if arguments != nil and arguments.kind == JObject and
+        arguments.hasKey("request") and arguments["request"].kind == JString:
+      arguments["request"].getStr.toLowerAscii
+      else: "launch"
+    if requestKind notin ["launch", "attach"]:
+      if editorDapSession != nil:
+        editorDapSession.sendResponse(request, false, %*{},
+          "startDebugging request must be launch or attach")
+      return false
+    let configuration = if arguments != nil and arguments.kind == JObject and
+        arguments.hasKey("configuration") and arguments["configuration"].kind == JObject:
+      arguments["configuration"] else: %*{}
+    let workingDirectory = taskWorkingDirectory(activeDocument())
+    let remoteHost = getEnv("NIMCULUS_DAP_HOST", "").strip
+    let command = resolveMacosDapCommand()
+    if command.len == 0 and remoteHost.len == 0:
+      if editorDapSession != nil:
+        editorDapSession.sendResponse(request, false, %*{},
+          "child DAP adapter is unavailable")
+      return false
+    try:
+      var session: DapSession
+      if remoteHost.len > 0:
+        let port = try: parseInt(getEnv("NIMCULUS_DAP_PORT", "0"))
+          except ValueError: 0
+        session = startDapRemoteSession(remoteHost, port, workingDirectory)
+      else:
+        session = startDapSession(command,
+          getEnv("NIMCULUS_DAP_ARGS", "").splitWhitespace, workingDirectory)
+      let child = DapChildSession(id: editorDapNextChildId, session: session,
+        requestKind: requestKind, configuration: configuration, initialized: false)
+      inc editorDapNextChildId
+      editorDapChildSessions.add(child)
+      let initialize = session.sendRequest("initialize", initializeArguments())
+      appendNativeDapOutput("→ child debugger #" & $child.id &
+        " initialize (#" & $initialize.seq & ")")
+      if editorDapSession != nil:
+        editorDapSession.sendResponse(request, true, %*{})
+      renderNativeDapSidebar()
+      editorViewState.statusMessage = "Child debugger #" & $child.id & " initializing"
+      true
+    except CatchableError as error:
+      if editorDapSession != nil:
+        editorDapSession.sendResponse(request, false, %*{}, error.msg)
+      editorViewState.statusMessage = "Child debugger failed: " & error.msg
+      false
+
+  proc pollNativeDapChildren() =
+    if editorDapChildSessions.len == 0: return
+    var remaining: seq[DapChildSession]
+    for child in editorDapChildSessions:
+      if child == nil or child.session == nil: continue
+      for message in child.session.poll():
+        case message.messageType
+        of dapResponseMessage:
+          if not message.success:
+            appendNativeDapOutput("← child debugger #" & $child.id & " " &
+              message.command & ": " & message.responseMessage)
+            child.session.stop()
+          elif message.command == "initialize" and not child.initialized:
+            child.initialized = true
+            let launch = child.session.sendRequest(child.requestKind, child.configuration)
+            appendNativeDapOutput("→ child debugger #" & $child.id & " " &
+              child.requestKind & " (#" & $launch.seq & ")")
+            renderNativeDapSidebar()
+          elif message.command in ["launch", "attach"]:
+            appendNativeDapOutput("← child debugger #" & $child.id & " " &
+              message.command & " accepted")
+          else:
+            appendNativeDapOutput("← child debugger #" & $child.id & " " &
+              message.command)
+        of dapEventMessage:
+          let event = if message.event.len > 0: message.event else: "event"
+          appendNativeDapOutput("• child debugger #" & $child.id & " " & event)
+        of dapRequestMessage:
+          try:
+            child.session.sendResponse(message, false, %*{},
+              "nested reverse requests are not supported")
+          except CatchableError:
+            discard
+      if child.session.state in {dapStopped, dapFailed} or not child.session.isRunning:
+        appendNativeDapOutput("• child debugger #" & $child.id & " stopped")
+        child.session.stop()
+      else:
+        remaining.add(child)
+    editorDapChildSessions = remaining
+    renderNativeDapSidebar()
+
   proc pollNativeDapTerminalJobs() =
     if editorDapTerminalJobs.len == 0: return
     var output: seq[string]
@@ -1315,6 +1440,7 @@ when defined(macosx):
             # the adapter itself has already emitted process events.
             editorDapSession.stop()
             editorDapSession = nil
+            stopNativeDapChildren()
             for job in editorDapTerminalJobs:
               if job != nil and not job.done: job.cancel()
             editorDapTerminalJobs.setLen(0)
@@ -1340,6 +1466,7 @@ when defined(macosx):
               editorViewState.statusMessage = "Debugger launch target is not configured"
               editorDapSession.stop()
               editorDapSession = nil
+              stopNativeDapChildren()
               renderNativeDapSidebar()
             else:
               discard sendNativeDapRequest("launch", launchArguments(program,
@@ -1516,8 +1643,7 @@ when defined(macosx):
                   "shellProcessId": job.processId
                 })
           of "startDebugging":
-            editorDapSession.sendResponse(message, false, %*{},
-              "nested DAP sessions are not supported")
+            discard startNativeDapChild(message)
           else:
             editorDapSession.sendResponse(message, false, %*{},
               "unsupported DAP reverse request: " & message.command)
@@ -1533,6 +1659,7 @@ when defined(macosx):
         "Debugger adapter exited unexpectedly" else: "Debugger stopped"
       editorDapSession.stop()
       editorDapSession = nil
+      stopNativeDapChildren()
       renderNativeDapSidebar()
   proc renderNativeGitStatus(entries: seq[GitStatusEntry])
 
@@ -2861,6 +2988,7 @@ when defined(macosx):
     for job in editorDapTerminalJobs:
       if job != nil and not job.done: job.cancel()
     editorDapTerminalJobs.setLen(0)
+    stopNativeDapChildren()
     if editorDapSession != nil:
       editorDapSession.stop()
     editorDapSession = nil
@@ -4344,6 +4472,7 @@ when defined(macosx):
     pollNativeTask()
     pollNativeUpdate()
     pollNativeDapTerminalJobs()
+    pollNativeDapChildren()
     pollNativeDap()
     pollNativeAgent()
     pollNativeTerminal()

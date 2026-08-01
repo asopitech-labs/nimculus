@@ -6561,8 +6561,24 @@ and abandoning them. Nimculus handles `runInTerminal` on the macOS idle path by
 validating the adapter-provided command, cwd, and string environment entries,
 starting the direct child with `TaskJob`, and returning both `processId` and
 `shellProcessId`. The job is polled without blocking AppKit and is cancelled
-before DAP/session shutdown. `startDebugging` remains an explicit negative
-response until nested-session ownership and UI routing are implemented.
+before DAP/session shutdown. `startDebugging` now creates a separate child
+adapter session. The parent transport remains selected in the Debug panel
+while the child owns an independent request tracker and lifecycle.
+
+## M19-099: Keep DAP reverse child sessions independent
+
+Zed's `handle_start_debugging_request` creates a new session from the parent
+adapter configuration, registers it separately, and does not replace the
+parent session selected by the debugger panel. Nimculus follows that boundary
+for macOS: a `startDebugging` reverse request validates the `launch`/`attach`
+kind and object configuration, starts a separate local or remote
+`DapSession`, performs its own `initialize` then launch/attach request, and
+acknowledges the parent request after the child transport exists. Child
+sessions are polled on the idle path, shown in a Debug sidebar Child Sessions
+section, and stopped during parent failure, explicit stop, and application
+shutdown. Unsupported reverse requests from a child receive a bounded
+negative response. Real target acceptance remains subject to the same macOS
+debugserver permissions as the parent.
 
 ## M17-095: Install extensions through an explicit macOS sheet
 
