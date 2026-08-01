@@ -6593,6 +6593,22 @@ silently overwritten. Since no Wasmtime-compatible runtime is bundled yet,
 the UI reports validation/registration only and never presents header
 validation as WASM execution.
 
+## M17-100: Keep the first WASM host behind a direct Wasmtime argv boundary
+
+Zed's extension host uses Wasmtime's Component Model and WASI linker rather
+than treating a WASM file as an arbitrary executable. Nimculus now separates
+the same concerns in `wasm_runtime.nim`: manifest validation happens before a
+`WasmExecutionPlan` is created, Wasmtime is resolved from the explicit
+`NIMCULUS_WASMTIME` override or the well-known `PATH` binary, and execution
+uses direct argv with no shell interpolation. The plan preopens only the
+extension root as `/extension` and passes the extension id/API version as
+explicit guest environment values. The task boundary owns output, cancellation,
+and direct-child cleanup. `wasmEntrypoint` is optional and is passed through
+`--invoke` only when declared by the manifest. This is an executable macOS
+WASM slice, not a claim that the full Zed WIT host API has been implemented;
+the in-process Component Model linker and permission UI remain explicit follow-up
+work.
+
 ## M19-096: Resolve Apple's DAP adapter without an environment-only gate
 
 Apple's `lldb-dap` requires `pathFormat` during `initialize`; a direct

@@ -29,6 +29,7 @@ type
     tasks*: seq[string]
     commands*: seq[string]
     wasmModule*: string
+    wasmEntrypoint*: string
     apiVersion*: int
     externalProcess*: string
     permissions*: seq[string]
@@ -80,6 +81,12 @@ proc parseExtensionManifest*(contents, root: string): ExtensionManifest =
     if node["wasmModule"].kind != JString:
       raise extensionError("wasmModule must be a string")
     result.wasmModule = node["wasmModule"].getStr
+  if node.hasKey("wasmEntrypoint"):
+    if node["wasmEntrypoint"].kind != JString:
+      raise extensionError("wasmEntrypoint must be a string")
+    result.wasmEntrypoint = node["wasmEntrypoint"].getStr.strip
+    if result.wasmEntrypoint.len > 256 or '\0' in result.wasmEntrypoint:
+      raise extensionError("wasmEntrypoint is too long or contains NUL")
   result.lspServers = initTable[string, string]()
   if node.hasKey("lspServers"):
     if node["lspServers"].kind != JObject:
@@ -198,6 +205,10 @@ proc register*(registry: ExtensionRegistry, manifest: ExtensionManifest) =
   if registry == nil: raise extensionError("extension registry is nil")
   if manifest.id.len == 0: raise extensionError("extension id is empty")
   registry.manifests[manifest.id] = manifest
+
+proc find*(registry: ExtensionRegistry, id: string): ExtensionManifest =
+  if registry == nil or not registry.manifests.hasKey(id): return
+  registry.manifests[id]
 
 proc clear*(registry: ExtensionRegistry) =
   if registry != nil: registry.manifests.clear()

@@ -2626,6 +2626,7 @@ static void dismissExternalChangePanel(const char *command) {
     @"agent next", @"agent previous", @"agent review diff",
     @"agent approve", @"agent reject", @"agent apply patch",
     @"extensions install", @"extensions reload", @"extensions list",
+    @"extensions runtime", @"extensions run",
     @"go to definition", @"find references", @"document symbols", @"code actions",
     @"signature help", @"inlay hints", @"semantic tokens", @"format document",
     @"open settings", @"check for updates"
@@ -6400,7 +6401,9 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NSArray<NSArray<NSString *> *> *extensionCommands = @[
     @[@"Install Extension…", @"commandPalette:extensions install"],
     @[@"Reload Extensions", @"commandPalette:extensions reload"],
-    @[@"List Extensions", @"commandPalette:extensions list"]
+    @[@"List Extensions", @"commandPalette:extensions list"],
+    @[@"WASM Runtime Status", @"commandPalette:extensions runtime"],
+    @[@"Run WASM Extension", @"commandPalette:extensions run"]
   ];
   for (NSArray<NSString *> *entry in extensionCommands) {
     NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:entry[0]
@@ -7779,6 +7782,8 @@ bool nimculus_platform_validate_main_menu(void) {
     NSMenuItem *debugThreads = menuItemWithTitle(debugItem.submenu, @"Threads");
     NSMenuItem *debugClearWatches = menuItemWithTitle(debugItem.submenu, @"Clear Watches");
     NSMenuItem *installExtension = menuItemWithTitle(extensionsItem.submenu, @"Install Extension…");
+    NSMenuItem *wasmRuntime = menuItemWithTitle(extensionsItem.submenu, @"WASM Runtime Status");
+    NSMenuItem *runWasm = menuItemWithTitle(extensionsItem.submenu, @"Run WASM Extension");
     NSMenuItem *agentStart = menuItemWithTitle(agentItem.submenu, @"Start Agent");
     NSMenuItem *agentStop = menuItemWithTitle(agentItem.submenu, @"Stop Agent");
     NSMenuItem *agentReview = menuItemWithTitle(agentItem.submenu, @"Review Changes");
@@ -7866,7 +7871,8 @@ bool nimculus_platform_validate_main_menu(void) {
       fullScreen && minimize && zoom && split && splitHorizontal && closeSplit && shortcuts && windowActions;
     valid = valid && viewActions && filesDispatch && outlineDispatch && gitDispatch &&
       terminalDispatch && softWrapDispatch && debugActions && debugStartDispatch &&
-      agentActions && agentStartDispatch && installExtension;
+      agentActions && agentStartDispatch && installExtension && wasmRuntime && runWasm &&
+      wasmRuntime.action == @selector(dispatchCommand:) && runWasm.action == @selector(dispatchCommand:);
     [application setMainMenu:previousMenu];
     return valid;
   }
@@ -7894,6 +7900,7 @@ bool nimculus_platform_validate_command_palette(void) {
       @"agent next", @"agent previous", @"agent review diff",
       @"agent approve", @"agent reject", @"agent apply patch",
       @"extensions install", @"extensions reload", @"extensions list",
+      @"extensions runtime", @"extensions run",
       @"go to definition", @"find references", @"code actions", @"signature help",
       @"inlay hints", @"semantic tokens", @"format document", @"check for updates"
     ];

@@ -25,7 +25,7 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | M14：WSLリモート | ⚪ 未着手 | Windows版完了後にagent、remote file、LSP、Git、terminal、reconnectを実装する |
 | M15：Linux対応 | ⚪ 未着手 | WSL基盤の後にWayland優先、X11 fallback、IME、PTY、packagingを実装する |
 | M16：SSHリモート | ⚪ 未着手 | WSLプロトコルを一般化し、SSH agentとremote開発を実装する |
-| M17：拡張システム | 🟡 macOS基盤実装・実機確認対象 | ZedのExtensionHostの責務分離を参考に、manifest読込・global/workspace discovery・language/grammar/LSP/theme/icon/snippet/task/command登録、WASM container/API version検証、external processの明示permission検証、Extensionsメニュー／Command Paletteからの安全なローカル拡張インストールを実装。WASM runtime/host API、権限UI、配布カタログは未完了 |
+| M17：拡張システム | 🟡 macOS基盤実装・実機確認対象 | ZedのExtensionHostの責務分離を参考に、manifest読込・global/workspace discovery・language/grammar/LSP/theme/icon/snippet/task/command登録、WASM container/API version検証、external processの明示permission検証、Extensionsメニュー／Command Paletteからの安全なローカル拡張インストールを実装。公式Wasmtime CLIを直接argvで起動するmacOS WASM実行境界（extension rootのみpreopen、API/idを明示env、任意shellなし）、runtime status、Run WASM Extension導線を追加。Zed互換のin-process Component Model/WASI host API、権限UI、配布カタログは未完了 |
 | M18：CLI AIエージェント | 🟡 macOS基盤実装・実機確認対象 | Zedのagent thread/process/worktree/output境界を参考に、直接子プロセス、複数session、prompt、bounded output、Git変更検知、diff review、approve/reject、patch apply、worktree割当、session切替、停止を実装。Codex CLI／Claude Code／OpenCodeはCommand Palette／Agentメニューから個別選択でき、PATH自動検出と任意CLI overrideを実装。各CLIの実API受入れは認証済み環境で継続 |
 | M19：DAPデバッガー | 🟡 macOS基盤実装・実機確認対象 | ZedのDAP transport/client/session/debugger UI境界を参考に、Content-Length transport、stale-safe request tracker、Apple LLDB-DAPのXcode/xcrun自動解決、initialize/launch/attach、TCP remote adapter、breakpoint、continue/pause/step、stack/scopes/variables、watches、evaluate/outputを実装。Threads / Stack Frames / Scopes / Variables / WatchesをDebugサイドバーへ分離し、Enter/Spaceでthread・frame選択、scope/variableの展開・折りたたみ、frameのsource path/lineジャンプ、`runInTerminal`逆方向request応答、`startDebugging`の独立子セッションを接続。実lldb-dapのinitializeは確認済みだが、launch/attachの実プロセス受入れと実機権限受入れは未完了 |
 | M20〜M21：安定化・v1.0 | 🟡 M20自動E2E済み・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録する。2026-08-02の統合E2Eで、全test、native contract、benchmark、cold-start（298.586ms）、2秒soak、adhoc DMG起動、WindowServer GUI workflowを一つのローカル統合E2Eで確認済み。8時間実機実行、remote latency、正式配布は未完了 |
@@ -38,7 +38,7 @@ Zedの `crates/extension_host`、`crates/agent`、`crates/dap`、`crates/dap_ada
 * Agentメニュー／Command Paletteから、`NIMCULUS_AGENT_COMMAND` と引数で任意CLI agentを起動し、Taskパネルへ出力を表示できる。`agent send <prompt>`、差分レビュー、approve/reject、stopを実装し、直接起動した子プロセスだけを終了する
 * Debugメニュー／Command PaletteからDAP adapterを起動し、`NIMCULUS_DAP_COMMAND`、`NIMCULUS_DAP_ARGS`、`NIMCULUS_DAP_PROGRAM`で対象を指定できる。initialize→launch→initialized→configurationDone、breakpoint、continue/pause/step、stack trace/outputを実行し、応答の世代管理とbounded transportを行う
 
-今回の継続作業では、ZedのWASM hostが実行前にAPI versionを検証し、manifest登録とホスト実行を分離している点を反映した。Extensionsメニュー／Command Paletteの`Install Extension…`からローカルフォルダを選択し、`extension.json`、安全なID、symlink、WASM containerを検証して`~/.nimculus/extensions/<id>`へ原子的にコピーし、失敗時は一時領域を掃除する。WASMランタイム自体は未導入のため、検証だけを実行と誤認させない。
+今回の継続作業では、ZedのWASM hostが実行前にAPI versionを検証し、manifest登録とホスト実行を分離している点を反映した。Extensionsメニュー／Command Paletteの`Install Extension…`からローカルフォルダを選択し、`extension.json`、安全なID、symlink、WASM containerを検証して`~/.nimculus/extensions/<id>`へ原子的にコピーし、失敗時は一時領域を掃除する。さらに公式Wasmtime CLIを解決し、extension rootだけを`/extension`へpreopenする直接argv実行計画を追加した。`extensions runtime`でruntime状態を確認し、`extensions run`で単一WASM拡張をTask境界から実行できる。これはWASM実行のmacOS縦切りであり、Zed互換のin-process Component Model/WASI host APIは未完了として残す。
 
 macOS DAPはApple `lldb-dap`の実initializeを確認した結果、必須の`pathFormat: "path"`をinitialize引数へ追加した。`NIMCULUS_DAP_COMMAND`未指定時はXcodeの選択状態を`xcrun --find lldb-dap`で解決する。対象プロセスのlaunch/attachはmacOSデバッグ権限のある受入れ環境で継続確認する。
 
@@ -674,7 +674,7 @@ WSL リモート基盤を一般化し、SSH 接続、agent 配置、鍵認証、
 
 ### M17：拡張システム
 
-**macOS実装状況：** `extension.json`の発見・API version 1検証、language definition、Tree-sitter grammar、LSP configuration、theme、icon theme、snippets、tasks、commandsのメタデータ登録を実装済み。macOSのExtensionsメニュー／Command Paletteからローカル拡張フォルダを選択し、manifest・WASMヘッダー・安全な拡張ID・symlinkを検証したうえで`~/.nimculus/extensions/<id>`へ原子的に導入できる。既存拡張の上書きは未実装で、明示的な更新操作が必要。**未完了：** Zedの`wasmtime`/WASI相当の実WASMホスト、拡張権限UI、拡張配布カタログ、WASMホストAPI。
+**macOS実装状況：** `extension.json`の発見・API version 1検証、language definition、Tree-sitter grammar、LSP configuration、theme、icon theme、snippets、tasks、commandsのメタデータ登録を実装済み。macOSのExtensionsメニュー／Command Paletteからローカル拡張フォルダを選択し、manifest・WASMヘッダー・安全な拡張ID・symlinkを検証したうえで`~/.nimculus/extensions/<id>`へ原子的に導入できる。公式Wasmtime CLIを直接argvで起動し、extension rootだけをpreopenするWASM実行境界、runtime status、Run WASM Extension導線、Task出力・キャンセルを実装済み。既存拡張の上書きは未実装で、明示的な更新操作が必要。**未完了：** Zed互換のin-process Component Model/WASI host API、拡張権限UI、拡張配布カタログ。
 
 **第 2 段階：** WASM extension、external process extension、permission model、versioned API。
 

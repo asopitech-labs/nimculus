@@ -25,6 +25,7 @@ import nimculus/lsp
 import nimculus/dap
 import nimculus/agent_service
 import nimculus/extension_service
+import nimculus/wasm_runtime
 import nimculus/editor_diagnostics
 import nimculus/git_service
 import nimculus/git_gutter
@@ -1061,6 +1062,52 @@ when defined(macosx):
     except CatchableError as error:
       editorViewState.statusMessage = "Extension install failed: " & error.msg
 
+  proc runNativeWasmExtension(id: string = "") =
+    if editorExtensionRegistry == nil:
+      editorViewState.statusMessage = "Extensions are not loaded"
+      return
+    var selected: ExtensionManifest
+    if id.strip.len > 0:
+      selected = editorExtensionRegistry.find(id.strip)
+    else:
+      for _, manifest in editorExtensionRegistry.items:
+        if manifest.wasmModule.len > 0:
+          selected = manifest
+          break
+    if selected.id.len == 0:
+      editorViewState.statusMessage = if id.strip.len > 0:
+        "WASM extension not found: " & id.strip
+        else: "No WASM extension is installed"
+      return
+    if selected.wasmModule.len == 0:
+      editorViewState.statusMessage = "Extension has no WASM module: " & selected.id
+      return
+    try:
+      let plan = prepareWasmExecution(selected)
+      if editorTaskJob != nil and not editorTaskJob.done:
+        editorTaskJob.cancel()
+      editorTaskCommand = "WASM extension " & selected.id
+      editorTaskOutput = ""
+      editorTaskProblems.setLen(0)
+      if editorTerminalVisible:
+        editorTerminalVisible = false
+        editorTerminalFocused = false
+        platformSetTerminalVisible(false)
+      editorTaskOutputVisible = true
+      platformSetTaskOutputVisible(true)
+      platformSetTaskOutputCancellable(true)
+      editorWorkspaceUi.openPanel(panelTasks)
+      setupDemoUi()
+      let title = "WASM — " & selected.name
+      platformSetTaskOutputTitle(title.cstring, uint32(title.len))
+      ## Direct argv execution is deliberate: no shell, no inherited cwd
+      ## preopen, and only the extension root is granted to Wasmtime.
+      editorTaskJob = startTask(TaskSpec(command: plan.command, args: plan.args,
+        workingDirectory: plan.workingDirectory))
+      editorViewState.statusMessage = "WASM extension running: " & selected.id
+    except CatchableError as error:
+      editorViewState.statusMessage = "WASM extension failed to start: " & error.msg
+
   proc resolveMacosDapCommand(): string =
     ## LLDB-DAP is Apple's system adapter on current Xcode installations.
     ## Keep the environment override for other adapters, then use xcrun so
@@ -1091,6 +1138,9 @@ when defined(macosx):
       lines.add(id & " " & manifest.version & " — " & manifest.name)
       if manifest.wasmModule.len > 0:
         lines.add("  WASM module validated (API " & $manifest.apiVersion & ")")
+        lines.add("  runtime: " & wasmRuntimeStatus())
+        if manifest.wasmEntrypoint.len > 0:
+          lines.add("  entrypoint: " & manifest.wasmEntrypoint)
       if manifest.externalProcess.len > 0:
         lines.add("  external process (permissioned)")
     if lines.len == 2: lines.add("No extensions installed")
@@ -6093,6 +6143,9 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command in ["extensions install", "install extension"]: "__extensions_install__"
       elif command in ["extensions reload", "reload extensions"]: "__extensions_reload__"
       elif command in ["extensions list", "list extensions"]: "__extensions_list__"
+      elif command in ["extensions runtime", "wasm runtime"]: "__extensions_runtime__"
+      elif command == "extensions run": "__extensions_run__"
+      elif command.startsWith("extensions run "): "__extensions_run_id__"
       elif command == "cancel git": "__cancel_git__"
       elif command == "save as": "saveAs"
       elif command == "replace": "replaceDocument"
@@ -6467,6 +6520,16 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx): platformPromptExtensionDirectory()
     of "__extensions_list__":
       when defined(macosx): showNativeExtensions()
+    of "__extensions_runtime__":
+      when defined(macosx):
+        editorViewState.statusMessage = "WASM runtime: " & wasmRuntimeStatus()
+    of "__extensions_run__":
+      when defined(macosx): runNativeWasmExtension()
+    of "__extensions_run_id__":
+      when defined(macosx):
+        let prefix = "extensions run "
+        let id = if rawCommand.len > prefix.len: rawCommand[prefix.len .. ^1].strip else: ""
+        runNativeWasmExtension(id)
     of "__cancel_git__":
       when defined(macosx):
         if editorGitActionJob == nil or editorGitActionJob.done:

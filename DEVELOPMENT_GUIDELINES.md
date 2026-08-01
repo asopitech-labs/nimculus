@@ -194,7 +194,7 @@ WSL では `\\wsl$` 経由の直接監視に依存しない。複数ディスト
 
 ## 9. 拡張・AI・デバッグ
 
-拡張の第 1 段階は language definition、Tree-sitter grammar、LSP configuration、theme、icon theme、snippets、tasks、commands とする。第 2 段階で WASM extension、external process extension、permission model、versioned API を追加する。
+拡張の第 1 段階は language definition、Tree-sitter grammar、LSP configuration、theme、icon theme、snippets、tasks、commands とする。macOSの第 2 段階では、manifest/API検証後に公式Wasmtime CLIを直接argvで起動するWASM実行境界を使い、extension rootだけをWASI preopenする。第 3 段階でZed互換のin-process Component Model/WASI host API、external process extension、permission UI、versioned APIを追加する。
 
 Node.js runtime を組み込まず、VSCode Extension API 互換を目標にしない。信頼できないネイティブ共有ライブラリを本体へ直接ロードしない。
 

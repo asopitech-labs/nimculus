@@ -1,8 +1,11 @@
 import std/os
 import std/tables
+import std/strutils
 import std/unittest
 
 import nimculus/extension_service
+import nimculus/task_service
+import nimculus/wasm_runtime
 
 suite "M17 extension registry":
   test "parses data-backed registrations and LSP commands":
@@ -39,6 +42,60 @@ suite "M17 extension registry":
         {"id":"future","name":"Future","version":"1","apiVersion":2}
       """, root)
     removeDir(root)
+
+  test "builds a bounded Wasmtime plan without shell interpolation":
+    let root = getTempDir() / "nimculus-wasm-plan-test"
+    let runtime = root / "wasmtime"
+    createDir(root)
+    writeFile(runtime, "#!/bin/sh\nexit 0\n")
+    setFilePermissions(runtime, {fpUserRead, fpUserWrite, fpUserExec})
+    writeFile(root / "extension.wasm", "\x00asm\x01\x00\x00\x00")
+    let manifest = parseExtensionManifest("""
+      {"id":"safe.tools","name":"Safe Tools","version":"1",
+       "apiVersion":1,"wasmModule":"extension.wasm","wasmEntrypoint":"run"}
+    """, root)
+    let plan = prepareWasmExecution(manifest, runtime)
+    check plan.command == normalizedPath(runtime)
+    check plan.workingDirectory == normalizedPath(root)
+    check plan.args[0 .. 1] == @["--dir", normalizedPath(root) & "::/extension"]
+    check "--invoke" in plan.args
+    check plan.args[^1] == normalizedPath(root / "extension.wasm")
+    check not plan.args.join(" ").contains("-c")
+    removeDir(root)
+
+  test "rejects an unavailable Wasmtime runtime before starting a process":
+    let root = getTempDir() / "nimculus-wasm-runtime-missing-test"
+    createDir(root)
+    writeFile(root / "extension.wasm", "\x00asm\x01\x00\x00\x00")
+    let manifest = parseExtensionManifest("""
+      {"id":"missing.runtime","name":"Missing Runtime","version":"1",
+       "apiVersion":1,"wasmModule":"extension.wasm"}
+    """, root)
+    expect WasmRuntimeError:
+      discard prepareWasmExecution(manifest, root / "does-not-exist")
+    removeDir(root)
+
+  test "runs a validated wasm module through the direct Wasmtime boundary":
+    let runtime = resolveWasmRuntime()
+    if runtime.len == 0:
+      echo "  [SKIP] Wasmtime runtime is not installed"
+    else:
+      let root = getTempDir() / "nimculus-wasm-execution-test"
+      createDir(root)
+      writeFile(root / "extension.wasm", "\x00asm\x01\x00\x00\x00")
+      let manifest = parseExtensionManifest("""
+        {"id":"runtime.tools","name":"Runtime Tools","version":"1",
+         "apiVersion":1,"wasmModule":"extension.wasm"}
+      """, root)
+      let plan = prepareWasmExecution(manifest)
+      let job = startTask(TaskSpec(command: plan.command, args: plan.args,
+        workingDirectory: plan.workingDirectory))
+      for _ in 0 .. 100:
+        if job.poll(): break
+        sleep(10)
+      check job.done
+      check job.result.status == taskSucceeded
+      removeDir(root)
 
   test "discovers extension directories and resolves language ownership":
     let root = getTempDir() / "nimculus-extension-test"
