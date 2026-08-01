@@ -1,5 +1,16 @@
 # Design Decisions
 
+## UI-078: macOS workspace presenters are single-row and pane-clipped
+
+ZedのProject PanelとGit UIは、ファイル名・コミット行を複数行へ折り返さず、
+表示領域内で省略して選択状態を別のモデル状態として保持する。NimculusのAppKit
+presenterも同じ契約にし、Files/Gitの`NSTextView`へ末尾省略とクリップを設定する。
+タブバーは復元された長いタイトルやclose glyphが本文へ描画されないよう専用の
+クリップ領域を持ち、status表示は単一行末尾省略とする。これにより、表示行数と
+クリック・キーボード選択の論理行数がずれず、狭いmacOSウィンドウでも右端・下端の
+pane chromeを侵食しない。native platform contractで、サイドバーのtext container、
+tab strip、既存のselection/scroll boundsを同時に検証する。
+
 ## UI-074: macOS新規エディタはソフトラップを既定で有効にする
 
 長い行を右端で切ったまま表示すると、ユーザーが行末へ到達できず、

@@ -3640,18 +3640,27 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 - (BOOL)isFlipped { return YES; }
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
-  if (self) _dragSourceIndex = NSNotFound;
+  if (self) {
+    _dragSourceIndex = NSNotFound;
+    // Keep the tab strip inside its pane when a restored title is wider than
+    // the current window. This follows Zed's clipped single-row tab strip.
+    self.clipsToBounds = YES;
+  }
   return self;
 }
 - (BOOL)acceptsFirstResponder { return NO; }
 - (NSView *)hitTest:(NSPoint)point { return NSPointInRect(point, self.bounds) ? self : nil; }
 - (void)drawRect:(NSRect)dirtyRect {
-  (void)dirtyRect;
+  [NSGraphicsContext saveGraphicsState];
+  NSRectClip(NSIntersectionRect(self.bounds, dirtyRect));
   [[NSColor colorWithCalibratedWhite:0.08 alpha:0.98] setFill];
   NSRectFill(self.bounds);
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
   NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
-  if (titles.count == 0) return;
+  if (titles.count == 0) {
+    [NSGraphicsContext restoreGraphicsState];
+    return;
+  }
   // Keep overflow controls outside tab labels. The earlier range label was
   // painted over the active tab, obscuring both its title and close target.
   // Zed uses a horizontally-scrollable unpinned strip; this compact AppKit
@@ -3721,6 +3730,7 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     [indicator drawAtPoint:NSMakePoint(tabAreaWidth + 7.0,
       self.bounds.size.height - 12.0) withAttributes:indicatorAttributes];
   }
+  [NSGraphicsContext restoreGraphicsState];
 }
 - (void)mouseDown:(NSEvent *)event {
   NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
@@ -4981,7 +4991,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     outline.textContainerInset = NSMakeSize(8.0, 8.0);
     outline.horizontallyResizable = NO;
     outline.verticallyResizable = YES;
+    outline.clipsToBounds = YES;
     outline.textContainer.widthTracksTextView = YES;
+    // Each logical file/Git row must stay one line. The paragraph style below
+    // controls the rendered text, while this container setting prevents a
+    // long path from creating an extra visual row and shifting row hit tests.
+    outline.textContainer.lineBreakMode = NSLineBreakByTruncatingTail;
     applySidebarPresentation(outline);
     NSScrollView *outlineScroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     outlineScroll.borderType = NSNoBorder;
@@ -5064,6 +5079,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     status.bezeled = NO;
     status.drawsBackground = NO;
     status.alignment = NSTextAlignmentLeft;
+    status.lineBreakMode = NSLineBreakByTruncatingTail;
+    status.usesSingleLineMode = YES;
     status.stringValue = g_editor_status;
     status.font = [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular];
     status.textColor = [themeHexColor(g_theme_foreground,
@@ -8263,6 +8280,7 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
     g_editor_active_tab = 0;
     NimculusTabBarOverlay *tabs = [[NimculusTabBarOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 400.0, 28.0)];
+    BOOL tabStripClipsToPane = tabs.clipsToBounds;
     // The right navigation reserve makes each of the two 400pt-strip tabs
     // 176pt wide. Keep close-target checks on their actual trailing edges.
     [tabs dispatchTabAtPoint:NSMakePoint(160.0, 12.0)];
@@ -8296,7 +8314,7 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
     g_editor_active_tab = previousActive;
     [previousTitles release];
     g_command_callback = previousCallback;
-    return closeFirst && closeSecond && selectSecond && contextFirst && movesSecondToFirst &&
+    return tabStripClipsToPane && closeFirst && closeSecond && selectSecond && contextFirst && movesSecondToFirst &&
       contextNavigationIgnored && previousTab && nextTab && selectOverflowItem;
   }
 }
@@ -8844,7 +8862,9 @@ bool nimculus_platform_validate_sidebar_scroll_container(void) {
     nimculus_platform_set_editor_sidebar_selection(1);
     NSString *selected = sidebar.string && sidebar.selectedRange.location != NSNotFound
       ? [sidebar.string substringWithRange:sidebar.selectedRange] : @"";
-    BOOL valid = sidebar && sidebar.enclosingScrollView &&
+    BOOL valid = sidebar && sidebar.clipsToBounds &&
+      sidebar.textContainer.lineBreakMode == NSLineBreakByTruncatingTail &&
+      sidebar.enclosingScrollView &&
       sidebar.enclosingScrollView.hasVerticalScroller && [selected isEqualToString:@"main.nim"];
     replaceOwnedUTF8String(&g_editor_outline_text, previousText.UTF8String,
       (uint32_t)[previousText lengthOfBytesUsingEncoding:NSUTF8StringEncoding], @"");

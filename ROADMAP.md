@@ -30,6 +30,16 @@ Windows CIのportable compileや既存コードの検証結果は、macOSの完�
 | M19：DAPデバッガー | 🟡 macOS基盤実装・実機確認対象 | ZedのDAP transport/client/session/debugger UI境界を参考に、Content-Length transport、stale-safe request tracker、Apple LLDB-DAPのXcode/xcrun自動解決、initialize/launch/attach、TCP remote adapter、breakpoint、continue/pause/step、stack/scopes/variables、watches、evaluate/outputを実装。Threads / Stack Frames / Scopes / Variables / WatchesをDebugサイドバーへ分離し、Enter/Spaceでthread・frame選択、scope/variableの展開・折りたたみ、frameのsource path/lineジャンプ、`runInTerminal`逆方向request応答、`startDebugging`の独立子セッションを接続。Apple `lldb-dap`の実ターゲットに対するlaunch（breakpoint→stopped→stack/scopes/variables）とattach（running target→stopOnEntry）を統合テストで確認済み。子セッションを含む実機GUI受入れと権限差異の受入れは残る |
 | M20〜M21：安定化・v1.0 | 🟡 M20自動E2E済み・M21未着手 | M20ベンチマークでresident memory、terminal/LSP/file watcher、workspace、allocation、cold start、描画・入力メトリクスを記録する。2026-08-02の統合E2Eで、全test、native contract、benchmark、cold-start（298.586ms）、2秒soak、adhoc DMG起動、WindowServer GUI workflowを一つのローカル統合E2Eで確認済み。8時間実機実行、remote latency、正式配布は未完了 |
 
+### 2026-08-02 追補：主要macOS UIの表示境界
+
+ZedのProject Panel/Git UIの実装を再確認し、Files/Gitの長い行を単一行末尾省略へ固定、
+タブバーを専用クリップ領域へ固定、status表示を単一行へ固定した。native contractで
+サイドバーの行設定、タブのpane内クリップ、既存のselection・scroll・dock boundsを検証し、
+`nimble macosE2E`でbuild、全unit/integration、benchmark、cold-start、soak、adhoc DMG、
+WindowServer GUI workflowを一括確認した。M1〜M12およびM17〜M20は自動検証済みだが、
+物理IME、長時間実機利用、Developer ID/notarization、実機ピクセル受入れは残件として扱い、
+Windows/WSL/Linux/SSHは引き続き凍結する。
+
 ### 2026-08-02 更新：拡張・CLIエージェント・DAPのmacOS縦切り
 
 Zedの `crates/extension_host`、`crates/agent`、`crates/dap`、`crates/dap_adapters` を再確認し、ホストUI・プロセス所有・protocol transport・状態投影を分離した。Nimculusではその境界をmacOS共通コアへ移植し、次の入口を実装した。
