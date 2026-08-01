@@ -474,11 +474,11 @@ Core Text／Metalのprimary・secondary paneは全選択範囲と追加caretを�
 
 Search パネル：**[x]** 結果一覧のまま再検索を始める `New Search` と、実行中ジョブを止める `Cancel Search` を常設ヘッダーに配置する。両方ともアクセシビリティ名とnative command contractを持ち、検索結果を本文へ置換しない。
 
-Command Palette：**[x]** Zedの主要操作発見モデルに合わせ、M5〜M12のmacOS主要操作を候補へ公開する。Replace、Go to Line、Quick Open、Workspace Search、Files/Outline、Tree-sitter選択・fold、Git hunk/commit/cancel、terminal/task、LSP navigation/actions/signature/inlay/semantic/formatting、settings/updateを同一の非モーダル入口から実行できる。引数付き操作は明示構文を維持し、fuzzy検索語でReturnした場合も表示中の先頭候補を実行し、`run task <command>`などの引数付き入力だけは原文を保持する。native contractで候補集合と選択実行を検証する。
+Command Palette：**[x]** Zedの主要操作発見モデルに合わせ、M5〜M12のmacOS主要操作を候補へ公開する。Replace、Go to Line、Quick Open、Workspace Search、Files/Outline、Tree-sitter選択・fold、Git hunk/commit/cancel、terminal/task、LSP navigation/actions/signature/inlay/semantic/formatting、settings/updateに加え、Project PanelのDuplicate、Copy、Cut、Paste、Trash、Permanent Delete、Reveal、Open with System、Find in Folder、Expand Allを同じ非モーダル入口から実行できる。引数付き操作は明示構文を維持し、fuzzy検索語でReturnした場合も表示中の先頭候補を実行し、`run task <command>`などの引数付き入力だけは原文を保持する。native contractで候補集合と選択実行を検証する。
 
 Files パネル：**[x]** ZedのProject Panelにならい、New File/New Folderに加え、現在の編集ファイルまでの祖先だけを展開する`Reveal Active File`と、ファイル内容を再走査せず展開状態をリセットする`Collapse All`を常設ヘッダーへ置く。macOS Files overlayはZedの選択行操作に合わせ、`Cmd+N`（新規ファイル）、`Cmd+Option+N`（新規フォルダ）、Backspace/Delete（ゴミ箱へ移動）、F2（名前変更）を同じ選択対象へ接続する。新規作成は既存のmacOS alert sheet、削除は確認sheetを経由し、workspace rootの削除は拒否する。
 
-Files パネルの主要操作：**[x]** ZedのmacOS keymapに合わせ、`Cmd+Left/Right`（全折りたたみ／全展開）、`Cmd+D`（複製）、`Cmd+X/C/V`（ファイル／ディレクトリの切り取り・コピー・貼り付け）、`Cmd+Backspace`（確認なしでゴミ箱へ移動）、`Cmd+Delete`（完全削除）、`Option+Cmd+R`（Finderで表示）、`Ctrl+Shift+Enter`（システムアプリで開く）、`Option+Cmd+Shift+F`（選択ディレクトリ内検索）を実装した。ファイル操作はworkspace root境界とsymlink境界を検証し、複数root間の貼り付けにも対応する。
+Files パネルの主要操作：**[x]** ZedのmacOS keymapに合わせ、`Cmd+Left/Right`（全折りたたみ／全展開）、`Cmd+D`（複製）、`Cmd+X/C/V`（ファイル／ディレクトリの切り取り・コピー・貼り付け）、`Cmd+Backspace`（確認なしでゴミ箱へ移動）、`Cmd+Delete`（完全削除）、`Option+Cmd+R`（Finderで表示）、`Ctrl+Shift+Enter`（システムアプリで開く）、`Option+Cmd+Shift+F`（選択ディレクトリ内検索）を実装した。ファイル操作はworkspace root境界とsymlink境界を検証し、複数root間の貼り付けにも対応する。Command Paletteとコンテキストメニューにも同じ選択対象操作を公開し、App menuにはmacOS標準Services submenuを追加した。
 
 Filesツリーは選択中のディレクトリに対してRightで展開（展開済みなら最初の可視childへ移動）、Leftで折りたたみ（折りたたみ済みのdirectory／fileならparentを選択）を行う。既存の展開状態だけを更新してboundedな表示投影を再構築し、ファイル内容の読込や全ワークスペース走査は行わない。
 

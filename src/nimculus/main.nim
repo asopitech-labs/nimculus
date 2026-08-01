@@ -4182,7 +4182,6 @@ proc storeFocusedEditorView(view: EditorViewState) =
 proc editEditorSelections(document: ptr FileDocument, view: var EditorViewState,
                           replacement: string): bool =
   if document == nil: return false
-  let text = document[].buffer.toString()
   let selections = view.selectionRanges
   var edits: seq[Edit]
   var nextSelections: seq[Selection]
@@ -5187,6 +5186,26 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         "__reveal_active_file__"
       elif command in ["collapse all files", "collapse all folders", "collapse workspace folders"]:
         "__collapse_all_files__"
+      elif command in ["expand all files", "expand all folders", "expand workspace folders"]:
+        "sidebarExpandAll"
+      elif command in ["duplicate workspace entry", "duplicate selected entry"]:
+        "sidebarDuplicateSelected"
+      elif command in ["copy workspace entry", "copy selected entry"]:
+        "sidebarCopySelected"
+      elif command in ["cut workspace entry", "cut selected entry"]:
+        "sidebarCutSelected"
+      elif command in ["paste workspace entry", "paste selected entry"]:
+        "sidebarPasteSelected"
+      elif command in ["move workspace entry to trash", "trash workspace entry"]:
+        "sidebarTrashSelected"
+      elif command in ["delete workspace entry permanently", "permanently delete workspace entry"]:
+        "sidebarDeleteSelected"
+      elif command in ["reveal selected workspace entry", "reveal workspace entry"]:
+        "sidebarRevealSelected"
+      elif command in ["open selected workspace entry with system", "open workspace entry with system"]:
+        "sidebarOpenWithSystem"
+      elif command in ["find in selected folder", "search selected folder"]:
+        "sidebarSearchInSelected"
       elif command in ["show outline", "show symbols"]: "__show_outline__"
       elif command in ["toggle outline", "toggle symbols"]: "__toggle_outline__"
       elif command in ["expand selection", "expand syntax selection"]: "__expand_selection__"

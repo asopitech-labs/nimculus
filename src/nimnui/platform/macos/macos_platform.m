@@ -2601,6 +2601,10 @@ static void dismissExternalChangePanel(const char *command) {
     @"new", @"save", @"save as", @"find", @"replace", @"go to line",
     @"quick open", @"workspace search", @"cancel search", @"reopen closed tab",
     @"show files", @"toggle files", @"reveal active file", @"collapse all files",
+    @"expand all files", @"duplicate workspace entry", @"copy workspace entry",
+    @"cut workspace entry", @"paste workspace entry", @"move workspace entry to trash",
+    @"delete workspace entry permanently", @"reveal selected workspace entry",
+    @"open selected workspace entry with system", @"find in selected folder",
     @"show outline", @"toggle outline", @"split editor", @"split editor horizontally",
     @"close split", @"toggle soft wrap", @"expand selection", @"shrink selection",
     @"select previous syntax node", @"select next syntax node",
@@ -6202,6 +6206,15 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   settings.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   [appMenu addItem:settings];
   [appMenu addItem:[NSMenuItem separatorItem]];
+  // Keep macOS text services in the application menu, matching Zed's native
+  // App menu instead of routing service providers through editor commands.
+  NSMenuItem *services = [[NSMenuItem alloc] initWithTitle:@"Services"
+    action:NULL keyEquivalent:@""];
+  NSMenu *servicesMenu = [NSApp servicesMenu];
+  if (!servicesMenu) servicesMenu = [[[NSMenu alloc] initWithTitle:@"Services"] autorelease];
+  services.submenu = servicesMenu;
+  [appMenu addItem:services];
+  [appMenu addItem:[NSMenuItem separatorItem]];
   [appMenu addItem:[[NSMenuItem alloc] initWithTitle:@"Quit Nimculus" action:@selector(terminate:) keyEquivalent:@"q"]];
   [appItem setSubmenu:appMenu];
   [mainMenu addItem:appItem];
@@ -6503,6 +6516,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     NSString *command = [NSString stringWithFormat:@"workspaceOpenTerminal:%@",
       g_workspace_context_path];
     g_command_callback(command.UTF8String);
+  }
+}
+
+- (void)dispatchWorkspaceSidebarCommand:(NSMenuItem *)sender {
+  if (g_command_callback && [sender.representedObject isKindOfClass:[NSString class]]) {
+    g_command_callback(((NSString *)sender.representedObject).UTF8String);
   }
 }
 
@@ -7596,6 +7615,7 @@ bool nimculus_platform_validate_main_menu(void) {
     BOOL topLevel = appItem.submenu && fileItem.submenu && editItem.submenu &&
       viewItem.submenu && windowItem.submenu;
     NSMenuItem *settings = menuItemWithTitle(appItem.submenu, @"Settings…");
+    NSMenuItem *services = menuItemWithTitle(appItem.submenu, @"Services");
     NSMenuItem *open = menuItemWithTitle(fileItem.submenu, @"Open…");
     NSMenuItem *save = menuItemWithTitle(fileItem.submenu, @"Save");
     NSMenuItem *saveAs = menuItemWithTitle(fileItem.submenu, @"Save As…");
@@ -7634,7 +7654,7 @@ bool nimculus_platform_validate_main_menu(void) {
       fullScreen.keyEquivalentModifierMask ==
         (NSEventModifierFlagCommand | NSEventModifierFlagControl) &&
       minimize.keyEquivalentModifierMask == NSEventModifierFlagCommand;
-    BOOL valid = topLevel && settings && open && save && saveAs && close && redo && palette &&
+    BOOL valid = topLevel && settings && services && services.submenu && open && save && saveAs && close && redo && palette &&
       fullScreen && minimize && zoom && split && splitHorizontal && closeSplit && shortcuts && windowActions;
     [application setMainMenu:previousMenu];
     return valid;
@@ -7653,6 +7673,10 @@ bool nimculus_platform_validate_command_palette(void) {
       @"save as", @"replace", @"go to line", @"quick open", @"workspace search",
       @"show files", @"show outline", @"fold recursively", @"git stage hunk",
       @"git commit", @"cancel git", @"toggle terminal", @"cancel task",
+      @"duplicate workspace entry", @"copy workspace entry", @"cut workspace entry",
+      @"paste workspace entry", @"move workspace entry to trash",
+      @"delete workspace entry permanently", @"open selected workspace entry with system",
+      @"find in selected folder",
       @"go to definition", @"find references", @"code actions", @"signature help",
       @"inlay hints", @"semantic tokens", @"format document", @"check for updates"
     ];
@@ -9623,6 +9647,9 @@ void nimculus_platform_show_workspace_entry_context(const char *path, bool is_di
   NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Workspace Entry"] autorelease];
   if (!g_workspace_context_is_directory) {
     [menu addItemWithTitle:@"Open" action:@selector(dispatchOpenWorkspaceContextEntry:) keyEquivalent:@""];
+    NSMenuItem *openWithSystem = [menu addItemWithTitle:@"Open with System App"
+      action:@selector(dispatchWorkspaceSidebarCommand:) keyEquivalent:@""];
+    openWithSystem.representedObject = @"sidebarOpenWithSystem";
     [menu addItemWithTitle:@"View History" action:@selector(dispatchWorkspaceHistoryContextEntry:) keyEquivalent:@""];
   }
   [menu addItemWithTitle:@"Reveal in Finder" action:@selector(revealWorkspaceContextEntry:) keyEquivalent:@""];
@@ -9633,10 +9660,26 @@ void nimculus_platform_show_workspace_entry_context(const char *path, bool is_di
   [menu addItemWithTitle:@"Copy Path" action:@selector(copyWorkspaceContextPath:) keyEquivalent:@""];
   [menu addItemWithTitle:@"Copy Relative Path" action:@selector(copyWorkspaceContextRelativePath:) keyEquivalent:@""];
   [menu addItem:[NSMenuItem separatorItem]];
+  NSMenuItem *duplicate = [menu addItemWithTitle:@"Duplicate"
+    action:@selector(dispatchWorkspaceSidebarCommand:) keyEquivalent:@""];
+  duplicate.representedObject = @"sidebarDuplicateSelected";
+  NSMenuItem *copy = [menu addItemWithTitle:@"Copy"
+    action:@selector(dispatchWorkspaceSidebarCommand:) keyEquivalent:@""];
+  copy.representedObject = @"sidebarCopySelected";
+  NSMenuItem *cut = [menu addItemWithTitle:@"Cut"
+    action:@selector(dispatchWorkspaceSidebarCommand:) keyEquivalent:@""];
+  cut.representedObject = @"sidebarCutSelected";
+  NSMenuItem *paste = [menu addItemWithTitle:@"Paste"
+    action:@selector(dispatchWorkspaceSidebarCommand:) keyEquivalent:@""];
+  paste.representedObject = @"sidebarPasteSelected";
+  [menu addItem:[NSMenuItem separatorItem]];
   [menu addItemWithTitle:@"New File…" action:@selector(createWorkspaceFileAtContext:) keyEquivalent:@""];
   [menu addItemWithTitle:@"New Folder…" action:@selector(createWorkspaceDirectoryAtContext:) keyEquivalent:@""];
   [menu addItem:[NSMenuItem separatorItem]];
   [menu addItemWithTitle:@"Rename…" action:@selector(renameWorkspaceContextEntry:) keyEquivalent:@""];
+  NSMenuItem *delete = [menu addItemWithTitle:@"Delete Permanently"
+    action:@selector(dispatchWorkspaceSidebarCommand:) keyEquivalent:@""];
+  delete.representedObject = @"sidebarDeleteSelected";
   NSMenuItem *trash = [menu addItemWithTitle:@"Move to Trash…" action:@selector(deleteWorkspaceContextEntry:) keyEquivalent:@""];
   trash.keyEquivalentModifierMask = 0;
   for (NSMenuItem *item in menu.itemArray) item.target = delegate;
