@@ -6520,3 +6520,14 @@ Responses are consumed through `acceptResponse`, which removes the pending
 entry and rejects cancelled, expired, or unknown request sequences before the
 UI sees them. Adapter exit also calls the session stop path to close the
 process handle rather than merely dropping the Nim reference.
+
+## M19-094: Project DAP state into a dedicated macOS Debug panel
+
+Zed's debugger UI keeps session navigation and inspection separate from its
+console output. Nimculus now mirrors that boundary: DAP protocol output remains
+in the bounded bottom Task Output surface, while Threads, Stack Frames,
+Variables, and Watches are projected into the macOS Debug sidebar. The Debug
+activity-bar command opens the panel without moving first responder away from
+the editor. The first implementation is intentionally read-only and
+line-oriented; later debugger work can replace rows with expandable native
+tree items without changing transport ownership or command routing.

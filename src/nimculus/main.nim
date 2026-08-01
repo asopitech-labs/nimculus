@@ -649,7 +649,7 @@ when defined(macosx):
   var workspaceClipboardCut = false
 type EditorSidebarMode = enum
   sidebarOutline, sidebarFiles, sidebarGitHistory, sidebarGitStatus, sidebarGitBranches,
-  sidebarWorkspaceSearch
+  sidebarWorkspaceSearch, sidebarDebugger
 
 type GitStatusProjection = enum
   ## A partial file is intentionally rendered in both sections. Preserve this
@@ -667,6 +667,7 @@ proc workspacePanelForSidebarMode(mode: EditorSidebarMode): PanelKind =
   of sidebarGitHistory, sidebarGitStatus, sidebarGitBranches: panelGit
   of sidebarOutline: panelOutline
   of sidebarWorkspaceSearch: panelSearch
+  of sidebarDebugger: panelDebugger
 
 when defined(macosx):
   proc syncNativeSidebarSelection() =
@@ -742,6 +743,10 @@ when defined(macosx):
   var editorDapBreakpointLines: seq[int]
   var editorDapAttachPid = -1
   var editorDapWatchExpressions: seq[string]
+  var editorDapThreadLines: seq[string]
+  var editorDapStackLines: seq[string]
+  var editorDapVariableLines: seq[string]
+  var editorDapWatchLines: seq[string]
   var editorAgentManager: AgentManager
   var editorAgentOutput = ""
   var editorAgentSessionId = -1
@@ -1018,6 +1023,55 @@ when defined(macosx):
     platformSetTaskOutputTitle("Debugger".cstring, uint32("Debugger".len))
     platformSetTaskOutputText(editorDapOutput.cstring, uint32(editorDapOutput.len))
 
+  proc renderNativeDapSidebar() =
+    ## Zed keeps debugger state in a structured panel rather than making the
+    ## output console the only way to inspect a stopped session.  Keep the
+    ## native sidebar text deliberately line-oriented for now, but preserve
+    ## the same sections and stable item boundaries so richer tree rows can be
+    ## added without changing the DAP transport.
+    var lines = @[
+      "Debugger",
+      "────────",
+      if editorDapSession == nil: "No active session" else:
+        (if editorDapThreadId > 0: "Stopped" else: "Running")
+    ]
+    if editorDapThreadLines.len > 0:
+      lines.add("")
+      lines.add("Threads")
+      lines.add("───────")
+      lines.add(editorDapThreadLines)
+    if editorDapStackLines.len > 0:
+      lines.add("")
+      lines.add("Stack Frames")
+      lines.add("────────────")
+      lines.add(editorDapStackLines)
+    if editorDapVariableLines.len > 0:
+      lines.add("")
+      lines.add("Variables")
+      lines.add("─────────")
+      lines.add(editorDapVariableLines)
+    if editorDapWatchLines.len > 0:
+      lines.add("")
+      lines.add("Watches")
+      lines.add("───────")
+      lines.add(editorDapWatchLines)
+    if editorDapThreadLines.len == 0 and editorDapStackLines.len == 0 and
+        editorDapVariableLines.len == 0 and editorDapWatchLines.len == 0:
+      lines.add("")
+      lines.add("Start or attach a debugger to inspect the session.")
+    editorWorkspaceUi.replacePanelItems(panelDebugger, @[])
+    let text = lines.join("\n")
+    platformSetEditorSidebar(text.cstring, uint32(text.len), 0,
+      uint32(sidebarDebugger))
+
+  proc showNativeDapSidebar() =
+    editorSidebarMode = sidebarDebugger
+    editorWorkspaceUi.openPanel(panelDebugger)
+    # Opening the panel must not steal the editor's first responder. This is
+    # the same distinction Zed makes between panel visibility and focus.
+    editorWorkspaceUi.focusCenter()
+    renderNativeDapSidebar()
+
   proc stopNativeDap() =
     if editorDapSession == nil:
       editorViewState.statusMessage = "Debugger: no active session"
@@ -1028,6 +1082,11 @@ when defined(macosx):
     editorDapThreadId = -1
     editorDapFrameId = -1
     editorDapAttachPid = -1
+    editorDapThreadLines.setLen(0)
+    editorDapStackLines.setLen(0)
+    editorDapVariableLines.setLen(0)
+    editorDapWatchLines.setLen(0)
+    renderNativeDapSidebar()
     editorViewState.statusMessage = "Debugger stopped"
 
   proc startNativeDap(attach = false) =
@@ -1062,12 +1121,17 @@ when defined(macosx):
       editorDapThreadId = -1
       editorDapFrameId = -1
       editorDapAttachPid = if attach: attachPid else: -1
+      editorDapThreadLines.setLen(0)
+      editorDapStackLines.setLen(0)
+      editorDapVariableLines.setLen(0)
+      editorDapWatchLines.setLen(0)
       editorTaskOutputVisible = true
       editorTerminalVisible = false
       platformSetTerminalVisible(false)
       platformSetTaskOutputVisible(true)
       platformSetTaskOutputCancellable(false)
       editorWorkspaceUi.openPanel(panelTasks)
+      showNativeDapSidebar()
       let request = editorDapSession.sendRequest("initialize", initializeArguments())
       appendNativeDapOutput("→ initialize (#" & $request.seq & ")")
       editorViewState.statusMessage = "Debugger: initializing"
@@ -1113,6 +1177,7 @@ when defined(macosx):
         elif message.command == "stackTrace" and message.body != nil:
           if message.body.hasKey("stackFrames") and message.body["stackFrames"].kind == JArray:
             var lines = @["Debugger — Stack Frames"]
+            editorDapStackLines.setLen(0)
             editorDapFrameId = -1
             for frame in message.body["stackFrames"]:
               if frame.kind != JObject: continue
@@ -1123,14 +1188,17 @@ when defined(macosx):
               let source = if frame.hasKey("source") and frame["source"].kind == JObject and
                   frame["source"].hasKey("path"): frame["source"]["path"].getStr else: ""
               lines.add(name & "  " & source & ":" & $line)
+              editorDapStackLines.add(name & "  " & source & ":" & $line)
             editorDapOutput = lines.join("\n") & "\n\n" & editorDapOutput
             platformSetTaskOutputText(editorDapOutput.cstring, uint32(editorDapOutput.len))
+            renderNativeDapSidebar()
             if editorDapFrameId > 0:
               discard sendNativeDapRequest("scopes", scopesArguments(editorDapFrameId))
         elif message.command == "scopes" or message.command == "variables":
           if message.body != nil:
             if message.command == "scopes" and message.body.hasKey("scopes") and
                 message.body["scopes"].kind == JArray:
+              editorDapVariableLines.setLen(0)
               appendNativeDapOutput("Scopes:")
               for scope in message.body["scopes"]:
                 if scope.kind != JObject: continue
@@ -1138,6 +1206,7 @@ when defined(macosx):
                 let reference = if scope.hasKey("variablesReference"):
                   scope["variablesReference"].getInt else: 0
                 appendNativeDapOutput("  " & name)
+                editorDapVariableLines.add(name)
                 if reference > 0:
                   discard sendNativeDapRequest("variables", variablesArguments(reference))
             elif message.command == "variables" and message.body.hasKey("variables") and
@@ -1148,8 +1217,24 @@ when defined(macosx):
                 let name = if variable.hasKey("name"): variable["name"].getStr else: "?"
                 let value = if variable.hasKey("value"): variable["value"].getStr else: ""
                 appendNativeDapOutput("  " & name & " = " & value)
+                editorDapVariableLines.add(name & " = " & value)
             else:
               appendNativeDapOutput("  " & $message.body)
+            renderNativeDapSidebar()
+        elif message.command == "threads" and message.body != nil and
+            message.body.hasKey("threads") and message.body["threads"].kind == JArray:
+          editorDapThreadLines.setLen(0)
+          for thread in message.body["threads"]:
+            if thread.kind != JObject: continue
+            let id = if thread.hasKey("id"): $thread["id"].getInt else: "?"
+            let name = if thread.hasKey("name"): thread["name"].getStr else: "thread"
+            editorDapThreadLines.add("#" & id & "  " & name)
+          renderNativeDapSidebar()
+        elif message.command == "evaluate" and message.body != nil:
+          let value = if message.body.hasKey("result"): message.body["result"].getStr else: $message.body
+          editorDapWatchLines.add(value)
+          if editorDapWatchLines.len > 64: editorDapWatchLines.delete(0)
+          renderNativeDapSidebar()
       of dapEventMessage:
         case message.event
         of "initialized":
@@ -1171,6 +1256,7 @@ when defined(macosx):
             editorViewState.statusMessage = "Debugger stopped: " &
               (if message.body.hasKey("reason"): message.body["reason"].getStr else: "breakpoint")
             discard sendNativeDapRequest("stackTrace", stackTraceArguments(editorDapThreadId))
+            renderNativeDapSidebar()
             for expression in editorDapWatchExpressions:
               discard sendNativeDapRequest("evaluate", evaluateArguments(expression,
                 editorDapFrameId))
@@ -1187,6 +1273,7 @@ when defined(macosx):
         "Debugger adapter exited unexpectedly" else: "Debugger stopped"
       editorDapSession.stop()
       editorDapSession = nil
+      renderNativeDapSidebar()
   proc renderNativeGitStatus(entries: seq[GitStatusEntry])
 
   proc refreshNativeGitPanelBranch(repository: GitRepository) =
@@ -5885,6 +5972,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "Debug watch requires an expression"
         elif expression notin editorDapWatchExpressions:
           editorDapWatchExpressions.add(expression)
+          showNativeDapSidebar()
           editorViewState.statusMessage = "Added debug watch: " & expression
           if editorDapThreadId > 0:
             discard sendNativeDapRequest("evaluate", evaluateArguments(expression,
@@ -5898,9 +5986,12 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         if editorDapFrameId <= 0:
           editorViewState.statusMessage = "No stopped debugger frame"
         else:
+          showNativeDapSidebar()
           discard sendNativeDapRequest("scopes", scopesArguments(editorDapFrameId))
     of "__debug_threads__":
-      when defined(macosx): discard sendNativeDapRequest("threads", threadsArguments())
+      when defined(macosx):
+        showNativeDapSidebar()
+        discard sendNativeDapRequest("threads", threadsArguments())
     of "__agent_start__":
       when defined(macosx): startNativeAgent()
     of "__agent_start_worktree__":
@@ -6516,6 +6607,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
                 ["switch", "--no-guess", branch.name], source = branch.name)
         of sidebarOutline:
           discard openNativeSymbol(index)
+        of sidebarDebugger:
+          editorViewState.statusMessage = "Debugger details are read-only"
       except ValueError:
         editorViewState.statusMessage = "Invalid sidebar item"
   elif name.startsWith("sidebarContext:"):

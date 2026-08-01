@@ -4257,7 +4257,8 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     @[@"list.bullet", @"Outline", @"commandPalette:show outline"],
     @[@"arrow.triangle.branch", @"Git", @"commandPalette:git status"],
     @[@"terminal", @"Terminal", @"commandPalette:toggle terminal"],
-    @[@"rectangle.split.2x1", @"Split", @"splitEditor"]
+    @[@"rectangle.split.2x1", @"Split", @"splitEditor"],
+    @[@"ladybug", @"Debug", @"commandPalette:debug threads"]
   ];
   for (NSArray<NSString *> *entry in buttons) {
     NSButton *button = [NSButton buttonWithTitle:entry[1] target:self
@@ -4305,6 +4306,8 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
         g_editor_sidebar_visible && g_editor_sidebar_mode == 0 :
       [command isEqualToString:@"commandPalette:git status"] ?
         g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 && g_editor_sidebar_mode <= 4 :
+      [command isEqualToString:@"commandPalette:debug threads"] ?
+        g_editor_sidebar_visible && g_editor_sidebar_mode == 6 :
       [command isEqualToString:@"commandPalette:toggle terminal"] ? g_terminal_visible : NO;
     styleWorkspaceNavigationButton(button, active, YES);
   }
@@ -8710,7 +8713,7 @@ bool nimculus_platform_validate_activity_bar(void) {
     NimculusActivityBar *bar = [[NimculusActivityBar alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 30.0, 180.0)];
     NSArray<NSView *> *buttons = bar.arrangedSubviews;
-    BOOL presentation = buttons.count == 6 &&
+    BOOL presentation = buttons.count == 7 &&
       [((NSButton *)buttons[0]).toolTip isEqualToString:@"Files"] &&
       [((NSButton *)buttons[1]).toolTip isEqualToString:@"Search"] &&
       [((NSButton *)buttons[2]).toolTip isEqualToString:@"Outline"] &&
@@ -8723,6 +8726,8 @@ bool nimculus_platform_validate_activity_bar(void) {
       [((NSButton *)buttons[3]).accessibilityLabel isEqualToString:@"Git"] &&
       [((NSButton *)buttons[4]).accessibilityLabel isEqualToString:@"Terminal"] &&
       [((NSButton *)buttons[5]).accessibilityLabel isEqualToString:@"Split"] &&
+      [((NSButton *)buttons[6]).toolTip isEqualToString:@"Debug"] &&
+      [((NSButton *)buttons[6]).accessibilityLabel isEqualToString:@"Debug"] &&
       ((NSButton *)buttons[0]).contentTintColor != nil &&
       ![((NSButton *)buttons[0]).contentTintColor
         isEqual:((NSButton *)buttons[1]).contentTintColor] &&
@@ -8742,13 +8747,16 @@ bool nimculus_platform_validate_activity_bar(void) {
     BOOL closePresentation = [((NSButton *)buttons[5]).toolTip isEqualToString:@"Close Split"];
     [bar dispatchWorkspaceCommand:(NSButton *)buttons[5]];
     BOOL closeSplit = strcmp(g_validation_command, "closeSplit") == 0;
+    [bar dispatchWorkspaceCommand:(NSButton *)buttons[6]];
+    BOOL debug = strcmp(g_validation_command, "commandPalette:debug threads") == 0;
     [bar release];
     g_editor_sidebar_mode = previousMode;
     g_editor_sidebar_visible = previousSidebarVisible;
     g_terminal_visible = previousTerminalVisible;
     g_secondary_editor_visible = previousSecondaryVisible;
     g_command_callback = previousCallback;
-    return presentation && search && git && terminalSelected && split && closePresentation && closeSplit;
+    return presentation && search && git && terminalSelected && split && closePresentation &&
+      closeSplit && debug;
   }
 }
 
