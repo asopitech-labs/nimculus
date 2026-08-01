@@ -106,10 +106,9 @@ proc loadExtensionManifest*(path: string): ExtensionManifest =
   parseExtensionManifest(readFile(path), parentDir(path))
 
 proc validateWasmModule*(manifest: ExtensionManifest): bool =
-  ## Validate the WebAssembly container before handing it to a future host.
-  ## The module must remain under its manifest root and use the WebAssembly 1
-  ## binary header. Execution is intentionally not attempted without an
-  ## explicitly selected WASM runtime and versioned host API.
+  ## Validate the WebAssembly container before handing it to a host. Both the
+  ## core module header and the Component Model header are accepted; the
+  ## versioned manifest/API check still happens before this boundary.
   if manifest.wasmModule.len == 0: return true
   let modulePath = normalizedPath(manifest.root / manifest.wasmModule)
   let rootPath = normalizedPath(manifest.root)
@@ -117,9 +116,13 @@ proc validateWasmModule*(manifest: ExtensionManifest): bool =
     return false
   if not fileExists(modulePath): return false
   let bytes = readFile(modulePath)
-  bytes.len >= 8 and bytes[0] == '\0' and bytes[1] == 'a' and bytes[2] == 's' and
-    bytes[3] == 'm' and ord(bytes[4]) == 1 and ord(bytes[5]) == 0 and
+  if bytes.len < 8 or bytes[0] != '\0' or bytes[1] != 'a' or bytes[2] != 's' or
+      bytes[3] != 'm': return false
+  let coreModule = ord(bytes[4]) == 1 and ord(bytes[5]) == 0 and
     ord(bytes[6]) == 0 and ord(bytes[7]) == 0
+  let component = ord(bytes[4]) == 0x0d and ord(bytes[5]) == 0 and
+    ord(bytes[6]) == 1 and ord(bytes[7]) == 0
+  result = coreModule or component
 
 proc validExtensionId(id: string): bool =
   ## An extension id becomes a directory name.  Keep the install boundary

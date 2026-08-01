@@ -6603,8 +6603,10 @@ the same concerns in `wasm_runtime.nim`: manifest validation happens before a
 uses direct argv with no shell interpolation. The plan preopens only the
 extension root as `/extension` and passes the extension id/API version as
 explicit guest environment values. The task boundary owns output, cancellation,
-and direct-child cleanup. `wasmEntrypoint` is optional and is passed through
-`--invoke` only when declared by the manifest. This is an executable macOS
+and direct-child cleanup. Both core-module and Component Model headers are
+recognized. `wasmEntrypoint` is optional and is passed through `--invoke` only
+when declared by the manifest; Component Model entries use Wasmtime's explicit
+Wave call syntax such as `run()`. This is an executable macOS
 WASM slice, not a claim that the full Zed WIT host API has been implemented;
 the in-process Component Model linker and permission UI remain explicit follow-up
 work.

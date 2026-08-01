@@ -24,6 +24,7 @@ type
     runtimeSource*: string
     modulePath*: string
     entrypoint*: string
+    component*: bool
 
 proc wasmRuntimeError(message: string): ref WasmRuntimeError =
   newException(WasmRuntimeError, message)
@@ -66,6 +67,9 @@ proc prepareWasmExecution*(manifest: ExtensionManifest;
       getEnv("NIMCULUS_WASMTIME", "").strip.len > 0: "configured" else: "PATH"
   result.modulePath = modulePath
   result.entrypoint = manifest.wasmEntrypoint
+  let bytes = readFile(modulePath)
+  result.component = bytes.len >= 8 and ord(bytes[4]) == 0x0d and
+    ord(bytes[5]) == 0 and ord(bytes[6]) == 1 and ord(bytes[7]) == 0
   ## Wasmtime options precede the module.  The guest sees only this extension
   ## tree at /extension; no shell is involved and no host cwd is preopened.
   result.args = @["--dir", result.workingDirectory & "::/extension",

@@ -37,6 +37,8 @@ suite "M17 extension registry":
     check manifest.validateWasmModule()
     writeFile(root / "extension.wasm", "not wasm")
     check not manifest.validateWasmModule()
+    writeFile(root / "extension.wasm", "\x00asm\x0d\x00\x01\x00")
+    check manifest.validateWasmModule()
     expect ExtensionError:
       discard parseExtensionManifest("""
         {"id":"future","name":"Future","version":"1","apiVersion":2}
@@ -49,14 +51,15 @@ suite "M17 extension registry":
     createDir(root)
     writeFile(runtime, "#!/bin/sh\nexit 0\n")
     setFilePermissions(runtime, {fpUserRead, fpUserWrite, fpUserExec})
-    writeFile(root / "extension.wasm", "\x00asm\x01\x00\x00\x00")
+    writeFile(root / "extension.wasm", "\x00asm\x0d\x00\x01\x00")
     let manifest = parseExtensionManifest("""
-      {"id":"safe.tools","name":"Safe Tools","version":"1",
-       "apiVersion":1,"wasmModule":"extension.wasm","wasmEntrypoint":"run"}
+       {"id":"safe.tools","name":"Safe Tools","version":"1",
+       "apiVersion":1,"wasmModule":"extension.wasm","wasmEntrypoint":"run()"}
     """, root)
     let plan = prepareWasmExecution(manifest, runtime)
     check plan.command == normalizedPath(runtime)
     check plan.workingDirectory == normalizedPath(root)
+    check plan.component
     check plan.args[0 .. 1] == @["--dir", normalizedPath(root) & "::/extension"]
     check "--invoke" in plan.args
     check plan.args[^1] == normalizedPath(root / "extension.wasm")

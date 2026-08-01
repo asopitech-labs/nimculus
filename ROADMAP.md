@@ -38,7 +38,7 @@ Zedの `crates/extension_host`、`crates/agent`、`crates/dap`、`crates/dap_ada
 * Agentメニュー／Command Paletteから、`NIMCULUS_AGENT_COMMAND` と引数で任意CLI agentを起動し、Taskパネルへ出力を表示できる。`agent send <prompt>`、差分レビュー、approve/reject、stopを実装し、直接起動した子プロセスだけを終了する
 * Debugメニュー／Command PaletteからDAP adapterを起動し、`NIMCULUS_DAP_COMMAND`、`NIMCULUS_DAP_ARGS`、`NIMCULUS_DAP_PROGRAM`で対象を指定できる。initialize→launch→initialized→configurationDone、breakpoint、continue/pause/step、stack trace/outputを実行し、応答の世代管理とbounded transportを行う
 
-今回の継続作業では、ZedのWASM hostが実行前にAPI versionを検証し、manifest登録とホスト実行を分離している点を反映した。Extensionsメニュー／Command Paletteの`Install Extension…`からローカルフォルダを選択し、`extension.json`、安全なID、symlink、WASM containerを検証して`~/.nimculus/extensions/<id>`へ原子的にコピーし、失敗時は一時領域を掃除する。さらに公式Wasmtime CLIを解決し、extension rootだけを`/extension`へpreopenする直接argv実行計画を追加した。`extensions runtime`でruntime状態を確認し、`extensions run`で単一WASM拡張をTask境界から実行できる。これはWASM実行のmacOS縦切りであり、Zed互換のin-process Component Model/WASI host APIは未完了として残す。
+今回の継続作業では、ZedのWASM hostが実行前にAPI versionを検証し、manifest登録とホスト実行を分離している点を反映した。Extensionsメニュー／Command Paletteの`Install Extension…`からローカルフォルダを選択し、`extension.json`、安全なID、symlink、WASM containerを検証して`~/.nimculus/extensions/<id>`へ原子的にコピーし、失敗時は一時領域を掃除する。さらに公式Wasmtime CLIを解決し、core moduleとComponent Modelの両方を認識し、extension rootだけを`/extension`へpreopenする直接argv実行計画を追加した。`extensions runtime`でruntime状態を確認し、`extensions run`で単一WASM拡張をTask境界から実行できる。これはWASM実行のmacOS縦切りであり、Zed互換のin-process Component Model/WASI host APIは未完了として残す。
 
 macOS DAPはApple `lldb-dap`の実initializeを確認した結果、必須の`pathFormat: "path"`をinitialize引数へ追加した。`NIMCULUS_DAP_COMMAND`未指定時はXcodeの選択状態を`xcrun --find lldb-dap`で解決する。対象プロセスのlaunch/attachはmacOSデバッグ権限のある受入れ環境で継続確認する。
 
