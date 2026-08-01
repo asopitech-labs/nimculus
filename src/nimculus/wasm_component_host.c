@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 typedef struct wasm_config wasm_config_t;
 typedef struct wasm_engine wasm_engine_t;
@@ -28,6 +29,8 @@ typedef struct wasmtime_component wasmtime_component_t;
 typedef struct wasmtime_component_linker wasmtime_component_linker_t;
 typedef struct wasmtime_component_export_index wasmtime_component_export_index_t;
 typedef struct wasmtime_error wasmtime_error_t;
+
+typedef struct nimculus_component_job nimculus_component_job_t;
 
 typedef struct {
   size_t size;
@@ -49,8 +52,10 @@ typedef void *(*fn_wasm_config_new)(void);
 typedef void (*fn_wasm_config_delete)(wasm_config_t *);
 typedef void (*fn_wasmtime_config_component_set)(wasm_config_t *, bool);
 typedef void (*fn_wasmtime_config_fuel_set)(wasm_config_t *, bool);
+typedef void (*fn_wasmtime_config_epoch_interruption_set)(wasm_config_t *, bool);
 typedef wasm_engine_t *(*fn_wasm_engine_new_with_config)(wasm_config_t *);
 typedef void (*fn_wasm_engine_delete)(wasm_engine_t *);
+typedef void (*fn_wasmtime_engine_increment_epoch)(const wasm_engine_t *);
 typedef wasmtime_store_t *(*fn_wasmtime_store_new)(wasm_engine_t *, void *,
                                                     void (*)(void *));
 typedef void (*fn_wasmtime_store_delete)(wasmtime_store_t *);
@@ -69,6 +74,8 @@ typedef wasmtime_error_t *(*fn_wasmtime_context_set_wasi)(wasmtime_context_t *,
                                                            wasi_config_t *);
 typedef wasmtime_error_t *(*fn_wasmtime_context_set_fuel)(wasmtime_context_t *,
                                                            uint64_t);
+typedef void (*fn_wasmtime_context_set_epoch_deadline)(wasmtime_context_t *,
+                                                        uint64_t);
 typedef wasmtime_error_t *(*fn_wasmtime_component_new)(
     const wasm_engine_t *, const uint8_t *, size_t, wasmtime_component_t **);
 typedef void (*fn_wasmtime_component_delete)(wasmtime_component_t *);
@@ -102,8 +109,10 @@ typedef struct {
   fn_wasm_config_delete wasm_config_delete;
   fn_wasmtime_config_component_set config_component_set;
   fn_wasmtime_config_fuel_set config_fuel_set;
+  fn_wasmtime_config_epoch_interruption_set config_epoch_interruption_set;
   fn_wasm_engine_new_with_config engine_new_with_config;
   fn_wasm_engine_delete engine_delete;
+  fn_wasmtime_engine_increment_epoch engine_increment_epoch;
   fn_wasmtime_store_new store_new;
   fn_wasmtime_store_delete store_delete;
   fn_wasmtime_store_context store_context;
@@ -115,6 +124,7 @@ typedef struct {
   fn_wasi_config_preopen_dir wasi_config_preopen_dir;
   fn_wasmtime_context_set_wasi context_set_wasi;
   fn_wasmtime_context_set_fuel context_set_fuel;
+  fn_wasmtime_context_set_epoch_deadline context_set_epoch_deadline;
   fn_wasmtime_component_new component_new;
   fn_wasmtime_component_delete component_delete;
   fn_wasmtime_component_linker_new linker_new;
@@ -129,6 +139,24 @@ typedef struct {
   fn_wasmtime_error_message error_message;
   fn_wasm_byte_vec_delete byte_vec_delete;
 } wasmtime_api_t;
+
+struct nimculus_component_job {
+  pthread_t thread;
+  pthread_mutex_t mutex;
+  bool done;
+  bool cancel_requested;
+  int result;
+  char error[4096];
+  wasm_engine_t *engine;
+  fn_wasmtime_engine_increment_epoch increment_epoch;
+  char *library_path;
+  char *module_path;
+  char *extension_root;
+  char *extension_id;
+  char *entrypoint;
+  uint32_t api_version;
+  int allow_write;
+};
 
 static void set_error(char *out, size_t capacity, const char *message) {
   if (!out || capacity == 0) return;
@@ -194,9 +222,13 @@ static bool load_api(void *handle, wasmtime_api_t *api) {
                 "wasmtime_config_wasm_component_model_set");
   LOAD_REQUIRED(*api, handle, config_fuel_set,
                 "wasmtime_config_consume_fuel_set");
+  LOAD_REQUIRED(*api, handle, config_epoch_interruption_set,
+                "wasmtime_config_epoch_interruption_set");
   LOAD_REQUIRED(*api, handle, engine_new_with_config,
                 "wasm_engine_new_with_config");
   LOAD_REQUIRED(*api, handle, engine_delete, "wasm_engine_delete");
+  LOAD_REQUIRED(*api, handle, engine_increment_epoch,
+                "wasmtime_engine_increment_epoch");
   LOAD_REQUIRED(*api, handle, store_new, "wasmtime_store_new");
   LOAD_REQUIRED(*api, handle, store_delete, "wasmtime_store_delete");
   LOAD_REQUIRED(*api, handle, store_context, "wasmtime_store_context");
@@ -209,6 +241,8 @@ static bool load_api(void *handle, wasmtime_api_t *api) {
                 "wasi_config_preopen_dir");
   LOAD_REQUIRED(*api, handle, context_set_wasi, "wasmtime_context_set_wasi");
   LOAD_REQUIRED(*api, handle, context_set_fuel, "wasmtime_context_set_fuel");
+  LOAD_REQUIRED(*api, handle, context_set_epoch_deadline,
+                "wasmtime_context_set_epoch_deadline");
   LOAD_REQUIRED(*api, handle, component_new, "wasmtime_component_new");
   LOAD_REQUIRED(*api, handle, component_delete, "wasmtime_component_delete");
   LOAD_REQUIRED(*api, handle, linker_new, "wasmtime_component_linker_new");
@@ -241,14 +275,37 @@ int nimculus_wasmtime_component_available(const char *library_path) {
   return loaded ? 1 : 0;
 }
 
-int nimculus_wasmtime_component_run(const char *library_path,
-                                    const char *module_path,
-                                    const char *extension_root,
-                                    const char *extension_id,
-                                    uint32_t api_version,
-                                    const char *entrypoint,
-                                    int allow_write,
-                                    char *error_out, size_t error_capacity) {
+static bool component_job_cancel_requested(nimculus_component_job_t *job) {
+  if (!job) return false;
+  pthread_mutex_lock(&job->mutex);
+  bool requested = job->cancel_requested;
+  pthread_mutex_unlock(&job->mutex);
+  return requested;
+}
+
+static void component_job_set_engine(nimculus_component_job_t *job,
+                                     wasm_engine_t *engine,
+                                     fn_wasmtime_engine_increment_epoch increment_epoch) {
+  if (!job) return;
+  pthread_mutex_lock(&job->mutex);
+  job->engine = engine;
+  job->increment_epoch = increment_epoch;
+  pthread_mutex_unlock(&job->mutex);
+}
+
+static void component_job_clear_engine(nimculus_component_job_t *job) {
+  if (!job) return;
+  pthread_mutex_lock(&job->mutex);
+  job->engine = NULL;
+  job->increment_epoch = NULL;
+  pthread_mutex_unlock(&job->mutex);
+}
+
+static int run_component(const char *library_path, const char *module_path,
+                         const char *extension_root, const char *extension_id,
+                         uint32_t api_version, const char *entrypoint,
+                         int allow_write, char *error_out,
+                         size_t error_capacity, nimculus_component_job_t *job) {
   if (!module_path || !extension_root || !extension_id) {
     set_error(error_out, error_capacity, "invalid Component host arguments");
     return 2;
@@ -310,12 +367,15 @@ int nimculus_wasmtime_component_run(const char *library_path,
   }
   api.config_component_set(config, true);
   api.config_fuel_set(config, true);
+  api.config_epoch_interruption_set(config, true);
   engine = api.engine_new_with_config(config);
   config = NULL;
   if (!engine) {
     set_error(error_out, error_capacity, "cannot create Wasmtime engine");
     goto cleanup;
   }
+  component_job_set_engine(job, engine, api.engine_increment_epoch);
+  if (component_job_cancel_requested(job)) api.engine_increment_epoch(engine);
   store = api.store_new(engine, NULL, NULL);
   if (!store) {
     set_error(error_out, error_capacity, "cannot create Wasmtime store");
@@ -354,6 +414,11 @@ int nimculus_wasmtime_component_run(const char *library_path,
   wasi = NULL;
   if (error) {
     report_wasmtime_error(&api, error, error_out, error_capacity);
+    goto cleanup;
+  }
+  api.context_set_epoch_deadline(context, 1);
+  if (component_job_cancel_requested(job)) {
+    set_error(error_out, error_capacity, "Component execution cancelled");
     goto cleanup;
   }
   error = api.context_set_fuel(context, 50ULL * 1000ULL * 1000ULL);
@@ -414,12 +479,147 @@ cleanup:
   if (linker) api.linker_delete(linker);
   if (component) api.component_delete(component);
   if (store) api.store_delete(store);
+  component_job_clear_engine(job);
   if (engine) api.engine_delete(engine);
   if (wasi) api.wasi_config_delete(wasi);
   if (config) api.wasm_config_delete(config);
   free(bytes);
   dlclose(handle);
   return result;
+}
+
+int nimculus_wasmtime_component_run(const char *library_path,
+                                    const char *module_path,
+                                    const char *extension_root,
+                                    const char *extension_id,
+                                    uint32_t api_version,
+                                    const char *entrypoint,
+                                    int allow_write,
+                                    char *error_out, size_t error_capacity) {
+  return run_component(library_path, module_path, extension_root, extension_id,
+                       api_version, entrypoint, allow_write, error_out,
+                       error_capacity, NULL);
+}
+
+static void free_component_job_inputs(nimculus_component_job_t *job) {
+  free(job->library_path);
+  free(job->module_path);
+  free(job->extension_root);
+  free(job->extension_id);
+  free(job->entrypoint);
+  job->library_path = NULL;
+  job->module_path = NULL;
+  job->extension_root = NULL;
+  job->extension_id = NULL;
+  job->entrypoint = NULL;
+}
+
+static void *component_job_worker(void *opaque) {
+  nimculus_component_job_t *job = (nimculus_component_job_t *)opaque;
+  char error[sizeof(job->error)] = {0};
+  int result = run_component(
+      job->library_path, job->module_path, job->extension_root,
+      job->extension_id, job->api_version, job->entrypoint, job->allow_write,
+      error, sizeof(error), job);
+  pthread_mutex_lock(&job->mutex);
+  job->result = result;
+  snprintf(job->error, sizeof(job->error), "%s", error);
+  if (job->cancel_requested && result != 0 && job->error[0] == '\0') {
+    snprintf(job->error, sizeof(job->error), "Component execution cancelled");
+  }
+  job->done = true;
+  pthread_mutex_unlock(&job->mutex);
+  return NULL;
+}
+
+nimculus_component_job_t *nimculus_wasmtime_component_start(
+    const char *library_path, const char *module_path,
+    const char *extension_root, const char *extension_id, uint32_t api_version,
+    const char *entrypoint, int allow_write, char *error_out,
+    size_t error_capacity) {
+  if (!module_path || !extension_root || !extension_id) {
+    set_error(error_out, error_capacity, "invalid Component host arguments");
+    return NULL;
+  }
+  nimculus_component_job_t *job =
+      (nimculus_component_job_t *)calloc(1, sizeof(*job));
+  if (!job) {
+    set_error(error_out, error_capacity, "cannot allocate Component job");
+    return NULL;
+  }
+  if (pthread_mutex_init(&job->mutex, NULL) != 0) {
+    free(job);
+    set_error(error_out, error_capacity, "cannot initialize Component job");
+    return NULL;
+  }
+  job->result = 2;
+  job->library_path = strdup(library_path ? library_path : "");
+  job->module_path = strdup(module_path);
+  job->extension_root = strdup(extension_root);
+  job->extension_id = strdup(extension_id);
+  job->entrypoint = strdup(entrypoint ? entrypoint : "");
+  job->api_version = api_version;
+  job->allow_write = allow_write;
+  if (!job->library_path || !job->module_path || !job->extension_root ||
+      !job->extension_id || !job->entrypoint) {
+    free_component_job_inputs(job);
+    pthread_mutex_destroy(&job->mutex);
+    free(job);
+    set_error(error_out, error_capacity, "cannot allocate Component job arguments");
+    return NULL;
+  }
+  int thread_result = pthread_create(&job->thread, NULL, component_job_worker, job);
+  if (thread_result != 0) {
+    free_component_job_inputs(job);
+    pthread_mutex_destroy(&job->mutex);
+    free(job);
+    set_error(error_out, error_capacity, "cannot start Component job");
+    return NULL;
+  }
+  return job;
+}
+
+int nimculus_wasmtime_component_poll(nimculus_component_job_t *job,
+                                     char *error_out, size_t error_capacity) {
+  if (!job) {
+    set_error(error_out, error_capacity, "invalid Component job");
+    return 2;
+  }
+  pthread_mutex_lock(&job->mutex);
+  bool done = job->done;
+  int result = job->result;
+  char error[sizeof(job->error)];
+  snprintf(error, sizeof(error), "%s", job->error);
+  pthread_mutex_unlock(&job->mutex);
+  if (!done) return 0;
+  if (result == 0) return 1;
+  set_error(error_out, error_capacity,
+            error[0] ? error : "Component execution failed");
+  return result == 1 ? 3 : 2;
+}
+
+void nimculus_wasmtime_component_cancel(nimculus_component_job_t *job) {
+  if (!job) return;
+  pthread_mutex_lock(&job->mutex);
+  job->cancel_requested = true;
+  if (job->engine && job->increment_epoch) {
+    /* Wasmtime documents this call as safe from any thread. Keep the mutex
+       held until the call completes so cleanup cannot unload the library. */
+    job->increment_epoch(job->engine);
+  }
+  pthread_mutex_unlock(&job->mutex);
+}
+
+void nimculus_wasmtime_component_delete(nimculus_component_job_t *job) {
+  if (!job) return;
+  pthread_mutex_lock(&job->mutex);
+  bool done = job->done;
+  pthread_mutex_unlock(&job->mutex);
+  if (!done) return;
+  pthread_join(job->thread, NULL);
+  free_component_job_inputs(job);
+  pthread_mutex_destroy(&job->mutex);
+  free(job);
 }
 
 #else

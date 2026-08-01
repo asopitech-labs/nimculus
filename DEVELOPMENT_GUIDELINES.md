@@ -194,7 +194,7 @@ WSL では `\\wsl$` 経由の直接監視に依存しない。複数ディスト
 
 ## 9. 拡張・AI・デバッグ
 
-拡張の第 1 段階は language definition、Tree-sitter grammar、LSP configuration、theme、icon theme、snippets、tasks、commands とする。macOSの第 2 段階では、manifest/API検証後に公式Wasmtime CLIを直接argvで起動するWASM実行境界を使い、extension rootだけをWASI preopenする。第 3 段階では、ZedのWasmHost/WIT境界を参照し、任意のWasmtime開発環境へリンクせず動的に解決するin-process Component Model/WASI実行層を追加する。この層は現在、WASI Preview 2、extension rootのpreopen、API/id環境、fuel・resource limit、明示的な引数なしexport呼び出しまでをmacOSで実装している。UIからは同期呼び出しを行わず、非同期job・キャンセル・権限UI・versioned host APIを完成させてから実行経路へ接続する。external process extension、permission UI、versioned APIもこの段階で追加する。
+拡張の第 1 段階は language definition、Tree-sitter grammar、LSP configuration、theme、icon theme、snippets、tasks、commands とする。macOSの第 2 段階では、manifest/API検証後に公式Wasmtime CLIを直接argvで起動するWASM実行境界を使い、extension rootだけをWASI preopenする。第 3 段階では、ZedのWasmHost/WIT境界を参照し、任意のWasmtime開発環境へリンクせず動的に解決するin-process Component Model/WASI実行層を追加する。この層は現在、WASI Preview 2、extension rootのpreopen、API/id環境、fuel・resource limit、明示的な引数なしexport呼び出し、専用worker、idle polling、epoch interruptionによるキャンセルまでをmacOSで実装している。UIスレッドからWasmtimeを同期呼び出しせず、core moduleはCLIへフォールバックする。external process extension、permission UI、versioned WIT host API、配布カタログを次に追加する。
 
 Node.js runtime を組み込まず、VSCode Extension API 互換を目標にしない。信頼できないネイティブ共有ライブラリを本体へ直接ロードしない。
 

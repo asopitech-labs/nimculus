@@ -114,6 +114,31 @@ suite "M17 extension registry":
     check errorMessage.len > 0
     removeDir(root)
 
+  test "polls an optional Component worker without blocking the caller":
+    let root = getTempDir() / "nimculus-component-worker-boundary-test"
+    createDir(root)
+    writeFile(root / "extension.wasm", "\x00asm\x0d\x00\x01\x00")
+    let manifest = parseExtensionManifest("""
+      {"id":"component.worker","name":"Component Worker","version":"1",
+       "apiVersion":1,"wasmModule":"extension.wasm"}
+    """, root)
+    var startError = ""
+    var job = startWasmComponentJob(manifest, startError)
+    if job.handle == nil:
+      check startError.len > 0
+    else:
+      var state = 0
+      var errorMessage = ""
+      for _ in 0 .. 100:
+        state = pollWasmComponentJob(job, errorMessage)
+        if state != 0: break
+        sleep(10)
+      check state != 0
+      check state in [2, 3]
+      check errorMessage.len > 0
+      deleteWasmComponentJob(job)
+    removeDir(root)
+
   test "discovers extension directories and resolves language ownership":
     let root = getTempDir() / "nimculus-extension-test"
     let extensionRoot = root / "markdown"

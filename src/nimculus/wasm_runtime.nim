@@ -1,7 +1,7 @@
 ## Sandboxed Wasmtime execution boundary for macOS extensions.
 ##
 ## Zed keeps the Wasmtime component host separate from extension discovery and
-## only grants the guest the capabilities represented by the host linker.  The
+## only grants the guest the capabilities represented by the host linker.
 ## The macOS host has two explicit execution boundaries: the official
 ## Wasmtime CLI remains the safe asynchronous fallback, while an
 ## architecture-compatible Wasmtime C API can provide a bounded in-process
@@ -22,6 +22,18 @@ when defined(macosx):
       extensionId: cstring; apiVersion: uint32; entrypoint: cstring;
       allowWrite: cint; errorOut: cstring; errorCapacity: csize_t): cint
       {.importc: "nimculus_wasmtime_component_run", cdecl.}
+  type NativeWasmComponentJob = pointer
+  proc nimculusWasmtimeComponentStart(libraryPath, modulePath, extensionRoot,
+      extensionId: cstring; apiVersion: uint32; entrypoint: cstring;
+      allowWrite: cint; errorOut: cstring; errorCapacity: csize_t): NativeWasmComponentJob
+      {.importc: "nimculus_wasmtime_component_start", cdecl.}
+  proc nimculusWasmtimeComponentPoll(job: NativeWasmComponentJob;
+      errorOut: cstring; errorCapacity: csize_t): cint
+      {.importc: "nimculus_wasmtime_component_poll", cdecl.}
+  proc nimculusWasmtimeComponentCancel(job: NativeWasmComponentJob)
+      {.importc: "nimculus_wasmtime_component_cancel", cdecl.}
+  proc nimculusWasmtimeComponentDelete(job: NativeWasmComponentJob)
+      {.importc: "nimculus_wasmtime_component_delete", cdecl.}
 
 type
   WasmRuntimeError* = object of ExtensionError
@@ -34,6 +46,11 @@ type
     modulePath*: string
     entrypoint*: string
     component*: bool
+
+  WasmComponentJob* = object
+    ## Opaque native worker. The job is polled from the macOS idle callback;
+    ## no Wasmtime call is made on the Cocoa thread.
+    handle*: pointer
 
 proc wasmRuntimeError(message: string): ref WasmRuntimeError =
   newException(WasmRuntimeError, message)
@@ -101,6 +118,56 @@ proc wasmComponentHostAvailable*(): bool =
       getEnv("NIMCULUS_WASMTIME_LIBRARY", "").cstring) != 0
   else:
     false
+
+proc isWasmComponent*(manifest: ExtensionManifest): bool =
+  if manifest.wasmModule.len == 0 or not manifest.validateWasmModule(): return false
+  let bytes = readFile(normalizedPath(manifest.root / manifest.wasmModule))
+  bytes.len >= 8 and ord(bytes[4]) == 0x0d and ord(bytes[5]) == 0 and
+    ord(bytes[6]) == 1 and ord(bytes[7]) == 0
+
+proc startWasmComponentJob*(manifest: ExtensionManifest;
+    errorMessage: var string): WasmComponentJob =
+  when defined(macosx):
+    if not isWasmComponent(manifest):
+      errorMessage = "extension is not a valid WebAssembly Component"
+      return
+    var errorBuffer = newString(4096)
+    result.handle = nimculusWasmtimeComponentStart(
+      getEnv("NIMCULUS_WASMTIME_LIBRARY", "").cstring,
+      normalizedPath(manifest.root / manifest.wasmModule).cstring,
+      normalizedPath(manifest.root).cstring,
+      manifest.id.cstring, uint32(manifest.apiVersion),
+      manifest.wasmEntrypoint.cstring,
+      (if manifest.hasPermission("filesystem-write"): 1 else: 0),
+      errorBuffer.cstring, csize_t(errorBuffer.len))
+    errorMessage = errorBuffer.strip
+  else:
+    errorMessage = "in-process Component Model is only available on macOS"
+
+proc pollWasmComponentJob*(job: WasmComponentJob;
+    errorMessage: var string): int =
+  if job.handle == nil:
+    errorMessage = "invalid Component job"
+    return 2
+  when defined(macosx):
+    var errorBuffer = newString(4096)
+    result = nimculusWasmtimeComponentPoll(NativeWasmComponentJob(job.handle),
+      errorBuffer.cstring, csize_t(errorBuffer.len))
+    errorMessage = errorBuffer.strip
+  else:
+    errorMessage = "in-process Component Model is only available on macOS"
+    result = 2
+
+proc cancelWasmComponentJob*(job: WasmComponentJob) =
+  if job.handle == nil: return
+  when defined(macosx):
+    nimculusWasmtimeComponentCancel(NativeWasmComponentJob(job.handle))
+
+proc deleteWasmComponentJob*(job: var WasmComponentJob) =
+  if job.handle == nil: return
+  when defined(macosx):
+    nimculusWasmtimeComponentDelete(NativeWasmComponentJob(job.handle))
+  job.handle = nil
 
 proc runWasmComponentInProcess*(manifest: ExtensionManifest;
     errorMessage: var string): int =

@@ -6655,8 +6655,9 @@ and failure paths.
 
 The current C boundary intentionally calls only an explicit no-argument export
 (`init-extension` by default, or the manifest entrypoint with a trailing `()`
-removed). It is not yet the full Zed WIT host API and is not called
-synchronously from the UI thread. An asynchronous job adapter with safe
-cancellation, permission presentation, and versioned WIT bindings remains the
-next M17 slice. This preserves the existing responsive CLI task path while
-making the future in-process boundary concrete and testable.
+removed). It is not yet the full Zed WIT host API. The export runs on a native
+worker, is polled from the macOS idle callback, and uses Wasmtime epoch
+interruption for cancellation; the Cocoa thread never enters Wasmtime. Core
+modules continue through the existing responsive CLI task path. Versioned WIT
+bindings, capability-specific host functions, permission presentation, and a
+catalog remain the next M17 slices.

@@ -180,6 +180,9 @@ when defined(macosx):
   # than resolving the then-current focus when the sheet completes.
   var pendingCloseTabIndex = -1
   var pendingClosePane = 0
+  var editorWasmComponentJob: WasmComponentJob
+  var editorWasmComponentId = ""
+  var editorWasmComponentCancelRequested = false
 
 proc resetPointerInteractions()
 when defined(macosx):
@@ -1062,6 +1065,39 @@ when defined(macosx):
     except CatchableError as error:
       editorViewState.statusMessage = "Extension install failed: " & error.msg
 
+  proc startNativeWasmComponent(manifest: ExtensionManifest): bool =
+    if editorWasmComponentJob.handle != nil:
+      cancelWasmComponentJob(editorWasmComponentJob)
+      editorViewState.statusMessage = "WASM component is still cancelling"
+      return false
+    if editorTaskJob != nil and not editorTaskJob.done:
+      editorTaskJob.cancel()
+    var startError = ""
+    let job = startWasmComponentJob(manifest, startError)
+    if job.handle == nil:
+      editorViewState.statusMessage = "WASM component failed to start: " &
+        (if startError.len > 0: startError else: "unknown error")
+      return false
+    editorWasmComponentJob = job
+    editorWasmComponentId = manifest.id
+    editorWasmComponentCancelRequested = false
+    editorTaskCommand = "WASM component " & manifest.id
+    editorTaskOutput = ""
+    editorTaskProblems.setLen(0)
+    if editorTerminalVisible:
+      editorTerminalVisible = false
+      editorTerminalFocused = false
+      platformSetTerminalVisible(false)
+    editorTaskOutputVisible = true
+    platformSetTaskOutputVisible(true)
+    platformSetTaskOutputCancellable(true)
+    editorWorkspaceUi.openPanel(panelTasks)
+    setupDemoUi()
+    let title = "WASM Component — " & manifest.name
+    platformSetTaskOutputTitle(title.cstring, uint32(title.len))
+    editorViewState.statusMessage = "WASM component running: " & manifest.id
+    true
+
   proc runNativeWasmExtension(id: string = "") =
     if editorExtensionRegistry == nil:
       editorViewState.statusMessage = "Extensions are not loaded"
@@ -1082,6 +1118,11 @@ when defined(macosx):
     if selected.wasmModule.len == 0:
       editorViewState.statusMessage = "Extension has no WASM module: " & selected.id
       return
+    if wasmComponentHostAvailable() and isWasmComponent(selected):
+      if editorWasmComponentJob.handle != nil:
+        discard startNativeWasmComponent(selected)
+        return
+      if startNativeWasmComponent(selected): return
     try:
       let plan = prepareWasmExecution(selected)
       if editorTaskJob != nil and not editorTaskJob.done:
@@ -2159,6 +2200,12 @@ when defined(macosx):
     editorViewState.statusMessage = "Task: running " & command
 
   proc cancelNativeTask() =
+    if editorWasmComponentJob.handle != nil:
+      cancelWasmComponentJob(editorWasmComponentJob)
+      editorWasmComponentCancelRequested = true
+      platformSetTaskOutputCancellable(false)
+      editorViewState.statusMessage = "WASM component: cancelling"
+      return
     if editorTaskJob == nil or editorTaskJob.done:
       editorViewState.statusMessage = "Task: no running task"
       return
@@ -2166,7 +2213,34 @@ when defined(macosx):
     platformSetTaskOutputCancellable(false)
     editorViewState.statusMessage = "Task: cancelled"
 
+  proc pollNativeWasmComponent(): bool =
+    if editorWasmComponentJob.handle == nil: return false
+    var errorMessage = ""
+    let state = pollWasmComponentJob(editorWasmComponentJob, errorMessage)
+    if state == 0: return true
+    if errorMessage.len > 0:
+      editorTaskOutput = errorMessage
+      platformSetTaskOutputText(editorTaskOutput.cstring,
+        uint32(editorTaskOutput.len))
+    if state == 1:
+      editorViewState.statusMessage = "WASM component succeeded: " &
+        editorWasmComponentId
+    elif editorWasmComponentCancelRequested or state == 2:
+      editorViewState.statusMessage = if editorWasmComponentCancelRequested:
+        "WASM component cancelled: " & editorWasmComponentId
+        else: "WASM component failed: " & editorWasmComponentId &
+          (if errorMessage.len > 0: " — " & errorMessage else: "")
+    else:
+      editorViewState.statusMessage = "WASM component unavailable: " &
+        editorWasmComponentId
+    deleteWasmComponentJob(editorWasmComponentJob)
+    editorWasmComponentId = ""
+    editorWasmComponentCancelRequested = false
+    platformSetTaskOutputCancellable(false)
+    true
+
   proc pollNativeTask() =
+    if pollNativeWasmComponent(): return
     if editorTaskJob == nil: return
     let completed = editorTaskJob.poll()
     let taskResult = editorTaskJob.result
@@ -3037,6 +3111,13 @@ when defined(macosx):
     if editorTaskJob != nil and not editorTaskJob.done:
       editorTaskJob.cancel()
     editorTaskJob = nil
+    if editorWasmComponentJob.handle != nil:
+      cancelWasmComponentJob(editorWasmComponentJob)
+      var componentError = ""
+      if pollWasmComponentJob(editorWasmComponentJob, componentError) != 0:
+        deleteWasmComponentJob(editorWasmComponentJob)
+      ## If the worker is still unwinding, process termination owns the final
+      ## reclamation; never free a live job from the Cocoa shutdown callback.
     for job in editorDapTerminalJobs:
       if job != nil and not job.done: job.cancel()
     editorDapTerminalJobs.setLen(0)
