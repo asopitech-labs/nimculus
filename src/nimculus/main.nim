@@ -6094,6 +6094,16 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         # open the first result at the same UI boundary that publishes the
         # completed result list.
         workspaceQuickOpenOpenPending = true
+  elif name == "cancelQuickOpen":
+    when defined(macosx):
+      if workspaceQuickOpenJob != nil:
+        workspaceQuickOpenJob.cancelFuzzySearch()
+        workspaceQuickOpenJob = nil
+      workspaceQuickOpenOpenPending = false
+      workspaceQuickOpenQuery = ""
+      workspacePreviewEntries.setLen(0)
+      if activeWorkspace != nil:
+        refreshWorkspacePreview()
   elif name.startsWith("quickOpen:"):
     showQuickOpen(name[10 .. ^1].strip)
   elif name.startsWith("workspaceCreateFile:") and activeWorkspace != nil:

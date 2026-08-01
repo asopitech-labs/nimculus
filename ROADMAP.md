@@ -84,6 +84,8 @@ Quick Open / Search は表示・選択・起動対象を同じ最大100件へ揃
 
 2026-08-01の更新では、ZedのFile Finderが結果をfuzzy-nucleoのスコアで並べる設計を確認し、Nimculusにも同じ利用者向け契約（連続一致・ファイル名境界・basename一致・早い一致を優先し、pathを安定tie-breakerにする）を実装した。検索欄のfield editorからAppKit delegateの`doCommandBySelector:`を経由して上下/Home/End/Returnをsidebar選択へ接続し、検索欄にフォーカスしたまま候補を開ける。Quick Open／Workspace Searchのfirst responder復帰と選択確定はnative contractで回帰検証する。
 
+2026-08-02の更新では、ZedのFile Finderと同様にQuick Open／Workspace Searchの入力変更を即時のbounded searchへ接続し、Returnまで待たず検索結果を更新するようにした。Quick OpenをEscapeまたは閉じる操作で終了した場合は、検索job・保留中のファイルオープン・候補表示を破棄してFiles treeへ戻す。候補のReturn確定だけは保留中の非同期オープンを維持する。live query、候補選択、確定、dismissalはnative AppKit contractで検証する。
+
 ### M6/M10 更新：Files から統合ターミナルへ
 
 Files のコンテキストメニューは `Open in Terminal` を提供する。フォルダはその場所、

@@ -2387,6 +2387,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic, retain) NSButton *replaceButton;
 @property(nonatomic, retain) NSButton *closeButton;
 @property(nonatomic) NSInteger mode;
+@property(nonatomic) BOOL suppressSearchCancellation;
 - (void)showFind:(BOOL)replace;
 - (void)showGoToLine;
 - (void)showWorkspaceSearch;
@@ -2998,8 +2999,16 @@ static void dismissExternalChangePanel(const char *command) {
 }
 
 - (void)controlTextDidChange:(NSNotification *)notification {
-  if (self.mode != 3 && self.mode != 4 && notification.object == self.queryField && self.queryField.stringValue.length > 0 &&
-      g_command_callback) {
+  if (notification.object != self.queryField || !g_command_callback) return;
+  if (self.mode == 3 || self.mode == 4) {
+    // Zed's picker updates its background search task as the query changes;
+    // waiting for Return leaves stale rows visible and makes the search bar
+    // look disconnected from its result list. Keep the query field as the
+    // single input surface and let Nim restart/cancel the bounded job.
+    NSString *format = self.mode == 3 ? @"workspaceSearch:%@" : @"quickOpen:%@";
+    NSString *command = [NSString stringWithFormat:format, self.queryField.stringValue];
+    g_command_callback(command.UTF8String);
+  } else if (self.queryField.stringValue.length > 0) {
     NSString *command = [NSString stringWithFormat:@"findDocument:%@", self.queryField.stringValue];
     g_command_callback(command.UTF8String);
   }
@@ -3028,6 +3037,7 @@ static void dismissExternalChangePanel(const char *command) {
   if (commandSelector == @selector(insertNewline:)) {
     if (g_editor_sidebar_selected_index != NSNotFound) {
       g_command_callback("sidebarOpenSelected");
+      self.suppressSearchCancellation = YES;
       [self close:nil];
     } else {
       // Preserve the existing query-driven fallback when no result has been
@@ -3051,7 +3061,10 @@ static void dismissExternalChangePanel(const char *command) {
   // Quick Open is a navigation action. Once Return has dispatched the
   // selection, remove the search chrome and return the responder chain to the
   // editor, matching the normal Zed quick-open flow.
-  if (self.mode == 4) [self close:nil];
+  if (self.mode == 4) {
+    self.suppressSearchCancellation = YES;
+    [self close:nil];
+  }
 }
 - (void)replaceAll:(id)sender {
   (void)sender;
@@ -3069,6 +3082,14 @@ static void dismissExternalChangePanel(const char *command) {
 }
 - (void)close:(id)sender {
   (void)sender;
+  const BOOL suppressCancellation = self.suppressSearchCancellation;
+  self.suppressSearchCancellation = NO;
+  if (!suppressCancellation && self.mode == 4 && g_command_callback) {
+    // A dismissed Quick Open must release its bounded directory scan. The
+    // activation path sets suppressSearchCancellation before closing so a
+    // pending Return action is not cancelled after it has been dispatched.
+    g_command_callback("cancelQuickOpen");
+  }
   self.hidden = YES;
   [self.window makeFirstResponder:self.superview];
 }
@@ -8519,12 +8540,20 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     BOOL visibleWorkspaceSearch = !search.hidden && search.mode == 3 && !search.queryField.hidden &&
       [search.queryField.accessibilityLabel isEqualToString:@"Search workspace"];
     search.queryField.stringValue = @"Nimculus";
+    g_validation_command[0] = '\0';
+    [search controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification
+      object:search.queryField]];
+    BOOL workspaceSearchLive = strcmp(g_validation_command, "workspaceSearch:Nimculus") == 0;
     [search findNext:nil];
     BOOL workspaceSearchDispatched = strcmp(g_validation_command, "workspaceSearch:Nimculus") == 0;
     [delegate quickOpen:nil];
     BOOL visibleQuickOpen = !search.hidden && search.mode == 4 && !search.queryField.hidden &&
       [search.queryField.accessibilityLabel isEqualToString:@"Quick Open: file name or path"];
     search.queryField.stringValue = @"main.nim";
+    g_validation_command[0] = '\0';
+    [search controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification
+      object:search.queryField]];
+    BOOL quickOpenLive = strcmp(g_validation_command, "quickOpen:main.nim") == 0;
     // The field editor owns keyboard focus while a picker is open. Verify the
     // same result-navigation contract used by Zed: arrows update the result
     // list and Return activates the selected row without requiring a mouse
@@ -8549,7 +8578,10 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     // typing (`quickOpen:`) separate from activation (`quickOpenOpen:`), so a
     // pending asynchronous search cannot be mistaken for a mere query update.
     BOOL quickOpenDispatched = strcmp(g_validation_command, "quickOpenOpen:main.nim") == 0;
+    [delegate quickOpen:nil];
+    g_validation_command[0] = '\0';
     [search close:nil];
+    BOOL quickOpenCancelled = strcmp(g_validation_command, "cancelQuickOpen") == 0;
     BOOL dismissed = search.hidden && window.attachedSheet == nil &&
       window.firstResponder == view;
     [delegate openCommandPalette:nil];
@@ -8691,8 +8723,9 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     [window release];
     g_metrics = previousMetrics;
     return visibleFind && dispatched && escaped && visibleReplace && visibleLine &&
-      visibleWorkspaceSearch && workspaceSearchDispatched && visibleQuickOpen &&
-      quickOpenArrowDispatched && quickOpenSelected && quickOpenDispatched && dismissed &&
+      visibleWorkspaceSearch && workspaceSearchLive && workspaceSearchDispatched && visibleQuickOpen &&
+      quickOpenLive && quickOpenArrowDispatched && quickOpenSelected &&
+      quickOpenDispatched && quickOpenCancelled && dismissed &&
       paletteVisible && paletteFiltered && paletteDispatched && paletteEscaped &&
       commitVisible && commitDispatched && commitEscaped && settingsVisible &&
       settingsDispatched && settingsEscaped && overlaysBounded && nativeChromeAligned;
