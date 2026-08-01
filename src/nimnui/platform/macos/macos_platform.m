@@ -3963,6 +3963,19 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   _selectedMode = MIN(MAX(selectedMode, 0), (NSInteger)self.buttons.count - 1);
   for (NSButton *button in self.buttons) {
     styleWorkspaceNavigationButton(button, button.tag == _selectedMode, NO);
+    // The native dock is intentionally narrow. Use a slightly smaller,
+    // centered label here so all three primary Git entry points remain
+    // visible instead of degrading to "Cha..." / "Hist..." / "Bran...".
+    NSColor *foreground = themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]);
+    NSColor *accent = themeHexColor(g_theme_accent, [NSColor controlAccentColor]);
+    NSColor *tint = button.tag == _selectedMode ? accent :
+      [foreground colorWithAlphaComponent:0.78];
+    button.alignment = NSTextAlignmentCenter;
+    button.attributedTitle = [[[NSAttributedString alloc] initWithString:button.title ?: @""
+      attributes:@{NSForegroundColorAttributeName: tint,
+        NSFontAttributeName: [NSFont systemFontOfSize:10.5
+          weight:button.tag == _selectedMode ? NSFontWeightSemibold : NSFontWeightMedium]}] autorelease];
     button.toolTip = button.tag == _selectedMode ?
       [NSString stringWithFormat:@"%@ (active)", button.title] : button.title;
   }
@@ -5324,8 +5337,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     BOOL showFilesActions = sidebarPresented && g_editor_sidebar_mode == 1;
     BOOL showSearchActions = sidebarPresented && g_editor_sidebar_mode == 5;
     BOOL showGitChangesActions = sidebarPresented && g_editor_sidebar_mode == 3;
-    CGFloat sidebarToolbarHeight = showGitChangesActions ? 56.0 :
-      (showGitTabs || showFilesActions || showSearchActions) ? 30.0 : 0.0;
+    // Git uses two compact rows: navigation on top, actions below. This
+    // preserves the full Changes/History/Branches labels at dock width while
+    // keeping commit, refresh, and bulk staging in the same visual group.
+    CGFloat sidebarToolbarHeight = showGitTabs ? 56.0 :
+      (showFilesActions || showSearchActions) ? 30.0 : 0.0;
     NSScrollView *scroll = outline.enclosingScrollView;
     if (scroll) {
       scroll.hidden = !sidebarPresented;
@@ -5350,10 +5366,9 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     gitTabs.hidden = !showGitTabs;
     if (showGitTabs) {
       CGFloat width = sidebarWidth;
-      BOOL compactCommit = width < 350.0;
       gitTabs.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(sidebarControlX, sidebarTop + 3.0,
-          MAX(1.0, width - (compactCommit ? 72.0 : 118.0)), 24.0));
+          MAX(1.0, width - 8.0), 24.0));
       // Sidebar modes are ordered History, Status, Branches for the Nim
       // command layer, while the visible Zed-like navigation is Changes,
       // History, Branches. Do not derive this presentation mapping from enum
@@ -5364,17 +5379,18 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     }
   }
   if (gitCommit) {
-    BOOL showGitCommit = sidebarPresented && g_editor_sidebar_mode >= 2 &&
-      g_editor_sidebar_mode <= 4;
+    // Commit belongs to Changes, not to History or Branches. Keeping it in
+    // the second row avoids competing with the primary navigation labels.
+    BOOL showGitCommit = sidebarPresented && g_editor_sidebar_mode == 3;
     gitCommit.hidden = !showGitCommit;
     if (showGitCommit) {
       CGFloat width = sidebarWidth;
-      BOOL compact = width < 350.0;
+      BOOL compact = width < 220.0;
       [gitCommit setCompact:compact];
       CGFloat commitWidth = compact ? 30.0 : 76.0;
       gitCommit.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(sidebarControlX + width - commitWidth - 4.0,
-          sidebarTop + 3.0, commitWidth, 24.0));
+        NSMakeRect(sidebarControlX + 56.0,
+          sidebarTop + 29.0, commitWidth, 24.0));
     }
   }
   if (gitRefresh) {
@@ -5383,11 +5399,9 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     gitRefresh.hidden = !showGitRefresh;
     if (showGitRefresh) {
       CGFloat width = sidebarWidth;
-      BOOL compact = width < 350.0;
-      CGFloat commitWidth = compact ? 30.0 : 76.0;
       gitRefresh.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(sidebarControlX + width - commitWidth - 36.0,
-          sidebarTop + 3.0, 28.0, 24.0));
+        NSMakeRect(sidebarControlX + width - 32.0,
+          sidebarTop + 29.0, 28.0, 24.0));
     }
   }
   if (gitChangesActions) {
@@ -5396,7 +5410,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if (showGitChangesActions) {
       gitChangesActions.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(sidebarControlX,
-          sidebarTop + 29.0, 56.0, 24.0));
+          sidebarTop + 29.0, 52.0, 24.0));
     }
   }
   if (filesActions) {
