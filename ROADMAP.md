@@ -483,7 +483,7 @@ Filesツリーは**[x]** active documentの祖先を自動展開し、canonical 
 
 **CI再現性：** macOS/Windows CIは`actions/checkout`でsubmoduleをrecursiveに取得し、ローカルだけに存在する`references/`のgrammar checkoutへ依存しない。
 
-**完了条件：** [x] UTF-8境界を含む編集差分から`TSInputEdit`を生成してincremental parse、[x] 初期7文法のロード、[x] `.tsx`をJSX対応の独立Tree-sitter文法へルーティング、[x] 構文ノードから表示・構造サービスを生成、[x] 実エディタの可視範囲ハイライトとRGBA Metalテクスチャへ接続、[x] 1MB級大規模ファイルのparse/可視範囲計測、[x] 文法追加手順を文書化、[x] 確定したmacOS終了経路で最終Tree-sitter parser/treeを明示解放、[x] Outline・syntax selection・syntax sibling・enclosing bracketをmacOS操作へ接続、[x] Tree-sitter fold rangeを元バッファのbyte offsetを変えずにmacOS表示マップ・行番号・折りたたみキーバインドへ接続。Tree-sitterのOutlineはLSP応答がない状態でも宣言名とUTF-16範囲を使って表示し、LSP document symbols到着時に置き換える。実Language Serverを含む色表示はmacOS E2Eで確認する。
+**完了条件：** [x] UTF-8境界を含む編集差分から`TSInputEdit`を生成してincremental parse、[x] 初期7文法のロード、[x] `.tsx`をJSX対応の独立Tree-sitter文法へルーティング、[x] 構文ノードから表示・構造サービスを生成、[x] 実エディタの可視範囲ハイライトとRGBA Metalテクスチャへ接続、[x] 1MB級大規模ファイルのparse/可視範囲計測、[x] 文法追加手順を文書化、[x] 確定したmacOS終了経路で最終Tree-sitter parser/treeを明示解放、[x] Outline・syntax selection・syntax sibling・enclosing bracketをmacOS操作へ接続、[x] Tree-sitter fold rangeを元バッファのbyte offsetを変えずにmacOS表示マップ・行番号・折りたたみキーバインドへ接続、[x] 文字列・コメント内の括弧を除外したsyntax-aware enclosing bracket、[x] Fold/Unfold/ToggleFoldの冪等な操作分離、[x] recursive fold/unfoldとFoldAtLevel 1〜9をmacOSコマンドパレットへ接続。Tree-sitterのOutlineはLSP応答がない状態でも宣言名とUTF-16範囲を使って表示し、LSP document symbols到着時に置き換える。実Language Serverを含む色表示はmacOS E2Eで確認する。
 
 LSP document symbolのOutlineは、階層depthを保持した単一のフラット投影を使用する。可視行・native sidebar選択・Enter／Spaceによるカーソル移動は同じUTF-16 rangeへ対応し、子シンボルを重複表示しない。Tree-sitterが解析済みの場合はLSP応答前でもローカル宣言を表示する。
 

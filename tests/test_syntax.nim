@@ -1,5 +1,6 @@
 import std/unittest
 import std/sequtils
+import std/strutils
 import nimculus/tree_sitter
 import nimculus/syntax
 
@@ -33,6 +34,15 @@ suite "M7 syntax services":
     check moveToEnclosingBracket("a(b[c])", 6, 6, 6) == 1
     check moveToEnclosingBracket("a(b[c])", 4, 5, 5) == 3
     check matchingBracket("([)]", 0) == -1
+    let sourceWithLiteral = "value = \"([not a structural pair])\"\nresult = (1)"
+    var literalTree = parser.parse(sourceWithLiteral)
+    check matchingBracket(literalTree, sourceWithLiteral.find('(')) == -1
+    let structuralOpen = sourceWithLiteral.find("(1)")
+    let structuralClose = structuralOpen + 2
+    check matchingBracket(literalTree, structuralOpen) == structuralClose
+    check moveToEnclosingBracket(literalTree, structuralOpen + 1,
+      structuralOpen + 1, structuralOpen + 1) == structuralClose
+    literalTree.close()
     check tree.foldRanges("def f():\n  return (1)").len > 0
     check indentationLevel("def f():\n  return (1)", 12) == 1
     let expanded = tree.expandSelection(14, 15)

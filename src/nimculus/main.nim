@@ -557,7 +557,10 @@ proc setupShortcutRegistry() =
       "selectAllMatches", "addSelectionAbove", "addSelectionBelow",
       "selectPreviousSyntaxNode", "selectNextSyntaxNode",
       "moveToEnclosingBracket", "fold", "unfold", "toggleFold", "foldAll",
-      "unfoldAll", "foldRecursive", "unfoldRecursive"]:
+      "unfoldAll", "foldRecursive", "unfoldRecursive", "toggleFoldRecursive",
+      "foldAtLevel1", "foldAtLevel2", "foldAtLevel3", "foldAtLevel4",
+      "foldAtLevel5", "foldAtLevel6", "foldAtLevel7", "foldAtLevel8",
+      "foldAtLevel9"]:
     var action: proc() {.closure.}
     if name == "openSettings":
       when defined(macosx):
@@ -1490,8 +1493,12 @@ when defined(macosx):
       return
     let source = document[].buffer.toString()
     let selection = activeEditorSelection()
-    let target = syntax.moveToEnclosingBracket(source, selection.startByte,
-      selection.endByte, activeEditorCursor())
+    let target = if syntaxState != nil and syntaxState.tree != nil:
+      syntax.moveToEnclosingBracket(syntaxState.tree, selection.startByte,
+        selection.endByte, activeEditorCursor())
+    else:
+      syntax.moveToEnclosingBracket(source, selection.startByte,
+        selection.endByte, activeEditorCursor())
     if target < 0:
       editorViewState.statusMessage = "No enclosing bracket"
       return
@@ -1511,12 +1518,20 @@ when defined(macosx):
       let startLine = document[].buffer.lineColumn(int(candidate.startByte)).line
       let endLine = document[].buffer.lineColumn(int(candidate.endByte) - 1).line
       if endLine > startLine:
-        result.add(candidate)
+        var duplicate = false
+        for existing in result:
+          if existing.startByte == candidate.startByte and
+              existing.endByte == candidate.endByte:
+            duplicate = true
+            break
+        if not duplicate:
+          result.add(candidate)
 
   proc sameFold(left, right: FoldRange): bool =
     left.startByte == right.startByte and left.endByte == right.endByte
 
-  proc toggleNativeFold(expand: bool, all = false) =
+  proc toggleNativeFold(expand: bool, all = false, toggle = false,
+                        recursive = false) =
     let document = if editorSession.split and editorSession.splitActivePane == 1:
       secondaryPaneDocument() else: activeDocument()
     let state = if editorSession.split and editorSession.splitActivePane == 1:
@@ -1548,8 +1563,13 @@ when defined(macosx):
     for candidate in candidates:
       let startLine = document[].buffer.lineColumn(int(candidate.startByte)).line
       let endLine = document[].buffer.lineColumn(int(candidate.endByte) - 1).line
-      if (not expand and startLine == cursorLine) or
-          (expand and startLine <= cursorLine and cursorLine <= endLine):
+      let isTarget = if recursive:
+        startLine <= cursorLine and cursorLine <= endLine
+      elif not expand:
+        startLine == cursorLine
+      else:
+        startLine <= cursorLine and cursorLine <= endLine
+      if isTarget:
         let size = int(candidate.endByte - candidate.startByte)
         if not found or size < bestSize:
           target = candidate
@@ -1558,6 +1578,37 @@ when defined(macosx):
     if not found:
       view.statusMessage = if expand: "No enclosing fold" else: "No foldable syntax on this line"
       storeFocusedEditorView(view)
+      return
+    if recursive:
+      let targetStartLine = document[].buffer.lineColumn(int(target.startByte)).line
+      let targetEndLine = document[].buffer.lineColumn(int(target.endByte) - 1).line
+      if expand:
+        var kept: seq[FoldRange]
+        for folded in view.foldedRanges:
+          let foldedStartLine = document[].buffer.lineColumn(int(folded.startByte)).line
+          let foldedEndLine = document[].buffer.lineColumn(int(folded.endByte) - 1).line
+          if foldedStartLine < targetStartLine or foldedEndLine > targetEndLine:
+            kept.add(folded)
+        view.foldedRanges = kept
+        view.statusMessage = "Unfolded recursively"
+      else:
+        for candidate in candidates:
+          let candidateStartLine = document[].buffer.lineColumn(int(candidate.startByte)).line
+          let candidateEndLine = document[].buffer.lineColumn(int(candidate.endByte) - 1).line
+          if candidateStartLine < targetStartLine or candidateEndLine > targetEndLine:
+            continue
+          var alreadyFolded = false
+          for folded in view.foldedRanges:
+            if folded.sameFold(candidate):
+              alreadyFolded = true
+              break
+          if not alreadyFolded:
+            view.foldedRanges.add(candidate)
+        view.statusMessage = "Folded recursively"
+      storeFocusedEditorView(view)
+      syncEditorCursor()
+      refreshEditorSyntax()
+      persistSession()
       return
     var existing = -1
     for index, folded in view.foldedRanges:
@@ -1568,12 +1619,56 @@ when defined(macosx):
       if existing >= 0: view.foldedRanges.delete(existing)
       else: view.statusMessage = "Already unfolded"
       if existing >= 0: view.statusMessage = "Unfolded"
-    elif existing >= 0:
+    elif existing >= 0 and toggle:
       view.foldedRanges.delete(existing)
       view.statusMessage = "Unfolded"
+    elif existing >= 0:
+      view.statusMessage = if expand: "Already unfolded" else: "Already folded"
     else:
       view.foldedRanges.add(target)
       view.statusMessage = "Folded"
+    storeFocusedEditorView(view)
+    syncEditorCursor()
+    refreshEditorSyntax()
+    persistSession()
+
+  proc foldNativeAtLevel(level: int) =
+    ## Match Zed's FoldAtLevel actions using the nesting depth of the
+    ## Tree-sitter fold candidates. The underlying text and byte positions are
+    ## unchanged; only the focused pane's display map is updated.
+    if level < 1: return
+    let document = if editorSession.split and editorSession.splitActivePane == 1:
+      secondaryPaneDocument() else: activeDocument()
+    let state = if editorSession.split and editorSession.splitActivePane == 1:
+      secondarySyntaxState else: syntaxState
+    if document == nil or state == nil or state.tree == nil:
+      editorViewState.statusMessage = "Folding unavailable"
+      return
+    let candidates = syntaxFoldCandidates(document, state)
+    if candidates.len == 0:
+      editorViewState.statusMessage = "No foldable syntax"
+      return
+    var view = focusedEditorView()
+    var foldedAtLevel = 0
+    for candidate in candidates:
+      var depth = 1
+      for enclosing in candidates:
+        if enclosing.startByte < candidate.startByte and
+            enclosing.endByte > candidate.endByte:
+          inc depth
+      if depth != level: continue
+      var alreadyFolded = false
+      for folded in view.foldedRanges:
+        if folded.sameFold(candidate):
+          alreadyFolded = true
+          break
+      if not alreadyFolded:
+        view.foldedRanges.add(candidate)
+      inc foldedAtLevel
+    view.statusMessage = if foldedAtLevel == 0:
+      "No foldable syntax at level " & $level
+    else:
+      "Folded level " & $level
     storeFocusedEditorView(view)
     syncEditorCursor()
     refreshEditorSyntax()
@@ -4310,14 +4405,26 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "moveToEnclosingBracket":
     when defined(macosx): moveNativeToEnclosingBracket()
   elif name == "fold":
-    when defined(macosx): toggleNativeFold(false)
+    when defined(macosx): toggleNativeFold(false, toggle = false)
   elif name == "unfold":
-    when defined(macosx): toggleNativeFold(true)
+    when defined(macosx): toggleNativeFold(true, toggle = false)
   elif name == "toggleFold":
-    when defined(macosx): toggleNativeFold(false)
+    when defined(macosx): toggleNativeFold(false, toggle = true)
   elif name == "foldAll":
     when defined(macosx): toggleNativeFold(false, all = true)
-  elif name in ["unfoldAll", "unfoldRecursive"]:
+  elif name.startsWith("foldAtLevel"):
+    when defined(macosx):
+      try:
+        foldNativeAtLevel(parseInt(name["foldAtLevel".len .. ^1]))
+      except ValueError:
+        discard
+  elif name == "foldRecursive":
+    when defined(macosx): toggleNativeFold(false, recursive = true)
+  elif name == "unfoldRecursive":
+    when defined(macosx): toggleNativeFold(true, recursive = true)
+  elif name == "toggleFoldRecursive":
+    when defined(macosx): toggleNativeFold(false, toggle = true, recursive = true)
+  elif name == "unfoldAll":
     when defined(macosx): toggleNativeFold(true, all = true)
   elif name == "windowResized":
     setupDemoUi()
@@ -4959,7 +5066,20 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command in ["unfold", "unfold current"]: "unfold"
       elif command in ["toggle fold", "toggle folding"]: "toggleFold"
       elif command in ["fold all", "fold all code"]: "foldAll"
+      elif command == "fold at level 1": "foldAtLevel1"
+      elif command == "fold at level 2": "foldAtLevel2"
+      elif command == "fold at level 3": "foldAtLevel3"
+      elif command == "fold at level 4": "foldAtLevel4"
+      elif command == "fold at level 5": "foldAtLevel5"
+      elif command == "fold at level 6": "foldAtLevel6"
+      elif command == "fold at level 7": "foldAtLevel7"
+      elif command == "fold at level 8": "foldAtLevel8"
+      elif command == "fold at level 9": "foldAtLevel9"
       elif command in ["unfold all", "unfold all code"]: "unfoldAll"
+      elif command in ["fold recursively", "fold recursive"]: "foldRecursive"
+      elif command in ["unfold recursively", "unfold recursive"]: "unfoldRecursive"
+      elif command in ["toggle fold recursively", "toggle recursive fold"]:
+        "toggleFoldRecursive"
       elif command in ["toggle git", "toggle source control"]: "__toggle_git__"
       elif command == "open settings": "openSettings"
       elif command in ["toggle soft wrap", "toggle word wrap"]: "toggleSoftWrap"
@@ -5276,7 +5396,31 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx): toggleNativeFold(false)
     of "foldAll":
       when defined(macosx): toggleNativeFold(false, all = true)
-    of "unfoldAll", "unfoldRecursive":
+    of "foldAtLevel1":
+      when defined(macosx): foldNativeAtLevel(1)
+    of "foldAtLevel2":
+      when defined(macosx): foldNativeAtLevel(2)
+    of "foldAtLevel3":
+      when defined(macosx): foldNativeAtLevel(3)
+    of "foldAtLevel4":
+      when defined(macosx): foldNativeAtLevel(4)
+    of "foldAtLevel5":
+      when defined(macosx): foldNativeAtLevel(5)
+    of "foldAtLevel6":
+      when defined(macosx): foldNativeAtLevel(6)
+    of "foldAtLevel7":
+      when defined(macosx): foldNativeAtLevel(7)
+    of "foldAtLevel8":
+      when defined(macosx): foldNativeAtLevel(8)
+    of "foldAtLevel9":
+      when defined(macosx): foldNativeAtLevel(9)
+    of "foldRecursive":
+      when defined(macosx): toggleNativeFold(false, recursive = true)
+    of "unfoldRecursive":
+      when defined(macosx): toggleNativeFold(true, recursive = true)
+    of "toggleFoldRecursive":
+      when defined(macosx): toggleNativeFold(false, toggle = true, recursive = true)
+    of "unfoldAll":
       when defined(macosx): toggleNativeFold(true, all = true)
     of "__toggle_git__":
       when defined(macosx):

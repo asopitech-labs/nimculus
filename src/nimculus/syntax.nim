@@ -1,3 +1,4 @@
+import std/algorithm
 import std/strutils
 import std/unicode
 import nimculus/tree_sitter
@@ -52,8 +53,60 @@ proc bracketPairs(source: string): seq[tuple[openByte, closeByte: int]] =
       stack.setLen(stack.len - 1)
       result.add((openByte: opening, closeByte: index))
 
+proc bracketIgnoredRanges(tree: SyntaxTree): seq[tuple[startByte, endByte: int]] =
+  ## Zed obtains bracket ranges from the language snapshot, so delimiters in
+  ## comments and strings are not considered structural brackets. The compact
+  ## tree bridge exposes a flat node stream; recover the same exclusion rule
+  ## from the highlighted node kinds and merge nested ranges before scanning.
+  if tree == nil: return
+  for node in tree.nodes:
+    if node.endByte <= node.startByte: continue
+    if classify(node.kind) in {stringLiteral, comment}:
+      result.add((startByte: int(node.startByte), endByte: int(node.endByte)))
+  result.sort(proc(left, right: tuple[startByte, endByte: int]): int =
+    let order = cmp(left.startByte, right.startByte)
+    if order != 0: order else: cmp(left.endByte, right.endByte))
+  var merged: seq[tuple[startByte, endByte: int]]
+  for current in result:
+    if merged.len > 0 and current.startByte <= merged[^1].endByte:
+      merged[^1].endByte = max(merged[^1].endByte, current.endByte)
+    else:
+      merged.add(current)
+  result = merged
+
+proc bracketPairs(source: string,
+                  ignored: seq[tuple[startByte, endByte: int]]):
+                  seq[tuple[openByte, closeByte: int]] =
+  var stack: seq[tuple[openByte: int, kind: char]]
+  var ignoredIndex = 0
+  for index, value in source:
+    while ignoredIndex < ignored.len and ignored[ignoredIndex].endByte <= index:
+      inc ignoredIndex
+    if ignoredIndex < ignored.len and
+        ignored[ignoredIndex].startByte <= index and
+        index < ignored[ignoredIndex].endByte:
+      continue
+    if value in {'(', '[', '{'}:
+      stack.add((openByte: index, kind: value))
+    elif value in {')', ']', '}'}:
+      let expected = case value
+        of ')': '('
+        of ']': '['
+        else: '{'
+      if stack.len == 0 or stack[^1].kind != expected: continue
+      let opening = stack[^1].openByte
+      stack.setLen(stack.len - 1)
+      result.add((openByte: opening, closeByte: index))
+
 proc matchingBracket*(source: string, position: int): int =
   for pair in source.bracketPairs:
+    if pair.openByte == position: return pair.closeByte
+    if pair.closeByte == position: return pair.openByte
+  -1
+
+proc matchingBracket*(tree: SyntaxTree, position: int): int =
+  if tree == nil: return -1
+  for pair in tree.source.bracketPairs(tree.bracketIgnoredRanges):
     if pair.openByte == position: return pair.closeByte
     if pair.closeByte == position: return pair.openByte
   -1
@@ -69,6 +122,32 @@ proc moveToEnclosingBracket*(source: string, startByte, endByte,
   var bestLength = high(int)
   var bestInBracket = false
   for pair in source.bracketPairs:
+    let insideRange = startByte >= pair.openByte + 1 and
+      endByte <= pair.closeByte
+    let inBracket = cursorByte == pair.openByte or cursorByte == pair.closeByte
+    if not insideRange and not inBracket: continue
+    let length = pair.closeByte - pair.openByte
+    if found and length > bestLength and (bestInBracket or not insideRange): continue
+    found = true
+    bestOpen = pair.openByte
+    bestClose = pair.closeByte
+    bestLength = length
+    bestInBracket = inBracket
+  if not found: return -1
+  if cursorByte == bestClose: return bestOpen
+  if cursorByte == bestOpen: return bestClose + 1
+  bestClose
+
+proc moveToEnclosingBracket*(tree: SyntaxTree, startByte, endByte,
+                             cursorByte: int): int =
+  if tree == nil: return -1
+  ## Keep the exact Zed selection bias while using syntax-aware bracket pairs.
+  var found = false
+  var bestOpen = -1
+  var bestClose = -1
+  var bestLength = high(int)
+  var bestInBracket = false
+  for pair in tree.source.bracketPairs(tree.bracketIgnoredRanges):
     let insideRange = startByte >= pair.openByte + 1 and
       endByte <= pair.closeByte
     let inBracket = cursorByte == pair.openByte or cursorByte == pair.closeByte

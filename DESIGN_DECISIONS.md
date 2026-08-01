@@ -6370,3 +6370,32 @@ independent fold maps.
 Syntax highlighting, diagnostics, Git annotations, and text input continue to
 address the original UTF-8 document; only their native display projection is
 compressed.
+
+## UI-083: Derive structural brackets from the syntax snapshot
+
+Zed's enclosing-bracket navigation uses language-aware bracket ranges rather
+than scanning every delimiter in the raw buffer. Nimculus keeps the compact
+Tree-sitter bridge, but derives exclusion ranges for string and comment nodes
+before scanning structural delimiters. The Zed selection bias is preserved:
+the smallest enclosing pair is preferred, a bracket directly under the cursor
+gets priority, and moving from a closing bracket lands on the matching
+opening bracket.
+
+The raw-string overload remains available for documents without a parsed
+grammar. The macOS editor uses the syntax-aware overload whenever the active
+Tree-sitter snapshot is valid, so brackets in comments and literals cannot
+change cursor navigation or fold structure.
+
+## UI-084: Keep fold commands semantically separate
+
+Zed distinguishes `Fold`, `UnfoldLines`, `ToggleFold`, recursive folding, and
+fold-at-level actions. Nimculus therefore keeps a focused-pane fold map but
+does not implement `Fold` as an accidental toggle: repeated Fold/Unfold
+commands are idempotent, while ToggleFold alone removes an existing range.
+Recursive commands operate on the smallest enclosing syntax range and its
+contained ranges. Fold-at-level commands derive nesting depth from the
+deduplicated Tree-sitter ranges and expose levels 1 through 9 through the macOS
+command palette.
+
+All operations update only the display projection, then resynchronize native
+line visibility, hit testing, syntax overlays, and persisted view state.
