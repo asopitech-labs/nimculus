@@ -177,6 +177,9 @@ suite "M6 workspace":
     createDir(root)
     for index in 0 ..< 5:
       writeFile(root / ("needle-" & $index & ".txt"), "value")
+    createDir(root / "nested")
+    writeFile(root / "main.nim", "discard")
+    writeFile(root / "nested" / "main.nim", "discard")
     let workspace = openWorkspace(root)
     let job = workspace.startFuzzySearch("needle")
     let first = job.pollFuzzySearch(maxEntries = 1, maxResults = 100)
@@ -186,11 +189,17 @@ suite "M6 workspace":
     while not job.isComplete:
       rest.add(job.pollFuzzySearch(maxEntries = 2, maxResults = 100))
     check rest.len == 5
+    let ranked = workspace.fuzzyFileSearch("main")
+    check ranked.len == 2
+    check ranked[0].relativePath == "main.nim"
     let cancelled = workspace.startFuzzySearch("needle")
     cancelled.cancelFuzzySearch()
     check cancelled.pollFuzzySearch().len == 0
     check cancelled.isComplete
     for index in 0 ..< 5: removeFile(root / ("needle-" & $index & ".txt"))
+    removeFile(root / "main.nim")
+    removeFile(root / "nested" / "main.nim")
+    removeDir(root / "nested")
     removeDir(root)
 
   test "supports roots, file operations, and fuzzy search":

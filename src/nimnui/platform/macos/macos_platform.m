@@ -3005,6 +3005,41 @@ static void dismissExternalChangePanel(const char *command) {
   }
 }
 
+- (BOOL)control:(NSControl *)control textView:(NSTextView *)textView
+    doCommandBySelector:(SEL)commandSelector {
+  (void)textView;
+  // The query field's first responder is AppKit's field editor, not the
+  // NSSearchField instance itself. Handle navigation at the delegate
+  // boundary so arrows and Return work while the user is still typing. Zed's
+  // picker keeps the query editor active and routes these commands to its
+  // result list; doing the same here prevents a search from becoming a
+  // keyboard dead end.
+  if (control != self.queryField || (self.mode != 3 && self.mode != 4) ||
+      !g_command_callback) return NO;
+  const char *navigationCommand = NULL;
+  if (commandSelector == @selector(moveUp:)) navigationCommand = "sidebarPrevious";
+  else if (commandSelector == @selector(moveDown:)) navigationCommand = "sidebarNext";
+  else if (commandSelector == @selector(moveToBeginningOfDocument:)) navigationCommand = "sidebarFirst";
+  else if (commandSelector == @selector(moveToEndOfDocument:)) navigationCommand = "sidebarLast";
+  if (navigationCommand) {
+    g_command_callback(navigationCommand);
+    return YES;
+  }
+  if (commandSelector == @selector(insertNewline:)) {
+    if (g_editor_sidebar_selected_index != NSNotFound) {
+      g_command_callback("sidebarOpenSelected");
+      [self close:nil];
+    } else {
+      // Preserve the existing query-driven fallback when no result has been
+      // selected yet. Quick Open opens its first match; workspace Search
+      // refreshes its result stream without dismissing the search chrome.
+      [self findNext:nil];
+    }
+    return YES;
+  }
+  return NO;
+}
+
 - (void)findPrevious:(id)sender { (void)sender; [self findNext:nil]; }
 - (void)findNext:(id)sender {
   (void)sender;
@@ -8436,6 +8471,8 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     NSApplication *application = [NSApplication sharedApplication];
     (void)application;
     NimculusCommandCallback previousCallback = g_command_callback;
+    uint32_t previousSidebarMode = g_editor_sidebar_mode;
+    NSUInteger previousSidebarSelection = g_editor_sidebar_selected_index;
     id previousView = g_active_view;
     NSWindow *window = [[NSWindow alloc]
       initWithContentRect:NSMakeRect(160.0, 180.0, 640.0, 480.0)
@@ -8487,6 +8524,25 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     [delegate quickOpen:nil];
     BOOL visibleQuickOpen = !search.hidden && search.mode == 4 && !search.queryField.hidden &&
       [search.queryField.accessibilityLabel isEqualToString:@"Quick Open: file name or path"];
+    search.queryField.stringValue = @"main.nim";
+    // The field editor owns keyboard focus while a picker is open. Verify the
+    // same result-navigation contract used by Zed: arrows update the result
+    // list and Return activates the selected row without requiring a mouse
+    // click on the sidebar first.
+    g_editor_sidebar_mode = 1;
+    g_editor_sidebar_selected_index = NSNotFound;
+    g_validation_command[0] = '\0';
+    BOOL quickOpenArrow = [search control:search.queryField textView:nil
+      doCommandBySelector:@selector(moveDown:)];
+    BOOL quickOpenArrowDispatched = quickOpenArrow &&
+      strcmp(g_validation_command, "sidebarNext") == 0;
+    g_editor_sidebar_selected_index = 0;
+    g_validation_command[0] = '\0';
+    BOOL quickOpenReturn = [search control:search.queryField textView:nil
+      doCommandBySelector:@selector(insertNewline:)];
+    BOOL quickOpenSelected = quickOpenReturn &&
+      strcmp(g_validation_command, "sidebarOpenSelected") == 0 && search.hidden;
+    [delegate quickOpen:nil];
     search.queryField.stringValue = @"main.nim";
     [search findNext:nil];
     // Quick Open Return opens the selected result. The distinct command keeps
@@ -8623,6 +8679,8 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
       NSEqualRects(primaryTabs.frame, expectedTabs) &&
       NSEqualRects(welcome.frame, pane);
     memcpy(g_editor_rect, previousEditorRect, sizeof(previousEditorRect));
+    g_editor_sidebar_mode = previousSidebarMode;
+    g_editor_sidebar_selected_index = previousSidebarSelection;
     g_command_callback = previousCallback;
     g_active_view = previousView;
     delegate.view = nil;
@@ -8634,7 +8692,7 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     g_metrics = previousMetrics;
     return visibleFind && dispatched && escaped && visibleReplace && visibleLine &&
       visibleWorkspaceSearch && workspaceSearchDispatched && visibleQuickOpen &&
-      quickOpenDispatched && dismissed &&
+      quickOpenArrowDispatched && quickOpenSelected && quickOpenDispatched && dismissed &&
       paletteVisible && paletteFiltered && paletteDispatched && paletteEscaped &&
       commitVisible && commitDispatched && commitEscaped && settingsVisible &&
       settingsDispatched && settingsEscaped && overlaysBounded && nativeChromeAligned;

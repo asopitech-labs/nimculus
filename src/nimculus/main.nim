@@ -2508,7 +2508,16 @@ proc refreshWorkspacePreview() =
         let aPriority = if containsReveal(a.path): 0 else: 1
         let bPriority = if containsReveal(b.path): 0 else: 1
         result = cmp(aPriority, bPriority)
-        if result == 0: result = cmp(a.relativePath, b.relativePath))
+        if result == 0:
+          # Match Zed's Project Panel default (DirectoriesFirst): folders
+          # remain discoverable as navigation containers while files retain a
+          # stable lexical order beneath them.
+          let aDirectory = a.kind == WorkspaceFileKind.directory
+          let bDirectory = b.kind == WorkspaceFileKind.directory
+          if aDirectory != bDirectory:
+            result = if aDirectory: -1 else: 1
+          else:
+            result = cmp(a.relativePath, b.relativePath))
       for entry in children:
         if workspacePreviewEntries.len >= 192: break
         workspacePreviewEntries.add(entry)
@@ -2839,8 +2848,7 @@ proc pollWorkspaceSearch() =
       for entry in workspaceQuickOpenJob.pollFuzzySearch(maxEntries = 256, maxResults = 100):
         if workspacePreviewEntries.len < 100: workspacePreviewEntries.add(entry)
       workspacePreviewEntries.sort(proc(a, b: WorkspaceEntry): int =
-        let lengthOrder = cmp(a.relativePath.len, b.relativePath.len)
-        if lengthOrder != 0: lengthOrder else: cmp(a.relativePath, b.relativePath))
+        compareFuzzyEntries(a, b, workspaceQuickOpenQuery))
       renderQuickOpen()
       if workspaceQuickOpenJob.isComplete:
         workspaceQuickOpenJob = nil
@@ -3644,8 +3652,7 @@ when defined(windows):
       for entry in workspaceQuickOpenJob.pollFuzzySearch(maxEntries = 256, maxResults = 100):
         if workspacePreviewEntries.len < 100: workspacePreviewEntries.add(entry)
       workspacePreviewEntries.sort(proc(a, b: WorkspaceEntry): int =
-        let lengthOrder = cmp(a.relativePath.len, b.relativePath.len)
-        if lengthOrder != 0: lengthOrder else: cmp(a.relativePath, b.relativePath))
+        compareFuzzyEntries(a, b, workspaceQuickOpenQuery))
       renderQuickOpen()
       if workspaceQuickOpenJob.isComplete: workspaceQuickOpenJob = nil
     if workspaceSearchJob != nil:
@@ -3937,6 +3944,12 @@ proc openFilesDockEntry(path: string) =
     syncRecentFiles()
     syncEditorCursor()
     refreshEditorSyntax()
+    # Files/Search activation can start while the secondary pane owns the
+    # editor focus. Selecting its tab is not enough: AppKit's outline remains
+    # first responder until the native editor view is explicitly restored,
+    # which would route the next keyboard event or IME composition into the
+    # sidebar instead of the newly opened document.
+    platformFocusEditor()
     persistSession()
   except CatchableError as error:
     editorViewState.statusMessage = "Open failed: " & error.msg

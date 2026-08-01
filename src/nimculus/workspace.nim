@@ -261,19 +261,17 @@ proc renameEntryAt*(workspace: Workspace, root, relative, newRelative: string): 
 proc renameEntry*(workspace: Workspace, relative, newRelative: string): string =
   workspace.renameEntryAt(workspace.root, relative, newRelative)
 
+proc fuzzyScore*(path, query: string): int
+proc compareFuzzyEntries*(a, b: WorkspaceEntry, query: string): int
+
 proc fuzzyFileSearch*(workspace: Workspace, query: string, limit = 100): seq[WorkspaceEntry] =
   if query.len == 0: return
   let needle = query.toLowerAscii
   for entry in workspace.enumerateFiles():
-    var cursor = 0
-    for character in entry.relativePath.toLowerAscii:
-      if cursor < needle.len and character == needle[cursor]: inc cursor
-    if cursor == needle.len:
+    if fuzzyScore(entry.relativePath, needle) >= 0:
       result.add(entry)
-      if result.len >= limit: break
-  result.sort(proc(a, b: WorkspaceEntry): int =
-    let lengthOrder = cmp(a.relativePath.len, b.relativePath.len)
-    if lengthOrder != 0: lengthOrder else: cmp(a.relativePath, b.relativePath))
+  result.sort(proc(a, b: WorkspaceEntry): int = compareFuzzyEntries(a, b, needle))
+  if result.len > limit: result.setLen(max(0, limit))
 
 proc startFuzzySearch*(workspace: Workspace, query: string,
                        token: CancelToken = nil): FuzzySearchJob =
@@ -290,11 +288,55 @@ proc cancelFuzzySearch*(job: FuzzySearchJob) =
 
 proc isComplete*(job: FuzzySearchJob): bool = job == nil or job.complete
 
-proc fuzzyMatches(path, query: string): bool =
+proc fuzzyScore*(path, query: string): int =
+  ## A bounded, deterministic path score for the macOS File Finder.
+  ##
+  ## Zed delegates this ranking to fuzzy-nucleo and orders the resulting
+  ## PathMatch values by score, then by path. Nimculus keeps the same user
+  ## contract without importing that Rust runtime: contiguous characters,
+  ## filename boundaries, basename matches, and early matches rank higher
+  ## than a scattered match deep in a directory. A negative value means the
+  ## query is not a subsequence of the path.
+  if query.len == 0: return 0
+  let candidate = path.toLowerAscii
+  let needle = query.toLowerAscii
   var cursor = 0
-  for character in path.toLowerAscii:
-    if cursor < query.len and character == query[cursor]: inc cursor
-  cursor == query.len
+  var previous = -2
+  var firstMatch = -1
+  var score = 0
+  for index, character in candidate:
+    if cursor >= needle.len or character != needle[cursor]: continue
+    if firstMatch < 0: firstMatch = index
+    score += 100
+    if index == previous + 1: score += 55
+    if index == 0 or candidate[index - 1] in {'/', '\\', '_', '-', '.'}:
+      score += 75
+    if index > 0 and path[index] in {'A'..'Z'}:
+      score += 20
+    previous = index
+    inc cursor
+  if cursor != needle.len: return -1
+  let separator = max(path.rfind('/'), path.rfind('\\'))
+  let basenameStart = separator + 1
+  let basename = if basenameStart < candidate.len:
+    candidate[basenameStart .. ^1] else: ""
+  if basename == needle: score += 1_000
+  elif basename.startsWith(needle): score += 400
+  score -= firstMatch * 3
+  score -= max(0, path.len - needle.len)
+  score -= max(0, basenameStart) * 2
+  score
+
+proc fuzzyMatches(path, query: string): bool = fuzzyScore(path, query) >= 0
+
+proc compareFuzzyEntries*(a, b: WorkspaceEntry, query: string): int =
+  let aScore = fuzzyScore(a.relativePath, query)
+  let bScore = fuzzyScore(b.relativePath, query)
+  if aScore != bScore:
+    return cmp(bScore, aScore)
+  let lengthOrder = cmp(a.relativePath.len, b.relativePath.len)
+  if lengthOrder != 0: return lengthOrder
+  cmp(a.relativePath, b.relativePath)
 
 proc pollFuzzySearch*(job: FuzzySearchJob, maxEntries = 256,
                       maxResults = 100): seq[WorkspaceEntry] =
@@ -331,8 +373,7 @@ proc pollFuzzySearch*(job: FuzzySearchJob, maxEntries = 256,
   result = job.bufferedResults
   job.bufferedResults.setLen(0)
   result.sort(proc(a, b: WorkspaceEntry): int =
-    let lengthOrder = cmp(a.relativePath.len, b.relativePath.len)
-    if lengthOrder != 0: lengthOrder else: cmp(a.relativePath, b.relativePath))
+    compareFuzzyEntries(a, b, needle))
 
 proc searchWorkspace*(workspace: Workspace, query: string,
                       token: CancelToken = nil,
