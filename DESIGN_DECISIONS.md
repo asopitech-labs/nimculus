@@ -6399,3 +6399,18 @@ command palette.
 
 All operations update only the display projection, then resynchronize native
 line visibility, hit testing, syntax overlays, and persisted view state.
+
+## UI-085: Keep Files panel creation and trash actions at the selection boundary
+
+Zed's macOS Project Panel makes the selected row the target for `Cmd+N` (new
+file), `Cmd+Option+N` (new directory), and Backspace/Delete (move to Trash).
+Nimculus now dispatches those shortcuts from the native Files overlay to the
+selected workspace entry. The macOS delegate owns the alert sheet and captures
+the selected path before the asynchronous response; Nim owns path validation,
+workspace-root protection, filesystem mutation, refresh, and editor-tab
+updates. New files and folders resolve a selected file to its parent directory,
+matching the existing context-menu behavior, while deleting a workspace root is
+rejected before a destructive sheet can appear.
+
+This keeps keyboard activation and the existing right-click menu on one native
+path without adding Cocoa state to the workspace model.

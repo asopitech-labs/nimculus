@@ -397,7 +397,7 @@ suite "macOS platform contract":
     platformSetEditorSidebar(history.cstring, uint32(history.len), 1, 2)
     check true
 
-  test "sidebar rows keep Git section headers out of native dispatch":
+  test "sidebar rows and keyboard actions keep native dispatch bounded":
     let changes = "Git Status\n────────\nStaged (1)\nM   src/main.nim\nUnstaged (1)\n M  src/main.nim"
     var lineItems = [-1'i32, -1'i32, -1'i32, 0'i32, -1'i32, 1'i32]
     platformSetEditorSidebar(changes.cstring, uint32(changes.len), 2, 3)

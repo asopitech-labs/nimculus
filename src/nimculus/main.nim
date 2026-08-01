@@ -5642,6 +5642,25 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       else:
         platformRenameWorkspaceEntry(entry.path.cstring,
           entry.kind == WorkspaceFileKind.directory)
+  elif name in ["sidebarNewFileSelected", "sidebarNewDirectorySelected", "sidebarTrashSelected"]:
+    when defined(macosx):
+      if editorSidebarMode != sidebarFiles or activeWorkspace == nil:
+        return
+      let index = editorWorkspaceUi.panelSelectedIndex(panelFiles)
+      if index < 0 or index >= workspacePreviewEntries.len:
+        return
+      let entry = workspacePreviewEntries[index]
+      if name == "sidebarTrashSelected" and entry.relativePath.len == 0:
+        editorViewState.statusMessage = "Workspace root cannot be moved to Trash"
+      elif name == "sidebarNewFileSelected":
+        platformPromptWorkspaceFileAtContext(entry.path.cstring,
+          entry.kind == WorkspaceFileKind.directory)
+      elif name == "sidebarNewDirectorySelected":
+        platformPromptWorkspaceDirectoryAtContext(entry.path.cstring,
+          entry.kind == WorkspaceFileKind.directory)
+      else:
+        platformPromptWorkspaceTrashAtContext(entry.path.cstring,
+          entry.kind == WorkspaceFileKind.directory)
   elif name in ["sidebarCollapseSelected", "sidebarExpandSelected"]:
     when defined(macosx):
       if editorSidebarMode != sidebarFiles or activeWorkspace == nil:

@@ -3310,10 +3310,18 @@ static void dismissExternalChangePanel(const char *command) {
   if (!g_command_callback) { [super keyDown:event]; return; }
   const unsigned short key = event.keyCode;
   const NSEventModifierFlags modifiers = event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+  const BOOL filesPanelShortcut = g_editor_sidebar_mode == 1;
+  const BOOL commandDown = (modifiers & NSEventModifierFlagCommand) != 0;
+  const BOOL optionDown = (modifiers & NSEventModifierFlagOption) != 0;
+  const BOOL plainDelete = (modifiers & (NSEventModifierFlagCommand |
+    NSEventModifierFlagOption | NSEventModifierFlagControl)) == 0;
   const BOOL gitPanelShortcut = g_editor_sidebar_mode >= 2 && g_editor_sidebar_mode <= 4 &&
     (modifiers & NSEventModifierFlagCommand) != 0;
   const char *command = gitPanelShortcut && key == 18 ? "commandPalette:git status" :
     gitPanelShortcut && key == 19 ? "commandPalette:git log" :
+    filesPanelShortcut && key == 45 && commandDown && optionDown ? "sidebarNewDirectorySelected" :
+    filesPanelShortcut && key == 45 && commandDown ? "sidebarNewFileSelected" :
+    filesPanelShortcut && (key == 51 || key == 117) && plainDelete ? "sidebarTrashSelected" :
     (key == 48 || key == 53) ? "sidebarFocusEditor" :
     key == 49 ? (g_editor_sidebar_mode == 3 ? "sidebarStageToggleSelected" : "sidebarOpenSelected") :
     key == 126 ? "sidebarPrevious" :
@@ -7907,6 +7915,26 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
     strcpy(g_validation_command, "unchanged");
     if (rename) [sidebar keyDown:rename];
     BOOL renameSelected = strcmp(g_validation_command, "sidebarRenameSelected") == 0;
+    NSEvent *newFile = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:NSEventModifierFlagCommand timestamp:0.0
+      windowNumber:0 context:nil characters:@"n" charactersIgnoringModifiers:@"n"
+      isARepeat:NO keyCode:45];
+    NSEvent *newDirectory = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:(NSEventModifierFlagCommand | NSEventModifierFlagOption)
+      timestamp:0.0 windowNumber:0 context:nil characters:@"n" charactersIgnoringModifiers:@"n"
+      isARepeat:NO keyCode:45];
+    NSEvent *delete = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSZeroPoint modifierFlags:0 timestamp:0.0 windowNumber:0 context:nil
+      characters:@"\b" charactersIgnoringModifiers:@"\b" isARepeat:NO keyCode:51];
+    strcpy(g_validation_command, "unchanged");
+    if (newFile) [sidebar keyDown:newFile];
+    BOOL newFileShortcut = strcmp(g_validation_command, "sidebarNewFileSelected") == 0;
+    strcpy(g_validation_command, "unchanged");
+    if (newDirectory) [sidebar keyDown:newDirectory];
+    BOOL newDirectoryShortcut = strcmp(g_validation_command, "sidebarNewDirectorySelected") == 0;
+    strcpy(g_validation_command, "unchanged");
+    if (delete) [sidebar keyDown:delete];
+    BOOL deleteShortcut = strcmp(g_validation_command, "sidebarTrashSelected") == 0;
     g_editor_sidebar_mode = 3;
     NSEvent *changesTab = [NSEvent keyEventWithType:NSEventTypeKeyDown
       location:NSZeroPoint modifierFlags:NSEventModifierFlagCommand timestamp:0.0
@@ -7925,7 +7953,8 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
     BOOL valid = selected && opened && headerIgnored && mappedSelection && mappedOpen &&
       stageToggle && tabFocusesEditor && escapeFocusesEditor && spaceStagesGitChange &&
       spaceOpensSidebarItem && leftCollapsesDirectory && rightExpandsDirectory &&
-      renameSelected && changesTabShortcut && historyTabShortcut;
+      renameSelected && newFileShortcut && newDirectoryShortcut && deleteShortcut &&
+      changesTabShortcut && historyTabShortcut;
     [sidebar release];
     free(g_editor_sidebar_line_items);
     g_editor_sidebar_line_items = previousLineItems;
@@ -9263,6 +9292,26 @@ void nimculus_platform_rename_workspace_entry(const char *path, bool is_director
   if (delegate && [delegate respondsToSelector:@selector(renameWorkspaceContextEntry:)]) {
     [delegate performSelector:@selector(renameWorkspaceContextEntry:) withObject:nil];
   }
+}
+static void promptWorkspaceContextAction(const char *path, bool is_directory, SEL action) {
+  if (!path || path[0] == '\0') return;
+  @autoreleasepool {
+    replaceOwnedString(&g_workspace_context_path, [NSString stringWithUTF8String:path]);
+    g_workspace_context_is_directory = is_directory ? YES : NO;
+    NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
+    if (delegate && [delegate respondsToSelector:action]) {
+      [delegate performSelector:action withObject:nil];
+    }
+  }
+}
+void nimculus_platform_prompt_workspace_file_at_context(const char *path, bool is_directory) {
+  promptWorkspaceContextAction(path, is_directory, @selector(createWorkspaceFileAtContext:));
+}
+void nimculus_platform_prompt_workspace_directory_at_context(const char *path, bool is_directory) {
+  promptWorkspaceContextAction(path, is_directory, @selector(createWorkspaceDirectoryAtContext:));
+}
+void nimculus_platform_prompt_workspace_trash_at_context(const char *path, bool is_directory) {
+  promptWorkspaceContextAction(path, is_directory, @selector(deleteWorkspaceContextEntry:));
 }
 void nimculus_platform_show_git_status_context(uint32_t item_index,
                                                uint32_t projection) {
