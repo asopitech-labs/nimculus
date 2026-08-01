@@ -1185,6 +1185,7 @@ when defined(macosx):
     if editorDapSession.state in {dapStopped, dapFailed}:
       editorViewState.statusMessage = if editorDapSession.state == dapFailed:
         "Debugger adapter exited unexpectedly" else: "Debugger stopped"
+      editorDapSession.stop()
       editorDapSession = nil
   proc renderNativeGitStatus(entries: seq[GitStatusEntry])
 

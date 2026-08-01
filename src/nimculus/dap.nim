@@ -145,6 +145,15 @@ proc finishRequest*(tracker: var DapRequestTracker, requestSeq: int): bool =
   tracker.pending.del(requestSeq)
   true
 
+proc acceptResponse*(tracker: var DapRequestTracker, requestSeq: int): bool =
+  ## Consume a response only when its request is still current.  Cancelled or
+  ## expired responses are deliberately dropped at the protocol boundary so
+  ## stale stack/variables data cannot reach the editor UI.
+  if requestSeq notin tracker.pending: return false
+  let cancelled = tracker.pending[requestSeq].cancelled
+  tracker.pending.del(requestSeq)
+  not cancelled
+
 proc pendingCount*(tracker: DapRequestTracker): int = tracker.pending.len
 
 proc cancelRequest*(tracker: var DapRequestTracker, requestSeq: int): bool =
@@ -331,8 +340,9 @@ proc poll*(session: DapSession): seq[DapMessage] =
   for node in session.readMessages():
     let message = node.parseMessage()
     if message.messageType == dapResponseMessage:
-      discard session.tracker.finishRequest(message.requestSeq)
+      if not session.tracker.acceptResponse(message.requestSeq): continue
     result.add(message)
+  discard session.tracker.expireRequests(nowMs())
   if session.process != nil and session.process.peekExitCode() >= 0:
     let code = session.process.peekExitCode()
     session.state = if code == 0: dapStopped else: dapFailed

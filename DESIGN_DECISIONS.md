@@ -6515,3 +6515,8 @@ started directly, while a remote adapter uses the macOS `nc` byte-stream bridge
 when `NIMCULUS_DAP_HOST`/`NIMCULUS_DAP_PORT` are configured. Both routes use the
 same DAP decoder, request tracker, event projection, and bounded shutdown path;
 the UI never creates a second transport implementation.
+
+Responses are consumed through `acceptResponse`, which removes the pending
+entry and rejects cancelled, expired, or unknown request sequences before the
+UI sees them. Adapter exit also calls the session stop path to close the
+process handle rather than merely dropping the Nim reference.

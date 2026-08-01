@@ -41,6 +41,9 @@ suite "M19 DAP transport":
     check initialize.seq in expired
     check launch.seq notin expired
     check tracker.finishRequest(initialize.seq)
+    let stale = tracker.beginRequest("stackTrace")
+    check tracker.cancelRequest(stale.seq)
+    check not tracker.acceptResponse(stale.seq)
 
   test "protocol helpers produce launch and breakpoint arguments":
     let init = initializeArguments()
