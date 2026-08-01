@@ -804,6 +804,9 @@ when defined(macosx):
   var editorAgentOutput = ""
   var editorAgentSessionId = -1
   var editorExtensionRegistry: ExtensionRegistry
+  var pendingExtensionPermission: ExtensionManifest
+  var pendingExtensionPermissionAction = ""
+  var pendingExtensionPermissionSource = ""
 
 proc resetEditorTransientState() =
   ## Tab switches must preserve their cursor/selection/viewport. Only reset
@@ -1054,7 +1057,35 @@ when defined(macosx):
 
   proc showNativeExtensions()
 
-  proc installNativeExtension(source: string) =
+  proc requestNativeExtensionPermission(manifest: ExtensionManifest,
+                                        action, source: string): bool =
+    ## Permission is a user action, not a hidden side effect of starting a
+    ## Component. The AppKit sheet is asynchronous so it cannot freeze the
+    ## editor or create the modal-loop failures seen with unsaved dialogs.
+    var requested: seq[string]
+    for permission in manifest.extensionPermissionList:
+      if permission.extensionPermissionRequiresPrompt:
+        requested.add(permission & " — " &
+          permission.extensionPermissionDescription)
+    if requested.len == 0: return true
+    pendingExtensionPermission = manifest
+    pendingExtensionPermissionAction = action
+    pendingExtensionPermissionSource = source
+    let details = "Extension: " & manifest.name & " (API v" &
+      $manifest.apiVersion & ")\n\nRequested capabilities:\n  " &
+      requested.join("\n  ") & "\n\nGranted by host API v" &
+      $SupportedExtensionApiVersion & ": " & manifest.extensionHostCapabilityString
+    platformPromptExtensionPermissions(
+      ("Allow capabilities for " & manifest.name).cstring, details.cstring)
+    editorViewState.statusMessage = "Waiting for extension permission decision"
+    false
+
+  proc clearNativeExtensionPermission() =
+    pendingExtensionPermission = ExtensionManifest()
+    pendingExtensionPermissionAction = ""
+    pendingExtensionPermissionSource = ""
+
+  proc installNativeExtensionNow(source: string) =
     let installRoot = getHomeDir() / ".nimculus" / "extensions"
     if editorExtensionRegistry == nil:
       editorExtensionRegistry = newExtensionRegistry([installRoot])
@@ -1062,6 +1093,14 @@ when defined(macosx):
       let manifest = editorExtensionRegistry.installDirectory(source, installRoot)
       editorViewState.statusMessage = "Installed extension: " & manifest.name
       showNativeExtensions()
+    except CatchableError as error:
+      editorViewState.statusMessage = "Extension install failed: " & error.msg
+
+  proc installNativeExtension(source: string) =
+    try:
+      let manifest = loadExtensionManifest(normalizedPath(source) / "extension.json")
+      if not requestNativeExtensionPermission(manifest, "install", source): return
+      installNativeExtensionNow(source)
     except CatchableError as error:
       editorViewState.statusMessage = "Extension install failed: " & error.msg
 
@@ -1117,6 +1156,8 @@ when defined(macosx):
       return
     if selected.wasmModule.len == 0:
       editorViewState.statusMessage = "Extension has no WASM module: " & selected.id
+      return
+    if not requestNativeExtensionPermission(selected, "run", ""):
       return
     if wasmComponentHostAvailable() and isWasmComponent(selected):
       if editorWasmComponentJob.handle != nil:
@@ -1182,6 +1223,10 @@ when defined(macosx):
         lines.add("  runtime: " & wasmRuntimeStatus())
         if manifest.wasmEntrypoint.len > 0:
           lines.add("  entrypoint: " & manifest.wasmEntrypoint)
+      if manifest.permissions.len > 0:
+        lines.add("  permissions: " & manifest.extensionPermissionList.join(", "))
+      lines.add("  host API v" & $SupportedExtensionApiVersion & ": " &
+        manifest.extensionHostCapabilityString)
       if manifest.externalProcess.len > 0:
         lines.add("  external process (permissioned)")
     lines.add("  component host: " &
@@ -6169,6 +6214,19 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       editorWorkspaceUi.resetDockSize(dockLeft)
       setupDemoUi()
       persistSession()
+  elif name == "extensionPermissions:allow":
+    let action = pendingExtensionPermissionAction
+    let manifest = pendingExtensionPermission
+    let source = pendingExtensionPermissionSource
+    clearNativeExtensionPermission()
+    if action == "install":
+      installNativeExtensionNow(source)
+    elif action == "run":
+      runNativeWasmExtension(manifest.id)
+  elif name == "extensionPermissions:deny":
+    let extensionName = pendingExtensionPermission.name
+    clearNativeExtensionPermission()
+    editorViewState.statusMessage = "Extension permission denied: " & extensionName
   elif name.startsWith("extensionInstall:"):
     when defined(macosx):
       let source = name["extensionInstall:".len .. ^1].strip

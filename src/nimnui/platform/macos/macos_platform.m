@@ -6145,6 +6145,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 - (void)presentAlertSheet:(NSAlert *)alert
                completion:(void (^)(NSModalResponse response))completion;
 - (void)presentGitCommitSheet;
+- (void)presentExtensionPermissionSheetWithTitle:(NSString *)title
+                                         details:(NSString *)details;
 @end
 
 @implementation NimculusAppDelegate
@@ -6609,6 +6611,22 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       NSString *command = [NSString stringWithFormat:@"extensionInstall:%@", panel.URL.path];
       g_command_callback(command.UTF8String);
     }
+  }];
+}
+
+- (void)presentExtensionPermissionSheetWithTitle:(NSString *)title
+                                         details:(NSString *)details {
+  NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+  alert.messageText = title.length > 0 ? title : @"Extension permissions";
+  alert.informativeText = details.length > 0 ? details :
+    @"This extension requests additional capabilities.";
+  alert.alertStyle = NSAlertStyleWarning;
+  [alert addButtonWithTitle:@"Allow"];
+  [alert addButtonWithTitle:@"Deny"];
+  [self presentAlertSheet:alert completion:^(NSModalResponse response) {
+    if (!g_command_callback) return;
+    g_command_callback(response == NSAlertFirstButtonReturn ?
+      "extensionPermissions:allow" : "extensionPermissions:deny");
   }];
 }
 
@@ -10838,6 +10856,15 @@ void nimculus_platform_prompt_extension_directory(void) {
   if (delegate && [delegate respondsToSelector:@selector(promptExtensionDirectory:)]) {
     [delegate promptExtensionDirectory:nil];
   }
+}
+void nimculus_platform_prompt_extension_permissions(const char *title,
+                                                    const char *details) {
+  NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
+  if (!delegate) return;
+  NSString *message = title ? [NSString stringWithUTF8String:title] : @"";
+  NSString *explanation = details ? [NSString stringWithUTF8String:details] : @"";
+  [delegate presentExtensionPermissionSheetWithTitle:(message ?: @"")
+                                               details:(explanation ?: @"")];
 }
 void nimculus_platform_set_terminal_visible(bool visible) {
   g_terminal_visible = visible ? YES : NO;

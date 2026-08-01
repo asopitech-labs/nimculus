@@ -20,12 +20,14 @@ when defined(macosx):
       {.importc: "nimculus_wasmtime_component_available", cdecl.}
   proc nimculusWasmtimeComponentRun(libraryPath, modulePath, extensionRoot,
       extensionId: cstring; apiVersion: uint32; entrypoint: cstring;
-      allowWrite: cint; errorOut: cstring; errorCapacity: csize_t): cint
+      allowWrite: cint; capabilities: cstring; errorOut: cstring;
+      errorCapacity: csize_t): cint
       {.importc: "nimculus_wasmtime_component_run", cdecl.}
   type NativeWasmComponentJob = pointer
   proc nimculusWasmtimeComponentStart(libraryPath, modulePath, extensionRoot,
       extensionId: cstring; apiVersion: uint32; entrypoint: cstring;
-      allowWrite: cint; errorOut: cstring; errorCapacity: csize_t): NativeWasmComponentJob
+      allowWrite: cint; capabilities: cstring; errorOut: cstring;
+      errorCapacity: csize_t): NativeWasmComponentJob
       {.importc: "nimculus_wasmtime_component_start", cdecl.}
   proc nimculusWasmtimeComponentPoll(job: NativeWasmComponentJob;
       errorOut: cstring; errorCapacity: csize_t): cint
@@ -83,6 +85,9 @@ proc prepareWasmExecution*(manifest: ExtensionManifest;
     raise wasmRuntimeError("extension has no wasmModule")
   if not manifest.validateWasmModule():
     raise wasmRuntimeError("extension WASM module is invalid or escapes its root")
+  let permissionError = manifest.validateExtensionHostPermissions()
+  if permissionError.len > 0:
+    raise wasmRuntimeError(permissionError)
   let runtime = resolveWasmRuntime(configuredRuntime)
   if runtime.len == 0:
     raise wasmRuntimeError("Wasmtime runtime is unavailable; install Wasmtime or set NIMCULUS_WASMTIME")
@@ -100,7 +105,10 @@ proc prepareWasmExecution*(manifest: ExtensionManifest;
   ## tree at /extension; no shell is involved and no host cwd is preopened.
   result.args = @["--dir", result.workingDirectory & "::/extension",
     "--env", "NIMCULUS_EXTENSION_ID=" & manifest.id,
-    "--env", "NIMCULUS_EXTENSION_API_VERSION=" & $manifest.apiVersion]
+    "--env", "NIMCULUS_EXTENSION_API_VERSION=" & $manifest.apiVersion,
+    "--env", "NIMCULUS_EXTENSION_HOST_API_VERSION=" & $SupportedExtensionApiVersion,
+    "--env", "NIMCULUS_EXTENSION_CAPABILITIES=" &
+      manifest.extensionHostCapabilityString]
   if manifest.wasmEntrypoint.len > 0:
     result.args.add("--invoke")
     result.args.add(manifest.wasmEntrypoint)
@@ -131,6 +139,10 @@ proc startWasmComponentJob*(manifest: ExtensionManifest;
     if not isWasmComponent(manifest):
       errorMessage = "extension is not a valid WebAssembly Component"
       return
+    let permissionError = manifest.validateExtensionHostPermissions()
+    if permissionError.len > 0:
+      errorMessage = permissionError
+      return
     var errorBuffer = newString(4096)
     result.handle = nimculusWasmtimeComponentStart(
       getEnv("NIMCULUS_WASMTIME_LIBRARY", "").cstring,
@@ -139,6 +151,7 @@ proc startWasmComponentJob*(manifest: ExtensionManifest;
       manifest.id.cstring, uint32(manifest.apiVersion),
       manifest.wasmEntrypoint.cstring,
       (if manifest.hasPermission("filesystem-write"): 1 else: 0),
+      manifest.extensionHostCapabilityString.cstring,
       errorBuffer.cstring, csize_t(errorBuffer.len))
     errorMessage = errorBuffer.strip
   else:
@@ -180,6 +193,10 @@ proc runWasmComponentInProcess*(manifest: ExtensionManifest;
     if manifest.wasmModule.len == 0 or not manifest.validateWasmModule():
       errorMessage = "extension WASM module failed manifest validation"
       return 2
+    let permissionError = manifest.validateExtensionHostPermissions()
+    if permissionError.len > 0:
+      errorMessage = permissionError
+      return 2
     var errorBuffer = newString(4096)
     result = nimculusWasmtimeComponentRun(
       getEnv("NIMCULUS_WASMTIME_LIBRARY", "").cstring,
@@ -189,6 +206,7 @@ proc runWasmComponentInProcess*(manifest: ExtensionManifest;
       uint32(manifest.apiVersion),
       manifest.wasmEntrypoint.cstring,
       (if manifest.hasPermission("filesystem-write"): 1 else: 0),
+      manifest.extensionHostCapabilityString.cstring,
       errorBuffer.cstring,
       csize_t(errorBuffer.len))
     errorMessage = errorBuffer.strip

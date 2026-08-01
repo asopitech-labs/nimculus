@@ -70,6 +70,7 @@ proc platformPromptWorkspaceTrashAtContext*(path: cstring, isDirectory: bool) {.
 proc platformPromptWorkspaceSearchAtContext*(path: cstring, isDirectory: bool) {.importc: "nimculus_platform_prompt_workspace_search_at_context", cdecl.}
 proc platformOpenPath*(path: cstring) {.importc: "nimculus_platform_open_path", cdecl.}
 proc platformPromptExtensionDirectory*() {.importc: "nimculus_platform_prompt_extension_directory", cdecl.}
+proc platformPromptExtensionPermissions*(title, details: cstring) {.importc: "nimculus_platform_prompt_extension_permissions", cdecl.}
 proc platformGetMetrics*(metrics: ptr PlatformMetrics) {.importc: "nimculus_platform_get_metrics", cdecl.}
 type
   InputLatencyStats* {.bycopy.} = object

@@ -161,6 +161,8 @@ void nimculus_platform_focus_editor(void);
 void nimculus_platform_set_editor_sidebar_on_right(bool on_right);
 void nimculus_platform_set_workspace_open(bool open);
 void nimculus_platform_open_workspace_folder(void);
+void nimculus_platform_prompt_extension_permissions(const char *title,
+                                                    const char *details);
 void nimculus_platform_rename_workspace_entry(const char *path, bool is_directory);
 void nimculus_platform_set_terminal_visible(bool visible);
 void nimculus_platform_set_terminal_sessions(const char *utf8, uint32_t length,

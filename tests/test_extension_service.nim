@@ -26,6 +26,26 @@ suite "M17 extension registry":
         {"id":"unsafe","name":"Unsafe","version":"1","externalProcess":"run"}
       """, "/tmp/unsafe")
 
+  test "negotiates declared permissions against the versioned host":
+    let manifest = parseExtensionManifest("""
+      {"id":"write.tools","name":"Write Tools","version":"1",
+       "apiVersion":1,"permissions":["filesystem-write"]}
+    """, "/tmp/write-tools")
+    check manifest.extensionPermissionList == @["filesystem-write"]
+    check extensionPermissionRequiresPrompt("filesystem-write")
+    check manifest.extensionHostCapabilityString == "filesystem-read,filesystem-write"
+    check manifest.validateExtensionHostPermissions().len == 0
+    expect ExtensionError:
+      discard parseExtensionManifest("""
+        {"id":"future.tools","name":"Future Tools","version":"1",
+         "permissions":["camera"]}
+      """, "/tmp/future-tools")
+    let network = parseExtensionManifest("""
+      {"id":"network.tools","name":"Network Tools","version":"1",
+       "permissions":["network"]}
+    """, "/tmp/network-tools")
+    check network.validateExtensionHostPermissions().len > 0
+
   test "negotiates API version and validates a wasm container before registration":
     let root = getTempDir() / "nimculus-wasm-extension-test"
     createDir(root)
@@ -61,6 +81,8 @@ suite "M17 extension registry":
     check plan.workingDirectory == normalizedPath(root)
     check plan.component
     check plan.args[0 .. 1] == @["--dir", normalizedPath(root) & "::/extension"]
+    check "NIMCULUS_EXTENSION_HOST_API_VERSION=1" in plan.args
+    check "NIMCULUS_EXTENSION_CAPABILITIES=filesystem-read" in plan.args
     check "--invoke" in plan.args
     check plan.args[^1] == normalizedPath(root / "extension.wasm")
     check not plan.args.join(" ").contains("-c")

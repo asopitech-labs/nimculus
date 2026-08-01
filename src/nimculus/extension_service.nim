@@ -9,6 +9,7 @@
 import std/json
 import std/os
 import std/strutils
+import std/sequtils
 import std/tables
 import std/times
 
@@ -39,6 +40,50 @@ type
     roots*: seq[string]
 
 const SupportedExtensionApiVersion* = 1
+
+const KnownExtensionPermissions* = [
+  "filesystem-read", "filesystem-write", "process", "network"
+]
+
+proc extensionPermissionDescription*(permission: string): string =
+  case permission
+  of "filesystem-read": "Read files in the extension workspace"
+  of "filesystem-write": "Write files in the extension workspace"
+  of "process": "Start external processes"
+  of "network": "Access network services"
+  else: "Unknown extension capability"
+
+proc extensionPermissionRequiresPrompt*(permission: string): bool =
+  permission in ["filesystem-write", "process", "network"]
+
+proc extensionPermissionList*(manifest: ExtensionManifest): seq[string] =
+  ## Return a stable, de-duplicated list for UI and host negotiation. Read
+  ## access is implicit for the mounted extension root and is still displayed
+  ## when an extension declares it explicitly.
+  for permission in manifest.permissions:
+    if permission notin result: result.add(permission)
+
+proc extensionHostCapabilities*(manifest: ExtensionManifest): seq[string] =
+  ## Version 1 deliberately exposes only capabilities that the current
+  ## Component host actually grants. The model follows Zed's linker boundary:
+  ## a declared permission is not a granted host import.
+  result.add("filesystem-read")
+  if "filesystem-write" in manifest.permissions:
+    result.add("filesystem-write")
+
+proc extensionHostCapabilityString*(manifest: ExtensionManifest): string =
+  extensionHostCapabilities(manifest).join(",")
+
+proc validateExtensionHostPermissions*(manifest: ExtensionManifest): string =
+  ## Keep unsupported permissions visible before a Wasmtime call. This avoids
+  ## a misleading "running" state for declarations whose host API is not yet
+  ## implemented.
+  for permission in manifest.permissions:
+    if permission notin extensionHostCapabilities(manifest) and
+        permission notin ["filesystem-read"]:
+      return "extension permission is not available in host API v" &
+        $SupportedExtensionApiVersion & ": " & permission
+  ""
 
 proc register*(registry: ExtensionRegistry, manifest: ExtensionManifest)
 
@@ -71,6 +116,11 @@ proc parseExtensionManifest*(contents, root: string): ExtensionManifest =
   result.tasks = stringList(node, "tasks")
   result.commands = stringList(node, "commands")
   result.permissions = stringList(node, "permissions")
+  for permission in result.permissions:
+    if permission notin KnownExtensionPermissions:
+      raise extensionError("unsupported extension permission: " & permission)
+  if result.permissions.len != result.permissions.deduplicate.len:
+    raise extensionError("extension permissions must not contain duplicates")
   result.apiVersion = if node.hasKey("apiVersion"):
     if node["apiVersion"].kind != JInt: raise extensionError("apiVersion must be an integer")
     node["apiVersion"].getInt

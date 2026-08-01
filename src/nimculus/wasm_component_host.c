@@ -154,6 +154,7 @@ struct nimculus_component_job {
   char *extension_root;
   char *extension_id;
   char *entrypoint;
+  char *capabilities;
   uint32_t api_version;
   int allow_write;
 };
@@ -304,7 +305,8 @@ static void component_job_clear_engine(nimculus_component_job_t *job) {
 static int run_component(const char *library_path, const char *module_path,
                          const char *extension_root, const char *extension_id,
                          uint32_t api_version, const char *entrypoint,
-                         int allow_write, char *error_out,
+                         int allow_write, const char *capabilities,
+                         char *error_out,
                          size_t error_capacity, nimculus_component_job_t *job) {
   if (!module_path || !extension_root || !extension_id) {
     set_error(error_out, error_capacity, "invalid Component host arguments");
@@ -390,12 +392,16 @@ static int run_component(const char *library_path, const char *module_path,
   }
   const char *argv[] = {extension_id};
   const char *names[] = {"NIMCULUS_EXTENSION_ID",
-                         "NIMCULUS_EXTENSION_API_VERSION"};
+                         "NIMCULUS_EXTENSION_API_VERSION",
+                         "NIMCULUS_EXTENSION_HOST_API_VERSION",
+                         "NIMCULUS_EXTENSION_CAPABILITIES"};
   char api_version_text[32];
   snprintf(api_version_text, sizeof(api_version_text), "%u", api_version);
-  const char *values[] = {extension_id, api_version_text};
+  const char *host_api_version = "1";
+  const char *values[] = {extension_id, api_version_text, host_api_version,
+                          capabilities ? capabilities : ""};
   if (!api.wasi_config_set_argv(wasi, 1, argv) ||
-      !api.wasi_config_set_env(wasi, 2, names, values)) {
+      !api.wasi_config_set_env(wasi, 4, names, values)) {
     set_error(error_out, error_capacity, "invalid UTF-8 in WASI arguments");
     goto cleanup;
   }
@@ -495,9 +501,10 @@ int nimculus_wasmtime_component_run(const char *library_path,
                                     uint32_t api_version,
                                     const char *entrypoint,
                                     int allow_write,
+                                    const char *capabilities,
                                     char *error_out, size_t error_capacity) {
   return run_component(library_path, module_path, extension_root, extension_id,
-                       api_version, entrypoint, allow_write, error_out,
+                       api_version, entrypoint, allow_write, capabilities, error_out,
                        error_capacity, NULL);
 }
 
@@ -507,11 +514,13 @@ static void free_component_job_inputs(nimculus_component_job_t *job) {
   free(job->extension_root);
   free(job->extension_id);
   free(job->entrypoint);
+  free(job->capabilities);
   job->library_path = NULL;
   job->module_path = NULL;
   job->extension_root = NULL;
   job->extension_id = NULL;
   job->entrypoint = NULL;
+  job->capabilities = NULL;
 }
 
 static void *component_job_worker(void *opaque) {
@@ -520,6 +529,7 @@ static void *component_job_worker(void *opaque) {
   int result = run_component(
       job->library_path, job->module_path, job->extension_root,
       job->extension_id, job->api_version, job->entrypoint, job->allow_write,
+      job->capabilities,
       error, sizeof(error), job);
   pthread_mutex_lock(&job->mutex);
   job->result = result;
@@ -535,7 +545,8 @@ static void *component_job_worker(void *opaque) {
 nimculus_component_job_t *nimculus_wasmtime_component_start(
     const char *library_path, const char *module_path,
     const char *extension_root, const char *extension_id, uint32_t api_version,
-    const char *entrypoint, int allow_write, char *error_out,
+    const char *entrypoint, int allow_write, const char *capabilities,
+    char *error_out,
     size_t error_capacity) {
   if (!module_path || !extension_root || !extension_id) {
     set_error(error_out, error_capacity, "invalid Component host arguments");
@@ -558,10 +569,11 @@ nimculus_component_job_t *nimculus_wasmtime_component_start(
   job->extension_root = strdup(extension_root);
   job->extension_id = strdup(extension_id);
   job->entrypoint = strdup(entrypoint ? entrypoint : "");
+  job->capabilities = strdup(capabilities ? capabilities : "");
   job->api_version = api_version;
   job->allow_write = allow_write;
   if (!job->library_path || !job->module_path || !job->extension_root ||
-      !job->extension_id || !job->entrypoint) {
+      !job->extension_id || !job->entrypoint || !job->capabilities) {
     free_component_job_inputs(job);
     pthread_mutex_destroy(&job->mutex);
     free(job);
@@ -636,6 +648,7 @@ int nimculus_wasmtime_component_run(const char *library_path,
                                     uint32_t api_version,
                                     const char *entrypoint,
                                     int allow_write,
+                                    const char *capabilities,
                                     char *error_out, size_t error_capacity) {
   (void)library_path;
   (void)module_path;
@@ -644,6 +657,7 @@ int nimculus_wasmtime_component_run(const char *library_path,
   (void)api_version;
   (void)entrypoint;
   (void)allow_write;
+  (void)capabilities;
   if (error_out && error_capacity > 0) {
     snprintf(error_out, error_capacity,
              "in-process Component Model is only available on macOS");

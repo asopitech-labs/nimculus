@@ -6608,7 +6608,8 @@ recognized. `wasmEntrypoint` is optional and is passed through `--invoke` only
 when declared by the manifest; Component Model entries use Wasmtime's explicit
 Wave call syntax such as `run()`. This is an executable macOS
 WASM slice, not a claim that the full Zed WIT host API has been implemented;
-the in-process Component Model linker and permission UI remain explicit follow-up
+the first in-process Component Model linker is now present, while the full
+capability-specific WIT surface remains an explicit follow-up
 work.
 
 ## M19-096: Resolve Apple's DAP adapter without an environment-only gate
@@ -6659,5 +6660,26 @@ removed). It is not yet the full Zed WIT host API. The export runs on a native
 worker, is polled from the macOS idle callback, and uses Wasmtime epoch
 interruption for cancellation; the Cocoa thread never enters Wasmtime. Core
 modules continue through the existing responsive CLI task path. Versioned WIT
-bindings, capability-specific host functions, permission presentation, and a
-catalog remain the next M17 slices.
+bindings and capability-specific host functions remain the next M17 slices;
+permission presentation is implemented as an asynchronous macOS Allow/Deny
+sheet.
+
+## M17-102: Make the first host contract explicit and permissioned
+
+The local Zed WIT review shows that an extension world is more than a WASI
+filesystem: it imports platform, process, HTTP, and worktree resources and
+exports versioned extension callbacks. Nimculus does not claim compatibility
+with that whole world until each import has a real macOS implementation.
+Instead, API version 1 publishes the small capability contract that is
+actually granted today: `filesystem-read` and optional `filesystem-write`.
+The contract is passed as `NIMCULUS_EXTENSION_HOST_API_VERSION` and
+`NIMCULUS_EXTENSION_CAPABILITIES` to both the direct CLI and Component host.
+Manifest permission names are allow-listed, unsupported host capabilities are
+rejected before execution, and no capability is inferred from a declaration.
+
+Additional permissions are an application interaction. A local extension
+install or WASM run that requests `filesystem-write`, `process`, or `network`
+uses an asynchronous AppKit Allow/Deny sheet; the Cocoa thread remains usable
+while the decision is pending. The next WIT slice must add one capability,
+tests, and a user-visible action together, using Zed's corresponding WIT and
+host implementation as the reference.
