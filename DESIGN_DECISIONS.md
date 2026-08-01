@@ -6316,3 +6316,23 @@ hierarchy and richer symbol kinds still replace the flat local fallback when
 available. Nim declaration nodes (`proc_declaration`, `template_declaration`,
 and type declarations) now extract their declared identifier rather than a
 later enum member or raw node kind.
+
+## UI-080: Expose syntax selection expansion through the macOS editor
+
+**Context.** The Tree-sitter layer already exposed syntax-node selection
+expansion, but it was only a library operation. Users could not invoke the
+feature from the editor, so the M7 selection-expansion capability was not a
+functional macOS feature.
+
+**Decision.** Follow Zed's macOS keymap and bind `Cmd+Ctrl+Right` and
+`Cmd+Ctrl+Left` to expand and shrink the active selection. Select the smallest
+strictly larger syntax node for expansion, and the largest child node that
+contains the focused cursor for shrinking. Route both operations through the
+focused pane's existing cursor/selection boundary, refresh syntax and native
+IME state, and persist the resulting view state.
+
+**Consequences.** Syntax-aware selection is now reachable from both the
+keyboard and command palette (`expand selection` / `shrink selection`) without
+adding Cocoa types to the editor core. The operation stops at the parsed
+syntax-tree leaf and reports that state instead of silently changing an
+unrelated range.

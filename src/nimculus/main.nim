@@ -183,6 +183,7 @@ when defined(macosx):
   proc syncNativeSecondaryInlayHints(document: ptr FileDocument)
   proc syncNativeSymbolTree()
   proc updateSyntaxOutline(document: ptr FileDocument)
+  proc expandNativeSyntaxSelection(expand: bool)
   proc handleCompletionShortcut(event: ptr NimculusInputEvent): bool
 
 when defined(windows):
@@ -470,6 +471,14 @@ proc setupShortcutRegistry() =
     name: "toggleOutline",
     shortcut: Shortcut(keyCode: 11, modifiers: {commandModifier, shiftModifier}),
     action: nativeShortcutAction("commandPalette:toggle outline")))
+  shortcutRegistry.register(Command(
+    name: "expandSyntaxSelection",
+    shortcut: Shortcut(keyCode: 124, modifiers: {commandModifier, controlModifier}),
+    action: nativeShortcutAction("expandSelection")))
+  shortcutRegistry.register(Command(
+    name: "shrinkSyntaxSelection",
+    shortcut: Shortcut(keyCode: 123, modifiers: {commandModifier, controlModifier}),
+    action: nativeShortcutAction("shrinkSelection")))
   shortcutRegistry.register(Command(
     name: "toggleGit",
     shortcut: Shortcut(keyCode: 5, modifiers: {controlModifier, shiftModifier}),
@@ -1387,6 +1396,34 @@ when defined(macosx):
           start: LspPosition(line: start.line, character: start.character),
           finish: LspPosition(line: finish.line, character: finish.character))))
     if editorSidebarMode == sidebarOutline: syncNativeSymbolTree()
+
+  proc expandNativeSyntaxSelection(expand: bool) =
+    let document = activeDocument()
+    if document == nil or syntaxState == nil or syntaxState.tree == nil:
+      editorViewState.statusMessage = "Syntax selection unavailable"
+      return
+    let selection = activeEditorSelection()
+    let source = document[].buffer.toString()
+    let target = if expand:
+      syntaxState.tree.largerSelection(uint32(selection.startByte),
+        uint32(selection.endByte))
+    else:
+      syntaxState.tree.smallerSelection(uint32(selection.startByte),
+        uint32(selection.endByte), uint32(activeEditorCursor()))
+    if target.startByte == uint32(selection.startByte) and
+        target.endByte == uint32(selection.endByte):
+      editorViewState.statusMessage = if expand:
+        "No larger syntax selection" else: "No smaller syntax selection"
+      return
+    let start = floorGraphemeBoundary(source, int(target.startByte))
+    let finish = floorGraphemeBoundary(source, int(target.endByte))
+    moveActiveEditorCursor(start)
+    moveActiveEditorCursor(finish, true)
+    syncEditorCursor()
+    refreshEditorSyntax()
+    persistSession()
+    editorViewState.statusMessage = if expand:
+      "Expanded syntax selection" else: "Shrank syntax selection"
 
   proc lspSelectionRange(document: ptr FileDocument): LspRange =
     if document == nil: return
@@ -4692,6 +4729,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         "__collapse_all_files__"
       elif command in ["show outline", "show symbols"]: "__show_outline__"
       elif command in ["toggle outline", "toggle symbols"]: "__toggle_outline__"
+      elif command in ["expand selection", "expand syntax selection"]: "__expand_selection__"
+      elif command in ["shrink selection", "shrink syntax selection"]: "__shrink_selection__"
       elif command in ["toggle git", "toggle source control"]: "__toggle_git__"
       elif command == "open settings": "openSettings"
       elif command in ["toggle soft wrap", "toggle word wrap"]: "toggleSoftWrap"
@@ -4713,6 +4752,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         platformShowFindDocument()
     of "openSettings":
       receiveNativeCommand("openSettings".cstring)
+    of "expandSelection":
+      when defined(macosx): expandNativeSyntaxSelection(true)
+    of "shrinkSelection":
+      when defined(macosx): expandNativeSyntaxSelection(false)
     of "go to definition":
       when defined(macosx):
         if document == nil or lspBridge == nil:
@@ -4986,6 +5029,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           platformFocusEditorSidebar()
         else:
           platformFocusEditor()
+    of "__expand_selection__":
+      when defined(macosx): expandNativeSyntaxSelection(true)
+    of "__shrink_selection__":
+      when defined(macosx): expandNativeSyntaxSelection(false)
     of "__toggle_git__":
       when defined(macosx):
         let wasActive = editorWorkspaceUi.leftDock.isOpen and

@@ -32,6 +32,12 @@ suite "M7 syntax services":
     check indentationLevel("def f():\n  return (1)", 12) == 1
     let expanded = tree.expandSelection(14, 15)
     check expanded.endByte >= expanded.startByte
+    let larger = tree.largerSelection(14, 15)
+    check larger.startByte <= 14
+    check larger.endByte >= 15
+    let smaller = tree.smallerSelection(larger.startByte, larger.endByte, 14)
+    check smaller.startByte >= larger.startByte
+    check smaller.endByte <= larger.endByte
     check tree.nextSyntaxNode(0).endByte > 0
     let items = tree.outline
     check items.len > 0

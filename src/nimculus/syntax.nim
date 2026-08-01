@@ -153,6 +153,37 @@ proc expandSelection*(tree: SyntaxTree, startByte, endByte: uint32): tuple[start
       smallest = node.endByte - node.startByte
       result = (startByte: node.startByte, endByte: node.endByte)
 
+proc largerSelection*(tree: SyntaxTree, startByte, endByte: uint32): tuple[startByte, endByte: uint32] =
+  ## Select the smallest syntax node that strictly contains the current range.
+  ## On an empty selection this is the first syntax node at the cursor, which
+  ## matches Zed's first Expand Selection action.
+  result = (startByte: startByte, endByte: endByte)
+  let currentSize = endByte - startByte
+  var smallest = high(uint32)
+  for node in tree.nodes:
+    let size = node.endByte - node.startByte
+    if node.startByte <= startByte and node.endByte >= endByte and
+        size > currentSize and size < smallest:
+      smallest = size
+      result = (startByte: node.startByte, endByte: node.endByte)
+
+proc smallerSelection*(tree: SyntaxTree, startByte, endByte: uint32,
+                       cursorByte: uint32): tuple[startByte, endByte: uint32] =
+  ## Select the largest child node that still contains the cursor and remains
+  ## strictly inside the current selection. This is the inverse of the
+  ## user-visible expansion action and keeps shrinking bounded at a leaf.
+  result = (startByte: startByte, endByte: endByte)
+  if endByte <= startByte: return
+  let currentSize = endByte - startByte
+  var largest = 0'u32
+  for node in tree.nodes:
+    let size = node.endByte - node.startByte
+    if node.startByte >= startByte and node.endByte <= endByte and
+        node.startByte <= cursorByte and node.endByte >= cursorByte and
+        size > largest and size < currentSize:
+      largest = size
+      result = (startByte: node.startByte, endByte: node.endByte)
+
 proc nextSyntaxNode*(tree: SyntaxTree, byteOffset: uint32): SyntaxNode =
   var found = false
   for node in tree.nodes:

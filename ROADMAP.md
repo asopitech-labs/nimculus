@@ -485,7 +485,9 @@ Filesツリーは**[x]** active documentの祖先を自動展開し、canonical 
 
 **完了条件：** [x] UTF-8境界を含む編集差分から`TSInputEdit`を生成してincremental parse、[x] 初期7文法のロード、[x] `.tsx`をJSX対応の独立Tree-sitter文法へルーティング、[x] 構文ノードから表示・構造サービスを生成、[x] 実エディタの可視範囲ハイライトとRGBA Metalテクスチャへ接続、[x] 1MB級大規模ファイルのparse/可視範囲計測、[x] 文法追加手順を文書化、[x] 確定したmacOS終了経路で最終Tree-sitter parser/treeを明示解放。Tree-sitterのOutlineはLSP応答がない状態でも宣言名とUTF-16範囲を使って表示し、LSP document symbols到着時に置き換える。実Language Serverを含む色表示はmacOS E2Eで確認する。
 
-LSP document symbolのOutlineは、階層depthを保持した単一のフラット投影を使用する。可視行・native sidebar選択・Enter／Spaceによるカーソル移動は同じUTF-16 rangeへ対応し、子シンボルを重複表示しない。
+LSP document symbolのOutlineは、階層depthを保持した単一のフラット投影を使用する。可視行・native sidebar選択・Enter／Spaceによるカーソル移動は同じUTF-16 rangeへ対応し、子シンボルを重複表示しない。Tree-sitterが解析済みの場合はLSP応答前でもローカル宣言を表示する。
+
+ZedのmacOS標準キーマップに合わせ、`Cmd+Ctrl+Right/Left`をTree-sitter構文ノードのExpand/Shrink Selectionへ接続した。選択範囲・カーソル・表示更新は通常のeditor view境界を通り、範囲がなくなるとステータスで明示する。
 
 2026-07-31更新：LSPが未起動・未応答の文書でも、Tree-sitterが抽出したNimなどの宣言をOutlineへ即時表示するローカルフォールバックを接続した。LSP document symbolsが有効な場合は従来どおりLSP投影を優先する。
 

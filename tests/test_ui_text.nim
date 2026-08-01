@@ -73,6 +73,14 @@ suite "M2 UI foundation":
     check git.keyCode == 5
     check git.modifiers == {controlModifier, shiftModifier}
 
+  test "Zed-style syntax selection shortcuts retain their modifiers":
+    let expand = shortcutFromKeyBinding("cmd+ctrl+right")
+    check expand.keyCode == 124
+    check expand.modifiers == {commandModifier, controlModifier}
+    let shrink = shortcutFromKeyBinding("cmd+ctrl+left")
+    check shrink.keyCode == 123
+    check shrink.modifiers == {commandModifier, controlModifier}
+
   test "Zed-style terminal toggle retains the Control-grave binding":
     let terminal = shortcutFromKeyBinding("ctrl+backtick")
     check terminal.keyCode == 50
