@@ -25,6 +25,7 @@ import nimculus/lsp
 import nimculus/dap
 import nimculus/agent_service
 import nimculus/extension_service
+import nimculus/extension_catalog
 import nimculus/wasm_runtime
 import nimculus/editor_diagnostics
 import nimculus/git_service
@@ -807,6 +808,11 @@ when defined(macosx):
   var pendingExtensionPermission: ExtensionManifest
   var pendingExtensionPermissionAction = ""
   var pendingExtensionPermissionSource = ""
+  var editorExtensionCatalog: seq[ExtensionCatalogEntry]
+  var editorExtensionCatalogSync = false
+  var editorExtensionPackageJob: UpdateDownloadJob
+  var editorExtensionPackageEntry: ExtensionCatalogEntry
+  var editorExtensionPackagePath = ""
 
 proc resetEditorTransientState() =
   ## Tab switches must preserve their cursor/selection/viewport. Only reset
@@ -1056,6 +1062,107 @@ when defined(macosx):
     editorViewState.statusMessage = "Extensions reloaded: " & $discovered
 
   proc showNativeExtensions()
+  proc requestNativeExtensionPermission(manifest: ExtensionManifest,
+                                        action, source: string): bool
+
+  proc showNativeExtensionCatalog() =
+    var lines = @[
+      "Extension Catalog",
+      "──────────────────"
+    ]
+    if editorExtensionCatalog.len == 0:
+      lines.add("No catalog entries. Set NIMCULUS_EXTENSION_CATALOG and sync.")
+    else:
+      lines.add("Install with: extensions install <id>")
+      for entry in editorExtensionCatalog:
+        lines.add(entry.id & " " & entry.version & " — " & entry.name)
+        lines.add("  archive: " & entry.archiveUrl)
+        lines.add("  SHA-256: " & entry.sha256)
+    showNativeLspPanel("Extension Catalog", lines)
+
+  proc syncNativeExtensionCatalog() =
+    let url = getEnv("NIMCULUS_EXTENSION_CATALOG", "").strip
+    if not isSecureExtensionCatalogUrl(url):
+      editorViewState.statusMessage =
+        "Extension catalog requires NIMCULUS_EXTENSION_CATALOG=https://…"
+      return
+    if editorTaskJob != nil and not editorTaskJob.done:
+      editorTaskJob.cancel()
+    editorTaskCommand = "Extension catalog"
+    editorTaskOutput = ""
+    editorTaskProblems.setLen(0)
+    editorExtensionCatalogSync = true
+    editorTaskOutputVisible = true
+    platformSetTaskOutputVisible(true)
+    platformSetTaskOutputCancellable(true)
+    editorWorkspaceUi.openPanel(panelTasks)
+    setupDemoUi()
+    let title = "Extension Catalog"
+    platformSetTaskOutputTitle(title.cstring, uint32(title.len))
+    editorTaskJob = startTask(TaskSpec(command: "curl", args: @[
+      "--fail", "--location", "--silent", "--show-error",
+      "--proto", "=https", "--tlsv1.2", "--max-time", "20",
+      "--max-filesize", $MaxExtensionCatalogBytes, url]))
+    editorViewState.statusMessage = "Syncing extension catalog"
+
+  proc installNativeCatalogExtension(id: string) =
+    let entry = findCatalogEntry(editorExtensionCatalog, id)
+    if entry.id.len == 0:
+      editorViewState.statusMessage = "Catalog extension not found: " & id
+      return
+    if editorExtensionPackageJob != nil and not editorExtensionPackageJob.done:
+      editorViewState.statusMessage = "Another catalog package is downloading"
+      return
+    let packagePath = getTempDir() / ("nimculus-extension-" & entry.id & ".zip")
+    editorExtensionPackageEntry = entry
+    editorExtensionPackagePath = packagePath
+    editorExtensionPackageJob = startUpdateDownload(
+      UpdateRelease(version: entry.version, url: entry.archiveUrl,
+        sha256: entry.sha256), packagePath)
+    if editorExtensionPackageJob.done:
+      editorExtensionPackageJob = nil
+      editorViewState.statusMessage = "Catalog package download could not start"
+    else:
+      editorViewState.statusMessage = "Downloading extension: " & entry.name
+
+  proc installNativeCatalogExtensionNow(archivePath: string) =
+    let installRoot = getHomeDir() / ".nimculus" / "extensions"
+    if editorExtensionRegistry == nil:
+      editorExtensionRegistry = newExtensionRegistry([installRoot])
+    try:
+      let manifest = editorExtensionRegistry.installCatalogArchive(archivePath,
+        installRoot)
+      if fileExists(archivePath): removeFile(archivePath)
+      editorViewState.statusMessage = "Installed catalog extension: " & manifest.name
+      showNativeExtensions()
+    except CatchableError as error:
+      editorViewState.statusMessage = "Catalog extension install failed: " & error.msg
+
+  proc pollNativeExtensionPackage() =
+    if editorExtensionPackageJob == nil: return
+    let partialPath = editorExtensionPackagePath & ".part"
+    if fileExists(partialPath) and
+        getFileSize(partialPath) > MaxExtensionPackageBytes:
+      editorExtensionPackageJob.cancelUpdateDownload()
+      editorExtensionPackageJob = nil
+      editorViewState.statusMessage = "Extension package exceeds the size limit"
+      return
+    if not editorExtensionPackageJob.pollUpdateDownload(): return
+    let archivePath = editorExtensionPackagePath
+    let entry = editorExtensionPackageEntry
+    let success = editorExtensionPackageJob.success
+    editorExtensionPackageJob = nil
+    if not success:
+      editorViewState.statusMessage = "Extension download failed: " & entry.id
+      return
+    try:
+      let manifest = inspectCatalogArchive(archivePath)
+      if not requestNativeExtensionPermission(manifest, "catalog-install", archivePath):
+        return
+      installNativeCatalogExtensionNow(archivePath)
+    except CatchableError as error:
+      if fileExists(archivePath): removeFile(archivePath)
+      editorViewState.statusMessage = "Catalog package rejected: " & error.msg
 
   proc requestNativeExtensionPermission(manifest: ExtensionManifest,
                                         action, source: string): bool =
@@ -1137,6 +1244,42 @@ when defined(macosx):
     editorViewState.statusMessage = "WASM component running: " & manifest.id
     true
 
+  proc startNativeExternalExtension(manifest: ExtensionManifest): bool =
+    if manifest.externalProcess.len == 0:
+      editorViewState.statusMessage = "Extension has no external process: " & manifest.id
+      return false
+    if not manifest.hasPermission("process"):
+      editorViewState.statusMessage = "External process permission is required: " & manifest.id
+      return false
+    ## The manifest field is intentionally a command line split into argv
+    ## without shell interpretation. Extensions cannot inject `sh -c`, pipes,
+    ## redirections, or a different working directory through this boundary.
+    let commandParts = manifest.externalProcess.strip.splitWhitespace
+    if commandParts.len == 0 or commandParts[0].len == 0:
+      editorViewState.statusMessage = "External process command is empty: " & manifest.id
+      return false
+    if editorTaskJob != nil and not editorTaskJob.done:
+      editorTaskJob.cancel()
+    editorTaskCommand = "Extension " & manifest.id
+    editorTaskOutput = ""
+    editorTaskProblems.setLen(0)
+    if editorTerminalVisible:
+      editorTerminalVisible = false
+      editorTerminalFocused = false
+      platformSetTerminalVisible(false)
+    editorTaskOutputVisible = true
+    platformSetTaskOutputVisible(true)
+    platformSetTaskOutputCancellable(true)
+    editorWorkspaceUi.openPanel(panelTasks)
+    setupDemoUi()
+    let title = "Extension — " & manifest.name
+    platformSetTaskOutputTitle(title.cstring, uint32(title.len))
+    editorTaskJob = startTask(TaskSpec(command: commandParts[0],
+      args: if commandParts.len > 1: commandParts[1 .. ^1] else: @[],
+      workingDirectory: normalizedPath(manifest.root)))
+    editorViewState.statusMessage = "Extension process running: " & manifest.id
+    true
+
   proc runNativeWasmExtension(id: string = "") =
     if editorExtensionRegistry == nil:
       editorViewState.statusMessage = "Extensions are not loaded"
@@ -1154,10 +1297,13 @@ when defined(macosx):
         "WASM extension not found: " & id.strip
         else: "No WASM extension is installed"
       return
-    if selected.wasmModule.len == 0:
-      editorViewState.statusMessage = "Extension has no WASM module: " & selected.id
+    if selected.wasmModule.len == 0 and selected.externalProcess.len == 0:
+      editorViewState.statusMessage = "Extension has no executable entrypoint: " & selected.id
       return
     if not requestNativeExtensionPermission(selected, "run", ""):
+      return
+    if selected.wasmModule.len == 0:
+      discard startNativeExternalExtension(selected)
       return
     if wasmComponentHostAvailable() and isWasmComponent(selected):
       if editorWasmComponentJob.handle != nil:
@@ -2295,6 +2441,21 @@ when defined(macosx):
       platformSetTaskOutputText(editorTaskOutput.cstring, uint32(editorTaskOutput.len))
     if not completed: return
     editorTaskProblems = taskResult.problems
+    if editorExtensionCatalogSync:
+      editorExtensionCatalogSync = false
+      if taskResult.status == taskSucceeded:
+        try:
+          editorExtensionCatalog = parseExtensionCatalog(taskResult.output)
+          editorViewState.statusMessage = "Extension catalog synced: " &
+            $editorExtensionCatalog.len & " entries"
+          showNativeExtensionCatalog()
+        except ExtensionCatalogError as error:
+          editorViewState.statusMessage = "Extension catalog rejected: " & error.msg
+      else:
+        editorViewState.statusMessage = "Extension catalog sync failed"
+      editorTaskJob = nil
+      platformSetTaskOutputCancellable(false)
+      return
     let output = taskResult.output.strip()
     let summary = if output.len == 0: "" else:
       let lines = output.splitLines
@@ -4649,6 +4810,7 @@ when defined(macosx):
     pollNativeGitAction()
     pollNativeTask()
     pollNativeUpdate()
+    pollNativeExtensionPackage()
     pollNativeDapTerminalJobs()
     pollNativeDapChildren()
     pollNativeDap()
@@ -6221,11 +6383,16 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     clearNativeExtensionPermission()
     if action == "install":
       installNativeExtensionNow(source)
+    elif action == "catalog-install":
+      installNativeCatalogExtensionNow(source)
     elif action == "run":
       runNativeWasmExtension(manifest.id)
   elif name == "extensionPermissions:deny":
+    let source = pendingExtensionPermissionSource
+    let action = pendingExtensionPermissionAction
     let extensionName = pendingExtensionPermission.name
     clearNativeExtensionPermission()
+    if action == "catalog-install" and fileExists(source): removeFile(source)
     editorViewState.statusMessage = "Extension permission denied: " & extensionName
   elif name.startsWith("extensionInstall:"):
     when defined(macosx):
@@ -6282,8 +6449,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command in ["agent reject", "agent reject changes"]: "__agent_reject__"
       elif command in ["agent apply patch", "apply agent patch"]: "__agent_apply_patch__"
       elif command in ["extensions install", "install extension"]: "__extensions_install__"
+      elif command.startsWith("extensions install "): "__extensions_install_catalog__"
       elif command in ["extensions reload", "reload extensions"]: "__extensions_reload__"
       elif command in ["extensions list", "list extensions"]: "__extensions_list__"
+      elif command in ["extensions catalog", "sync extension catalog"]: "__extensions_catalog__"
       elif command in ["extensions runtime", "wasm runtime"]: "__extensions_runtime__"
       elif command == "extensions run": "__extensions_run__"
       elif command.startsWith("extensions run "): "__extensions_run_id__"
@@ -6659,8 +6828,18 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx): reloadNativeExtensions()
     of "__extensions_install__":
       when defined(macosx): platformPromptExtensionDirectory()
+    of "__extensions_install_catalog__":
+      when defined(macosx):
+        let prefix = "extensions install "
+        let id = if rawCommand.len > prefix.len:
+          rawCommand[prefix.len .. ^1].strip else: ""
+        if id.len == 0: editorViewState.statusMessage =
+          "Catalog install requires an extension id"
+        else: installNativeCatalogExtension(id)
     of "__extensions_list__":
       when defined(macosx): showNativeExtensions()
+    of "__extensions_catalog__":
+      when defined(macosx): syncNativeExtensionCatalog()
     of "__extensions_runtime__":
       when defined(macosx):
         editorViewState.statusMessage = "WASM runtime: " & wasmRuntimeStatus() &

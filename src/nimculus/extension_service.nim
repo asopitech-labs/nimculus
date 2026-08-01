@@ -174,7 +174,7 @@ proc validateWasmModule*(manifest: ExtensionManifest): bool =
     ord(bytes[6]) == 1 and ord(bytes[7]) == 0
   result = coreModule or component
 
-proc validExtensionId(id: string): bool =
+proc validExtensionId*(id: string): bool =
   ## An extension id becomes a directory name.  Keep the install boundary
   ## boring and deterministic; this also prevents `..`, separators, and
   ## platform-specific path syntax from escaping the global extension root.

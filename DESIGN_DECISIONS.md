@@ -6683,3 +6683,17 @@ uses an asynchronous AppKit Allow/Deny sheet; the Cocoa thread remains usable
 while the decision is pending. The next WIT slice must add one capability,
 tests, and a user-visible action together, using Zed's corresponding WIT and
 host implementation as the reference.
+
+## M17-103: Keep catalog synchronization separate from extension installation
+
+The catalog boundary follows Zed's separation between extension metadata and
+the host that installs and runs an extension. `extension_catalog.nim` accepts
+only version-1 JSON with bounded entry count, safe IDs, HTTPS archive URLs, and
+SHA-256 digests. `extensions catalog` fetches this metadata through a direct,
+bounded curl task; it does not mutate the extension directory. `extensions
+install <id>` downloads the verified archive asynchronously, inspects its
+manifest, presents the same macOS permission sheet as local installation, and
+only then extracts the ZIP in a temporary directory. The existing registry
+performs symlink rejection and atomic destination creation. This makes an
+untrusted catalog unable to grant itself a permission or overwrite an
+installed extension.

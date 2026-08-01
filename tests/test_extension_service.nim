@@ -1,9 +1,11 @@
 import std/os
+import std/osproc
 import std/tables
 import std/strutils
 import std/unittest
 
 import nimculus/extension_service
+import nimculus/extension_catalog
 import nimculus/task_service
 import nimculus/wasm_runtime
 
@@ -204,3 +206,52 @@ suite "M17 extension registry":
       discard registry.installDirectory(source, root / "installed")
     check not dirExists(root / "escape")
     removeDir(root)
+
+  test "parses a bounded HTTPS extension catalog":
+    let catalog = parseExtensionCatalog("""
+      {"version":1,"extensions":[
+        {"id":"nim.tools","name":"Nim Tools","version":"1.2.0",
+         "archiveUrl":"https://example.invalid/nim-tools.zip",
+         "sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+      ]}
+    """)
+    check catalog.len == 1
+    check catalog[0].id == "nim.tools"
+    check findCatalogEntry(catalog, "nim.tools").archiveUrl.startsWith("https://")
+    check isSecureExtensionCatalogUrl("https://example.invalid/catalog.json")
+    check not isSecureExtensionCatalogUrl("http://example.invalid/catalog.json")
+    check not isSecureExtensionCatalogUrl("https://user@example.invalid/catalog.json")
+    expect ExtensionCatalogError:
+      discard parseExtensionCatalog("""
+        {"version":1,"extensions":[
+          {"id":"bad/id","name":"Bad","version":"1",
+           "archiveUrl":"https://example.invalid/bad.zip",
+           "sha256":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+        ]}
+      """)
+
+  when defined(macosx):
+    test "inspects and installs a catalog ZIP through the safe registry boundary":
+      let root = getTempDir() / "nimculus-extension-catalog-package-test"
+      let source = root / "catalog-ext"
+      let destination = root / "installed"
+      let archive = root / "catalog-ext.zip"
+      createDir(root)
+      createDir(source)
+      writeFile(source / "extension.json", """
+        {"id":"catalog.ext","name":"Catalog Extension","version":"1",
+         "apiVersion":1,"wasmModule":"extension.wasm"}
+      """)
+      writeFile(source / "extension.wasm", "\x00asm\x01\x00\x00\x00")
+      let packer = startProcess("/usr/bin/ditto",
+        args = @["-c", "-k", source, archive],
+        options = {poUsePath, poStdErrToStdOut})
+      check packer.waitForExit(10_000) == 0
+      packer.close()
+      let inspected = inspectCatalogArchive(archive)
+      check inspected.id == "catalog.ext"
+      let registry = newExtensionRegistry([destination])
+      let installed = registry.installCatalogArchive(archive, destination)
+      check installed.id == "catalog.ext"
+      check fileExists(installed.root / "extension.wasm")
+      removeDir(root)

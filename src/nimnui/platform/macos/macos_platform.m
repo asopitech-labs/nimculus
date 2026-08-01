@@ -2626,6 +2626,7 @@ static void dismissExternalChangePanel(const char *command) {
     @"agent next", @"agent previous", @"agent review diff",
     @"agent approve", @"agent reject", @"agent apply patch",
     @"extensions install", @"extensions reload", @"extensions list",
+    @"extensions catalog",
     @"extensions runtime", @"extensions run",
     @"go to definition", @"find references", @"document symbols", @"code actions",
     @"signature help", @"inlay hints", @"semantic tokens", @"format document",
@@ -6404,6 +6405,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     @[@"Install Extension…", @"commandPalette:extensions install"],
     @[@"Reload Extensions", @"commandPalette:extensions reload"],
     @[@"List Extensions", @"commandPalette:extensions list"],
+    @[@"Sync Extension Catalog", @"commandPalette:extensions catalog"],
     @[@"WASM Runtime Status", @"commandPalette:extensions runtime"],
     @[@"Run WASM Extension", @"commandPalette:extensions run"]
   ];
@@ -7917,7 +7919,8 @@ bool nimculus_platform_validate_command_palette(void) {
       @"agent start opencode", @"agent start worktree", @"agent stop", @"agent send",
       @"agent next", @"agent previous", @"agent review diff",
       @"agent approve", @"agent reject", @"agent apply patch",
-      @"extensions install", @"extensions reload", @"extensions list",
+    @"extensions install", @"extensions reload", @"extensions list",
+    @"extensions catalog",
       @"extensions runtime", @"extensions run",
       @"go to definition", @"find references", @"code actions", @"signature help",
       @"inlay hints", @"semantic tokens", @"format document", @"check for updates"
