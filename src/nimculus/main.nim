@@ -298,20 +298,20 @@ proc setupDemoUi() =
       max(0'f32, contentWidth - 28'f32)
     else:
       max(0'f32, float32(workspaceLayout.center.size.width) - 112'f32)
-  # Keep a compact Zed-like workspace header and a status/scroll gutter. The
-  # AppKit traffic lights sit over the app-owned titlebar, while this Metal
-  # view remains the content region below it. Breadcrumb, tabs, and text
-  # occupy the first 56pt of the workspace in sequence.
+  # Keep a compact Zed-like workspace header. The AppKit traffic lights sit
+  # over the app-owned titlebar, while this Metal view remains the content
+  # region below it. Breadcrumb, tabs, and text occupy the first 56pt of the
+  # workspace in sequence.
   # The native tab strip occupies the first 28pt of the editor surface. Keep
   # the text viewport below it instead of treating the pane's outer rectangle
   # as editable content: otherwise the first rendered line can appear behind
   # tabs and a resized pane has no unambiguous bottom boundary.
   const EditorTabStripHeight = 28'f32
   const EditorTopInset = 28'f32 + EditorTabStripHeight
-  # The status bar is the only persistent chrome below the editor. Reserving
-  # the former 58pt here created an empty pseudo-panel at every startup and
-  # made normal files appear to stop well above the window bottom.
-  const EditorBottomInset = DefaultStatusHeight + 8'f32
+  # The status bar is the only persistent chrome below the editor. Align the
+  # editor's bottom edge directly with the logical status-panel top; an extra
+  # gutter here becomes a visible blank strip between the editor and footer.
+  const EditorBottomInset = DefaultStatusHeight
   let editorHeight = max(0'f32, float32(workspaceLayout.center.size.height) -
     EditorTopInset - EditorBottomInset)
   let editor = Rect(origin: Point(x: px(contentX + 28'f32), y: px(EditorTopInset)),

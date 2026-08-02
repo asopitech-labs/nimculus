@@ -6824,3 +6824,25 @@ Custom themes may override individual roles and inherit the remaining roles.
 **Consequences.** A palette update now repaints the whole workspace rather than
 only the editor background. New UI surfaces must consume a semantic role or
 add one to `ThemeColors`, instead of introducing a local calibrated color.
+
+## UX-019: Make workspace chrome boundaries explicit
+
+**Context.** A visual audit of the packaged macOS window found that the
+logical Metal layout and the AppKit presenters used different outer dock
+insets. The result was an 8pt gap between the editor and Files panel and an
+additional 8pt gap at the right edge. The editor also reserved an obsolete
+8pt strip above the status bar.
+
+**Decision.** The macOS right dock owns the full rectangle beginning at the
+editor's right edge and ending at the window's right edge. The Files/Git
+scroll container begins at that boundary, followed by the 38pt activity-bar
+slot; the activity buttons remain 30pt wide, leaving their intentional 8pt
+internal breathing room. The editor owns x=28pt for its line-number/content
+gutter, its tab strip is 28pt above the pane, and its text ends directly at
+the 22pt logical status bar. The native titlebar remains a separate 30pt
+AppKit region above the Metal content view.
+
+**Consequences.** The native sidebar contract now verifies editor-to-sidebar
+and sidebar-to-activity-bar adjacency as well as root containment. Future
+workspace chrome changes must distinguish an intentional component inset
+(text, gutter, activity-button padding) from an outer layout gap.

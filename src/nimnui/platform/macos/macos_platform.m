@@ -5623,10 +5623,14 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   const CGFloat sidebarTop = MAX(0.0, g_editor_rect[1] - workspaceChromeHeight);
   const CGFloat sidebarHeight = MAX(1.0, g_editor_rect[3] +
     (g_editor_rect[1] - sidebarTop));
+  // The Metal workspace already assigns the complete dock rectangle from the
+  // editor's right edge to the window's right edge.  Keep AppKit presenters
+  // on that same boundary: adding an outer inset here creates a visible gap
+  // between the editor and Files, plus a second gap at the window edge.
   const CGFloat dockOuterX = g_editor_sidebar_on_right ?
-    g_editor_rect[0] + g_editor_rect[2] + 8.0 : 0.0;
+    g_editor_rect[0] + g_editor_rect[2] : 0.0;
   const CGFloat dockAvailableWidth = g_editor_sidebar_on_right ?
-    self.bounds.size.width - dockOuterX - 8.0 : g_editor_rect[0] - 12.0;
+    self.bounds.size.width - dockOuterX : g_editor_rect[0] - 12.0;
   // The logical workspace intentionally gives the editor priority when a
   // window is narrowed below the combined dock + center minimum.  Do not
   // undo that decision at the AppKit boundary by forcing a 140pt sidebar:
@@ -9303,6 +9307,10 @@ bool nimculus_platform_validate_sidebar_bounds(void) {
     BOOL containedWhenUsable = shownWhenUsable &&
       NSContainsRect(view.bounds, scroll.frame) &&
       NSContainsRect(view.bounds, activityBar.frame);
+    BOOL dockAdjoinsEditor = shownWhenUsable &&
+      fabs(NSMinX(scroll.frame) - (g_editor_rect[0] + g_editor_rect[2])) < 0.01 &&
+      fabs(NSMaxX(scroll.frame) - NSMinX(activityBar.frame)) < 0.01 &&
+      NSMaxX(activityBar.frame) <= NSMaxX(view.bounds) + 0.01;
 
     memcpy(g_editor_rect, previousRect, sizeof(previousRect));
     g_editor_sidebar_visible = previousSidebarVisible;
@@ -9310,7 +9318,7 @@ bool nimculus_platform_validate_sidebar_bounds(void) {
     g_welcome_visible = previousWelcomeVisible;
     g_active_view = previousView;
     [view release];
-    return hiddenWhenCollapsed && containedWhenUsable;
+    return hiddenWhenCollapsed && containedWhenUsable && dockAdjoinsEditor;
   }
 }
 
