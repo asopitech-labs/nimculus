@@ -8632,7 +8632,7 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
     BOOL tabStripClipsToPane = tabs.clipsToBounds;
     // The right navigation reserve makes each of the two 400pt-strip tabs
     // 120pt wide. Keep close-target checks on their actual trailing edges.
-    [tabs dispatchTabAtPoint:NSMakePoint(86.0, 12.0)];
+    [tabs dispatchTabAtPoint:NSMakePoint(100.0, 12.0)];
     BOOL closeFirst = strcmp(g_validation_command, "closePaneTab:0:0") == 0;
     [tabs dispatchTabAtPoint:NSMakePoint(220.0, 12.0)];
     BOOL closeSecond = strcmp(g_validation_command, "closePaneTab:0:1") == 0;
