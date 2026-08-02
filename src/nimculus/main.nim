@@ -4240,11 +4240,34 @@ proc moveActiveEditorCursor(offset: int, selecting = false) =
 
 proc syncNativeEditorStatus(document: ptr FileDocument) =
   when defined(macosx):
-    let status = if document != nil: editorViewState.statusBarText(document[].buffer)
-      else: editorViewState.statusMessage
-    if status == lastNativeEditorStatus: return
-    lastNativeEditorStatus = status
-    platformSetEditorStatus(status.cstring)
+    let message = editorViewState.statusMessage.strip
+    let status = if message.len > 0: message else: "Ready"
+    if status != lastNativeEditorStatus:
+      lastNativeEditorStatus = status
+      platformSetEditorStatus(status.cstring)
+    let location = if document == nil: (line: 0, column: 0) else:
+      document[].buffer.lineColumn(editorViewState.cursor)
+    var language = "Plain Text"
+    if document != nil and document[].path.len > 0:
+      try:
+        language = $grammarForPath(document[].path)
+      except ValueError:
+        discard
+    let lineEnding = if document != nil and document[].lineEnding == crlf: "CRLF" else: "LF"
+    let activeFile = if document != nil and document[].path.len > 0:
+      splitFile(document[].path).name & splitFile(document[].path).ext
+      else: "No File"
+    let languageServer = if lspBridge != nil: "LSP" else: "LSP —"
+    let footer = @[
+      activeFile,
+      "Ln " & $(location.line + 1) & ", Col " & $(location.column + 1),
+      "Spaces: " & $max(1, editorViewState.indentWidth),
+      "UTF-8",
+      lineEnding,
+      language,
+      languageServer
+    ]
+    platformSetEditorFooter(footer.join("\t").cstring)
 
 when defined(macosx):
   proc unfoldFoldContainingCursor(document: ptr FileDocument,
@@ -6224,6 +6247,29 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
             editorViewState.statusMessage = "No pinned tabs"
         of "close":
           receiveNativeCommand(("closePaneTab:" & $paneIndex & ":" & $tabIndex).cstring)
+        of "closeOthers", "closeLeft", "closeRight", "closeClean", "closeAll":
+          let keepPath = if document != nil: document[].path else: ""
+          let closed = case payload[0]
+            of "closeOthers": editorSession.closeCleanTabsExcept(tabIndex)
+            of "closeLeft": editorSession.closeCleanTabsBefore(tabIndex)
+            of "closeRight": editorSession.closeCleanTabsAfter(tabIndex)
+            of "closeClean":
+              var count = 0
+              for index in countdown(editorSession.tabs.high, 0):
+                if index != tabIndex and editorSession.closeTabAt(index): inc count
+              count
+            else: editorSession.closeAllCleanTabs()
+          if closed > 0 and keepPath.len > 0:
+            let kept = editorSession.tabIndexForPath(keepPath)
+            if kept >= 0:
+              editorSession.activeTab = kept
+              editorSession.loadActiveView(editorViewState)
+          editorViewState.statusMessage = if closed > 0:
+            "Closed " & $closed & " clean tab" & (if closed == 1: "" else: "s")
+          else: "No clean tabs closed"
+          syncWorkspaceUiTabs()
+          syncEditorCursor()
+          persistSession()
         of "copyPath":
           if document == nil or document[].path.len == 0:
             editorViewState.statusMessage = "Tab has no file path"

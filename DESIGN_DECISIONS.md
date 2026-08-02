@@ -6786,3 +6786,23 @@ double-click zoom are handled by the application-owned titlebar view.
 workspace surface and keeps the titlebar as a visible UX entry point. Any
 future titlebar controls must be added to the same root view and must preserve
 the traffic-light hit regions.
+
+## UX-017: Treat footer, tabs, and context menus as first-class feature entry points
+
+**Context.** Static extraction from Zed's `StatusBar`, `Pane`, `Tab`, and
+context-menu builders showed that the previous Nimculus UI compressed several
+independent controls into one status string and omitted editor-text context
+menus. A screenshot could therefore look complete while user actions were
+still unavailable.
+
+**Decision.** Keep the footer as structured tab-separated items with separate
+layout and hit testing. It exposes active file, cursor position, indentation,
+encoding, line ending, language, and LSP state. Add native editor-text context
+menus and complete tab context actions, plus explicit tab-bar new-item and
+split menus. Bulk tab operations close clean tabs only; dirty tabs remain for
+the existing confirmation flow.
+
+**Consequences.** Footer and tab controls are now visible interaction surfaces,
+not decorative text. The mechanical inventory in
+`docs/ZED_UI_ELEMENT_INVENTORY.md` and `tools/extract_zed_ui_inventory.sh`
+must be rerun when Zed reference UI code or Nimculus workspace chrome changes.

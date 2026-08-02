@@ -392,6 +392,29 @@ proc closeActiveTab*(session: var EditorSession, forceDirty = false): bool =
   session.activeTab = max(0, min(session.activeTab, session.tabs.high))
   result = session.closeTabAt(session.activeTab, forceDirty)
 
+proc closeCleanTabsExcept*(session: var EditorSession, keepIndex: int): int =
+  ## Close the clean items around the focused tab. Dirty items remain open so
+  ## a bulk tab command can never discard user changes without the normal
+  ## confirmation path.
+  if keepIndex < 0 or keepIndex >= session.tabs.len: return 0
+  for index in countdown(session.tabs.high, 0):
+    if index == keepIndex: continue
+    if session.closeTabAt(index): inc result
+
+proc closeCleanTabsBefore*(session: var EditorSession, tabIndex: int): int =
+  if tabIndex < 0 or tabIndex >= session.tabs.len: return 0
+  for index in countdown(tabIndex - 1, 0):
+    if session.closeTabAt(index): inc result
+
+proc closeCleanTabsAfter*(session: var EditorSession, tabIndex: int): int =
+  if tabIndex < 0 or tabIndex >= session.tabs.len: return 0
+  for index in countdown(session.tabs.high, tabIndex + 1):
+    if session.closeTabAt(index): inc result
+
+proc closeAllCleanTabs*(session: var EditorSession): int =
+  for index in countdown(session.tabs.high, 0):
+    if session.closeTabAt(index): inc result
+
 proc hasDirtyTabs*(session: EditorSession): bool =
   for tab in session.tabs:
     if tab.document.buffer.isDirty: return true

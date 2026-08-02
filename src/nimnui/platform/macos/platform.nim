@@ -158,6 +158,7 @@ proc platformSetSecondaryEditorTabs*(titles: cstring, length, activeIndex: uint3
 proc platformSetEditorContext*(text: cstring) {.importc: "nimculus_platform_set_editor_context", cdecl.}
 proc platformSetEditorGitBranch*(text: cstring) {.importc: "nimculus_platform_set_editor_git_branch", cdecl.}
 proc platformSetEditorStatus*(text: cstring) {.importc: "nimculus_platform_set_editor_status", cdecl.}
+proc platformSetEditorFooter*(text: cstring) {.importc: "nimculus_platform_set_editor_footer", cdecl.}
 proc platformSetWelcomeVisible*(visible: bool) {.importc: "nimculus_platform_set_welcome_visible", cdecl.}
 proc platformSetCloseDecision*(allow: bool) {.importc: "nimculus_platform_set_close_decision", cdecl.}
 proc platformRequestCloseTab*() {.importc: "nimculus_platform_request_close_tab", cdecl.}

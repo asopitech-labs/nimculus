@@ -132,6 +132,7 @@ void nimculus_platform_set_secondary_editor_tabs(const char *utf8, uint32_t leng
 void nimculus_platform_set_editor_context(const char *utf8);
 void nimculus_platform_set_editor_git_branch(const char *utf8);
 void nimculus_platform_set_editor_status(const char *utf8);
+void nimculus_platform_set_editor_footer(const char *utf8);
 void nimculus_platform_set_welcome_visible(bool visible);
 void nimculus_platform_set_close_decision(bool allow);
 void nimculus_platform_request_close_tab(void);

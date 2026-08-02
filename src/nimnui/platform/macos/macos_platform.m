@@ -122,6 +122,9 @@ static NSUInteger g_secondary_editor_line_count = 0;
 static NimculusFoldRange *g_secondary_editor_folds = NULL;
 static uint32_t g_secondary_editor_fold_count = 0;
 static NSString *g_editor_status = @"Ready";
+// Tab-separated, user-facing status items. The left message remains separate
+// so footer controls can be laid out and hit-tested like Zed's status bar.
+static NSString *g_editor_footer = @"Ln 1, Col 1\tSpaces: 2\tUTF-8\tLF\tPlain Text";
 static NSString *g_editor_context = @"";
 static NSString *g_editor_git_branch = @"";
 static NSArray<NSString *> *g_editor_tab_titles = nil;
@@ -586,6 +589,7 @@ static void releasePlatformResources(void) {
   free(g_secondary_editor_line_utf8_offsets); g_secondary_editor_line_utf8_offsets = NULL;
   g_secondary_editor_line_count = 0;
   [g_editor_status release]; g_editor_status = nil;
+  [g_editor_footer release]; g_editor_footer = nil;
   [g_editor_context release]; g_editor_context = nil;
   [g_editor_outline_text release]; g_editor_outline_text = nil;
   [g_terminal_text release]; g_terminal_text = nil;
@@ -2605,6 +2609,8 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (NSUInteger)tabIndexAtPoint:(NSPoint)point;
 - (void)selectTabFromMenu:(NSMenuItem *)sender;
 - (void)showTabListAtPoint:(NSPoint)point;
+- (void)showNewItemMenuAtPoint:(NSPoint)point;
+- (void)showSplitMenuAtPoint:(NSPoint)point;
 @end
 
 @interface NimculusWelcomeOverlay : NSView
@@ -2642,12 +2648,17 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)reloadSelection;
 @end
 
+@class NimculusAppDelegate;
+
 @interface NimculusActivityBar : NSStackView
 - (void)reloadSelection;
 - (void)dispatchWorkspaceCommand:(NSButton *)sender;
 @end
 
 @interface NimculusStatusOverlay : NSTextField
+@end
+
+@interface NimculusFooterOverlay : NSView
 @end
 
 @interface NimculusEditorContextOverlay : NSTextField
@@ -3792,7 +3803,7 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   // Keep a dedicated disclosure affordance beside the previous/next arrows.
   // A restored session can contain dozens of tabs; arrows alone make an
   // off-screen item technically reachable but practically undiscoverable.
-  const CGFloat navigationWidth = titles.count > 1 ? 70.0 : 0.0;
+  const CGFloat navigationWidth = titles.count > 1 ? 160.0 : 90.0;
   const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - navigationWidth);
   NSUInteger first = 0, visible = 0;
   visibleTabRange(titles.count, active, tabAreaWidth, &first, &visible);
@@ -3831,11 +3842,16 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   if (titles.count > 1) {
     [[NSColor colorWithCalibratedWhite:0.11 alpha:0.98] setFill];
     NSRectFill(NSMakeRect(tabAreaWidth, 0.0, navigationWidth, self.bounds.size.height));
-    NSDictionary *navigationAttributes = @{
-      NSFontAttributeName: [NSFont systemFontOfSize:14.0 weight:NSFontWeightMedium],
-      NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
-        [NSColor colorWithCalibratedWhite:0.88 alpha:1.0]) colorWithAlphaComponent:0.72]
-    };
+  } else {
+    [[NSColor colorWithCalibratedWhite:0.11 alpha:0.98] setFill];
+    NSRectFill(NSMakeRect(tabAreaWidth, 0.0, navigationWidth, self.bounds.size.height));
+  }
+  NSDictionary *navigationAttributes = @{
+    NSFontAttributeName: [NSFont systemFontOfSize:14.0 weight:NSFontWeightMedium],
+    NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedWhite:0.88 alpha:1.0]) colorWithAlphaComponent:0.72]
+  };
+  if (titles.count > 1) {
     [@"‹" drawAtPoint:NSMakePoint(tabAreaWidth + 8.0, 4.0)
         withAttributes:navigationAttributes];
     [@"›" drawAtPoint:NSMakePoint(tabAreaWidth + 29.0, 4.0)
@@ -3843,6 +3859,13 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     [@"⌄" drawAtPoint:NSMakePoint(tabAreaWidth + 52.0, 4.0)
         withAttributes:navigationAttributes];
   }
+  CGFloat actionStart = tabAreaWidth + (titles.count > 1 ? 70.0 : 0.0);
+  [@"+" drawAtPoint:NSMakePoint(actionStart + 8.0, 4.0)
+      withAttributes:navigationAttributes];
+  [@"⇲" drawAtPoint:NSMakePoint(actionStart + 33.0, 4.0)
+      withAttributes:navigationAttributes];
+  [@"□" drawAtPoint:NSMakePoint(actionStart + 59.0, 4.0)
+      withAttributes:navigationAttributes];
   if (first > 0 || first + visible < titles.count) {
     NSDictionary *indicatorAttributes = @{
       NSFontAttributeName: [NSFont systemFontOfSize:9.0 weight:NSFontWeightMedium],
@@ -3863,7 +3886,7 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   self.dragSourceIndex = NSNotFound;
   if (index != NSNotFound && titles.count > 0) {
     NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
-    const CGFloat navigationWidth = titles.count > 1 ? 70.0 : 0.0;
+    const CGFloat navigationWidth = titles.count > 1 ? 160.0 : 90.0;
     const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - navigationWidth);
     NSUInteger first = 0, visible = 0;
     visibleTabRange(titles.count, active, tabAreaWidth, &first, &visible);
@@ -3928,7 +3951,7 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
   if (titles.count == 0) return NSNotFound;
   NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
-  const CGFloat navigationWidth = titles.count > 1 ? 70.0 : 0.0;
+  const CGFloat navigationWidth = titles.count > 1 ? 160.0 : 90.0;
   const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - navigationWidth);
   if (point.x < 0.0 || point.x >= tabAreaWidth) return NSNotFound;
   NSUInteger first = 0, visible = 0;
@@ -3942,19 +3965,39 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
   if (!g_command_callback || titles.count == 0) return;
   NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
-  const CGFloat navigationWidth = titles.count > 1 ? 70.0 : 0.0;
+  const CGFloat navigationWidth = titles.count > 1 ? 160.0 : 90.0;
   const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - navigationWidth);
-  if (titles.count > 1 && point.x >= tabAreaWidth) {
-    if (point.x >= tabAreaWidth + 48.0) {
-      [self showTabListAtPoint:point];
+  if (point.x >= tabAreaWidth) {
+    CGFloat actionStart = tabAreaWidth + (titles.count > 1 ? 70.0 : 0.0);
+    if (titles.count > 1 && point.x < actionStart) {
+      if (point.x >= tabAreaWidth + 48.0) {
+        [self showTabListAtPoint:point];
+        return;
+      }
+      NSInteger delta = point.x < tabAreaWidth + 24.0 ? -1 : 1;
+      NSInteger next = MAX(0, MIN((NSInteger)titles.count - 1, (NSInteger)active + delta));
+      if (next != (NSInteger)active) {
+        NSString *command = [NSString stringWithFormat:@"selectPaneTab:%u:%ld",
+          self.secondary ? 1 : 0, (long)next];
+        g_command_callback(command.UTF8String);
+      }
       return;
     }
-    NSInteger delta = point.x < tabAreaWidth + 24.0 ? -1 : 1;
-    NSInteger next = MAX(0, MIN((NSInteger)titles.count - 1, (NSInteger)active + delta));
-    if (next != (NSInteger)active) {
-      NSString *command = [NSString stringWithFormat:@"selectPaneTab:%u:%ld",
-        self.secondary ? 1 : 0, (long)next];
-      g_command_callback(command.UTF8String);
+    if (point.x < actionStart + 28.0) {
+      [self showNewItemMenuAtPoint:point];
+      return;
+    }
+    if (point.x < actionStart + 54.0) {
+      [self showSplitMenuAtPoint:point];
+      return;
+    }
+    if (point.x < actionStart + 84.0) {
+      if (g_command_callback) g_command_callback("commandPalette:zoom pane");
+      return;
+    }
+    if (titles.count > 1 && point.x >= tabAreaWidth + 48.0) {
+      [self showTabListAtPoint:point];
+      return;
     }
     return;
   }
@@ -3973,6 +4016,44 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   NSString *command = [NSString stringWithFormat:@"selectPaneTab:%u:%lu",
     self.secondary ? 1 : 0, (unsigned long)index];
   g_command_callback(command.UTF8String);
+}
+- (void)showNewItemMenuAtPoint:(NSPoint)point {
+  NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
+  if (!delegate) return;
+  NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"New Item"] autorelease];
+  NSArray<NSArray<NSString *> *> *items = @[
+    @[@"New File", @"newDocument"],
+    @[@"Open File", @"commandPalette:open file"],
+    @[@"Search Project", @"commandPalette:workspace search"],
+    @[@"Search Symbols", @"commandPalette:document symbols"],
+    @[@"New Terminal", @"commandPalette:new terminal"]
+  ];
+  for (NSArray<NSString *> *entry in items) {
+    NSMenuItem *item = [menu addItemWithTitle:entry[0]
+      action:@selector(dispatchCommand:) keyEquivalent:@""];
+    item.target = delegate;
+    item.representedObject = entry[1];
+  }
+  [menu popUpMenuPositioningItem:nil atLocation:point inView:self];
+}
+- (void)showSplitMenuAtPoint:(NSPoint)point {
+  NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
+  if (!delegate) return;
+  NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Split Pane"] autorelease];
+  NSArray<NSArray<NSString *> *> *items = @[
+    @[@"Split Right", @"splitEditor"],
+    @[@"Split Left", @"splitEditor"],
+    @[@"Split Up", @"splitEditorHorizontal"],
+    @[@"Split Down", @"splitEditorHorizontal"],
+    @[@"Close Split", @"closeSplit"]
+  ];
+  for (NSArray<NSString *> *entry in items) {
+    NSMenuItem *item = [menu addItemWithTitle:entry[0]
+      action:@selector(dispatchCommand:) keyEquivalent:@""];
+    item.target = delegate;
+    item.representedObject = entry[1];
+  }
+  [menu popUpMenuPositioningItem:nil atLocation:point inView:self];
 }
 @end
 
@@ -4472,6 +4553,88 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 @implementation NimculusStatusOverlay
 - (BOOL)acceptsFirstResponder { return NO; }
 - (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
+@end
+
+@implementation NimculusFooterOverlay
+- (BOOL)isFlipped { return YES; }
+- (BOOL)acceptsFirstResponder { return NO; }
+- (BOOL)isAccessibilityElement { return YES; }
+- (NSAccessibilityRole)accessibilityRole { return NSAccessibilityToolbarRole; }
+- (NSString *)accessibilityLabel { return @"Editor status bar"; }
+- (void)drawRect:(NSRect)dirtyRect {
+  (void)dirtyRect;
+  NSColor *background = [NSColor colorWithCalibratedWhite:0.075 alpha:0.98];
+  [background setFill];
+  NSRectFill(self.bounds);
+  NSColor *foreground = themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0]);
+  NSDictionary *attributes = @{
+    NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightRegular],
+    NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.86]
+  };
+  NSString *left = g_editor_status.length > 0 ? g_editor_status : @"Ready";
+  [left drawWithRect:NSMakeRect(8.0, 4.0, MAX(1.0, self.bounds.size.width * 0.45), 16.0)
+             options:NSStringDrawingTruncatesLastVisibleLine |
+                     NSStringDrawingUsesLineFragmentOrigin
+          attributes:attributes context:nil];
+
+  NSArray<NSString *> *items = [g_editor_footer componentsSeparatedByString:@"\t"];
+  CGFloat right = self.bounds.size.width - 8.0;
+  NSDictionary *separatorAttributes = @{
+    NSFontAttributeName: [NSFont systemFontOfSize:10.0],
+    NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.30]
+  };
+  for (NSInteger index = (NSInteger)items.count - 1; index >= 0; index--) {
+    NSString *item = items[(NSUInteger)index];
+    NSSize size = [item sizeWithAttributes:attributes];
+    CGFloat width = size.width + 14.0;
+    right -= width;
+    [item drawAtPoint:NSMakePoint(right + 7.0, 4.0) withAttributes:attributes];
+    if (index > 0) {
+      [@"·" drawAtPoint:NSMakePoint(right - 4.0, 4.0) withAttributes:separatorAttributes];
+    }
+  }
+}
+- (void)mouseDown:(NSEvent *)event {
+  NSArray<NSString *> *items = [g_editor_footer componentsSeparatedByString:@"\t"];
+  if (items.count == 0 || !g_command_callback) return;
+  NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+  CGFloat right = self.bounds.size.width - 8.0;
+  for (NSInteger index = (NSInteger)items.count - 1; index >= 0; index--) {
+    NSString *item = items[(NSUInteger)index];
+    CGFloat width = [item sizeWithAttributes:@{
+      NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightRegular]
+    }].width + 14.0;
+    right -= width;
+    if (point.x >= right && point.x <= right + width) {
+      // These are real entry points, not decorative labels. Keep language,
+      // encoding, and line-ending selection centralized in the settings/
+      // command surface until dedicated selectors are added.
+      if (index == 0) g_command_callback("commandPalette:go to line");
+      else if (index == 1) g_command_callback("commandPalette:settings");
+      else if (index == 2) g_command_callback("commandPalette:settings");
+      else if (index == 3) g_command_callback("commandPalette:settings");
+      return;
+    }
+  }
+}
+- (void)rightMouseDown:(NSEvent *)event {
+  (void)event;
+  if (!g_command_callback) return;
+  NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
+  if (!delegate) return;
+  NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Status Bar"] autorelease];
+  NSMenuItem *settings = [menu addItemWithTitle:@"Status Bar Settings…"
+    action:@selector(dispatchCommand:) keyEquivalent:@""];
+  settings.target = delegate;
+  settings.representedObject = @"commandPalette:settings";
+  [menu addItem:[NSMenuItem separatorItem]];
+  NSMenuItem *hide = [menu addItemWithTitle:@"Hide Status Bar"
+    action:@selector(dispatchCommand:) keyEquivalent:@""];
+  hide.target = delegate;
+  hide.representedObject = @"commandPalette:settings";
+  [menu popUpMenuPositioningItem:nil atLocation:event.locationInWindow inView:self];
+}
 @end
 
 @implementation NimculusEditorContextOverlay
@@ -5223,7 +5386,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     status.textColor = [themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0])
       colorWithAlphaComponent:0.82];
+    status.hidden = YES;
     [self addSubview:status];
+    NimculusFooterOverlay *footer = [[NimculusFooterOverlay alloc]
+      initWithFrame:NSZeroRect];
+    [self addSubview:footer];
     NimculusTerminalSessionBar *terminalSessions = [[NimculusTerminalSessionBar alloc]
       initWithFrame:NSZeroRect];
     terminalSessions.hidden = YES;
@@ -5371,6 +5538,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusEditorContextOverlay *context = nil;
   NimculusWelcomeOverlay *welcome = nil;
   NimculusStatusOverlay *status = nil;
+  NimculusFooterOverlay *footer = nil;
   NimculusTerminalOverlay *terminal = nil;
   NimculusTerminalSessionBar *terminalSessions = nil;
   NimculusOutputPanelBar *outputBar = nil;
@@ -5391,6 +5559,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusEditorContextOverlay class]]) context = (NimculusEditorContextOverlay *)subview;
     if ([subview isKindOfClass:[NimculusWelcomeOverlay class]]) welcome = (NimculusWelcomeOverlay *)subview;
     if ([subview isKindOfClass:[NimculusStatusOverlay class]]) status = (NimculusStatusOverlay *)subview;
+    if ([subview isKindOfClass:[NimculusFooterOverlay class]]) footer = (NimculusFooterOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) terminal = (NimculusTerminalOverlay *)subview;
     if ([subview isKindOfClass:[NimculusTerminalSessionBar class]]) terminalSessions = (NimculusTerminalSessionBar *)subview;
     if ([subview isKindOfClass:[NimculusOutputPanelBar class]]) outputBar = (NimculusOutputPanelBar *)subview;
@@ -5619,6 +5788,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   if (status) {
     status.frame = NSMakeRect(g_editor_rect[0], 2.0, g_editor_rect[2], 20.0);
     status.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
+  }
+  if (footer) {
+    footer.hidden = g_welcome_visible;
+    footer.frame = NSMakeRect(g_editor_rect[0], 0.0, g_editor_rect[2], 24.0);
+    footer.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
+    [footer setNeedsDisplay:YES];
   }
   if (annotations) {
     annotations.frame = self.bounds;
@@ -6053,7 +6228,33 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 - (void)mouseMoved:(NSEvent *)event { logInput(@"mouseMoved", event); }
 - (void)mouseDragged:(NSEvent *)event { logInput(@"mouseDragged", event); }
 - (void)rightMouseDragged:(NSEvent *)event { logInput(@"rightMouseDragged", event); }
-- (void)rightMouseDown:(NSEvent *)event { logInput(@"rightMouseDown", event); }
+- (void)rightMouseDown:(NSEvent *)event {
+  logInput(@"rightMouseDown", event);
+  NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
+  if (!delegate) return;
+  NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Editor"] autorelease];
+  NSArray<NSArray<NSString *> *> *items = @[
+    @[@"Go to Definition", @"commandPalette:go to definition"],
+    @[@"Find All References", @"commandPalette:find references"],
+    @[@"Rename Symbol", @"commandPalette:rename"],
+    @[@"Format Buffer", @"commandPalette:format document"],
+    @[@"Show Code Actions", @"commandPalette:code actions"],
+    @[@"Cut", @"cut"],
+    @[@"Copy", @"copy"],
+    @[@"Paste", @"paste"],
+    @[@"Select All", @"selectAll"],
+    @[@"Open in Terminal", @"commandPalette:open terminal"],
+    @[@"Reveal in Finder", @"commandPalette:reveal active file"]
+  ];
+  for (NSUInteger index = 0; index < items.count; index++) {
+    if (index == 5 || index == 9) [menu addItem:[NSMenuItem separatorItem]];
+    NSMenuItem *item = [menu addItemWithTitle:items[index][0]
+      action:@selector(dispatchCommand:) keyEquivalent:@""];
+    item.target = delegate;
+    item.representedObject = items[index][1];
+  }
+  [menu popUpMenuPositioningItem:nil atLocation:event.locationInWindow inView:self];
+}
 - (void)rightMouseUp:(NSEvent *)event { logInput(@"rightMouseUp", event); }
 - (void)otherMouseDown:(NSEvent *)event { logInput(@"otherMouseDown", event); }
 - (void)otherMouseUp:(NSEvent *)event { logInput(@"otherMouseUp", event); }
@@ -8430,12 +8631,12 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
       initWithFrame:NSMakeRect(0.0, 0.0, 400.0, 28.0)];
     BOOL tabStripClipsToPane = tabs.clipsToBounds;
     // The right navigation reserve makes each of the two 400pt-strip tabs
-    // 176pt wide. Keep close-target checks on their actual trailing edges.
-    [tabs dispatchTabAtPoint:NSMakePoint(160.0, 12.0)];
+    // 120pt wide. Keep close-target checks on their actual trailing edges.
+    [tabs dispatchTabAtPoint:NSMakePoint(86.0, 12.0)];
     BOOL closeFirst = strcmp(g_validation_command, "closePaneTab:0:0") == 0;
-    [tabs dispatchTabAtPoint:NSMakePoint(322.0, 12.0)];
+    [tabs dispatchTabAtPoint:NSMakePoint(220.0, 12.0)];
     BOOL closeSecond = strcmp(g_validation_command, "closePaneTab:0:1") == 0;
-    [tabs dispatchTabAtPoint:NSMakePoint(240.0, 12.0)];
+    [tabs dispatchTabAtPoint:NSMakePoint(180.0, 12.0)];
     BOOL selectSecond = strcmp(g_validation_command, "selectPaneTab:0:1") == 0;
     [tabs dispatchTabContextAtPoint:NSMakePoint(20.0, 12.0)];
     BOOL contextFirst = strcmp(g_validation_command, "tabContext:0:0") == 0;
@@ -8448,9 +8649,9 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
     g_editor_active_tab = 2;
     NimculusTabBarOverlay *overflowTabs = [[NimculusTabBarOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 240.0, 28.0)];
-    [overflowTabs dispatchTabAtPoint:NSMakePoint(180.0, 12.0)];
+    [overflowTabs dispatchTabAtPoint:NSMakePoint(88.0, 12.0)];
     BOOL previousTab = strcmp(g_validation_command, "selectPaneTab:0:1") == 0;
-    [overflowTabs dispatchTabAtPoint:NSMakePoint(202.0, 12.0)];
+    [overflowTabs dispatchTabAtPoint:NSMakePoint(110.0, 12.0)];
     BOOL nextTab = strcmp(g_validation_command, "selectPaneTab:0:3") == 0;
     NSMenuItem *overflowItem = [[[NSMenuItem alloc] initWithTitle:@"five"
       action:nil keyEquivalent:@""] autorelease];
@@ -10204,19 +10405,35 @@ void nimculus_platform_show_editor_tab_context(uint32_t pane_index, uint32_t tab
   NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
   if (!delegate) return;
   NSMenu *menu = [[[NSMenu alloc] initWithTitle:@"Editor Tab"] autorelease];
-  NSMutableArray<NSArray<NSString *> *> *items = [NSMutableArray arrayWithArray:@[
-    @[is_pinned ? @"Unpin Tab" : @"Pin Tab", is_pinned ? @"unpin" : @"pin"]
-  ]];
-  if (has_pinned_tabs) [items addObject:@[@"Unpin All Tabs", @"unpinAll"]];
-  [items addObject:@[@"Close Tab", @"close"]];
-  [items addObject:@[@"Copy File Path", @"copyPath"]];
-  [items addObject:@[@"Reveal in Finder", @"reveal"]];
-  for (NSArray<NSString *> *entry in items) {
+  NSArray<NSArray<NSString *> *> *items = @[
+    @[is_pinned ? @"Unpin Tab" : @"Pin Tab", is_pinned ? @"unpin" : @"pin"],
+    @[@"Close Tab", @"close"],
+    @[@"Close Others", @"closeOthers"],
+    @[@"Close Tabs to the Left", @"closeLeft"],
+    @[@"Close Tabs to the Right", @"closeRight"],
+    @[@"Close Clean Tabs", @"closeClean"],
+    @[@"Close All Tabs", @"closeAll"],
+    @[@"Copy File Path", @"copyPath"],
+    @[@"Reveal in Finder", @"reveal"]
+  ];
+  NSUInteger separatorBefore = 1;
+  for (NSUInteger index = 0; index < items.count; index++) {
+    if (index == separatorBefore || (index == 7 && has_pinned_tabs)) {
+      [menu addItem:[NSMenuItem separatorItem]];
+    }
+    NSArray<NSString *> *entry = items[index];
     NSMenuItem *item = [menu addItemWithTitle:entry[0]
       action:@selector(dispatchEditorTabContext:) keyEquivalent:@""];
     item.target = delegate;
     item.representedObject = [NSString stringWithFormat:@"editorTabContext:%@:%u:%u",
       entry[1], pane_index, tab_index];
+  }
+  if (has_pinned_tabs) {
+    NSMenuItem *unpinAll = [menu insertItemWithTitle:@"Unpin All Tabs"
+      action:@selector(dispatchEditorTabContext:) keyEquivalent:@"" atIndex:1];
+    unpinAll.target = delegate;
+    unpinAll.representedObject = [NSString stringWithFormat:
+      @"editorTabContext:unpinAll:%u:%u", pane_index, tab_index];
   }
   [menu popUpMenuPositioningItem:nil atLocation:[NSEvent mouseLocation] inView:nil];
 }
@@ -10697,6 +10914,21 @@ void nimculus_platform_set_editor_status(const char *utf8) {
   for (NSView *subview in view.subviews) {
     if ([subview isKindOfClass:[NimculusStatusOverlay class]]) {
       ((NSTextField *)subview).stringValue = g_editor_status;
+    }
+    if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
+      [subview setNeedsDisplay:YES];
+    }
+  }
+}
+void nimculus_platform_set_editor_footer(const char *utf8) {
+  const char *value = (utf8 && strlen(utf8) > 0) ? utf8 : "Ln 1, Col 1\tSpaces: 2\tUTF-8\tLF\tPlain Text";
+  if (g_editor_footer && strcmp(g_editor_footer.UTF8String, value) == 0) return;
+  replaceOwnedString(&g_editor_footer, [NSString stringWithUTF8String:value]);
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
+      [subview setNeedsDisplay:YES];
       break;
     }
   }
