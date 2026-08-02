@@ -156,6 +156,7 @@ static NSString *g_theme_foreground = @"#d7dae0";
 static NSString *g_theme_accent = @"#4daafc";
 static NSString *g_theme_selection = @"#264f78";
 static NSString *g_theme_border = @"#3b4048";
+static NSDictionary<NSString *, NSString *> *g_theme_palette = nil;
 static NSString *g_crash_report_path = nil;
 static NimculusTerminalRun *g_terminal_runs = NULL;
 static uint32_t g_terminal_run_count = 0;
@@ -375,6 +376,15 @@ static NSColor *themeHexColor(NSString *value, NSColor *fallback) {
   red = (red >> 16) & 0xFF;
   return [NSColor colorWithCalibratedRed:red / 255.0 green:green / 255.0
                                    blue:blue / 255.0 alpha:1.0];
+}
+
+static NSString *themeRole(NSString *key, NSString *fallback) {
+  NSString *value = g_theme_palette[key];
+  return value.length == 7 && [value characterAtIndex:0] == '#' ? value : fallback;
+}
+
+static NSColor *themeRoleColor(NSString *key, NSColor *fallback) {
+  return themeHexColor(themeRole(key, nil), fallback);
 }
 
 static void styleWorkspaceNavigationButton(NSButton *button, BOOL active,
@@ -603,6 +613,7 @@ static void releasePlatformResources(void) {
   [g_theme_accent release]; g_theme_accent = nil;
   [g_theme_selection release]; g_theme_selection = nil;
   [g_theme_border release]; g_theme_border = nil;
+  [g_theme_palette release]; g_theme_palette = nil;
   [g_crash_report_path release]; g_crash_report_path = nil;
 }
 
@@ -999,9 +1010,11 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
   [encoder setRenderPipelineState:g_pipeline];
   float themeRed = 0.15f, themeGreen = 0.48f, themeBlue = 0.92f;
   if (paint.kind == 0) { // rectangle
+    themeRGB(themeRole(@"accent", g_theme_accent), [NSColor systemBlueColor],
+      &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height,
-      0.15f, 0.48f, 0.92f, 1.0f, transform);
+      themeRed, themeGreen, themeBlue, 1.0f, transform);
   } else if (paint.kind == 1) { // border
     themeRGB(g_theme_border,
       [NSColor colorWithCalibratedRed:0.15 green:0.48 blue:0.92 alpha:1.0],
@@ -1018,25 +1031,33 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
       x + width - thickness, y, thickness, height,
       themeRed, themeGreen, themeBlue, 1.0f, transform);
   } else if (paint.kind == 2) { // rounded rectangle
+    themeRGB(themeRole(@"accent", g_theme_accent), [NSColor systemBlueColor],
+      &themeRed, &themeGreen, &themeBlue);
     drawRoundedRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height, paint.radius,
-      0.15f, 0.48f, 0.92f, 1.0f, transform);
+      themeRed, themeGreen, themeBlue, 1.0f, transform);
   } else if (paint.kind == 3) { // text placeholder; M3 owns real text shaping
+    themeRGB(themeRole(@"textMuted", g_theme_foreground), [NSColor grayColor],
+      &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height,
-      0.55f, 0.62f, 0.72f, 0.75f, transform);
+      themeRed, themeGreen, themeBlue, 0.75f, transform);
   } else if (paint.kind == 4) { // image placeholder until a texture handle is supplied
+    themeRGB(themeRole(@"element", g_theme_background), [NSColor grayColor],
+      &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height,
-      0.28f, 0.34f, 0.42f, 1.0f, transform);
+      themeRed, themeGreen, themeBlue, 1.0f, transform);
   } else if (paint.kind == 7) { // shadow
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x + 3.0, y + 3.0, width, height,
       0.0f, 0.0f, 0.0f, 0.35f, transform);
   } else if (paint.kind == 8) { // caret
+    themeRGB(themeRole(@"foreground", g_theme_foreground), [NSColor whiteColor],
+      &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height,
-      0.85f, 0.90f, 1.0f, 1.0f, transform);
+      themeRed, themeGreen, themeBlue, 1.0f, transform);
   } else if (paint.kind == 9) { // selection
     themeRGB(g_theme_selection,
       [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0],
@@ -1045,23 +1066,25 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
       x, y, width, height,
       themeRed, themeGreen, themeBlue, 0.45f, transform);
   } else if (paint.kind == 10) { // scrollbar
+    themeRGB(themeRole(@"scrollbarThumb", g_theme_foreground), [NSColor grayColor],
+      &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height,
-      0.45f, 0.50f, 0.58f, 0.85f, transform);
+      themeRed, themeGreen, themeBlue, 0.85f, transform);
   } else if (paint.kind == 11) { // workspace background
-    themeRGB(g_theme_background,
+    themeRGB(themeRole(@"background", g_theme_background),
       [NSColor colorWithCalibratedRed:0.055 green:0.065 blue:0.090 alpha:1.0],
       &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height, themeRed, themeGreen, themeBlue, 1.0f, transform);
   } else if (paint.kind == 12) { // workspace panel
-    themeRGB(g_theme_background,
+    themeRGB(themeRole(@"panel", g_theme_background),
       [NSColor colorWithCalibratedRed:0.070 green:0.082 blue:0.110 alpha:1.0],
       &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height, themeRed, themeGreen, themeBlue, 0.96f, transform);
   } else if (paint.kind == 13) { // workspace separator
-    themeRGB(g_theme_border,
+    themeRGB(themeRole(@"borderVariant", g_theme_border),
       [NSColor colorWithCalibratedRed:0.20 green:0.23 blue:0.29 alpha:1.0],
       &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
@@ -2418,8 +2441,8 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (BOOL)acceptsFirstResponder { return NO; }
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
-  NSColor *background = themeHexColor(g_theme_background,
-    [NSColor colorWithCalibratedRed:0.105 green:0.12 blue:0.15 alpha:1.0]);
+  NSColor *background = themeRoleColor(@"titleBar", themeHexColor(g_theme_background,
+    [NSColor colorWithCalibratedRed:0.105 green:0.12 blue:0.15 alpha:1.0]));
   [background setFill];
   NSRectFill(self.bounds);
 
@@ -2429,8 +2452,8 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   NSRectFill(NSMakeRect(0.0, MAX(0.0, self.bounds.size.height - 1.0),
     self.bounds.size.width, 1.0));
 
-  NSColor *foreground = themeHexColor(g_theme_foreground,
-    [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]);
+  NSColor *foreground = themeRoleColor(@"foreground", themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]));
   NSDictionary *titleAttributes = @{
     NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.92],
     NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold]
@@ -3393,14 +3416,17 @@ static void dismissExternalChangePanel(const char *command) {
   self = [super initWithFrame:frame];
   if (!self) return nil;
   self.wantsLayer = YES;
-  self.layer.backgroundColor = [NSColor colorWithCalibratedRed:0.075 green:0.067 blue:0.052 alpha:0.98].CGColor;
+  self.layer.backgroundColor = [themeRoleColor(@"panel",
+    [NSColor colorWithCalibratedRed:0.075 green:0.067 blue:0.052 alpha:1.0])
+    colorWithAlphaComponent:0.98].CGColor;
   self.titleLabel = [[NSTextField alloc] initWithFrame:NSZeroRect];
   self.titleLabel.editable = NO;
   self.titleLabel.selectable = NO;
   self.titleLabel.bezeled = NO;
   self.titleLabel.drawsBackground = NO;
   self.titleLabel.font = [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold];
-  self.titleLabel.textColor = [NSColor colorWithCalibratedRed:0.92 green:0.88 blue:0.76 alpha:1.0];
+  self.titleLabel.textColor = themeRoleColor(@"textMuted",
+    [NSColor colorWithCalibratedRed:0.92 green:0.88 blue:0.76 alpha:1.0]);
   [self addSubview:self.titleLabel];
   self.stopButton = [[NSButton alloc] initWithFrame:NSZeroRect];
   self.stopButton.image = [NSImage imageWithSystemSymbolName:@"stop.fill"
@@ -3788,7 +3814,8 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 - (void)drawRect:(NSRect)dirtyRect {
   [NSGraphicsContext saveGraphicsState];
   NSRectClip(NSIntersectionRect(self.bounds, dirtyRect));
-  [[NSColor colorWithCalibratedWhite:0.08 alpha:0.98] setFill];
+  [[themeRoleColor(@"tabBar", [NSColor colorWithCalibratedWhite:0.08 alpha:1.0])
+    colorWithAlphaComponent:0.98] setFill];
   NSRectFill(self.bounds);
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
   NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
@@ -3817,8 +3844,8 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     NSUInteger index = first + visualIndex;
     CGFloat x = visualIndex * tabWidth;
     if (index == active) {
-      [[themeHexColor(g_theme_accent,
-        [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0])
+      [[themeRoleColor(@"tabActive", themeHexColor(g_theme_accent,
+        [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0]))
         colorWithAlphaComponent:0.20] setFill];
       NSRectFill(NSMakeRect(x, 0.0, tabWidth, self.bounds.size.height));
     }
@@ -4563,11 +4590,12 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
 - (NSString *)accessibilityLabel { return @"Editor status bar"; }
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
-  NSColor *background = [NSColor colorWithCalibratedWhite:0.075 alpha:0.98];
+  NSColor *background = [themeRoleColor(@"statusBar",
+    [NSColor colorWithCalibratedWhite:0.075 alpha:1.0]) colorWithAlphaComponent:0.98];
   [background setFill];
   NSRectFill(self.bounds);
-  NSColor *foreground = themeHexColor(g_theme_foreground,
-    [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0]);
+  NSColor *foreground = themeRoleColor(@"textMuted", themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0]));
   NSDictionary *attributes = @{
     NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightRegular],
     NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.86]
@@ -5282,11 +5310,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     outline.editable = NO;
     outline.selectable = YES;
     outline.drawsBackground = YES;
-    outline.backgroundColor = [themeHexColor(g_theme_background,
-      [NSColor colorWithCalibratedRed:0.045 green:0.055 blue:0.075 alpha:1.0])
+    outline.backgroundColor = [themeRoleColor(@"panel", themeHexColor(g_theme_background,
+      [NSColor colorWithCalibratedRed:0.045 green:0.055 blue:0.075 alpha:1.0]))
       colorWithAlphaComponent:0.96];
-    outline.textColor = themeHexColor(g_theme_foreground,
-      [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]);
+    outline.textColor = themeRoleColor(@"foreground", themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]));
     outline.font = [NSFont systemFontOfSize:13.0];
     outline.textContainerInset = NSMakeSize(8.0, 8.0);
     outline.horizontallyResizable = NO;
@@ -5361,8 +5389,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     context.lineBreakMode = NSLineBreakByTruncatingMiddle;
     context.stringValue = g_editor_context;
     context.font = [NSFont systemFontOfSize:12.0 weight:NSFontWeightMedium];
-    context.textColor = [themeHexColor(g_theme_foreground,
-      [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0])
+    context.textColor = [themeRoleColor(@"textMuted", themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0]))
       colorWithAlphaComponent:0.72];
     context.toolTip = @"Current document";
     [self addSubview:context];
@@ -5383,8 +5411,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     status.usesSingleLineMode = YES;
     status.stringValue = g_editor_status;
     status.font = [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular];
-    status.textColor = [themeHexColor(g_theme_foreground,
-      [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0])
+    status.textColor = [themeRoleColor(@"textMuted", themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0]))
       colorWithAlphaComponent:0.82];
     status.hidden = YES;
     [self addSubview:status];
@@ -5403,10 +5431,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     // remain disabled so PTY keyboard input stays owned by the Metal view.
     terminal.selectable = YES;
     terminal.drawsBackground = YES;
-    terminal.backgroundColor = [themeHexColor(g_theme_background,
-      [NSColor colorWithCalibratedRed:0.025 green:0.030 blue:0.045 alpha:1.0]) colorWithAlphaComponent:0.98];
-    terminal.textColor = themeHexColor(g_theme_foreground,
-      [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]);
+    terminal.backgroundColor = [themeRoleColor(@"terminal", themeHexColor(g_theme_background,
+      [NSColor colorWithCalibratedRed:0.025 green:0.030 blue:0.045 alpha:1.0]))
+      colorWithAlphaComponent:0.98];
+    terminal.textColor = themeRoleColor(@"foreground", themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]));
     terminal.font = terminalBaseFont();
     terminal.textContainerInset = NSMakeSize(8.0, 6.0);
     // Preserve the PTY's explicit row breaks. The terminal grid owns columns;
@@ -5428,8 +5457,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     taskOutput.editable = NO;
     taskOutput.selectable = YES;
     taskOutput.drawsBackground = YES;
-    taskOutput.backgroundColor = [NSColor colorWithCalibratedRed:0.045 green:0.040 blue:0.030 alpha:0.98];
-    taskOutput.textColor = [NSColor colorWithCalibratedRed:0.92 green:0.88 blue:0.76 alpha:1.0];
+    taskOutput.backgroundColor = [themeRoleColor(@"panel",
+      [NSColor colorWithCalibratedRed:0.045 green:0.040 blue:0.030 alpha:1.0])
+      colorWithAlphaComponent:0.98];
+    taskOutput.textColor = themeRoleColor(@"foreground",
+      [NSColor colorWithCalibratedRed:0.92 green:0.88 blue:0.76 alpha:1.0]);
     taskOutput.font = [NSFont fontWithName:g_terminal_font_name size:g_terminal_font_size] ?: [NSFont monospacedSystemFontOfSize:g_terminal_font_size weight:NSFontWeightRegular];
     taskOutput.textContainerInset = NSMakeSize(8.0, 6.0);
     taskOutput.hidden = YES;
@@ -11374,10 +11406,11 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
   for (NSView *subview in view.subviews) {
     if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) {
       NSTextView *terminal = (NSTextView *)subview;
-      terminal.backgroundColor = [themeHexColor(g_theme_background,
-        [NSColor colorWithCalibratedRed:0.025 green:0.030 blue:0.045 alpha:1.0]) colorWithAlphaComponent:0.98];
-      terminal.textColor = themeHexColor(g_theme_foreground,
-        [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]);
+      terminal.backgroundColor = [themeRoleColor(@"terminal", themeHexColor(g_theme_background,
+        [NSColor colorWithCalibratedRed:0.025 green:0.030 blue:0.045 alpha:1.0]))
+        colorWithAlphaComponent:0.98];
+      terminal.textColor = themeRoleColor(@"foreground", themeHexColor(g_theme_foreground,
+        [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]));
       terminal.selectedTextAttributes = @{
         NSBackgroundColorAttributeName: [themeHexColor(g_theme_selection,
           [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
@@ -11387,15 +11420,45 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
   }
   NimculusOutlineOverlay *outline = outlineOverlayForView(view);
   if (outline) {
-    outline.backgroundColor = [themeHexColor(g_theme_background,
-      [NSColor colorWithCalibratedRed:0.045 green:0.055 blue:0.075 alpha:1.0])
+    outline.backgroundColor = [themeRoleColor(@"panel", themeHexColor(g_theme_background,
+      [NSColor colorWithCalibratedRed:0.045 green:0.055 blue:0.075 alpha:1.0]))
       colorWithAlphaComponent:0.96];
-    outline.textColor = themeHexColor(g_theme_foreground,
-      [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]);
+    outline.textColor = themeRoleColor(@"foreground", themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]));
   }
   if (g_queue) updateTerminalGlyphAtlas(g_queue.device);
   markSceneFullyDirty();
   [view drawFrame];
+}
+
+void nimculus_platform_set_theme_palette_json(const char *json) {
+  if (!json || json[0] == '\0') return;
+  NSData *data = [NSData dataWithBytes:json length:strlen(json)];
+  NSError *error = nil;
+  id object = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
+  if (error || ![object isKindOfClass:[NSDictionary class]]) return;
+  NSArray<NSString *> *keys = @[
+    @"background", @"foreground", @"accent", @"selection", @"border", @"surface", @"panel",
+    @"element", @"elementHover", @"elementActive", @"elementSelected", @"textMuted",
+    @"textPlaceholder", @"textDisabled", @"textAccent", @"borderVariant", @"borderFocused",
+    @"borderSelected", @"titleBar", @"titleBarInactive", @"toolbar", @"tabBar", @"tabActive",
+    @"tabInactive", @"statusBar", @"editor", @"gutter", @"editorSubheader", @"editorActiveLine",
+    @"scrollbarThumb", @"scrollbarHover", @"terminal", @"added", @"modified", @"deleted",
+    @"conflict", @"warning", @"error", @"info", @"success"
+  ];
+  NSMutableDictionary *palette = [NSMutableDictionary dictionaryWithCapacity:keys.count];
+  NSDictionary *source = (NSDictionary *)object;
+  for (NSString *key in keys) {
+    id value = source[key];
+    if ([value isKindOfClass:[NSString class]] && [value length] == 7 &&
+        [value characterAtIndex:0] == '#') palette[key] = value;
+  }
+  if (palette.count == 0) return;
+  [g_theme_palette release];
+  g_theme_palette = [palette copy];
+  nimculus_platform_set_theme_colors([g_theme_palette[@"background"] UTF8String],
+    [g_theme_palette[@"foreground"] UTF8String], [g_theme_palette[@"accent"] UTF8String],
+    [g_theme_palette[@"selection"] UTF8String], [g_theme_palette[@"border"] UTF8String]);
 }
 static void updateTerminalFonts(void) {
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;

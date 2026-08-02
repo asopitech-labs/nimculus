@@ -100,6 +100,7 @@ when not defined(windows):
                                     runs, count)
 proc platformSetThemeColors*(background, foreground, accent, selection, border: cstring) = discard (
   background, foreground, accent, selection, border)
+proc platformSetThemePaletteJson*(json: cstring) = discard json
 when not defined(windows):
   proc platformSetTerminalFontSize*(size: cdouble) = discard size
   proc platformSetTerminalFontName*(name: cstring) = discard name

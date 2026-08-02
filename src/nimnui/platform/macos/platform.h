@@ -175,6 +175,7 @@ void nimculus_platform_set_terminal_runs(const char *utf8, uint32_t length,
 void nimculus_platform_set_theme_colors(const char *background, const char *foreground,
                                         const char *accent, const char *selection,
                                         const char *border);
+void nimculus_platform_set_theme_palette_json(const char *json);
 void nimculus_platform_set_terminal_font_size(double size);
 void nimculus_platform_set_terminal_font_name(const char *name);
 double nimculus_platform_terminal_cell_width(void);

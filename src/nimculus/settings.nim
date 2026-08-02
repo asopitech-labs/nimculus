@@ -21,6 +21,41 @@ type
     accent*: string
     selection*: string
     border*: string
+    surface*: string
+    panel*: string
+    element*: string
+    elementHover*: string
+    elementActive*: string
+    elementSelected*: string
+    textMuted*: string
+    textPlaceholder*: string
+    textDisabled*: string
+    textAccent*: string
+    borderVariant*: string
+    borderFocused*: string
+    borderSelected*: string
+    titleBar*: string
+    titleBarInactive*: string
+    toolbar*: string
+    tabBar*: string
+    tabActive*: string
+    tabInactive*: string
+    statusBar*: string
+    editor*: string
+    gutter*: string
+    editorSubheader*: string
+    editorActiveLine*: string
+    scrollbarThumb*: string
+    scrollbarHover*: string
+    terminal*: string
+    added*: string
+    modified*: string
+    deleted*: string
+    conflict*: string
+    warning*: string
+    error*: string
+    info*: string
+    success*: string
     syntax*: JsonNode
 
   ThemeDefinition* = object
@@ -161,7 +196,24 @@ proc settingsSchema*(): JsonNode =
       "themeColors": {"type": "object", "properties": {
         "background": {"type": "string"}, "foreground": {"type": "string"},
         "accent": {"type": "string"}, "selection": {"type": "string"},
-        "border": {"type": "string"}
+        "border": {"type": "string"}, "surface": {"type": "string"},
+        "panel": {"type": "string"}, "element": {"type": "string"},
+        "elementHover": {"type": "string"}, "elementActive": {"type": "string"},
+        "elementSelected": {"type": "string"}, "textMuted": {"type": "string"},
+        "textPlaceholder": {"type": "string"}, "textDisabled": {"type": "string"},
+        "textAccent": {"type": "string"}, "borderVariant": {"type": "string"},
+        "borderFocused": {"type": "string"}, "borderSelected": {"type": "string"},
+        "titleBar": {"type": "string"}, "titleBarInactive": {"type": "string"},
+        "toolbar": {"type": "string"}, "tabBar": {"type": "string"},
+        "tabActive": {"type": "string"}, "tabInactive": {"type": "string"},
+        "statusBar": {"type": "string"}, "editor": {"type": "string"},
+        "gutter": {"type": "string"}, "editorSubheader": {"type": "string"},
+        "editorActiveLine": {"type": "string"}, "scrollbarThumb": {"type": "string"},
+        "scrollbarHover": {"type": "string"}, "terminal": {"type": "string"},
+        "added": {"type": "string"}, "modified": {"type": "string"},
+        "deleted": {"type": "string"}, "conflict": {"type": "string"},
+        "warning": {"type": "string"}, "error": {"type": "string"},
+        "info": {"type": "string"}, "success": {"type": "string"}
       }},
       "terminal": {"type": "object", "properties": {
         "shell": {"type": "string"}, "fontFamily": {"type": "string"},
@@ -219,10 +271,32 @@ proc themeWithColors(name, appearance: string; colors: ThemeColors): ThemeDefini
 
 proc registerBuiltinThemes*(store: SettingsStore) =
   if store == nil: return
-  var dark = ThemeColors(background: "#1f2329", foreground: "#d7dae0",
-    accent: "#4daafc", selection: "#264f78", border: "#3b4048", syntax: objectNode())
-  var light = ThemeColors(background: "#ffffff", foreground: "#1f2329",
-    accent: "#007aff", selection: "#b9d7ff", border: "#c7cbd1", syntax: objectNode())
+  var dark = ThemeColors(
+    background: "#3b414d", foreground: "#dce0e5", accent: "#74ade8", selection: "#47679e",
+    border: "#464b57", surface: "#2f343e", panel: "#2f343e", element: "#2e343e",
+    elementHover: "#363c46", elementActive: "#454a56", elementSelected: "#454a56",
+    textMuted: "#a9afbc", textPlaceholder: "#878a98", textDisabled: "#878a98",
+    textAccent: "#74ade8", borderVariant: "#363c46", borderFocused: "#47679e",
+    borderSelected: "#293b5b", titleBar: "#3b414d", titleBarInactive: "#2e343e",
+    toolbar: "#282c33", tabBar: "#2f343e", tabActive: "#282c33", tabInactive: "#2f343e",
+    statusBar: "#3b414d", editor: "#282c33", gutter: "#282c33",
+    editorSubheader: "#2f343e", editorActiveLine: "#2f343e", scrollbarThumb: "#c8ccd4",
+    scrollbarHover: "#363c46", terminal: "#282c34", added: "#27a657", modified: "#dec184",
+    deleted: "#d07277", conflict: "#dec184", warning: "#dec184", error: "#d07277",
+    info: "#74ade8", success: "#a1c181", syntax: objectNode())
+  var light = ThemeColors(
+    background: "#dcdcdd", foreground: "#242529", accent: "#5c78e2", selection: "#7d82e8",
+    border: "#c9c9ca", surface: "#ebebec", panel: "#ebebec", element: "#ebebec",
+    elementHover: "#dfdfe0", elementActive: "#cacaca", elementSelected: "#cacaca",
+    textMuted: "#58585a", textPlaceholder: "#7e8086", textDisabled: "#7e8086",
+    textAccent: "#5c78e2", borderVariant: "#dfdfe0", borderFocused: "#7d82e8",
+    borderSelected: "#cbcdf6", titleBar: "#dcdcdd", titleBarInactive: "#ebebec",
+    toolbar: "#fafafa", tabBar: "#ebebec", tabActive: "#fafafa", tabInactive: "#ebebec",
+    statusBar: "#dcdcdd", editor: "#fafafa", gutter: "#fafafa",
+    editorSubheader: "#ebebec", editorActiveLine: "#ebebec", scrollbarThumb: "#383a41",
+    scrollbarHover: "#dfdfe0", terminal: "#fafafa", added: "#22863a", modified: "#b08800",
+    deleted: "#d73a49", conflict: "#b08800", warning: "#b08800", error: "#d73a49",
+    info: "#5c78e2", success: "#22863a", syntax: objectNode())
   store.themeRegistry["dark"] = themeWithColors("dark", "dark", dark)
   store.themeRegistry["light"] = themeWithColors("light", "light", light)
   # Keep the default tree legible without requiring a separately installed
@@ -246,7 +320,12 @@ proc configuredThemeColors(node: JsonNode; fallback: ThemeColors): ThemeColors =
   if node == nil or node.kind != JObject: return
   let colors = if node.hasKey("colors") and node["colors"].kind == JObject:
     node["colors"] else: node
-  for key in ["background", "foreground", "accent", "selection", "border"]:
+  for key in ["background", "foreground", "accent", "selection", "border", "surface", "panel",
+      "element", "elementHover", "elementActive", "elementSelected", "textMuted", "textPlaceholder",
+      "textDisabled", "textAccent", "borderVariant", "borderFocused", "borderSelected", "titleBar",
+      "titleBarInactive", "toolbar", "tabBar", "tabActive", "tabInactive", "statusBar", "editor",
+      "gutter", "editorSubheader", "editorActiveLine", "scrollbarThumb", "scrollbarHover", "terminal",
+      "added", "modified", "deleted", "conflict", "warning", "error", "info", "success"]:
     if colors.hasKey(key) and colors[key].kind == JString:
       case key
       of "background": result.background = colors[key].getStr
@@ -254,6 +333,41 @@ proc configuredThemeColors(node: JsonNode; fallback: ThemeColors): ThemeColors =
       of "accent": result.accent = colors[key].getStr
       of "selection": result.selection = colors[key].getStr
       of "border": result.border = colors[key].getStr
+      of "surface": result.surface = colors[key].getStr
+      of "panel": result.panel = colors[key].getStr
+      of "element": result.element = colors[key].getStr
+      of "elementHover": result.elementHover = colors[key].getStr
+      of "elementActive": result.elementActive = colors[key].getStr
+      of "elementSelected": result.elementSelected = colors[key].getStr
+      of "textMuted": result.textMuted = colors[key].getStr
+      of "textPlaceholder": result.textPlaceholder = colors[key].getStr
+      of "textDisabled": result.textDisabled = colors[key].getStr
+      of "textAccent": result.textAccent = colors[key].getStr
+      of "borderVariant": result.borderVariant = colors[key].getStr
+      of "borderFocused": result.borderFocused = colors[key].getStr
+      of "borderSelected": result.borderSelected = colors[key].getStr
+      of "titleBar": result.titleBar = colors[key].getStr
+      of "titleBarInactive": result.titleBarInactive = colors[key].getStr
+      of "toolbar": result.toolbar = colors[key].getStr
+      of "tabBar": result.tabBar = colors[key].getStr
+      of "tabActive": result.tabActive = colors[key].getStr
+      of "tabInactive": result.tabInactive = colors[key].getStr
+      of "statusBar": result.statusBar = colors[key].getStr
+      of "editor": result.editor = colors[key].getStr
+      of "gutter": result.gutter = colors[key].getStr
+      of "editorSubheader": result.editorSubheader = colors[key].getStr
+      of "editorActiveLine": result.editorActiveLine = colors[key].getStr
+      of "scrollbarThumb": result.scrollbarThumb = colors[key].getStr
+      of "scrollbarHover": result.scrollbarHover = colors[key].getStr
+      of "terminal": result.terminal = colors[key].getStr
+      of "added": result.added = colors[key].getStr
+      of "modified": result.modified = colors[key].getStr
+      of "deleted": result.deleted = colors[key].getStr
+      of "conflict": result.conflict = colors[key].getStr
+      of "warning": result.warning = colors[key].getStr
+      of "error": result.error = colors[key].getStr
+      of "info": result.info = colors[key].getStr
+      of "success": result.success = colors[key].getStr
       else: discard
   if colors.hasKey("syntax") and colors["syntax"].kind == JObject: result.syntax = colors["syntax"]
 
@@ -351,14 +465,31 @@ proc resolvedTheme*(store: SettingsStore, systemDark: bool): ThemeColors =
   let customBackground = store.stringSetting("themeColors.background", "")
   if customBackground.len > 0 or requested notin ["light", "dark", "system"]: return
   let dark = if requested == "system": systemDark else: requested == "dark"
-  if dark:
-    result.background = "#1f2329"
-    result.foreground = "#d7dae0"
-    result.accent = "#4daafc"
-  else:
-    result.background = "#ffffff"
-    result.foreground = "#1f2329"
-    result.accent = "#007aff"
+  result = store.themeRegistry[if dark: "dark" else: "light"].colors
+
+proc themePaletteJson*(colors: ThemeColors): string =
+  ## Serialize semantic roles for the native renderer. Keeping this boundary
+  ## data-driven lets AppKit and Metal consume the same theme without
+  ## duplicating color defaults in Objective-C.
+  $(%*{
+    "background": colors.background, "foreground": colors.foreground,
+    "accent": colors.accent, "selection": colors.selection, "border": colors.border,
+    "surface": colors.surface, "panel": colors.panel, "element": colors.element,
+    "elementHover": colors.elementHover, "elementActive": colors.elementActive,
+    "elementSelected": colors.elementSelected, "textMuted": colors.textMuted,
+    "textPlaceholder": colors.textPlaceholder, "textDisabled": colors.textDisabled,
+    "textAccent": colors.textAccent, "borderVariant": colors.borderVariant,
+    "borderFocused": colors.borderFocused, "borderSelected": colors.borderSelected,
+    "titleBar": colors.titleBar, "titleBarInactive": colors.titleBarInactive,
+    "toolbar": colors.toolbar, "tabBar": colors.tabBar, "tabActive": colors.tabActive,
+    "tabInactive": colors.tabInactive, "statusBar": colors.statusBar,
+    "editor": colors.editor, "gutter": colors.gutter, "editorSubheader": colors.editorSubheader,
+    "editorActiveLine": colors.editorActiveLine, "scrollbarThumb": colors.scrollbarThumb,
+    "scrollbarHover": colors.scrollbarHover, "terminal": colors.terminal,
+    "added": colors.added, "modified": colors.modified, "deleted": colors.deleted,
+    "conflict": colors.conflict, "warning": colors.warning, "error": colors.error,
+    "info": colors.info, "success": colors.success
+  })
 
 proc themeNames*(store: SettingsStore): seq[string] =
   if store == nil: return

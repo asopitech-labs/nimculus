@@ -6806,3 +6806,21 @@ the existing confirmation flow.
 not decorative text. The mechanical inventory in
 `docs/ZED_UI_ELEMENT_INVENTORY.md` and `tools/extract_zed_ui_inventory.sh`
 must be rerun when Zed reference UI code or Nimculus workspace chrome changes.
+
+## UX-018: Use a semantic palette derived from Zed theme roles
+
+**Context.** The previous theme boundary exposed only background, foreground,
+accent, selection, and border. That made the titlebar, editor, panels, tabs,
+footer, terminal, and Git states drift toward hard-coded colors and made a
+theme change incomplete from the user's perspective.
+
+**Decision.** Model theme colors by semantic role and initialize the built-in
+dark and light palettes from Zed's One Dark and One Light definitions. Nimculus
+serializes the resolved palette once at the Nim/AppKit boundary; Metal and
+AppKit resolve the same role names for surfaces, text hierarchy, selection,
+focused states, tabs, status surfaces, scrollbars, terminal, and Git status.
+Custom themes may override individual roles and inherit the remaining roles.
+
+**Consequences.** A palette update now repaints the whole workspace rather than
+only the editor background. New UI surfaces must consume a semantic role or
+add one to `ThemeColors`, instead of introducing a local calibrated color.

@@ -1,5 +1,6 @@
 import std/os
 import std/json
+import std/strutils
 import std/unittest
 import nimculus/settings
 import nimnui/commands
@@ -128,7 +129,10 @@ suite "M12 settings foundation":
     check "Ocean" in store.themeNames()
     check store.theme().background == "#001122"
     check store.theme().foreground == "#eef8ff"
-    check store.theme().border == "#3b4048"
+    check store.theme().border == "#464b57"
+    check store.theme().panel == "#2f343e"
+    check store.theme().tabActive == "#282c33"
+    check themePaletteJson(store.theme()).find("tabActive") >= 0
     check store.iconForPath("src/main.nim") == "NIM"
     check store.iconForPath("src", true) == "DIR"
     removeFile(path)
@@ -148,10 +152,10 @@ suite "M12 settings foundation":
     let path = root / "settings.json"
     writeFile(path, "{\"theme\":\"system\"}")
     let store = newSettingsStore(path, "", "")
-    check store.resolvedTheme(false).background == "#ffffff"
-    check store.resolvedTheme(false).foreground == "#1f2329"
-    check store.resolvedTheme(true).background == "#1f2329"
-    check store.resolvedTheme(true).foreground == "#d7dae0"
+    check store.resolvedTheme(false).background == "#dcdcdd"
+    check store.resolvedTheme(false).foreground == "#242529"
+    check store.resolvedTheme(true).background == "#3b414d"
+    check store.resolvedTheme(true).foreground == "#dce0e5"
     writeFile(path, "{\"theme\":\"system\",\"themeColors\":{\"background\":\"#123456\"}}")
     check store.reload()
     check store.resolvedTheme(false).background == "#123456"

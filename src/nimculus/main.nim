@@ -618,8 +618,7 @@ proc applySettingsTheme() =
       platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize", 12)))
       platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily", "Menlo").cstring)
       resizeNativeTerminals()
-      platformSetThemeColors(colors.background.cstring, colors.foreground.cstring,
-        colors.accent.cstring, colors.selection.cstring, colors.border.cstring)
+      platformSetThemePaletteJson(themePaletteJson(colors).cstring)
 
 var imeState = newImeState()
 var editorSession: EditorSession
