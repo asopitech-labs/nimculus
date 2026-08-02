@@ -6774,11 +6774,12 @@ context in the window chrome.
 
 **Decision.** Use `NSFullSizeContentView` and a transparent AppKit titlebar.
 AppKit continues to own the traffic-light controls, while a Nimculus root
-content view draws the dark titlebar, application name, current Git branch,
-and current-document bread crumb. The branch badge is a real Git entry point:
-clicking it opens the existing branch panel. The Metal editor remains in a
-child frame below the 30pt titlebar so existing content metrics, IME
-coordinates, and editor clipping remain unchanged. Titlebar dragging and
+content view draws the dark titlebar, workspace name, and current Git branch.
+The document breadcrumb remains in the editor header as the single document
+location display. The branch badge is an accessible native button and a real
+Git entry point: clicking it opens the existing branch panel. The Metal editor
+remains in a child frame below the 30pt titlebar so existing content metrics,
+IME coordinates, and editor clipping remain unchanged. Titlebar dragging and
 double-click zoom are handled by the application-owned titlebar view.
 
 **Consequences.** The macOS window now presents one continuous Zed-like

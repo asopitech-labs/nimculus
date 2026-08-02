@@ -2381,7 +2381,8 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 // preserves the Metal view's content metrics and prevents the titlebar from
 // stealing or overlapping editor coordinates.
 @interface NimculusTitlebarView : NSView
-- (NSRect)branchRect;
+@property(nonatomic, retain) NSButton *branchButton;
+- (void)updateBranchButton;
 @end
 
 @interface NimculusWindowContentView : NSView
@@ -2391,6 +2392,24 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @end
 
 @implementation NimculusTitlebarView
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.branchButton = [NSButton buttonWithTitle:@"No Git branch" target:self
+    action:@selector(openBranches:)];
+  self.branchButton.bordered = NO;
+  self.branchButton.wantsLayer = YES;
+  self.branchButton.layer.cornerRadius = 5.0;
+  self.branchButton.layer.backgroundColor = [themeHexColor(g_theme_accent,
+    [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0])
+    colorWithAlphaComponent:0.16].CGColor;
+  self.branchButton.toolTip = @"Git branch — click to open Branches";
+  self.branchButton.accessibilityLabel = @"Git branch, open branch picker";
+  [self addSubview:self.branchButton];
+  [self updateBranchButton];
+  return self;
+}
+- (void)dealloc { [_branchButton release]; [super dealloc]; }
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return NO; }
 - (void)drawRect:(NSRect)dirtyRect {
@@ -2412,50 +2431,36 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.92],
     NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold]
   };
-  [@"Nimculus" drawAtPoint:NSMakePoint(76.0, 7.0) withAttributes:titleAttributes];
-
-  NSString *branch = g_editor_git_branch.length > 0 ? g_editor_git_branch : @"No Git branch";
-  NSDictionary *branchAttributes = @{
-    NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.82],
-    NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightMedium]
-  };
-  NSRect branchPill = [self branchRect];
-  NSBezierPath *branchPath = [NSBezierPath bezierPathWithRoundedRect:branchPill
-    xRadius:5.0 yRadius:5.0];
-  [[themeHexColor(g_theme_accent,
-    [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0])
-    colorWithAlphaComponent:0.16] setFill];
-  [branchPath fill];
-  [@"⎇" drawAtPoint:NSMakePoint(branchPill.origin.x + 8.0, 7.0)
-    withAttributes:branchAttributes];
-  NSRect branchTextRect = NSMakeRect(branchPill.origin.x + 24.0, 7.0,
-    MAX(1.0, branchPill.size.width - 31.0), 16.0);
-  [branch drawWithRect:branchTextRect
-                options:NSStringDrawingTruncatesLastVisibleLine |
-                        NSStringDrawingUsesLineFragmentOrigin
-             attributes:branchAttributes];
-
-  NSString *context = g_editor_context.length > 0 ? g_editor_context : @"Workspace";
-  NSDictionary *contextAttributes = @{
-    NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.62],
-    NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightRegular]
-  };
-  NSRect contextRect = NSMakeRect(NSMaxX(branchPill) + 12.0, 7.0,
-    MAX(1.0, self.bounds.size.width - NSMaxX(branchPill) - 28.0), 16.0);
-  [context drawWithRect:contextRect
-                 options:NSStringDrawingTruncatesLastVisibleLine |
-                         NSStringDrawingUsesLineFragmentOrigin
-              attributes:contextAttributes];
+  NSString *workspaceName = @"Nimculus";
+  if (g_editor_context.length > 0) {
+    NSString *first = [[g_editor_context componentsSeparatedByString:@" › "] firstObject];
+    if (first.length > 0) workspaceName = first;
+  }
+  [workspaceName drawAtPoint:NSMakePoint(76.0, 7.0) withAttributes:titleAttributes];
 }
-- (NSRect)branchRect {
-  return NSMakeRect(145.0, 5.0, 180.0, 20.0);
+- (void)layout {
+  [super layout];
+  self.branchButton.frame = NSMakeRect(145.0, 4.0, 180.0, 22.0);
+}
+- (void)updateBranchButton {
+  NSString *branch = g_editor_git_branch.length > 0 ? g_editor_git_branch : @"No Git branch";
+  NSColor *foreground = themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]);
+  self.branchButton.attributedTitle = [[[NSAttributedString alloc]
+    initWithString:[NSString stringWithFormat:@"⎇  %@", branch]
+    attributes:@{NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.82],
+      NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightMedium]}]
+    autorelease];
+  self.branchButton.toolTip = [NSString stringWithFormat:
+    @"Git branch: %@ — click to open Branches", branch];
+  self.branchButton.accessibilityLabel = [NSString stringWithFormat:
+    @"Git branch %@, open branch picker", branch];
+}
+- (void)openBranches:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("commandPalette:git branches");
 }
 - (void)mouseDown:(NSEvent *)event {
-  NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
-  if (NSPointInRect(point, [self branchRect])) {
-    if (g_command_callback) g_command_callback("commandPalette:git branches");
-    return;
-  }
   if (event.clickCount == 2) {
     [self.window performZoom:self];
   } else {
@@ -10674,7 +10679,9 @@ void nimculus_platform_set_editor_git_branch(const char *utf8) {
   if (!view) return;
   NSView *root = view.superview;
   if ([root isKindOfClass:[NimculusWindowContentView class]]) {
-    [((NimculusWindowContentView *)root).titlebarView setNeedsDisplay:YES];
+    NimculusTitlebarView *titlebar = ((NimculusWindowContentView *)root).titlebarView;
+    [titlebar updateBranchButton];
+    [titlebar setNeedsDisplay:YES];
   }
 }
 void nimculus_platform_set_editor_status(const char *utf8) {
