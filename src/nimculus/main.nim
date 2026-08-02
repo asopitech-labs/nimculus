@@ -1964,6 +1964,7 @@ when defined(macosx):
     editorGitBranchRepository = repository
     editorGitBranchGeneration = editorGitStatusGeneration
     editorGitPanelBranch = ""
+    platformSetEditorGitBranch("".cstring)
     if repository != nil:
       editorGitBranchJob = repository.startGitJob([
         "symbolic-ref", "--quiet", "--short", "HEAD"])
@@ -3407,6 +3408,7 @@ when defined(macosx):
     editorGitStatusRepository = nil
     editorGitBranchRepository = nil
     editorGitPanelBranch = ""
+    platformSetEditorGitBranch("".cstring)
     editorGitStatusDocumentPath = ""
     editorGitRepository = nil
     editorGitPath = ""
@@ -3504,6 +3506,7 @@ when defined(macosx):
     let branch = if completedJob.result.exitCode == 0:
       completedJob.result.output.strip else: "(detached)"
     editorGitPanelBranch = if branch.len > 0: branch else: "(detached)"
+    platformSetEditorGitBranch(editorGitPanelBranch.cstring)
     # The branch can arrive before or after porcelain status. Repaint only an
     # already-visible Changes list; no Git command or filesystem access occurs
     # on this path.

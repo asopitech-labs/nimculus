@@ -123,6 +123,7 @@ static NimculusFoldRange *g_secondary_editor_folds = NULL;
 static uint32_t g_secondary_editor_fold_count = 0;
 static NSString *g_editor_status = @"Ready";
 static NSString *g_editor_context = @"";
+static NSString *g_editor_git_branch = @"";
 static NSArray<NSString *> *g_editor_tab_titles = nil;
 static NSUInteger g_editor_active_tab = 0;
 static NSArray<NSString *> *g_secondary_editor_tab_titles = nil;
@@ -571,6 +572,7 @@ static void releasePlatformResources(void) {
   [g_clipboard_utf8_data release]; g_clipboard_utf8_data = nil;
   [g_editor_font_name release]; g_editor_font_name = nil;
   [g_terminal_font_name release]; g_terminal_font_name = nil;
+  [g_editor_git_branch release]; g_editor_git_branch = nil;
   [g_editor_text release]; g_editor_text = nil;
   [g_secondary_editor_text release]; g_secondary_editor_text = nil;
   [g_editor_lines release]; g_editor_lines = nil;
@@ -2379,6 +2381,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 // preserves the Metal view's content metrics and prevents the titlebar from
 // stealing or overlapping editor coordinates.
 @interface NimculusTitlebarView : NSView
+- (NSRect)branchRect;
 @end
 
 @interface NimculusWindowContentView : NSView
@@ -2411,19 +2414,48 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   };
   [@"Nimculus" drawAtPoint:NSMakePoint(76.0, 7.0) withAttributes:titleAttributes];
 
+  NSString *branch = g_editor_git_branch.length > 0 ? g_editor_git_branch : @"No Git branch";
+  NSDictionary *branchAttributes = @{
+    NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.82],
+    NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightMedium]
+  };
+  NSRect branchPill = [self branchRect];
+  NSBezierPath *branchPath = [NSBezierPath bezierPathWithRoundedRect:branchPill
+    xRadius:5.0 yRadius:5.0];
+  [[themeHexColor(g_theme_accent,
+    [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0])
+    colorWithAlphaComponent:0.16] setFill];
+  [branchPath fill];
+  [@"⎇" drawAtPoint:NSMakePoint(branchPill.origin.x + 8.0, 7.0)
+    withAttributes:branchAttributes];
+  NSRect branchTextRect = NSMakeRect(branchPill.origin.x + 24.0, 7.0,
+    MAX(1.0, branchPill.size.width - 31.0), 16.0);
+  [branch drawWithRect:branchTextRect
+                options:NSStringDrawingTruncatesLastVisibleLine |
+                        NSStringDrawingUsesLineFragmentOrigin
+             attributes:branchAttributes];
+
   NSString *context = g_editor_context.length > 0 ? g_editor_context : @"Workspace";
   NSDictionary *contextAttributes = @{
     NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.62],
     NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightRegular]
   };
-  NSRect contextRect = NSMakeRect(150.0, 7.0,
-    MAX(1.0, self.bounds.size.width - 166.0), 16.0);
+  NSRect contextRect = NSMakeRect(NSMaxX(branchPill) + 12.0, 7.0,
+    MAX(1.0, self.bounds.size.width - NSMaxX(branchPill) - 28.0), 16.0);
   [context drawWithRect:contextRect
                  options:NSStringDrawingTruncatesLastVisibleLine |
                          NSStringDrawingUsesLineFragmentOrigin
               attributes:contextAttributes];
 }
+- (NSRect)branchRect {
+  return NSMakeRect(145.0, 5.0, 180.0, 20.0);
+}
 - (void)mouseDown:(NSEvent *)event {
+  NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+  if (NSPointInRect(point, [self branchRect])) {
+    if (g_command_callback) g_command_callback("commandPalette:git branches");
+    return;
+  }
   if (event.clickCount == 2) {
     [self.window performZoom:self];
   } else {
@@ -10634,6 +10666,16 @@ void nimculus_platform_set_editor_context(const char *utf8) {
     }
   }
   [view updateTerminalFrame];
+}
+void nimculus_platform_set_editor_git_branch(const char *utf8) {
+  replaceOwnedUTF8String(&g_editor_git_branch, utf8,
+    utf8 ? (uint32_t)strlen(utf8) : 0, @"");
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  NSView *root = view.superview;
+  if ([root isKindOfClass:[NimculusWindowContentView class]]) {
+    [((NimculusWindowContentView *)root).titlebarView setNeedsDisplay:YES];
+  }
 }
 void nimculus_platform_set_editor_status(const char *utf8) {
   const char *value = (utf8 && strlen(utf8) > 0) ? utf8 : "Ready";
