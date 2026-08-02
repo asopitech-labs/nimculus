@@ -299,8 +299,8 @@ proc setupDemoUi() =
     else:
       max(0'f32, float32(workspaceLayout.center.size.width) - 112'f32)
   # Keep a compact Zed-like workspace header and a status/scroll gutter. The
-  # AppKit window keeps its native titlebar, so the content view must not also
-  # reserve a second empty titlebar-height strip. Breadcrumb, tabs, and text
+  # AppKit traffic lights sit over the app-owned titlebar, while this Metal
+  # view remains the content region below it. Breadcrumb, tabs, and text
   # occupy the first 56pt of the workspace in sequence.
   # The native tab strip occupies the first 28pt of the editor surface. Keep
   # the text viewport below it instead of treating the pane's outer rectangle

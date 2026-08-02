@@ -6764,3 +6764,23 @@ Files-to-editor-to-Git-to-terminal path in one run without depending on flaky
 Accessibility scripting. This is functional integration evidence, not proof of
 physical IME behavior, pixel-perfect rendering, eight-hour stability, or signed
 notarized distribution.
+
+## UX-016: Make the macOS titlebar part of the Nimculus workspace
+
+**Context.** A screenshot comparison with Zed showed that Nimculus used an
+AppKit-owned white titlebar above a dark editor surface. The visual boundary
+was inconsistent with the rest of the workspace and exposed no workspace
+context in the window chrome.
+
+**Decision.** Use `NSFullSizeContentView` and a transparent AppKit titlebar.
+AppKit continues to own the traffic-light controls, while a Nimculus root
+content view draws the dark titlebar, application name, and current-document
+bread crumb. The Metal editor remains in a child frame below the 30pt titlebar
+so existing content metrics, IME coordinates, and editor clipping remain
+unchanged. Titlebar dragging and double-click zoom are handled by the
+application-owned titlebar view.
+
+**Consequences.** The macOS window now presents one continuous Zed-like
+workspace surface and keeps the titlebar as a visible UX entry point. Any
+future titlebar controls must be added to the same root view and must preserve
+the traffic-light hit regions.

@@ -2373,6 +2373,93 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)showGitCommitEditor;
 @end
 
+// Zed uses an app-owned titlebar: AppKit supplies the traffic-light buttons,
+// while the workspace draws the titlebar surface and its breadcrumb in the
+// same visual system as the editor. Keeping this as a separate root child
+// preserves the Metal view's content metrics and prevents the titlebar from
+// stealing or overlapping editor coordinates.
+@interface NimculusTitlebarView : NSView
+@end
+
+@interface NimculusWindowContentView : NSView
+@property(nonatomic, retain) NimculusMetalView *metalView;
+@property(nonatomic, retain) NimculusTitlebarView *titlebarView;
+- (instancetype)initWithMetalView:(NimculusMetalView *)metalView;
+@end
+
+@implementation NimculusTitlebarView
+- (BOOL)isFlipped { return YES; }
+- (BOOL)acceptsFirstResponder { return NO; }
+- (void)drawRect:(NSRect)dirtyRect {
+  (void)dirtyRect;
+  NSColor *background = themeHexColor(g_theme_background,
+    [NSColor colorWithCalibratedRed:0.105 green:0.12 blue:0.15 alpha:1.0]);
+  [background setFill];
+  NSRectFill(self.bounds);
+
+  NSColor *border = [themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedWhite:0.85 alpha:1.0]) colorWithAlphaComponent:0.10];
+  [border setFill];
+  NSRectFill(NSMakeRect(0.0, MAX(0.0, self.bounds.size.height - 1.0),
+    self.bounds.size.width, 1.0));
+
+  NSColor *foreground = themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]);
+  NSDictionary *titleAttributes = @{
+    NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.92],
+    NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold]
+  };
+  [@"Nimculus" drawAtPoint:NSMakePoint(76.0, 7.0) withAttributes:titleAttributes];
+
+  NSString *context = g_editor_context.length > 0 ? g_editor_context : @"Workspace";
+  NSDictionary *contextAttributes = @{
+    NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.62],
+    NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightRegular]
+  };
+  NSRect contextRect = NSMakeRect(150.0, 7.0,
+    MAX(1.0, self.bounds.size.width - 166.0), 16.0);
+  [context drawWithRect:contextRect
+                 options:NSStringDrawingTruncatesLastVisibleLine |
+                         NSStringDrawingUsesLineFragmentOrigin
+              attributes:contextAttributes];
+}
+- (void)mouseDown:(NSEvent *)event {
+  if (event.clickCount == 2) {
+    [self.window performZoom:self];
+  } else {
+    [self.window performWindowDragWithEvent:event];
+  }
+}
+@end
+
+@implementation NimculusWindowContentView
+- (instancetype)initWithMetalView:(NimculusMetalView *)metalView {
+  self = [super initWithFrame:NSZeroRect];
+  if (!self) return nil;
+  self.metalView = metalView;
+  self.titlebarView = [[[NimculusTitlebarView alloc] initWithFrame:NSZeroRect] autorelease];
+  [self addSubview:self.metalView];
+  [self addSubview:self.titlebarView];
+  return self;
+}
+- (void)dealloc {
+  [_metalView release];
+  [_titlebarView release];
+  [super dealloc];
+}
+- (void)layout {
+  [super layout];
+  const CGFloat titlebarHeight = 30.0;
+  CGFloat contentHeight = MAX(1.0, self.bounds.size.height - titlebarHeight);
+  self.metalView.frame = NSMakeRect(0.0, 0.0, self.bounds.size.width, contentHeight);
+  self.metalView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  self.titlebarView.frame = NSMakeRect(0.0,
+    MAX(0.0, self.bounds.size.height - titlebarHeight),
+    self.bounds.size.width, titlebarHeight);
+  self.titlebarView.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
+}
+@end
+
 // Zed keeps buffer search in the pane chrome instead of making the editor
 // wait on a modal prompt.  This small native equivalent stays above the Metal
 // document surface, lets the document continue rendering, and returns focus
@@ -7116,8 +7203,16 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
   NSRect frame = NSMakeRect(0, 0, 960, 640);
   self.window = [[NSWindow alloc] initWithContentRect:frame
     styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-               NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
+               NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable |
+               NSWindowStyleMaskFullSizeContentView)
     backing:NSBackingStoreBuffered defer:NO];
+  // Match Zed's macOS window boundary: AppKit keeps the traffic lights, while
+  // the content view extends beneath the titlebar and draws the workspace
+  // titlebar itself. The Metal editor remains in a child frame below that
+  // titlebar so its existing logical metrics stay unchanged.
+  self.window.titlebarAppearsTransparent = YES;
+  self.window.titleVisibility = NSWindowTitleHidden;
+  self.window.movableByWindowBackground = NO;
   // Keep AppKit's native fullscreen transition available on every display.
   // This is the same window-level capability boundary used by Zed's macOS
   // platform rather than emulating fullscreen in the renderer.
@@ -7132,7 +7227,9 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
   [self setupMainMenu];
   self.view = [[NimculusMetalView alloc] initWithFrame:frame];
   g_active_view = self.view;
-  self.window.contentView = self.view;
+  NimculusWindowContentView *contentView =
+    [[[NimculusWindowContentView alloc] initWithMetalView:self.view] autorelease];
+  self.window.contentView = contentView;
   [self.window center];
   [self.window makeKeyAndOrderFront:nil];
   // Activation before -[NSApplication run] is too early for LaunchServices
