@@ -5741,7 +5741,10 @@ proc handleSecondaryEditorCommand(name: string, document: ptr FileDocument): boo
 
 proc receiveNativeCommand(command: cstring) {.cdecl.} =
   if command == nil: return
-  let name = $command
+  # Older settings files and external keymaps may use the short `settings`
+  # alias. Resolve it at the command boundary so startup does not expose an
+  # "Unknown command" status for a valid settings action.
+  let name = if $command == "settings": "openSettings" else: $command
   when defined(windows):
     case name
     of "toggleFullscreen":

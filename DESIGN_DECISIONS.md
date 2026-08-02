@@ -6846,3 +6846,21 @@ AppKit region above the Metal content view.
 and sidebar-to-activity-bar adjacency as well as root containment. Future
 workspace chrome changes must distinguish an intentional component inset
 (text, gutter, activity-button padding) from an outer layout gap.
+
+## UX-020: Derive editor text placement from font metrics
+
+**Context.** The first and last visible editor rows were being clipped even
+though the pane rectangle and Metal scissor were technically contained. The
+previous renderer positioned rows from a fixed baseline and submitted a
+partially visible final row.
+
+**Decision.** Follow Zed's text-system rule: calculate the baseline from font
+ascent, descent, line-height, and top padding, then apply a small glyph safety
+inset. Hit testing, cursor placement, caret geometry, Core Text fallback, and
+glyph-atlas placement use the same line-box origin. The visible-row budget is
+floored so a partial final glyph is never submitted.
+
+**Consequences.** The editor may show one fewer row at the bottom, but every
+visible glyph is complete and remains inside the content viewport. Text
+layout changes must update the shared line-box helpers rather than adding a
+renderer-specific y offset.
