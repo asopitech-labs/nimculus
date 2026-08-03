@@ -851,6 +851,7 @@ proc widestVisibleEditorLineWidth(buffer: PieceTable, view: EditorViewState,
   ## The native shaper remains the authority for glyph placement. This compact
   ## estimate is only scrollbar geometry and follows the editor's monospace
   ## metrics closely enough to keep the thumb stable while scrolling.
+  if view.softWrap: return 0'f32
   let lines = buffer.toString.splitLines
   if lines.len == 0: return 0'f32
   let first = min(max(0, view.scrollLine), lines.high)
@@ -875,8 +876,7 @@ proc addEditorScrollbars(paint: var PaintList, bounds: Rect, view: EditorViewSta
       min(1'f32, max(0'f32, view.scrollYPixels) / maxScrollPixels)
     paint.drawScrollbar(Rect(origin: Point(x: px(float32(bounds.origin.x) + width - 14'f32),
       y: px(thumbY)), size: Size(width: px(8), height: px(min(trackHeight, thumbHeight)))))
-  let scrollbar = horizontalEditorScrollbar(bounds, view.softWrap,
-    widestLineWidth, view.scrollX)
+  let scrollbar = horizontalEditorScrollbar(bounds, widestLineWidth, view.scrollX)
   if float32(scrollbar.thumb.size.width) > 0'f32:
     paint.drawScrollbar(scrollbar.thumb)
 
@@ -4771,6 +4771,10 @@ proc refreshEditorSyntax() =
       syncNativeDiagnostics(document)
       scheduleNativeGitHunks(document)
       refreshSecondaryEditorSyntax()
+      # The native measurement is now current. Recompose the Nim paint list
+      # so a newly overflowing line can publish its horizontal thumb in this
+      # redraw, rather than waiting for an unrelated layout event.
+      setupDemoUi()
     when defined(windows):
       platformSetEditorHighlights(nil, 0)
       let text = document[].buffer.toString()
@@ -4818,6 +4822,10 @@ proc refreshEditorSyntax() =
     syncNativeDiagnostics(document)
     scheduleNativeGitHunks(document)
     refreshSecondaryEditorSyntax()
+    # Text, wrap mode, and the native viewport are synchronized before the
+    # scrollbar geometry is measured. This keeps the live paint list aligned
+    # with the renderer's actual clipping state.
+    setupDemoUi()
   when defined(windows):
     let highlights = if syntaxState == nil: @[] else:
       let visibleLines = max(1, int(float32(demoEditorBounds.size.height) /
@@ -8348,11 +8356,10 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
         else: 0
       let scrollbar = if pane == 1:
           horizontalEditorScrollbar(demoSecondaryEditorBounds,
-            editorSession.secondaryView.softWrap,
             float32(platformSecondaryEditorWidestVisibleLineWidth()),
             editorSession.secondaryView.scrollX)
         else:
-          horizontalEditorScrollbar(demoEditorBounds, editorViewState.softWrap,
+          horizontalEditorScrollbar(demoEditorBounds,
             float32(platformEditorWidestVisibleLineWidth()), editorViewState.scrollX)
       if kind == pointerDown and scrollbar.contains(float32(event.x), uiY):
         editorScrollbarDragging = true

@@ -1,5 +1,7 @@
 import std/[os, strutils, unittest]
 import nimnui/platform/macos/platform
+import nimculus/editor_scroll
+import nimnui/geometry
 
 proc nativeGuiValidationRequired(): bool =
   ## GitHub macOS runners and explicit local GUI runs must fail closed. A
@@ -143,6 +145,30 @@ suite "macOS platform contract":
 
   test "native editor text viewport excludes pane right and bottom chrome":
     check platformValidateEditorTextViewport()
+
+  test "native measured overflow produces an in-bounds horizontal thumb":
+    # Menlo at 14pt makes this deliberately concrete: 128 monospace
+    # characters are comfortably wider than the 584px text viewport inside a
+    # 620px editor pane (roughly an 800px line or more).
+    let bounds = Rect(origin: Point(x: px(40), y: px(80)),
+      size: Size(width: px(620), height: px(320)))
+    let longLine = "x".repeat(128)
+    platformSetEditorFontName("Menlo".cstring)
+    platformSetEditorFontSize(14.0)
+    platformSetEditorRect(40.0, 80.0, 620.0, 320.0)
+    platformSetEditorText(longLine.cstring, uint32(longLine.len))
+    platformSetEditorSoftWrap(true)
+    check platformEditorWidestVisibleLineWidth() == 0.0
+    platformSetEditorSoftWrap(false)
+    let widest = float32(platformEditorWidestVisibleLineWidth())
+    let scrollbar = horizontalEditorScrollbar(bounds, widest, 0'f32)
+    let thumbY = float32(scrollbar.thumb.origin.y)
+    let thumbBottom = thumbY + float32(scrollbar.thumb.size.height)
+    check widest > editorTextViewportWidth(bounds)
+    check float32(scrollbar.thumb.size.width) > 0'f32
+    check thumbY >= float32(bounds.origin.y)
+    check thumbBottom <= float32(bounds.origin.y + bounds.size.height)
+    platformSetEditorText("".cstring, 0)
 
   test "native status overlay skips unchanged AppKit values":
     check platformValidateStatusUpdateDeduplication()

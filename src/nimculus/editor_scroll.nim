@@ -26,19 +26,23 @@ proc clampEditorScrollX*(scrollX, widestLineWidth, viewportWidth: float32): floa
   let maxScroll = max(0'f32, widestLineWidth - max(0'f32, viewportWidth))
   min(max(0'f32, scrollX), maxScroll)
 
-proc horizontalEditorScrollbar*(bounds: Rect, softWrap: bool,
-                                widestLineWidth, scrollX: float32): EditorHorizontalScrollbar =
+proc horizontalEditorScrollbar*(bounds: Rect, widestLineWidth,
+                                scrollX: float32): EditorHorizontalScrollbar =
   let viewportWidth = editorTextViewportWidth(bounds)
   let contentWidth = max(0'f32, widestLineWidth)
   result.viewportWidth = viewportWidth
   result.contentWidth = contentWidth
   result.track = emptyRect()
   result.thumb = emptyRect()
-  if softWrap or viewportWidth <= 0'f32 or contentWidth <= viewportWidth:
+  # The caller supplies the renderer's measured width. Native macOS returns
+  # zero while soft wrap is active, so visibility follows the actual content
+  # geometry instead of a second, potentially stale soft-wrap flag.
+  if viewportWidth <= 0'f32 or contentWidth <= viewportWidth:
     return
   let trackX = float32(bounds.origin.x) + EditorTextLeftInset
-  let trackY = float32(bounds.origin.y) + float32(bounds.size.height) -
-    EditorScrollbarBottomInset
+  let editorBottom = float32(bounds.origin.y) + float32(bounds.size.height)
+  let trackY = min(editorBottom - EditorScrollbarHeight,
+    max(float32(bounds.origin.y), editorBottom - EditorScrollbarBottomInset))
   result.track = Rect(origin: Point(x: px(trackX), y: px(trackY)),
     size: Size(width: px(viewportWidth), height: px(EditorScrollbarHeight)))
   let maxScroll = contentWidth - viewportWidth

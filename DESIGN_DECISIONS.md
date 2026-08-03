@@ -14,6 +14,13 @@ and is the authority for the widest-line width and maximum horizontal offset.
 The Nim scrollbar geometry mirrors the native text viewport (including the
 reserved vertical-scrollbar edge), so horizontal and vertical thumbs never
 overlap and the horizontal thumb cannot be under-sized by a monospace estimate.
+Horizontal-thumb visibility is derived only from that measured widest visible
+line versus the text viewport. Core Text reports zero while wrapping is active,
+so the geometry does not consult a separately tracked Nim soft-wrap flag that
+could become stale. The paint list is recomposed after native text, wrap, and
+viewport synchronization so edits and View > Toggle Soft Wrap publish the
+current measured thumb in the live frame. Its Y coordinate is clamped to the
+editor pane's bottom edge, immediately above the footer.
 Scrollbar changes continue through the existing `requestRedraw` and damage
 paths; no frame-count or display-link semantics are changed.
 

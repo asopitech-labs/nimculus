@@ -27,14 +27,16 @@ suite "session persistence scheduling":
     check viewportWidth == 364'f32
     check clampEditorScrollX(-12'f32, 900'f32, viewportWidth) == 0'f32
     check clampEditorScrollX(999'f32, 900'f32, viewportWidth) == 536'f32
-    let scrollbar = horizontalEditorScrollbar(bounds, false, 900'f32, 999'f32)
+    let scrollbar = horizontalEditorScrollbar(bounds, 900'f32, 999'f32)
     check float32(scrollbar.track.origin.x) == 28'f32
     check float32(scrollbar.track.size.width) == viewportWidth
     check float32(scrollbar.thumb.origin.x + scrollbar.thumb.size.width) <=
       float32(scrollbar.track.origin.x + scrollbar.track.size.width)
     check scrollbar.horizontalScrollbarScrollX(
       float32(scrollbar.track.origin.x) + float32(scrollbar.track.size.width) / 2'f32) > 0'f32
-    check horizontalEditorScrollbar(bounds, true, 900'f32, 0'f32).track.size.width == px(0)
+    # Native measurement is zero while soft wrap is active; the geometry
+    # layer intentionally has no separate soft-wrap gate.
+    check horizontalEditorScrollbar(bounds, 0'f32, 0'f32).track.size.width == px(0)
 
   test "legacy sessions default to no-wrap while explicit wrap survives":
     let path = getTempDir() / "nimculus-soft-wrap-default-session.json"
