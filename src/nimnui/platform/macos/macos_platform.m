@@ -1192,6 +1192,19 @@ static BOOL sceneNeedsFullRebuild(BOOL initialized, uint32_t dirtyCount) {
 }
 
 static void highlightColor(uint32_t kind, CGFloat *r, CGFloat *g, CGFloat *b) {
+  // Syntax colors must track the resolved theme background. A dark-only palette
+  // washes out on a light background (pale token text on near-white), so keep a
+  // parallel light palette with the same hue identity but darker, readable
+  // luminance. Both branches share the same `kind` mapping.
+  if (themeLooksLight()) {
+    *r = 0.13; *g = 0.15; *b = 0.19;
+    if (kind == 0) { *r = 0.11; *g = 0.34; *b = 0.78; }
+    else if (kind == 1) { *r = 0.72; *g = 0.36; *b = 0.08; }
+    else if (kind == 2) { *r = 0.48; *g = 0.20; *b = 0.72; }
+    else if (kind == 3) { *r = 0.13; *g = 0.48; *b = 0.28; }
+    else if (kind == 5) { *r = 0.44; *g = 0.48; *b = 0.54; }
+    return;
+  }
   *r = 0.85; *g = 0.90; *b = 1.0;
   if (kind == 0) { *r = 0.35; *g = 0.70; *b = 1.0; }
   else if (kind == 1) { *r = 0.95; *g = 0.65; *b = 0.35; }
