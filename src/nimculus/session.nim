@@ -1,4 +1,5 @@
 import std/json
+import std/math
 import std/os
 import nimculus/editor_app
 import nimculus/editor_buffer
@@ -44,9 +45,13 @@ proc serializedView(view: EditorViewState): JsonNode =
   var additional = newJArray()
   for selection in view.additionalSelections:
     additional.add(%*{"anchor": selection.anchor, "active": selection.active})
+  let derivedLine = int(floor(max(0'f32, view.scrollYPixels) / 18'f32))
+  let scrollPixels = if view.scrollLine == derivedLine: view.scrollYPixels
+    else: float32(max(0, view.scrollLine)) * 18'f32
   %*{"anchor": view.selection.anchor, "active": view.selection.active,
       "additionalSelections": additional,
-      "scrollLine": view.scrollLine, "scrollX": view.scrollX,
+      "scrollLine": view.scrollLine, "scrollYPixels": scrollPixels,
+      "scrollX": view.scrollX,
       "showLineNumbers": view.showLineNumbers,
       "softWrap": view.softWrap, "showIndentGuides": view.showIndentGuides,
       "indentWidth": view.indentWidth}
@@ -64,6 +69,8 @@ proc loadView(node: JsonNode, text: string): EditorViewState =
         active: floorGraphemeBoundary(text, jsonInt(item, "active", 0))))
     result.clampSelectionToText(text)
   result.scrollLine = max(0, jsonInt(node, "scrollLine", 0))
+  result.setScrollYPixels(jsonFloat(node, "scrollYPixels",
+    float32(result.scrollLine) * 18'f32), 18'f32)
   result.scrollX = max(0'f32, jsonFloat(node, "scrollX", 0'f32))
   result.showLineNumbers = jsonBool(node, "showLineNumbers", true)
   # A missing preference uses the safe macOS default. An explicit false is

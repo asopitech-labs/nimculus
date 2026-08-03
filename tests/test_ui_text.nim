@@ -571,6 +571,20 @@ suite "M3 text foundation":
     check scrollLineDelta(remainder, -18'f32, true) == 1
     check remainder == 0'f32
 
+  test "editor scroll position preserves sub-line pixels and legacy lines":
+    var view = newEditorView()
+    view.setScrollYPixels(9'f32, 18'f32, 180'f32)
+    check view.scrollLine == 0
+    check abs(view.scrollYFraction - 9'f32) < 0.001'f32
+    check abs(view.scrollYPixels - 9'f32) < 0.001'f32
+    view.scrollLine = 3
+    view.reconcileScrollPosition(18'f32, 180'f32)
+    check view.scrollLine == 3
+    check view.scrollYFraction == 0'f32
+    check view.scrollYPixels == 54'f32
+    var remainder = 0'f32
+    check abs(scrollPixelDelta(remainder, 4'f32, true) + 4'f32) < 0.001'f32
+
   test "IME state separates composition from committed text":
     var ime = newImeState()
     ime.receiveText("にほ", true)

@@ -155,6 +155,7 @@ else:
       count: uint32) = discard (spans, count)
   proc platformSetEditorCursorByte*(byteOffset, line: uint32) = discard (byteOffset, line)
   proc platformSetEditorScrollLine*(line: uint32) = discard line
+  proc platformSetEditorScrollYFraction*(pixels: cdouble) = discard pixels
   proc platformSetEditorSelection*(startByte, endByte: uint32) = discard (startByte, endByte)
   proc platformSetCloseDecision*(allow: bool) = discard allow
   proc platformToggleFullscreen*() = discard

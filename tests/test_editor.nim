@@ -498,6 +498,25 @@ suite "M5 editor services":
     check secondary.scrollLine == 1
     check primary.scrollLine == 3
 
+  test "wheel scrolling can move past the cursor without re-clamping the viewport":
+    var lines: seq[string]
+    for line in 0 .. 39:
+      lines.add("line " & $line)
+    let buffer = initPieceTable(lines.join("\n"))
+    var view = newEditorView()
+    view.moveCursor(buffer.lineStarts[13])
+    view.scrollLine = 0
+    view.reconcileScrollPosition()
+    let cursorLine = buffer.lineColumn(view.cursor).line
+    var remainder = 0'f32
+    for _ in 0 .. 20:
+      view.reconcileScrollPosition(18'f32, 35'f32 * 18'f32)
+      let pixelDelta = scrollPixelDelta(remainder, -18'f32, true)
+      view.setScrollYPixels(view.scrollYPixels + pixelDelta, 18'f32, 35'f32 * 18'f32)
+    view.reconcileScrollPosition(18'f32, 35'f32 * 18'f32)
+    check view.scrollLine > cursorLine
+    check view.scrollYPixels > float32(cursorLine) * 18'f32
+
   test "focused split pane owns navigation destinations":
     var session: EditorSession
     var primary = newEditorView()

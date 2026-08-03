@@ -7031,3 +7031,40 @@ remain synchronous whenever no live display link is available.
 idle frames or duplicate synchronous submissions. The renderer's existing
 present, timing, frame-count, and damage/dirty-region logic is unchanged, and
 non-macOS/headless backends require no display-link knowledge.
+
+## UI-079: Use a continuous macOS editor scroll position
+
+**Context.** Precise trackpad deltas were accumulated into an integer line, so
+the editor jumped by a full line even though the input was pixel-based.
+
+**Decision.** Store continuous logical scroll pixels and derive the legacy line
+index plus sub-line fraction for the platform boundary. macOS applies that
+fraction to text, line numbers, cursors, selections, Git gutter, diagnostics,
+hit testing, and IME candidate coordinates. Scrolling still invalidates through
+the existing `requestRedraw` path. In unwrapped mode, the paint list emits a
+horizontal thumb when the widest visible line exceeds the viewport, using the
+theme scrollbar role for both light and dark themes and reserving the lower
+right corner when both thumbs are present.
+
+**Consequences.** Integer `scrollLine` callers and old sessions remain valid
+through compatibility reconciliation. Non-macOS rendering and frame,
+display-link, and damage semantics are unchanged.
+
+## UI-080: Keep wheel scrolling independent from cursor visibility
+
+**Context.** A precise wheel or trackpad event updates the editor's continuous
+scroll position, but the redraw synchronization also ran `ensureCursorVisible`.
+That made every scroll event immediately re-clamp the viewport around the
+cursor, preventing the cursor from scrolling out of view.
+
+**Decision.** Treat wheel/trackpad scrolling as a viewport-only update. The
+handler preserves the continuous pixel position, reconciles its compatibility
+line and fraction, sends both values to the platform, and redraws without
+running cursor visibility correction. Cursor visibility correction remains the
+default for cursor movement, editing, clicking, navigation, completion, and
+definition actions, including each split pane's own cursor-driven updates.
+
+**Consequences.** Scrolling now moves freely like Zed while retaining smooth
+sub-line motion, horizontal scrolling, native scrollbars, and independent
+split-pane state. A subsequent cursor movement restores the cursor to the
+visible viewport when needed.

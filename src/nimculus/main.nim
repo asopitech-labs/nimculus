@@ -116,12 +116,12 @@ when defined(macosx) or defined(windows):
       return true
     false
 
-proc syncEditorCursor()
+proc syncEditorCursor(ensureCursor = true)
 proc syncWorkspaceUiTabs()
 proc activeDocument(): ptr FileDocument
 proc secondaryPaneDocument(): ptr FileDocument
 when defined(macosx):
-  proc syncSecondaryEditorView()
+  proc syncSecondaryEditorView(ensureCursor = true)
   proc syncSecondaryNativeDiagnostics(document: ptr FileDocument)
 proc persistSession()
 
@@ -224,6 +224,16 @@ when defined(windows):
         pixels[offset + 3] = 255'u8
     platformSetImageRgba(1, 16, 16, addr pixels[0], uint32(pixels.len))
 
+proc widestVisibleEditorLineWidth(buffer: PieceTable, view: EditorViewState,
+                                  visibleLines: int): float32
+proc addEditorScrollbars(paint: var PaintList, bounds: Rect, view: EditorViewState,
+                         lineCount, visibleLines: int, widestLineWidth: float32)
+proc drawCurrentEditorScrollbars(paint: var PaintList, primary, secondary: Rect,
+                                 lineCount: int, document: ptr FileDocument)
+when defined(macosx):
+  proc editorVisibleLineCount(): int
+  proc secondaryEditorVisibleLineCount(): int
+
 proc setupDemoUi() =
   ## Keep rendering state synchronized with the document session at the
   ## composition boundary. Pane ownership remains independent: a split
@@ -235,7 +245,8 @@ proc setupDemoUi() =
     # visible. This makes the render layout match the AppKit overlay contract.
     if not editorTerminalVisible and not editorTaskOutputVisible:
       editorWorkspaceUi.bottomDock.isOpen = false
-  let hasDocument = activeDocument() != nil
+  let document = activeDocument()
+  let hasDocument = document != nil
   syncWorkspaceUiTabs()
   demoTree = newUiTree()
   resetPointerInteractions()
@@ -329,9 +340,6 @@ proc setupDemoUi() =
     demoSplitRatio = editorWorkspaceUi.center.ratio
   demoEditorBounds = primaryEditor
   demoSecondaryEditorBounds = secondaryEditor
-  let scrollbar = Rect(origin: Point(x: px(float32(editor.origin.x) + editorWidth - 14'f32),
-      y: editor.origin.y),
-    size: Size(width: px(8), height: px(max(0'f32, editorHeight - 32'f32))))
   demoTree.node(button.node).bounds = toolbar
   demoTree.node(split.node).bounds = splitBar
   demoTree.node(scroll.node).bounds = editor
@@ -387,7 +395,8 @@ proc setupDemoUi() =
   elif hasDocument:
     paint.drawBorder(editor)
   if hasDocument:
-    paint.drawScrollbar(scrollbar)
+    drawCurrentEditorScrollbars(paint, primaryEditor, secondaryEditor,
+      document[].buffer.lineStarts.len, document)
   var nativeCommands = newSeq[NativePaintCommand](paint.commands.len)
   for index, command in paint.commands:
     nativeCommands[index] = NativePaintCommand(
@@ -833,6 +842,66 @@ proc resetEditorTransientState() =
 proc resetEditorViewState() =
   editorViewState = newEditorView()
   resetEditorTransientState()
+
+proc widestVisibleEditorLineWidth(buffer: PieceTable, view: EditorViewState,
+                                  visibleLines: int): float32 =
+  ## The native shaper remains the authority for glyph placement. This compact
+  ## estimate is only scrollbar geometry and follows the editor's monospace
+  ## metrics closely enough to keep the thumb stable while scrolling.
+  let lines = buffer.toString.splitLines
+  if lines.len == 0: return 0'f32
+  let first = min(max(0, view.scrollLine), lines.high)
+  let last = min(lines.high, first + max(1, visibleLines) + 1)
+  for index in first .. last:
+    var columns = 0
+    for rune in lines[index].runes:
+      columns += (if rune == Rune('\t'): 4 else: 1)
+    result = max(result, float32(columns) * 7.2'f32)
+
+proc addEditorScrollbars(paint: var PaintList, bounds: Rect, view: EditorViewState,
+                         lineCount, visibleLines: int, widestLineWidth: float32) =
+  let width = max(0'f32, float32(bounds.size.width))
+  let height = max(0'f32, float32(bounds.size.height))
+  if lineCount > max(1, visibleLines):
+    let trackY = float32(bounds.origin.y) + 6'f32
+    let trackHeight = max(0'f32, height - 32'f32)
+    let thumbHeight = max(18'f32, trackHeight * float32(visibleLines) /
+      float32(max(1, lineCount)))
+    let maxScrollPixels = max(1'f32, float32(lineCount - max(1, visibleLines)) * 18'f32)
+    let thumbY = trackY + max(0'f32, trackHeight - thumbHeight) *
+      min(1'f32, max(0'f32, view.scrollYPixels) / maxScrollPixels)
+    paint.drawScrollbar(Rect(origin: Point(x: px(float32(bounds.origin.x) + width - 14'f32),
+      y: px(thumbY)), size: Size(width: px(8), height: px(min(trackHeight, thumbHeight)))))
+  let viewportWidth = max(0'f32, width - 36'f32)
+  if not view.softWrap and widestLineWidth > viewportWidth and viewportWidth > 0'f32:
+    let trackWidth = viewportWidth
+    let trackX = float32(bounds.origin.x) + 8'f32
+    let trackY = float32(bounds.origin.y) + height - 14'f32
+    let thumbWidth = max(24'f32, trackWidth * viewportWidth / widestLineWidth)
+    let maxScroll = max(1'f32, widestLineWidth - viewportWidth)
+    let thumbX = trackX + max(0'f32, trackWidth - thumbWidth) *
+      min(1'f32, max(0'f32, view.scrollX) / maxScroll)
+    paint.drawScrollbar(Rect(origin: Point(x: px(thumbX), y: px(trackY)),
+      size: Size(width: px(min(trackWidth, thumbWidth)), height: px(8))))
+
+proc drawCurrentEditorScrollbars(paint: var PaintList, primary, secondary: Rect,
+                                 lineCount: int, document: ptr FileDocument) =
+  let primaryVisibleLines = when defined(macosx): editorVisibleLineCount()
+    else: max(1, int(ceil(float32(primary.size.height) / 18'f32)))
+  addEditorScrollbars(paint, primary, editorViewState, lineCount,
+    primaryVisibleLines, when defined(macosx):
+      float32(platformEditorWidestVisibleLineWidth())
+    else: widestVisibleEditorLineWidth(document[].buffer, editorViewState,
+      primaryVisibleLines))
+  if demoSplitEnabled:
+    let secondaryView = editorSession.secondaryView
+    let secondaryVisibleLines = when defined(macosx): secondaryEditorVisibleLineCount()
+      else: max(1, int(ceil(float32(secondary.size.height) / 18'f32)))
+    addEditorScrollbars(paint, secondary, secondaryView, lineCount,
+      secondaryVisibleLines, when defined(macosx):
+        float32(platformSecondaryEditorWidestVisibleLineWidth())
+      else: widestVisibleEditorLineWidth(document[].buffer, secondaryView,
+        secondaryVisibleLines))
 
 proc resetPointerInteractions() =
   demoSplitDragging = false
@@ -2342,14 +2411,14 @@ when defined(macosx):
 
   proc handleGitGutterClick(document: ptr FileDocument, bounds: Rect,
                             scrollLine: int, uiX, uiY: float32,
-                            modifiers: uint32): bool =
+                            modifiers: uint32, scrollYFraction = 0'f32): bool =
     if document == nil or document[].path.len == 0: return false
     let repository = gitRepositoryForDocument(document)
     let relative = gitRelativePathForDocument(document, repository)
     if repository == nil or relative.len == 0: return false
     let action = gitGutterActionAt(uiX, uiY,
       float32(bounds.origin.x), float32(bounds.origin.y), 8'f32, scrollLine,
-      modifiers)
+      modifiers, scrollYFraction)
     if action.kind == gitGutterNone: return false
     # Option-click follows the standard staged-diff convention and reverses
     # the operation against the index; a normal click stages the worktree hunk.
@@ -2993,9 +3062,11 @@ when defined(macosx):
         let pane = if editorSession.split and editorSession.splitActivePane == 1: 1 else: 0
         let scrollLine = if editorSession.split and editorSession.splitActivePane == 1:
           editorSession.secondaryView.scrollLine else: editorViewState.scrollLine
+        let scrollFraction = if editorSession.split and editorSession.splitActivePane == 1:
+          editorSession.secondaryView.scrollYFraction else: editorViewState.scrollYFraction
         platformSetEditorHoverPane(uint32(pane))
         platformSetEditorHoverPosition(float64(float32(location.column) * 7.2'f32),
-          float64(float32(location.line - scrollLine) * 18'f32))
+          float64(float32(location.line - scrollLine) * 18'f32 - scrollFraction))
       syncNativeHover()
       var lines: seq[string]
       for item in signature.signatures:
@@ -4300,7 +4371,7 @@ when defined(macosx):
     else:
       platformSetEditorFolds(folds, uint32(nativeFolds.len))
 
-proc syncEditorCursor() =
+proc syncEditorCursor(ensureCursor = true) =
   when defined(macosx):
     let document = activeDocument()
     # An empty editor still needs an actionable entry surface. Keep the open
@@ -4311,7 +4382,7 @@ proc syncEditorCursor() =
     if document != nil and unfoldFoldContainingCursor(document, editorViewState):
       persistSession()
     let visibleLines = editorVisibleLineCount()
-    if document != nil:
+    if document != nil and ensureCursor:
       # Undo/redo and external reload can shorten or reshape the buffer
       # without passing through the normal movement commands. Normalize both
       # endpoints before deriving line/UTF-16 positions or sending them to
@@ -4320,7 +4391,12 @@ proc syncEditorCursor() =
     let location = if document == nil: (line: 0, column: 0) else:
       document[].buffer.lineColumn(editorViewState.cursor)
     if editorViewState.softWrap: editorViewState.scrollX = 0'f32
+    let maxScrollPixels = if document == nil: 0'f32 else:
+      float32(max(0, document[].buffer.lineStarts.len - visibleLines)) * 18'f32
+    editorViewState.reconcileScrollPosition(18'f32, maxScrollPixels)
     platformSetEditorScrollLine(uint32(max(0, editorViewState.scrollLine)))
+    platformSetEditorScrollYFraction(cdouble(max(0'f32,
+      editorViewState.scrollYFraction)))
     platformSetEditorScrollX(cdouble(max(0'f32, editorViewState.scrollX)))
     platformSetEditorCursorByte(uint32(editorViewState.cursor), uint32(max(0, location.line)))
     editorViewState.scrollX = float32(max(0.0, platformEditorScrollX()))
@@ -4354,7 +4430,7 @@ proc syncEditorCursor() =
       editorWorkspaceUi.center.firstPane().activeTabIndex else: editorSession.activeTab
     platformSetEditorTabs(tabsText.cstring, uint32(tabsText.len),
       uint32(max(0, primaryTab)))
-    syncSecondaryEditorView()
+    syncSecondaryEditorView(ensureCursor)
     if not editorSession.split:
       platformSetSecondaryEditorTabs("".cstring, 0, 0)
     platformSetEditorInputPane(uint32(if editorSession.split: editorSession.splitActivePane else: 0))
@@ -4397,7 +4473,7 @@ proc syncEditorCursor() =
       uint32(max(0, editorSession.activeTab)))
 
 when defined(macosx):
-  proc syncSecondaryEditorView() =
+  proc syncSecondaryEditorView(ensureCursor = true) =
     if not editorSession.split:
       platformSetSecondaryEditorDiagnostics(nil, 0)
       resetNativeSecondaryGitHunks()
@@ -4412,7 +4488,8 @@ when defined(macosx):
     if unfoldFoldContainingCursor(document, view):
       editorSession.tabs[tab].secondaryView = view
       editorSession.secondaryView = view
-    view.ensureCursorVisible(document[].buffer, secondaryEditorVisibleLineCount())
+    if ensureCursor:
+      view.ensureCursorVisible(document[].buffer, secondaryEditorVisibleLineCount())
     editorSession.tabs[tab].secondaryView = view
     let location = document[].buffer.lineColumn(view.cursor)
     let selection = view.selectedRange()
@@ -4425,7 +4502,13 @@ when defined(macosx):
     platformSetSecondaryEditorTabs(tabsText.cstring, uint32(tabsText.len), uint32(tab))
     platformSetSecondaryEditorText(text.cstring, uint32(text.len))
     if view.softWrap: view.scrollX = 0'f32
+    let secondaryVisibleLines = secondaryEditorVisibleLineCount()
+    let maxScrollPixels = float32(max(0, document[].buffer.lineStarts.len -
+      secondaryVisibleLines)) * 18'f32
+    view.reconcileScrollPosition(18'f32, maxScrollPixels)
     platformSetSecondaryEditorScrollLine(uint32(max(0, view.scrollLine)))
+    platformSetSecondaryEditorScrollYFraction(cdouble(max(0'f32,
+      view.scrollYFraction)))
     platformSetSecondaryEditorScrollX(cdouble(max(0'f32, view.scrollX)))
     platformSetSecondaryEditorSoftWrap(view.softWrap)
     syncNativeEditorFolds(document, view, secondarySyntaxState, secondary = true)
@@ -8228,20 +8311,27 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           editorSession.secondaryView.scrollX = max(0'f32,
             editorSession.secondaryView.scrollX + horizontalDelta)
         if abs(verticalDelta) > 0.01'f32:
-          let delta = scrollLineDelta(editorSecondaryScrollRemainder, verticalDelta,
-            event.preciseScrolling)
-          editorSession.secondaryView.scrollLine = max(0, min(maxScroll,
-            editorSession.secondaryView.scrollLine + delta))
+          var view = editorSession.secondaryView
+          view.reconcileScrollPosition(18'f32, float32(maxScroll) * 18'f32)
+          let pixelDelta = scrollPixelDelta(editorSecondaryScrollRemainder,
+            verticalDelta, event.preciseScrolling)
+          view.setScrollYPixels(view.scrollYPixels + pixelDelta, 18'f32,
+            float32(maxScroll) * 18'f32)
+          editorSession.secondaryView = view
       else:
         if not editorViewState.softWrap and abs(horizontalDelta) > 0.01'f32:
           editorViewState.scrollX = max(0'f32,
             editorViewState.scrollX + horizontalDelta)
         if abs(verticalDelta) > 0.01'f32:
-          let delta = scrollLineDelta(editorScrollRemainder, verticalDelta,
+          editorViewState.reconcileScrollPosition(18'f32,
+            float32(maxScroll) * 18'f32)
+          let pixelDelta = scrollPixelDelta(editorScrollRemainder, verticalDelta,
             event.preciseScrolling)
-          editorViewState.scrollLine = max(0, min(maxScroll,
-            editorViewState.scrollLine + delta))
-      syncEditorCursor()
+          editorViewState.setScrollYPixels(editorViewState.scrollYPixels + pixelDelta,
+            18'f32, float32(maxScroll) * 18'f32)
+      # Wheel input changes only the viewport. Do not let cursor visibility
+      # synchronization pull the freely scrolled position back into view.
+      syncEditorCursor(ensureCursor = false)
       refreshEditorSyntax()
     if document != nil and kind == pointerDown and inEditor:
       let gutterPane = if demoSplitEnabled:
@@ -8251,9 +8341,11 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       let gutterBounds = if gutterPane == 1: demoSecondaryEditorBounds else: demoEditorBounds
       let gutterScrollLine = if gutterPane == 1:
           editorSession.secondaryView.scrollLine else: editorViewState.scrollLine
+      let gutterScrollFraction = if gutterPane == 1:
+          editorSession.secondaryView.scrollYFraction else: editorViewState.scrollYFraction
       if gutterDocument != nil and float32(event.x) - float32(gutterBounds.origin.x) < 8'f32 and
           handleGitGutterClick(gutterDocument, gutterBounds, gutterScrollLine,
-            float32(event.x), uiY, event.modifiers):
+            float32(event.x), uiY, event.modifiers, gutterScrollFraction):
         return
     if kind == pointerDown and hit == demoSplitNode:
       if not editorSession.split:

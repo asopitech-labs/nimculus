@@ -514,12 +514,16 @@ proc ensureCursorVisible*(view: var EditorViewState, buffer: PieceTable,
   let lineCount = buffer.lineStarts.len
   if lineCount == 0: return
   let viewportLines = max(1, visibleLines)
+  view.reconcileScrollPosition()
   let location = buffer.lineColumn(view.cursor)
   let lastScrollLine = max(0, lineCount - viewportLines)
   if location.line < view.scrollLine:
-    view.scrollLine = location.line
+    view.setScrollYPixels(float32(location.line) * 18'f32,
+      18'f32, float32(lastScrollLine) * 18'f32)
   elif location.line >= view.scrollLine + viewportLines:
-    view.scrollLine = min(lastScrollLine, location.line - viewportLines + 1)
+    view.setScrollYPixels(float32(min(lastScrollLine,
+      location.line - viewportLines + 1)) * 18'f32,
+      18'f32, float32(lastScrollLine) * 18'f32)
 
 proc closeSplit*(session: var EditorSession) =
   session.split = false

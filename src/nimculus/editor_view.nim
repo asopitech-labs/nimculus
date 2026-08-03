@@ -15,6 +15,11 @@ type
     ## atomically with it.
     additionalSelections*: seq[Selection]
     scrollLine*: int
+    ## Continuous top-of-viewport position in logical pixels. `scrollLine`
+    ## and `scrollYFraction` are derived compatibility fields for callers and
+    ## persisted sessions that still address the viewport by line.
+    scrollYPixels*: float32
+    scrollYFraction*: float32
     scrollX*: float32
     showLineNumbers*, softWrap*, showIndentGuides*: bool
     indentWidth*: int
@@ -26,11 +31,39 @@ type
     statusMessage*: string
 
 proc newEditorView*(): EditorViewState =
-  # macOS currently has no horizontal editor scrollbar. Keep long lines
-  # visible inside the content viewport by default; an explicitly persisted
-  # false value still lets users choose the Zed-style unwrapped view.
+  # Soft-wrap is on by default so long lines reflow and stay fully visible.
+  # Turning it off shows the horizontal scrollbar and scrolls long lines
+  # sideways instead. Toggle per pane via View > Toggle Soft Wrap.
   EditorViewState(showLineNumbers: true, softWrap: true,
     showIndentGuides: true, indentWidth: 2)
+
+proc reconcileScrollPosition*(view: var EditorViewState, lineHeight = 18'f32,
+                              maxScrollPixels = -1'f32) =
+  ## Keep the new continuous position compatible with old code that assigns
+  ## `scrollLine` directly. A disagreement means a legacy caller changed the
+  ## line field, so adopt that value before deriving the display fields.
+  let height = max(1'f32, lineHeight)
+  let derivedLine = int(floor(max(0'f32, view.scrollYPixels) / height))
+  let legacyFraction = if view.scrollLine == derivedLine:
+    max(0'f32, view.scrollYFraction) else: 0'f32
+  let legacyPixels = max(0'f32, float32(max(0, view.scrollLine)) * height +
+    legacyFraction)
+  if abs(view.scrollYPixels - legacyPixels) > 0.01'f32:
+    view.scrollYPixels = legacyPixels
+  if maxScrollPixels >= 0'f32:
+    view.scrollYPixels = min(view.scrollYPixels, maxScrollPixels)
+  view.scrollYPixels = max(0'f32, view.scrollYPixels)
+  view.scrollLine = int(floor(view.scrollYPixels / height))
+  view.scrollYFraction = view.scrollYPixels - float32(view.scrollLine) * height
+
+proc setScrollYPixels*(view: var EditorViewState, pixels, lineHeight: float32,
+                       maxScrollPixels = -1'f32) =
+  let height = max(1'f32, lineHeight)
+  view.scrollYPixels = max(0'f32, pixels)
+  if maxScrollPixels >= 0'f32:
+    view.scrollYPixels = min(view.scrollYPixels, maxScrollPixels)
+  view.scrollLine = int(floor(view.scrollYPixels / height))
+  view.scrollYFraction = view.scrollYPixels - float32(view.scrollLine) * height
 
 proc cursor*(view: EditorViewState): int = view.selection.active
 
@@ -207,6 +240,13 @@ proc scrollLineDelta*(remainder: var float32, deltaY: float32,
   let whole = if remainder >= 0'f32: floor(remainder) else: ceil(remainder)
   result = int(whole)
   remainder -= float32(result)
+
+proc scrollPixelDelta*(remainder: var float32, deltaY: float32,
+                       precise: bool, lineHeight = 18'f32): float32 =
+  ## Preserve the established line/remainder conversion for callers that
+  ## still need it, while exposing the same event as a continuous pixel delta.
+  discard scrollLineDelta(remainder, deltaY, precise, lineHeight)
+  result = (if precise: -deltaY else: -deltaY * max(1'f32, lineHeight))
 
 proc selectedRange*(view: EditorViewState): tuple[startByte, endByte: int] =
   (startByte: min(view.selection.anchor, view.selection.active),

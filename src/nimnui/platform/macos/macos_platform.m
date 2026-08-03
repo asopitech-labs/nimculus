@@ -65,6 +65,7 @@ static BOOL g_secondary_editor_visible = NO;
 static double g_secondary_editor_cursor[2] = {8.0, 12.0};
 static NSUInteger g_secondary_editor_cursor_line = 0;
 static NSUInteger g_secondary_editor_scroll_line = 0;
+static CGFloat g_secondary_editor_scroll_y_fraction = 0.0;
 static CGFloat g_secondary_editor_scroll_x = 0.0;
 static NSUInteger g_secondary_editor_selection_start = 0;
 static NSUInteger g_secondary_editor_selection_end = 0;
@@ -92,6 +93,7 @@ static NSString *g_editor_font_name = @"Menlo";
 static CGFloat g_terminal_font_size = 12.0;
 static NSString *g_terminal_font_name = @"Menlo";
 static NSUInteger g_editor_scroll_line = 0;
+static CGFloat g_editor_scroll_y_fraction = 0.0;
 static CGFloat g_editor_scroll_x = 0.0;
 static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
@@ -1353,25 +1355,25 @@ static CGFloat editorLineHeight(void) { return g_editor_line_height; }
 // for atlas glyphs, Core Text fallback, cursor geometry, and hit testing so
 // the first row cannot be clipped by the pane's top boundary.
 static CGFloat editorTextLineBottom(CGFloat editorHeight, CGFloat lineHeight,
-                                    NSUInteger displayIndex) {
+                                    CGFloat displayIndex) {
   return editorHeight - NimculusEditorTextTopInset -
-    lineHeight * (CGFloat)(displayIndex + 1);
+    lineHeight * (displayIndex + 1.0) + g_editor_scroll_y_fraction;
 }
 
 static CGFloat editorTextBaseline(CGFloat editorHeight, CGFloat lineHeight,
-                                  CTFontRef font, NSUInteger displayIndex) {
+                                  CTFontRef font, CGFloat displayIndex) {
   CGFloat ascent = font ? CTFontGetAscent(font) : lineHeight * 0.78;
   CGFloat descent = font ? CTFontGetDescent(font) : lineHeight * 0.22;
   CGFloat paddingTop = MAX(0.0, (lineHeight - ascent - descent) / 2.0);
   CGFloat lineTop = NimculusEditorTextTopInset +
-    lineHeight * (CGFloat)displayIndex;
+    lineHeight * displayIndex - g_editor_scroll_y_fraction;
   return editorHeight - lineTop - paddingTop - ascent -
     NimculusEditorTextGlyphSafety;
 }
 
-static CGFloat editorTextCursorYForRow(NSUInteger displayRow) {
+static CGFloat editorTextCursorYForRow(CGFloat displayRow) {
   return NimculusEditorTextTopInset + editorLineHeight() *
-    (CGFloat)displayRow + editorLineHeight() / 2.0;
+    displayRow + editorLineHeight() / 2.0 - g_editor_scroll_y_fraction;
 }
 
 static NSUInteger utf16OffsetForUTF8Bytes(NSString *line, NSUInteger targetBytes) {
@@ -1450,6 +1452,20 @@ static CGFloat editorTextOffset(NSString *line, NSUInteger utf16Index) {
   [attributed release];
   CFRelease(font);
   return offset;
+}
+
+static CGFloat editorWidestVisibleLineWidth(void) {
+  if (g_editor_soft_wrap) return 0.0;
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
+  NSUInteger first = editorFirstVisibleLine(g_editor_scroll_line, lines.count);
+  NSUInteger capacity = editorVisibleLineCapacity(g_editor_rect, editorLineHeight());
+  NSUInteger end = MIN(lines.count, first + capacity + 1);
+  CGFloat widest = 0.0;
+  for (NSUInteger index = first; index < end; index++) {
+    if (editorLineIsFolded(index)) continue;
+    widest = MAX(widest, editorTextOffset(lines[index], lines[index].length));
+  }
+  return widest;
 }
 
 static CGFloat editorWrapWidth(void) {
@@ -1534,7 +1550,7 @@ static CGPoint editorSoftWrapPointForUTF16Offset(NSUInteger documentOffset) {
       NSInteger visibleRow = displayRow + rowInLine >= scrollRow
         ? (NSInteger)(displayRow + rowInLine - scrollRow) : 0;
       return CGPointMake(8.0 + editorTextOffset(segment, localOffset),
-        editorTextCursorYForRow((NSUInteger)MAX(0, visibleRow)));
+        editorTextCursorYForRow((CGFloat)MAX(0, visibleRow)));
     }
     segmentStart += segmentLength;
     rowInLine++;
@@ -1542,7 +1558,7 @@ static CGPoint editorSoftWrapPointForUTF16Offset(NSUInteger documentOffset) {
   NSInteger visibleRow = displayRow + rowInLine >= scrollRow
     ? (NSInteger)(displayRow + rowInLine - scrollRow) : 0;
   return CGPointMake(8.0 + editorTextOffset(@"", 0),
-    editorTextCursorYForRow((NSUInteger)MAX(0, visibleRow)));
+    editorTextCursorYForRow((CGFloat)MAX(0, visibleRow)));
 }
 
 static CGPoint editorPointForUTF16Offset(NSUInteger documentOffset) {
@@ -1565,12 +1581,12 @@ static CGPoint editorPointForUTF16Offset(NSUInteger documentOffset) {
     if (!editorLineIsFolded(index)) visibleLine++;
   }
   return CGPointMake(8.0 + editorTextOffset(lineText, remaining) - g_editor_scroll_x,
-                     editorTextCursorYForRow(visibleLine));
+                     editorTextCursorYForRow((CGFloat)visibleLine));
 }
 
 static CGPoint editorPointForUTF8Offset(NSUInteger byteOffset) {
   NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
-  if (lines.count == 0) return CGPointMake(8.0, editorTextCursorYForRow(0));
+  if (lines.count == 0) return CGPointMake(8.0, editorTextCursorYForRow(0.0));
   NSUInteger bounded = MIN(byteOffset, (NSUInteger)[g_editor_text lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
   NSUInteger lineIndex = 0;
   for (NSUInteger index = 1; index < lines.count; index++) {
@@ -1616,8 +1632,8 @@ static NSUInteger editorUTF16OffsetAtPoint(double x, double y) {
   if (lines.count == 0) return 0;
   CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
   CGFloat fromTop = viewHeight - y - g_editor_rect[1];
-  NSInteger targetRow = MAX(0, (NSInteger)floor((fromTop - NimculusEditorHitTestTopInset) /
-    editorLineHeight()));
+  NSInteger targetRow = MAX(0, (NSInteger)floor((fromTop - NimculusEditorHitTestTopInset +
+    g_editor_scroll_y_fraction) / editorLineHeight()));
   NSUInteger lineIndex = editorFirstVisibleLine(g_editor_scroll_line, lines.count);
   NSUInteger rowInLine = (NSUInteger)targetRow;
   while (lineIndex < lines.count) {
@@ -1815,6 +1831,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   const CGFloat lineHeight = editorLineHeight();
   NSUInteger visibleLines = editorVisibleLineCountFrom(startLine, lines.count,
     editorVisibleLineCapacity(g_editor_rect, lineHeight));
+  const NSUInteger topExtraLine = startLine > 0 ? 1 : 0;
+  if (!g_editor_soft_wrap) visibleLines += topExtraLine + 1;
   NSUInteger lineStartByte = editorLineUTF8Offset(startLine, lines);
   NSUInteger lineStartUnit = editorLineUTF16Offset(startLine, lines);
   NimculusEditorSelection *editorSelectionsForRender = editorSelections();
@@ -1911,19 +1929,27 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       (CFAttributedStringRef)wrappedAttributed);
     CGMutablePathRef path = CGPathCreateMutable();
     CGPathAddRect(path, NULL, editorTextViewportCoreGraphicsRect(g_editor_rect));
+    CGContextSaveGState(context);
+    // Core Graphics uses a bottom-origin texture. Translating by the
+    // fraction here moves the top-origin document content upward by the same
+    // amount as the fixed-line fallback below.
+    CGContextTranslateCTM(context, 0.0, g_editor_scroll_y_fraction);
     CTFrameRef frame = CTFramesetterCreateFrame(framesetter,
       CFRangeMake(0, wrappedText.length), path, NULL);
     if (frame) {
       CTFrameDraw(frame, context);
       CFRelease(frame);
     }
+    CGContextRestoreGState(context);
     CGPathRelease(path);
     CFRelease(framesetter);
     [wrappedAttributed release];
   } else {
-    NSUInteger sourceIndex = startLine;
+    NSUInteger sourceIndex = startLine > 0 ? startLine - 1 : startLine;
     for (NSUInteger displayIndex = 0; displayIndex < visibleLines; displayIndex++) {
     NSUInteger index = sourceIndex;
+    if (index >= lines.count) break;
+    CGFloat renderedIndex = (CGFloat)displayIndex - (CGFloat)topExtraLine;
     NSString *lineText = lines[index];
     NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
     lineStartByte = editorLineUTF8Offset(index, lines);
@@ -1937,7 +1963,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         colorWithAlphaComponent:0.16];
       CGContextSetFillColorWithColor(context, currentLine.CGColor);
       CGContextFillRect(context, CGRectMake(0.0,
-        editorTextLineBottom(logicalHeight, lineHeight, displayIndex) - 3.0,
+        editorTextLineBottom(logicalHeight, lineHeight, renderedIndex) - 3.0,
         MAX(1.0, g_editor_rect[2]), lineHeight));
     }
     NimculusGitHunkSpan *hunks = g_rendering_secondary_editor
@@ -1959,7 +1985,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       // Zed's diff map: the low-alpha body fill remains readable below text.
       CGContextSetRGBFillColor(context, red, green, blue, 0.10);
       CGContextFillRect(context, CGRectMake(8.0,
-        editorTextLineBottom(logicalHeight, lineHeight, displayIndex) - 4.0,
+        editorTextLineBottom(logicalHeight, lineHeight, renderedIndex) - 4.0,
         MAX(1.0, g_editor_rect[2] - 8.0), 20.0));
       break;
     }
@@ -1979,7 +2005,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         colorWithAlphaComponent:0.45];
       CGContextSetFillColorWithColor(context, selectionColor.CGColor);
       CGContextFillRect(context, CGRectMake(8.0 + editorTextOffset(lineText, startUnit) - g_editor_scroll_x,
-        editorTextLineBottom(logicalHeight, lineHeight, displayIndex) - 4.0,
+        editorTextLineBottom(logicalHeight, lineHeight, renderedIndex) - 4.0,
         MAX(1.0, editorTextOffset(lineText, endUnit) - editorTextOffset(lineText, startUnit)), 20.0));
     }
     for (uint32_t hunkIndex = 0; hunkIndex < hunkCount; hunkIndex++) {
@@ -1995,7 +2021,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       }
       CGContextSetRGBFillColor(context, red, green, blue, 0.95);
       CGContextFillRect(context, CGRectMake(1.0,
-        editorTextLineBottom(logicalHeight, lineHeight, displayIndex) - 1.0,
+        editorTextLineBottom(logicalHeight, lineHeight, renderedIndex) - 1.0,
         3.0, 16.0));
       break;
     }
@@ -2025,7 +2051,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     if (drawFallbackText || drawColorEmojiFallback) {
       CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
       CGContextSetTextPosition(context, 8.0 - g_editor_scroll_x,
-        editorTextBaseline(logicalHeight, lineHeight, font, displayIndex));
+        editorTextBaseline(logicalHeight, lineHeight, font, renderedIndex));
       CTLineDraw(line, context);
       CFRelease(line);
     }
@@ -2055,7 +2081,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       CGContextSetLineWidth(context, 1.0);
       CGFloat x0 = 8.0 + editorTextOffset(lineText, startUnit) - g_editor_scroll_x;
       CGFloat x1 = 8.0 + editorTextOffset(lineText, endUnit) - g_editor_scroll_x;
-      CGFloat y = editorTextLineBottom(logicalHeight, lineHeight, displayIndex) - 1.5;
+      CGFloat y = editorTextLineBottom(logicalHeight, lineHeight, renderedIndex) - 1.5;
       CGContextMoveToPoint(context, x0, y);
       CGContextAddLineToPoint(context, MAX(x0 + 2.0, x1), y);
       CGContextStrokePath(context);
@@ -2182,6 +2208,7 @@ static void rebuildSecondaryEditorTexture(id<MTLDevice> device) {
     g_editor_rect[2], g_editor_rect[3]};
   double previousCursor[2] = {g_editor_cursor[0], g_editor_cursor[1]};
   NSUInteger previousScrollLine = g_editor_scroll_line;
+  CGFloat previousScrollYFraction = g_editor_scroll_y_fraction;
   CGFloat previousScrollX = g_editor_scroll_x;
   NSUInteger previousCursorLine = g_editor_cursor_line;
   NSUInteger previousSelectionStart = g_editor_selection_start;
@@ -2192,6 +2219,7 @@ static void rebuildSecondaryEditorTexture(id<MTLDevice> device) {
   memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
   memcpy(g_editor_cursor, g_secondary_editor_cursor, sizeof(g_editor_cursor));
   g_editor_scroll_line = g_secondary_editor_scroll_line;
+  g_editor_scroll_y_fraction = g_secondary_editor_scroll_y_fraction;
   g_editor_scroll_x = g_secondary_editor_scroll_x;
   g_editor_cursor_line = g_secondary_editor_cursor_line;
   g_editor_selection_start = g_secondary_editor_selection_start;
@@ -2212,6 +2240,7 @@ static void rebuildSecondaryEditorTexture(id<MTLDevice> device) {
   memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
   memcpy(g_editor_cursor, previousCursor, sizeof(g_editor_cursor));
   g_editor_scroll_line = previousScrollLine;
+  g_editor_scroll_y_fraction = previousScrollYFraction;
   g_editor_scroll_x = previousScrollX;
   g_editor_cursor_line = previousCursorLine;
   g_editor_selection_start = previousSelectionStart;
@@ -2444,6 +2473,8 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
   const CGFloat lineHeight = editorLineHeight();
   NSUInteger visibleLines = editorVisibleLineCountFrom(startLine, lines.count,
     editorVisibleLineCapacity(g_editor_rect, lineHeight));
+  const NSUInteger atlasTopExtraLine = startLine > 0 ? 1 : 0;
+  visibleLines += atlasTopExtraLine + 1;
   NSUInteger lineStartByte = editorLineUTF8Offset(startLine, lines);
   CGSize editorSize = CGSizeMake(MAX(1.0, g_editor_rect[2]),
                                  MAX(1.0, g_editor_rect[3]));
@@ -2453,8 +2484,9 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
                                     g_editor_rect[1] + editorSize.height));
   CGRect editorRect = CGRectMake(g_editor_rect[0], g_editor_rect[1],
                                  editorSize.width, editorSize.height);
-  NSUInteger sourceIndex = startLine;
+  NSUInteger sourceIndex = startLine > 0 ? startLine - 1 : startLine;
   for (NSUInteger displayIndex = 0; displayIndex < visibleLines; displayIndex++) {
+    if (sourceIndex >= lines.count) break;
     NSString *lineText = lines[sourceIndex];
     lineStartByte = editorLineUTF8Offset(sourceIndex, lines);
     NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
@@ -2483,7 +2515,7 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
     CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
     CFArrayRef runs = CTLineGetGlyphRuns(line);
     CGFloat baselineY = editorTextBaseline(editorSize.height, lineHeight,
-      baseFont, displayIndex);
+      baseFont, (CGFloat)displayIndex - (CGFloat)atlasTopExtraLine);
     for (CFIndex runIndex = 0; runIndex < CFArrayGetCount(runs); runIndex++) {
       CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, runIndex);
       NSDictionary *runAttributes = (__bridge NSDictionary *)CTRunGetAttributes(run);
@@ -3997,13 +4029,15 @@ static void dismissExternalChangePanel(const char *command) {
   if (NSIsEmptyRect(gutterClip)) return;
   NSRectClip(gutterClip);
   NSUInteger first = editorFirstVisibleLine(g_editor_scroll_line, lines.count);
+  const BOOL hasTopExtraLine = first > 0;
+  if (hasTopExtraLine) first--;
   NSDictionary *attributes = @{
     NSFontAttributeName: [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular],
     NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0])
       colorWithAlphaComponent:0.58]
   };
-  NSUInteger visibleRows = 0;
+  CGFloat visibleRows = hasTopExtraLine ? -1.0 : 0.0;
   CGFloat usableHeight = NSHeight(gutterClip) - NimculusEditorTextGlyphSafety * 2.0;
   NSUInteger maxRows = (NSUInteger)MAX(1.0,
     floor(MAX(0.0, usableHeight) / editorLineHeight()));
@@ -4014,7 +4048,8 @@ static void dismissExternalChangePanel(const char *command) {
     }
     NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)index + 1];
     NSSize size = [number sizeWithAttributes:attributes];
-    CGFloat y = NSMinY(gutterClip) + visibleRows * editorLineHeight() + 1.0;
+    CGFloat y = NSMinY(gutterClip) + visibleRows * editorLineHeight() -
+      g_editor_scroll_y_fraction + 1.0;
     [number drawAtPoint:NSMakePoint(MAX(2.0, self.bounds.size.width - size.width - 6.0), y)
       withAttributes:attributes];
     if (editorLineHasFoldStart(index)) {
@@ -4060,7 +4095,8 @@ static void dismissExternalChangePanel(const char *command) {
       index = editorFirstVisibleLine(index, lines.count);
       continue;
     }
-    CGFloat rowY = textClip.origin.y + visibleRows * lineHeight;
+    CGFloat rowY = textClip.origin.y + visibleRows * lineHeight -
+      g_editor_scroll_y_fraction;
     if (rowY >= NSMaxY(textClip)) break;
     NSString *text = lines[index];
     NSUInteger columns = 0;
@@ -5422,11 +5458,13 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
   double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
     g_editor_rect[2], g_editor_rect[3]};
   NSUInteger previousScrollLine = g_editor_scroll_line;
+  CGFloat previousScrollYFraction = g_editor_scroll_y_fraction;
   CGFloat previousScrollX = g_editor_scroll_x;
   BOOL previousSoftWrap = g_editor_soft_wrap;
   if (secondary) {
     memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
     g_editor_scroll_line = g_secondary_editor_scroll_line;
+    g_editor_scroll_y_fraction = g_secondary_editor_scroll_y_fraction;
     g_editor_scroll_x = g_secondary_editor_scroll_x;
     g_editor_soft_wrap = g_secondary_editor_soft_wrap;
     swapEditorTextState();
@@ -5459,6 +5497,7 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
     swapEditorTextState();
     memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
     g_editor_scroll_line = previousScrollLine;
+    g_editor_scroll_y_fraction = previousScrollYFraction;
     g_editor_scroll_x = previousScrollX;
     g_editor_soft_wrap = previousSoftWrap;
   }
@@ -7219,17 +7258,20 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   CGFloat lineHeight = editorLineHeight();
   double *rect = secondary ? g_secondary_editor_rect : g_editor_rect;
   NSUInteger previousScrollLine = g_editor_scroll_line;
+  CGFloat previousScrollYFraction = g_editor_scroll_y_fraction;
   CGFloat previousScrollX = g_editor_scroll_x;
   BOOL previousSoftWrap = g_editor_soft_wrap;
   if (secondary) {
     swapEditorTextState();
     g_editor_scroll_line = g_secondary_editor_scroll_line;
+    g_editor_scroll_y_fraction = g_secondary_editor_scroll_y_fraction;
     g_editor_scroll_x = g_secondary_editor_scroll_x;
     g_editor_soft_wrap = g_secondary_editor_soft_wrap;
   }
   CGPoint logical = editorPointForUTF16Offset(start);
   if (secondary) swapEditorTextState();
   g_editor_scroll_line = previousScrollLine;
+  g_editor_scroll_y_fraction = previousScrollYFraction;
   g_editor_scroll_x = previousScrollX;
   g_editor_soft_wrap = previousSoftWrap;
   CGFloat viewY = self.bounds.size.height - rect[1] - logical.y - lineHeight;
@@ -7250,6 +7292,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
     g_editor_rect[2], g_editor_rect[3]};
   NSUInteger previousScrollLine = g_editor_scroll_line;
+  CGFloat previousScrollYFraction = g_editor_scroll_y_fraction;
   CGFloat previousScrollX = g_editor_scroll_x;
   BOOL previousSoftWrap = g_editor_soft_wrap;
   BOOL previousRenderingSecondary = g_rendering_secondary_editor;
@@ -7257,6 +7300,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   g_rendering_secondary_editor = YES;
   memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
   g_editor_scroll_line = g_secondary_editor_scroll_line;
+  g_editor_scroll_y_fraction = g_secondary_editor_scroll_y_fraction;
   g_editor_scroll_x = g_secondary_editor_scroll_x;
   g_editor_soft_wrap = g_secondary_editor_soft_wrap;
   NSUInteger result = nimculus_platform_editor_utf16_offset_at_point(viewPoint.x, viewPoint.y);
@@ -7264,6 +7308,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   g_rendering_secondary_editor = previousRenderingSecondary;
   memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
   g_editor_scroll_line = previousScrollLine;
+  g_editor_scroll_y_fraction = previousScrollYFraction;
   g_editor_scroll_x = previousScrollX;
   g_editor_soft_wrap = previousSoftWrap;
   return result;
@@ -7276,8 +7321,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) return 0.0;
   CGFloat fromTop = self.bounds.size.height - viewPoint.y - g_editor_rect[1];
-  NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - NimculusEditorHitTestTopInset) /
-    editorLineHeight()));
+  NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - NimculusEditorHitTestTopInset +
+    g_editor_scroll_y_fraction) / editorLineHeight()));
   lineIndex = MIN(lineIndex + (NSInteger)g_editor_scroll_line, (NSInteger)lines.count - 1);
   NSString *lineText = lines[(NSUInteger)lineIndex];
   CTFontRef font = editorFont();
@@ -11376,8 +11421,8 @@ uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y) {
   if (lines.count == 0) return 0;
   CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
   CGFloat fromTop = viewHeight - y - g_editor_rect[1];
-  NSInteger targetRow = MAX(0, (NSInteger)floor((fromTop - NimculusEditorHitTestTopInset) /
-    editorLineHeight()));
+  NSInteger targetRow = MAX(0, (NSInteger)floor((fromTop - NimculusEditorHitTestTopInset +
+    g_editor_scroll_y_fraction) / editorLineHeight()));
   NSUInteger lineIndex = editorFirstVisibleLine(g_editor_scroll_line, lines.count);
   while (lineIndex < lines.count && targetRow > 0) {
     lineIndex = editorFirstVisibleLine(lineIndex + 1, lines.count);
@@ -11410,8 +11455,8 @@ uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y) {
   if (lines.count == 0) return 0;
   CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
   CGFloat fromTop = viewHeight - y - g_editor_rect[1];
-  NSInteger targetRow = MAX(0, (NSInteger)floor((fromTop - NimculusEditorHitTestTopInset) /
-    editorLineHeight()));
+  NSInteger targetRow = MAX(0, (NSInteger)floor((fromTop - NimculusEditorHitTestTopInset +
+    g_editor_scroll_y_fraction) / editorLineHeight()));
   NSUInteger lineIndex = editorFirstVisibleLine(g_editor_scroll_line, lines.count);
   while (lineIndex < lines.count && targetRow > 0) {
     lineIndex = editorFirstVisibleLine(lineIndex + 1, lines.count);
@@ -11440,6 +11485,7 @@ uint32_t nimculus_platform_secondary_editor_byte_offset_at_point(double x, doubl
   double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
     g_editor_rect[2], g_editor_rect[3]};
   NSUInteger previousScrollLine = g_editor_scroll_line;
+  CGFloat previousScrollYFraction = g_editor_scroll_y_fraction;
   CGFloat previousScrollX = g_editor_scroll_x;
   BOOL previousSoftWrap = g_editor_soft_wrap;
   BOOL previousRenderingSecondary = g_rendering_secondary_editor;
@@ -11447,6 +11493,7 @@ uint32_t nimculus_platform_secondary_editor_byte_offset_at_point(double x, doubl
   g_rendering_secondary_editor = YES;
   memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
   g_editor_scroll_line = g_secondary_editor_scroll_line;
+  g_editor_scroll_y_fraction = g_secondary_editor_scroll_y_fraction;
   g_editor_scroll_x = g_secondary_editor_scroll_x;
   g_editor_soft_wrap = g_secondary_editor_soft_wrap;
   uint32_t result = nimculus_platform_editor_byte_offset_at_point(x, y);
@@ -11454,6 +11501,7 @@ uint32_t nimculus_platform_secondary_editor_byte_offset_at_point(double x, doubl
   g_rendering_secondary_editor = previousRenderingSecondary;
   memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
   g_editor_scroll_line = previousScrollLine;
+  g_editor_scroll_y_fraction = previousScrollYFraction;
   g_editor_scroll_x = previousScrollX;
   g_editor_soft_wrap = previousSoftWrap;
   return result;
@@ -11469,6 +11517,19 @@ void nimculus_platform_set_editor_scroll_line(uint32_t line) {
   if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
+void nimculus_platform_set_editor_scroll_y_fraction(double pixels) {
+  g_editor_scroll_y_fraction = MIN(MAX(0.0, pixels),
+    MAX(0.0, editorLineHeight() - 0.001));
+  if (g_active_view) {
+    for (NSView *subview in ((NimculusMetalView *)g_active_view).subviews) {
+      if ([subview isKindOfClass:[NimculusLineNumberOverlay class]])
+        [subview setNeedsDisplay:YES];
+    }
+  }
+  markSceneFullyDirty();
+  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
+}
 void nimculus_platform_set_editor_scroll_x(double offset) {
   g_editor_scroll_x = MAX(0.0, offset);
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
@@ -11476,6 +11537,9 @@ void nimculus_platform_set_editor_scroll_x(double offset) {
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 double nimculus_platform_editor_scroll_x(void) { return g_editor_scroll_x; }
+double nimculus_platform_editor_widest_visible_line_width(void) {
+  return editorWidestVisibleLineWidth();
+}
 void nimculus_platform_set_editor_rect(double x, double y, double width, double height) {
   g_editor_rect[0] = MAX(0.0, x);
   g_editor_rect[1] = MAX(0.0, y);
@@ -11527,14 +11591,17 @@ void nimculus_platform_set_secondary_editor_cursor_byte(uint32_t byte_offset, ui
   NSUInteger utf16 = utf16OffsetForUTF8Bytes(lineText, localByte);
   NSUInteger documentOffset = editorLineUTF16Offset(lineIndex, lines);
   NSUInteger previousScrollLine = g_editor_scroll_line;
+  CGFloat previousScrollYFraction = g_editor_scroll_y_fraction;
   CGFloat previousScrollX = g_editor_scroll_x;
   BOOL previousSoftWrap = g_editor_soft_wrap;
   g_editor_scroll_line = g_secondary_editor_scroll_line;
+  g_editor_scroll_y_fraction = g_secondary_editor_scroll_y_fraction;
   g_editor_scroll_x = g_secondary_editor_scroll_x;
   g_editor_soft_wrap = g_secondary_editor_soft_wrap;
   CGPoint point = editorEnsureCursorVisible(documentOffset + utf16);
   g_secondary_editor_scroll_x = g_editor_scroll_x;
   g_editor_scroll_line = previousScrollLine;
+  g_editor_scroll_y_fraction = previousScrollYFraction;
   g_editor_scroll_x = previousScrollX;
   g_editor_soft_wrap = previousSoftWrap;
   g_secondary_editor_cursor[0] = point.x;
@@ -11584,6 +11651,13 @@ void nimculus_platform_set_secondary_editor_scroll_line(uint32_t line) {
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
+void nimculus_platform_set_secondary_editor_scroll_y_fraction(double pixels) {
+  g_secondary_editor_scroll_y_fraction = MIN(MAX(0.0, pixels),
+    MAX(0.0, editorLineHeight() - 0.001));
+  if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
+  markSceneFullyDirty();
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
+}
 void nimculus_platform_set_secondary_editor_scroll_x(double offset) {
   g_secondary_editor_scroll_x = MAX(0.0, offset);
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
@@ -11592,6 +11666,32 @@ void nimculus_platform_set_secondary_editor_scroll_x(double offset) {
 }
 double nimculus_platform_secondary_editor_scroll_x(void) {
   return g_secondary_editor_scroll_x;
+}
+double nimculus_platform_secondary_editor_widest_visible_line_width(void) {
+  if (!g_secondary_editor_visible || g_secondary_editor_soft_wrap) return 0.0;
+  double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
+    g_editor_rect[2], g_editor_rect[3]};
+  NSUInteger previousScrollLine = g_editor_scroll_line;
+  CGFloat previousScrollYFraction = g_editor_scroll_y_fraction;
+  CGFloat previousScrollX = g_editor_scroll_x;
+  BOOL previousSoftWrap = g_editor_soft_wrap;
+  BOOL previousRenderingSecondary = g_rendering_secondary_editor;
+  swapEditorTextState();
+  g_rendering_secondary_editor = YES;
+  memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
+  g_editor_scroll_line = g_secondary_editor_scroll_line;
+  g_editor_scroll_y_fraction = g_secondary_editor_scroll_y_fraction;
+  g_editor_scroll_x = g_secondary_editor_scroll_x;
+  g_editor_soft_wrap = g_secondary_editor_soft_wrap;
+  double result = editorWidestVisibleLineWidth();
+  swapEditorTextState();
+  g_rendering_secondary_editor = previousRenderingSecondary;
+  memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
+  g_editor_scroll_line = previousScrollLine;
+  g_editor_scroll_y_fraction = previousScrollYFraction;
+  g_editor_scroll_x = previousScrollX;
+  g_editor_soft_wrap = previousSoftWrap;
+  return result;
 }
 void nimculus_platform_set_secondary_editor_soft_wrap(bool enabled) {
   g_secondary_editor_soft_wrap = enabled ? YES : NO;

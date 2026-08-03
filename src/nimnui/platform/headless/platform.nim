@@ -66,6 +66,7 @@ proc platformEditorByteOffsetAtPoint*(x, y: cdouble): uint32 = 0
 proc platformEditorUtf16OffsetAtPoint*(x, y: cdouble): uint32 = 0
 when not defined(windows):
   proc platformSetEditorScrollLine*(line: uint32) = discard line
+  proc platformSetEditorScrollYFraction*(pixels: cdouble) = discard pixels
 when not defined(windows):
   proc platformSetEditorRect*(x, y, width, height: cdouble) = discard (x, y, width, height)
 when not defined(windows):
