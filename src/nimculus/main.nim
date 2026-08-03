@@ -144,10 +144,10 @@ var activePointerNode = NodeId(0)
 var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 var demoSecondaryEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 var demoBottomDockBounds = Rect(size: Size(width: px(0), height: px(0)))
-# Match Zed's macOS workspace: Project is presented on the right while the
-# core still owns it as the logical left dock. Other platforms preserve their
-# native left-side presentation.
-const MacProjectDockOnRight = defined(macosx)
+# Match Zed's default macOS workspace: the activity bar is outermost left and
+# the Files panel sits immediately inside it. WorkspaceUiState already owns
+# the logical left dock, so the macOS projection uses the same side.
+const MacProjectDockOnRight = false
 when defined(macosx) or defined(windows):
   var appSettings: SettingsStore
   var editorLspSemanticTokens: seq[LspSemanticToken]
@@ -276,10 +276,8 @@ proc setupDemoUi() =
     nativePresenterMinimum)
   let sidebarCanPresent = not MacProjectDockOnRight or leftDockWidth > 0'f32
   let bottomDockHeight = float32(workspaceLayout.bottomDock.size.height)
-  # Zed's current macOS workspace presents Project on the right. Preserve the
-  # core's logical left dock (commands, focus, and persistence) and map only
-  # the macOS presentation to the right; other platforms retain their own
-  # native convention without inheriting an artificial shared abstraction.
+  # Keep the platform projection aligned with WorkspaceUiState: the logical
+  # left dock is also the visible macOS left dock.
   let contentX = if MacProjectDockOnRight: 0'f32 else: leftDockWidth
   let contentWidth = max(0'f32, viewportWidth - leftDockWidth)
   demoBottomDockBounds = Rect(origin: Point(x: px(contentX),
@@ -294,10 +292,7 @@ proc setupDemoUi() =
   # Preserve the mature editor presenter's internal gutters while making the
   # composition boundary authoritative: the dock owns its width and the
   # center receives the remainder.
-  let editorWidth = if MacProjectDockOnRight:
-      max(0'f32, contentWidth - 28'f32)
-    else:
-      max(0'f32, float32(workspaceLayout.center.size.width) - 112'f32)
+  let editorWidth = max(0'f32, contentWidth - 28'f32)
   # Keep a compact Zed-like workspace header. The AppKit traffic lights sit
   # over the app-owned titlebar, while this Metal view remains the content
   # region below it. Breadcrumb, tabs, and text occupy the first 56pt of the
@@ -333,9 +328,8 @@ proc setupDemoUi() =
     demoSplitRatio = editorWorkspaceUi.center.ratio
   demoEditorBounds = primaryEditor
   demoSecondaryEditorBounds = secondaryEditor
-  let scrollbar = Rect(origin: Point(x: px(if MacProjectDockOnRight:
-      float32(editor.origin.x) + editorWidth - 14'f32
-    else: float32(editor.origin.x) + editorWidth + 24'f32), y: editor.origin.y),
+  let scrollbar = Rect(origin: Point(x: px(float32(editor.origin.x) + editorWidth - 14'f32),
+      y: editor.origin.y),
     size: Size(width: px(8), height: px(max(0'f32, editorHeight - 32'f32))))
   demoTree.node(button.node).bounds = toolbar
   demoTree.node(split.node).bounds = splitBar
@@ -4253,12 +4247,8 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
       except ValueError:
         discard
     let lineEnding = if document != nil and document[].lineEnding == crlf: "CRLF" else: "LF"
-    let activeFile = if document != nil and document[].path.len > 0:
-      splitFile(document[].path).name & splitFile(document[].path).ext
-      else: "No File"
-    let languageServer = if lspBridge != nil: "LSP" else: "LSP —"
+    let languageServer = if lspBridge != nil: "LSP: 接続済み" else: "LSP: なし"
     let footer = @[
-      activeFile,
       "Ln " & $(location.line + 1) & ", Col " & $(location.column + 1),
       "Spaces: " & $max(1, editorViewState.indentWidth),
       "UTF-8",

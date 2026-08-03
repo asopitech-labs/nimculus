@@ -157,6 +157,18 @@ static NSString *g_theme_accent = @"#4daafc";
 static NSString *g_theme_selection = @"#264f78";
 static NSString *g_theme_border = @"#3b4048";
 static NSDictionary<NSString *, NSString *> *g_theme_palette = nil;
+
+// Zed-aligned workspace tokens. Keep chrome geometry and semantic colors in
+// one platform-owned place so AppKit presenters do not grow independent
+// spacing or light/dark-theme conventions.
+static const CGFloat NimculusSpace1 = 4.0;
+static const CGFloat NimculusSpace2 = 8.0;
+static const CGFloat NimculusSpace3 = 12.0;
+static const CGFloat NimculusRowHeight = 28.0;
+static const CGFloat NimculusControlHit = 24.0;
+static const CGFloat NimculusActivityBarWidth = 34.0;
+static const CGFloat NimculusActivityIconSize = 28.0;
+
 static NSString *g_crash_report_path = nil;
 static NimculusTerminalRun *g_terminal_runs = NULL;
 static uint32_t g_terminal_run_count = 0;
@@ -380,25 +392,68 @@ static NSColor *themeHexColor(NSString *value, NSColor *fallback) {
 
 static NSString *themeRole(NSString *key, NSString *fallback) {
   NSString *value = g_theme_palette[key];
+  if (!value && [key isEqualToString:@"chromeBg"]) value = g_theme_palette[@"titleBar"] ?: g_theme_palette[@"background"];
+  if (!value && [key isEqualToString:@"fgPrimary"]) value = g_theme_palette[@"foreground"];
+  if (!value && [key isEqualToString:@"fgMuted"]) value = g_theme_palette[@"textMuted"] ?: g_theme_palette[@"foreground"];
+  if (!value && [key isEqualToString:@"accent"]) value = g_theme_palette[@"textAccent"] ?: g_theme_palette[@"accent"];
   return value.length == 7 && [value characterAtIndex:0] == '#' ? value : fallback;
 }
 
+static BOOL themeLooksLight(void) {
+  NSColor *background = themeHexColor(g_theme_background, nil);
+  if (!background) return NO;
+  CGFloat red = 0.0, green = 0.0, blue = 0.0, alpha = 1.0;
+  [background getRed:&red green:&green blue:&blue alpha:&alpha];
+  return (0.2126 * red + 0.7152 * green + 0.0722 * blue) > 0.55;
+}
+
+static NSColor *themeTokenFallback(NSString *key, NSColor *fallback) {
+  const BOOL light = themeLooksLight();
+  if ([key isEqualToString:@"chromeBg"]) {
+    return [NSColor colorWithCalibratedWhite:light ? 0.97 : 0.105 alpha:1.0];
+  }
+  if ([key isEqualToString:@"tabBar"]) {
+    return [NSColor colorWithCalibratedWhite:light ? 0.93 : 0.08 alpha:1.0];
+  }
+  if ([key isEqualToString:@"tabActive"]) {
+    return light ? [NSColor colorWithCalibratedRed:0.16 green:0.42 blue:0.78 alpha:1.0] :
+      [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0];
+  }
+  if ([key isEqualToString:@"border"]) {
+    return [NSColor colorWithCalibratedWhite:light ? 0.76 : 0.24 alpha:1.0];
+  }
+  if ([key isEqualToString:@"fgPrimary"]) {
+    return [NSColor colorWithCalibratedWhite:light ? 0.12 : 0.90 alpha:1.0];
+  }
+  if ([key isEqualToString:@"fgMuted"]) {
+    return [NSColor colorWithCalibratedWhite:light ? 0.38 : 0.72 alpha:1.0];
+  }
+  if ([key isEqualToString:@"accent"]) {
+    return light ? [NSColor colorWithCalibratedRed:0.08 green:0.35 blue:0.74 alpha:1.0] :
+      [NSColor colorWithCalibratedRed:0.30 green:0.67 blue:0.98 alpha:1.0];
+  }
+  return fallback;
+}
+
 static NSColor *themeRoleColor(NSString *key, NSColor *fallback) {
-  return themeHexColor(themeRole(key, nil), fallback);
+  return themeHexColor(themeRole(key, nil), themeTokenFallback(key, fallback));
 }
 
 static void styleWorkspaceNavigationButton(NSButton *button, BOOL active,
                                            BOOL imageOnly) {
   if (!button) return;
-  NSColor *foreground = themeHexColor(g_theme_foreground,
-    [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]);
-  NSColor *accent = themeHexColor(g_theme_accent, [NSColor controlAccentColor]);
+  NSColor *foreground = themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]));
+  NSColor *accent = themeRoleColor(@"accent", themeHexColor(g_theme_accent,
+    [NSColor controlAccentColor]));
+  NSColor *border = themeRoleColor(@"border", themeHexColor(g_theme_border,
+    [NSColor colorWithCalibratedWhite:0.24 alpha:1.0]));
   NSColor *tint = active ? accent : [foreground colorWithAlphaComponent:0.78];
   button.bordered = NO;
   button.wantsLayer = YES;
-  button.layer.cornerRadius = 5.0;
+  button.layer.cornerRadius = NimculusSpace1;
   button.layer.borderWidth = active ? 1.0 : 0.0;
-  button.layer.borderColor = [accent colorWithAlphaComponent:0.55].CGColor;
+  button.layer.borderColor = [border colorWithAlphaComponent:0.55].CGColor;
   button.layer.backgroundColor = [(active ? [accent colorWithAlphaComponent:0.22] :
     [foreground colorWithAlphaComponent:0.08]) CGColor];
   button.contentTintColor = tint;
@@ -849,6 +904,10 @@ static NimculusPaintRegion intersectPaintRegions(NimculusPaintRegion a,
 // chrome.  Do not use the pane rectangle as a text clip.
 static const CGFloat NimculusEditorTextTopInset = 6.0;
 static const CGFloat NimculusEditorTextGlyphSafety = 2.0;
+// Hit testing uses the midpoint boundary between adjacent rows. Keeping this
+// two points above the glyph clip preserves the established click contract at
+// the top edge without moving rendered text.
+static const CGFloat NimculusEditorHitTestTopInset = 4.0;
 
 static NimculusPaintRegion editorTextViewport(const double rect[4]) {
   // This is intentionally asymmetric. The left edge only needs a text
@@ -1420,7 +1479,7 @@ static NSUInteger editorUTF16OffsetAtPoint(double x, double y) {
   if (lines.count == 0) return 0;
   CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
   CGFloat fromTop = viewHeight - y - g_editor_rect[1];
-  NSInteger targetRow = MAX(0, (NSInteger)floor((fromTop - NimculusEditorTextTopInset) /
+  NSInteger targetRow = MAX(0, (NSInteger)floor((fromTop - NimculusEditorHitTestTopInset) /
     editorLineHeight()));
   NSUInteger lineIndex = editorFirstVisibleLine(g_editor_scroll_line, lines.count);
   NSUInteger rowInLine = (NSUInteger)targetRow;
@@ -2472,10 +2531,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     action:@selector(openBranches:)];
   self.branchButton.bordered = NO;
   self.branchButton.wantsLayer = YES;
-  self.branchButton.layer.cornerRadius = 5.0;
-  self.branchButton.layer.backgroundColor = [themeHexColor(g_theme_accent,
-    [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0])
-    colorWithAlphaComponent:0.16].CGColor;
+  self.branchButton.layer.cornerRadius = 0.0;
+  self.branchButton.layer.backgroundColor = NSColor.clearColor.CGColor;
+  self.branchButton.layer.borderWidth = 0.0;
   self.branchButton.toolTip = @"Git branch — click to open Branches";
   self.branchButton.accessibilityLabel = @"Git branch, open branch picker";
   [self addSubview:self.branchButton];
@@ -2487,18 +2545,18 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (BOOL)acceptsFirstResponder { return NO; }
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
-  NSColor *background = themeRoleColor(@"titleBar", themeHexColor(g_theme_background,
+  NSColor *background = themeRoleColor(@"chromeBg", themeHexColor(g_theme_background,
     [NSColor colorWithCalibratedRed:0.105 green:0.12 blue:0.15 alpha:1.0]));
   [background setFill];
   NSRectFill(self.bounds);
 
-  NSColor *border = [themeHexColor(g_theme_foreground,
-    [NSColor colorWithCalibratedWhite:0.85 alpha:1.0]) colorWithAlphaComponent:0.10];
+  NSColor *border = [themeRoleColor(@"border", themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedWhite:0.85 alpha:1.0])) colorWithAlphaComponent:0.28];
   [border setFill];
   NSRectFill(NSMakeRect(0.0, MAX(0.0, self.bounds.size.height - 1.0),
     self.bounds.size.width, 1.0));
 
-  NSColor *foreground = themeRoleColor(@"foreground", themeHexColor(g_theme_foreground,
+  NSColor *foreground = themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
     [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]));
   NSDictionary *titleAttributes = @{
     NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.92],
@@ -2513,17 +2571,24 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 }
 - (void)layout {
   [super layout];
-  self.branchButton.frame = NSMakeRect(145.0, 4.0, 180.0, 22.0);
+  self.branchButton.frame = NSMakeRect(145.0, 2.0, MIN(260.0,
+    MAX(150.0, self.bounds.size.width - 150.0)), NimculusControlHit);
 }
 - (void)updateBranchButton {
   NSString *branch = g_editor_git_branch.length > 0 ? g_editor_git_branch : @"No Git branch";
-  NSColor *foreground = themeHexColor(g_theme_foreground,
-    [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]);
+  NSColor *foreground = themeRoleColor(@"fgMuted", themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]));
+  self.branchButton.image = nil;
+  if (@available(macOS 11.0, *)) {
+    self.branchButton.image = [NSImage imageWithSystemSymbolName:@"arrow.triangle.branch"
+      accessibilityDescription:@"Git branch"];
+    self.branchButton.imagePosition = NSImageLeft;
+  }
   self.branchButton.attributedTitle = [[[NSAttributedString alloc]
-    initWithString:[NSString stringWithFormat:@"⎇  %@", branch]
-    attributes:@{NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.82],
+    initWithString:branch attributes:@{NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.92],
       NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightMedium]}]
     autorelease];
+  self.branchButton.contentTintColor = foreground;
   self.branchButton.toolTip = [NSString stringWithFormat:
     @"Git branch: %@ — click to open Branches", branch];
   self.branchButton.accessibilityLabel = [NSString stringWithFormat:
@@ -2559,7 +2624,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 }
 - (void)layout {
   [super layout];
-  const CGFloat titlebarHeight = 30.0;
+  const CGFloat titlebarHeight = NimculusRowHeight;
   CGFloat contentHeight = MAX(1.0, self.bounds.size.height - titlebarHeight);
   self.metalView.frame = NSMakeRect(0.0, 0.0, self.bounds.size.width, contentHeight);
   self.metalView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -2672,6 +2737,14 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusTabBarOverlay : NSView
 @property(nonatomic) BOOL secondary;
 @property(nonatomic) NSUInteger dragSourceIndex;
+@property(nonatomic) NSInteger hoveredTabIndex;
+@property(nonatomic, retain) NSButton *backButton;
+@property(nonatomic, retain) NSButton *forwardButton;
+@property(nonatomic, retain) NSButton *tabListButton;
+@property(nonatomic, retain) NSButton *newButton;
+@property(nonatomic, retain) NSButton *splitButton;
+@property(nonatomic, retain) NSButton *zoomButton;
+@property(nonatomic, retain) NSTrackingArea *trackingArea;
 - (void)dispatchTabAtPoint:(NSPoint)point;
 - (void)dispatchTabContextAtPoint:(NSPoint)point;
 - (void)dispatchTabMoveFrom:(NSUInteger)source to:(NSUInteger)destination;
@@ -2680,6 +2753,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)showTabListAtPoint:(NSPoint)point;
 - (void)showNewItemMenuAtPoint:(NSPoint)point;
 - (void)showSplitMenuAtPoint:(NSPoint)point;
+- (void)selectRelativeTab:(NSInteger)delta;
+- (NSButton *)tabButtonWithSymbol:(NSString *)symbol label:(NSString *)label
+                            action:(SEL)action;
 @end
 
 @interface NimculusWelcomeOverlay : NSView
@@ -3826,23 +3902,48 @@ static void dismissExternalChangePanel(const char *command) {
 }
 @end
 
-static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
+static CGFloat tabContentWidth(NSString *title) {
+  NSDictionary *attributes = @{NSFontAttributeName: [NSFont systemFontOfSize:12.0]};
+  CGFloat labelWidth = [title sizeWithAttributes:attributes].width;
+  return MIN(240.0, MAX(84.0, labelWidth + NimculusSpace3 * 2.0 + NimculusControlHit));
+}
+
+static CGFloat tabNavigationLeftWidth(void) {
+  return NimculusSpace2 + NimculusControlHit * 2.0 + NimculusSpace1;
+}
+
+static CGFloat tabNavigationRightWidth(void) {
+  return NimculusSpace2 + NimculusControlHit * 5.0 + NimculusSpace1 * 4.0;
+}
+
+static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFloat width,
                             NSUInteger *start, NSUInteger *count) {
-  // Zed keeps tab titles readable and scrolls the strip instead of squeezing
-  // every document into a few pixels. This compact native presenter exposes a
-  // stable window around the active tab; keyboard/window-menu navigation
-  // moves the window as selection changes.
-  const CGFloat preferredWidth = 120.0;
-  NSUInteger visible = MAX((NSUInteger)1, (NSUInteger)floor(width / preferredWidth));
-  visible = MIN(visible, total);
-  NSUInteger first = 0;
-  if (total > visible) {
-    NSUInteger before = visible / 2;
-    first = active > before ? active - before : 0;
-    first = MIN(first, total - visible);
+  // The strip scrolls by measured content width. The active tab is kept in
+  // view first, then neighboring tabs fill the remaining space.
+  if (titles.count == 0 || width <= 0.0) {
+    if (start) *start = 0;
+    if (count) *count = 0;
+    return;
+  }
+  active = MIN(active, titles.count - 1);
+  NSUInteger first = active;
+  CGFloat used = tabContentWidth(titles[active]);
+  while (first > 0 && used + tabContentWidth(titles[first - 1]) <= width) {
+    first--;
+    used += tabContentWidth(titles[first]);
+  }
+  NSUInteger last = active + 1;
+  while (last < titles.count && used + tabContentWidth(titles[last]) <= width) {
+    used += tabContentWidth(titles[last]);
+    last++;
+  }
+  while (first > 0 && last < titles.count &&
+         used + tabContentWidth(titles[first - 1]) <= width) {
+    first--;
+    used += tabContentWidth(titles[first]);
   }
   if (start) *start = first;
-  if (count) *count = visible;
+  if (count) *count = MAX((NSUInteger)1, last - first);
 }
 
 @implementation NimculusTabBarOverlay
@@ -3851,14 +3952,136 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   self = [super initWithFrame:frame];
   if (self) {
     _dragSourceIndex = NSNotFound;
-    // Keep the tab strip inside its pane when a restored title is wider than
-    // the current window. This follows Zed's clipped single-row tab strip.
+    _hoveredTabIndex = NSNotFound;
     self.clipsToBounds = YES;
+    self.backButton = [self tabButtonWithSymbol:@"chevron.left"
+      label:@"Previous tab" action:@selector(previousTab:)];
+    self.forwardButton = [self tabButtonWithSymbol:@"chevron.right"
+      label:@"Next tab" action:@selector(nextTab:)];
+    self.tabListButton = [self tabButtonWithSymbol:@"chevron.down"
+      label:@"Open tabs" action:@selector(openTabList:)];
+    self.newButton = [self tabButtonWithSymbol:@"plus"
+      label:@"New item" action:@selector(newItem:)];
+    self.splitButton = [self tabButtonWithSymbol:@"square.split.2x1"
+      label:@"Split pane" action:@selector(splitPane:)];
+    self.zoomButton = [self tabButtonWithSymbol:@"arrow.up.left.and.arrow.down.right"
+      label:@"Zoom pane" action:@selector(zoomPane:)];
+    [self addSubview:self.backButton];
+    [self addSubview:self.forwardButton];
+    [self addSubview:self.tabListButton];
+    [self addSubview:self.newButton];
+    [self addSubview:self.splitButton];
+    [self addSubview:self.zoomButton];
+    [self updateTrackingAreas];
   }
   return self;
 }
+- (void)dealloc {
+  [_backButton release];
+  [_forwardButton release];
+  [_tabListButton release];
+  [_newButton release];
+  [_splitButton release];
+  [_zoomButton release];
+  [_trackingArea release];
+  [super dealloc];
+}
+- (NSButton *)tabButtonWithSymbol:(NSString *)symbol label:(NSString *)label
+                            action:(SEL)action {
+  NSButton *button = [NSButton buttonWithTitle:@"" target:self action:action];
+  if (@available(macOS 11.0, *)) {
+    button.image = [NSImage imageWithSystemSymbolName:symbol
+      accessibilityDescription:label];
+    button.imagePosition = NSImageOnly;
+  }
+  button.toolTip = label;
+  button.accessibilityLabel = label;
+  styleWorkspaceNavigationButton(button, NO, YES);
+  return button;
+}
+- (void)layout {
+  [super layout];
+  const CGFloat left = tabNavigationLeftWidth();
+  const CGFloat right = tabNavigationRightWidth();
+  CGFloat x = NimculusSpace2;
+  self.backButton.frame = NSMakeRect(x, NimculusSpace1,
+    NimculusControlHit, NimculusControlHit);
+  x += NimculusControlHit + NimculusSpace1;
+  self.forwardButton.frame = NSMakeRect(x, NimculusSpace1,
+    NimculusControlHit, NimculusControlHit);
+  CGFloat rightX = self.bounds.size.width - right + NimculusSpace2;
+  self.tabListButton.frame = NSMakeRect(rightX, NimculusSpace1,
+    NimculusControlHit, NimculusControlHit);
+  rightX += NimculusControlHit + NimculusSpace1;
+  self.newButton.frame = NSMakeRect(rightX, NimculusSpace1,
+    NimculusControlHit, NimculusControlHit);
+  rightX += NimculusControlHit + NimculusSpace1;
+  self.splitButton.frame = NSMakeRect(rightX, NimculusSpace1,
+    NimculusControlHit, NimculusControlHit);
+  rightX += NimculusControlHit + NimculusSpace1;
+  self.zoomButton.frame = NSMakeRect(rightX, NimculusSpace1,
+    NimculusControlHit, NimculusControlHit);
+  (void)left;
+}
 - (BOOL)acceptsFirstResponder { return NO; }
-- (NSView *)hitTest:(NSPoint)point { return NSPointInRect(point, self.bounds) ? self : nil; }
+- (NSView *)hitTest:(NSPoint)point {
+  if (!NSPointInRect(point, self.bounds)) return nil;
+  NSView *child = [super hitTest:point];
+  return child ?: self;
+}
+- (void)updateTrackingAreas {
+  if (self.trackingArea) [self removeTrackingArea:self.trackingArea];
+  self.trackingArea = [[[NSTrackingArea alloc] initWithRect:NSZeroRect
+    options:(NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited |
+      NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect)
+    owner:self userInfo:nil] autorelease];
+  [self addTrackingArea:self.trackingArea];
+  [super updateTrackingAreas];
+}
+- (void)mouseMoved:(NSEvent *)event {
+  NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+  NSInteger next = [self tabIndexAtPoint:point] == NSNotFound ? NSNotFound :
+    (NSInteger)[self tabIndexAtPoint:point];
+  if (next != self.hoveredTabIndex) {
+    self.hoveredTabIndex = next;
+    [self setNeedsDisplay:YES];
+  }
+}
+- (void)mouseExited:(NSEvent *)event {
+  (void)event;
+  if (self.hoveredTabIndex != NSNotFound) {
+    self.hoveredTabIndex = NSNotFound;
+    [self setNeedsDisplay:YES];
+  }
+}
+- (void)previousTab:(id)sender { (void)sender; [self selectRelativeTab:-1]; }
+- (void)nextTab:(id)sender { (void)sender; [self selectRelativeTab:1]; }
+- (void)openTabList:(id)sender {
+  (void)sender;
+  [self showTabListAtPoint:NSMakePoint(NSMaxX(self.tabListButton.frame), 0.0)];
+}
+- (void)newItem:(id)sender {
+  (void)sender;
+  [self showNewItemMenuAtPoint:NSMakePoint(NSMinX(self.newButton.frame), 0.0)];
+}
+- (void)splitPane:(id)sender {
+  (void)sender;
+  [self showSplitMenuAtPoint:NSMakePoint(NSMinX(self.splitButton.frame), 0.0)];
+}
+- (void)zoomPane:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("commandPalette:zoom pane");
+}
+- (void)selectRelativeTab:(NSInteger)delta {
+  NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
+  if (!g_command_callback || titles.count == 0) return;
+  NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
+  NSInteger next = MAX(0, MIN((NSInteger)titles.count - 1, (NSInteger)active + delta));
+  if (next == (NSInteger)active) return;
+  NSString *command = [NSString stringWithFormat:@"selectPaneTab:%u:%ld",
+    self.secondary ? 1 : 0, (long)next];
+  g_command_callback(command.UTF8String);
+}
 - (void)drawRect:(NSRect)dirtyRect {
   [NSGraphicsContext saveGraphicsState];
   NSRectClip(NSIntersectionRect(self.bounds, dirtyRect));
@@ -3871,26 +4094,20 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     [NSGraphicsContext restoreGraphicsState];
     return;
   }
-  // Keep overflow controls outside tab labels. The earlier range label was
-  // painted over the active tab, obscuring both its title and close target.
-  // Zed uses a horizontally-scrollable unpinned strip; this compact AppKit
-  // presenter follows the same navigation model with explicit controls.
-  // Keep a dedicated disclosure affordance beside the previous/next arrows.
-  // A restored session can contain dozens of tabs; arrows alone make an
-  // off-screen item technically reachable but practically undiscoverable.
-  const CGFloat navigationWidth = titles.count > 1 ? 160.0 : 90.0;
-  const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - navigationWidth);
+  const CGFloat tabAreaStart = tabNavigationLeftWidth();
+  const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - tabAreaStart -
+    tabNavigationRightWidth());
   NSUInteger first = 0, visible = 0;
-  visibleTabRange(titles.count, active, tabAreaWidth, &first, &visible);
-  CGFloat tabWidth = MAX(1.0, tabAreaWidth / visible);
+  visibleTabRange(titles, active, tabAreaWidth, &first, &visible);
   NSDictionary *attributes = @{
     NSFontAttributeName: [NSFont systemFontOfSize:12.0],
-    NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
-      [NSColor colorWithCalibratedWhite:0.88 alpha:1.0]) colorWithAlphaComponent:0.92]
+    NSForegroundColorAttributeName: [themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedWhite:0.88 alpha:1.0])) colorWithAlphaComponent:0.92]
   };
+  CGFloat x = tabAreaStart;
   for (NSUInteger visualIndex = 0; visualIndex < visible; visualIndex++) {
     NSUInteger index = first + visualIndex;
-    CGFloat x = visualIndex * tabWidth;
+    CGFloat tabWidth = tabContentWidth(titles[index]);
     if (index == active) {
       [[themeRoleColor(@"tabActive", themeHexColor(g_theme_accent,
         [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0]))
@@ -3898,59 +4115,21 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
       NSRectFill(NSMakeRect(x, 0.0, tabWidth, self.bounds.size.height));
     }
     NSString *title = titles[index] ?: @"Untitled";
-    NSRect titleRect = NSMakeRect(x + 10.0, 5.0, MAX(12.0, tabWidth - 34.0),
+    NSRect titleRect = NSMakeRect(x + NimculusSpace2, 5.0,
+      MAX(12.0, tabWidth - NimculusSpace2 * 2.0 - NimculusControlHit),
       self.bounds.size.height - 8.0);
     [title drawWithRect:titleRect options:NSStringDrawingTruncatesLastVisibleLine |
       NSStringDrawingUsesLineFragmentOrigin attributes:attributes context:nil];
-    // Zed exposes a close target for every closable tab (normally on hover).
-    // A lightweight custom AppKit tab bar has no hover renderer yet, so keep
-    // the target visible with a muted inactive treatment rather than hiding
-    // the only discoverable close affordance on background documents.
-    NSDictionary *closeAttributes = @{
-      NSFontAttributeName: [NSFont systemFontOfSize:16.0 weight:NSFontWeightMedium],
-      NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
-        [NSColor colorWithCalibratedWhite:0.88 alpha:1.0])
-        colorWithAlphaComponent:index == active ? 0.86 : 0.52]
-    };
-    [@"×" drawAtPoint:NSMakePoint(x + tabWidth - 21.0, 4.0) withAttributes:closeAttributes];
-  }
-  if (titles.count > 1) {
-    [[NSColor colorWithCalibratedWhite:0.11 alpha:0.98] setFill];
-    NSRectFill(NSMakeRect(tabAreaWidth, 0.0, navigationWidth, self.bounds.size.height));
-  } else {
-    [[NSColor colorWithCalibratedWhite:0.11 alpha:0.98] setFill];
-    NSRectFill(NSMakeRect(tabAreaWidth, 0.0, navigationWidth, self.bounds.size.height));
-  }
-  NSDictionary *navigationAttributes = @{
-    NSFontAttributeName: [NSFont systemFontOfSize:14.0 weight:NSFontWeightMedium],
-    NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
-      [NSColor colorWithCalibratedWhite:0.88 alpha:1.0]) colorWithAlphaComponent:0.72]
-  };
-  if (titles.count > 1) {
-    [@"‹" drawAtPoint:NSMakePoint(tabAreaWidth + 8.0, 4.0)
-        withAttributes:navigationAttributes];
-    [@"›" drawAtPoint:NSMakePoint(tabAreaWidth + 29.0, 4.0)
-        withAttributes:navigationAttributes];
-    [@"⌄" drawAtPoint:NSMakePoint(tabAreaWidth + 52.0, 4.0)
-        withAttributes:navigationAttributes];
-  }
-  CGFloat actionStart = tabAreaWidth + (titles.count > 1 ? 70.0 : 0.0);
-  [@"+" drawAtPoint:NSMakePoint(actionStart + 8.0, 4.0)
-      withAttributes:navigationAttributes];
-  [@"⇲" drawAtPoint:NSMakePoint(actionStart + 33.0, 4.0)
-      withAttributes:navigationAttributes];
-  [@"□" drawAtPoint:NSMakePoint(actionStart + 59.0, 4.0)
-      withAttributes:navigationAttributes];
-  if (first > 0 || first + visible < titles.count) {
-    NSDictionary *indicatorAttributes = @{
-      NSFontAttributeName: [NSFont systemFontOfSize:9.0 weight:NSFontWeightMedium],
-      NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
-        [NSColor colorWithCalibratedWhite:0.88 alpha:1.0]) colorWithAlphaComponent:0.55]
-    };
-    NSString *indicator = [NSString stringWithFormat:@"%lu/%lu",
-      (unsigned long)active + 1, (unsigned long)titles.count];
-    [indicator drawAtPoint:NSMakePoint(tabAreaWidth + 7.0,
-      self.bounds.size.height - 12.0) withAttributes:indicatorAttributes];
+    if (index == active || index == self.hoveredTabIndex) {
+      NSDictionary *closeAttributes = @{
+        NSFontAttributeName: [NSFont systemFontOfSize:16.0 weight:NSFontWeightMedium],
+        NSForegroundColorAttributeName: [themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
+          [NSColor colorWithCalibratedWhite:0.88 alpha:1.0])) colorWithAlphaComponent:0.86]
+      };
+      [@"×" drawAtPoint:NSMakePoint(x + tabWidth - NimculusControlHit + 2.0, 4.0)
+        withAttributes:closeAttributes];
+    }
+    x += tabWidth;
   }
   [NSGraphicsContext restoreGraphicsState];
 }
@@ -3961,15 +4140,21 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   self.dragSourceIndex = NSNotFound;
   if (index != NSNotFound && titles.count > 0) {
     NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
-    const CGFloat navigationWidth = titles.count > 1 ? 160.0 : 90.0;
-    const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - navigationWidth);
+    const CGFloat tabAreaStart = tabNavigationLeftWidth();
+    const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - tabAreaStart -
+      tabNavigationRightWidth());
     NSUInteger first = 0, visible = 0;
-    visibleTabRange(titles.count, active, tabAreaWidth, &first, &visible);
-    CGFloat tabWidth = MAX(1.0, tabAreaWidth / visible);
-    NSUInteger visualIndex = index - first;
-    // Close targets keep their click-only behavior and must never begin a
-    // tab reorder drag.
-    if (point.x < (visualIndex + 1) * tabWidth - 28.0) self.dragSourceIndex = index;
+    visibleTabRange(titles, active, tabAreaWidth, &first, &visible);
+    CGFloat x = tabAreaStart;
+    for (NSUInteger visualIndex = 0; visualIndex < visible; visualIndex++) {
+      NSUInteger candidate = first + visualIndex;
+      CGFloat width = tabContentWidth(titles[candidate]);
+      if (candidate == index && point.x < x + width - NimculusControlHit) {
+        self.dragSourceIndex = index;
+        break;
+      }
+      x += width;
+    }
   }
   [self dispatchTabAtPoint:point];
 }
@@ -4026,67 +4211,43 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
   if (titles.count == 0) return NSNotFound;
   NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
-  const CGFloat navigationWidth = titles.count > 1 ? 160.0 : 90.0;
-  const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - navigationWidth);
-  if (point.x < 0.0 || point.x >= tabAreaWidth) return NSNotFound;
+  const CGFloat tabAreaStart = tabNavigationLeftWidth();
+  const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - tabAreaStart -
+    tabNavigationRightWidth());
+  if (point.x < tabAreaStart || point.x >= tabAreaStart + tabAreaWidth) return NSNotFound;
   NSUInteger first = 0, visible = 0;
-  visibleTabRange(titles.count, active, tabAreaWidth, &first, &visible);
-  CGFloat tabWidth = MAX(1.0, tabAreaWidth / visible);
-  NSUInteger visualIndex = MIN(visible - 1,
-    (NSUInteger)MAX(0.0, floor(point.x / tabWidth)));
-  return first + visualIndex;
+  visibleTabRange(titles, active, tabAreaWidth, &first, &visible);
+  CGFloat x = tabAreaStart;
+  for (NSUInteger visualIndex = 0; visualIndex < visible; visualIndex++) {
+    CGFloat width = tabContentWidth(titles[first + visualIndex]);
+    if (point.x < x + width) return first + visualIndex;
+    x += width;
+  }
+  return NSNotFound;
 }
 - (void)dispatchTabAtPoint:(NSPoint)point {
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
   if (!g_command_callback || titles.count == 0) return;
   NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
-  const CGFloat navigationWidth = titles.count > 1 ? 160.0 : 90.0;
-  const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - navigationWidth);
-  if (point.x >= tabAreaWidth) {
-    CGFloat actionStart = tabAreaWidth + (titles.count > 1 ? 70.0 : 0.0);
-    if (titles.count > 1 && point.x < actionStart) {
-      if (point.x >= tabAreaWidth + 48.0) {
-        [self showTabListAtPoint:point];
-        return;
-      }
-      NSInteger delta = point.x < tabAreaWidth + 24.0 ? -1 : 1;
-      NSInteger next = MAX(0, MIN((NSInteger)titles.count - 1, (NSInteger)active + delta));
-      if (next != (NSInteger)active) {
-        NSString *command = [NSString stringWithFormat:@"selectPaneTab:%u:%ld",
-          self.secondary ? 1 : 0, (long)next];
-        g_command_callback(command.UTF8String);
-      }
-      return;
-    }
-    if (point.x < actionStart + 28.0) {
-      [self showNewItemMenuAtPoint:point];
-      return;
-    }
-    if (point.x < actionStart + 54.0) {
-      [self showSplitMenuAtPoint:point];
-      return;
-    }
-    if (point.x < actionStart + 84.0) {
-      if (g_command_callback) g_command_callback("commandPalette:zoom pane");
-      return;
-    }
-    if (titles.count > 1 && point.x >= tabAreaWidth + 48.0) {
-      [self showTabListAtPoint:point];
-      return;
-    }
-    return;
-  }
+  const CGFloat tabAreaStart = tabNavigationLeftWidth();
+  const CGFloat tabAreaWidth = MAX(1.0, self.bounds.size.width - tabAreaStart -
+    tabNavigationRightWidth());
+  if (point.x < tabAreaStart || point.x >= tabAreaStart + tabAreaWidth) return;
   NSUInteger first = 0, visible = 0;
-  visibleTabRange(titles.count, active, tabAreaWidth, &first, &visible);
-  CGFloat tabWidth = MAX(1.0, tabAreaWidth / visible);
+  visibleTabRange(titles, active, tabAreaWidth, &first, &visible);
   NSUInteger index = [self tabIndexAtPoint:point];
   if (index == NSNotFound) return;
-  NSUInteger visualIndex = index - first;
-  if (point.x >= (visualIndex + 1) * tabWidth - 28.0) {
-    NSString *command = [NSString stringWithFormat:@"closePaneTab:%u:%lu",
-      self.secondary ? 1 : 0, (unsigned long)index];
-    g_command_callback(command.UTF8String);
-    return;
+  CGFloat x = tabAreaStart;
+  for (NSUInteger visualIndex = 0; visualIndex < visible; visualIndex++) {
+    NSUInteger candidate = first + visualIndex;
+    CGFloat width = tabContentWidth(titles[candidate]);
+    if (candidate == index && point.x >= x + width - NimculusControlHit) {
+      NSString *command = [NSString stringWithFormat:@"closePaneTab:%u:%lu",
+        self.secondary ? 1 : 0, (unsigned long)index];
+      g_command_callback(command.UTF8String);
+      return;
+    }
+    x += width;
   }
   NSString *command = [NSString stringWithFormat:@"selectPaneTab:%u:%lu",
     self.secondary ? 1 : 0, (unsigned long)index];
@@ -4556,7 +4717,7 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
   self.orientation = NSUserInterfaceLayoutOrientationVertical;
   self.alignment = NSLayoutAttributeCenterX;
   self.distribution = NSStackViewDistributionGravityAreas;
-  self.spacing = 7.0;
+  self.spacing = NimculusSpace2;
   NSArray<NSArray<NSString *> *> *buttons = @[
     @[@"folder", @"Files", @"commandPalette:show files"],
     @[@"magnifyingglass", @"Search", @"commandPalette:workspace search"],
@@ -4582,11 +4743,19 @@ static void visibleTabRange(NSUInteger total, NSUInteger active, CGFloat width,
     // make its user-visible destination an explicit accessibility label for
     // VoiceOver and for the public GUI acceptance workflow.
     button.accessibilityLabel = entry[1];
-    [button setFrameSize:NSMakeSize(28.0, 26.0)];
+    [button setFrameSize:NSMakeSize(NimculusActivityIconSize, NimculusControlHit)];
     [self addArrangedSubview:button];
   }
   [self reloadSelection];
   return self;
+}
+- (BOOL)isFlipped { return YES; }
+- (void)drawRect:(NSRect)dirtyRect {
+  (void)dirtyRect;
+  [[themeRoleColor(@"border", themeHexColor(g_theme_border,
+    [NSColor colorWithCalibratedWhite:0.24 alpha:1.0])) colorWithAlphaComponent:0.85] setFill];
+  NSRectFill(NSMakeRect(MAX(0.0, self.bounds.size.width - 1.0), 0.0,
+    1.0, self.bounds.size.height));
 }
 - (void)reloadSelection {
   for (NSView *view in self.arrangedSubviews) {
@@ -5662,7 +5831,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusWorkspaceToolbar class]]) workspaceToolbar = (NimculusWorkspaceToolbar *)subview;
     if ([subview isKindOfClass:[NimculusActivityBar class]]) activityBar = (NimculusActivityBar *)subview;
   }
-  const CGFloat activityBarWidth = 38.0;
+  const CGFloat activityBarWidth = NimculusActivityBarWidth;
   // The logical editor begins after its 28pt tab strip and 28pt breadcrumb
   // header. The dock is a workspace sibling rather than a document child, so
   // its activity/header controls start at the workspace top instead of
@@ -5678,7 +5847,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   const CGFloat dockOuterX = g_editor_sidebar_on_right ?
     g_editor_rect[0] + g_editor_rect[2] : 0.0;
   const CGFloat dockAvailableWidth = g_editor_sidebar_on_right ?
-    self.bounds.size.width - dockOuterX : g_editor_rect[0] - 12.0;
+    self.bounds.size.width - dockOuterX : MAX(0.0, g_editor_rect[0] - 28.0);
   // The logical workspace intentionally gives the editor priority when a
   // window is narrowed below the combined dock + center minimum.  Do not
   // undo that decision at the AppKit boundary by forcing a 140pt sidebar:
@@ -5688,13 +5857,15 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   // logical open state but hide this transient presentation until the window
   // is wide enough again.
   const CGFloat minimumSidebarContentWidth = 124.0;
-  const CGFloat requestedSidebarWidth = dockAvailableWidth - activityBarWidth;
+  const CGFloat requestedSidebarWidth = dockAvailableWidth - activityBarWidth -
+    NimculusSpace1;
   const BOOL sidebarPresented = g_editor_sidebar_visible &&
     requestedSidebarWidth >= minimumSidebarContentWidth;
   const CGFloat sidebarWidth = MAX(1.0, requestedSidebarWidth);
-  const CGFloat activityBarX = g_editor_sidebar_on_right ? dockOuterX + sidebarWidth : 4.0;
-  const CGFloat sidebarX = g_editor_sidebar_on_right ? dockOuterX : 8.0 + activityBarWidth;
-  const CGFloat sidebarControlX = sidebarX + 4.0;
+  const CGFloat activityBarX = g_editor_sidebar_on_right ? dockOuterX + sidebarWidth : NimculusSpace1;
+  const CGFloat sidebarX = g_editor_sidebar_on_right ? dockOuterX :
+    activityBarX + activityBarWidth + NimculusSpace1;
+  const CGFloat sidebarControlX = sidebarX + NimculusSpace1;
   if (activityBar) {
     // Welcome owns only the document center. Keep the activity bar and Files
     // tree available while a workspace has no active document so the user can
@@ -5702,8 +5873,9 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     activityBar.hidden = !sidebarPresented;
     if (!activityBar.hidden) {
       activityBar.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(activityBarX, sidebarTop + 4.0, 30.0,
-          MAX(1.0, sidebarHeight - 8.0)));
+        NSMakeRect(activityBarX, sidebarTop + NimculusSpace1,
+          activityBarWidth - NimculusSpace1,
+          MAX(1.0, sidebarHeight - NimculusSpace2)));
       [activityBar reloadSelection];
     }
   }
@@ -5837,8 +6009,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   if (tabs) {
     tabs.hidden = g_editor_tab_titles.count == 0;
     tabs.frame = appKitFrameForLogicalTopRect(self,
-      NSMakeRect(g_editor_rect[0], g_editor_rect[1] - 28.0,
-        g_editor_rect[2], 28.0));
+      NSMakeRect(g_editor_rect[0], g_editor_rect[1] - NimculusRowHeight * 2.0,
+        g_editor_rect[2], NimculusRowHeight));
     tabs.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     [tabs setNeedsDisplay:YES];
   }
@@ -5846,19 +6018,19 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     secondaryTabs.hidden = !g_secondary_editor_visible || g_secondary_editor_tab_titles.count == 0;
     secondaryTabs.frame = appKitFrameForLogicalTopRect(self,
       NSMakeRect(g_secondary_editor_rect[0],
-        g_secondary_editor_rect[1] - 28.0,
-        g_secondary_editor_rect[2], 28.0));
+        g_secondary_editor_rect[1] - NimculusRowHeight * 2.0,
+        g_secondary_editor_rect[2], NimculusRowHeight));
     secondaryTabs.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     [secondaryTabs setNeedsDisplay:YES];
   }
   if (context) {
-    // This sits in the compact header above the tab strip. It is deliberately
+    // This sits in the compact breadcrumb row below the tab strip. It is deliberately
     // a native macOS label: document navigation remains readable while Metal
     // repaints only dirty editor content beneath it.
     context.hidden = g_welcome_visible || g_editor_context.length == 0;
     context.frame = appKitFrameForLogicalTopRect(self,
       NSMakeRect(g_editor_rect[0] + 12.0,
-        g_editor_rect[1] - 52.0,
+        g_editor_rect[1] - NimculusRowHeight,
         MAX(1.0, g_editor_rect[2] - 24.0), 20.0));
     context.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
   }
@@ -6553,7 +6725,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) return 0.0;
   CGFloat fromTop = self.bounds.size.height - viewPoint.y - g_editor_rect[1];
-  NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - NimculusEditorTextTopInset) /
+  NSInteger lineIndex = MAX(0, (NSInteger)floor((fromTop - NimculusEditorHitTestTopInset) /
     editorLineHeight()));
   lineIndex = MIN(lineIndex + (NSInteger)g_editor_scroll_line, (NSInteger)lines.count - 1);
   NSString *lineText = lines[(NSUInteger)lineIndex];
@@ -8715,15 +8887,15 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
     NimculusTabBarOverlay *tabs = [[NimculusTabBarOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 400.0, 28.0)];
     BOOL tabStripClipsToPane = tabs.clipsToBounds;
-    // The right navigation reserve makes each of the two 400pt-strip tabs
-    // 120pt wide. Keep close-target checks on their actual trailing edges.
-    [tabs dispatchTabAtPoint:NSMakePoint(100.0, 12.0)];
+    // Use the measured content-width presenter instead of assuming equal tab
+    // widths or a reserved navigation block.
+    [tabs dispatchTabAtPoint:NSMakePoint(130.0, 12.0)];
     BOOL closeFirst = strcmp(g_validation_command, "closePaneTab:0:0") == 0;
     [tabs dispatchTabAtPoint:NSMakePoint(220.0, 12.0)];
     BOOL closeSecond = strcmp(g_validation_command, "closePaneTab:0:1") == 0;
-    [tabs dispatchTabAtPoint:NSMakePoint(180.0, 12.0)];
+    [tabs dispatchTabAtPoint:NSMakePoint(185.0, 12.0)];
     BOOL selectSecond = strcmp(g_validation_command, "selectPaneTab:0:1") == 0;
-    [tabs dispatchTabContextAtPoint:NSMakePoint(20.0, 12.0)];
+    [tabs dispatchTabContextAtPoint:NSMakePoint(70.0, 12.0)];
     BOOL contextFirst = strcmp(g_validation_command, "tabContext:0:0") == 0;
     [tabs dispatchTabContextAtPoint:NSMakePoint(380.0, 12.0)];
     BOOL contextNavigationIgnored = strcmp(g_validation_command, "tabContext:0:0") == 0;
@@ -8734,9 +8906,9 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
     g_editor_active_tab = 2;
     NimculusTabBarOverlay *overflowTabs = [[NimculusTabBarOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 240.0, 28.0)];
-    [overflowTabs dispatchTabAtPoint:NSMakePoint(88.0, 12.0)];
+    [overflowTabs selectRelativeTab:-1];
     BOOL previousTab = strcmp(g_validation_command, "selectPaneTab:0:1") == 0;
-    [overflowTabs dispatchTabAtPoint:NSMakePoint(110.0, 12.0)];
+    [overflowTabs selectRelativeTab:1];
     BOOL nextTab = strcmp(g_validation_command, "selectPaneTab:0:3") == 0;
     NSMenuItem *overflowItem = [[[NSMenuItem alloc] initWithTitle:@"five"
       action:nil keyEquivalent:@""] autorelease];
@@ -9595,8 +9767,8 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
       NSMakeRect(0.0, g_editor_rect[1], MAX(36.0, g_editor_rect[0] - 8.0),
         g_editor_rect[3]));
     const NSRect expectedTabs = appKitFrameForLogicalTopRect(view,
-      NSMakeRect(g_editor_rect[0], g_editor_rect[1] - 28.0,
-        g_editor_rect[2], 28.0));
+      NSMakeRect(g_editor_rect[0], g_editor_rect[1] - NimculusRowHeight * 2.0,
+        g_editor_rect[2], NimculusRowHeight));
     BOOL nativeChromeAligned = lineNumbers && indentGuides && primaryTabs && welcome &&
       NSEqualRects(lineNumbers.frame, expectedLineNumbers) &&
       NSEqualRects(indentGuides.frame, pane) &&
@@ -10610,7 +10782,7 @@ uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y) {
   if (lines.count == 0) return 0;
   CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
   CGFloat fromTop = viewHeight - y - g_editor_rect[1];
-  NSInteger targetRow = MAX(0, (NSInteger)floor((fromTop - NimculusEditorTextTopInset) /
+  NSInteger targetRow = MAX(0, (NSInteger)floor((fromTop - NimculusEditorHitTestTopInset) /
     editorLineHeight()));
   NSUInteger lineIndex = editorFirstVisibleLine(g_editor_scroll_line, lines.count);
   while (lineIndex < lines.count && targetRow > 0) {
@@ -10644,7 +10816,7 @@ uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y) {
   if (lines.count == 0) return 0;
   CGFloat viewHeight = g_metrics.height_points > 0 ? g_metrics.height_points : 640.0;
   CGFloat fromTop = viewHeight - y - g_editor_rect[1];
-  NSInteger targetRow = MAX(0, (NSInteger)floor((fromTop - NimculusEditorTextTopInset) /
+  NSInteger targetRow = MAX(0, (NSInteger)floor((fromTop - NimculusEditorHitTestTopInset) /
     editorLineHeight()));
   NSUInteger lineIndex = editorFirstVisibleLine(g_editor_scroll_line, lines.count);
   while (lineIndex < lines.count && targetRow > 0) {
@@ -11484,6 +11656,31 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
       colorWithAlphaComponent:0.96];
     outline.textColor = themeRoleColor(@"foreground", themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]));
+  }
+  NimculusWindowContentView *root = nil;
+  if ([view.superview isKindOfClass:[NimculusWindowContentView class]]) {
+    root = (NimculusWindowContentView *)view.superview;
+    [root.titlebarView updateBranchButton];
+    [root.titlebarView setNeedsDisplay:YES];
+  }
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusActivityBar class]]) {
+      [(NimculusActivityBar *)subview reloadSelection];
+      [subview setNeedsDisplay:YES];
+    } else if ([subview isKindOfClass:[NimculusFilesSidebarActions class]]) {
+      [(NimculusFilesSidebarActions *)subview reloadActions];
+    } else if ([subview isKindOfClass:[NimculusTabBarOverlay class]]) {
+      for (NSView *buttonView in subview.subviews) {
+        if ([buttonView isKindOfClass:[NSButton class]])
+          styleWorkspaceNavigationButton((NSButton *)buttonView, NO, YES);
+      }
+    } else if ([subview isKindOfClass:[NimculusSearchSidebarActions class]] ||
+               [subview isKindOfClass:[NimculusGitChangesActions class]]) {
+      for (NSView *buttonView in subview.subviews) {
+        if ([buttonView isKindOfClass:[NSButton class]])
+          styleWorkspaceNavigationButton((NSButton *)buttonView, NO, YES);
+      }
+    }
   }
   if (g_queue) updateTerminalGlyphAtlas(g_queue.device);
   markSceneFullyDirty();

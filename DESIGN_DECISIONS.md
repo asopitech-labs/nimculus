@@ -6833,14 +6833,14 @@ insets. The result was an 8pt gap between the editor and Files panel and an
 additional 8pt gap at the right edge. The editor also reserved an obsolete
 8pt strip above the status bar.
 
-**Decision.** The macOS right dock owns the full rectangle beginning at the
-editor's right edge and ending at the window's right edge. The Files/Git
-scroll container begins at that boundary, followed by the 38pt activity-bar
-slot; the activity buttons remain 30pt wide, leaving their intentional 8pt
-internal breathing room. The editor owns x=28pt for its line-number/content
-gutter, its tab strip is 28pt above the pane, and its text ends directly at
-the 22pt logical status bar. The native titlebar remains a separate 30pt
-AppKit region above the Metal content view.
+**Decision.** The macOS left dock owns the full rectangle beginning at the
+window's left edge and ending at the editor's left edge. The activity bar is
+the outermost 34pt slot and the Files/Git scroll container begins immediately
+inside it, with a 4pt internal gap. The editor owns x=28pt for its
+line-number/content gutter, its tab strip and breadcrumb each occupy 28pt
+above the pane, and its text ends directly at the 22pt logical status bar. The
+native titlebar remains a separate 28pt AppKit region above the Metal content
+view.
 
 **Consequences.** The native sidebar contract now verifies editor-to-sidebar
 and sidebar-to-activity-bar adjacency as well as root containment. Future
@@ -6864,3 +6864,57 @@ floored so a partial final glyph is never submitted.
 visible glyph is complete and remains inside the content viewport. Text
 layout changes must update the shared line-box helpers rather than adding a
 renderer-specific y offset.
+
+## UX-021: Adopt Zed's left workspace dock and two-row document chrome
+
+**Context.** The macOS presentation had a right-side dock, a breadcrumb above
+the tabs, and a tab strip that reserved a fixed navigation band. Those choices
+made the workspace geometry diverge from the logical left-dock model and from
+Zed's default affordance order.
+
+**Decision.** Present the activity bar at the outer left edge and the Files,
+Search, and Git panels immediately inside it. Keep the titlebar as the native
+AppKit row, followed by a 28pt tab row and a 28pt breadcrumb row. Branches are
+light text buttons beside the workspace name. The shared workspace model keeps
+OS-free dock ownership and hit-test contracts; only the macOS presenter maps
+those contracts to AppKit views.
+
+**Consequences.** Existing right-dock contract tests remain valid for explicit
+right-side projections, while the macOS default is now left-side. Editor text
+continues to begin below both rows, and the titlebar remains outside the Metal
+content coordinate system.
+
+## UX-022: Use measured tabs and native tab-bar controls
+
+**Context.** Fixed-width tabs, a 160pt reserved navigation block, a painted
+`2/41` counter, and hand-drawn control glyphs made tab labels and actions
+ambiguous and did not provide native hover, tooltip, or accessibility behavior.
+
+**Decision.** Measure each tab label with AppKit font metrics, cap its content
+width, and expose a content-width scrolling window around the active tab. Draw
+the close affordance only for the active or hovered tab, retaining the dirty
+bullet in the label. Use native SF Symbol `NSButton` controls for previous,
+next, open-tabs, new, split, and zoom actions, routing each through the
+existing command boundary.
+
+**Consequences.** Tab hit testing uses the same measured widths as painting,
+so selection, close, context, and drag reorder stay aligned. The tab presenter
+owns only AppKit UI state (hover and button views); document ownership and
+commands remain in Nimculus core.
+
+## UX-023: Centralize chrome tokens and semantic light/dark roles
+
+**Context.** Workspace chrome mixed hard-coded spacing and calibrated colors,
+which made panel boundaries and theme changes inconsistent.
+
+**Decision.** Keep `space1`, `space2`, `space3`, `rowHeight`, and
+`controlHit` in the macOS presentation layer and resolve chrome colors through
+`themeRoleColor` using the semantic roles `chromeBg`, `tabBar`, `tabActive`,
+`border`, `fgPrimary`, `fgMuted`, and `accent`. Custom palettes continue to
+override these roles through the existing theme bridge, with light and dark
+fallbacks for missing roles.
+
+**Consequences.** New macOS chrome must consume a token or semantic role
+instead of adding a local literal. Theme updates restyle native controls and
+repaint the same surfaces without changing the NimNUI/core dependency
+direction.
