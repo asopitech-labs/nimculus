@@ -1,5 +1,29 @@
 # Design Decisions
 
+## UI-081: Make editor and project-panel chrome share hard Zed-style edges
+
+The macOS workspace no longer emits an accent-colored active-pane rectangle at
+the editor's left edge. That rectangle crossed the breadcrumb and editor body
+and made a focus affordance look like a stray blue bar; caret rendering remains
+independent and unchanged. The normal editor path also omits the outer pane
+border so focus does not create a second left-edge line.
+
+Editor panes now begin exactly at the logical dock boundary and consume the
+remaining center width. Breadcrumb text uses the same 8pt left inset as editor
+text, tabs, and the horizontal scrollbar track. The shared text viewport ends
+14pt above the pane bottom, matching the scrollbar overlay instead of leaving
+an oversized body/scrollbar/footer gap. Vertical scrollbar geometry and line
+number clipping use that same top/bottom contract in both light and dark themes.
+
+The Metal project-panel surface now starts at the content origin and ends at the
+status bar (or bottom-dock boundary), matching the native Files scroll view and
+activity bar. The activity bar and Files panel share the full dock height with
+no artificial horizontal or vertical spacer at their shared edges.
+
+This is a geometry-only chrome change: split panes, welcome presentation,
+secondary editor state, caret/selection, native tab and breadcrumb controls,
+and semantic light/dark theme roles remain intact.
+
 ## UI-079: Make unwrapped editor scrolling Zed-compatible
 
 The editor now defaults new and legacy-restored views to no soft wrap, while

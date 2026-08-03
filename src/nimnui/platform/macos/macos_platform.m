@@ -1076,15 +1076,15 @@ static const CGFloat NimculusEditorHitTestTopInset = 4.0;
 
 static NimculusPaintRegion editorTextViewport(const double rect[4]) {
   // This is intentionally asymmetric. The left edge only needs a text
-  // gutter, while the right edge also reserves the scrollbar track. The
-  // bottom must remain clear of the status/scroll gutter; merely clipping to
-  // the pane rectangle lets a partially visible final glyph read as overflow.
+  // gutter, while the right edge also reserves the scrollbar overlay. The
+  // bottom meets the horizontal overlay; merely clipping to the pane rectangle
+  // lets a partially visible final glyph read as overflow.
   // Keep every text producer (atlas, Core Text fallback, wrapping) tied to
   // these constants rather than independently guessing its content bounds.
   const double leftInset = 8.0;
-  const double rightInset = 28.0;
+  const double rightInset = 14.0;
   const double topInset = NimculusEditorTextTopInset;
-  const double bottomInset = 26.0;
+  const double bottomInset = 14.0;
   const double width = MAX(0.0, rect[2] - leftInset - rightInset);
   const double height = MAX(0.0, rect[3] - topInset - bottomInset);
   NimculusPaintRegion viewport = {
@@ -1322,12 +1322,6 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
       &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height, themeRed, themeGreen, themeBlue, 0.9f, transform);
-  } else if (paint.kind == 14) { // active workspace affordance
-    themeRGB(g_theme_accent,
-      [NSColor colorWithCalibratedRed:0.30 green:0.66 blue:0.98 alpha:1.0],
-      &themeRed, &themeGreen, &themeBlue);
-    drawColoredRectangleWithTransform(encoder, device, logicalSize,
-      x, y, width, height, themeRed, themeGreen, themeBlue, 0.78f, transform);
   }
 }
 
@@ -4108,7 +4102,7 @@ static void dismissExternalChangePanel(const char *command) {
   // intentionally wider than the text viewport, but it must not continue
   // drawing into the tab/status chrome at the bottom of a short pane.
   NSRect gutterClip = NSMakeRect(0.0, NimculusEditorTextTopInset, self.bounds.size.width,
-    MAX(0.0, self.bounds.size.height - 32.0));
+    MAX(0.0, self.bounds.size.height - NimculusEditorTextTopInset - 14.0));
   if (NSIsEmptyRect(gutterClip)) return;
   NSRectClip(gutterClip);
   NSUInteger first = editorFirstVisibleLine(g_editor_scroll_line, lines.count);
@@ -6538,7 +6532,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   const CGFloat dockOuterX = g_editor_sidebar_on_right ?
     g_editor_rect[0] + g_editor_rect[2] : 0.0;
   const CGFloat dockAvailableWidth = g_editor_sidebar_on_right ?
-    self.bounds.size.width - dockOuterX : MAX(0.0, g_editor_rect[0] - 28.0);
+    self.bounds.size.width - dockOuterX : MAX(0.0, g_editor_rect[0]);
   // The logical workspace intentionally gives the editor priority when a
   // window is narrowed below the combined dock + center minimum.  Do not
   // undo that decision at the AppKit boundary by forcing a 140pt sidebar:
@@ -6547,15 +6541,14 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   // its own controls *and* the activity bar; otherwise preserve the dock's
   // logical open state but hide this transient presentation until the window
   // is wide enough again.
-  const CGFloat minimumSidebarContentWidth = 124.0;
-  const CGFloat requestedSidebarWidth = dockAvailableWidth - activityBarWidth -
-    NimculusSpace1;
+  const CGFloat minimumSidebarContentWidth = 128.0;
+  const CGFloat requestedSidebarWidth = dockAvailableWidth - activityBarWidth;
   const BOOL sidebarPresented = g_editor_sidebar_visible &&
     requestedSidebarWidth >= minimumSidebarContentWidth;
   const CGFloat sidebarWidth = MAX(1.0, requestedSidebarWidth);
-  const CGFloat activityBarX = g_editor_sidebar_on_right ? dockOuterX + sidebarWidth : NimculusSpace1;
+  const CGFloat activityBarX = g_editor_sidebar_on_right ? dockOuterX + sidebarWidth : 0.0;
   const CGFloat sidebarX = g_editor_sidebar_on_right ? dockOuterX :
-    activityBarX + activityBarWidth + NimculusSpace1;
+    activityBarX + activityBarWidth;
   const CGFloat sidebarControlX = sidebarX + NimculusSpace1;
   if (activityBar) {
     // Welcome owns only the document center. Keep the activity bar and Files
@@ -6564,9 +6557,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     activityBar.hidden = !sidebarPresented;
     if (!activityBar.hidden) {
       activityBar.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(activityBarX, sidebarTop + NimculusSpace1,
-          activityBarWidth - NimculusSpace1,
-          MAX(1.0, sidebarHeight - NimculusSpace2)));
+        NSMakeRect(activityBarX, sidebarTop, activityBarWidth,
+          MAX(1.0, sidebarHeight)));
       [activityBar reloadSelection];
     }
   }
@@ -6666,7 +6658,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     lineNumbers.hidden = g_welcome_visible || !g_editor_line_numbers;
     lineNumbers.frame = appKitFrameForLogicalTopRect(self,
       NSMakeRect(0.0, g_editor_rect[1],
-        MAX(36.0, g_editor_rect[0] - 8.0), g_editor_rect[3]));
+        MAX(36.0, g_editor_rect[0]), g_editor_rect[3]));
     lineNumbers.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
     [lineNumbers setNeedsDisplay:YES];
   }
@@ -6701,9 +6693,9 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     // repaints only dirty editor content beneath it.
     context.hidden = g_welcome_visible || g_editor_context.length == 0;
     context.frame = appKitFrameForLogicalTopRect(self,
-      NSMakeRect(g_editor_rect[0] + 12.0,
+      NSMakeRect(g_editor_rect[0] + 8.0,
         g_editor_rect[1] - NimculusRowHeight,
-        MAX(1.0, g_editor_rect[2] - 24.0), 20.0));
+        MAX(1.0, g_editor_rect[2] - 16.0), NimculusRowHeight));
     context.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
   }
   if (welcome) {
@@ -8885,16 +8877,16 @@ bool nimculus_platform_validate_editor_text_viewport(void) {
   NimculusPaintRegion bottomVisible = intersectPaintRegions(viewport, outsideBottom);
   return fabs(viewport.x - 48.0f) < 0.01f &&
     fabs(viewport.y - 66.0f) < 0.01f &&
-    fabs(viewport.width - 264.0f) < 0.01f &&
-    fabs(viewport.height - 148.0f) < 0.01f &&
+    fabs(viewport.width - 278.0f) < 0.01f &&
+    fabs(viewport.height - 160.0f) < 0.01f &&
     fabs(coreGraphicsViewport.origin.x - 8.0) < 0.01 &&
-    fabs(coreGraphicsViewport.origin.y - 26.0) < 0.01 &&
-    fabs(coreGraphicsViewport.size.width - 264.0) < 0.01 &&
-    fabs(coreGraphicsViewport.size.height - 148.0) < 0.01 &&
+    fabs(coreGraphicsViewport.origin.y - 14.0) < 0.01 &&
+    fabs(coreGraphicsViewport.size.width - 278.0) < 0.01 &&
+    fabs(coreGraphicsViewport.size.height - 160.0) < 0.01 &&
     fabs(NSMinX(localViewport) - 8.0) < 0.01 &&
     fabs(NSMinY(localViewport) - 6.0) < 0.01 &&
-    fabs(NSWidth(localViewport) - 264.0) < 0.01 &&
-    fabs(NSHeight(localViewport) - 148.0) < 0.01 &&
+    fabs(NSWidth(localViewport) - 278.0) < 0.01 &&
+    fabs(NSHeight(localViewport) - 160.0) < 0.01 &&
     editorVisibleLineCapacity(pane, 20.0) == 7 &&
     rightVisible.width == 0.0f && bottomVisible.height == 0.0f;
 }
@@ -8904,10 +8896,10 @@ bool nimculus_platform_validate_editor_annotation_viewport(void) {
   NSRect clip = editorAnnotationClipRect(pane);
   return fabs(NSMinX(clip) - 48.0) < 0.01 &&
     fabs(NSMinY(clip) - 66.0) < 0.01 &&
-    fabs(NSWidth(clip) - 264.0) < 0.01 &&
-    fabs(NSHeight(clip) - 148.0) < 0.01 &&
-    NSMaxX(clip) <= pane[0] + pane[2] - 28.0 + 0.01 &&
-    NSMaxY(clip) <= pane[1] + pane[3] - 26.0 + 0.01;
+    fabs(NSWidth(clip) - 278.0) < 0.01 &&
+    fabs(NSHeight(clip) - 160.0) < 0.01 &&
+    NSMaxX(clip) <= pane[0] + pane[2] - 14.0 + 0.01 &&
+    NSMaxY(clip) <= pane[1] + pane[3] - 14.0 + 0.01;
 }
 
 bool nimculus_platform_validate_editor_text_popup_bounds(void) {
@@ -10487,7 +10479,7 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     // content, chrome and welcome frames against the same logical pane that
     // bounds Metal text and editor overlays.
     const NSRect expectedLineNumbers = appKitFrameForLogicalTopRect(view,
-      NSMakeRect(0.0, g_editor_rect[1], MAX(36.0, g_editor_rect[0] - 8.0),
+      NSMakeRect(0.0, g_editor_rect[1], MAX(36.0, g_editor_rect[0]),
         g_editor_rect[3]));
     const NSRect expectedTabs = appKitFrameForLogicalTopRect(view,
       NSMakeRect(g_editor_rect[0], g_editor_rect[1] - NimculusRowHeight * 2.0,

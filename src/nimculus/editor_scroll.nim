@@ -2,7 +2,8 @@ import nimnui/geometry
 
 const
   EditorTextLeftInset* = 8'f32
-  EditorTextRightInset* = 28'f32
+  EditorTextRightInset* = 14'f32
+  EditorScrollbarTopInset* = 6'f32
   EditorScrollbarBottomInset* = 14'f32
   EditorScrollbarHeight* = 6'f32
   EditorScrollbarMinimumThumb* = 24'f32

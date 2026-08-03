@@ -304,10 +304,9 @@ proc setupDemoUi() =
                height: px(max(0'f32, viewportHeight - margin * 2))))
   let toolbar = Rect(origin: Point(x: px(margin * 2), y: px(margin * 2)),
     size: Size(width: px(max(0'f32, viewportWidth - margin * 4)), height: px(56)))
-  # Preserve the mature editor presenter's internal gutters while making the
-  # composition boundary authoritative: the dock owns its width and the
-  # center receives the remainder.
-  let editorWidth = max(0'f32, contentWidth - 28'f32)
+  # The dock and center share a hard boundary. Keeping an extra 28pt here
+  # created a dead strip between the native Files panel and editor chrome.
+  let editorWidth = contentWidth
   # Keep a compact Zed-like workspace header. The AppKit traffic lights sit
   # over the app-owned titlebar, while this Metal view remains the content
   # region below it. Breadcrumb, tabs, and text occupy the first 56pt of the
@@ -324,7 +323,7 @@ proc setupDemoUi() =
   const EditorBottomInset = DefaultStatusHeight
   let editorHeight = max(0'f32, float32(workspaceLayout.center.size.height) -
     EditorTopInset - EditorBottomInset)
-  let editor = Rect(origin: Point(x: px(contentX + 28'f32), y: px(EditorTopInset)),
+  let editor = Rect(origin: Point(x: px(contentX), y: px(EditorTopInset)),
     size: Size(width: px(editorWidth), height: px(editorHeight)))
   # PaneTree is the sole owner of split geometry. The native primary and
   # secondary text presenters consume its first two leaves during the staged
@@ -371,12 +370,12 @@ proc setupDemoUi() =
   paint.drawWorkspaceBackground(viewport)
   if leftDockWidth > 0:
     let dockX = if MacProjectDockOnRight: viewportWidth - leftDockWidth else: 0'f32
-    paint.drawWorkspacePanel(Rect(origin: Point(x: px(dockX), y: px(24)),
-      size: Size(width: px(leftDockWidth), height: px(max(0'f32, viewportHeight - 46'f32 -
-          bottomDockHeight)))))
+    let dockHeight = max(0'f32, viewportHeight - DefaultStatusHeight - bottomDockHeight)
+    paint.drawWorkspacePanel(Rect(origin: Point(x: px(dockX), y: px(0)),
+      size: Size(width: px(leftDockWidth), height: px(dockHeight))))
     paint.drawWorkspaceSeparator(Rect(origin: Point(x: px(
-        if MacProjectDockOnRight: dockX else: leftDockWidth - 1), y: px(24)),
-      size: Size(width: px(1), height: px(max(0'f32, viewportHeight - 46'f32 - bottomDockHeight)))))
+        if MacProjectDockOnRight: dockX else: leftDockWidth - 1), y: px(0)),
+      size: Size(width: px(1), height: px(dockHeight))))
   if bottomDockHeight > 0:
     paint.drawWorkspacePanel(Rect(origin: Point(x: px(contentX),
       y: px(viewportHeight - DefaultStatusHeight - bottomDockHeight)),
@@ -385,9 +384,6 @@ proc setupDemoUi() =
       y: px(viewportHeight - DefaultStatusHeight - bottomDockHeight)),
       size: Size(width: px(max(0'f32, viewportWidth - leftDockWidth)), height: px(1))))
   paint.drawWorkspacePanel(workspaceLayout.status)
-  if hasDocument and editorWorkspaceUi.focusedRegion == regionCenter:
-    paint.drawWorkspaceActive(Rect(origin: Point(x: px(float32(editor.origin.x)), y: px(24)),
-      size: Size(width: px(2), height: px(max(0'f32, viewportHeight - 46'f32 - bottomDockHeight)))))
   if getEnv("NIMCULUS_UI_GALLERY", "") == "1":
     # Keep the M2 renderer gallery available for explicit visual inspection,
     # but do not let placeholder paint kinds obscure the normal editor.
@@ -412,8 +408,6 @@ proc setupDemoUi() =
     paint.drawCaret(Rect(origin: Point(x: px(74), y: px(176)),
       size: Size(width: px(2), height: px(20))))
     paint.popClip()
-  elif hasDocument:
-    paint.drawBorder(editor)
   if hasDocument:
     drawCurrentEditorScrollbars(paint, primaryEditor, secondaryEditor,
       document[].buffer.lineStarts.len, document)
@@ -904,8 +898,9 @@ proc addEditorScrollbars(paint: var PaintList, bounds: Rect, view: EditorViewSta
   let width = max(0'f32, float32(bounds.size.width))
   let height = max(0'f32, float32(bounds.size.height))
   if lineCount > max(1, visibleLines):
-    let trackY = float32(bounds.origin.y) + 6'f32
-    let trackHeight = max(0'f32, height - 32'f32)
+    let trackY = float32(bounds.origin.y) + EditorScrollbarTopInset
+    let trackHeight = max(0'f32, height - EditorScrollbarTopInset -
+      EditorScrollbarBottomInset)
     let thumbHeight = max(18'f32, trackHeight * float32(visibleLines) /
       float32(max(1, lineCount)))
     let maxScrollPixels = max(1'f32, float32(lineCount - max(1, visibleLines)) * 18'f32)

@@ -6,7 +6,7 @@ type
     shadow, caret, selection, scrollbar,
     ## Workspace chrome has semantic paint kinds so the Metal backend can use
     ## the active theme rather than the gallery's fixed placeholder blue.
-    workspaceBackground, workspacePanel, workspaceSeparator, workspaceActive
+    workspaceBackground, workspacePanel, workspaceSeparator
 
   PaintCommand* = object
     kind*: PaintKind
@@ -123,5 +123,3 @@ proc drawWorkspacePanel*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: workspacePanel, bounds: bounds, clip: bounds))
 proc drawWorkspaceSeparator*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: workspaceSeparator, bounds: bounds, clip: bounds))
-proc drawWorkspaceActive*(paint: var PaintList, bounds: Rect) =
-  paint.add(PaintCommand(kind: workspaceActive, bounds: bounds, clip: bounds))
