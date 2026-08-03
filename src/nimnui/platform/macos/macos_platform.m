@@ -441,6 +441,65 @@ static NSColor *themeRoleColor(NSString *key, NSColor *fallback) {
   return themeHexColor(themeRole(key, nil), themeTokenFallback(key, fallback));
 }
 
+// Workspace chrome controls are intentionally quiet until the pointer reaches
+// them.  Keeping hover state in the native button means tracking, repainting,
+// tooltips, accessibility, and command dispatch remain independent of the
+// Metal scene and of the sidebar's content model.
+@interface NimculusChromeButton : NSButton
+@property(nonatomic) BOOL chromeActive;
+@property(nonatomic) BOOL chromeHovering;
+@property(nonatomic) BOOL chromeImageOnly;
+@property(nonatomic, retain) NSTrackingArea *chromeTrackingArea;
+@end
+
+static void updateChromeButtonAppearance(NimculusChromeButton *button) {
+  if (!button) return;
+  NSColor *foreground = themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]));
+  NSColor *accent = themeRoleColor(@"accent", themeHexColor(g_theme_accent,
+    [NSColor controlAccentColor]));
+  NSColor *hoverSurface = themeRoleColor(@"elementHover",
+    themeRoleColor(@"element", foreground));
+  NSColor *tint = button.chromeActive ? accent : [foreground colorWithAlphaComponent:0.78];
+  NSColor *background = button.chromeActive ? [accent colorWithAlphaComponent:0.22] :
+    (button.chromeHovering ? [hoverSurface colorWithAlphaComponent:0.10] : NSColor.clearColor);
+  button.wantsLayer = YES;
+  button.layer.cornerRadius = NimculusSpace1;
+  button.layer.borderWidth = 0.0;
+  button.layer.borderColor = nil;
+  button.layer.backgroundColor = background.CGColor;
+  button.contentTintColor = tint;
+}
+
+@implementation NimculusChromeButton
+- (void)dealloc {
+  [_chromeTrackingArea release];
+  [super dealloc];
+}
+- (void)updateTrackingAreas {
+  [super updateTrackingAreas];
+  if (self.chromeTrackingArea) {
+    [self removeTrackingArea:self.chromeTrackingArea];
+    self.chromeTrackingArea = nil;
+  }
+  NSTrackingAreaOptions options = NSTrackingMouseEnteredAndExited |
+    NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect;
+  self.chromeTrackingArea = [[[NSTrackingArea alloc] initWithRect:NSZeroRect
+    options:options owner:self userInfo:nil] autorelease];
+  [self addTrackingArea:self.chromeTrackingArea];
+}
+- (void)mouseEntered:(NSEvent *)event {
+  (void)event;
+  self.chromeHovering = YES;
+  updateChromeButtonAppearance(self);
+}
+- (void)mouseExited:(NSEvent *)event {
+  (void)event;
+  self.chromeHovering = NO;
+  updateChromeButtonAppearance(self);
+}
+@end
+
 static void styleWorkspaceNavigationButton(NSButton *button, BOOL active,
                                            BOOL imageOnly) {
   if (!button) return;
@@ -448,17 +507,23 @@ static void styleWorkspaceNavigationButton(NSButton *button, BOOL active,
     [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]));
   NSColor *accent = themeRoleColor(@"accent", themeHexColor(g_theme_accent,
     [NSColor controlAccentColor]));
-  NSColor *border = themeRoleColor(@"border", themeHexColor(g_theme_border,
-    [NSColor colorWithCalibratedWhite:0.24 alpha:1.0]));
   NSColor *tint = active ? accent : [foreground colorWithAlphaComponent:0.78];
   button.bordered = NO;
   button.wantsLayer = YES;
   button.layer.cornerRadius = NimculusSpace1;
-  button.layer.borderWidth = active ? 1.0 : 0.0;
-  button.layer.borderColor = [border colorWithAlphaComponent:0.55].CGColor;
-  button.layer.backgroundColor = [(active ? [accent colorWithAlphaComponent:0.22] :
-    [foreground colorWithAlphaComponent:0.08]) CGColor];
+  button.layer.borderWidth = 0.0;
+  button.layer.borderColor = nil;
   button.contentTintColor = tint;
+  if ([button isKindOfClass:[NimculusChromeButton class]]) {
+    NimculusChromeButton *chromeButton = (NimculusChromeButton *)button;
+    chromeButton.chromeActive = active;
+    chromeButton.chromeImageOnly = imageOnly;
+    updateChromeButtonAppearance(chromeButton);
+  } else {
+    // Keep the helper safe for legacy/native buttons while all workspace
+    // navigation and sidebar-header controls use NimculusChromeButton.
+    button.layer.backgroundColor = NSColor.clearColor.CGColor;
+  }
   if (button.image) button.image.template = YES;
   if (!imageOnly) {
     button.attributedTitle = [[[NSAttributedString alloc] initWithString:button.title ?: @""
@@ -2834,12 +2899,12 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)selectMode:(NSButton *)sender;
 @end
 
-@interface NimculusGitCommitButton : NSButton
+@interface NimculusGitCommitButton : NimculusChromeButton
 @property(nonatomic, retain) NSLayoutConstraint *compactWidthConstraint;
 - (void)setCompact:(BOOL)compact;
 @end
 
-@interface NimculusGitRefreshButton : NSButton
+@interface NimculusGitRefreshButton : NimculusChromeButton
 @end
 
 @interface NimculusGitChangesActions : NSStackView
@@ -4020,6 +4085,16 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
   if (count) *count = MAX((NSUInteger)1, last - first);
 }
 
+static NSColor *activeTabSurfaceColor(void) {
+  NSColor *tabBar = themeRoleColor(@"tabBar", [NSColor colorWithCalibratedWhite:0.08 alpha:1.0]);
+  NSColor *surface = themeRoleColor(@"surface", tabBar);
+  // The built-in light palette's tabActive is the Zed-like near-white tab
+  // face. In dark mode elementActive is the intentionally raised surface;
+  // the dark tabActive token is reserved for the toolbar/editor role.
+  return themeLooksLight() ? themeRoleColor(@"tabActive", surface) :
+    themeRoleColor(@"elementActive", surface);
+}
+
 @implementation NimculusTabBarOverlay
 - (BOOL)isFlipped { return YES; }
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -4062,7 +4137,7 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
 }
 - (NSButton *)tabButtonWithSymbol:(NSString *)symbol label:(NSString *)label
                             action:(SEL)action {
-  NSButton *button = [NSButton buttonWithTitle:@"" target:self action:action];
+  NSButton *button = [NimculusChromeButton buttonWithTitle:@"" target:self action:action];
   if (@available(macOS 11.0, *)) {
     button.image = [NSImage imageWithSystemSymbolName:symbol
       accessibilityDescription:label];
@@ -4183,10 +4258,11 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
     NSUInteger index = first + visualIndex;
     CGFloat tabWidth = tabContentWidth(titles[index]);
     if (index == active) {
-      [[themeRoleColor(@"tabActive", themeHexColor(g_theme_accent,
-        [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0]))
-        colorWithAlphaComponent:0.20] setFill];
+      [activeTabSurfaceColor() setFill];
       NSRectFill(NSMakeRect(x, 0.0, tabWidth, self.bounds.size.height));
+      [themeRoleColor(@"accent", themeHexColor(g_theme_accent,
+        [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0])) setFill];
+      NSRectFill(NSMakeRect(x, 0.0, tabWidth, 2.0));
     }
     NSString *title = titles[index] ?: @"Untitled";
     NSRect titleRect = NSMakeRect(x + NimculusSpace2, 5.0,
@@ -4508,7 +4584,7 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
   NSArray<NSString *> *labels = @[@"Changes", @"History", @"Branches"];
   NSMutableArray<NSButton *> *buttons = [NSMutableArray arrayWithCapacity:labels.count];
   for (NSUInteger index = 0; index < labels.count; index++) {
-    NSButton *button = [NSButton buttonWithTitle:labels[index] target:self
+    NSButton *button = [NimculusChromeButton buttonWithTitle:labels[index] target:self
       action:@selector(selectMode:)];
     button.tag = (NSInteger)index;
     button.toolTip = labels[index];
@@ -4633,9 +4709,9 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
   self.alignment = NSLayoutAttributeCenterY;
   self.distribution = NSStackViewDistributionFill;
   self.spacing = NimculusSpace1;
-  self.stageAllButton = [NSButton buttonWithTitle:@"Stage All" target:self
+  self.stageAllButton = [NimculusChromeButton buttonWithTitle:@"Stage All" target:self
     action:@selector(stageAll:)];
-  self.unstageAllButton = [NSButton buttonWithTitle:@"Unstage All" target:self
+  self.unstageAllButton = [NimculusChromeButton buttonWithTitle:@"Unstage All" target:self
     action:@selector(unstageAll:)];
   NSArray<NSArray *> *entries = @[
     @[self.stageAllButton, @"plus.square", @"Stage all changes"],
@@ -4694,7 +4770,7 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
   ] : @[@[@"Open Folder…", @"folder.badge.plus", @"openWorkspaceFolder:"]];
   for (NSUInteger index = 0; index < buttons.count; index++) {
     NSArray<NSString *> *entry = buttons[index];
-    NSButton *button = [NSButton buttonWithTitle:entry[0] target:self
+    NSButton *button = [NimculusChromeButton buttonWithTitle:entry[0] target:self
       action:@selector(dispatchWorkspaceAction:)];
     // Project creation belongs in the compact project header, not in a row of
     // text buttons that displaces the tree. A project-less window is the one
@@ -4742,9 +4818,9 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
   self.alignment = NSLayoutAttributeCenterY;
   self.distribution = NSStackViewDistributionFill;
   self.spacing = NimculusSpace1;
-  self.newSearchButton = [NSButton buttonWithTitle:@"New Search" target:self
+  self.newSearchButton = [NimculusChromeButton buttonWithTitle:@"New Search" target:self
     action:@selector(newSearch:)];
-  self.cancelSearchButton = [NSButton buttonWithTitle:@"Cancel Search" target:self
+  self.cancelSearchButton = [NimculusChromeButton buttonWithTitle:@"Cancel Search" target:self
     action:@selector(cancelSearch:)];
   NSArray<NSArray *> *entries = @[
     @[self.newSearchButton, @"magnifyingglass", @"New workspace search"],
@@ -4800,7 +4876,7 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
     @[@"Split", @"splitEditor"]
   ];
   for (NSArray<NSString *> *entry in buttons) {
-    NSButton *button = [NSButton buttonWithTitle:entry[0] target:self
+    NSButton *button = [NimculusChromeButton buttonWithTitle:entry[0] target:self
       action:@selector(dispatchWorkspaceCommand:)];
     button.bezelStyle = NSBezelStyleTexturedRounded;
     button.identifier = entry[1];
@@ -4870,7 +4946,7 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
     @[@"ladybug", @"Debug", @"commandPalette:debug threads"]
   ];
   for (NSArray<NSString *> *entry in buttons) {
-    NSButton *button = [NSButton buttonWithTitle:entry[1] target:self
+    NSButton *button = [NimculusChromeButton buttonWithTitle:entry[1] target:self
       action:@selector(dispatchWorkspaceCommand:)];
     if (@available(macOS 11.0, *)) {
       button.image = [NSImage imageWithSystemSymbolName:entry[0]

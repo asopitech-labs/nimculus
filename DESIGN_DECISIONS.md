@@ -6946,3 +6946,26 @@ hierarchy without adding a new command or blocking work on the UI thread.
 Future panel actions must be added to the header action stack and sized from
 `space1`, `space2`, `space3`, `rowHeight`, and `controlHit` rather than by
 positioning a detached toolbar.
+
+## UX-025: Use ghost chrome controls and a raised active tab
+
+**Context.** A visual comparison with Zed showed that the tab-bar controls and
+sidebar-header actions carried a permanent low-alpha box, while the active tab
+was only a faint tint. The result made quiet workspace chrome look heavier than
+Zed and made the selected document difficult to identify, especially in the
+light theme.
+
+**Decision.** Make workspace navigation buttons native `NimculusChromeButton`
+instances with tracking areas. Inactive controls remain borderless and
+transparent until pointer hover, when the semantic `elementHover` surface is
+shown at a restrained alpha and the existing `space1` radius is applied.
+Active navigation keeps the accent state, while tooltips, AX labels, and
+existing command targets remain unchanged. Paint the active document tab with
+the light `tabActive` or dark `elementActive` surface and a 2pt semantic accent
+bar at its top edge; tab measurement, close-glyph placement, and hit testing do
+not change.
+
+**Consequences.** Both light and dark macOS themes have quieter controls and a
+more legible selected tab without adding a renderer/core dependency or a new
+interaction path. Hover state is owned by the AppKit control, so it does not
+block the UI thread or alter the Metal editor contract.
