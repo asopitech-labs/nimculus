@@ -12,6 +12,7 @@ import nimnui/render
 import nimculus/editor_app
 import nimculus/editor_buffer
 import nimculus/editor_view
+import nimculus/editor_scroll
 import nimculus/workspace_ui
 import nimculus/editor_syntax
 import nimculus/syntax
@@ -699,6 +700,8 @@ var externalAlertShown = false
 var externalAlertTab = -1
 var editorPointerDragging = false
 var editorPointerPane = 0
+var editorScrollbarDragging = false
+var editorScrollbarPane = 0
 var editorScrollRemainder = 0'f32
 var editorSecondaryScrollRemainder = 0'f32
 var sessionFilePath = ""
@@ -872,17 +875,10 @@ proc addEditorScrollbars(paint: var PaintList, bounds: Rect, view: EditorViewSta
       min(1'f32, max(0'f32, view.scrollYPixels) / maxScrollPixels)
     paint.drawScrollbar(Rect(origin: Point(x: px(float32(bounds.origin.x) + width - 14'f32),
       y: px(thumbY)), size: Size(width: px(8), height: px(min(trackHeight, thumbHeight)))))
-  let viewportWidth = max(0'f32, width - 36'f32)
-  if not view.softWrap and widestLineWidth > viewportWidth and viewportWidth > 0'f32:
-    let trackWidth = viewportWidth
-    let trackX = float32(bounds.origin.x) + 8'f32
-    let trackY = float32(bounds.origin.y) + height - 14'f32
-    let thumbWidth = max(24'f32, trackWidth * viewportWidth / widestLineWidth)
-    let maxScroll = max(1'f32, widestLineWidth - viewportWidth)
-    let thumbX = trackX + max(0'f32, trackWidth - thumbWidth) *
-      min(1'f32, max(0'f32, view.scrollX) / maxScroll)
-    paint.drawScrollbar(Rect(origin: Point(x: px(thumbX), y: px(trackY)),
-      size: Size(width: px(min(trackWidth, thumbWidth)), height: px(8))))
+  let scrollbar = horizontalEditorScrollbar(bounds, view.softWrap,
+    widestLineWidth, view.scrollX)
+  if float32(scrollbar.thumb.size.width) > 0'f32:
+    paint.drawScrollbar(scrollbar.thumb)
 
 proc drawCurrentEditorScrollbars(paint: var PaintList, primary, secondary: Rect,
                                  lineCount: int, document: ptr FileDocument) =
@@ -895,17 +891,22 @@ proc drawCurrentEditorScrollbars(paint: var PaintList, primary, secondary: Rect,
       primaryVisibleLines))
   if demoSplitEnabled:
     let secondaryView = editorSession.secondaryView
+    let secondaryDocument = secondaryPaneDocument()
     let secondaryVisibleLines = when defined(macosx): secondaryEditorVisibleLineCount()
       else: max(1, int(ceil(float32(secondary.size.height) / 18'f32)))
-    addEditorScrollbars(paint, secondary, secondaryView, lineCount,
+    let secondaryLineCount = if secondaryDocument == nil: 0 else:
+      secondaryDocument[].buffer.lineStarts.len
+    addEditorScrollbars(paint, secondary, secondaryView, secondaryLineCount,
       secondaryVisibleLines, when defined(macosx):
         float32(platformSecondaryEditorWidestVisibleLineWidth())
-      else: widestVisibleEditorLineWidth(document[].buffer, secondaryView,
+      else: widestVisibleEditorLineWidth(secondaryDocument[].buffer, secondaryView,
         secondaryVisibleLines))
 
 proc resetPointerInteractions() =
   demoSplitDragging = false
   editorPointerDragging = false
+  editorScrollbarDragging = false
+  editorScrollbarPane = 0
   editorPointerPane = 0
   if activePointerNode != NodeId(0):
     demoTree.setActive(activePointerNode, false)
@@ -8308,8 +8309,11 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           0'f32 else: float32(event.deltaY)
       if pane == 1:
         if not editorSession.secondaryView.softWrap and abs(horizontalDelta) > 0.01'f32:
-          editorSession.secondaryView.scrollX = max(0'f32,
-            editorSession.secondaryView.scrollX + horizontalDelta)
+          let widest = float32(platformSecondaryEditorWidestVisibleLineWidth())
+          let viewportWidth = editorTextViewportWidth(demoSecondaryEditorBounds)
+          editorSession.secondaryView.scrollX = clampEditorScrollX(
+            editorSession.secondaryView.scrollX + horizontalDelta, widest,
+            viewportWidth)
         if abs(verticalDelta) > 0.01'f32:
           var view = editorSession.secondaryView
           view.reconcileScrollPosition(18'f32, float32(maxScroll) * 18'f32)
@@ -8320,8 +8324,10 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           editorSession.secondaryView = view
       else:
         if not editorViewState.softWrap and abs(horizontalDelta) > 0.01'f32:
-          editorViewState.scrollX = max(0'f32,
-            editorViewState.scrollX + horizontalDelta)
+          let widest = float32(platformEditorWidestVisibleLineWidth())
+          let viewportWidth = editorTextViewportWidth(demoEditorBounds)
+          editorViewState.scrollX = clampEditorScrollX(
+            editorViewState.scrollX + horizontalDelta, widest, viewportWidth)
         if abs(verticalDelta) > 0.01'f32:
           editorViewState.reconcileScrollPosition(18'f32,
             float32(maxScroll) * 18'f32)
@@ -8333,6 +8339,37 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       # synchronization pull the freely scrolled position back into view.
       syncEditorCursor(ensureCursor = false)
       refreshEditorSyntax()
+    if document != nil and kind in {pointerDown, pointerMove, pointerUp} and
+        (editorScrollbarDragging or kind == pointerDown):
+      let pane = if editorScrollbarDragging: editorScrollbarPane
+        elif demoSplitEnabled:
+          max(0, editorWorkspaceUi.paneIndexAt(
+            demoTree.node(demoScrollNode).bounds, point))
+        else: 0
+      let scrollbar = if pane == 1:
+          horizontalEditorScrollbar(demoSecondaryEditorBounds,
+            editorSession.secondaryView.softWrap,
+            float32(platformSecondaryEditorWidestVisibleLineWidth()),
+            editorSession.secondaryView.scrollX)
+        else:
+          horizontalEditorScrollbar(demoEditorBounds, editorViewState.softWrap,
+            float32(platformEditorWidestVisibleLineWidth()), editorViewState.scrollX)
+      if kind == pointerDown and scrollbar.contains(float32(event.x), uiY):
+        editorScrollbarDragging = true
+        editorScrollbarPane = pane
+      if editorScrollbarDragging and (kind == pointerDown or kind == pointerMove):
+        let targetScrollX = scrollbar.horizontalScrollbarScrollX(float32(event.x))
+        if pane == 1:
+          editorSession.secondaryView.scrollX = targetScrollX
+        else:
+          editorViewState.scrollX = targetScrollX
+        syncEditorCursor(ensureCursor = false)
+        refreshEditorSyntax()
+        return
+      if kind == pointerUp and editorScrollbarDragging:
+        editorScrollbarDragging = false
+        editorScrollbarPane = 0
+        return
     if document != nil and kind == pointerDown and inEditor:
       let gutterPane = if demoSplitEnabled:
           editorWorkspaceUi.paneIndexAt(demoTree.node(demoScrollNode).bounds, point)

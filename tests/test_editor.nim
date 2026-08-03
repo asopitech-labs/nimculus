@@ -9,14 +9,42 @@ import nimculus/editor_diagnostics
 import nimculus/lsp
 import nimculus/editor_app
 import nimculus/editor_view
+import nimculus/editor_scroll
+import nimnui/geometry
 import nimculus/session
 import nimculus/atomic_io
 import nimculus/persistence_scheduler
 import nimculus/poll_scheduler
 
 suite "session persistence scheduling":
-  test "new editor views keep long lines inside the macOS viewport":
-    check newEditorView().softWrap
+  test "new editor views default to Zed no-wrap":
+    check not newEditorView().softWrap
+
+  test "horizontal scrollbar geometry clamps and maps scroll positions":
+    let bounds = Rect(origin: Point(x: px(20), y: px(40)),
+      size: Size(width: px(400), height: px(240)))
+    let viewportWidth = editorTextViewportWidth(bounds)
+    check viewportWidth == 364'f32
+    check clampEditorScrollX(-12'f32, 900'f32, viewportWidth) == 0'f32
+    check clampEditorScrollX(999'f32, 900'f32, viewportWidth) == 536'f32
+    let scrollbar = horizontalEditorScrollbar(bounds, false, 900'f32, 999'f32)
+    check float32(scrollbar.track.origin.x) == 28'f32
+    check float32(scrollbar.track.size.width) == viewportWidth
+    check float32(scrollbar.thumb.origin.x + scrollbar.thumb.size.width) <=
+      float32(scrollbar.track.origin.x + scrollbar.track.size.width)
+    check scrollbar.horizontalScrollbarScrollX(
+      float32(scrollbar.track.origin.x) + float32(scrollbar.track.size.width) / 2'f32) > 0'f32
+    check horizontalEditorScrollbar(bounds, true, 900'f32, 0'f32).track.size.width == px(0)
+
+  test "legacy sessions default to no-wrap while explicit wrap survives":
+    let path = getTempDir() / "nimculus-soft-wrap-default-session.json"
+    defer: removeFile(path)
+    writeFile(path, "{\"activeTab\":0,\"tabs\":[{" &
+      "\"path\":\"\",\"content\":\"long line\",\"view\":{}}]}")
+    check not loadSession(path).tabs[0].view.softWrap
+    writeFile(path, "{\"activeTab\":0,\"tabs\":[{" &
+      "\"path\":\"\",\"content\":\"long line\",\"view\":{\"softWrap\":true}}]}")
+    check loadSession(path).tabs[0].view.softWrap
 
   test "edits debounce while bounding crash recovery delay":
     var schedule: PersistenceSchedule

@@ -1,5 +1,22 @@
 # Design Decisions
 
+## UI-079: Make unwrapped editor scrolling Zed-compatible
+
+The editor now defaults new and legacy-restored views to no soft wrap, while
+an explicitly saved `softWrap: true` remains authoritative. In macOS no-wrap
+mode, each pane owns an independently clamped horizontal offset. Trackpad and
+wheel input, scrollbar clicks/drags, cursor reveal, selection, hit testing,
+and IME coordinates all consume that same offset; the line-number gutter stays
+fixed.
+
+The native macOS backend measures the currently visible lines with Core Text
+and is the authority for the widest-line width and maximum horizontal offset.
+The Nim scrollbar geometry mirrors the native text viewport (including the
+reserved vertical-scrollbar edge), so horizontal and vertical thumbs never
+overlap and the horizontal thumb cannot be under-sized by a monospace estimate.
+Scrollbar changes continue through the existing `requestRedraw` and damage
+paths; no frame-count or display-link semantics are changed.
+
 ## UX-026: Make the macOS footer a Zed-aligned status-only toolbar
 
 **Context.** The previous footer painted one left status string and a

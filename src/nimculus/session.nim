@@ -73,9 +73,9 @@ proc loadView(node: JsonNode, text: string): EditorViewState =
     float32(result.scrollLine) * 18'f32), 18'f32)
   result.scrollX = max(0'f32, jsonFloat(node, "scrollX", 0'f32))
   result.showLineNumbers = jsonBool(node, "showLineNumbers", true)
-  # A missing preference uses the safe macOS default. An explicit false is
-  # retained so users who choose horizontal, unwrapped editing keep it.
-  result.softWrap = jsonBool(node, "softWrap", true)
+  # A missing preference uses the Zed-compatible no-wrap default. An explicit
+  # true remains a user/session choice and is intentionally preserved.
+  result.softWrap = jsonBool(node, "softWrap", false)
   result.showIndentGuides = jsonBool(node, "showIndentGuides", true)
   result.indentWidth = max(1, jsonInt(node, "indentWidth", 2))
 

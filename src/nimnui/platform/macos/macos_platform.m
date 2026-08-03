@@ -1468,6 +1468,16 @@ static CGFloat editorWidestVisibleLineWidth(void) {
   return widest;
 }
 
+static CGFloat editorMaxScrollX(void) {
+  if (g_editor_soft_wrap) return 0.0;
+  return MAX(0.0, editorWidestVisibleLineWidth() -
+    editorTextViewport(g_editor_rect).width);
+}
+
+static CGFloat editorClampedScrollX(CGFloat offset) {
+  return MIN(MAX(0.0, offset), editorMaxScrollX());
+}
+
 static CGFloat editorWrapWidth(void) {
   return MAX(1.0, editorTextViewport(g_editor_rect).width);
 }
@@ -1614,6 +1624,7 @@ static CGPoint editorEnsureCursorVisible(NSUInteger documentOffset) {
   } else if (point.x < left) {
     g_editor_scroll_x = MAX(0.0, g_editor_scroll_x - (left - point.x + 16.0));
   }
+  g_editor_scroll_x = editorClampedScrollX(g_editor_scroll_x);
   return editorPointForUTF16Offset(documentOffset);
 }
 
@@ -11531,7 +11542,7 @@ void nimculus_platform_set_editor_scroll_y_fraction(double pixels) {
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_editor_scroll_x(double offset) {
-  g_editor_scroll_x = MAX(0.0, offset);
+  g_editor_scroll_x = editorClampedScrollX(offset);
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
@@ -11659,7 +11670,28 @@ void nimculus_platform_set_secondary_editor_scroll_y_fraction(double pixels) {
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_secondary_editor_scroll_x(double offset) {
-  g_secondary_editor_scroll_x = MAX(0.0, offset);
+  double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
+    g_editor_rect[2], g_editor_rect[3]};
+  NSUInteger previousScrollLine = g_editor_scroll_line;
+  CGFloat previousScrollYFraction = g_editor_scroll_y_fraction;
+  CGFloat previousScrollX = g_editor_scroll_x;
+  BOOL previousSoftWrap = g_editor_soft_wrap;
+  BOOL previousRenderingSecondary = g_rendering_secondary_editor;
+  swapEditorTextState();
+  g_rendering_secondary_editor = YES;
+  memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
+  g_editor_scroll_line = g_secondary_editor_scroll_line;
+  g_editor_scroll_y_fraction = g_secondary_editor_scroll_y_fraction;
+  g_editor_scroll_x = g_secondary_editor_scroll_x;
+  g_editor_soft_wrap = g_secondary_editor_soft_wrap;
+  g_secondary_editor_scroll_x = editorClampedScrollX(offset);
+  swapEditorTextState();
+  g_rendering_secondary_editor = previousRenderingSecondary;
+  memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
+  g_editor_scroll_line = previousScrollLine;
+  g_editor_scroll_y_fraction = previousScrollYFraction;
+  g_editor_scroll_x = previousScrollX;
+  g_editor_soft_wrap = previousSoftWrap;
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
@@ -11695,6 +11727,7 @@ double nimculus_platform_secondary_editor_widest_visible_line_width(void) {
 }
 void nimculus_platform_set_secondary_editor_soft_wrap(bool enabled) {
   g_secondary_editor_soft_wrap = enabled ? YES : NO;
+  if (g_secondary_editor_soft_wrap) g_secondary_editor_scroll_x = 0.0;
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
@@ -11749,6 +11782,7 @@ void nimculus_platform_set_editor_line_numbers(bool visible) {
 }
 void nimculus_platform_set_editor_soft_wrap(bool enabled) {
   g_editor_soft_wrap = enabled ? YES : NO;
+  if (g_editor_soft_wrap) g_editor_scroll_x = 0.0;
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (view) {
     for (NSView *subview in view.subviews) {

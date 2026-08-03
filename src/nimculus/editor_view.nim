@@ -31,10 +31,9 @@ type
     statusMessage*: string
 
 proc newEditorView*(): EditorViewState =
-  # Soft-wrap is on by default so long lines reflow and stay fully visible.
-  # Turning it off shows the horizontal scrollbar and scrolls long lines
-  # sideways instead. Toggle per pane via View > Toggle Soft Wrap.
-  EditorViewState(showLineNumbers: true, softWrap: true,
+  # Zed keeps long lines unwrapped by default. Turning soft-wrap on remains a
+  # per-view preference and is restored when a session explicitly saved it.
+  EditorViewState(showLineNumbers: true, softWrap: false,
     showIndentGuides: true, indentWidth: 2)
 
 proc reconcileScrollPosition*(view: var EditorViewState, lineHeight = 18'f32,
