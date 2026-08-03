@@ -1,5 +1,38 @@
 # Design Decisions
 
+## UX-026: Make the macOS footer a Zed-aligned status-only toolbar
+
+**Context.** The previous footer painted one left status string and a
+tab-separated right string directly into the view. That kept the information
+visible but made the controls inconsistent with the rest of the workspace
+chrome, provided no native hover state for the status entries, and left the
+language-server state beside the editor metadata. Zed groups diagnostic,
+source-control, and language-server state on the left and makes cursor,
+language, encoding, and line-ending entries quiet clickable controls on the
+right.
+
+**Decision.** Keep the 24pt statusBar footer and its existing
+tab-separated payload, but present it as two native NSStackView clusters of
+NimculusChromeButton controls. The left cluster contains a severity-counted
+diagnostics button, a compact Git branch/status button, and an iconized LSP
+state button. The right cluster contains cursor position, language, encoding,
+line ending, and the existing indentation entry. Each item keeps an explicit
+tooltip, accessibility label, and its previous command destination; the
+diagnostics item uses the new commandPalette:show problems route. The
+existing Status Bar Settings / Hide context menu remains available from the
+bar and every status button.
+
+Activity-bar panel destinations are intentionally not copied into the
+footer. Files, Search, Outline, Git, Terminal, Split, and Debug remain owned
+by the left activity bar, avoiding two competing control surfaces.
+
+**Consequences.** Theme roles, spacing tokens, and the ghost hover treatment
+are shared with the rest of macOS chrome. Diagnostics refresh the summary
+from the existing primary-pane severity spans, while footer payload updates
+rebuild only the native status controls; no service or editor-core state is
+duplicated. The footer remains status-only and keeps the existing right-click
+contract in both light and dark themes.
+
 ## UI-078: macOS workspace presenters are single-row and pane-clipped
 
 ZedのProject PanelとGit UIは、ファイル名・コミット行を複数行へ折り返さず、

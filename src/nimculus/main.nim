@@ -6610,6 +6610,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command in ["find in selected folder", "search selected folder"]:
         "sidebarSearchInSelected"
       elif command in ["show outline", "show symbols"]: "__show_outline__"
+      elif command in ["show problems", "show diagnostics"]: "__show_problems__"
       elif command in ["toggle outline", "toggle symbols"]: "__toggle_outline__"
       elif command in ["expand selection", "expand syntax selection"]: "__expand_selection__"
       elif command in ["shrink selection", "shrink syntax selection"]: "__shrink_selection__"
@@ -7068,6 +7069,23 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         setupDemoUi()
         editorSidebarMode = sidebarOutline
         syncNativeSymbolTree()
+    of "__show_problems__":
+      when defined(macosx):
+        let active = activeDocument()
+        if active == nil or lspBridge == nil:
+          editorViewState.statusMessage = "Diagnostics: none"
+        else:
+          lspBridge.syncDocument(active[].path, active[].buffer.toString())
+          let diagnostics = active[].buffer.resolveDiagnostics(lspBridge.diagnostics())
+          var lines: seq[string]
+          for diagnostic in diagnostics:
+            let severity = case diagnostic.severity
+            of 1: "Error"
+            of 2: "Warning"
+            of 3: "Info"
+            else: "Hint"
+            lines.add(severity & ": " & diagnostic.message)
+          showNativeLspPanel("Problems", if lines.len > 0: lines else: @["No problems"])
     of "__toggle_outline__":
       when defined(macosx):
         let didFocusPanel = editorWorkspaceUi.togglePanelFocus(panelOutline)

@@ -19,24 +19,27 @@ Zed registers these status items in `crates/zed/src/zed.rs`:
 | Side | Element | Zed source | Nimculus state |
 | --- | --- | --- | --- |
 | left | Project search | `crates/search/src/search_status_button.rs` | Missing |
-| left | Language server | `crates/language_tools/src/lsp_button.rs` | Missing |
-| left | Diagnostics summary | `crates/diagnostics/src/items.rs` | Missing |
-| left | Active file name | `crates/workspace/src/active_file_name.rs` | Present in structured footer |
+| left | Language server | `crates/language_tools/src/lsp_button.rs` | Present: iconized LSP state in footer |
+| left | Diagnostics summary | `crates/diagnostics/src/items.rs` | Present: error/warning counts or clean checkmark |
+| left | Active file name | `crates/workspace/src/active_file_name.rs` | N/A: breadcrumb remains the document identity |
 | left | Git blame | `crates/git_ui/src/blame_ui.rs` | Missing |
 | left | Merge conflicts | `crates/git_ui/src/conflict_view.rs` | Missing |
 | left | Activity indicator | `crates/activity_indicator/src/activity_indicator.rs` | Missing |
 | right | Edit predictions | `crates/edit_prediction_ui/src/edit_prediction_button.rs` | N/A for current scope |
-| right | Buffer encoding | `crates/encoding_selector/src/active_buffer_encoding.rs` | Present: UTF-8 entry |
-| right | Buffer language | `crates/language_selector/src/active_buffer_language.rs` | Present: detected language entry |
+| right | Buffer encoding | `crates/encoding_selector/src/active_buffer_encoding.rs` | Present: clickable UTF-8 entry |
+| right | Buffer language | `crates/language_selector/src/active_buffer_language.rs` | Present: clickable detected-language entry |
 | right | Toolchain | `crates/toolchain_selector/src/active_toolchain.rs` | Missing |
-| right | Line ending | `crates/line_ending_selector/src/line_ending_indicator.rs` | Present: LF/CRLF entry |
+| right | Line ending | `crates/line_ending_selector/src/line_ending_indicator.rs` | Present: clickable LF/CRLF entry |
 | right | Vim mode | `crates/vim/src/mode_indicator.rs` | N/A unless Vim mode enabled |
-| right | Cursor position | `crates/go_to_line/src/cursor_position.rs` | Present: structured clickable entry |
+| right | Cursor position | `crates/go_to_line/src/cursor_position.rs` | Present: clickable structured entry |
 | right | Image information | `crates/image_viewer/src/image_info.rs` | N/A for text editor |
 
 Zed also gives status items a right-click menu with `Hide Button` and exposes
-the bar as a keyboard-navigable toolbar. Nimculus must expose the same visible
-information and clickable entry points for the applicable items.
+the bar as a keyboard-navigable toolbar. Nimculus preserves its existing
+Status Bar Settings / Hide menu, native button tooltips, and accessibility
+labels. Nimculus deliberately excludes Zed's activity-bar panel toggles from
+the footer because those destinations already belong to the left activity
+bar.
 
 ## Tabs and the information below/around tabs
 
@@ -115,7 +118,7 @@ history, and branch menus but not the full item/action set.
 
 ## Completion gate for this inventory
 
-- Every applicable status item is visible in a structured footer.
+- Every applicable status item is visible in a two-cluster structured footer.
 - Footer items have tooltips and action handlers where Zed has them.
 - Editor text, file tree, Git rows, history rows, branch rows, tabs, and
   status items all have an explicit context-menu contract.

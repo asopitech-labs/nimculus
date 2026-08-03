@@ -50,6 +50,16 @@ and the first workspace rows. It is based on the local Zed reference in
 | Sidebar order | Activity bar outermost left, Files/Search/Git panel inside | Done |
 | Panel headers | Files/Search/Git titles share one `rowHeight` header with right-aligned 24pt actions | Done |
 
+## Footer/status bar
+
+| Area | Nimculus behavior | State |
+| --- | --- | --- |
+| Left status cluster | Ghost diagnostics summary, compact Git branch/status, and iconized LSP state | Done |
+| Diagnostics | Existing severity spans show error/warning counts or a clean checkmark; click opens Problems | Done |
+| Right status cluster | Ghost clickable cursor, language, encoding, line-ending, and indentation entries | Done |
+| Activity-bar ownership | Terminal, Debug, Outline, Git, and other panel toggles remain only in the left activity bar | Done |
+| Accessibility and menus | Native tooltips/AX labels and the Status Bar Settings / Hide right-click menu remain | Done |
+
 ## Verification checklist
 
 - Screenshot shows one workspace name, one Git branch text button, and one document
@@ -61,3 +71,5 @@ and the first workspace rows. It is based on the local Zed reference in
   viewport boundaries.
 - Files, Search, and Git Changes actions sit on the same row as their panel
   title; no detached action toolbar is visible above the title.
+- Footer remains 24pt high, keeps all status information clickable, and does
+  not duplicate activity-bar panel toggles.

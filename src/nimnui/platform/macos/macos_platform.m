@@ -122,9 +122,11 @@ static NSUInteger g_secondary_editor_line_count = 0;
 static NimculusFoldRange *g_secondary_editor_folds = NULL;
 static uint32_t g_secondary_editor_fold_count = 0;
 static NSString *g_editor_status = @"Ready";
-// Tab-separated, user-facing status items. The left message remains separate
-// so footer controls can be laid out and hit-tested like Zed's status bar.
-static NSString *g_editor_footer = @"Ln 1, Col 1\tSpaces: 2\tUTF-8\tLF\tPlain Text";
+// Tab-separated, user-facing status items. The footer presenter keeps cursor,
+// indentation, encoding, line ending, language, and LSP state as separate
+// native controls so they retain their existing command routes while matching
+// Zed's status-bar grouping.
+static NSString *g_editor_footer = @"Ln 1, Col 1\tSpaces: 2\tUTF-8\tLF\tPlain Text\tLSP: なし";
 static NSString *g_editor_context = @"";
 static NSString *g_editor_git_branch = @"";
 static NSArray<NSString *> *g_editor_tab_titles = nil;
@@ -2941,7 +2943,17 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusStatusOverlay : NSTextField
 @end
 
+@class NimculusFooterOverlay;
+
+@interface NimculusFooterStatusButton : NimculusChromeButton
+@property(nonatomic, assign) NimculusFooterOverlay *footerOwner;
+@property(nonatomic) CGFloat footerPreferredWidth;
+@end
+
 @interface NimculusFooterOverlay : NSView
+- (void)reloadStatusItems;
+- (void)dispatchStatusItem:(NimculusFooterStatusButton *)sender;
+- (void)showStatusBarMenuForEvent:(NSEvent *)event;
 @end
 
 @interface NimculusEditorContextOverlay : NSTextField
@@ -5018,72 +5030,319 @@ static NSColor *activeTabSurfaceColor(void) {
 - (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
 @end
 
+typedef NS_ENUM(NSInteger, NimculusFooterAction) {
+  NimculusFooterActionDiagnostics = 1,
+  NimculusFooterActionGit = 2,
+  NimculusFooterActionLsp = 3,
+  NimculusFooterActionCursor = 4,
+  NimculusFooterActionLanguage = 5,
+  NimculusFooterActionEncoding = 6,
+  NimculusFooterActionLineEnding = 7,
+  NimculusFooterActionIndentation = 8
+};
+
+static NSString *footerItem(NSArray<NSString *> *items, NSUInteger index, NSString *fallback) {
+  if (index < items.count && items[index].length > 0) return items[index];
+  return fallback;
+}
+
+static void clearFooterCluster(NSStackView *cluster) {
+  if (!cluster) return;
+  NSArray<NSView *> *previous = [cluster.arrangedSubviews copy];
+  for (NSView *view in previous) {
+    [cluster removeArrangedSubview:view];
+    [view removeFromSuperview];
+  }
+  [previous release];
+}
+
+static void setFooterSymbol(NimculusFooterStatusButton *button, NSString *symbol,
+                            NSString *fallbackPrefix) {
+  if (!button) return;
+  button.image = nil;
+  if (@available(macOS 11.0, *)) {
+    button.image = [NSImage imageWithSystemSymbolName:symbol
+      accessibilityDescription:button.accessibilityLabel];
+    button.imagePosition = NSImageLeft;
+    applySidebarIconConfiguration(button);
+  } else if (fallbackPrefix.length > 0) {
+    button.title = [NSString stringWithFormat:@"%@ %@", fallbackPrefix, button.title ?: @""];
+  }
+}
+
+static void styleFooterStatusButton(NimculusFooterStatusButton *button, BOOL imageOnly) {
+  if (!button) return;
+  button.bezelStyle = NSBezelStyleTexturedRounded;
+  button.bordered = NO;
+  button.alignment = NSTextAlignmentLeft;
+  button.imageHugsTitle = YES;
+  // Keep each status item at its measured content width. NSStackView's
+  // fittingSize can otherwise collapse to the button's minimum-width
+  // constraint, which makes the manually positioned cluster truncate titles
+  // even when the footer has plenty of room.
+  [button setContentCompressionResistancePriority:NSLayoutPriorityRequired
+    forOrientation:NSLayoutConstraintOrientationHorizontal];
+  [button setContentHuggingPriority:NSLayoutPriorityRequired
+    forOrientation:NSLayoutConstraintOrientationHorizontal];
+  styleWorkspaceNavigationButton(button, NO, imageOnly);
+  if (!imageOnly) {
+    NSColor *foreground = themeRoleColor(@"fgMuted", themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedWhite:0.86 alpha:1.0]));
+    button.attributedTitle = [[[NSAttributedString alloc] initWithString:button.title ?: @""
+      attributes:@{NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.90],
+        NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightMedium]}]
+      autorelease];
+  }
+  NSRect titleRect = [button.attributedTitle boundingRectWithSize:
+    NSMakeSize(CGFLOAT_MAX, CGFLOAT_MAX)
+    options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
+    context:nil];
+  CGFloat width = ceil(titleRect.size.width + NimculusSpace2 * 2.0);
+  if (!imageOnly && button.image && button.imagePosition == NSImageLeft) {
+    width += button.image.size.width + NimculusSpace1;
+  }
+  button.footerPreferredWidth = MAX(NimculusControlHit, width);
+  [button.widthAnchor constraintEqualToConstant:button.footerPreferredWidth].active = YES;
+}
+
+static NimculusFooterStatusButton *newFooterButton(NimculusFooterOverlay *owner,
+                                                    NSString *title, NSString *label,
+                                                    NimculusFooterAction action) {
+  NimculusFooterStatusButton *button = [NimculusFooterStatusButton buttonWithTitle:title
+    target:owner action:@selector(dispatchStatusItem:)];
+  button.footerOwner = owner;
+  button.tag = action;
+  button.toolTip = label;
+  button.accessibilityLabel = label;
+  [button.widthAnchor constraintGreaterThanOrEqualToConstant:NimculusControlHit].active = YES;
+  [button.heightAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
+  return button;
+}
+
+@implementation NimculusFooterStatusButton
+- (void)rightMouseDown:(NSEvent *)event {
+  if (self.footerOwner) [self.footerOwner showStatusBarMenuForEvent:event];
+  else [super rightMouseDown:event];
+}
+@end
+
 @implementation NimculusFooterOverlay
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return NO; }
 - (BOOL)isAccessibilityElement { return YES; }
 - (NSAccessibilityRole)accessibilityRole { return NSAccessibilityToolbarRole; }
 - (NSString *)accessibilityLabel { return @"Editor status bar"; }
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.wantsLayer = YES;
+  NSStackView *left = [[[NSStackView alloc] initWithFrame:NSZeroRect] autorelease];
+  left.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+  left.alignment = NSLayoutAttributeCenterY;
+  left.distribution = NSStackViewDistributionFill;
+  left.spacing = NimculusSpace1;
+  left.translatesAutoresizingMaskIntoConstraints = YES;
+  [self addSubview:left];
+  NSStackView *right = [[[NSStackView alloc] initWithFrame:NSZeroRect] autorelease];
+  right.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+  right.alignment = NSLayoutAttributeCenterY;
+  right.distribution = NSStackViewDistributionFill;
+  right.spacing = NimculusSpace1;
+  right.translatesAutoresizingMaskIntoConstraints = YES;
+  [self addSubview:right];
+  [self reloadStatusItems];
+  return self;
+}
+- (void)reloadStatusItems {
+  NSStackView *left = nil;
+  NSStackView *right = nil;
+  for (NSView *subview in self.subviews) {
+    if (![subview isKindOfClass:[NSStackView class]]) continue;
+    if (!left) left = (NSStackView *)subview;
+    else right = (NSStackView *)subview;
+  }
+  if (!left || !right) return;
+  clearFooterCluster(left);
+  clearFooterCluster(right);
+
+  uint32_t errorCount = 0;
+  uint32_t warningCount = 0;
+  for (uint32_t index = 0; index < g_diagnostic_count; index++) {
+    if (g_diagnostics[index].severity == 1) errorCount++;
+    else if (g_diagnostics[index].severity == 2) warningCount++;
+  }
+  NSString *diagnosticTitle = @"";
+  NSString *diagnosticLabel = @"Diagnostics: no problems";
+  NSString *diagnosticSymbol = @"checkmark";
+  NSString *diagnosticFallback = @"✓";
+  if (errorCount > 0 || warningCount > 0) {
+    diagnosticSymbol = errorCount > 0 ? @"xmark.octagon" : @"exclamationmark.triangle";
+    diagnosticFallback = errorCount > 0 ? @"✕" : @"⚠";
+    if (errorCount > 0 && warningCount > 0) {
+      diagnosticTitle = [NSString stringWithFormat:@"%u errors · %u warnings",
+        errorCount, warningCount];
+    } else if (errorCount > 0) {
+      diagnosticTitle = [NSString stringWithFormat:@"%u errors", errorCount];
+    } else {
+      diagnosticTitle = [NSString stringWithFormat:@"%u warnings", warningCount];
+    }
+    diagnosticLabel = [NSString stringWithFormat:@"Diagnostics: %@", diagnosticTitle];
+  } else {
+    diagnosticTitle = @"OK";
+  }
+  NimculusFooterStatusButton *diagnostics = newFooterButton(self, diagnosticTitle,
+    diagnosticLabel, NimculusFooterActionDiagnostics);
+  setFooterSymbol(diagnostics, diagnosticSymbol, diagnosticFallback);
+  styleFooterStatusButton(diagnostics, NO);
+  diagnostics.contentTintColor = errorCount > 0 ? themeRoleColor(@"error",
+    [NSColor systemRedColor]) : warningCount > 0 ? themeRoleColor(@"warning",
+    [NSColor systemOrangeColor]) : themeRoleColor(@"success", [NSColor systemGreenColor]);
+  [left addArrangedSubview:diagnostics];
+
+  NSString *branch = g_editor_git_branch.length > 0 ? g_editor_git_branch : @"Git";
+  NSString *gitStatus = g_editor_status.length > 0 ? g_editor_status : @"Ready";
+  if ([gitStatus hasPrefix:@"Git: "]) gitStatus = [gitStatus substringFromIndex:5];
+  NSString *gitTitle = [gitStatus isEqualToString:@"Ready"] ? branch :
+    [NSString stringWithFormat:@"%@ · %@", branch, gitStatus];
+  NSString *gitLabel = [NSString stringWithFormat:@"Git: %@; %@", branch, g_editor_status ?: @"Ready"];
+  NimculusFooterStatusButton *git = newFooterButton(self, gitTitle, gitLabel,
+    NimculusFooterActionGit);
+  setFooterSymbol(git, @"arrow.triangle.branch", @"⑂");
+  styleFooterStatusButton(git, NO);
+  [left addArrangedSubview:git];
+
+  NSArray<NSString *> *items = [g_editor_footer componentsSeparatedByString:@"\t"];
+  NSString *lsp = footerItem(items, 5, @"LSP: なし");
+  NSString *lspLower = lsp.lowercaseString;
+  BOOL lspConnected = [lsp rangeOfString:@"接続済み"].location != NSNotFound ||
+    [lspLower rangeOfString:@"connected"].location != NSNotFound ||
+    [lspLower rangeOfString:@"ready"].location != NSNotFound;
+  NimculusFooterStatusButton *lspButton = newFooterButton(self, @"LSP",
+    [NSString stringWithFormat:@"Language server: %@", lsp], NimculusFooterActionLsp);
+  setFooterSymbol(lspButton, lspConnected ? @"checkmark.circle" : @"circle.slash",
+    lspConnected ? @"●" : @"○");
+  styleFooterStatusButton(lspButton, NO);
+  lspButton.contentTintColor = lspConnected ? themeRoleColor(@"success",
+    [NSColor systemGreenColor]) : themeRoleColor(@"textMuted", [NSColor secondaryLabelColor]);
+  [left addArrangedSubview:lspButton];
+
+  NSString *cursor = footerItem(items, 0, @"Ln 1, Col 1");
+  NSString *indent = footerItem(items, 1, @"Spaces: 2");
+  NSString *encoding = footerItem(items, 2, @"UTF-8");
+  NSString *lineEnding = footerItem(items, 3, @"LF");
+  NSString *language = footerItem(items, 4, @"Plain Text");
+  NSArray<NSArray<NSString *> *> *rightEntries = @[
+    @[cursor, [NSString stringWithFormat:@"Cursor position: %@", cursor], @"4"],
+    @[language, [NSString stringWithFormat:@"Language: %@", language], @"5"],
+    @[encoding, [NSString stringWithFormat:@"Encoding: %@", encoding], @"6"],
+    @[lineEnding, [NSString stringWithFormat:@"Line ending: %@", lineEnding], @"7"],
+    @[indent, [NSString stringWithFormat:@"Indentation: %@", indent], @"8"]
+  ];
+  for (NSArray<NSString *> *entry in rightEntries) {
+    NimculusFooterStatusButton *button = newFooterButton(self, entry[0], entry[1],
+      (NimculusFooterAction)entry[2].integerValue);
+    styleFooterStatusButton(button, NO);
+    [right addArrangedSubview:button];
+  }
+  [self setNeedsLayout:YES];
+}
+static CGFloat footerClusterWidth(NSStackView *cluster) {
+  if (!cluster) return 0.0;
+  CGFloat width = 0.0;
+  NSUInteger visibleCount = 0;
+  for (NSView *view in cluster.arrangedSubviews) {
+    if (view.hidden) continue;
+    if ([view isKindOfClass:[NimculusFooterStatusButton class]]) {
+      width += ((NimculusFooterStatusButton *)view).footerPreferredWidth;
+    } else {
+      width += view.frame.size.width;
+    }
+    visibleCount++;
+  }
+  if (visibleCount > 1) width += cluster.spacing * (visibleCount - 1);
+  return ceil(width);
+}
+- (void)hideFooterItemsUntilTheyFit:(NSStackView *)left right:(NSStackView *)right
+                         available:(CGFloat)available {
+  // Preserve the most useful status first: diagnostics, Git, LSP, then the
+  // cursor position. Less critical metadata is removed from the outside in
+  // only after the full preferred widths no longer fit.
+  while (footerClusterWidth(left) + footerClusterWidth(right) + NimculusSpace3 > available) {
+    NimculusFooterStatusButton *candidate = nil;
+    for (NSView *view in right.arrangedSubviews.reverseObjectEnumerator) {
+      if (!view.hidden && [view isKindOfClass:[NimculusFooterStatusButton class]]) {
+        candidate = (NimculusFooterStatusButton *)view;
+        break;
+      }
+    }
+    if (!candidate) {
+      for (NSView *view in left.arrangedSubviews.reverseObjectEnumerator) {
+        if (!view.hidden && [view isKindOfClass:[NimculusFooterStatusButton class]]) {
+          candidate = (NimculusFooterStatusButton *)view;
+          break;
+        }
+      }
+    }
+    if (!candidate) break;
+    candidate.hidden = YES;
+  }
+}
+- (void)layout {
+  [super layout];
+  NSStackView *left = nil;
+  NSStackView *right = nil;
+  for (NSView *subview in self.subviews) {
+    if (![subview isKindOfClass:[NSStackView class]]) continue;
+    if (!left) left = (NSStackView *)subview;
+    else right = (NSStackView *)subview;
+  }
+  if (!left || !right) return;
+  CGFloat inset = NimculusSpace2;
+  CGFloat available = MAX(1.0, self.bounds.size.width - inset * 2.0);
+  for (NSView *view in left.arrangedSubviews) view.hidden = NO;
+  for (NSView *view in right.arrangedSubviews) view.hidden = NO;
+  [self hideFooterItemsUntilTheyFit:left right:right available:available];
+  CGFloat rightWidth = footerClusterWidth(right);
+  CGFloat leftWidth = footerClusterWidth(left);
+  left.frame = NSMakeRect(inset, 0.0, leftWidth, self.bounds.size.height);
+  right.frame = NSMakeRect(MAX(inset, self.bounds.size.width - inset - rightWidth),
+    0.0, rightWidth, self.bounds.size.height);
+  [left layoutSubtreeIfNeeded];
+  [right layoutSubtreeIfNeeded];
+}
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
   NSColor *background = [themeRoleColor(@"statusBar",
     [NSColor colorWithCalibratedWhite:0.075 alpha:1.0]) colorWithAlphaComponent:0.98];
   [background setFill];
   NSRectFill(self.bounds);
-  NSColor *foreground = themeRoleColor(@"textMuted", themeHexColor(g_theme_foreground,
-    [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0]));
-  NSDictionary *attributes = @{
-    NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightRegular],
-    NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.86]
-  };
-  NSString *left = g_editor_status.length > 0 ? g_editor_status : @"Ready";
-  [left drawWithRect:NSMakeRect(8.0, 4.0, MAX(1.0, self.bounds.size.width * 0.45), 16.0)
-             options:NSStringDrawingTruncatesLastVisibleLine |
-                     NSStringDrawingUsesLineFragmentOrigin
-          attributes:attributes context:nil];
-
-  NSArray<NSString *> *items = [g_editor_footer componentsSeparatedByString:@"\t"];
-  CGFloat right = self.bounds.size.width - 8.0;
-  NSDictionary *separatorAttributes = @{
-    NSFontAttributeName: [NSFont systemFontOfSize:10.0],
-    NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.30]
-  };
-  for (NSInteger index = (NSInteger)items.count - 1; index >= 0; index--) {
-    NSString *item = items[(NSUInteger)index];
-    NSSize size = [item sizeWithAttributes:attributes];
-    CGFloat width = size.width + 14.0;
-    right -= width;
-    [item drawAtPoint:NSMakePoint(right + 7.0, 4.0) withAttributes:attributes];
-    if (index > 0) {
-      [@"·" drawAtPoint:NSMakePoint(right - 4.0, 4.0) withAttributes:separatorAttributes];
-    }
+}
+- (void)dispatchStatusItem:(NimculusFooterStatusButton *)sender {
+  if (!g_command_callback) return;
+  switch ((NimculusFooterAction)sender.tag) {
+    case NimculusFooterActionDiagnostics:
+      g_command_callback("commandPalette:show problems");
+      break;
+    case NimculusFooterActionGit:
+      g_command_callback("commandPalette:git status");
+      break;
+    case NimculusFooterActionCursor:
+      g_command_callback("commandPalette:go to line");
+      break;
+    case NimculusFooterActionLanguage:
+    case NimculusFooterActionEncoding:
+    case NimculusFooterActionLineEnding:
+    case NimculusFooterActionIndentation:
+    case NimculusFooterActionLsp:
+      // Keep the existing settings command route until dedicated selectors
+      // exist for language, encoding, line endings, indentation, and LSP.
+      g_command_callback("commandPalette:settings");
+      break;
+    default:
+      break;
   }
 }
-- (void)mouseDown:(NSEvent *)event {
-  NSArray<NSString *> *items = [g_editor_footer componentsSeparatedByString:@"\t"];
-  if (items.count == 0 || !g_command_callback) return;
-  NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
-  CGFloat right = self.bounds.size.width - 8.0;
-  for (NSInteger index = (NSInteger)items.count - 1; index >= 0; index--) {
-    NSString *item = items[(NSUInteger)index];
-    CGFloat width = [item sizeWithAttributes:@{
-      NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightRegular]
-    }].width + 14.0;
-    right -= width;
-    if (point.x >= right && point.x <= right + width) {
-      // These are real entry points, not decorative labels. Keep language,
-      // encoding, and line-ending selection centralized in the settings/
-      // command surface until dedicated selectors are added.
-      if (index == 0) g_command_callback("commandPalette:go to line");
-      else if (index == 1) g_command_callback("commandPalette:settings");
-      else if (index == 2) g_command_callback("commandPalette:settings");
-      else if (index == 3) g_command_callback("commandPalette:settings");
-      return;
-    }
-  }
-}
-- (void)rightMouseDown:(NSEvent *)event {
-  (void)event;
+- (void)showStatusBarMenuForEvent:(NSEvent *)event {
   if (!g_command_callback) return;
   NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
   if (!delegate) return;
@@ -5098,6 +5357,9 @@ static NSColor *activeTabSurfaceColor(void) {
   hide.target = delegate;
   hide.representedObject = @"commandPalette:settings";
   [menu popUpMenuPositioningItem:nil atLocation:event.locationInWindow inView:self];
+}
+- (void)rightMouseDown:(NSEvent *)event {
+  [self showStatusBarMenuForEvent:event];
 }
 @end
 
@@ -11372,6 +11634,13 @@ void nimculus_platform_set_editor_git_branch(const char *utf8) {
     [titlebar updateBranchButton];
     [titlebar setNeedsDisplay:YES];
   }
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
+      [(NimculusFooterOverlay *)subview reloadStatusItems];
+      [subview setNeedsDisplay:YES];
+      break;
+    }
+  }
 }
 void nimculus_platform_set_editor_status(const char *utf8) {
   const char *value = (utf8 && strlen(utf8) > 0) ? utf8 : "Ready";
@@ -11388,18 +11657,21 @@ void nimculus_platform_set_editor_status(const char *utf8) {
       ((NSTextField *)subview).stringValue = g_editor_status;
     }
     if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
+      [(NimculusFooterOverlay *)subview reloadStatusItems];
       [subview setNeedsDisplay:YES];
     }
   }
 }
 void nimculus_platform_set_editor_footer(const char *utf8) {
-  const char *value = (utf8 && strlen(utf8) > 0) ? utf8 : "Ln 1, Col 1\tSpaces: 2\tUTF-8\tLF\tPlain Text";
+  const char *value = (utf8 && strlen(utf8) > 0) ? utf8 :
+    "Ln 1, Col 1\tSpaces: 2\tUTF-8\tLF\tPlain Text\tLSP: なし";
   if (g_editor_footer && strcmp(g_editor_footer.UTF8String, value) == 0) return;
   replaceOwnedString(&g_editor_footer, [NSString stringWithUTF8String:value]);
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
   for (NSView *subview in view.subviews) {
     if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
+      [(NimculusFooterOverlay *)subview reloadStatusItems];
       [subview setNeedsDisplay:YES];
       break;
     }
@@ -11892,6 +12164,9 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
         if ([buttonView isKindOfClass:[NSButton class]])
           styleWorkspaceNavigationButton((NSButton *)buttonView, NO, YES);
       }
+    } else if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
+      [(NimculusFooterOverlay *)subview reloadStatusItems];
+      [subview setNeedsDisplay:YES];
     }
   }
   if (g_queue) updateTerminalGlyphAtlas(g_queue.device);
@@ -12191,7 +12466,17 @@ void nimculus_platform_set_editor_diagnostics(const NimculusDiagnosticSpan *span
   }
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) {
+    NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+    for (NSView *subview in view.subviews) {
+      if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
+        [(NimculusFooterOverlay *)subview reloadStatusItems];
+        [subview setNeedsDisplay:YES];
+        break;
+      }
+    }
+    [view drawFrame];
+  }
 }
 void nimculus_platform_set_secondary_editor_diagnostics(const NimculusDiagnosticSpan *spans,
                                                         uint32_t count) {
