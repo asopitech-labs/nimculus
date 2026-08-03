@@ -52,9 +52,9 @@ Zed のクロムは **2 段** で、各要素が意味を持ち余白が一定:
 ### 3.3 宙に浮くアイコン群（行 2 右端、L4368–4415 ほか）
 
 - Files パネル用アクション（New File=`document.badge.plus` / New Folder=`folder.badge.plus`
-  / Reveal Active File=`scope` / Collapse All=`rectangle.compress.vertical`）が
+  / Reveal Active File=`location.magnifyingglass` / Collapse All=`rectangle.compress.vertical`）が
   **パネルヘッダーから切り離されて宙に浮く**。tooltip はあるがアイコン単体では意味不明
-  （特に `scope`＝照準、`rectangle.compress`）。
+  （特に `location.magnifyingglass`＝現在ファイルの探索、`rectangle.compress`）。
 
 ### 3.4 アフォーダンスの不統一
 
@@ -112,9 +112,9 @@ Zed のクロムは **2 段** で、各要素が意味を持ち余白が一定:
 
 ### 5.5 宙に浮くアイコンをヘッダーへ収容
 
-- Files/Search/Git のアクション群は各**パネルヘッダー内**に置く（Zed 準拠）。
-  エディタ上部に浮かせない。アイコンは意味の通るものへ（Reveal=`scope`→`sidebar.left`
-  等は要検討、または短ラベル併記）。
+- Files/Search/Git のアクション群は各**パネルヘッダーのタイトル行**に置く（Zed 準拠）。
+  タイトルと右寄せアクションを単一行に収め、エディタ上部に浮かせない。アイコンは意味の通るものへ
+  （Reveal=`scope`→`location.magnifyingglass`）。
 
 ### 5.6 アクティビティバー
 

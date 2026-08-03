@@ -168,6 +168,8 @@ static const CGFloat NimculusRowHeight = 28.0;
 static const CGFloat NimculusControlHit = 24.0;
 static const CGFloat NimculusActivityBarWidth = 34.0;
 static const CGFloat NimculusActivityIconSize = 28.0;
+static const CGFloat NimculusIconPointSize = 14.0;
+static const NSUInteger NimculusSidebarHeaderLineCount = 2;
 
 static NSString *g_crash_report_path = nil;
 static NimculusTerminalRun *g_terminal_runs = NULL;
@@ -464,6 +466,57 @@ static void styleWorkspaceNavigationButton(NSButton *button, BOOL active,
         NSFontAttributeName: [NSFont systemFontOfSize:12.0
           weight:active ? NSFontWeightSemibold : NSFontWeightMedium]}] autorelease];
   }
+}
+
+static void applySidebarIconConfiguration(NSButton *button) {
+  if (!button) return;
+  button.imageScaling = NSImageScaleProportionallyDown;
+  if (@available(macOS 11.0, *)) {
+    if (button.image) {
+      NSImageSymbolConfiguration *configuration =
+        [NSImageSymbolConfiguration configurationWithPointSize:NimculusIconPointSize
+          weight:NSFontWeightMedium];
+      button.image = [button.image imageWithSymbolConfiguration:configuration];
+    }
+  }
+}
+
+static void styleSidebarActionButton(NSButton *button) {
+  if (!button) return;
+  styleWorkspaceNavigationButton(button, NO, YES);
+  applySidebarIconConfiguration(button);
+}
+
+static void styleSidebarIconButton(NSButton *button, BOOL active) {
+  if (!button) return;
+  styleWorkspaceNavigationButton(button, active, YES);
+  applySidebarIconConfiguration(button);
+}
+
+static NSString *sidebarContentText(NSString *text) {
+  if (text.length == 0) return @"";
+  NSUInteger separator = [text rangeOfString:@"\n"].location;
+  if (separator == NSNotFound) return @"";
+  NSUInteger contentStart = separator + 1;
+  if (contentStart < text.length && [text characterAtIndex:contentStart] == '\n') {
+    contentStart++;
+  } else {
+    NSUInteger secondSeparator = [text rangeOfString:@"\n" options:0
+      range:NSMakeRange(contentStart, text.length - contentStart)].location;
+    if (secondSeparator == NSNotFound) return @"";
+    contentStart = secondSeparator + 1;
+  }
+  return contentStart < text.length ? [text substringFromIndex:contentStart] : @"";
+}
+
+static NSString *sidebarHeaderTitle(void) {
+  if (g_editor_sidebar_mode == 3) return @"Changes";
+  if (g_editor_sidebar_mode == 2) return @"History";
+  if (g_editor_sidebar_mode == 4) return @"Branches";
+  if (g_editor_sidebar_mode == 5) return @"Search";
+  NSString *text = g_editor_outline_text ?: @"";
+  NSRange newline = [text rangeOfString:@"\n"];
+  return newline.location == NSNotFound ? text : [text substringToIndex:newline.location];
 }
 
 static void themeRGB(NSString *value, NSColor *fallback,
@@ -2782,6 +2835,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @end
 
 @interface NimculusGitCommitButton : NSButton
+@property(nonatomic, retain) NSLayoutConstraint *compactWidthConstraint;
 - (void)setCompact:(BOOL)compact;
 @end
 
@@ -2791,6 +2845,12 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusGitChangesActions : NSStackView
 @property(nonatomic, retain) NSButton *stageAllButton;
 @property(nonatomic, retain) NSButton *unstageAllButton;
+@end
+
+@interface NimculusSidebarHeader : NSStackView
+@property(nonatomic, retain) NSTextField *titleLabel;
+@property(nonatomic, retain) NSStackView *actionStack;
+- (void)setTitle:(NSString *)title;
 @end
 
 @interface NimculusFilesSidebarActions : NSStackView
@@ -3664,14 +3724,15 @@ static void dismissExternalChangePanel(const char *command) {
   }
 }
 - (NSUInteger)sidebarItemForLine:(NSUInteger)line {
-  if (g_editor_outline_symbol_count == 0 || line < 2) return NSNotFound;
+  if (g_editor_outline_symbol_count == 0) return NSNotFound;
+  NSUInteger originalLine = line + NimculusSidebarHeaderLineCount;
   if (g_editor_sidebar_line_items) {
-    if (line >= g_editor_sidebar_line_item_count) return NSNotFound;
-    int32_t item = g_editor_sidebar_line_items[line];
+    if (originalLine >= g_editor_sidebar_line_item_count) return NSNotFound;
+    int32_t item = g_editor_sidebar_line_items[originalLine];
     return item < 0 || (uint32_t)item >= g_editor_outline_symbol_count
       ? NSNotFound : (NSUInteger)item;
   }
-  NSUInteger item = line - 2;
+  NSUInteger item = line;
   return item < g_editor_outline_symbol_count ? item : NSNotFound;
 }
 - (void)dispatchSidebarSelection:(NSUInteger)item {
@@ -4377,6 +4438,60 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
 - (void)openRecentFile:(id)sender { (void)sender; [[NSApp delegate] openRecent:nil]; }
 @end
 
+@implementation NimculusSidebarHeader
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+  self.alignment = NSLayoutAttributeCenterY;
+  self.distribution = NSStackViewDistributionFill;
+  self.spacing = NimculusSpace2;
+  self.edgeInsets = NSEdgeInsetsMake(0.0, NimculusSpace2, 0.0, NimculusSpace2);
+  self.wantsLayer = YES;
+  self.titleLabel = [NSTextField labelWithString:@""];
+  self.titleLabel.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold];
+  self.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+  self.titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+  [self.titleLabel setContentHuggingPriority:NSLayoutPriorityDefaultHigh
+    forOrientation:NSLayoutConstraintOrientationHorizontal];
+  [self.titleLabel setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow
+    forOrientation:NSLayoutConstraintOrientationHorizontal];
+  [self addArrangedSubview:self.titleLabel];
+  self.actionStack = [[[NSStackView alloc] initWithFrame:NSZeroRect] autorelease];
+  self.actionStack.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+  self.actionStack.alignment = NSLayoutAttributeCenterY;
+  self.actionStack.distribution = NSStackViewDistributionFill;
+  self.actionStack.spacing = NimculusSpace1;
+  self.actionStack.translatesAutoresizingMaskIntoConstraints = NO;
+  [self.actionStack setContentHuggingPriority:NSLayoutPriorityRequired
+    forOrientation:NSLayoutConstraintOrientationHorizontal];
+  [self.actionStack setContentCompressionResistancePriority:NSLayoutPriorityRequired
+    forOrientation:NSLayoutConstraintOrientationHorizontal];
+  [self addArrangedSubview:self.actionStack];
+  [self setTitle:@""];
+  return self;
+}
+- (void)dealloc { [_titleLabel release]; [_actionStack release]; [super dealloc]; }
+- (void)setTitle:(NSString *)title {
+  self.titleLabel.stringValue = title.length > 0 ? title : @"Panel";
+  self.titleLabel.toolTip = self.titleLabel.stringValue;
+  self.titleLabel.accessibilityLabel = self.titleLabel.stringValue;
+  self.titleLabel.textColor = themeRoleColor(@"fgPrimary",
+    themeHexColor(g_theme_foreground, [NSColor labelColor]));
+  [self setNeedsLayout:YES];
+}
+- (void)drawRect:(NSRect)dirtyRect {
+  (void)dirtyRect;
+  [themeRoleColor(@"chromeBg", themeHexColor(g_theme_background,
+    [NSColor windowBackgroundColor])) setFill];
+  NSRectFill(self.bounds);
+  [themeRoleColor(@"border", themeHexColor(g_theme_border,
+    [NSColor separatorColor])) setFill];
+  NSRectFill(NSMakeRect(0.0, MAX(0.0, self.bounds.size.height - 1.0),
+    self.bounds.size.width, 1.0));
+}
+@end
+
 // Zed exposes Changes and History as visible panel tabs. Keep the same primary
 // navigation in the compact native Git sidebar, with Branches alongside the
 // existing checkout workflow. AppKit's textured NSSegmentedControl delegates
@@ -4456,6 +4571,7 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
   self.action = @selector(requestCommit:);
   return self;
 }
+- (void)dealloc { [_compactWidthConstraint release]; [super dealloc]; }
 - (void)setCompact:(BOOL)compact {
   // Keep Changes/History/Branches legible at the smallest supported dock
   // width. The commit action remains present as a conventional checkmark
@@ -4464,6 +4580,12 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
   self.title = compact ? @"✓" : @"Commit…";
   self.toolTip = @"Commit staged changes";
   self.accessibilityLabel = @"Commit staged changes";
+  styleWorkspaceNavigationButton(self, NO, compact);
+  [self.heightAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
+  [self.compactWidthConstraint setActive:NO];
+  self.compactWidthConstraint = [self.widthAnchor constraintEqualToConstant:
+    compact ? NimculusControlHit : NimculusControlHit * 3.0 + NimculusSpace2];
+  self.compactWidthConstraint.active = YES;
 }
 - (void)requestCommit:(id)sender {
   (void)sender;
@@ -4484,6 +4606,9 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
       accessibilityDescription:self.accessibilityLabel];
     self.imagePosition = NSImageOnly;
   }
+  styleSidebarActionButton(self);
+  [self.widthAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
+  [self.heightAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
   self.target = self;
   self.action = @selector(refreshGit:);
   return self;
@@ -4507,7 +4632,7 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
   self.orientation = NSUserInterfaceLayoutOrientationHorizontal;
   self.alignment = NSLayoutAttributeCenterY;
   self.distribution = NSStackViewDistributionFill;
-  self.spacing = 4.0;
+  self.spacing = NimculusSpace1;
   self.stageAllButton = [NSButton buttonWithTitle:@"Stage All" target:self
     action:@selector(stageAll:)];
   self.unstageAllButton = [NSButton buttonWithTitle:@"Unstage All" target:self
@@ -4523,10 +4648,11 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
         accessibilityDescription:entry[2]];
       button.imagePosition = NSImageOnly;
     }
-    styleWorkspaceNavigationButton(button, NO, YES);
+    styleSidebarActionButton(button);
     button.toolTip = entry[2];
     button.accessibilityLabel = entry[2];
-    [button setFrameSize:NSMakeSize(26.0, 24.0)];
+    [button.widthAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
+    [button.heightAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
     [self addArrangedSubview:button];
   }
   return self;
@@ -4549,7 +4675,7 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
   self.orientation = NSUserInterfaceLayoutOrientationHorizontal;
   self.alignment = NSLayoutAttributeCenterY;
   self.distribution = NSStackViewDistributionFill;
-  self.spacing = 4.0;
+  self.spacing = NimculusSpace1;
   [self reloadActions];
   return self;
 }
@@ -4563,7 +4689,7 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
   NSArray<NSArray<NSString *> *> *buttons = g_workspace_open ? @[
     @[@"New File", @"document.badge.plus", @"createWorkspaceFile:"],
     @[@"New Folder", @"folder.badge.plus", @"createWorkspaceDirectory:"],
-    @[@"Reveal Active File", @"scope", @"commandPalette:reveal active file"],
+    @[@"Reveal Active File", @"location.magnifyingglass", @"commandPalette:reveal active file"],
     @[@"Collapse All", @"rectangle.compress.vertical", @"commandPalette:collapse all files"]
   ] : @[@[@"Open Folder…", @"folder.badge.plus", @"openWorkspaceFolder:"]];
   for (NSUInteger index = 0; index < buttons.count; index++) {
@@ -4579,11 +4705,13 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
         accessibilityDescription:entry[0]];
       button.imagePosition = g_workspace_open ? NSImageOnly : NSImageLeft;
     }
-    styleWorkspaceNavigationButton(button, NO, YES);
+    styleSidebarActionButton(button);
     button.toolTip = entry[0];
     button.accessibilityLabel = entry[0];
     button.identifier = entry[2];
-    [button setFrameSize:NSMakeSize(g_workspace_open ? 26.0 : 112.0, 24.0)];
+    [button.widthAnchor constraintEqualToConstant:g_workspace_open ?
+      NimculusControlHit : NimculusControlHit * 4.0 + NimculusSpace3].active = YES;
+    [button.heightAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
     [self addArrangedSubview:button];
   }
 }
@@ -4613,7 +4741,7 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
   self.orientation = NSUserInterfaceLayoutOrientationHorizontal;
   self.alignment = NSLayoutAttributeCenterY;
   self.distribution = NSStackViewDistributionFill;
-  self.spacing = 4.0;
+  self.spacing = NimculusSpace1;
   self.newSearchButton = [NSButton buttonWithTitle:@"New Search" target:self
     action:@selector(newSearch:)];
   self.cancelSearchButton = [NSButton buttonWithTitle:@"Cancel Search" target:self
@@ -4629,10 +4757,11 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
         accessibilityDescription:entry[2]];
       button.imagePosition = NSImageOnly;
     }
-    styleWorkspaceNavigationButton(button, NO, YES);
+    styleSidebarActionButton(button);
     button.toolTip = entry[2];
     button.accessibilityLabel = entry[2];
-    [button setFrameSize:NSMakeSize(26.0, 24.0)];
+    [button.widthAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
+    [button.heightAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
     [self addArrangedSubview:button];
   }
   return self;
@@ -4757,6 +4886,7 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
     // VoiceOver and for the public GUI acceptance workflow.
     button.accessibilityLabel = entry[1];
     [button setFrameSize:NSMakeSize(NimculusActivityIconSize, NimculusControlHit)];
+    applySidebarIconConfiguration(button);
     [self addArrangedSubview:button];
   }
   [self reloadSelection];
@@ -4797,7 +4927,7 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
       [command isEqualToString:@"commandPalette:debug threads"] ?
         g_editor_sidebar_visible && g_editor_sidebar_mode == 6 :
       [command isEqualToString:@"commandPalette:toggle terminal"] ? g_terminal_visible : NO;
-    styleWorkspaceNavigationButton(button, active, YES);
+    styleSidebarIconButton(button, active);
   }
 }
 - (void)dispatchWorkspaceCommand:(NSButton *)sender {
@@ -5010,7 +5140,7 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
     NSForegroundColorAttributeName: themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedWhite:0.93 alpha:1.0])
   };
-  NSString *text = g_editor_outline_text ?: @"";
+  NSString *text = sidebarContentText(g_editor_outline_text ?: @"");
   NSColor *foreground = themeHexColor(g_theme_foreground,
     [NSColor colorWithCalibratedWhite:0.84 alpha:1.0]);
   NSMutableParagraphStyle *rowStyle = [[NSMutableParagraphStyle alloc] init];
@@ -5031,17 +5161,7 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
     NSUInteger end = newline.location == NSNotFound ? text.length : newline.location;
     NSRange range = NSMakeRange(cursor, end - cursor);
     NSString *content = range.length > 0 ? [text substringWithRange:range] : @"";
-    if (line == 0) {
-      [presented addAttributes:@{
-        NSFontAttributeName: [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold],
-        NSForegroundColorAttributeName: foreground
-      } range:range];
-    } else if (line == 1) {
-      [presented addAttribute:NSForegroundColorAttributeName
-        value:[themeHexColor(g_theme_border,
-          [NSColor colorWithCalibratedWhite:0.30 alpha:1.0]) colorWithAlphaComponent:0.70]
-        range:range];
-    } else if (g_editor_sidebar_mode == 1) {
+    if (g_editor_sidebar_mode == 1) {
       // Project rows retain their textual disclosure markers, but make them
       // read as a hierarchy affordance instead of part of a file name.
       NSRange expanded = [content rangeOfString:@"▾"];
@@ -5057,8 +5177,9 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
         } range:marker];
       }
     } else if (g_editor_sidebar_mode == 3) {
-      if (g_editor_sidebar_line_items && line < g_editor_sidebar_line_item_count &&
-          g_editor_sidebar_line_items[line] < 0) {
+      NSUInteger originalLine = line + NimculusSidebarHeaderLineCount;
+      if (g_editor_sidebar_line_items && originalLine < g_editor_sidebar_line_item_count &&
+          g_editor_sidebar_line_items[originalLine] < 0) {
         // Git's section labels are hierarchy, never file state or a clickable
         // row. Keep them quiet and semibold so the three change groups scan
         // like Zed's collapsible sections without pretending to be a status.
@@ -5565,6 +5686,9 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     [self addSubview:outlineScroll];
     [outlineScroll release];
     [outline release];
+    NimculusSidebarHeader *sidebarHeader = [[NimculusSidebarHeader alloc]
+      initWithFrame:NSZeroRect];
+    [self addSubview:sidebarHeader];
     NimculusGitSidebarTabs *gitTabs = [[NimculusGitSidebarTabs alloc]
       initWithFrame:NSZeroRect];
     gitTabs.hidden = YES;
@@ -5573,28 +5697,29 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     NimculusGitCommitButton *gitCommit = [[NimculusGitCommitButton alloc]
       initWithFrame:NSZeroRect];
     gitCommit.hidden = YES;
-    [self addSubview:gitCommit];
-    [gitCommit release];
     NimculusGitRefreshButton *gitRefresh = [[NimculusGitRefreshButton alloc]
       initWithFrame:NSZeroRect];
     gitRefresh.hidden = YES;
-    [self addSubview:gitRefresh];
-    [gitRefresh release];
     NimculusGitChangesActions *gitChangesActions = [[NimculusGitChangesActions alloc]
       initWithFrame:NSZeroRect];
     gitChangesActions.hidden = YES;
-    [self addSubview:gitChangesActions];
+    [sidebarHeader.actionStack addArrangedSubview:gitChangesActions];
     [gitChangesActions release];
     NimculusFilesSidebarActions *filesActions = [[NimculusFilesSidebarActions alloc]
       initWithFrame:NSZeroRect];
     filesActions.hidden = YES;
-    [self addSubview:filesActions];
+    [sidebarHeader.actionStack addArrangedSubview:filesActions];
     [filesActions release];
     NimculusSearchSidebarActions *searchActions = [[NimculusSearchSidebarActions alloc]
       initWithFrame:NSZeroRect];
     searchActions.hidden = YES;
-    [self addSubview:searchActions];
+    [sidebarHeader.actionStack addArrangedSubview:searchActions];
     [searchActions release];
+    [sidebarHeader.actionStack addArrangedSubview:gitCommit];
+    [sidebarHeader.actionStack addArrangedSubview:gitRefresh];
+    [gitCommit release];
+    [gitRefresh release];
+    [sidebarHeader release];
     NimculusLineNumberOverlay *lineNumbers = [[NimculusLineNumberOverlay alloc]
       initWithFrame:NSZeroRect];
     [self addSubview:lineNumbers];
@@ -5785,6 +5910,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 
 - (void)updateTerminalFrame {
   NimculusOutlineOverlay *outline = outlineOverlayForView(self);
+  NimculusSidebarHeader *sidebarHeader = nil;
   NimculusGitSidebarTabs *gitTabs = nil;
   NimculusGitCommitButton *gitCommit = nil;
   NimculusGitRefreshButton *gitRefresh = nil;
@@ -5836,13 +5962,16 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusGitCommitOverlay class]]) gitCommitEditor = (NimculusGitCommitOverlay *)subview;
     if ([subview isKindOfClass:[NimculusSettingsOverlay class]]) settingsEditor = (NimculusSettingsOverlay *)subview;
     if ([subview isKindOfClass:[NimculusGitSidebarTabs class]]) gitTabs = (NimculusGitSidebarTabs *)subview;
+    if ([subview isKindOfClass:[NimculusSidebarHeader class]]) sidebarHeader = (NimculusSidebarHeader *)subview;
+    if ([subview isKindOfClass:[NimculusWorkspaceToolbar class]]) workspaceToolbar = (NimculusWorkspaceToolbar *)subview;
+    if ([subview isKindOfClass:[NimculusActivityBar class]]) activityBar = (NimculusActivityBar *)subview;
+  }
+  for (NSView *subview in sidebarHeader.actionStack.arrangedSubviews) {
     if ([subview isKindOfClass:[NimculusGitCommitButton class]]) gitCommit = (NimculusGitCommitButton *)subview;
     if ([subview isKindOfClass:[NimculusGitRefreshButton class]]) gitRefresh = (NimculusGitRefreshButton *)subview;
     if ([subview isKindOfClass:[NimculusGitChangesActions class]]) gitChangesActions = (NimculusGitChangesActions *)subview;
     if ([subview isKindOfClass:[NimculusFilesSidebarActions class]]) filesActions = (NimculusFilesSidebarActions *)subview;
     if ([subview isKindOfClass:[NimculusSearchSidebarActions class]]) searchActions = (NimculusSearchSidebarActions *)subview;
-    if ([subview isKindOfClass:[NimculusWorkspaceToolbar class]]) workspaceToolbar = (NimculusWorkspaceToolbar *)subview;
-    if ([subview isKindOfClass:[NimculusActivityBar class]]) activityBar = (NimculusActivityBar *)subview;
   }
   const CGFloat activityBarWidth = NimculusActivityBarWidth;
   // The logical editor begins after its 28pt tab strip and 28pt breadcrumb
@@ -5896,30 +6025,36 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     CGFloat width = sidebarWidth;
     BOOL showGitTabs = sidebarPresented && g_editor_sidebar_mode >= 2 &&
       g_editor_sidebar_mode <= 4;
-    BOOL showFilesActions = sidebarPresented && g_editor_sidebar_mode == 1;
-    BOOL showSearchActions = sidebarPresented && g_editor_sidebar_mode == 5;
-    BOOL showGitChangesActions = sidebarPresented && g_editor_sidebar_mode == 3;
-    // Git uses two compact rows: navigation on top, actions below. This
-    // preserves the full Changes/History/Branches labels at dock width while
-    // keeping commit, refresh, and bulk staging in the same visual group.
-    CGFloat sidebarToolbarHeight = showGitTabs ? 56.0 :
-      (showFilesActions || showSearchActions) ? 30.0 : 0.0;
+    const CGFloat sidebarHeaderHeight = sidebarPresented ? NimculusRowHeight : 0.0;
+    const CGFloat sidebarNavigationHeight = showGitTabs ? NimculusRowHeight : 0.0;
+    const CGFloat sidebarContentTop = sidebarTop + sidebarHeaderHeight +
+      sidebarNavigationHeight;
     NSScrollView *scroll = outline.enclosingScrollView;
     if (scroll) {
       scroll.hidden = !sidebarPresented;
       scroll.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(sidebarX, sidebarTop + sidebarToolbarHeight, width,
-          MAX(1.0, sidebarHeight - sidebarToolbarHeight)));
+        NSMakeRect(sidebarX, sidebarContentTop, width,
+          MAX(1.0, sidebarHeight - sidebarHeaderHeight - sidebarNavigationHeight)));
       scroll.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
       outline.textContainer.containerSize = NSMakeSize(MAX(1.0, width - 16.0), CGFLOAT_MAX);
       [outline.layoutManager ensureLayoutForTextContainer:outline.textContainer];
       CGFloat contentHeight = ceil([outline.layoutManager usedRectForTextContainer:outline.textContainer].size.height) + 16.0;
       outline.frame = NSMakeRect(0.0, 0.0, width,
-        MAX(sidebarHeight - sidebarToolbarHeight, contentHeight));
+        MAX(sidebarHeight - sidebarHeaderHeight - sidebarNavigationHeight, contentHeight));
     } else {
       outline.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(sidebarX, sidebarTop, width, sidebarHeight));
+        NSMakeRect(sidebarX, sidebarContentTop, width,
+          MAX(1.0, sidebarHeight - sidebarHeaderHeight - sidebarNavigationHeight)));
       outline.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
+    }
+    if (sidebarHeader) {
+      sidebarHeader.hidden = !sidebarPresented;
+      if (!sidebarHeader.hidden) {
+        [sidebarHeader setTitle:sidebarHeaderTitle()];
+        sidebarHeader.frame = appKitFrameForLogicalTopRect(self,
+          NSMakeRect(sidebarX, sidebarTop, width, sidebarHeaderHeight));
+        [sidebarHeader setNeedsLayout:YES];
+      }
     }
   }
   if (gitTabs) {
@@ -5929,8 +6064,9 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if (showGitTabs) {
       CGFloat width = sidebarWidth;
       gitTabs.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(sidebarControlX, sidebarTop + 3.0,
-          MAX(1.0, width - 8.0), 24.0));
+        NSMakeRect(sidebarControlX, sidebarTop + NimculusRowHeight +
+          (NimculusRowHeight - NimculusControlHit) / 2.0,
+          MAX(1.0, width - NimculusSpace2), NimculusControlHit));
       // Sidebar modes are ordered History, Status, Branches for the Nim
       // command layer, while the visible Zed-like navigation is Changes,
       // History, Branches. Do not derive this presentation mapping from enum
@@ -5941,60 +6077,34 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     }
   }
   if (gitCommit) {
-    // Commit belongs to Changes, not to History or Branches. Keeping it in
-    // the second row avoids competing with the primary navigation labels.
     BOOL showGitCommit = sidebarPresented && g_editor_sidebar_mode == 3;
     gitCommit.hidden = !showGitCommit;
     if (showGitCommit) {
       CGFloat width = sidebarWidth;
       BOOL compact = width < 220.0;
       [gitCommit setCompact:compact];
-      CGFloat commitWidth = compact ? 30.0 : 76.0;
-      gitCommit.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(sidebarControlX + 56.0,
-          sidebarTop + 29.0, commitWidth, 24.0));
     }
   }
   if (gitRefresh) {
     BOOL showGitRefresh = sidebarPresented && g_editor_sidebar_mode >= 2 &&
       g_editor_sidebar_mode <= 4;
     gitRefresh.hidden = !showGitRefresh;
-    if (showGitRefresh) {
-      CGFloat width = sidebarWidth;
-      gitRefresh.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(sidebarControlX + width - 32.0,
-          sidebarTop + 29.0, 28.0, 24.0));
-    }
   }
   if (gitChangesActions) {
     BOOL showGitChangesActions = sidebarPresented && g_editor_sidebar_mode == 3;
     gitChangesActions.hidden = !showGitChangesActions;
-    if (showGitChangesActions) {
-      gitChangesActions.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(sidebarControlX,
-          sidebarTop + 29.0, 52.0, 24.0));
-    }
   }
   if (filesActions) {
     BOOL showFilesActions = sidebarPresented && g_editor_sidebar_mode == 1;
     filesActions.hidden = !showFilesActions;
-    if (showFilesActions) {
-      CGFloat width = sidebarWidth;
-      CGFloat actionWidth = g_workspace_open ? 116.0 : 120.0;
-      filesActions.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(sidebarControlX + width - actionWidth - 4.0,
-          sidebarTop + 3.0, actionWidth, 24.0));
-    }
   }
   if (searchActions) {
     BOOL showSearchActions = sidebarPresented && g_editor_sidebar_mode == 5;
     searchActions.hidden = !showSearchActions;
-    if (showSearchActions) {
-      CGFloat width = sidebarWidth;
-      searchActions.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(sidebarControlX + width - 56.0,
-          sidebarTop + 3.0, 52.0, 24.0));
-    }
+  }
+  if (sidebarHeader) {
+    [sidebarHeader setNeedsLayout:YES];
+    [sidebarHeader layoutSubtreeIfNeeded];
   }
   if (workspaceToolbar) {
     // Navigation belongs in the persistent activity bar, as in Zed.  The
@@ -9027,18 +9137,18 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
     g_editor_outline_symbol_count = 2;
     NimculusOutlineOverlay *sidebar = [[NimculusOutlineOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 180.0, 100.0)];
-    [sidebar dispatchSidebarLine:3 open:NO];
+    [sidebar dispatchSidebarLine:1 open:NO];
     BOOL selected = strcmp(g_validation_command, "sidebarSelect:1") == 0;
-    [sidebar dispatchSidebarLine:3 open:YES];
+    [sidebar dispatchSidebarLine:1 open:YES];
     BOOL opened = strcmp(g_validation_command, "sidebarOpen:1") == 0;
     int32_t lineItems[] = {-1, -1, -1, 0, 1};
     nimculus_platform_set_editor_sidebar_line_items(lineItems, 5);
     strcpy(g_validation_command, "unchanged");
-    [sidebar dispatchSidebarLine:2 open:NO];
+    [sidebar dispatchSidebarLine:0 open:NO];
     BOOL headerIgnored = strcmp(g_validation_command, "unchanged") == 0;
-    [sidebar dispatchSidebarLine:3 open:NO];
+    [sidebar dispatchSidebarLine:1 open:NO];
     BOOL mappedSelection = strcmp(g_validation_command, "sidebarSelect:0") == 0;
-    [sidebar dispatchSidebarLine:4 open:YES];
+    [sidebar dispatchSidebarLine:2 open:YES];
     BOOL mappedOpen = strcmp(g_validation_command, "sidebarOpen:1") == 0;
     g_editor_sidebar_mode = 3;
     [sidebar dispatchSidebarStageToggle:0];
@@ -9177,13 +9287,13 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
     int32_t debugLineItems[] = {-1, -1, -1, -1, 0, -1, 1};
     nimculus_platform_set_editor_sidebar_line_items(debugLineItems, 7);
     strcpy(g_validation_command, "unchanged");
-    [sidebar dispatchSidebarLine:2 open:NO];
+    [sidebar dispatchSidebarLine:0 open:NO];
     BOOL debugHeaderIgnored = strcmp(g_validation_command, "unchanged") == 0;
     strcpy(g_validation_command, "unchanged");
-    [sidebar dispatchSidebarLine:4 open:NO];
+    [sidebar dispatchSidebarLine:2 open:NO];
     BOOL debugThreadSelection = strcmp(g_validation_command, "sidebarSelect:0") == 0;
     strcpy(g_validation_command, "unchanged");
-    [sidebar dispatchSidebarLine:6 open:YES];
+    [sidebar dispatchSidebarLine:4 open:YES];
     BOOL debugVariableExpansion = strcmp(g_validation_command, "sidebarOpen:1") == 0;
     BOOL valid = selected && opened && headerIgnored && mappedSelection && mappedOpen &&
       stageToggle && tabFocusesEditor && escapeFocusesEditor && spaceStagesGitChange &&
@@ -9300,11 +9410,21 @@ bool nimculus_platform_validate_files_sidebar_actions(void) {
       [((NSButton *)buttons[3]).accessibilityLabel isEqualToString:@"Collapse All"];
     g_workspace_open = NO;
     [actions reloadActions];
+    [actions layoutSubtreeIfNeeded];
     buttons = actions.arrangedSubviews;
+    NSButton *emptyButton = (NSButton *)buttons[0];
+    BOOL emptyWidth = NO;
+    for (NSLayoutConstraint *constraint in emptyButton.constraints) {
+      if (constraint.firstAttribute == NSLayoutAttributeWidth &&
+          constraint.constant >= NimculusControlHit * 4.0 + NimculusSpace3) {
+        emptyWidth = YES;
+        break;
+      }
+    }
     BOOL emptyActions = buttons.count == 1 &&
       [((NSButton *)buttons[0]).title isEqualToString:@"Open Folder…"] &&
       ((NSButton *)buttons[0]).imagePosition == NSImageLeft &&
-      ((NSButton *)buttons[0]).frame.size.width >= 112.0;
+      emptyWidth;
     [actions release];
     g_command_callback = validationCommandCallback;
     g_workspace_open = YES;
@@ -11453,11 +11573,14 @@ void nimculus_platform_set_editor_sidebar_line_items(const int32_t *items,
 static NSUInteger editorSidebarLineForItem(NSUInteger item) {
   if (g_editor_sidebar_line_items) {
     for (uint32_t line = 0; line < g_editor_sidebar_line_item_count; line++) {
-      if (g_editor_sidebar_line_items[line] == (int32_t)item) return line;
+      if (g_editor_sidebar_line_items[line] == (int32_t)item &&
+          line >= NimculusSidebarHeaderLineCount) {
+        return line - NimculusSidebarHeaderLineCount;
+      }
     }
     return NSNotFound;
   }
-  return item + 2;
+  return item;
 }
 
 void nimculus_platform_set_editor_sidebar_selection(uint32_t item_index) {

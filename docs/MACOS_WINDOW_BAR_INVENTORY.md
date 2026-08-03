@@ -48,6 +48,7 @@ and the first workspace rows. It is based on the local Zed reference in
 | Tab row | 28pt row below the titlebar; measured content-width tabs with native SF Symbol controls | Done |
 | Breadcrumb row | 28pt row below tabs; one truncated native breadcrumb label | Done |
 | Sidebar order | Activity bar outermost left, Files/Search/Git panel inside | Done |
+| Panel headers | Files/Search/Git titles share one `rowHeight` header with right-aligned 24pt actions | Done |
 
 ## Verification checklist
 
@@ -58,3 +59,5 @@ and the first workspace rows. It is based on the local Zed reference in
 - Branch and titlebar controls are exposed as native accessibility elements.
 - Editor text begins below the titlebar and remains inside its right and bottom
   viewport boundaries.
+- Files, Search, and Git Changes actions sit on the same row as their panel
+  title; no detached action toolbar is visible above the title.

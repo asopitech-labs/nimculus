@@ -144,9 +144,9 @@ var activePointerNode = NodeId(0)
 var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 var demoSecondaryEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 var demoBottomDockBounds = Rect(size: Size(width: px(0), height: px(0)))
- # Match Zed's default macOS workspace: the activity bar is outermost left and
- # the Files panel sits immediately inside it. WorkspaceUiState already owns
- # the logical left dock, so the macOS projection uses the same side.
+  # Match Zed's default macOS workspace: the activity bar is outermost left and
+  # the Files panel sits immediately inside it. WorkspaceUiState already owns
+  # the logical left dock, so the macOS projection uses the same side.
 const MacProjectDockOnRight = false
 when defined(macosx) or defined(windows):
   var appSettings: SettingsStore

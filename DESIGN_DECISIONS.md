@@ -6918,3 +6918,31 @@ fallbacks for missing roles.
 instead of adding a local literal. Theme updates restyle native controls and
 repaint the same surfaces without changing the NimNUI/core dependency
 direction.
+
+## UX-024: Keep panel titles and actions in one Zed-aligned header row
+
+**Context.** The macOS Files and Search actions were rendered in a detached
+toolbar above the panel title. Git placed its Changes actions in a second
+toolbar row, so panel controls were visually separated from the title they
+modified.
+
+**Decision.** Add a native `NimculusSidebarHeader` `NSStackView` for every
+sidebar. Its title is left-aligned and its action stack is right-aligned in a
+single `rowHeight` row. Files, Search, and Git Changes actions remain native
+24pt buttons with their existing tooltips, accessibility labels, and command
+identifiers. Git's Changes/History/Branches navigation remains in the row
+below the header. The source sidebar text still owns its two-line title
+contract, but the presenter removes those lines from the scrollable content
+and translates row mappings so selection, keyboard navigation, and context
+actions keep their existing item indices.
+
+Reveal Active File uses `location.magnifyingglass` instead of `scope`, and
+sidebar/activity icons use a shared SF Symbol point-size token. Header and
+activity boundaries use the existing semantic theme roles so the layout keeps
+its contrast in both light and dark themes.
+
+**Consequences.** Panel chrome now matches Zed's single-row title/action
+hierarchy without adding a new command or blocking work on the UI thread.
+Future panel actions must be added to the header action stack and sized from
+`space1`, `space2`, `space3`, `rowHeight`, and `controlHit` rather than by
+positioning a detached toolbar.

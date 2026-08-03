@@ -67,6 +67,10 @@ is exposed through the same command entry point and remains dependent on the
 workspace zoom state. On macOS the activity bar and project panels follow
 Zed's default left-side order.
 
+The macOS Files, Search, and Git panels use a single-row title/action header:
+the title is left-aligned, the 24pt native actions are right-aligned, and Git's
+Changes/History/Branches navigation remains directly below that header.
+
 ## Context menus
 
 The mechanically extracted applicable Zed action labels include:
