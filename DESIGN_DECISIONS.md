@@ -7002,3 +7002,32 @@ not change.
 more legible selected tab without adding a renderer/core dependency or a new
 interaction path. Hover state is owned by the AppKit control, so it does not
 block the UI thread or alter the Metal editor contract.
+
+## PERF-026: Pace live macOS redraws with a dirty-gated ProMotion display link
+
+**Context.** Synchronous redraws for every editor, terminal, pointer, and
+state-reflection update can submit more work than a ProMotion display can
+present, especially during trackpad scrolling. An always-running display link
+would fix pacing but would also change the existing idle and frame-diagnostic
+contract.
+
+**Decision.** On macOS 14 and later, `NimculusMetalView` owns an AppKit
+view-bound `CADisplayLink`, configured with a `CAFrameRateRange` from 60Hz up
+to the current screen's maximum, capped at 120Hz. The link starts only while
+the window is visible and unoccluded, stops for miniaturization, occlusion,
+close, and teardown, and coalesces redraw requests through a single dirty
+flag. An idle link does not call `drawFrame`.
+
+Every interactive/state-reflection caller now invokes `requestRedraw`. While
+the link is running, that method only sets the dirty flag; otherwise—including
+headless/contract tests, startup before the link begins, and hidden windows—it
+calls `drawFrame` synchronously. This fallback is intentional: a frame remains
+defined as a successfully presented drawable, so `presentDrawable`, frame timing
+samples, `frame_count`, input-to-frame diagnostics, and the cold-start first
+frame retain their existing semantics. Initialization and validation therefore
+remain synchronous whenever no live display link is available.
+
+**Consequences.** Live GUI rendering is paced at the display cadence without
+idle frames or duplicate synchronous submissions. The renderer's existing
+present, timing, frame-count, and damage/dirty-region logic is unchanged, and
+non-macOS/headless backends require no display-link knowledge.

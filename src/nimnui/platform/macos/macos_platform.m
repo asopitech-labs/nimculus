@@ -1,5 +1,6 @@
 #import <Cocoa/Cocoa.h>
 #import <Metal/Metal.h>
+#import <QuartzCore/CADisplayLink.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <CoreText/CoreText.h>
 #import <CoreGraphics/CoreGraphics.h>
@@ -719,6 +720,9 @@ static uint32_t g_secondary_git_hunk_count = 0;
 static void releasePlatformResources(void) {
   // As with Zed's renderer drop path, release GPU objects before AppKit tears
   // down the window/layer, then dispose of CPU buffers and bridge state.
+  if ([g_active_view respondsToSelector:@selector(stopDisplayLink)]) {
+    [g_active_view stopDisplayLink];
+  }
   g_active_view = nil;
   [g_scene_texture release]; g_scene_texture = nil;
   [g_text_texture release]; g_text_texture = nil;
@@ -2642,10 +2646,17 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 
 @interface NimculusMetalView : NSView <NSTextInputClient>
 @property(nonatomic, strong) CAMetalLayer *metalLayer;
+@property(nonatomic, strong) CADisplayLink *displayLink;
+@property(nonatomic) BOOL displayLinkRunning;
+@property(nonatomic) BOOL redrawDirty;
 @property(nonatomic, copy) NSString *markedText;
 @property(nonatomic) NSRange markedTextRange;
 @property(nonatomic) NSRange selectedTextRange;
 @property(nonatomic, strong) NSTrackingArea *trackingArea;
+- (void)requestRedraw;
+- (void)startDisplayLinkIfNeeded;
+- (void)restartDisplayLinkIfNeeded;
+- (void)stopDisplayLink;
 - (void)updateTerminalFrame;
 - (void)showDocumentFindBar:(BOOL)replace;
 - (void)showGoToLineBar;
@@ -5995,6 +6006,66 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 
 + (Class)layerClass { return [CAMetalLayer class]; }
 
+- (void)displayLinkDidFire:(CADisplayLink *)displayLink {
+  (void)displayLink;
+  if (!self.redrawDirty) return;
+  self.redrawDirty = NO;
+  [self drawFrame];
+}
+
+- (void)requestRedraw {
+  // The display link is deliberately the only live-GUI frame owner. Before
+  // it is available (headless/tests/startup/hidden windows), preserve the
+  // historical synchronous draw contract so presented-frame metrics do not
+  // disappear from those paths.
+  BOOL displayLinkCanRender = self.displayLinkRunning && self.window &&
+    self.window.isVisible && !self.window.isMiniaturized &&
+    (self.window.occlusionState & NSWindowOcclusionStateVisible) != 0;
+  if (displayLinkCanRender) {
+    self.redrawDirty = YES;
+    return;
+  }
+  if (self.displayLinkRunning) [self stopDisplayLink];
+  [self drawFrame];
+}
+
+- (void)startDisplayLinkIfNeeded {
+  if (self.displayLinkRunning) return;
+  NSWindow *window = self.window;
+  if (!window || !window.isVisible || window.isMiniaturized ||
+      (window.occlusionState & NSWindowOcclusionStateVisible) == 0) return;
+  if (@available(macOS 14.0, *)) {
+    CADisplayLink *link = [self displayLinkWithTarget:self
+                                              selector:@selector(displayLinkDidFire:)];
+    if (!link) return;
+    NSScreen *screen = window.screen ?: NSScreen.mainScreen;
+    NSInteger maximumFramesPerSecond = screen ? screen.maximumFramesPerSecond : 120;
+    maximumFramesPerSecond = MAX(60, MIN(120, maximumFramesPerSecond));
+    link.preferredFrameRateRange = CAFrameRateRangeMake(60.0,
+      (float)maximumFramesPerSecond, (float)maximumFramesPerSecond);
+    self.displayLink = link;
+    self.displayLinkRunning = YES;
+    // The view may have become visible after its synchronous startup draw.
+    // Mark one frame so the link establishes a fresh live presentation, then
+    // remain fully idle until another state change requests a redraw.
+    self.redrawDirty = YES;
+    [link addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+  }
+}
+
+- (void)stopDisplayLink {
+  self.displayLinkRunning = NO;
+  self.redrawDirty = NO;
+  [self.displayLink invalidate];
+  self.displayLink = nil;
+}
+
+- (void)restartDisplayLinkIfNeeded {
+  if (!self.displayLinkRunning) return;
+  [self stopDisplayLink];
+  [self startDisplayLinkIfNeeded];
+}
+
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
   if (self) {
@@ -6261,7 +6332,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   if (g_queue && fabs(g_text_texture_scale - g_metrics.scale_factor) > 0.001) {
     updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   }
-  [self drawFrame];
+  [self requestRedraw];
 }
 
 - (void)updateTerminalFrame {
@@ -7011,6 +7082,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   // the drawable size and backing scale here as well as in layout, matching
   // the later Retina-transition path.
   [self updateBackingScale];
+  [self startDisplayLinkIfNeeded];
 }
 
 // NSTextInputClient: composition is forwarded to the application editor while
@@ -7249,6 +7321,36 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   if (g_command_callback) g_command_callback("windowFocusLost");
 }
 
+- (void)applicationDidBecomeActive:(NSNotification *)notification {
+  (void)notification;
+  [self.view startDisplayLinkIfNeeded];
+}
+
+- (void)windowDidBecomeKey:(NSNotification *)notification {
+  if (notification.object == self.window) [self.view startDisplayLinkIfNeeded];
+}
+
+- (void)windowDidDeminiaturize:(NSNotification *)notification {
+  if (notification.object == self.window) [self.view startDisplayLinkIfNeeded];
+}
+
+- (void)windowDidChangeOcclusionState:(NSNotification *)notification {
+  if (notification.object != self.window) return;
+  if ((self.window.occlusionState & NSWindowOcclusionStateVisible) != 0) {
+    [self.view startDisplayLinkIfNeeded];
+  } else {
+    [self.view stopDisplayLink];
+  }
+}
+
+- (void)windowDidMiniaturize:(NSNotification *)notification {
+  if (notification.object == self.window) [self.view stopDisplayLink];
+}
+
+- (void)windowWillClose:(NSNotification *)notification {
+  if (notification.object == self.window) [self.view stopDisplayLink];
+}
+
 - (BOOL)confirmClose {
   if (!g_editor_dirty) return YES;
   // Window closing must not enter a nested AppKit loop. Normal application
@@ -7269,12 +7371,13 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 }
 
 - (void)windowDidChangeScreen:(NSNotification *)notification {
-  // Zed refreshes its display link, scale factor, and drawable whenever
-  // AppKit assigns a window to a new screen. Nimculus does not own a display
-  // link, but it must still refresh the CAMetalLayer and text resources even
-  // when the window bounds did not change (for example, between two Retina
-  // displays with a different backing scale).
-  if (notification.object == self.window) [self.view updateBackingScale];
+  // Recompute the drawable and display-link frame-rate range whenever AppKit
+  // assigns the window to a new screen. This covers both Retina transitions
+  // and moving between a 60Hz display and a ProMotion display.
+  if (notification.object == self.window) {
+    [self.view updateBackingScale];
+    [self.view restartDisplayLinkIfNeeded];
+  }
 }
 
 - (void)presentAlertSheet:(NSAlert *)alert
@@ -7302,6 +7405,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   if (g_command_callback) g_command_callback("saveSession");
   [self.workspaceSearchTimer invalidate];
   self.workspaceSearchTimer = nil;
+  [self.view stopDisplayLink];
   releasePlatformResources();
 }
 
@@ -8214,6 +8318,7 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
   // the editor as the frontmost application.
   [[NSApplication sharedApplication] activateIgnoringOtherApps:YES];
   [self.window orderFrontRegardless];
+  [self.view startDisplayLinkIfNeeded];
   self.workspaceSearchTimer = [NSTimer scheduledTimerWithTimeInterval:0.05
     target:self selector:@selector(emitWorkspaceSearchTick:) userInfo:nil repeats:YES];
 }
@@ -11242,7 +11347,7 @@ void nimculus_platform_set_editor_font_size(double size) {
       if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) [subview setNeedsDisplay:YES];
     }
   }
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_editor_font_name(const char *name) {
   NSString *requested = name ? [NSString stringWithUTF8String:name] : nil;
@@ -11254,7 +11359,7 @@ void nimculus_platform_set_editor_font_name(const char *name) {
       if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) [subview setNeedsDisplay:YES];
     }
   }
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 double nimculus_platform_editor_line_height(void) { return editorLineHeight(); }
 void nimculus_platform_invalidate_ime_coordinates(void) {
@@ -11362,13 +11467,13 @@ void nimculus_platform_set_editor_scroll_line(uint32_t line) {
   }
   markSceneFullyDirty();
   if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_editor_scroll_x(double offset) {
   g_editor_scroll_x = MAX(0.0, offset);
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   markSceneFullyDirty();
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 double nimculus_platform_editor_scroll_x(void) { return g_editor_scroll_x; }
 void nimculus_platform_set_editor_rect(double x, double y, double width, double height) {
@@ -11379,7 +11484,7 @@ void nimculus_platform_set_editor_rect(double x, double y, double width, double 
   if (g_active_view) [(NimculusMetalView *)g_active_view updateTerminalFrame];
   if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
   markSceneFullyDirty();
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_terminal_panel_rect(double x, double y, double width, double height) {
   g_terminal_panel_rect[0] = MAX(0.0, x);
@@ -11390,7 +11495,7 @@ void nimculus_platform_set_terminal_panel_rect(double x, double y, double width,
     [(NimculusMetalView *)g_active_view updateTerminalFrame];
     if (g_queue) updateTerminalGlyphAtlas(g_queue.device);
     markSceneFullyDirty();
-    [g_active_view drawFrame];
+    [g_active_view requestRedraw];
   }
 }
 void nimculus_platform_set_secondary_editor_rect(bool visible, double x, double y,
@@ -11406,7 +11511,7 @@ void nimculus_platform_set_secondary_editor_rect(bool visible, double x, double 
   g_secondary_editor_rect[3] = MAX(1.0, height);
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_secondary_editor_cursor_byte(uint32_t byte_offset, uint32_t line) {
   swapEditorTextState();
@@ -11437,7 +11542,7 @@ void nimculus_platform_set_secondary_editor_cursor_byte(uint32_t byte_offset, ui
   swapEditorTextState();
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_secondary_editor_selection(uint32_t start_byte, uint32_t end_byte) {
   NSUInteger start = utf16OffsetForUTF8Bytes(g_secondary_editor_text ?: @"", start_byte);
@@ -11454,7 +11559,7 @@ void nimculus_platform_set_secondary_editor_selection(uint32_t start_byte, uint3
   }
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_secondary_editor_selections(
     const NimculusEditorSelection *selections, uint32_t count) {
@@ -11471,19 +11576,19 @@ void nimculus_platform_set_secondary_editor_selections(
   }
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
-  if (g_active_view) [g_active_view drawFrame];
+  if (g_active_view) [g_active_view requestRedraw];
 }
 void nimculus_platform_set_secondary_editor_scroll_line(uint32_t line) {
   g_secondary_editor_scroll_line = line;
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_secondary_editor_scroll_x(double offset) {
   g_secondary_editor_scroll_x = MAX(0.0, offset);
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 double nimculus_platform_secondary_editor_scroll_x(void) {
   return g_secondary_editor_scroll_x;
@@ -11492,7 +11597,7 @@ void nimculus_platform_set_secondary_editor_soft_wrap(bool enabled) {
   g_secondary_editor_soft_wrap = enabled ? YES : NO;
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_editor_input_pane(uint32_t pane) {
   g_editor_input_pane = pane == 1 && g_secondary_editor_visible ? 1 : 0;
@@ -11511,7 +11616,7 @@ void nimculus_platform_set_editor_input_pane(uint32_t pane) {
     rebuildSecondaryEditorTexture(g_queue.device);
   }
   markSceneFullyDirty();
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 uint32_t nimculus_platform_editor_pane_at_point(double x, double y) {
   if (editorRectContains(g_editor_rect, x, y)) return 0;
@@ -11555,7 +11660,7 @@ void nimculus_platform_set_editor_soft_wrap(bool enabled) {
   }
   markSceneFullyDirty();
   if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 static void replaceEditorFolds(NimculusFoldRange **slot, uint32_t *count,
                                const NimculusFoldRange *ranges, uint32_t range_count) {
@@ -11580,7 +11685,7 @@ void nimculus_platform_set_editor_folds(const NimculusFoldRange *ranges, uint32_
       if ([subview isKindOfClass:[NimculusLineNumberOverlay class]] ||
           [subview isKindOfClass:[NimculusIndentGuideOverlay class]]) [subview setNeedsDisplay:YES];
     }
-    [view drawFrame];
+  [view requestRedraw];
   }
 }
 void nimculus_platform_set_secondary_editor_folds(const NimculusFoldRange *ranges, uint32_t count) {
@@ -11589,7 +11694,7 @@ void nimculus_platform_set_secondary_editor_folds(const NimculusFoldRange *range
     g_secondary_editor_line_count);
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_editor_tabs(const char *utf8, uint32_t length, uint32_t active_index) {
   NSString *value = (utf8 && length > 0)
@@ -11853,7 +11958,7 @@ void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_by
   }
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   markSceneFullyDirty();
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_editor_selections(const NimculusEditorSelection *selections,
                                              uint32_t count) {
@@ -11870,7 +11975,7 @@ void nimculus_platform_set_editor_selections(const NimculusEditorSelection *sele
   }
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   markSceneFullyDirty();
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
   replaceOwnedUTF8String(&g_editor_text, utf8, length, @"");
@@ -11882,14 +11987,14 @@ void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
   }
   markSceneFullyDirty();
   if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
-  if (g_active_view) [g_active_view drawFrame];
+  if (g_active_view) [g_active_view requestRedraw];
 }
 void nimculus_platform_set_secondary_editor_text(const char *utf8, uint32_t length) {
   replaceOwnedUTF8String(&g_secondary_editor_text, utf8, length, @"");
   rebuildSecondaryEditorLineIndex();
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
-  if (g_active_view) [g_active_view drawFrame];
+  if (g_active_view) [g_active_view requestRedraw];
 }
 void nimculus_platform_set_editor_outline(const char *utf8, uint32_t length,
                                           uint32_t symbol_count) {
@@ -11996,7 +12101,7 @@ void nimculus_platform_set_editor_sidebar_visible(bool visible) {
   NimculusOutlineOverlay *outline = outlineOverlayForView(view);
   if (outline.enclosingScrollView) outline.enclosingScrollView.hidden = !g_editor_sidebar_visible;
   [view updateTerminalFrame];
-  [view drawFrame];
+  [view requestRedraw];
 }
 void nimculus_platform_focus_editor_sidebar(void) {
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
@@ -12051,7 +12156,7 @@ void nimculus_platform_set_terminal_visible(bool visible) {
   if (g_active_view) {
     [(NimculusMetalView *)g_active_view updateTerminalFrame];
     markSceneFullyDirty();
-    [g_active_view drawFrame];
+    [g_active_view requestRedraw];
   }
 }
 void nimculus_platform_set_terminal_sessions(const char *utf8, uint32_t length,
@@ -12090,7 +12195,7 @@ void nimculus_platform_set_terminal_text(const char *utf8, uint32_t length) {
     applyTerminalSelection(terminal);
     [terminal scrollRangeToVisible:NSMakeRange(terminal.string.length, 0)];
   }
-  [view drawFrame];
+  [view requestRedraw];
 }
 void nimculus_platform_set_terminal_runs(const char *utf8, uint32_t length,
                                          const NimculusTerminalRun *runs, uint32_t count) {
@@ -12124,7 +12229,7 @@ void nimculus_platform_set_terminal_runs(const char *utf8, uint32_t length,
       break;
     }
   }
-  [view drawFrame];
+  [view requestRedraw];
 }
 void nimculus_platform_set_theme_colors(const char *background, const char *foreground,
                                         const char *accent, const char *selection,
@@ -12189,7 +12294,7 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
   }
   if (g_queue) updateTerminalGlyphAtlas(g_queue.device);
   markSceneFullyDirty();
-  [view drawFrame];
+  [view requestRedraw];
 }
 
 void nimculus_platform_set_theme_palette_json(const char *json) {
@@ -12241,7 +12346,7 @@ static void updateTerminalFonts(void) {
   }
   if (g_queue) updateTerminalGlyphAtlas(g_queue.device);
   markSceneFullyDirty();
-  [view drawFrame];
+  [view requestRedraw];
 }
 void nimculus_platform_set_terminal_font_size(double size) {
   g_terminal_font_size = MIN(48.0, MAX(6.0, size > 0.0 ? size : 12.0));
@@ -12280,7 +12385,7 @@ void nimculus_platform_set_terminal_selection(uint32_t start_row, uint32_t start
         break;
       }
     }
-    [view drawFrame];
+  [view requestRedraw];
   }
 }
 
@@ -12300,7 +12405,7 @@ void nimculus_platform_set_task_output_visible(bool visible) {
   g_task_output_visible = visible ? YES : NO;
   if (g_active_view) {
     [(NimculusMetalView *)g_active_view updateTerminalFrame];
-    [g_active_view drawFrame];
+    [g_active_view requestRedraw];
   }
 }
 void nimculus_platform_set_task_output_cancellable(bool cancellable) {
@@ -12314,7 +12419,7 @@ void nimculus_platform_set_task_output_cancellable(bool cancellable) {
     }
   }
   [view updateTerminalFrame];
-  [view drawFrame];
+  [view requestRedraw];
 }
 void nimculus_platform_set_task_output_title(const char *utf8, uint32_t length) {
   replaceOwnedUTF8String(&g_task_output_title, utf8, length, @"Task Output");
@@ -12349,7 +12454,7 @@ void nimculus_platform_set_editor_completions(const char *utf8, uint32_t length)
     updateEditorTextTexture(g_queue.device, g_editor_text, NO);
     rebuildSecondaryEditorTexture(g_queue.device);
   }
-  if (g_active_view) [g_active_view drawFrame];
+  if (g_active_view) [g_active_view requestRedraw];
 }
 void nimculus_platform_set_editor_hover(const char *utf8, uint32_t length) {
   replaceOwnedUTF8String(&g_editor_hover, utf8, length, @"");
@@ -12358,7 +12463,7 @@ void nimculus_platform_set_editor_hover(const char *utf8, uint32_t length) {
     updateEditorTextTexture(g_queue.device, g_editor_text, NO);
     rebuildSecondaryEditorTexture(g_queue.device);
   }
-  if (g_active_view) [g_active_view drawFrame];
+  if (g_active_view) [g_active_view requestRedraw];
 }
 void nimculus_platform_set_editor_hover_position(double x, double y) {
   g_editor_hover_position[0] = x;
@@ -12368,7 +12473,7 @@ void nimculus_platform_set_editor_hover_position(double x, double y) {
     updateEditorTextTexture(g_queue.device, g_editor_text, NO);
     rebuildSecondaryEditorTexture(g_queue.device);
   }
-  if (g_active_view) [g_active_view drawFrame];
+  if (g_active_view) [g_active_view requestRedraw];
 }
 void nimculus_platform_set_editor_hover_pane(uint32_t pane) {
   g_editor_hover_pane = pane == 1 && g_secondary_editor_visible ? 1 : 0;
@@ -12377,7 +12482,7 @@ void nimculus_platform_set_editor_hover_pane(uint32_t pane) {
     updateEditorTextTexture(g_queue.device, g_editor_text, NO);
     rebuildSecondaryEditorTexture(g_queue.device);
   }
-  if (g_active_view) [g_active_view drawFrame];
+  if (g_active_view) [g_active_view requestRedraw];
 }
 uint32_t nimculus_platform_editor_text_utf8_length(void) {
   NSData *data = [g_editor_text dataUsingEncoding:NSUTF8StringEncoding];
@@ -12398,7 +12503,7 @@ void nimculus_platform_set_editor_composition(const char *utf8) {
     if (g_editor_input_pane == 1) rebuildSecondaryEditorTexture(g_queue.device);
     else updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   }
-  if (g_active_view) [g_active_view drawFrame];
+  if (g_active_view) [g_active_view requestRedraw];
 }
 void nimculus_platform_clear_editor_composition(void) {
   replaceOwnedString(&g_marked_text, @"");
@@ -12412,7 +12517,7 @@ void nimculus_platform_clear_editor_composition(void) {
     if (g_editor_input_pane == 1) rebuildSecondaryEditorTexture(g_queue.device);
     else updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   }
-  if (g_active_view) [g_active_view drawFrame];
+  if (g_active_view) [g_active_view requestRedraw];
 }
 bool nimculus_platform_validate_secondary_highlight_isolation(void) {
   NimculusHighlightSpan primary = {.start_byte = 1, .end_byte = 4, .kind = 1};
@@ -12493,7 +12598,7 @@ void nimculus_platform_set_editor_diagnostics(const NimculusDiagnosticSpan *span
         break;
       }
     }
-    [view drawFrame];
+  [view requestRedraw];
   }
 }
 void nimculus_platform_set_secondary_editor_diagnostics(const NimculusDiagnosticSpan *spans,
@@ -12510,7 +12615,7 @@ void nimculus_platform_set_secondary_editor_diagnostics(const NimculusDiagnostic
   }
   markSceneFullyDirty();
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_secondary_editor_highlights(const NimculusHighlightSpan *spans,
                                                        uint32_t count) {
@@ -12526,7 +12631,7 @@ void nimculus_platform_set_secondary_editor_highlights(const NimculusHighlightSp
   }
   markSceneFullyDirty();
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_editor_annotations(const NimculusEditorAnnotation *annotations,
                                               uint32_t count) {
@@ -12587,7 +12692,7 @@ void nimculus_platform_set_editor_git_hunks(const NimculusGitHunkSpan *spans, ui
   }
   markSceneFullyDirty();
   if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_secondary_editor_git_hunks(const NimculusGitHunkSpan *spans,
                                                        uint32_t count) {
@@ -12603,7 +12708,7 @@ void nimculus_platform_set_secondary_editor_git_hunks(const NimculusGitHunkSpan 
   }
   markSceneFullyDirty();
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_recent_files(const char *const *paths, uint32_t count) {
   NSMutableArray<NSString *> *files = [NSMutableArray arrayWithCapacity:count];
@@ -12648,7 +12753,7 @@ void nimculus_platform_set_image_rgba(uint32_t image_id, uint32_t width,
   g_image_textures[@(image_id)] = texture;
   [texture release];
   markSceneFullyDirty();
-  if (g_active_view) [(NimculusMetalView *)g_active_view drawFrame];
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_paint_dirty_regions(const NimculusPaintRegion *regions, uint32_t count) {
   free(g_paint_dirty_regions);
