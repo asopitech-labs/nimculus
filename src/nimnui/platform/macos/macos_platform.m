@@ -2575,6 +2575,22 @@ static void recordFrameTimingSample(double milliseconds) {
   g_frame_timing_sample_count++;
 }
 
+// Per-event logging is opt-in. logInput runs for every scroll, mouse-move,
+// drag, and key event; an unconditional NSLog there takes a system-wide lock
+// and does synchronous formatted I/O on the main thread for each of the
+// hundreds of scroll/trackpad events per second, which visibly degrades scroll
+// smoothness and input latency. Zed never logs per input event in a normal
+// run. Gate it behind NIMCULUS_INPUT_LOG (checked once) so diagnostics stay
+// available without paying the cost on every event.
+static BOOL nimculusInputLogEnabled(void) {
+  static int cached = -1;
+  if (cached < 0) {
+    const char *value = getenv("NIMCULUS_INPUT_LOG");
+    cached = (value && value[0] != '\0' && value[0] != '0') ? 1 : 0;
+  }
+  return cached == 1;
+}
+
 static BOOL logInput(NSString *kind, NSEvent *event) {
   if (g_first_input_time == 0) g_first_input_time = mach_absolute_time();
   g_input_count++;
@@ -2600,9 +2616,11 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   const CGFloat deltaX = isScrollWheel ? event.scrollingDeltaX : 0.0;
   const CGFloat deltaY = isScrollWheel ? event.scrollingDeltaY : 0.0;
   const BOOL preciseScrolling = isScrollWheel && event.hasPreciseScrollingDeltas;
-  NSLog(@"Nimculus input kind=%@ keyCode=%hu modifiers=0x%lx x=%.1f y=%.1f dx=%.1f dy=%.1f",
-        kind, keyCode, event.modifierFlags, location.x, location.y,
-        deltaX, deltaY);
+  if (nimculusInputLogEnabled()) {
+    NSLog(@"Nimculus input kind=%@ keyCode=%hu modifiers=0x%lx x=%.1f y=%.1f dx=%.1f dy=%.1f",
+          kind, keyCode, event.modifierFlags, location.x, location.y,
+          deltaX, deltaY);
+  }
   if (g_input_callback) {
     NimculusInputEvent input = {
       .type = (uint32_t)event.type,
@@ -6980,11 +6998,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 - (void)mouseEntered:(NSEvent *)event { logInput(@"mouseEntered", event); }
 - (void)mouseExited:(NSEvent *)event { logInput(@"mouseExited", event); }
 - (BOOL)becomeFirstResponder {
-  NSLog(@"Nimculus focus gained");
+  if (nimculusInputLogEnabled()) NSLog(@"Nimculus focus gained");
   return [super becomeFirstResponder];
 }
 - (BOOL)resignFirstResponder {
-  NSLog(@"Nimculus focus lost");
+  if (nimculusInputLogEnabled()) NSLog(@"Nimculus focus lost");
   return [super resignFirstResponder];
 }
 - (void)viewDidMoveToWindow {
