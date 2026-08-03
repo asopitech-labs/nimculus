@@ -1297,11 +1297,13 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
       x, y, width, height,
       themeRed, themeGreen, themeBlue, 0.45f, transform);
   } else if (paint.kind == 10) { // scrollbar
+    // Zed draws a thin, translucent overlay thumb rather than a solid bar, so
+    // it reads as a hint over the content instead of a heavy gutter element.
     themeRGB(themeRole(@"scrollbarThumb", g_theme_foreground), [NSColor grayColor],
       &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height,
-      themeRed, themeGreen, themeBlue, 0.85f, transform);
+      themeRed, themeGreen, themeBlue, 0.5f, transform);
   } else if (paint.kind == 11) { // workspace background
     themeRGB(themeRole(@"background", g_theme_background),
       [NSColor colorWithCalibratedRed:0.055 green:0.065 blue:0.090 alpha:1.0],

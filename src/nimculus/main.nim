@@ -911,8 +911,8 @@ proc addEditorScrollbars(paint: var PaintList, bounds: Rect, view: EditorViewSta
     let maxScrollPixels = max(1'f32, float32(lineCount - max(1, visibleLines)) * 18'f32)
     let thumbY = trackY + max(0'f32, trackHeight - thumbHeight) *
       min(1'f32, max(0'f32, view.scrollYPixels) / maxScrollPixels)
-    paint.drawScrollbar(Rect(origin: Point(x: px(float32(bounds.origin.x) + width - 14'f32),
-      y: px(thumbY)), size: Size(width: px(8), height: px(min(trackHeight, thumbHeight)))))
+    paint.drawScrollbar(Rect(origin: Point(x: px(float32(bounds.origin.x) + width - 10'f32),
+      y: px(thumbY)), size: Size(width: px(6), height: px(min(trackHeight, thumbHeight)))))
   let scrollbar = horizontalEditorScrollbar(bounds, widestLineWidth, view.scrollX)
   if float32(scrollbar.thumb.size.width) > 0'f32:
     paint.drawScrollbar(scrollbar.thumb)
