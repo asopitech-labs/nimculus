@@ -121,6 +121,10 @@ void nimculus_platform_set_secondary_editor_scroll_y_fraction(double pixels);
 void nimculus_platform_set_secondary_editor_scroll_x(double offset);
 double nimculus_platform_secondary_editor_scroll_x(void);
 double nimculus_platform_secondary_editor_widest_visible_line_width(void);
+void nimculus_platform_log_editor_scroll_debug(const char *pane, double widest,
+                                               double viewport, double scroll_x,
+                                               double track_x, double track_width,
+                                               double thumb_x, double thumb_width);
 void nimculus_platform_set_secondary_editor_soft_wrap(bool enabled);
 void nimculus_platform_set_editor_input_pane(uint32_t pane);
 uint32_t nimculus_platform_editor_pane_at_point(double x, double y);

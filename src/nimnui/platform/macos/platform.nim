@@ -157,6 +157,8 @@ proc platformSetSecondaryEditorScrollYFraction*(pixels: cdouble) {.importc: "nim
 proc platformSetSecondaryEditorScrollX*(offset: cdouble) {.importc: "nimculus_platform_set_secondary_editor_scroll_x", cdecl.}
 proc platformSecondaryEditorScrollX*(): cdouble {.importc: "nimculus_platform_secondary_editor_scroll_x", cdecl.}
 proc platformSecondaryEditorWidestVisibleLineWidth*(): cdouble {.importc: "nimculus_platform_secondary_editor_widest_visible_line_width", cdecl.}
+proc platformLogEditorScrollDebug*(pane: cstring, widest, viewport, scrollX,
+    trackX, trackWidth, thumbX, thumbWidth: cdouble) {.importc: "nimculus_platform_log_editor_scroll_debug", cdecl.}
 proc platformSetSecondaryEditorSoftWrap*(enabled: bool) {.importc: "nimculus_platform_set_secondary_editor_soft_wrap", cdecl.}
 proc platformSetEditorInputPane*(pane: uint32) {.importc: "nimculus_platform_set_editor_input_pane", cdecl.}
 proc platformEditorPaneAtPoint*(x, y: cdouble): uint32 {.importc: "nimculus_platform_editor_pane_at_point", cdecl.}

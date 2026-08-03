@@ -6547,6 +6547,23 @@ key equivalents; Nim owns state transitions and persistence. The native menu
 contract invokes every new item and verifies the exact command payload, so a
 visible menu item cannot silently become a presentation-only affordance.
 
+## UI-089: Synchronize editor horizontal scrolling before retained paint
+
+The native editor measurement is authoritative for the widest visible line,
+but retained Nim paint commands must be built only after the current pane
+rectangle and soft-wrap mode have crossed the platform boundary. Each render /
+sync turn therefore clamps primary and secondary `scrollX` through the shared
+editor geometry contract, mirrors the native result back to the view state, and
+forces zero in soft-wrap mode. The same turn emits the horizontal thumb when
+the measured content overflows.
+
+Scrollbar paint remains on the semantic kind-10 path, but its Metal scissor is
+the owning editor pane rather than the text-only viewport. This preserves the
+bottom chrome band where the horizontal thumb lives while retaining the
+existing command and dirty-region flow. `NIMCULUS_SCROLL_DEBUG=1` provides a
+single native diagnostic with widest width, viewport, offset, track, and thumb
+geometry for live macOS verification.
+
 ## M17-089: Keep extensions manifest-driven and permissioned
 
 Zed's extension host separates discovery, manifest metadata, host registration,

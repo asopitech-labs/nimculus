@@ -43,6 +43,21 @@ static NSMutableArray<NSString *> *g_pending_file_open_paths = nil;
 static NimculusCommandCallback g_command_callback = NULL;
 static NimculusIdleCallback g_idle_callback = NULL;
 static BOOL g_validation_appearance_command_received = NO;
+static BOOL g_editor_scroll_debug_logged = NO;
+
+void nimculus_platform_log_editor_scroll_debug(const char *pane, double widest,
+                                               double viewport, double scroll_x,
+                                               double track_x, double track_width,
+                                               double thumb_x, double thumb_width) {
+  if (g_editor_scroll_debug_logged) return;
+  const char *enabled = getenv("NIMCULUS_SCROLL_DEBUG");
+  if (!enabled || strcmp(enabled, "1") != 0) return;
+  g_editor_scroll_debug_logged = YES;
+  NSLog(@"Nimculus scroll debug pane=%s widest=%.2f viewport=%.2f scrollX=%.2f "
+        "track=(%.2f,%.2f) thumb=(%.2f,%.2f)",
+        pane ?: "unknown", widest, viewport, scroll_x, track_x, track_width,
+        thumb_x, thumb_width);
+}
 
 static void validateAppearanceCommand(const char *command) {
   g_validation_appearance_command_received = command &&
@@ -1023,6 +1038,30 @@ static NimculusPaintRegion intersectPaintRegions(NimculusPaintRegion a,
   return result;
 }
 
+static NimculusPaintRegion paintCommandScissor(NimculusPaintCommand paint) {
+  NimculusPaintRegion clip = {paint.clip_x, paint.clip_y,
+                              paint.clip_width, paint.clip_height};
+  if (paint.kind != 10) return clip;
+
+  // Scrollbar commands use the same retained paint path as every other
+  // rectangle, but their horizontal thumb lives in the pane's lower chrome
+  // rather than in the text viewport.  Use the full owning pane as the
+  // command scissor so a body-only clip cannot discard that bottom band.
+  NimculusPaintRegion source = {paint.source_x, paint.source_y,
+                                paint.source_width, paint.source_height};
+  NimculusPaintRegion primary = {(float)g_editor_rect[0], (float)g_editor_rect[1],
+                                 (float)g_editor_rect[2], (float)g_editor_rect[3]};
+  NimculusPaintRegion secondary = {(float)g_secondary_editor_rect[0],
+                                   (float)g_secondary_editor_rect[1],
+                                   (float)g_secondary_editor_rect[2],
+                                   (float)g_secondary_editor_rect[3]};
+  if (intersectPaintRegions(source, primary).width > 0 &&
+      intersectPaintRegions(source, primary).height > 0) return primary;
+  if (g_secondary_editor_visible && intersectPaintRegions(source, secondary).width > 0 &&
+      intersectPaintRegions(source, secondary).height > 0) return secondary;
+  return clip;
+}
+
 // An editor pane is not itself a text viewport.  The pane also owns its
 // border, the reserved scrollbar edge, and a small vertical safety margin.
 // Keeping this geometry in one place mirrors Zed's content-bounds mask and
@@ -1476,6 +1515,37 @@ static CGFloat editorMaxScrollX(void) {
 
 static CGFloat editorClampedScrollX(CGFloat offset) {
   return MIN(MAX(0.0, offset), editorMaxScrollX());
+}
+
+static void clampEditorScrollOffsetsForFrame(void) {
+  g_editor_scroll_x = g_editor_soft_wrap ? 0.0 :
+    editorClampedScrollX(g_editor_scroll_x);
+  if (!g_secondary_editor_visible) return;
+
+  double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
+                            g_editor_rect[2], g_editor_rect[3]};
+  NSUInteger previousScrollLine = g_editor_scroll_line;
+  CGFloat previousScrollYFraction = g_editor_scroll_y_fraction;
+  CGFloat previousScrollX = g_editor_scroll_x;
+  BOOL previousSoftWrap = g_editor_soft_wrap;
+  BOOL previousRenderingSecondary = g_rendering_secondary_editor;
+  swapEditorTextState();
+  g_rendering_secondary_editor = YES;
+  memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
+  g_editor_scroll_line = g_secondary_editor_scroll_line;
+  g_editor_scroll_y_fraction = g_secondary_editor_scroll_y_fraction;
+  g_editor_scroll_x = g_secondary_editor_scroll_x;
+  g_editor_soft_wrap = g_secondary_editor_soft_wrap;
+  g_editor_scroll_x = g_editor_soft_wrap ? 0.0 :
+    editorClampedScrollX(g_editor_scroll_x);
+  g_secondary_editor_scroll_x = g_editor_scroll_x;
+  swapEditorTextState();
+  g_rendering_secondary_editor = previousRenderingSecondary;
+  memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
+  g_editor_scroll_line = previousScrollLine;
+  g_editor_scroll_y_fraction = previousScrollYFraction;
+  g_editor_scroll_x = previousScrollX;
+  g_editor_soft_wrap = previousSoftWrap;
 }
 
 static CGFloat editorWrapWidth(void) {
@@ -6820,6 +6890,9 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 
 - (void)drawFrame {
   uint64_t start = mach_absolute_time();
+  // Keep native offsets valid even on a display-link frame that arrives after
+  // content/layout changed but before another Nim synchronization callback.
+  clampEditorScrollOffsetsForFrame();
   id<CAMetalDrawable> drawable = [self.metalLayer nextDrawable];
   if (!drawable || !g_queue) return;
   id<MTLCommandBuffer> command = [g_queue commandBuffer];
@@ -6868,8 +6941,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
         [encoder setScissorRect:fullScissor];
         for (uint32_t i = 0; i < g_paint_count; i++) {
           NimculusPaintCommand paint = g_paint_commands[i];
-          NimculusPaintRegion clip = {paint.clip_x, paint.clip_y,
-                                      paint.clip_width, paint.clip_height};
+          NimculusPaintRegion clip = paintCommandScissor(paint);
           setScissorForRegion(encoder, clip, logicalSize, drawableSize);
           drawPaintCommand(encoder, drawable.texture.device, logicalSize, paint);
         }
@@ -6881,8 +6953,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
           NimculusPaintRegion dirty = g_paint_dirty_regions[dirtyIndex];
           for (uint32_t i = 0; i < g_paint_count; i++) {
             NimculusPaintCommand paint = g_paint_commands[i];
-            NimculusPaintRegion clip = {paint.clip_x, paint.clip_y,
-                                        paint.clip_width, paint.clip_height};
+            NimculusPaintRegion clip = paintCommandScissor(paint);
             NimculusPaintRegion visible = intersectPaintRegions(dirty, clip);
             if (visible.width <= 0 || visible.height <= 0) continue;
             setScissorForRegion(encoder, visible, logicalSize, drawableSize);

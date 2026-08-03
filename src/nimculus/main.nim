@@ -235,6 +235,9 @@ when defined(macosx):
   proc editorVisibleLineCount(): int
   proc secondaryEditorVisibleLineCount(): int
 
+when defined(macosx):
+  proc syncEditorHorizontalScrollForRender(primary, secondary: Rect)
+
 proc setupDemoUi() =
   ## Keep rendering state synchronized with the document session at the
   ## composition boundary. Pane ownership remains independent: a split
@@ -344,6 +347,22 @@ proc setupDemoUi() =
   demoTree.node(button.node).bounds = toolbar
   demoTree.node(split.node).bounds = splitBar
   demoTree.node(scroll.node).bounds = editor
+  # Install the current pane geometry before measuring native visible lines or
+  # constructing scrollbars.  The native width/soft-wrap state is otherwise
+  # one composition behind, which can suppress a valid horizontal thumb.
+  platformSetUiRectangle(float32(bounds.origin.x), float32(bounds.origin.y),
+                         float32(bounds.size.width), float32(bounds.size.height))
+  platformSetEditorRect(float64(float32(primaryEditor.origin.x)),
+                        float64(float32(primaryEditor.origin.y)),
+                        float64(float32(primaryEditor.size.width)),
+                        float64(float32(primaryEditor.size.height)))
+  when defined(macosx):
+    platformSetSecondaryEditorRect(demoSplitEnabled,
+      float64(float32(secondaryEditor.origin.x)),
+      float64(float32(secondaryEditor.origin.y)),
+      float64(float32(secondaryEditor.size.width)),
+      float64(float32(secondaryEditor.size.height)))
+    syncEditorHorizontalScrollForRender(primaryEditor, secondaryEditor)
   var paint: PaintList
   paint.invalidate(viewport)
   # The native text overlays remain transitional content presenters, but their
@@ -437,11 +456,6 @@ proc setupDemoUi() =
     platformSetPaintDirtyRegions(addr nativeDirty[0], uint32(nativeDirty.len))
   else:
     platformSetPaintDirtyRegions(nil, 0)
-  platformSetUiRectangle(float32(bounds.origin.x), float32(bounds.origin.y),
-                         float32(bounds.size.width), float32(bounds.size.height))
-  platformSetEditorRect(float64(float32(primaryEditor.origin.x)), float64(float32(primaryEditor.origin.y)),
-                        float64(float32(primaryEditor.size.width)), float64(float32(
-                            primaryEditor.size.height)))
   when defined(macosx):
     platformSetEditorSidebarVisible(editorWorkspaceUi.leftDock.isOpen and sidebarCanPresent)
     platformSetEditorSidebarOnRight(MacProjectDockOnRight)
@@ -449,9 +463,6 @@ proc setupDemoUi() =
       float64(float32(demoBottomDockBounds.origin.y)),
       float64(float32(demoBottomDockBounds.size.width)),
       float64(float32(demoBottomDockBounds.size.height)))
-    platformSetSecondaryEditorRect(demoSplitEnabled,
-      float64(float32(secondaryEditor.origin.x)), float64(float32(secondaryEditor.origin.y)),
-      float64(float32(secondaryEditor.size.width)), float64(float32(secondaryEditor.size.height)))
 
 proc receiveNativeCommand(command: cstring) {.cdecl.}
 proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.}
@@ -636,6 +647,32 @@ var editorViewState = newEditorView()
 var syntaxState: EditorSyntaxState
 when defined(macosx):
   var secondarySyntaxState: EditorSyntaxState
+
+when defined(macosx):
+  proc syncEditorHorizontalScrollForRender(primary, secondary: Rect) =
+    ## Layout and native text state must be current before either the clamp or
+    ## scrollbar geometry is measured.  In particular, a previous frame may
+    ## have left a small offset behind after the widest visible line shrank.
+    platformSetEditorSoftWrap(editorViewState.softWrap)
+    let primaryWidest = if editorViewState.softWrap: 0'f32 else:
+      float32(platformEditorWidestVisibleLineWidth())
+    editorViewState.scrollX = if editorViewState.softWrap: 0'f32 else:
+      clampEditorScrollX(editorViewState.scrollX, primaryWidest,
+        editorTextViewportWidth(primary))
+    platformSetEditorScrollX(cdouble(editorViewState.scrollX))
+    editorViewState.scrollX = float32(max(0.0, platformEditorScrollX()))
+
+    if demoSplitEnabled:
+      var view = editorSession.secondaryView
+      platformSetSecondaryEditorSoftWrap(view.softWrap)
+      let secondaryWidest = if view.softWrap: 0'f32 else:
+        float32(platformSecondaryEditorWidestVisibleLineWidth())
+      view.scrollX = if view.softWrap: 0'f32 else:
+        clampEditorScrollX(view.scrollX, secondaryWidest,
+          editorTextViewportWidth(secondary))
+      platformSetSecondaryEditorScrollX(cdouble(view.scrollX))
+      view.scrollX = float32(max(0.0, platformSecondaryEditorScrollX()))
+      editorSession.secondaryView = view
 
 proc syncWorkspaceUiTabs() =
   editorWorkspaceUi.syncRootTabs(editorSession.tabs.len, editorSession.activeTab)
@@ -879,6 +916,13 @@ proc addEditorScrollbars(paint: var PaintList, bounds: Rect, view: EditorViewSta
   let scrollbar = horizontalEditorScrollbar(bounds, widestLineWidth, view.scrollX)
   if float32(scrollbar.thumb.size.width) > 0'f32:
     paint.drawScrollbar(scrollbar.thumb)
+  when defined(macosx):
+    platformLogEditorScrollDebug("primary".cstring, cdouble(widestLineWidth),
+      cdouble(scrollbar.viewportWidth), cdouble(view.scrollX),
+      cdouble(float32(scrollbar.track.origin.x)),
+      cdouble(float32(scrollbar.track.size.width)),
+      cdouble(float32(scrollbar.thumb.origin.x)),
+      cdouble(float32(scrollbar.thumb.size.width)))
 
 proc drawCurrentEditorScrollbars(paint: var PaintList, primary, secondary: Rect,
                                  lineCount: int, document: ptr FileDocument) =
@@ -4391,7 +4435,15 @@ proc syncEditorCursor(ensureCursor = true) =
       editorViewState.ensureCursorVisible(document[].buffer, visibleLines)
     let location = if document == nil: (line: 0, column: 0) else:
       document[].buffer.lineColumn(editorViewState.cursor)
-    if editorViewState.softWrap: editorViewState.scrollX = 0'f32
+    # Clamp against the current native measurement on every synchronization,
+    # including the no-wrap case where a previously valid offset can become
+    # stale after an edit or resize.  Soft-wrap remains an unconditional zero.
+    platformSetEditorSoftWrap(editorViewState.softWrap)
+    let widestVisibleLine = if editorViewState.softWrap: 0'f32 else:
+      float32(platformEditorWidestVisibleLineWidth())
+    editorViewState.scrollX = if editorViewState.softWrap: 0'f32 else:
+      clampEditorScrollX(editorViewState.scrollX, widestVisibleLine,
+        editorTextViewportWidth(demoEditorBounds))
     let maxScrollPixels = if document == nil: 0'f32 else:
       float32(max(0, document[].buffer.lineStarts.len - visibleLines)) * 18'f32
     editorViewState.reconcileScrollPosition(18'f32, maxScrollPixels)
@@ -4416,7 +4468,6 @@ proc syncEditorCursor(ensureCursor = true) =
     platformInvalidateImeCoordinates()
     platformSetEditorDirty(document != nil and document[].buffer.isDirty)
     platformSetEditorLineNumbers(editorViewState.showLineNumbers)
-    platformSetEditorSoftWrap(editorViewState.softWrap)
     platformSetEditorIndentGuides(editorViewState.showIndentGuides,
       uint32(max(1, editorViewState.indentWidth)))
     syncNativeEditorFolds(document, editorViewState, syntaxState)
@@ -4435,6 +4486,10 @@ proc syncEditorCursor(ensureCursor = true) =
     if not editorSession.split:
       platformSetSecondaryEditorTabs("".cstring, 0, 0)
     platformSetEditorInputPane(uint32(if editorSession.split: editorSession.splitActivePane else: 0))
+    # Rebuild the retained paint list after state synchronization so the
+    # horizontal thumb is present and reflects the clamped offset in the same
+    # render/sync turn as the native text.
+    setupDemoUi()
   elif defined(windows):
     let document = activeDocument()
     if document != nil:
@@ -4502,7 +4557,12 @@ when defined(macosx):
     let tabsText = tabTitles.join("\n")
     platformSetSecondaryEditorTabs(tabsText.cstring, uint32(tabsText.len), uint32(tab))
     platformSetSecondaryEditorText(text.cstring, uint32(text.len))
-    if view.softWrap: view.scrollX = 0'f32
+    platformSetSecondaryEditorSoftWrap(view.softWrap)
+    let widestVisibleLine = if view.softWrap: 0'f32 else:
+      float32(platformSecondaryEditorWidestVisibleLineWidth())
+    view.scrollX = if view.softWrap: 0'f32 else:
+      clampEditorScrollX(view.scrollX, widestVisibleLine,
+        editorTextViewportWidth(demoSecondaryEditorBounds))
     let secondaryVisibleLines = secondaryEditorVisibleLineCount()
     let maxScrollPixels = float32(max(0, document[].buffer.lineStarts.len -
       secondaryVisibleLines)) * 18'f32
@@ -4511,7 +4571,6 @@ when defined(macosx):
     platformSetSecondaryEditorScrollYFraction(cdouble(max(0'f32,
       view.scrollYFraction)))
     platformSetSecondaryEditorScrollX(cdouble(max(0'f32, view.scrollX)))
-    platformSetSecondaryEditorSoftWrap(view.softWrap)
     syncNativeEditorFolds(document, view, secondarySyntaxState, secondary = true)
     platformSetSecondaryEditorCursorByte(uint32(view.cursor),
       uint32(max(0, location.line)))

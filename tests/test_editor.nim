@@ -15,6 +15,7 @@ import nimculus/session
 import nimculus/atomic_io
 import nimculus/persistence_scheduler
 import nimculus/poll_scheduler
+import nimnui/render
 
 suite "session persistence scheduling":
   test "new editor views default to Zed no-wrap":
@@ -37,6 +38,21 @@ suite "session persistence scheduling":
     # Native measurement is zero while soft wrap is active; the geometry
     # layer intentionally has no separate soft-wrap gate.
     check horizontalEditorScrollbar(bounds, 0'f32, 0'f32).track.size.width == px(0)
+
+  test "horizontal scrollbar paint remains in the editor bottom band":
+    let bounds = Rect(origin: Point(x: px(20), y: px(40)),
+      size: Size(width: px(400), height: px(240)))
+    let scrollbar = horizontalEditorScrollbar(bounds, 900'f32, 0'f32)
+    var paint: PaintList
+    paint.invalidate(bounds)
+    paint.drawScrollbar(scrollbar.thumb)
+    check paint.commands.len == 1
+    let command = paint.commands[0]
+    check command.kind == PaintKind.scrollbar
+    let commandBottom = float32(command.clip.origin.y + command.clip.size.height)
+    let editorBottom = float32(bounds.origin.y + bounds.size.height)
+    check float32(command.clip.origin.y) >= editorBottom - 14'f32
+    check commandBottom <= editorBottom
 
   test "legacy sessions default to no-wrap while explicit wrap survives":
     let path = getTempDir() / "nimculus-soft-wrap-default-session.json"
