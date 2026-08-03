@@ -178,7 +178,8 @@ proc replaceAll*(document: var FileDocument, query, replacement: string,
                  caseSensitive = true): int =
   let matches = document.search(query, caseSensitive)
   var edits: seq[Edit]
-  for match in matches: edits.add(Edit(startByte: match.startByte, endByte: match.endByte, text: replacement))
+  for match in matches: edits.add(Edit(startByte: match.startByte, endByte: match.endByte,
+      text: replacement))
   if edits.len > 0: document.buffer.applyEdits(edits)
   matches.len
 

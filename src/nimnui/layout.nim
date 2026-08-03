@@ -38,7 +38,8 @@ proc layoutNodeRecursive(tree: var UiTree, id: NodeId, bounds: Rect,
       layoutNodeRecursive(tree, child, childBounds,
         tree.nodes[tree.nodeIndex(child)].layoutSpec)
     return
-  var cursor = if spec.direction == row: content.origin.x - spec.scrollOffset else: content.origin.y - spec.scrollOffset
+  var cursor = if spec.direction == row: content.origin.x -
+      spec.scrollOffset else: content.origin.y - spec.scrollOffset
   let available = if spec.direction == row: content.size.width else: content.size.height
   let gapTotal = spec.gap * float32(max(0, children.len - 1))
   var extents = newSeq[Pixels](children.len)
@@ -82,11 +83,13 @@ proc layoutNodeRecursive(tree: var UiTree, id: NodeId, bounds: Rect,
     else:
       Size(width: crossExtent, height: extents[index])
     let childOrigin = if spec.direction == row:
-      Point(x: cursor, y: if spec.alignment == alignCenter: content.origin.y + (content.size.height - childSize.height) / px(2)
+      Point(x: cursor, y: if spec.alignment == alignCenter: content.origin.y + (
+          content.size.height - childSize.height) / px(2)
         elif spec.alignment == alignEnd: content.origin.y + content.size.height - childSize.height
         else: content.origin.y)
     else:
-      Point(x: if spec.alignment == alignCenter: content.origin.x + (content.size.width - childSize.width) / px(2)
+      Point(x: if spec.alignment == alignCenter: content.origin.x + (content.size.width -
+          childSize.width) / px(2)
         elif spec.alignment == alignEnd: content.origin.x + content.size.width - childSize.width
         else: content.origin.x, y: cursor)
     var finalBounds = Rect(origin: childOrigin, size: childSize)

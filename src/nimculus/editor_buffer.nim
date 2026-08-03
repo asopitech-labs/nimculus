@@ -255,7 +255,8 @@ proc lineEndByteOffset*(table: PieceTable, line: int): int =
 proc utf16Position*(table: PieceTable, byteOffset: int): tuple[line, character: int] =
   let location = table.lineByteColumn(byteOffset)
   let lineText = table.substring(table.lineStarts[location.line],
-    if location.line + 1 < table.lineStarts.len: table.lineStarts[location.line + 1] else: table.contentLength)
+    if location.line + 1 < table.lineStarts.len: table.lineStarts[location.line +
+        1] else: table.contentLength)
   var units = 0
   let prefixLength = min(location.column, lineText.len)
   if prefixLength > 0:
@@ -288,7 +289,8 @@ proc byteOffsetAtUtf16Position*(table: PieceTable, line, character: int): int =
 proc graphemePosition*(table: PieceTable, byteOffset: int): TextPosition =
   let location = table.lineByteColumn(byteOffset)
   let start = table.lineStarts[location.line]
-  let lineEnd = if location.line + 1 < table.lineStarts.len: table.lineStarts[location.line + 1] else: table.contentLength
+  let lineEnd = if location.line + 1 < table.lineStarts.len: table.lineStarts[location.line +
+      1] else: table.contentLength
   let positions = textPositions(table.substring(start, lineEnd))
   for position in positions:
     if position.byteOffset <= location.column: result = position

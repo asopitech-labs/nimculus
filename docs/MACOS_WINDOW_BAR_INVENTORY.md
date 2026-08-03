@@ -21,7 +21,7 @@ and the first workspace rows. It is based on the local Zed reference in
 | Area | User-visible function | Nimculus behavior | State |
 | --- | --- | --- | --- |
 | Workspace name | Identifies the open project | First segment of the editor context, with `Nimculus` fallback | Done |
-| Git branch | Shows current repository branch | Async, cancellable Git lookup; shows branch or `No Git branch` | Done |
+| Git branch | Shows current repository branch | Async, cancellable Git lookup; rendered as a light text button beside the workspace name | Done |
 | Branch action | Opens branch navigation | Accessible native button opens Git Branches | Done |
 | Detached HEAD | Communicates non-branch state | Displays `(detached)` | Done |
 | Document breadcrumb | Identifies current file location | Rendered once in the editor header below the titlebar | Done |
@@ -41,12 +41,23 @@ and the first workspace rows. It is based on the local Zed reference in
 | Debug | Activity-bar Debug entry point | Done |
 | Main menu | File, Edit, View, Agent, Extensions, Window | Done |
 
+## Document chrome
+
+| Area | Nimculus behavior | State |
+| --- | --- | --- |
+| Tab row | 28pt row below the titlebar; measured content-width tabs with native SF Symbol controls | Done |
+| Breadcrumb row | 28pt row below tabs; one truncated native breadcrumb label | Done |
+| Sidebar order | Activity bar outermost left, Files/Search/Git panel inside | Done |
+| Panel headers | Files/Search/Git titles share one `rowHeight` header with right-aligned 24pt actions | Done |
+
 ## Verification checklist
 
-- Screenshot shows one workspace name, one Git branch badge, and one document
+- Screenshot shows one workspace name, one Git branch text button, and one document
   breadcrumb.
 - Clicking the branch badge opens Git Branches without opening a modal dialog.
 - Branch lookup does not block the UI thread.
 - Branch and titlebar controls are exposed as native accessibility elements.
 - Editor text begins below the titlebar and remains inside its right and bottom
   viewport boundaries.
+- Files, Search, and Git Changes actions sit on the same row as their panel
+  title; no detached action toolbar is visible above the title.

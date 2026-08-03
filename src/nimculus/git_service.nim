@@ -67,7 +67,7 @@ const MaxGitOutputBytes* = 16 * 1024 * 1024
 const GitProbeTimeoutMs = 2_000
 
 proc appendBoundedGitOutput*(current, chunk: string;
-    limit: int = MaxGitOutputBytes): tuple[output: string, truncated: bool] =
+    limit: int = MaxGitOutputBytes): tuple[output: string; truncated: bool] =
   ## Keep Git output bounded while retaining the newest complete lines.
   ## Truncate only at UTF-8 and line boundaries, as Git consumers parse text.
   if chunk.len == 0: return (current, false)
@@ -114,7 +114,7 @@ proc absorbOutput(job: GitJob) =
 
 proc cancel*(job: GitJob)
 proc poll*(job: GitJob): bool
-proc startGitJobInput*(repository: GitRepository, args: openArray[string],
+proc startGitJobInput*(repository: GitRepository; args: openArray[string];
                        input: string): GitJob
 
 proc gitProcessOptions(): set[ProcessOption] =
@@ -163,7 +163,7 @@ proc firstRepositoryForPaths*(paths: openArray[string]): GitRepository =
     result = repositoryForPath(path)
     if result != nil: return
 
-proc runGit*(repository: GitRepository, args: openArray[string]): GitResult =
+proc runGit*(repository: GitRepository; args: openArray[string]): GitResult =
   if repository == nil: return GitResult(exitCode: -1, output: "not a git repository")
   var commandArgs = @["-C", repository.root]
   commandArgs.add(args)
@@ -174,7 +174,7 @@ proc runGit*(repository: GitRepository, args: openArray[string]): GitResult =
     sleep(1)
   result = job.result
 
-proc runGitInput(repository: GitRepository, args: openArray[string], input: string): GitResult =
+proc runGitInput(repository: GitRepository; args: openArray[string]; input: string): GitResult =
   if repository == nil: return GitResult(exitCode: -1, output: "not a git repository")
   var commandArgs = @["-C", repository.root]
   commandArgs.add(args)
@@ -183,7 +183,7 @@ proc runGitInput(repository: GitRepository, args: openArray[string], input: stri
     sleep(1)
   result = job.result
 
-proc startGitJob*(repository: GitRepository, args: openArray[string]): GitJob =
+proc startGitJob*(repository: GitRepository; args: openArray[string]): GitJob =
   if repository == nil: return GitJob(done: true,
     result: GitResult(exitCode: -1, output: "not a git repository"))
   var commandArgs = @["-C", repository.root]
@@ -192,7 +192,7 @@ proc startGitJob*(repository: GitRepository, args: openArray[string]): GitJob =
     options = gitProcessOptions())
   result = newGitJob(process)
 
-proc startGitJobInput*(repository: GitRepository, args: openArray[string],
+proc startGitJobInput*(repository: GitRepository; args: openArray[string];
                        input: string): GitJob =
   ## Start a cancellable Git process with a bounded patch/input payload.
   ## The caller must keep the payload small enough to write before polling;
@@ -263,7 +263,7 @@ proc status*(repository: GitRepository): seq[GitStatusEntry] =
   let output = repository.runGit(["status", "--porcelain=v1", "--untracked-files=all", "-z"])
   if output.exitCode == 0: result = parseStatus(output.output)
 
-proc diff*(repository: GitRepository, path = "", staged = false): GitResult =
+proc diff*(repository: GitRepository; path = ""; staged = false): GitResult =
   var args = @["diff", "--no-ext-diff", "--unified=3"]
   if staged: args.add("--cached")
   if path.len > 0:
@@ -308,11 +308,11 @@ proc parseDiffHunks*(output: string): seq[GitDiffHunk] =
   if current >= 0:
     result[current].patchText = currentPatch.join("\n") & "\n"
 
-proc diffHunks*(repository: GitRepository, path = "", staged = false): seq[GitDiffHunk] =
+proc diffHunks*(repository: GitRepository; path = ""; staged = false): seq[GitDiffHunk] =
   let output = repository.diff(path, staged)
   if output.exitCode == 0: result = parseDiffHunks(output.output)
 
-proc applyHunk*(repository: GitRepository, path: string, hunkIndex: int,
+proc applyHunk*(repository: GitRepository; path: string; hunkIndex: int;
                 reverse = false): GitResult =
   let diff = repository.diff(path, staged = reverse)
   if diff.exitCode != 0: return diff
@@ -328,13 +328,13 @@ proc applyHunk*(repository: GitRepository, path: string, hunkIndex: int,
   args.add("-")
   repository.runGitInput(args, patch)
 
-proc stageHunk*(repository: GitRepository, path: string, hunkIndex: int): GitResult =
+proc stageHunk*(repository: GitRepository; path: string; hunkIndex: int): GitResult =
   repository.applyHunk(path, hunkIndex)
 
-proc unstageHunk*(repository: GitRepository, path: string, hunkIndex: int): GitResult =
+proc unstageHunk*(repository: GitRepository; path: string; hunkIndex: int): GitResult =
   repository.applyHunk(path, hunkIndex, reverse = true)
 
-proc stage*(repository: GitRepository, paths: openArray[string]): GitResult =
+proc stage*(repository: GitRepository; paths: openArray[string]): GitResult =
   var args = @["add", "--"]
   args.add(paths)
   repository.runGit(args)
@@ -342,7 +342,7 @@ proc stage*(repository: GitRepository, paths: openArray[string]): GitResult =
 proc stageAll*(repository: GitRepository): GitResult =
   repository.runGit(["add", "-A"])
 
-proc unstage*(repository: GitRepository, paths: openArray[string]): GitResult =
+proc unstage*(repository: GitRepository; paths: openArray[string]): GitResult =
   var args = @["reset", "HEAD", "--"]
   args.add(paths)
   repository.runGit(args)
@@ -350,13 +350,13 @@ proc unstage*(repository: GitRepository, paths: openArray[string]): GitResult =
 proc unstageAll*(repository: GitRepository): GitResult =
   repository.runGit(["reset", "HEAD"])
 
-proc commit*(repository: GitRepository, message: string): GitResult =
+proc commit*(repository: GitRepository; message: string): GitResult =
   let subject = message.strip()
   if subject.len == 0:
     return GitResult(exitCode: -1, output: "Git commit message is empty")
   repository.runGit(["commit", "-m", subject])
 
-proc amendCommit*(repository: GitRepository, message: string): GitResult =
+proc amendCommit*(repository: GitRepository; message: string): GitResult =
   ## Amending is intentionally explicit. The caller must provide a new
   ## message, so this cannot accidentally reuse the prior subject.
   let subject = message.strip()
@@ -364,7 +364,7 @@ proc amendCommit*(repository: GitRepository, message: string): GitResult =
     return GitResult(exitCode: -1, output: "Git amend message is empty")
   repository.runGit(["commit", "--amend", "-m", subject])
 
-proc checkout*(repository: GitRepository, source: string,
+proc checkout*(repository: GitRepository; source: string;
                paths: openArray[string]): GitResult =
   if source.len == 0: return GitResult(exitCode: -1, output: "checkout source is empty")
   var args = @["checkout", source, "--"]
@@ -401,7 +401,7 @@ proc isSafeBranchName*(branch: string): bool =
     if ord(character) < 32 or ord(character) == 127: return false
   true
 
-proc switchBranch*(repository: GitRepository, branch: string): GitResult =
+proc switchBranch*(repository: GitRepository; branch: string): GitResult =
   ## Switch only to an existing local branch. `--no-guess` prevents an editor
   ## command from implicitly creating/tracking a remote branch, and Git's
   ## normal safety checks refuse a switch that would lose worktree changes.
@@ -419,7 +419,7 @@ proc head*(repository: GitRepository): string =
   let output = repository.runGit(["rev-parse", "HEAD"])
   if output.exitCode == 0: result = output.output.strip()
 
-proc parseLog*(output: string, limit = 50): seq[GitCommit] =
+proc parseLog*(output: string; limit = 50): seq[GitCommit] =
   let fields = output.split('\0')
   var index = 0
   while index + 4 < fields.len and result.len < max(1, limit):
@@ -431,12 +431,12 @@ proc parseLog*(output: string, limit = 50): seq[GitCommit] =
     except ValueError: discard
     index += 5
 
-proc log*(repository: GitRepository, limit = 50): seq[GitCommit] =
+proc log*(repository: GitRepository; limit = 50): seq[GitCommit] =
   let output = repository.runGit(["log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00",
     "-n", $max(1, limit)])
   if output.exitCode == 0: result = parseLog(output.output, limit)
 
-proc logPath*(repository: GitRepository, path: string, limit = 50): seq[GitCommit] =
+proc logPath*(repository: GitRepository; path: string; limit = 50): seq[GitCommit] =
   ## Keep path history distinct from repository history. `--` prevents a
   ## file name from being interpreted as a revision or a Git option.
   let relativePath = path.strip()
@@ -445,7 +445,7 @@ proc logPath*(repository: GitRepository, path: string, limit = 50): seq[GitCommi
     "-n", $max(1, limit), "--", relativePath])
   if output.exitCode == 0: result = parseLog(output.output, limit)
 
-proc showCommit*(repository: GitRepository, revision: string): GitResult =
+proc showCommit*(repository: GitRepository; revision: string): GitResult =
   ## Return bounded, self-contained commit metadata and its patch for the
   ## history panel. Disable external diff drivers: opening a history entry
   ## must not execute repository-configured tools from the editor process.
@@ -456,7 +456,7 @@ proc showCommit*(repository: GitRepository, revision: string): GitResult =
   repository.runGit(["show", "--format=fuller", "--stat", "--patch",
     "--no-ext-diff", revision])
 
-proc showCommitPath*(repository: GitRepository, revision, path: string): GitResult =
+proc showCommitPath*(repository: GitRepository; revision, path: string): GitResult =
   ## The file-history detail view must retain its path filter. Place the
   ## pathspec after `--`, independently of the commit revision.
   let relativePath = path.strip()
@@ -486,7 +486,7 @@ proc parseBlame*(output: string): seq[GitBlameLine] =
       result.add(current)
       haveHeader = false
 
-proc blame*(repository: GitRepository, path: string): seq[GitBlameLine] =
+proc blame*(repository: GitRepository; path: string): seq[GitBlameLine] =
   let output = repository.runGit(["blame", "--line-porcelain", "--", path])
   if output.exitCode == 0: result = parseBlame(output.output)
 

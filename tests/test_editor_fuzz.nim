@@ -37,7 +37,8 @@ suite "M4 editor invariants":
   test "undo restores a long edit sequence":
     var buffer = initPieceTable("start")
     for index in 0 ..< 100:
-      buffer.edit(Edit(startByte: buffer.toString().len, endByte: buffer.toString().len, text: $index & "\n"))
+      buffer.edit(Edit(startByte: buffer.toString().len, endByte: buffer.toString().len,
+          text: $index & "\n"))
     for _ in 0 ..< 100: check buffer.undo()
     check buffer.toString() == "start"
 

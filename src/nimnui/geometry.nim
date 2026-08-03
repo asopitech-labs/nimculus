@@ -72,8 +72,13 @@ proc transformRect*(transform: Transform2D, rect: Rect): Rect =
   let bottomLeft = transform.apply(Point(x: rect.origin.x, y: rect.origin.y + rect.size.height))
   let bottomRight = transform.apply(Point(x: rect.origin.x + rect.size.width,
     y: rect.origin.y + rect.size.height))
-  let left = min(float32(topLeft.x), min(float32(topRight.x), min(float32(bottomLeft.x), float32(bottomRight.x))))
-  let right = max(float32(topLeft.x), max(float32(topRight.x), max(float32(bottomLeft.x), float32(bottomRight.x))))
-  let top = min(float32(topLeft.y), min(float32(topRight.y), min(float32(bottomLeft.y), float32(bottomRight.y))))
-  let bottom = max(float32(topLeft.y), max(float32(topRight.y), max(float32(bottomLeft.y), float32(bottomRight.y))))
-  Rect(origin: Point(x: px(left), y: px(top)), size: Size(width: px(right - left), height: px(bottom - top)))
+  let left = min(float32(topLeft.x), min(float32(topRight.x), min(float32(bottomLeft.x), float32(
+      bottomRight.x))))
+  let right = max(float32(topLeft.x), max(float32(topRight.x), max(float32(bottomLeft.x), float32(
+      bottomRight.x))))
+  let top = min(float32(topLeft.y), min(float32(topRight.y), min(float32(bottomLeft.y), float32(
+      bottomRight.y))))
+  let bottom = max(float32(topLeft.y), max(float32(topRight.y), max(float32(bottomLeft.y), float32(
+      bottomRight.y))))
+  Rect(origin: Point(x: px(left), y: px(top)), size: Size(width: px(right - left), height: px(
+      bottom - top)))

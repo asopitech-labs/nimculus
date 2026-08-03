@@ -59,11 +59,17 @@ contain these user-visible elements:
   Close Right, Close Clean, Close All, Pin/Unpin, Unpin All, Copy Path,
   Reveal in Project Panel, and item-specific actions.
 
-Nimculus now has the strip, active state, dirty marker, close target, overflow
-navigation, open-tabs menu, drag reorder, pin/unpin, copy path, Reveal in
+Nimculus now has a measured content-width strip, active state, dirty marker,
+active/hover close target, native SF Symbol back/forward/open-tabs/new/split/
+zoom buttons, open-tabs menu, drag reorder, pin/unpin, copy path, Reveal in
 Finder, tab cleanup actions, and tab-bar new/split menus. The pane zoom action
 is exposed through the same command entry point and remains dependent on the
-workspace zoom state.
+workspace zoom state. On macOS the activity bar and project panels follow
+Zed's default left-side order.
+
+The macOS Files, Search, and Git panels use a single-row title/action header:
+the title is left-aligned, the 24pt native actions are right-aligned, and Git's
+Changes/History/Branches navigation remains directly below that header.
 
 ## Context menus
 

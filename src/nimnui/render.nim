@@ -88,7 +88,8 @@ proc drawRectangle*(paint: var PaintList, bounds: Rect) =
 proc drawText*(paint: var PaintList, bounds: Rect, text: string) =
   paint.add(PaintCommand(kind: PaintKind.text, bounds: bounds, clip: bounds, text: text))
 
-proc drawBorder*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: border, bounds: bounds, clip: bounds))
+proc drawBorder*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: border,
+    bounds: bounds, clip: bounds))
 proc drawRoundedRectangle*(paint: var PaintList, bounds: Rect, radius: Pixels) =
   paint.add(PaintCommand(kind: roundedRectangle, bounds: bounds, clip: bounds, radius: radius))
 proc drawImage*(paint: var PaintList, bounds: Rect, imageId: uint32 = 0) =
@@ -108,10 +109,14 @@ proc pushTransform*(paint: var PaintList, transform: Transform2D) =
   paint.transformStack.add(current * transform)
 proc popTransform*(paint: var PaintList) =
   if paint.transformStack.len > 0: paint.transformStack.setLen(paint.transformStack.len - 1)
-proc drawShadow*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: shadow, bounds: bounds, clip: bounds))
-proc drawCaret*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: caret, bounds: bounds, clip: bounds))
-proc drawSelection*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: selection, bounds: bounds, clip: bounds))
-proc drawScrollbar*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: scrollbar, bounds: bounds, clip: bounds))
+proc drawShadow*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: shadow,
+    bounds: bounds, clip: bounds))
+proc drawCaret*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: caret,
+    bounds: bounds, clip: bounds))
+proc drawSelection*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: selection,
+    bounds: bounds, clip: bounds))
+proc drawScrollbar*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: scrollbar,
+    bounds: bounds, clip: bounds))
 proc drawWorkspaceBackground*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: workspaceBackground, bounds: bounds, clip: bounds))
 proc drawWorkspacePanel*(paint: var PaintList, bounds: Rect) =

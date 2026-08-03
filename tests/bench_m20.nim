@@ -132,7 +132,8 @@ block terminalMetadataBounds:
   let stats = screen.storageStats()
   let after = platformResidentMemoryBytes()
   report("terminal_metadata_bounds", cpuTime() - start,
-    "styles=" & $stats.styleCount & ";links=" & $stats.hyperlinkCount & ";link_bytes=" & $stats.hyperlinkBytes &
+    "styles=" & $stats.styleCount & ";links=" & $stats.hyperlinkCount & ";link_bytes=" &
+        $stats.hyperlinkBytes &
     ";lines=" & $screen.lineCount & ";resident_before=" & $before &
     ";resident_after=" & $after)
 

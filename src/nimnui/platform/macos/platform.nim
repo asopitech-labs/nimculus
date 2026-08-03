@@ -64,10 +64,14 @@ proc platformValidateSidebarScrollContainer*(): bool {.importc: "nimculus_platfo
 proc platformValidateSidebarBounds*(): bool {.importc: "nimculus_platform_validate_sidebar_bounds", cdecl.}
 proc platformValidateSecondaryHighlightIsolation*(): bool {.importc: "nimculus_platform_validate_secondary_highlight_isolation", cdecl.}
 proc platformMoveItemToTrash*(path: cstring): bool {.importc: "nimculus_platform_move_item_to_trash", cdecl.}
-proc platformPromptWorkspaceFileAtContext*(path: cstring, isDirectory: bool) {.importc: "nimculus_platform_prompt_workspace_file_at_context", cdecl.}
-proc platformPromptWorkspaceDirectoryAtContext*(path: cstring, isDirectory: bool) {.importc: "nimculus_platform_prompt_workspace_directory_at_context", cdecl.}
-proc platformPromptWorkspaceTrashAtContext*(path: cstring, isDirectory: bool) {.importc: "nimculus_platform_prompt_workspace_trash_at_context", cdecl.}
-proc platformPromptWorkspaceSearchAtContext*(path: cstring, isDirectory: bool) {.importc: "nimculus_platform_prompt_workspace_search_at_context", cdecl.}
+proc platformPromptWorkspaceFileAtContext*(path: cstring,
+    isDirectory: bool) {.importc: "nimculus_platform_prompt_workspace_file_at_context", cdecl.}
+proc platformPromptWorkspaceDirectoryAtContext*(path: cstring,
+    isDirectory: bool) {.importc: "nimculus_platform_prompt_workspace_directory_at_context", cdecl.}
+proc platformPromptWorkspaceTrashAtContext*(path: cstring,
+    isDirectory: bool) {.importc: "nimculus_platform_prompt_workspace_trash_at_context", cdecl.}
+proc platformPromptWorkspaceSearchAtContext*(path: cstring,
+    isDirectory: bool) {.importc: "nimculus_platform_prompt_workspace_search_at_context", cdecl.}
 proc platformOpenPath*(path: cstring) {.importc: "nimculus_platform_open_path", cdecl.}
 proc platformPromptExtensionDirectory*() {.importc: "nimculus_platform_prompt_extension_directory", cdecl.}
 proc platformPromptExtensionPermissions*(title, details: cstring) {.importc: "nimculus_platform_prompt_extension_permissions", cdecl.}
@@ -114,11 +118,13 @@ proc platformSetShortcutCallback*(callback: ShortcutCallback) {.importc: "nimcul
 proc platformSetTextCallback*(callback: TextCallback) {.importc: "nimculus_platform_set_text_callback", cdecl.}
 proc platformSetSelectionCallback*(callback: SelectionCallback) {.importc: "nimculus_platform_set_selection_callback", cdecl.}
 proc platformSetFileCallback*(callback: FileCallback) {.importc: "nimculus_platform_set_file_callback", cdecl.}
-proc platformShowWorkspaceEntryContext*(path: cstring, isDirectory: bool) {.importc: "nimculus_platform_show_workspace_entry_context", cdecl.}
+proc platformShowWorkspaceEntryContext*(path: cstring,
+    isDirectory: bool) {.importc: "nimculus_platform_show_workspace_entry_context", cdecl.}
 proc platformShowGitStatusContext*(itemIndex, projection: uint32) {.importc: "nimculus_platform_show_git_status_context", cdecl.}
 proc platformShowGitHistoryContext*(itemIndex: uint32) {.importc: "nimculus_platform_show_git_history_context", cdecl.}
 proc platformShowGitBranchContext*(itemIndex: uint32) {.importc: "nimculus_platform_show_git_branch_context", cdecl.}
-proc platformShowEditorTabContext*(paneIndex, tabIndex: uint32, isPinned, hasPinnedTabs: bool) {.importc: "nimculus_platform_show_editor_tab_context", cdecl.}
+proc platformShowEditorTabContext*(paneIndex, tabIndex: uint32, isPinned,
+    hasPinnedTabs: bool) {.importc: "nimculus_platform_show_editor_tab_context", cdecl.}
 proc platformRevealPath*(path: cstring) {.importc: "nimculus_platform_reveal_path", cdecl.}
 proc platformSetCommandCallback*(callback: CommandCallback) {.importc: "nimculus_platform_set_command_callback", cdecl.}
 proc platformSetIdleCallback*(callback: IdleCallback) {.importc: "nimculus_platform_set_idle_callback", cdecl.}
@@ -136,9 +142,12 @@ proc platformSetEditorScrollX*(offset: cdouble) {.importc: "nimculus_platform_se
 proc platformEditorScrollX*(): cdouble {.importc: "nimculus_platform_editor_scroll_x", cdecl.}
 proc platformSetEditorRect*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_editor_rect", cdecl.}
 proc platformSetTerminalPanelRect*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_terminal_panel_rect", cdecl.}
-proc platformSetSecondaryEditorRect*(visible: bool, x, y, width, height: cdouble) {.importc: "nimculus_platform_set_secondary_editor_rect", cdecl.}
-proc platformSetSecondaryEditorCursorByte*(byteOffset, line: uint32) {.importc: "nimculus_platform_set_secondary_editor_cursor_byte", cdecl.}
-proc platformSetSecondaryEditorSelection*(startByte, endByte: uint32) {.importc: "nimculus_platform_set_secondary_editor_selection", cdecl.}
+proc platformSetSecondaryEditorRect*(visible: bool, x, y, width,
+    height: cdouble) {.importc: "nimculus_platform_set_secondary_editor_rect", cdecl.}
+proc platformSetSecondaryEditorCursorByte*(byteOffset,
+    line: uint32) {.importc: "nimculus_platform_set_secondary_editor_cursor_byte", cdecl.}
+proc platformSetSecondaryEditorSelection*(startByte,
+    endByte: uint32) {.importc: "nimculus_platform_set_secondary_editor_selection", cdecl.}
 proc platformSetSecondaryEditorSelections*(selections: ptr NativeEditorSelection,
     count: uint32) {.importc: "nimculus_platform_set_secondary_editor_selections", cdecl.}
 proc platformSetSecondaryEditorScrollLine*(line: uint32) {.importc: "nimculus_platform_set_secondary_editor_scroll_line", cdecl.}
@@ -148,13 +157,18 @@ proc platformSetSecondaryEditorSoftWrap*(enabled: bool) {.importc: "nimculus_pla
 proc platformSetEditorInputPane*(pane: uint32) {.importc: "nimculus_platform_set_editor_input_pane", cdecl.}
 proc platformEditorPaneAtPoint*(x, y: cdouble): uint32 {.importc: "nimculus_platform_editor_pane_at_point", cdecl.}
 proc platformSetEditorDirty*(dirty: bool) {.importc: "nimculus_platform_set_editor_dirty", cdecl.}
-proc platformSetEditorIndentGuides*(visible: bool, indentWidth: uint32) {.importc: "nimculus_platform_set_editor_indent_guides", cdecl.}
+proc platformSetEditorIndentGuides*(visible: bool,
+    indentWidth: uint32) {.importc: "nimculus_platform_set_editor_indent_guides", cdecl.}
 proc platformSetEditorLineNumbers*(visible: bool) {.importc: "nimculus_platform_set_editor_line_numbers", cdecl.}
 proc platformSetEditorSoftWrap*(enabled: bool) {.importc: "nimculus_platform_set_editor_soft_wrap", cdecl.}
-proc platformSetEditorFolds*(ranges: ptr NativeFoldRange, count: uint32) {.importc: "nimculus_platform_set_editor_folds", cdecl.}
-proc platformSetSecondaryEditorFolds*(ranges: ptr NativeFoldRange, count: uint32) {.importc: "nimculus_platform_set_secondary_editor_folds", cdecl.}
-proc platformSetEditorTabs*(titles: cstring, length, activeIndex: uint32) {.importc: "nimculus_platform_set_editor_tabs", cdecl.}
-proc platformSetSecondaryEditorTabs*(titles: cstring, length, activeIndex: uint32) {.importc: "nimculus_platform_set_secondary_editor_tabs", cdecl.}
+proc platformSetEditorFolds*(ranges: ptr NativeFoldRange,
+    count: uint32) {.importc: "nimculus_platform_set_editor_folds", cdecl.}
+proc platformSetSecondaryEditorFolds*(ranges: ptr NativeFoldRange,
+    count: uint32) {.importc: "nimculus_platform_set_secondary_editor_folds", cdecl.}
+proc platformSetEditorTabs*(titles: cstring, length,
+    activeIndex: uint32) {.importc: "nimculus_platform_set_editor_tabs", cdecl.}
+proc platformSetSecondaryEditorTabs*(titles: cstring, length,
+    activeIndex: uint32) {.importc: "nimculus_platform_set_secondary_editor_tabs", cdecl.}
 proc platformSetEditorContext*(text: cstring) {.importc: "nimculus_platform_set_editor_context", cdecl.}
 proc platformSetEditorGitBranch*(text: cstring) {.importc: "nimculus_platform_set_editor_git_branch", cdecl.}
 proc platformSetEditorStatus*(text: cstring) {.importc: "nimculus_platform_set_editor_status", cdecl.}
@@ -173,10 +187,14 @@ proc platformSetEditorSelection*(startByte, endByte: uint32) {.importc: "nimculu
 proc platformSetEditorSelections*(selections: ptr NativeEditorSelection,
     count: uint32) {.importc: "nimculus_platform_set_editor_selections", cdecl.}
 proc platformSetEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_text", cdecl.}
-proc platformSetSecondaryEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_secondary_editor_text", cdecl.}
-proc platformSetEditorOutline*(text: cstring, length, symbolCount: uint32) {.importc: "nimculus_platform_set_editor_outline", cdecl.}
-proc platformSetEditorSidebar*(text: cstring, length, itemCount, mode: uint32) {.importc: "nimculus_platform_set_editor_sidebar", cdecl.}
-proc platformSetEditorSidebarLineItems*(items: ptr int32, count: uint32) {.importc: "nimculus_platform_set_editor_sidebar_line_items", cdecl.}
+proc platformSetSecondaryEditorText*(text: cstring,
+    length: uint32) {.importc: "nimculus_platform_set_secondary_editor_text", cdecl.}
+proc platformSetEditorOutline*(text: cstring, length,
+    symbolCount: uint32) {.importc: "nimculus_platform_set_editor_outline", cdecl.}
+proc platformSetEditorSidebar*(text: cstring, length, itemCount,
+    mode: uint32) {.importc: "nimculus_platform_set_editor_sidebar", cdecl.}
+proc platformSetEditorSidebarLineItems*(items: ptr int32,
+    count: uint32) {.importc: "nimculus_platform_set_editor_sidebar_line_items", cdecl.}
 proc platformSetEditorSidebarSelection*(itemIndex: uint32) {.importc: "nimculus_platform_set_editor_sidebar_selection", cdecl.}
 proc platformSetEditorSidebarVisible*(visible: bool) {.importc: "nimculus_platform_set_editor_sidebar_visible", cdecl.}
 proc platformFocusEditorSidebar*() {.importc: "nimculus_platform_focus_editor_sidebar", cdecl.}
@@ -186,11 +204,13 @@ proc platformSetWorkspaceOpen*(open: bool) {.importc: "nimculus_platform_set_wor
 proc platformOpenWorkspaceFolder*() {.importc: "nimculus_platform_open_workspace_folder", cdecl.}
 proc platformRenameWorkspaceEntry*(path: cstring, isDirectory: bool) {.importc: "nimculus_platform_rename_workspace_entry", cdecl.}
 proc platformSetTerminalVisible*(visible: bool) {.importc: "nimculus_platform_set_terminal_visible", cdecl.}
-proc platformSetTerminalSessions*(titles: cstring, length, activeIndex: uint32) {.importc: "nimculus_platform_set_terminal_sessions", cdecl.}
+proc platformSetTerminalSessions*(titles: cstring, length,
+    activeIndex: uint32) {.importc: "nimculus_platform_set_terminal_sessions", cdecl.}
 proc platformSetTerminalText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_terminal_text", cdecl.}
 proc platformSetTerminalRuns*(text: cstring, length: uint32, runs: ptr NativeTerminalRun,
                              count: uint32) {.importc: "nimculus_platform_set_terminal_runs", cdecl.}
-proc platformSetThemeColors*(background, foreground, accent, selection, border: cstring) {.importc: "nimculus_platform_set_theme_colors", cdecl.}
+proc platformSetThemeColors*(background, foreground, accent, selection,
+    border: cstring) {.importc: "nimculus_platform_set_theme_colors", cdecl.}
 proc platformSetThemePaletteJson*(json: cstring) {.importc: "nimculus_platform_set_theme_palette_json", cdecl.}
 proc platformSetTerminalFontSize*(size: cdouble) {.importc: "nimculus_platform_set_terminal_font_size", cdecl.}
 proc platformSetTerminalFontName*(name: cstring) {.importc: "nimculus_platform_set_terminal_font_name", cdecl.}
@@ -200,7 +220,8 @@ proc platformTerminalInsetX*(): cdouble {.importc: "nimculus_platform_terminal_i
 proc platformTerminalInsetY*(): cdouble {.importc: "nimculus_platform_terminal_inset_y", cdecl.}
 proc platformIsDarkAppearance*(): bool {.importc: "nimculus_platform_is_dark_appearance", cdecl.}
 proc platformInstallCrashHandler*(path: cstring) {.importc: "nimculus_platform_install_crash_handler", cdecl.}
-proc platformSetTerminalSelection*(startRow, startColumn, endRow, endColumn: uint32) {.importc: "nimculus_platform_set_terminal_selection", cdecl.}
+proc platformSetTerminalSelection*(startRow, startColumn, endRow,
+    endColumn: uint32) {.importc: "nimculus_platform_set_terminal_selection", cdecl.}
 proc platformSetTaskOutputVisible*(visible: bool) {.importc: "nimculus_platform_set_task_output_visible", cdecl.}
 proc platformSetTaskOutputCancellable*(cancellable: bool) {.importc: "nimculus_platform_set_task_output_cancellable", cdecl.}
 proc platformSetTaskOutputTitle*(title: cstring, length: uint32) {.importc: "nimculus_platform_set_task_output_title", cdecl.}
@@ -212,18 +233,29 @@ proc platformSetEditorHoverPane*(pane: uint32) {.importc: "nimculus_platform_set
 proc platformEditorTextUtf8Length*(): uint32 {.importc: "nimculus_platform_editor_text_utf8_length", cdecl.}
 proc platformSetEditorComposition*(text: cstring) {.importc: "nimculus_platform_set_editor_composition", cdecl.}
 proc platformClearEditorComposition*() {.importc: "nimculus_platform_clear_editor_composition", cdecl.}
-proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32) {.importc: "nimculus_platform_set_editor_highlights", cdecl.}
-proc platformSetSecondaryEditorHighlights*(spans: ptr NativeHighlightSpan, count: uint32) {.importc: "nimculus_platform_set_secondary_editor_highlights", cdecl.}
-proc platformSetEditorDiagnostics*(spans: ptr NativeDiagnosticSpan, count: uint32) {.importc: "nimculus_platform_set_editor_diagnostics", cdecl.}
-proc platformSetSecondaryEditorDiagnostics*(spans: ptr NativeDiagnosticSpan, count: uint32) {.importc: "nimculus_platform_set_secondary_editor_diagnostics", cdecl.}
-proc platformSetEditorAnnotations*(annotations: ptr NativeEditorAnnotation, count: uint32) {.importc: "nimculus_platform_set_editor_annotations", cdecl.}
-proc platformSetSecondaryEditorAnnotations*(annotations: ptr NativeEditorAnnotation, count: uint32) {.importc: "nimculus_platform_set_secondary_editor_annotations", cdecl.}
-proc platformSetEditorGitHunks*(spans: ptr NativeGitHunkSpan, count: uint32) {.importc: "nimculus_platform_set_editor_git_hunks", cdecl.}
-proc platformSetSecondaryEditorGitHunks*(spans: ptr NativeGitHunkSpan, count: uint32) {.importc: "nimculus_platform_set_secondary_editor_git_hunks", cdecl.}
+proc platformSetEditorHighlights*(spans: ptr NativeHighlightSpan,
+    count: uint32) {.importc: "nimculus_platform_set_editor_highlights", cdecl.}
+proc platformSetSecondaryEditorHighlights*(spans: ptr NativeHighlightSpan,
+    count: uint32) {.importc: "nimculus_platform_set_secondary_editor_highlights", cdecl.}
+proc platformSetEditorDiagnostics*(spans: ptr NativeDiagnosticSpan,
+    count: uint32) {.importc: "nimculus_platform_set_editor_diagnostics", cdecl.}
+proc platformSetSecondaryEditorDiagnostics*(spans: ptr NativeDiagnosticSpan,
+    count: uint32) {.importc: "nimculus_platform_set_secondary_editor_diagnostics", cdecl.}
+proc platformSetEditorAnnotations*(annotations: ptr NativeEditorAnnotation,
+    count: uint32) {.importc: "nimculus_platform_set_editor_annotations", cdecl.}
+proc platformSetSecondaryEditorAnnotations*(annotations: ptr NativeEditorAnnotation,
+    count: uint32) {.importc: "nimculus_platform_set_secondary_editor_annotations", cdecl.}
+proc platformSetEditorGitHunks*(spans: ptr NativeGitHunkSpan,
+    count: uint32) {.importc: "nimculus_platform_set_editor_git_hunks", cdecl.}
+proc platformSetSecondaryEditorGitHunks*(spans: ptr NativeGitHunkSpan,
+    count: uint32) {.importc: "nimculus_platform_set_secondary_editor_git_hunks", cdecl.}
 proc platformSetRecentFiles*(paths: ptr cstring, count: uint32) {.importc: "nimculus_platform_set_recent_files", cdecl.}
-proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}
-proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer, length: uint32) {.importc: "nimculus_platform_set_image_rgba", cdecl.}
-proc platformSetPaintDirtyRegions*(regions: ptr NativePaintRegion, count: uint32) {.importc: "nimculus_platform_set_paint_dirty_regions", cdecl.}
+proc platformSetPaintCommands*(commands: ptr NativePaintCommand,
+    count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}
+proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
+    length: uint32) {.importc: "nimculus_platform_set_image_rgba", cdecl.}
+proc platformSetPaintDirtyRegions*(regions: ptr NativePaintRegion,
+    count: uint32) {.importc: "nimculus_platform_set_paint_dirty_regions", cdecl.}
 proc platformShowExternalChange*(path: cstring) {.importc: "nimculus_platform_show_external_change", cdecl.}
 proc platformShowFindDocument*() {.importc: "nimculus_platform_show_find_document", cdecl.}
 proc platformShowReplaceDocument*() {.importc: "nimculus_platform_show_replace_document", cdecl.}
@@ -232,7 +264,8 @@ proc platformShowQuickOpen*() {.importc: "nimculus_platform_show_quick_open", cd
 proc platformShowWorkspaceSearch*() {.importc: "nimculus_platform_show_workspace_search", cdecl.}
 proc platformShowCommandPalette*() {.importc: "nimculus_platform_show_command_palette", cdecl.}
 proc platformShowSettingsPanel*(theme, editorFontSize, terminalFontSize,
-                                editorFontFamily, terminalFontFamily, shell: cstring) {.importc: "nimculus_platform_show_settings_panel", cdecl.}
+                                editorFontFamily, terminalFontFamily,
+                                    shell: cstring) {.importc: "nimculus_platform_show_settings_panel", cdecl.}
 proc platformSetUiRectangle*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_ui_rectangle", cdecl.}
 proc clipboardSet*(text: cstring, length: uint32) {.importc: "nimculus_clipboard_set", cdecl.}
 proc clipboardUtf8Length*(): uint32 {.importc: "nimculus_clipboard_utf8_length", cdecl.}

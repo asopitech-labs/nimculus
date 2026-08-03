@@ -188,43 +188,43 @@ proc settingsSchema*(): JsonNode =
         "fontFamily": {"type": "string"},
         "tabSize": {"type": "integer", "minimum": 1, "maximum": 16},
         "insertSpaces": {"type": "boolean"}
-      }},
-      "theme": {"type": "string"},
-      "iconTheme": {"type": "string"},
-      "themes": {"type": "object", "additionalProperties": {"type": "object"}},
-      "iconThemes": {"type": "object", "additionalProperties": {"type": "object"}},
-      "themeColors": {"type": "object", "properties": {
-        "background": {"type": "string"}, "foreground": {"type": "string"},
-        "accent": {"type": "string"}, "selection": {"type": "string"},
-        "border": {"type": "string"}, "surface": {"type": "string"},
-        "panel": {"type": "string"}, "element": {"type": "string"},
-        "elementHover": {"type": "string"}, "elementActive": {"type": "string"},
-        "elementSelected": {"type": "string"}, "textMuted": {"type": "string"},
-        "textPlaceholder": {"type": "string"}, "textDisabled": {"type": "string"},
-        "textAccent": {"type": "string"}, "borderVariant": {"type": "string"},
-        "borderFocused": {"type": "string"}, "borderSelected": {"type": "string"},
-        "titleBar": {"type": "string"}, "titleBarInactive": {"type": "string"},
-        "toolbar": {"type": "string"}, "tabBar": {"type": "string"},
-        "tabActive": {"type": "string"}, "tabInactive": {"type": "string"},
-        "statusBar": {"type": "string"}, "editor": {"type": "string"},
-        "gutter": {"type": "string"}, "editorSubheader": {"type": "string"},
-        "editorActiveLine": {"type": "string"}, "scrollbarThumb": {"type": "string"},
-        "scrollbarHover": {"type": "string"}, "terminal": {"type": "string"},
-        "added": {"type": "string"}, "modified": {"type": "string"},
-        "deleted": {"type": "string"}, "conflict": {"type": "string"},
-        "warning": {"type": "string"}, "error": {"type": "string"},
-        "info": {"type": "string"}, "success": {"type": "string"}
-      }},
-      "terminal": {"type": "object", "properties": {
-        "shell": {"type": "string"}, "fontFamily": {"type": "string"},
-        "fontSize": {"type": "integer", "minimum": 6, "maximum": 48}
-      }},
-      "lsp": {"type": "object", "properties": {"command": {"type": "string"}}},
-      "keymap": {"type": "array", "items": {"type": "object",
-        "required": ["key", "command"], "properties": {
-          "key": {"type": "string"}, "command": {"type": "string"}, "when": {"type": "string"}
-        }}}
-    }
+    }},
+    "theme": {"type": "string"},
+    "iconTheme": {"type": "string"},
+    "themes": {"type": "object", "additionalProperties": {"type": "object"}},
+    "iconThemes": {"type": "object", "additionalProperties": {"type": "object"}},
+    "themeColors": {"type": "object", "properties": {
+      "background": {"type": "string"}, "foreground": {"type": "string"},
+      "accent": {"type": "string"}, "selection": {"type": "string"},
+      "border": {"type": "string"}, "surface": {"type": "string"},
+      "panel": {"type": "string"}, "element": {"type": "string"},
+      "elementHover": {"type": "string"}, "elementActive": {"type": "string"},
+      "elementSelected": {"type": "string"}, "textMuted": {"type": "string"},
+      "textPlaceholder": {"type": "string"}, "textDisabled": {"type": "string"},
+      "textAccent": {"type": "string"}, "borderVariant": {"type": "string"},
+      "borderFocused": {"type": "string"}, "borderSelected": {"type": "string"},
+      "titleBar": {"type": "string"}, "titleBarInactive": {"type": "string"},
+      "toolbar": {"type": "string"}, "tabBar": {"type": "string"},
+      "tabActive": {"type": "string"}, "tabInactive": {"type": "string"},
+      "statusBar": {"type": "string"}, "editor": {"type": "string"},
+      "gutter": {"type": "string"}, "editorSubheader": {"type": "string"},
+      "editorActiveLine": {"type": "string"}, "scrollbarThumb": {"type": "string"},
+      "scrollbarHover": {"type": "string"}, "terminal": {"type": "string"},
+      "added": {"type": "string"}, "modified": {"type": "string"},
+      "deleted": {"type": "string"}, "conflict": {"type": "string"},
+      "warning": {"type": "string"}, "error": {"type": "string"},
+      "info": {"type": "string"}, "success": {"type": "string"}
+    }},
+    "terminal": {"type": "object", "properties": {
+      "shell": {"type": "string"}, "fontFamily": {"type": "string"},
+      "fontSize": {"type": "integer", "minimum": 6, "maximum": 48}
+    }},
+    "lsp": {"type": "object", "properties": {"command": {"type": "string"}}},
+    "keymap": {"type": "array", "items": {"type": "object",
+      "required": ["key", "command"], "properties": {
+        "key": {"type": "string"}, "command": {"type": "string"}, "when": {"type": "string"}
+      }}}
+  }
   }
 
 proc settingsPaths*(home: string): tuple[globalPath, workspaceName: string] =
@@ -324,7 +324,8 @@ proc configuredThemeColors(node: JsonNode; fallback: ThemeColors): ThemeColors =
       "element", "elementHover", "elementActive", "elementSelected", "textMuted", "textPlaceholder",
       "textDisabled", "textAccent", "borderVariant", "borderFocused", "borderSelected", "titleBar",
       "titleBarInactive", "toolbar", "tabBar", "tabActive", "tabInactive", "statusBar", "editor",
-      "gutter", "editorSubheader", "editorActiveLine", "scrollbarThumb", "scrollbarHover", "terminal",
+      "gutter", "editorSubheader", "editorActiveLine", "scrollbarThumb", "scrollbarHover",
+      "terminal",
       "added", "modified", "deleted", "conflict", "warning", "error", "info", "success"]:
     if colors.hasKey(key) and colors[key].kind == JString:
       case key
@@ -378,7 +379,8 @@ proc registerConfiguredThemes*(store: SettingsStore) =
     for name, node in themes:
       let fallback = store.themeRegistry.getOrDefault("dark").colors
       let colors = configuredThemeColors(node, fallback)
-      let appearance = if node.kind == JObject: jsonStringAt(node, "appearance", "dark") else: "dark"
+      let appearance = if node.kind == JObject: jsonStringAt(node, "appearance",
+          "dark") else: "dark"
       store.themeRegistry[name] = themeWithColors(name, appearance, colors)
   let iconThemes = nodeAt(store.settings.values, "iconThemes")
   if iconThemes != nil and iconThemes.kind == JObject:

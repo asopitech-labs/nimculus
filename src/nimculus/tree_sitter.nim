@@ -33,13 +33,15 @@ type TreeNodeCallback = proc(startByte, endByte: uint32, kind: cstring,
 
 proc cParserNew(language: cstring): pointer {.importc: "nim_ts_parser_new", cdecl.}
 proc cParserDelete(parser: pointer) {.importc: "nim_ts_parser_delete", cdecl.}
-proc cParse(parser, oldTree: pointer, source: cstring, length: uint32): pointer {.importc: "nim_ts_parse", cdecl.}
+proc cParse(parser, oldTree: pointer, source: cstring,
+    length: uint32): pointer {.importc: "nim_ts_parse", cdecl.}
 proc cTreeDelete(tree: pointer) {.importc: "nim_ts_tree_delete", cdecl.}
 proc cRootType(tree: pointer): cstring {.importc: "nim_ts_root_type", cdecl.}
 proc cHasError(tree: pointer): bool {.importc: "nim_ts_has_error", cdecl.}
 proc cWalk(tree: pointer, callback: TreeNodeCallback, context: pointer) {.importc: "nim_ts_walk", cdecl.}
 proc cTreeEdit(tree: pointer, startByte, oldEndByte, newEndByte, startRow, startColumn,
-               oldEndRow, oldEndColumn, newEndRow, newEndColumn: uint32) {.importc: "nim_ts_tree_edit", cdecl.}
+               oldEndRow, oldEndColumn, newEndRow,
+                   newEndColumn: uint32) {.importc: "nim_ts_tree_edit", cdecl.}
 
 proc newTreeSitterParser*(grammar: GrammarKind): TreeSitterParser =
   result = TreeSitterParser(grammar: grammar, handle: cParserNew(($grammar).cstring))
@@ -65,9 +67,11 @@ proc close*(parser: TreeSitterParser) =
     cParserDelete(parser.handle)
     parser.handle = nil
 
-proc collectNode(startByte, endByte: uint32, kind: cstring, hasError: bool, context: pointer) {.cdecl.} =
+proc collectNode(startByte, endByte: uint32, kind: cstring, hasError: bool,
+    context: pointer) {.cdecl.} =
   let tree = cast[SyntaxTree](context)
-  tree.nodes.add(SyntaxNode(startByte: startByte, endByte: endByte, kind: $kind, hasError: hasError))
+  tree.nodes.add(SyntaxNode(startByte: startByte, endByte: endByte, kind: $kind,
+      hasError: hasError))
 
 proc parse*(parser: TreeSitterParser, source: string, previous: SyntaxTree = nil): SyntaxTree =
   result = SyntaxTree(source: source)
