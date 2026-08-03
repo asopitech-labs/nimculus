@@ -441,7 +441,8 @@ suite "M3 text foundation":
     var paint: PaintList
     paint.invalidate(Rect(origin: Point(x: px(0), y: px(0)), size: Size(width: px(10), height: px(10))))
     paint.drawRectangle(Rect(origin: Point(x: px(2), y: px(2)), size: Size(width: px(4), height: px(4))))
-    paint.drawRectangle(Rect(origin: Point(x: px(20), y: px(20)), size: Size(width: px(4), height: px(4))))
+    paint.drawRectangle(Rect(origin: Point(x: px(20), y: px(20)), size: Size(width: px(4),
+        height: px(4))))
     check paint.commands.len == 1
 
   test "paint damage merges overlapping regions":

@@ -47,7 +47,7 @@ type
 const MaxTaskOutputBytes* = 4 * 1024 * 1024
 
 proc appendBoundedTaskOutput*(current, chunk: string;
-    limit: int = MaxTaskOutputBytes): tuple[output: string, truncated: bool] =
+    limit: int = MaxTaskOutputBytes): tuple[output: string; truncated: bool] =
   ## Keep task output bounded while retaining the newest complete lines.
   ## The byte limit is applied only at UTF-8 boundaries.
   if chunk.len == 0:

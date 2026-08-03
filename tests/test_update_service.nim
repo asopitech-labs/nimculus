@@ -39,7 +39,8 @@ suite "M11 update service":
     check release.url.len == 0
     check compareVersions("1.0.0-beta", "1.0.0") < 0
     check compareVersions("v1.0.0", "1.0.0") == 0
-    check not isUpdateAvailable("1.0.0", UpdateRelease(version: "1.0.0", url: "https://example.invalid/a",
+    check not isUpdateAvailable("1.0.0", UpdateRelease(version: "1.0.0",
+      url: "https://example.invalid/a",
       sha256: "0000000000000000000000000000000000000000000000000000000000000000"))
     let invalidJob = startUpdateDownload(UpdateRelease(url: "http://example.invalid/a",
       sha256: "0000000000000000000000000000000000000000000000000000000000000000"),

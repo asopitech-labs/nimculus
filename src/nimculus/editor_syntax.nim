@@ -38,7 +38,8 @@ proc update*(state: EditorSyntaxState, source: string) =
   let oldSource = state.tree.source
   if oldSource == source: return
   var prefix = 0
-  while prefix < oldSource.len and prefix < source.len and oldSource[prefix] == source[prefix]: inc prefix
+  while prefix < oldSource.len and prefix < source.len and oldSource[prefix] == source[
+      prefix]: inc prefix
   while prefix > 0 and
         ((prefix < oldSource.len and utf8Continuation(oldSource[prefix])) or
          (prefix < source.len and utf8Continuation(source[prefix]))):

@@ -7,7 +7,8 @@ import nimculus/lsp
 
 suite "M8 LSP protocol foundation":
   test "encodes Content-Length as UTF-8 byte length":
-    let payload = %*{"jsonrpc": "2.0", "method": "window/logMessage", "params": {"message": "日本語"}}
+    let payload = %*{"jsonrpc": "2.0", "method": "window/logMessage", "params": {
+        "message": "日本語"}}
     let encoded = encodeLspMessage(payload)
     let separator = encoded.find("\r\n\r\n")
     check separator > 0
@@ -121,7 +122,8 @@ suite "M8 LSP protocol foundation":
     check completionRequest("file:///a.nim", position).methodName == "textDocument/completion"
     check hoverRequest("file:///a.nim", position).methodName == "textDocument/hover"
     check definitionRequest("file:///a.nim", position).methodName == "textDocument/definition"
-    check referencesRequest("file:///a.nim", position).params["context"]["includeDeclaration"].getBool
+    check referencesRequest("file:///a.nim", position).params["context"][
+        "includeDeclaration"].getBool
     check documentSymbolRequest("file:///a.nim").methodName == "textDocument/documentSymbol"
     check renameRequest("file:///a.nim", position, "newName").params["newName"].getStr == "newName"
     check formattingRequest("file:///a.nim").methodName == "textDocument/formatting"

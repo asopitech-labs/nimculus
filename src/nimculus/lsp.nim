@@ -250,14 +250,15 @@ proc initializeParams*(rootUri, clientName: string): JsonNode =
         "publishDiagnostics": {"relatedInformation": true},
         "inlayHint": {"dynamicRegistration": false},
         "codeAction": {"codeActionLiteralSupport": {"codeActionKind":
-          {"valueSet": ["", "quickfix", "refactor", "source"]}}},
+    {"valueSet": ["", "quickfix", "refactor", "source"]}}},
         "semanticTokens": {"dynamicRegistration": false,
           "requests": {"full": true}, "tokenTypes": [], "tokenModifiers": []},
-        "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext", "markdown"]}},
+        "signatureHelp": {"signatureInformation": {"documentationFormat": ["plaintext",
+            "markdown"]}},
         "documentSymbol": {"hierarchicalDocumentSymbolSupport": true}
-      },
-      "workspace": {"workspaceFolders": true, "workspaceEdit": {"documentChanges": true}}
-    }
+    },
+    "workspace": {"workspaceFolders": true, "workspaceEdit": {"documentChanges": true}}
+  }
   }
   if rootUri.len == 0: result["rootUri"] = newJNull()
 
@@ -279,13 +280,16 @@ proc didCloseNotification*(uri: string): JsonNode =
   %*{"jsonrpc": "2.0", "method": "textDocument/didClose", "params": {
     "textDocument": {"uri": uri}}}
 
-proc completionRequest*(uri: string, position: LspPosition): tuple[methodName: string, params: JsonNode] =
+proc completionRequest*(uri: string, position: LspPosition): tuple[methodName: string,
+    params: JsonNode] =
   ("textDocument/completion", textDocumentPositionJson(uri, position))
 
-proc hoverRequest*(uri: string, position: LspPosition): tuple[methodName: string, params: JsonNode] =
+proc hoverRequest*(uri: string, position: LspPosition): tuple[methodName: string,
+    params: JsonNode] =
   ("textDocument/hover", textDocumentPositionJson(uri, position))
 
-proc definitionRequest*(uri: string, position: LspPosition): tuple[methodName: string, params: JsonNode] =
+proc definitionRequest*(uri: string, position: LspPosition): tuple[methodName: string,
+    params: JsonNode] =
   ("textDocument/definition", textDocumentPositionJson(uri, position))
 
 proc referencesRequest*(uri: string, position: LspPosition,
@@ -323,7 +327,8 @@ proc executeCommandRequest*(command: string, arguments: seq[JsonNode]):
   params["arguments"] = values
   ("workspace/executeCommand", params)
 
-proc signatureHelpRequest*(uri: string, position: LspPosition): tuple[methodName: string, params: JsonNode] =
+proc signatureHelpRequest*(uri: string, position: LspPosition): tuple[methodName: string,
+    params: JsonNode] =
   ("textDocument/signatureHelp", textDocumentPositionJson(uri, position))
 
 proc semanticTokensRequest*(uri: string): tuple[methodName: string, params: JsonNode] =
@@ -436,7 +441,8 @@ proc parseCompletion*(message: JsonNode): LspCompletionResult =
     result.items.add(LspCompletionItem(
       label: item["label"].getStr,
       detail: if item.hasKey("detail"): item["detail"].getStr else: "",
-      insertText: if item.hasKey("insertText"): item["insertText"].getStr else: item["label"].getStr,
+      insertText: if item.hasKey("insertText"): item["insertText"].getStr else: item[
+          "label"].getStr,
       kind: if item.hasKey("kind"): item["kind"].getInt else: 0))
 
 proc parseTextEdits*(message: JsonNode): seq[LspTextEdit] =
@@ -535,13 +541,16 @@ proc parseCodeAction*(message: JsonNode): LspCodeAction =
 proc parseSignatureHelp*(message: JsonNode): LspSignatureHelp =
   let value = responseResult(message)
   if value == nil or value.kind != JObject: return
-  result.activeSignature = if value.hasKey("activeSignature"): value["activeSignature"].getInt else: 0
-  result.activeParameter = if value.hasKey("activeParameter"): value["activeParameter"].getInt else: 0
+  result.activeSignature = if value.hasKey("activeSignature"): value[
+      "activeSignature"].getInt else: 0
+  result.activeParameter = if value.hasKey("activeParameter"): value[
+      "activeParameter"].getInt else: 0
   if not value.hasKey("signatures") or value["signatures"].kind != JArray: return
   for signature in value["signatures"]:
     if signature.kind != JObject or not signature.hasKey("label"): continue
     result.signatures.add(LspSignatureInformation(label: signature["label"].getStr,
-      documentation: if signature.hasKey("documentation"): markedStringText(signature["documentation"]) else: ""))
+      documentation: if signature.hasKey("documentation"): markedStringText(signature[
+          "documentation"]) else: ""))
 
 proc parseSemanticTokens*(message: JsonNode): seq[LspSemanticToken] =
   let value = responseResult(message)

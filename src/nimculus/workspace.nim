@@ -160,7 +160,8 @@ proc listChildrenAt*(workspace: Workspace, root: string; relative = ""): seq[Wor
     let relativePath = relative / path.extractFilename
     let ignored = workspace.isIgnored(root, relativePath, kind == pcDir)
     let entry = WorkspaceEntry(path: path, relativePath: relativePath, rootPath: root,
-      kind: if kind == pcDir: WorkspaceFileKind.directory else: WorkspaceFileKind.file, ignored: ignored)
+      kind: if kind == pcDir: WorkspaceFileKind.directory else: WorkspaceFileKind.file,
+      ignored: ignored)
     workspace.entries[root / relativePath] = entry
     if not ignored: result.add(entry)
 

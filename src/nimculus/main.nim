@@ -144,9 +144,9 @@ var activePointerNode = NodeId(0)
 var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 var demoSecondaryEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 var demoBottomDockBounds = Rect(size: Size(width: px(0), height: px(0)))
-# Match Zed's default macOS workspace: the activity bar is outermost left and
-# the Files panel sits immediately inside it. WorkspaceUiState already owns
-# the logical left dock, so the macOS projection uses the same side.
+ # Match Zed's default macOS workspace: the activity bar is outermost left and
+ # the Files panel sits immediately inside it. WorkspaceUiState already owns
+ # the logical left dock, so the macOS projection uses the same side.
 const MacProjectDockOnRight = false
 when defined(macosx) or defined(windows):
   var appSettings: SettingsStore
@@ -324,7 +324,8 @@ proc setupDemoUi() =
     splitBar = paneLayout.dividers[0].bounds
   demoSplitEnabled = paneLayout.panes.len > 1
   if editorWorkspaceUi.center != nil and editorWorkspaceUi.center.kind == paneSplit:
-    demoSplitDirection = if editorWorkspaceUi.center.axis == paneVertical: splitVertical else: splitHorizontal
+    demoSplitDirection = if editorWorkspaceUi.center.axis ==
+        paneVertical: splitVertical else: splitHorizontal
     demoSplitRatio = editorWorkspaceUi.center.ratio
   demoEditorBounds = primaryEditor
   demoSecondaryEditorBounds = secondaryEditor
@@ -343,8 +344,10 @@ proc setupDemoUi() =
   if leftDockWidth > 0:
     let dockX = if MacProjectDockOnRight: viewportWidth - leftDockWidth else: 0'f32
     paint.drawWorkspacePanel(Rect(origin: Point(x: px(dockX), y: px(24)),
-      size: Size(width: px(leftDockWidth), height: px(max(0'f32, viewportHeight - 46'f32 - bottomDockHeight)))))
-    paint.drawWorkspaceSeparator(Rect(origin: Point(x: px(if MacProjectDockOnRight: dockX else: leftDockWidth - 1), y: px(24)),
+      size: Size(width: px(leftDockWidth), height: px(max(0'f32, viewportHeight - 46'f32 -
+          bottomDockHeight)))))
+    paint.drawWorkspaceSeparator(Rect(origin: Point(x: px(
+        if MacProjectDockOnRight: dockX else: leftDockWidth - 1), y: px(24)),
       size: Size(width: px(1), height: px(max(0'f32, viewportHeight - 46'f32 - bottomDockHeight)))))
   if bottomDockHeight > 0:
     paint.drawWorkspacePanel(Rect(origin: Point(x: px(contentX),
@@ -427,7 +430,8 @@ proc setupDemoUi() =
   platformSetUiRectangle(float32(bounds.origin.x), float32(bounds.origin.y),
                          float32(bounds.size.width), float32(bounds.size.height))
   platformSetEditorRect(float64(float32(primaryEditor.origin.x)), float64(float32(primaryEditor.origin.y)),
-                        float64(float32(primaryEditor.size.width)), float64(float32(primaryEditor.size.height)))
+                        float64(float32(primaryEditor.size.width)), float64(float32(
+                            primaryEditor.size.height)))
   when defined(macosx):
     platformSetEditorSidebarVisible(editorWorkspaceUi.leftDock.isOpen and sidebarCanPresent)
     platformSetEditorSidebarOnRight(MacProjectDockOnRight)
@@ -549,7 +553,8 @@ proc setupShortcutRegistry() =
   # bindings are installed below and are resolved before interpretKeyEvents.
   for name in [
       # Application and menu commands.
-    "save", "newDocument", "closeTabRequest", "reopenClosedTab", "openSettings", "splitEditor", "splitEditorHorizontal", "closeSplit", "undo", "redo",
+    "save", "newDocument", "closeTabRequest", "reopenClosedTab", "openSettings", "splitEditor",
+      "splitEditorHorizontal", "closeSplit", "undo", "redo",
       "cut", "copy", "paste", "selectAll", "previousTab", "nextTab",
       # AppKit NSText movement/editing selectors. Keeping these names at the
         # application boundary lets settings override Command/Option behavior
@@ -604,7 +609,8 @@ proc applySettingsTheme() =
       platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize", 14)))
       platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily", "Consolas").cstring)
       platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize", 12)))
-      platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily", "Consolas").cstring)
+      platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily",
+          "Consolas").cstring)
     elif defined(macosx):
       let colors = appSettings.resolvedTheme(platformIsDarkAppearance())
       platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize", 14)))
@@ -1754,7 +1760,8 @@ when defined(macosx):
               renderNativeDapSidebar()
             else:
               discard sendNativeDapRequest("launch", launchArguments(program,
-                taskWorkingDirectory(document), getEnv("NIMCULUS_DAP_PROGRAM_ARGS", "").splitWhitespace))
+                taskWorkingDirectory(document), getEnv("NIMCULUS_DAP_PROGRAM_ARGS",
+                    "").splitWhitespace))
         elif message.command == "stackTrace" and message.body != nil:
           if message.body.hasKey("stackFrames") and message.body["stackFrames"].kind == JArray:
             var lines = @["Debugger — Stack Frames"]
@@ -1850,7 +1857,8 @@ when defined(macosx):
             editorDapThreads.add(DapThreadInfo(id: id, name: name))
           renderNativeDapSidebar()
         elif message.command == "evaluate" and message.body != nil:
-          let value = if message.body.hasKey("result"): message.body["result"].getStr else: $message.body
+          let value = if message.body.hasKey("result"): message.body[
+              "result"].getStr else: $message.body
           editorDapWatchLines.add(value)
           if editorDapWatchLines.len > 64: editorDapWatchLines.delete(0)
           renderNativeDapSidebar()
@@ -4432,7 +4440,8 @@ when defined(macosx):
         startByte: uint32(max(0, min(item.anchor, item.active))),
         endByte: uint32(max(0, max(item.anchor, item.active))),
         cursorByte: uint32(max(0, item.active))))
-    platformSetSecondaryEditorSelections(if nativeSelections.len > 0: addr nativeSelections[0] else: nil,
+    platformSetSecondaryEditorSelections(if nativeSelections.len > 0: addr nativeSelections[
+        0] else: nil,
       uint32(nativeSelections.len))
     syncSecondaryNativeDiagnostics(document)
 
@@ -6595,7 +6604,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         "sidebarDeleteSelected"
       elif command in ["reveal selected workspace entry", "reveal workspace entry"]:
         "sidebarRevealSelected"
-      elif command in ["open selected workspace entry with system", "open workspace entry with system"]:
+      elif command in ["open selected workspace entry with system",
+          "open workspace entry with system"]:
         "sidebarOpenWithSystem"
       elif command in ["find in selected folder", "search selected folder"]:
         "sidebarSearchInSelected"

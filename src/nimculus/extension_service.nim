@@ -212,7 +212,8 @@ proc removeExtensionTree(path: string) =
       removeFile(child)
   removeDir(path)
 
-proc installDirectory*(registry: ExtensionRegistry, source, destinationRoot: string): ExtensionManifest =
+proc installDirectory*(registry: ExtensionRegistry, source,
+    destinationRoot: string): ExtensionManifest =
   ## Install a local extension directory atomically and register the copied
   ## manifest.  The operation intentionally rejects replacement for now: a
   ## second install must be an explicit future update/uninstall action rather

@@ -38,7 +38,8 @@ proc register*(registry: var CommandRegistry, command: Command) = registry.comma
 
 proc resolve*(registry: CommandRegistry, shortcut: Shortcut): Command =
   for command in registry.commands:
-    if command.shortcut.keyCode == shortcut.keyCode and command.shortcut.modifiers == shortcut.modifiers:
+    if command.shortcut.keyCode == shortcut.keyCode and command.shortcut.modifiers ==
+        shortcut.modifiers:
       return command
 
 proc tryResolve*(registry: CommandRegistry, shortcut: Shortcut,

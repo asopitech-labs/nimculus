@@ -45,17 +45,20 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformSetTerminalFontSize*(size: cdouble) {.importc: "nimculus_platform_set_terminal_font_size", cdecl.}
   proc platformSetTerminalFontName*(name: cstring) {.importc: "nimculus_platform_set_terminal_font_name", cdecl.}
   proc platformGetTerminalCellMetrics*(cellWidth, lineHeight: ptr cdouble) {.importc: "nimculus_platform_get_terminal_cell_metrics", cdecl.}
-  proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}
+  proc platformSetPaintCommands*(commands: ptr NativePaintCommand,
+      count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}
   proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
       length: uint32) {.importc: "nimculus_platform_set_image_rgba", cdecl.}
   proc platformSetEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_text", cdecl.}
   proc platformSetEditorRect*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_editor_rect", cdecl.}
   proc platformSetEditorComposition*(text: cstring) {.importc: "nimculus_platform_set_editor_composition", cdecl.}
   proc platformSetEditorDirty*(dirty: bool) {.importc: "nimculus_platform_set_editor_dirty", cdecl.}
-  proc platformSetEditorIndentGuides*(visible: bool, indentWidth: uint32) {.importc: "nimculus_platform_set_editor_indent_guides", cdecl.}
+  proc platformSetEditorIndentGuides*(visible: bool,
+      indentWidth: uint32) {.importc: "nimculus_platform_set_editor_indent_guides", cdecl.}
   proc platformSetEditorLineNumbers*(visible: bool) {.importc: "nimculus_platform_set_editor_line_numbers", cdecl.}
   proc platformSetEditorSoftWrap*(enabled: bool) {.importc: "nimculus_platform_set_editor_soft_wrap", cdecl.}
-  proc platformSetEditorTabs*(titles: cstring, length, activeIndex: uint32) {.importc: "nimculus_platform_set_editor_tabs", cdecl.}
+  proc platformSetEditorTabs*(titles: cstring, length,
+      activeIndex: uint32) {.importc: "nimculus_platform_set_editor_tabs", cdecl.}
   proc platformSetEditorStatus*(text: cstring) {.importc: "nimculus_platform_set_editor_status", cdecl.}
   proc platformSetTerminalSelection*(startRow, startColumn, endRow,
       endColumn: uint32) {.importc: "nimculus_platform_set_terminal_selection", cdecl.}
@@ -132,7 +135,8 @@ else:
   proc platformGetTerminalCellMetrics*(cellWidth, lineHeight: ptr cdouble) =
     if cellWidth != nil: cellWidth[] = 7.2
     if lineHeight != nil: lineHeight[] = 14.0
-  proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) = discard (commands, count)
+  proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) = discard (
+    commands, count)
   proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
       length: uint32) = discard (imageId, width, height, rgba, length)
   proc platformSetEditorText*(text: cstring, length: uint32) = discard (text, length)
@@ -142,7 +146,8 @@ else:
   proc platformSetEditorIndentGuides*(visible: bool, indentWidth: uint32) = discard (visible, indentWidth)
   proc platformSetEditorLineNumbers*(visible: bool) = discard visible
   proc platformSetEditorSoftWrap*(enabled: bool) = discard enabled
-  proc platformSetEditorTabs*(titles: cstring, length, activeIndex: uint32) = discard (titles, length, activeIndex)
+  proc platformSetEditorTabs*(titles: cstring, length, activeIndex: uint32) = discard (titles,
+      length, activeIndex)
   proc platformSetEditorStatus*(text: cstring) = discard text
   proc platformSetTerminalSelection*(startRow, startColumn, endRow,
       endColumn: uint32) = discard (startRow, startColumn, endRow, endColumn)

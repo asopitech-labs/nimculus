@@ -331,7 +331,8 @@ proc layout*(state: WorkspaceUiState, viewport: Size): WorkspaceLayout =
 proc regionAt*(layout: WorkspaceLayout, point: Point): WorkspaceRegion =
   if layout.status.contains(point): regionStatus
   elif float32(layout.leftDock.size.width) > 0 and layout.leftDock.contains(point): regionLeftDock
-  elif float32(layout.bottomDock.size.height) > 0 and layout.bottomDock.contains(point): regionBottomDock
+  elif float32(layout.bottomDock.size.height) > 0 and layout.bottomDock.contains(
+      point): regionBottomDock
   elif layout.center.contains(point): regionCenter
   else: regionNone
 
@@ -426,7 +427,8 @@ proc paneLayout*(tree: PaneTree, bounds: Rect): PaneLayout =
       let divider = Rect(origin: Point(x: px(float32(rect.origin.x) + firstLength),
         y: rect.origin.y), size: Size(width: px(PaneDividerThickness), height: rect.size.height))
       let secondRect = Rect(origin: Point(x: px(float32(divider.origin.x) + PaneDividerThickness),
-        y: rect.origin.y), size: Size(width: px(max(0'f32, available - firstLength)), height: rect.size.height))
+        y: rect.origin.y), size: Size(width: px(max(0'f32, available - firstLength)),
+            height: rect.size.height))
       append(tree.first, firstRect, layout)
       layout.dividers.add(PaneDivider(axis: tree.axis, bounds: divider))
       append(tree.second, secondRect, layout)

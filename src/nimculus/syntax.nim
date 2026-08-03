@@ -18,10 +18,12 @@ proc classify(kind: string): HighlightKind =
   let lower = kind.toLowerAscii
   if lower.contains("comment"): return comment
   if lower.contains("string") or lower.contains("template"): return stringLiteral
-  if lower.contains("number") or lower.contains("integer") or lower.contains("float"): return numberLiteral
+  if lower.contains("number") or lower.contains("integer") or lower.contains(
+      "float"): return numberLiteral
   if lower in ["identifier", "type_identifier", "property_identifier"]: return identifier
   if lower in [";", ",", ".", ":", "(", ")", "[", "]", "{", "}"]: return punctuation
-  if lower in ["if", "else", "for", "while", "proc", "func", "let", "var", "const", "type", "return", "import", "from", "fn", "struct", "class", "def", "async", "await"]: return keyword
+  if lower in ["if", "else", "for", "while", "proc", "func", "let", "var", "const", "type",
+      "return", "import", "from", "fn", "struct", "class", "def", "async", "await"]: return keyword
   return identifier
 
 proc highlight*(tree: SyntaxTree): seq[HighlightSpan] =
@@ -245,7 +247,8 @@ proc indentationLevel*(source: string, byteOffset: int, indentWidth = 2): int =
     else: inc spaces
   spaces div max(1, indentWidth)
 
-proc expandSelection*(tree: SyntaxTree, startByte, endByte: uint32): tuple[startByte, endByte: uint32] =
+proc expandSelection*(tree: SyntaxTree, startByte, endByte: uint32): tuple[startByte,
+    endByte: uint32] =
   result = (startByte: startByte, endByte: endByte)
   var smallest = high(uint32)
   for node in tree.nodes:
@@ -254,7 +257,8 @@ proc expandSelection*(tree: SyntaxTree, startByte, endByte: uint32): tuple[start
       smallest = node.endByte - node.startByte
       result = (startByte: node.startByte, endByte: node.endByte)
 
-proc largerSelection*(tree: SyntaxTree, startByte, endByte: uint32): tuple[startByte, endByte: uint32] =
+proc largerSelection*(tree: SyntaxTree, startByte, endByte: uint32): tuple[startByte,
+    endByte: uint32] =
   ## Select the smallest syntax node that strictly contains the current range.
   ## On an empty selection this is the first syntax node at the cursor, which
   ## matches Zed's first Expand Selection action.
