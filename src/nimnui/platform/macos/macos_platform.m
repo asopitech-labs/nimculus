@@ -3523,7 +3523,6 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @end
 
 @interface NimculusEditorContextOverlay : NSTextField
-@property(nonatomic, retain) NSButton *previewButton;
 @property(nonatomic, retain) NSButton *searchButton;
 @property(nonatomic, retain) NSButton *formatButton;
 - (NSButton *)breadcrumbButtonWithSymbol:(NSString *)symbol label:(NSString *)label
@@ -6753,15 +6752,15 @@ static NSView *newFooterDivider(void) {
     [left addArrangedSubview:file];
   }
 
-  NSString *branch = g_editor_git_branch.length > 0 ? g_editor_git_branch : @"Git";
+  NSString *branch = g_editor_git_branch.length > 0 ? g_editor_git_branch : @"No Git branch";
   NSString *gitStatus = g_editor_status.length > 0 ? g_editor_status : @"Ready";
   if ([gitStatus hasPrefix:@"Git: "]) gitStatus = [gitStatus substringFromIndex:5];
   NSString *gitTitle = [gitStatus isEqualToString:@"Ready"] ? branch :
     [NSString stringWithFormat:@"%@ · %@", branch, gitStatus];
-  NSString *gitLabel = [NSString stringWithFormat:@"Git: %@; %@", branch, g_editor_status ?: @"Ready"];
+  NSString *gitLabel = [NSString stringWithFormat:@"Git branch: %@; status: %@", branch,
+    g_editor_status ?: @"Ready"];
   NimculusFooterStatusButton *git = newFooterButton(self, gitTitle, gitLabel,
     NimculusFooterActionGit);
-  setFooterSymbol(git, @"arrow.triangle.branch", @"⑂");
   styleFooterStatusButton(git, NO);
   [left addArrangedSubview:git];
 
@@ -6781,11 +6780,13 @@ static NSView *newFooterDivider(void) {
     styleFooterStatusButton(button, NO);
     [right addArrangedSubview:button];
   }
+  // Panel toggles stay with the left cluster.  The right cluster is reserved
+  // for the four plain-text buffer status selectors, matching Zed's footer.
   NimculusFooterStatusButton *terminalButton = newPanelButton(self, @"Terminal",
     @"terminal", NimculusFooterActionPanelTerminal);
   styleSidebarIconButton(terminalButton,
     footerPanelActionIsActive(NimculusFooterActionPanelTerminal));
-  [right insertArrangedSubview:terminalButton atIndex:0];
+  [left addArrangedSubview:terminalButton];
   [self setNeedsLayout:YES];
 }
 static CGFloat footerClusterWidth(NSStackView *cluster) {
@@ -6923,20 +6924,16 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
   if (!self) return nil;
-  self.previewButton = [self breadcrumbButtonWithSymbol:@"eye"
-    label:@"Preview Markdown document" action:@selector(previewMarkdown:)];
   self.searchButton = [self breadcrumbButtonWithSymbol:@"magnifyingglass"
-    label:@"Find in document" action:@selector(findDocument:)];
-  self.formatButton = [self breadcrumbButtonWithSymbol:@"text.alignleft"
+    label:@"Find in file" action:@selector(findDocument:)];
+  self.formatButton = [self breadcrumbButtonWithSymbol:@"arrow.triangle.2.circlepath"
     label:@"Format buffer" action:@selector(formatDocument:)];
-  [self addSubview:self.previewButton];
   [self addSubview:self.searchButton];
   [self addSubview:self.formatButton];
   [self updateBreadcrumbPresentation];
   return self;
 }
 - (void)dealloc {
-  [_previewButton release];
   [_searchButton release];
   [_formatButton release];
   [super dealloc];
@@ -6949,6 +6946,7 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
     button.image = [NSImage imageWithSystemSymbolName:symbol
       accessibilityDescription:label];
     button.imagePosition = NSImageOnly;
+    applySidebarIconConfiguration(button);
   }
   button.toolTip = label;
   button.accessibilityLabel = label;
@@ -6963,24 +6961,22 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
 - (void)layout {
   [super layout];
   const CGFloat rightInset = NimculusSpace1;
+  const CGFloat actionTop = (NimculusRowHeight - NimculusControlHit) / 2.0;
   CGFloat x = self.bounds.size.width - rightInset - NimculusControlHit;
-  self.formatButton.frame = NSMakeRect(x, NimculusSpace1,
+  self.formatButton.frame = NSMakeRect(x, actionTop,
     NimculusControlHit, NimculusControlHit);
   x -= NimculusSpace1 + NimculusControlHit;
-  self.searchButton.frame = NSMakeRect(x, NimculusSpace1,
-    NimculusControlHit, NimculusControlHit);
-  x -= NimculusSpace1 + NimculusControlHit;
-  self.previewButton.frame = NSMakeRect(x, NimculusSpace1,
+  self.searchButton.frame = NSMakeRect(x, actionTop,
     NimculusControlHit, NimculusControlHit);
 }
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
   if (self.attributedStringValue.length == 0) return;
-  const CGFloat actionWidth = (NimculusControlHit * 3.0) +
-    (NimculusSpace1 * 4.0);
-  NSRect textRect = NSMakeRect(0.0, 4.0,
+  const CGFloat actionWidth = (NimculusControlHit * 2.0) +
+    (NimculusSpace1 * 3.0);
+  NSRect textRect = NSMakeRect(0.0, NimculusFindBarRowPadding,
     MAX(1.0, self.bounds.size.width - actionWidth),
-    MAX(1.0, self.bounds.size.height - 4.0));
+    MAX(1.0, self.bounds.size.height - NimculusFindBarRowPadding * 2.0));
   [self.attributedStringValue drawWithRect:textRect
     options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading context:nil];
 }
@@ -7009,23 +7005,9 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
         NSFontAttributeName: isHeading ? headingFont : regularFont}] autorelease]];
   }
   self.attributedStringValue = styled;
-  id delegate = [NSApp delegate];
-  BOOL markdownPreviewAvailable = [delegate respondsToSelector:@selector(previewMarkdown:)];
-  self.previewButton.enabled = markdownPreviewAvailable;
-  self.previewButton.toolTip = markdownPreviewAvailable ?
-    @"Preview Markdown document" : @"Markdown preview unavailable";
-  self.previewButton.accessibilityLabel = self.previewButton.toolTip;
-  styleWorkspaceNavigationButton(self.previewButton, NO, YES);
   styleWorkspaceNavigationButton(self.searchButton, NO, YES);
   styleWorkspaceNavigationButton(self.formatButton, NO, YES);
   [self setNeedsDisplay:YES];
-}
-- (void)previewMarkdown:(id)sender {
-  (void)sender;
-  id delegate = [NSApp delegate];
-  if ([delegate respondsToSelector:@selector(previewMarkdown:)]) {
-    [delegate performSelector:@selector(previewMarkdown:) withObject:self];
-  }
 }
 - (void)findDocument:(id)sender {
   (void)sender;
@@ -11411,7 +11393,7 @@ bool nimculus_platform_validate_editor_context_header(void) {
     NimculusCommandCallback previousCallback = g_command_callback;
     replaceOwnedString(&g_editor_context, @"DEVELOPMENT_GUIDELINES.md › # Breadcrumb");
     NimculusEditorContextOverlay *context = [[NimculusEditorContextOverlay alloc]
-      initWithFrame:NSMakeRect(12.0, 480.0, 300.0, 20.0)];
+      initWithFrame:NSMakeRect(12.0, 480.0, 300.0, NimculusRowHeight)];
     context.stringValue = g_editor_context;
     context.lineBreakMode = NSLineBreakByTruncatingMiddle;
     [context updateBreadcrumbPresentation];
@@ -11422,10 +11404,17 @@ bool nimculus_platform_validate_editor_context_header(void) {
         atIndex:headingRange.location effectiveRange:nil];
     BOOL headingIsEmphasized = headingFont != nil &&
       (headingFont.fontDescriptor.symbolicTraits & NSFontDescriptorTraitBold) != 0;
-    BOOL hasActions = [context.searchButton.accessibilityLabel isEqualToString:@"Find in document"] &&
+    BOOL hasActions = context.subviews.count == 2 &&
+      [context.searchButton.accessibilityLabel isEqualToString:@"Find in file"] &&
       [context.formatButton.accessibilityLabel isEqualToString:@"Format buffer"] &&
-      context.previewButton != nil && context.searchButton.frame.size.width == NimculusControlHit &&
-      context.formatButton.frame.size.width == NimculusControlHit;
+      [context.searchButton.toolTip isEqualToString:@"Find in file"] &&
+      [context.formatButton.toolTip isEqualToString:@"Format buffer"] &&
+      [context.searchButton.image.accessibilityDescription isEqualToString:@"Find in file"] &&
+      [context.formatButton.image.accessibilityDescription isEqualToString:@"Format buffer"] &&
+      context.searchButton.frame.size.width == NimculusControlHit &&
+      context.formatButton.frame.size.width == NimculusControlHit &&
+      context.searchButton.frame.origin.y == (NimculusRowHeight - NimculusControlHit) / 2.0 &&
+      context.formatButton.frame.origin.y == (NimculusRowHeight - NimculusControlHit) / 2.0;
     g_command_callback = validationCommandCallback;
     [context.searchButton performClick:nil];
     BOOL dispatchesFind = strcmp(g_validation_command, "commandPalette:find") == 0;
@@ -11435,7 +11424,7 @@ bool nimculus_platform_validate_editor_context_header(void) {
       [[context.stringValue componentsSeparatedByString:@" › "][0]
         isEqualToString:@"DEVELOPMENT_GUIDELINES.md"] &&
       context.lineBreakMode == NSLineBreakByTruncatingMiddle &&
-      context.frame.size.height == 20.0 && !context.acceptsFirstResponder &&
+      context.frame.size.height == NimculusRowHeight && !context.acceptsFirstResponder &&
       [context hitTest:NSMakePoint(2.0, 2.0)] == nil && headingIsEmphasized &&
       hasActions && dispatchesFind && dispatchesFormat;
     [context release];
@@ -11925,17 +11914,36 @@ bool nimculus_platform_validate_panel_buttons(void) {
     BOOL search = strcmp(g_validation_command, "commandPalette:workspace search") == 0;
     [(NimculusFooterStatusButton *)buttons[@"Diagnostics: no problems"] performClick:nil];
     BOOL diagnostics = strcmp(g_validation_command, "commandPalette:show problems") == 0;
-    [(NimculusFooterStatusButton *)buttons[@"Git: Git; Ready"] performClick:nil];
-    BOOL git = strcmp(g_validation_command, "commandPalette:git status") == 0;
+    NSButton *gitButton = nil;
+    for (NSString *label in buttons) {
+      if ([label hasPrefix:@"Git branch:"]) gitButton = buttons[label];
+    }
+    BOOL gitTextOnly = gitButton != nil && gitButton.image == nil &&
+      gitButton.title.length > 0;
+    BOOL git = gitButton != nil;
+    [gitButton performClick:nil];
+    git = git && strcmp(g_validation_command, "commandPalette:git status") == 0;
     [(NimculusFooterStatusButton *)buttons[@"Terminal"] performClick:nil];
     BOOL terminal = strcmp(g_validation_command, "commandPalette:toggle terminal") == 0;
+    NSStackView *right = nil;
+    for (NSView *cluster in footer.subviews) {
+      if ([cluster isKindOfClass:[NSStackView class]]) {
+        if (!left) left = (NSStackView *)cluster;
+        else right = (NSStackView *)cluster;
+      }
+    }
+    BOOL rightTextOnly = right != nil && right.arrangedSubviews.count == 4;
+    for (NSView *view in right.arrangedSubviews) {
+      rightTextOnly = rightTextOnly && [view isKindOfClass:[NSButton class]] &&
+        ((NSButton *)view).image == nil;
+    }
     [footer release];
     g_editor_sidebar_mode = previousMode;
     g_editor_sidebar_visible = previousSidebarVisible;
     g_terminal_visible = previousTerminalVisible;
     g_command_callback = previousCallback;
     return presentation && dividerPresentation && noDuplicateSearch && active && dockToggle &&
-      agent && search && diagnostics && git && terminal;
+      agent && search && diagnostics && gitTextOnly && git && terminal && rightTextOnly;
   }
 }
 

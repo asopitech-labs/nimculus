@@ -1,5 +1,23 @@
 # Design Decisions
 
+## UI-096: Keep footer status semantics text-only and remove dead breadcrumb actions
+
+The macOS footer now keeps the right-side buffer selectors as plain clickable
+text in Zed's order: encoding, language, line ending, and cursor position.
+Panel toggles, including Terminal, stay in the left icon-only cluster, while
+the Git item is a text-only branch/status item; its branch glyph no longer
+decorates a text status. This prevents an unrelated terminal icon from being
+read as part of the encoding selector and keeps the two footer clusters
+semantically distinct in both light and dark themes.
+
+The breadcrumb row retains only actions that are wired to Nimculus commands:
+`Find in file` uses the magnifying-glass symbol and opens the document find
+bar, while `Format buffer` uses the refresh/reformat symbol and dispatches the
+LSP formatting command. The previous Markdown preview eye was removed because
+Nimculus has no implemented preview target. Both remaining controls use the
+shared 28pt row / 24pt hit-area tokens, explicit tooltips, accessibility labels,
+and configured SF Symbol sizing.
+
 ## UI-095: Use Zed search glyph geometry and one find-row baseline
 
 The find bar's three search-option controls now use the vendored Zed SVG
