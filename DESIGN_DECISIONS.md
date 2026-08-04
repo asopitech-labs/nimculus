@@ -7233,3 +7233,37 @@ and persisted resize behavior remain unchanged.
 `references/zed/crates/theme/src/icon_theme.rs`, and the vendored
 `references/zed/assets/icons/file_icons/` set. Nimble format, lint, test, and
 build gates are required before the native launch smoke check.
+
+## UI-090: Port Zed's status-bar order and summaries
+
+**Context.** The footer already had native ghost buttons and preserved the
+existing command routes, but its left cluster began with diagnostics and Git,
+its right cluster began with the cursor, and the cursor used the bespoke
+`Ln 1, Col 1` spelling. Zed registers project search, LSP, diagnostics, and
+the active file on the left, then places encoding, language, line ending, and
+cursor position on the right when unsupported items are omitted.
+
+**Decision.** Keep the tab-separated Nim-to-AppKit payload and its existing
+tooltips, accessibility labels, right-click Status Bar menu, and command
+destinations. Add a far-left magnifying-glass Search Project ghost button
+using the existing `commandPalette:workspace search` route. Render the left
+cluster as search, LSP, diagnostics, active file, and Git; Git remains the
+existing status-panel entry because Nimculus has no separate blame/conflict
+status item. Render the right cluster as UTF-8 encoding, language, line
+ending, and the cursor position, omitting Zed's unsupported toolchain and
+other items as well as the non-Zed indentation entry.
+
+Diagnostics follow Zed's `DiagnosticIndicator`: clean state is a Check icon
+alone; non-clean state uses XCircle plus an error count and/or Warning plus a
+warning count, with the existing diagnostics command shared by each summary
+segment. The cursor is calculated from Nimculus's grapheme-aware line/column
+mapping and displayed one-based as `line:character`, with a selection count
+when multiple selections are active. Semantic theme roles keep the treatment
+valid in both light and dark appearances.
+
+**Evidence.** The ordering comes from
+`references/zed/crates/zed/src/zed.rs` lines 635-649, the diagnostic rendering
+from `references/zed/crates/diagnostics/src/items.rs`, and cursor formatting
+from `references/zed/crates/go_to_line/src/cursor_position.rs`. Required
+Nimble format, lint, test, build, and native launch/crash-report checks remain
+the acceptance gate.

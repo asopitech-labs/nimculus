@@ -607,11 +607,17 @@ suite "M5 editor services":
     view.moveCursor(6, selecting = true)
     check view.selectedRange() == (startByte: 4, endByte: 6)
     check buffer.visibleLines(0, 2) == @["one", "two"]
-    check view.statusBarText(buffer).contains("Ln 2")
+    check view.statusBarText(buffer).contains("2:3")
     view.statusMessage = "Soft wrap disabled"
-    check view.statusBarText(buffer).contains("Soft wrap disabled  •  Ln 2")
+    check view.statusBarText(buffer).contains("Soft wrap disabled  •  2:3")
     view.openCommandPalette()
     check view.commandPaletteOpen
+
+  test "cursor status uses Zed line:character format for multiple selections":
+    let buffer = initPieceTable("one\ntwo")
+    var view = newEditorView()
+    discard view.addCaret(4, buffer.toString())
+    check view.cursorPositionText(buffer) == "1:1 (2 selections)"
 
   test "selection clamps to grapheme boundaries after document shrink":
     var view = newEditorView()

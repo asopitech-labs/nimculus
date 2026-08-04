@@ -141,10 +141,11 @@ static NimculusFoldRange *g_secondary_editor_folds = NULL;
 static uint32_t g_secondary_editor_fold_count = 0;
 static NSString *g_editor_status = @"Ready";
 // Tab-separated, user-facing status items. The footer presenter keeps cursor,
-// indentation, encoding, line ending, language, and LSP state as separate
-// native controls so they retain their existing command routes while matching
-// Zed's status-bar grouping.
-static NSString *g_editor_footer = @"Ln 1, Col 1\tSpaces: 2\tUTF-8\tLF\tPlain Text\tLSP: なし";
+// indentation, encoding, line ending, language, LSP state, and active file
+// available as separate native controls while matching Zed's status-bar
+// grouping. The indentation field remains in the payload for compatibility;
+// Zed's visible status-bar order does not render it.
+static NSString *g_editor_footer = @"1:1\tSpaces: 2\tUTF-8\tLF\tPlain Text\tLSP: なし\t";
 static NSString *g_editor_context = @"";
 static NSString *g_editor_git_branch = @"";
 static NSArray<NSString *> *g_editor_tab_titles = nil;
@@ -5661,6 +5662,8 @@ static NSColor *activeTabSurfaceColor(void) {
 @end
 
 typedef NS_ENUM(NSInteger, NimculusFooterAction) {
+  NimculusFooterActionDisplayOnly = -1,
+  NimculusFooterActionWorkspaceSearch = 0,
   NimculusFooterActionDiagnostics = 1,
   NimculusFooterActionGit = 2,
   NimculusFooterActionLsp = 3,
@@ -5811,48 +5814,17 @@ static NimculusFooterStatusButton *newFooterButton(NimculusFooterOverlay *owner,
     if (g_diagnostics[index].severity == 1) errorCount++;
     else if (g_diagnostics[index].severity == 2) warningCount++;
   }
-  NSString *diagnosticTitle = @"";
-  NSString *diagnosticLabel = @"Diagnostics: no problems";
-  NSString *diagnosticSymbol = @"checkmark";
-  NSString *diagnosticFallback = @"✓";
-  if (errorCount > 0 || warningCount > 0) {
-    diagnosticSymbol = errorCount > 0 ? @"xmark.octagon" : @"exclamationmark.triangle";
-    diagnosticFallback = errorCount > 0 ? @"✕" : @"⚠";
-    if (errorCount > 0 && warningCount > 0) {
-      diagnosticTitle = [NSString stringWithFormat:@"%u errors · %u warnings",
-        errorCount, warningCount];
-    } else if (errorCount > 0) {
-      diagnosticTitle = [NSString stringWithFormat:@"%u errors", errorCount];
-    } else {
-      diagnosticTitle = [NSString stringWithFormat:@"%u warnings", warningCount];
-    }
-    diagnosticLabel = [NSString stringWithFormat:@"Diagnostics: %@", diagnosticTitle];
-  } else {
-    diagnosticTitle = @"OK";
-  }
-  NimculusFooterStatusButton *diagnostics = newFooterButton(self, diagnosticTitle,
-    diagnosticLabel, NimculusFooterActionDiagnostics);
-  setFooterSymbol(diagnostics, diagnosticSymbol, diagnosticFallback);
-  styleFooterStatusButton(diagnostics, NO);
-  diagnostics.contentTintColor = errorCount > 0 ? themeRoleColor(@"error",
-    [NSColor systemRedColor]) : warningCount > 0 ? themeRoleColor(@"warning",
-    [NSColor systemOrangeColor]) : themeRoleColor(@"success", [NSColor systemGreenColor]);
-  [left addArrangedSubview:diagnostics];
-
-  NSString *branch = g_editor_git_branch.length > 0 ? g_editor_git_branch : @"Git";
-  NSString *gitStatus = g_editor_status.length > 0 ? g_editor_status : @"Ready";
-  if ([gitStatus hasPrefix:@"Git: "]) gitStatus = [gitStatus substringFromIndex:5];
-  NSString *gitTitle = [gitStatus isEqualToString:@"Ready"] ? branch :
-    [NSString stringWithFormat:@"%@ · %@", branch, gitStatus];
-  NSString *gitLabel = [NSString stringWithFormat:@"Git: %@; %@", branch, g_editor_status ?: @"Ready"];
-  NimculusFooterStatusButton *git = newFooterButton(self, gitTitle, gitLabel,
-    NimculusFooterActionGit);
-  setFooterSymbol(git, @"arrow.triangle.branch", @"⑂");
-  styleFooterStatusButton(git, NO);
-  [left addArrangedSubview:git];
-
   NSArray<NSString *> *items = [g_editor_footer componentsSeparatedByString:@"\t"];
   NSString *lsp = footerItem(items, 5, @"LSP: なし");
+  NSString *activeFile = footerItem(items, 6, @"");
+
+  // Zed registers project search before every other left-side item.
+  NimculusFooterStatusButton *search = newFooterButton(self, @"", @"Search Project",
+    NimculusFooterActionWorkspaceSearch);
+  setFooterSymbol(search, @"magnifyingglass", @"⌕");
+  styleFooterStatusButton(search, YES);
+  [left addArrangedSubview:search];
+
   NSString *lspLower = lsp.lowercaseString;
   BOOL lspConnected = [lsp rangeOfString:@"接続済み"].location != NSNotFound ||
     [lspLower rangeOfString:@"connected"].location != NSNotFound ||
@@ -5866,17 +5838,79 @@ static NimculusFooterStatusButton *newFooterButton(NimculusFooterOverlay *owner,
     [NSColor systemGreenColor]) : themeRoleColor(@"textMuted", [NSColor secondaryLabelColor]);
   [left addArrangedSubview:lspButton];
 
-  NSString *cursor = footerItem(items, 0, @"Ln 1, Col 1");
-  NSString *indent = footerItem(items, 1, @"Spaces: 2");
+  NSString *diagnosticTitle = @"";
+  NSString *diagnosticLabel = @"Diagnostics: no problems";
+  if (errorCount > 0 || warningCount > 0) {
+    if (errorCount > 0 && warningCount > 0) {
+      diagnosticTitle = [NSString stringWithFormat:@"%u errors · %u warnings",
+        errorCount, warningCount];
+    } else if (errorCount > 0) {
+      diagnosticTitle = [NSString stringWithFormat:@"%u errors", errorCount];
+    } else {
+      diagnosticTitle = [NSString stringWithFormat:@"%u warnings", warningCount];
+    }
+    diagnosticLabel = [NSString stringWithFormat:@"Diagnostics: %@", diagnosticTitle];
+  }
+  if (errorCount == 0 && warningCount == 0) {
+    NimculusFooterStatusButton *diagnostics = newFooterButton(self, @"", diagnosticLabel,
+      NimculusFooterActionDiagnostics);
+    setFooterSymbol(diagnostics, @"checkmark", @"✓");
+    styleFooterStatusButton(diagnostics, YES);
+    diagnostics.contentTintColor = themeRoleColor(@"fgPrimary",
+      [NSColor labelColor]);
+    [left addArrangedSubview:diagnostics];
+  } else {
+    if (errorCount > 0) {
+      NimculusFooterStatusButton *errors = newFooterButton(self,
+        [NSString stringWithFormat:@"%u", errorCount],
+        diagnosticLabel, NimculusFooterActionDiagnostics);
+      setFooterSymbol(errors, @"xmark.circle", @"✕");
+      styleFooterStatusButton(errors, NO);
+      errors.contentTintColor = themeRoleColor(@"error", [NSColor systemRedColor]);
+      [left addArrangedSubview:errors];
+    }
+    if (warningCount > 0) {
+      NimculusFooterStatusButton *warnings = newFooterButton(self,
+        [NSString stringWithFormat:@"%u", warningCount],
+        diagnosticLabel, NimculusFooterActionDiagnostics);
+      setFooterSymbol(warnings, @"exclamationmark.triangle", @"⚠");
+      styleFooterStatusButton(warnings, NO);
+      warnings.contentTintColor = themeRoleColor(@"warning", [NSColor systemOrangeColor]);
+      [left addArrangedSubview:warnings];
+    }
+  }
+
+  // Zed places the active file after diagnostics. It is display-only here;
+  // the existing editor context overlay remains the navigation surface.
+  if (activeFile.length > 0) {
+    NimculusFooterStatusButton *file = newFooterButton(self, activeFile,
+      [NSString stringWithFormat:@"Active file: %@", activeFile],
+      NimculusFooterActionDisplayOnly);
+    styleFooterStatusButton(file, NO);
+    [left addArrangedSubview:file];
+  }
+
+  NSString *branch = g_editor_git_branch.length > 0 ? g_editor_git_branch : @"Git";
+  NSString *gitStatus = g_editor_status.length > 0 ? g_editor_status : @"Ready";
+  if ([gitStatus hasPrefix:@"Git: "]) gitStatus = [gitStatus substringFromIndex:5];
+  NSString *gitTitle = [gitStatus isEqualToString:@"Ready"] ? branch :
+    [NSString stringWithFormat:@"%@ · %@", branch, gitStatus];
+  NSString *gitLabel = [NSString stringWithFormat:@"Git: %@; %@", branch, g_editor_status ?: @"Ready"];
+  NimculusFooterStatusButton *git = newFooterButton(self, gitTitle, gitLabel,
+    NimculusFooterActionGit);
+  setFooterSymbol(git, @"arrow.triangle.branch", @"⑂");
+  styleFooterStatusButton(git, NO);
+  [left addArrangedSubview:git];
+
+  NSString *cursor = footerItem(items, 0, @"1:1");
   NSString *encoding = footerItem(items, 2, @"UTF-8");
   NSString *lineEnding = footerItem(items, 3, @"LF");
   NSString *language = footerItem(items, 4, @"Plain Text");
   NSArray<NSArray<NSString *> *> *rightEntries = @[
-    @[cursor, [NSString stringWithFormat:@"Cursor position: %@", cursor], @"4"],
-    @[language, [NSString stringWithFormat:@"Language: %@", language], @"5"],
     @[encoding, [NSString stringWithFormat:@"Encoding: %@", encoding], @"6"],
+    @[language, [NSString stringWithFormat:@"Language: %@", language], @"5"],
     @[lineEnding, [NSString stringWithFormat:@"Line ending: %@", lineEnding], @"7"],
-    @[indent, [NSString stringWithFormat:@"Indentation: %@", indent], @"8"]
+    @[cursor, [NSString stringWithFormat:@"Cursor position: %@", cursor], @"4"]
   ];
   for (NSArray<NSString *> *entry in rightEntries) {
     NimculusFooterStatusButton *button = newFooterButton(self, entry[0], entry[1],
@@ -5904,9 +5938,9 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
 }
 - (void)hideFooterItemsUntilTheyFit:(NSStackView *)left right:(NSStackView *)right
                          available:(CGFloat)available {
-  // Preserve the most useful status first: diagnostics, Git, LSP, then the
-  // cursor position. Less critical metadata is removed from the outside in
-  // only after the full preferred widths no longer fit.
+  // Preserve the Zed order while fitting the most useful status first. Less
+  // critical metadata is removed from the outside in only after the full
+  // preferred widths no longer fit.
   while (footerClusterWidth(left) + footerClusterWidth(right) + NimculusSpace3 > available) {
     NimculusFooterStatusButton *candidate = nil;
     for (NSView *view in right.arrangedSubviews.reverseObjectEnumerator) {
@@ -5960,6 +5994,9 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
 - (void)dispatchStatusItem:(NimculusFooterStatusButton *)sender {
   if (!g_command_callback) return;
   switch ((NimculusFooterAction)sender.tag) {
+    case NimculusFooterActionWorkspaceSearch:
+      g_command_callback("commandPalette:workspace search");
+      break;
     case NimculusFooterActionDiagnostics:
       g_command_callback("commandPalette:show problems");
       break;
@@ -12674,7 +12711,7 @@ void nimculus_platform_set_editor_status(const char *utf8) {
 }
 void nimculus_platform_set_editor_footer(const char *utf8) {
   const char *value = (utf8 && strlen(utf8) > 0) ? utf8 :
-    "Ln 1, Col 1\tSpaces: 2\tUTF-8\tLF\tPlain Text\tLSP: なし";
+    "1:1\tSpaces: 2\tUTF-8\tLF\tPlain Text\tLSP: なし\t";
   if (g_editor_footer && strcmp(g_editor_footer.UTF8String, value) == 0) return;
   replaceOwnedString(&g_editor_footer, [NSString stringWithUTF8String:value]);
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;

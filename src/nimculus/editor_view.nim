@@ -292,12 +292,21 @@ proc clampSelectionToText*(view: var EditorViewState, text: string) =
 
 proc lineNumber*(buffer: PieceTable, line: int): string = $(line + 1)
 
-proc statusBarText*(view: EditorViewState, buffer: PieceTable): string =
+proc cursorPositionText*(view: EditorViewState, buffer: PieceTable): string =
+  ## Zed presents the caret as a one-based line:character position. The
+  ## selection suffix is intentionally limited to multiple selections; a
+  ## single range does not add noise to the compact status item.
   let location = buffer.lineColumn(view.cursor)
+  result = $(location.line + 1) & ":" & $(location.column + 1)
+  let selectionCount = view.selections.len
+  if selectionCount > 1:
+    result.add(" (" & $selectionCount & " selections)")
+
+proc statusBarText*(view: EditorViewState, buffer: PieceTable): string =
   let dirty = if buffer.isDirty: " • Unsaved" else: ""
   let message = view.statusMessage.strip()
   let prefix = if message.len > 0: message & "  •  " else: ""
-  prefix & "Ln " & $(location.line + 1) & ", Col " & $(location.column + 1) & dirty
+  prefix & view.cursorPositionText(buffer) & dirty
 
 proc openCommandPalette*(view: var EditorViewState) = view.commandPaletteOpen = true
 proc closeCommandPalette*(view: var EditorViewState) = view.commandPaletteOpen = false

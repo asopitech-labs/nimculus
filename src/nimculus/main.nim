@@ -4476,8 +4476,6 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
     if status != lastNativeEditorStatus:
       lastNativeEditorStatus = status
       platformSetEditorStatus(status.cstring)
-    let location = if document == nil: (line: 0, column: 0) else:
-      document[].buffer.lineColumn(editorViewState.cursor)
     var language = "Plain Text"
     if document != nil and document[].path.len > 0:
       try:
@@ -4486,13 +4484,23 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
         discard
     let lineEnding = if document != nil and document[].lineEnding == crlf: "CRLF" else: "LF"
     let languageServer = if lspBridge != nil: "LSP: 接続済み" else: "LSP: なし"
+    let cursor = if document == nil: "1:1" else:
+      editorViewState.cursorPositionText(document[].buffer)
+    let activeFile = if document == nil: "" else:
+      if document[].path.len > 0:
+        let parts = splitFile(document[].path)
+        if parts.name.len > 0: parts.name & parts.ext else:
+          editorSession.displayTitle(editorSession.activeTab)
+      else:
+        editorSession.displayTitle(editorSession.activeTab)
     let footer = @[
-      "Ln " & $(location.line + 1) & ", Col " & $(location.column + 1),
+      cursor,
       "Spaces: " & $max(1, editorViewState.indentWidth),
       "UTF-8",
       lineEnding,
       language,
-      languageServer
+      languageServer,
+      activeFile
     ]
     platformSetEditorFooter(footer.join("\t").cstring)
 
