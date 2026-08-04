@@ -3341,7 +3341,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic) BOOL hasPressedSidebarLine;
 @property(nonatomic) BOOL suppressMouseUpOpen;
 @property(nonatomic, retain) NSTrackingArea *sidebarTrackingArea;
+@property(nonatomic, retain) NSMutableArray<NSButton *> *gitCheckboxes;
 - (NSUInteger)sidebarItemForLine:(NSUInteger)line;
+- (void)refreshGitCheckboxes;
 @end
 
 @interface NimculusLineNumberOverlay : NSView
@@ -3929,19 +3931,27 @@ static NSString *commandShortcut(NSString *command) {
   self.layer.masksToBounds = YES;
   self.layer.cornerRadius = 6.0;
   self.layer.borderWidth = 1.0;
-  self.layer.borderColor = [[NSColor separatorColor] colorWithAlphaComponent:0.8].CGColor;
-  self.layer.backgroundColor = [[NSColor windowBackgroundColor]
+  self.layer.borderColor = [themeRoleColor(@"borderVariant", [NSColor separatorColor])
+    colorWithAlphaComponent:0.8].CGColor;
+  self.layer.backgroundColor = [themeRoleColor(@"panel", [NSColor windowBackgroundColor])
     colorWithAlphaComponent:0.99].CGColor;
   self.messageField = [[[NimculusGitCommitField alloc] initWithFrame:NSZeroRect] autorelease];
   ((NimculusGitCommitField *)self.messageField).commitOverlay = self;
   self.messageField.placeholderString = @"Commit message";
+  self.messageField.bezeled = YES;
+  self.messageField.drawsBackground = YES;
+  self.messageField.backgroundColor = themeRoleColor(@"element", [NSColor controlBackgroundColor]);
+  self.messageField.textColor = themeRoleColor(@"fgPrimary", [NSColor labelColor]);
   self.messageField.target = self;
   self.messageField.action = @selector(commit:);
   [self addSubview:self.messageField];
   self.commitButton = [NSButton buttonWithTitle:@"Commit" target:self action:@selector(commit:)];
-  self.commitButton.bezelStyle = NSBezelStyleTexturedRounded;
+  styleSidebarActionButton(self.commitButton);
+  self.commitButton.toolTip = @"Commit staged changes";
+  self.commitButton.accessibilityLabel = @"Commit staged changes";
   self.closeButton = [NSButton buttonWithTitle:@"×" target:self action:@selector(close:)];
-  self.closeButton.bezelStyle = NSBezelStyleTexturedRounded;
+  styleWorkspaceNavigationButton(self.closeButton, NO, YES);
+  self.closeButton.accessibilityLabel = @"Close commit message editor";
   self.closeButton.toolTip = @"Close Commit Message (Esc)";
   [self addSubview:self.commitButton];
   [self addSubview:self.closeButton];
@@ -4811,10 +4821,66 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
 @implementation NimculusOutlineOverlay
 - (void)dealloc {
   [_sidebarTrackingArea release];
+  [_gitCheckboxes release];
   [super dealloc];
+}
+- (void)toggleGitCheckbox:(NSButton *)sender {
+  if (!sender || !g_command_callback || g_editor_sidebar_mode != 3) return;
+  NSString *command = [NSString stringWithFormat:@"sidebarStageToggle:%ld", (long)sender.tag];
+  g_command_callback(command.UTF8String);
+}
+- (void)refreshGitCheckboxes {
+  if (!self.gitCheckboxes) self.gitCheckboxes = [NSMutableArray array];
+  for (NSButton *checkbox in self.gitCheckboxes) [checkbox removeFromSuperview];
+  [self.gitCheckboxes removeAllObjects];
+  if (g_editor_sidebar_mode != 3 || !g_editor_sidebar_line_items ||
+      g_editor_sidebar_line_item_count <= NimculusSidebarHeaderLineCount) {
+    return;
+  }
+  NSArray<NSString *> *lines = [self.string componentsSeparatedByString:@"\n"];
+  for (NSUInteger contentLine = 0; contentLine + NimculusSidebarHeaderLineCount <
+       g_editor_sidebar_line_item_count; contentLine++) {
+    const NSUInteger originalLine = contentLine + NimculusSidebarHeaderLineCount;
+    const uint32_t flags = sidebarFlagsFromLineValue(g_editor_sidebar_line_items[originalLine]);
+    if (flags != 1u && flags != 2u) continue;
+    const NSUInteger item = sidebarItemFromLineValue(g_editor_sidebar_line_items[originalLine]);
+    if (item == NSNotFound || contentLine >= lines.count) continue;
+    NSUInteger start = 0;
+    for (NSUInteger line = 0; line < contentLine && start < self.string.length; line++) {
+      NSRange newline = [self.string rangeOfString:@"\n" options:0
+        range:NSMakeRange(start, self.string.length - start)];
+      if (newline.location == NSNotFound) { start = self.string.length; break; }
+      start = NSMaxRange(newline);
+    }
+    if (start >= self.string.length) continue;
+    NSUInteger glyph = [self.layoutManager glyphIndexForCharacterAtIndex:start];
+    if (glyph == NSNotFound) continue;
+    NSRange effectiveRange = NSMakeRange(0, 0);
+    NSRect row = [self.layoutManager lineFragmentRectForGlyphAtIndex:glyph
+      effectiveRange:&effectiveRange];
+    NSButton *checkbox = [NSButton buttonWithTitle:@"" target:self
+      action:@selector(toggleGitCheckbox:)];
+    checkbox.tag = (NSInteger)item;
+    checkbox.buttonType = NSButtonTypeSwitch;
+    checkbox.state = flags == 1u ? NSControlStateValueOn : NSControlStateValueOff;
+    checkbox.title = @"";
+    checkbox.bezelStyle = NSBezelStyleRegularSquare;
+    checkbox.controlSize = NSControlSizeSmall;
+    checkbox.toolTip = flags == 1u ? @"Unstage change" : @"Stage change";
+    checkbox.accessibilityLabel = [NSString stringWithFormat:@"%@ change %@",
+      flags == 1u ? @"Unstage" : @"Stage", lines[contentLine]];
+    checkbox.frame = NSMakeRect(4.0, row.origin.y + MAX(1.0, (row.size.height - 18.0) / 2.0),
+      20.0, 18.0);
+    [self addSubview:checkbox positioned:NSWindowAbove relativeTo:nil];
+    [self.gitCheckboxes addObject:checkbox];
+  }
 }
 - (BOOL)acceptsFirstResponder { return YES; }
 - (NSView *)hitTest:(NSPoint)point {
+  for (NSButton *checkbox in self.gitCheckboxes) {
+    NSPoint checkboxPoint = [self convertPoint:point toView:checkbox];
+    if (NSPointInRect(checkboxPoint, checkbox.bounds)) return checkbox;
+  }
   return NSPointInRect(point, self.bounds) ? self : nil;
 }
 - (void)updateTrackingAreas {
@@ -6940,8 +7006,10 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
     NSRange range = NSMakeRange(cursor, end - cursor);
     NSString *content = displayLines[line];
     NSMutableParagraphStyle *lineStyle = [rowStyle mutableCopy];
-    lineStyle.firstLineHeadIndent = depths[line].doubleValue * 20.0;
-    lineStyle.headIndent = depths[line].doubleValue * 20.0;
+    const uint32_t rowFlags = sidebarFlagsForContentLine(line);
+    lineStyle.firstLineHeadIndent = depths[line].doubleValue * 20.0 +
+      (g_editor_sidebar_mode == 3 && rowFlags > 0u ? 28.0 : 0.0);
+    lineStyle.headIndent = lineStyle.firstLineHeadIndent;
     [presented addAttribute:NSParagraphStyleAttributeName value:lineStyle range:range];
     [lineStyle release];
     if (g_editor_sidebar_mode == 1) {
@@ -6977,17 +7045,38 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
           NSForegroundColorAttributeName: themeRoleColor(@"textMuted", foreground)
         } range:range];
       } else {
-        // Surface conflicts and Git's two-column porcelain status separately
-        // from the file path, following the Git panel's status-first scan.
-        NSUInteger prefixLength = [content hasPrefix:@"CONFLICT "] ? 8 :
-          MIN((NSUInteger)2, content.length);
-        if (prefixLength > 0) {
-          NSColor *stateColor = [content hasPrefix:@"CONFLICT "]
-            ? [NSColor systemRedColor] : themeRoleColor(@"textMuted", foreground);
+        // A change row is deliberately split into basename, muted directory,
+        // and a final status token. The status token uses the same semantic
+        // roles as Zed's `version_control.added/modified/deleted` colors.
+        NSRange firstSeparator = [content rangeOfString:@"    "];
+        NSRange statusRange = content.length > 0
+          ? NSMakeRange(content.length - 1, 1) : NSMakeRange(NSNotFound, 0);
+        NSRange secondSeparator = statusRange.location != NSNotFound
+          ? [content rangeOfString:@"    " options:NSBackwardsSearch
+              range:NSMakeRange(0, statusRange.location)] : NSMakeRange(NSNotFound, 0);
+        if (firstSeparator.location != NSNotFound &&
+            secondSeparator.location != NSNotFound) {
+          [presented addAttribute:NSForegroundColorAttributeName value:foreground
+            range:NSMakeRange(range.location, firstSeparator.location)];
+          NSUInteger directoryStart = firstSeparator.location + firstSeparator.length;
+          if (directoryStart < secondSeparator.location) {
+            [presented addAttributes:@{
+              NSFontAttributeName: [NSFont systemFontOfSize:12.0],
+              NSForegroundColorAttributeName: themeRoleColor(@"textMuted",
+                themeRoleColor(@"fgMuted", foreground))
+            } range:NSMakeRange(range.location + directoryStart,
+              secondSeparator.location - directoryStart)];
+          }
+          NSString *status = [content substringWithRange:statusRange];
+          NSString *role = [status isEqualToString:@"+"] ? @"added" :
+            [status isEqualToString:@"-"] ? @"deleted" :
+            [status isEqualToString:@"!"] ? @"conflict" : @"modified";
           [presented addAttributes:@{
-            NSFontAttributeName: [NSFont monospacedSystemFontOfSize:12.0 weight:NSFontWeightSemibold],
-            NSForegroundColorAttributeName: stateColor
-          } range:NSMakeRange(range.location, prefixLength)];
+            NSFontAttributeName: [NSFont monospacedSystemFontOfSize:12.0
+              weight:NSFontWeightSemibold],
+            NSForegroundColorAttributeName: themeRoleColor(role,
+              themeRoleColor(@"textMuted", foreground))
+          } range:NSMakeRange(range.location + statusRange.location, 1)];
         }
       }
     } else if (g_editor_sidebar_mode == 2 && content.length >= 8) {
@@ -7002,6 +7091,7 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
     line++;
   }
   [outline.textStorage setAttributedString:presented];
+  [outline refreshGitCheckboxes];
   logSidebarPresentationDebug(displayLines, depths);
   [presented release];
   [rowStyle release];
@@ -7868,25 +7958,31 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       g_editor_sidebar_mode <= 4;
     const CGFloat sidebarHeaderHeight = sidebarPresented ? NimculusRowHeight : 0.0;
     const CGFloat sidebarNavigationHeight = showGitTabs ? NimculusRowHeight : 0.0;
+    const BOOL showGitCommitFooter = sidebarPresented && g_editor_sidebar_mode == 3;
+    const CGFloat gitCommitFooterHeight = showGitCommitFooter ? 46.0 : 0.0;
     const CGFloat sidebarContentTop = sidebarTop + sidebarHeaderHeight +
       sidebarNavigationHeight;
+    const CGFloat sidebarContentHeight = MAX(1.0, sidebarHeight - sidebarHeaderHeight -
+      sidebarNavigationHeight - gitCommitFooterHeight);
     NSScrollView *scroll = outline.enclosingScrollView;
     if (scroll) {
       scroll.hidden = !sidebarPresented;
       scroll.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(sidebarX, sidebarContentTop, width,
-          MAX(1.0, sidebarHeight - sidebarHeaderHeight - sidebarNavigationHeight)));
+          sidebarContentHeight));
       scroll.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
       outline.textContainer.containerSize = NSMakeSize(MAX(1.0, width - 16.0), CGFLOAT_MAX);
       [outline.layoutManager ensureLayoutForTextContainer:outline.textContainer];
       CGFloat contentHeight = ceil([outline.layoutManager usedRectForTextContainer:outline.textContainer].size.height) + 16.0;
       outline.frame = NSMakeRect(0.0, 0.0, width,
-        MAX(sidebarHeight - sidebarHeaderHeight - sidebarNavigationHeight, contentHeight));
+        MAX(sidebarContentHeight, contentHeight));
+      [outline refreshGitCheckboxes];
     } else {
       outline.frame = appKitFrameForLogicalTopRect(self,
         NSMakeRect(sidebarX, sidebarContentTop, width,
-          MAX(1.0, sidebarHeight - sidebarHeaderHeight - sidebarNavigationHeight)));
+          sidebarContentHeight));
       outline.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
+      [outline refreshGitCheckboxes];
     }
     if (sidebarHeader) {
       sidebarHeader.hidden = !sidebarPresented;
@@ -7922,8 +8018,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     gitCommit.hidden = !showGitCommit;
     if (showGitCommit) {
       CGFloat width = sidebarWidth;
-      BOOL compact = width < 220.0;
-      [gitCommit setCompact:compact];
+      [gitCommit setCompact:width < 220.0];
     }
   }
   if (gitRefresh) {
@@ -8066,15 +8161,17 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
         g_editor_rect[1] + 12.0));
     [commandPalette setNeedsLayout:YES];
   }
+  if (gitCommitEditor) {
+    gitCommitEditor.hidden = !(sidebarPresented && g_editor_sidebar_mode == 3);
+  }
   if (gitCommitEditor && !gitCommitEditor.hidden) {
-    const CGFloat commitWidth = MIN(420.0, MAX(1.0, sidebarWidth - 8.0));
-    const CGFloat commitX = g_editor_sidebar_on_right ? sidebarX + 4.0 :
-      sidebarX + sidebarWidth - commitWidth - 4.0;
+    const CGFloat commitWidth = MAX(1.0, sidebarWidth - 8.0);
+    const CGFloat commitX = sidebarX + 4.0;
     const NSRect sidebarRect = NSMakeRect(sidebarX, sidebarTop,
       MAX(1.0, sidebarWidth), sidebarHeight);
     gitCommitEditor.frame = appKitFrameForLogicalTopRect(self,
       boundedOverlayFrame(sidebarRect, commitWidth, 36.0,
-        commitX, sidebarTop + 32.0));
+        commitX, sidebarTop + sidebarHeight - 42.0));
     [gitCommitEditor setNeedsLayout:YES];
   }
   if (settingsEditor && !settingsEditor.hidden) {
@@ -11108,6 +11205,25 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
     g_editor_sidebar_mode = 3;
     [sidebar dispatchSidebarStageToggle:0];
     BOOL stageToggle = strcmp(g_validation_command, "sidebarStageToggle:0") == 0;
+    NSString *previousSidebarString = [sidebar.string copy];
+    sidebar.string = @"Changes\n────────\nmodified.nim    src    ~\nnew.nim    .    +";
+    int32_t gitLineItems[] = {-1, -1, -1, (1 << 24), 1 | (2 << 24)};
+    nimculus_platform_set_editor_sidebar_line_items(gitLineItems, 5);
+    [sidebar refreshGitCheckboxes];
+    BOOL gitCheckboxes = sidebar.gitCheckboxes.count == 2 &&
+      sidebar.gitCheckboxes[0].state == NSControlStateValueOn &&
+      sidebar.gitCheckboxes[1].state == NSControlStateValueOff &&
+      [sidebar.gitCheckboxes[0].accessibilityLabel hasPrefix:@"Unstage change"] &&
+      [sidebar.gitCheckboxes[1].accessibilityLabel hasPrefix:@"Stage change"];
+    g_validation_command[0] = '\0';
+    [sidebar.gitCheckboxes[1] performClick:nil];
+    BOOL checkboxDispatch = strcmp(g_validation_command, "sidebarStageToggle:1") == 0;
+    NSButton *hitCheckbox = sidebar.gitCheckboxes.firstObject;
+    NSPoint checkboxPoint = NSMakePoint(hitCheckbox.frame.origin.x + 2.0,
+      hitCheckbox.frame.origin.y + 2.0);
+    BOOL checkboxHitTest = [sidebar hitTest:checkboxPoint] == hitCheckbox;
+    sidebar.string = previousSidebarString;
+    [previousSidebarString autorelease];
     NSEvent *tab = [NSEvent keyEventWithType:NSEventTypeKeyDown
       location:NSZeroPoint modifierFlags:0 timestamp:0.0 windowNumber:0 context:nil
       characters:@"\t" charactersIgnoringModifiers:@"\t" isARepeat:NO keyCode:48];
@@ -11256,7 +11372,8 @@ bool nimculus_platform_validate_sidebar_dispatch(void) {
       renameSelected && newFileShortcut && newDirectoryShortcut && deleteShortcut &&
       duplicateShortcut && cutShortcut && copyShortcut && pasteShortcut && revealShortcut &&
       openSystemShortcut && searchFolderShortcut && collapseAllShortcut && expandAllShortcut &&
-      changesTabShortcut && historyTabShortcut && debugHeaderIgnored &&
+      gitCheckboxes && checkboxDispatch && checkboxHitTest && changesTabShortcut &&
+      historyTabShortcut && debugHeaderIgnored &&
       debugThreadSelection && debugVariableExpansion;
     [sidebar release];
     free(g_editor_sidebar_line_items);
@@ -13950,6 +14067,16 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
         if ([buttonView isKindOfClass:[NSButton class]])
           styleWorkspaceNavigationButton((NSButton *)buttonView, NO, YES);
       }
+    } else if ([subview isKindOfClass:[NimculusGitCommitOverlay class]]) {
+      NimculusGitCommitOverlay *commit = (NimculusGitCommitOverlay *)subview;
+      commit.layer.borderColor = [themeRoleColor(@"borderVariant", [NSColor separatorColor])
+        colorWithAlphaComponent:0.8].CGColor;
+      commit.layer.backgroundColor = [themeRoleColor(@"panel", [NSColor windowBackgroundColor])
+        colorWithAlphaComponent:0.99].CGColor;
+      commit.messageField.backgroundColor = themeRoleColor(@"element", [NSColor controlBackgroundColor]);
+      commit.messageField.textColor = themeRoleColor(@"fgPrimary", [NSColor labelColor]);
+      styleSidebarActionButton(commit.commitButton);
+      styleWorkspaceNavigationButton(commit.closeButton, NO, YES);
     } else if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
       [(NimculusFooterOverlay *)subview reloadStatusItems];
       [subview setNeedsDisplay:YES];

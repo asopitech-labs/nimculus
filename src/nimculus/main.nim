@@ -2291,6 +2291,35 @@ when defined(macosx):
       uint32(sidebarGitStatus))
     syncNativeSidebarSelection()
 
+  proc gitChangeStatusToken(entry: GitStatusEntry;
+                            projection: GitStatusProjection): char =
+    if projection == gitStatusConflict or entry.conflict:
+      return '!'
+    let status = if projection == gitStatusStaged: entry.indexStatus else:
+      entry.worktreeStatus
+    case status
+    of '?', 'A': '+'
+    of 'D': '-'
+    of 'M': '~'
+    of 'R', 'C': 'R'
+    else: status
+
+  proc gitChangeDisplayPath(entry: GitStatusEntry): string =
+    if entry.originalPath.len > 0:
+      return entry.originalPath & " → " & entry.path
+    entry.path
+
+  proc gitChangeRow(entry: GitStatusEntry;
+                    projection: GitStatusProjection): string =
+    ## Keep the basename and directory as separate presentation fields. The
+    ## native sidebar applies the muted role to the directory and the Zed
+    ## version-control role to the final status token.
+    let path = gitChangeDisplayPath(entry)
+    let separator = path.rfind('/')
+    let fileName = if separator >= 0: path[separator + 1 .. ^1] else: path
+    let directory = if separator >= 0: path[0 ..< separator] else: "."
+    fileName & "    " & directory & "    " & $gitChangeStatusToken(entry, projection)
+
   proc renderNativeGitBlame(entries: seq[GitBlameLine], path: string) =
     ## Zed renders inline blame when space permits. The native output panel is
     ## Nimculus' current compact equivalent: retain a bounded, line-oriented
@@ -2344,18 +2373,16 @@ when defined(macosx):
         if displayed.len >= MaxPanelEntries:
           inc omitted
           continue
-        let state = case projection
-          of gitStatusConflict: "! CONFLICT"
-          of gitStatusStaged: "✓ " & $entry.indexStatus
-          of gitStatusUnstaged: "○ " & $entry.worktreeStatus
-        let path = if entry.originalPath.len > 0:
-          entry.originalPath & " → " & entry.path else: entry.path
-        lines.add(state & "  " & path)
+        lines.add(gitChangeRow(entry, projection))
         displayed.add(entry)
         projections.add(projection)
         panelKeys.add($projection & "\x1f" & $entry.indexStatus & $entry.worktreeStatus &
           "\x1f" & entry.path)
-        lineItems.add(int32(displayed.high))
+        let projectionFlag = case projection
+          of gitStatusConflict: 0'i32
+          of gitStatusStaged: 1'i32
+          of gitStatusUnstaged: 2'i32
+        lineItems.add(int32(displayed.high) or (projectionFlag shl 24))
     appendSection("Conflicts", conflicts, gitStatusConflict)
     appendSection("Staged", staged, gitStatusStaged)
     appendSection("Unstaged", unstaged, gitStatusUnstaged)
@@ -7521,6 +7548,16 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "git status":
       when defined(macosx):
         editorWorkspaceUi.openPanel(panelGit)
+        # Project the Git surface before the cancellable status job returns.
+        # Zed keeps the Changes panel visible in its loading state; leaving the
+        # Files projection in place made a slow repository look as if the Git
+        # command had not been received at all.
+        editorSidebarMode = sidebarGitStatus
+        setupDemoUi()
+        let loadingPanel = "Git Status\n────────\nLoading changes…"
+        platformSetEditorSidebar(loadingPanel.cstring, uint32(loadingPanel.len), 0,
+          uint32(sidebarGitStatus))
+        syncNativeSidebarSelection()
         let repository = gitRepositoryForDocument(document)
         if repository == nil:
           renderNativeGitEmpty()

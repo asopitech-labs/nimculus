@@ -7324,3 +7324,30 @@ filter placement were read from the vendored Zed sources
 `references/zed/crates/search/src/project_search.rs`, and
 `references/zed/crates/search/src/search_bar.rs`; semantic colors follow
 `assets/themes/one/one.json` and Nimculus's existing theme-role bridge.
+## UI-093: Make Git Changes rows native checkbox controls with a pinned commit footer
+
+**Context.** The existing Git sidebar already had section-aware stage/unstage
+dispatch and bulk actions, but its rows were plain text. The leading gesture
+was only a hit-test convention, so the control was not visible or exposed as
+an accessibility checkbox. Commit entry was also a transient editor overlay
+instead of the persistent lower surface used by Zed's Changes workflow.
+
+**Decision.** Keep the shared, scrollable native sidebar and add one AppKit
+checkbox per staged/unstaged row. Each checkbox keeps the existing
+`sidebarStageToggle:<index>` route, uses an accessible Stage/Unstage label, and
+does not appear for conflicts. Render each row as basename, muted repository
+directory, and a final status token. Added, modified, deleted, and conflict
+tokens resolve through the existing semantic `added`, `modified`, `deleted`,
+and `conflict` theme roles, whose values are sourced from Zed's
+`references/zed/assets/themes/one/one.json` mapping for
+`version_control.added`, `version_control.modified`,
+`version_control.deleted`, and `conflict`. Reserve the bottom 46pt of Changes
+for the existing commit editor and route its button through the established
+`commandPalette:git commit ...` job boundary.
+
+**Consequences.** Partial staging remains unambiguous because a path rendered
+under Staged receives a checked checkbox and unstages, while its Unstaged
+projection receives an unchecked checkbox and stages. Existing keyboard
+navigation, context menus, async Git refresh, and status-list selection remain
+unchanged. The native controls inherit light/dark theme roles and remain
+inspectable by macOS accessibility tooling.
