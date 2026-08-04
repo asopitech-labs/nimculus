@@ -10,6 +10,7 @@ import std/unicode except splitWhitespace
 import nimnui/nimnui
 import nimnui/render
 import nimculus/editor_app
+import nimculus/search
 import nimculus/editor_buffer
 import nimculus/editor_view
 import nimculus/editor_scroll
@@ -709,6 +710,21 @@ var workspaceSearchQuery = ""
 var workspaceSearchScope = ""
 var workspaceSearchResults: seq[SearchResult]
 var workspaceSearchCancelled = false
+var workspaceSearchOptions = SearchOptions(caseSensitive: true)
+var workspaceSearchFiltersEnabled = false
+var workspaceSearchReplaceEnabled = false
+var documentSearchOptions = SearchOptions(caseSensitive: true)
+var documentSearchQuery = ""
+var documentSearchReplacement = ""
+var documentSearchReplaceEnabled = false
+var documentSearchMatches: seq[search.SearchMatch]
+var documentSearchMatchIndex = -1
+
+proc searchOptionBits(options: SearchOptions): uint32 =
+  if options.caseSensitive: result = result or 1'u32
+  if options.wholeWord: result = result or 2'u32
+  if options.regex: result = result or 4'u32
+  if options.includeIgnored: result = result or 8'u32
 var workspaceQuickOpenQuery = ""
 var workspaceQuickOpenOpenPending = false
 var workspacePreviewEntries: seq[WorkspaceEntry]
@@ -4223,6 +4239,14 @@ proc workspaceRelativePayload(name, prefix: string): string =
   if not name.startsWith(prefix) or name.len <= prefix.len: return ""
   name[prefix.len .. ^1].strip
 
+proc syncWorkspaceSearchUi() =
+  when defined(macosx):
+    let selected = editorWorkspaceUi.panelSelectedIndex(panelSearch)
+    let index = if selected >= 0 and selected < workspaceSearchResults.len: selected else: -1
+    platformSetSearchUiState(3, if index < 0: uint32.high else: uint32(index),
+      uint32(workspaceSearchResults.len), searchOptionBits(workspaceSearchOptions),
+      workspaceSearchReplaceEnabled, workspaceSearchFiltersEnabled)
+
 proc renderWorkspaceSearch() =
   when defined(macosx) or defined(windows):
     if activeWorkspace == nil or workspaceSearchQuery.len == 0: return
@@ -4241,6 +4265,8 @@ proc renderWorkspaceSearch() =
     if workspaceSearchResults.len == 0 and workspaceSearchJob != nil and
         workspaceSearchJob.isComplete:
       lines.add("No matches")
+    if workspaceSearchJob != nil and workspaceSearchJob.error.len > 0:
+      lines.add("Error: " & workspaceSearchJob.error)
     let text = lines.join("\n")
     when defined(macosx):
       # A workspace grep is navigation state, not a replacement document.
@@ -4255,6 +4281,7 @@ proc renderWorkspaceSearch() =
       platformSetEditorSidebar(text.cstring, uint32(text.len),
         uint32(visibleCount), uint32(sidebarWorkspaceSearch))
       syncNativeSidebarSelection()
+      syncWorkspaceSearchUi()
       setupDemoUi()
     else:
       workspacePreviewEntries.setLen(0)
@@ -4314,12 +4341,24 @@ proc showWorkspaceSearch(query: string, scopePath = "") =
     workspaceQuickOpenQuery = ""
     workspaceSearchQuery = query
     workspaceSearchScope = scopePath
+    workspacePreviewMode = "search"
     workspaceSearchResults.setLen(0)
     workspaceSearchCancelled = false
     if activeWorkspace == nil or query.len == 0:
       if activeWorkspace != nil: refreshWorkspacePreview()
       return
-    workspaceSearchJob = activeWorkspace.startSearch(query, scopePath = scopePath)
+    workspaceSearchJob = activeWorkspace.startSearch(query, scopePath = scopePath,
+      options = workspaceSearchOptions)
+    renderWorkspaceSearch()
+
+proc restartWorkspaceSearch() =
+  when defined(macosx) or defined(windows):
+    if activeWorkspace == nil or workspaceSearchQuery.len == 0: return
+    if workspaceSearchJob != nil: workspaceSearchJob.cancelSearch()
+    workspaceSearchResults.setLen(0)
+    workspaceSearchCancelled = false
+    workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery,
+      scopePath = workspaceSearchScope, options = workspaceSearchOptions)
     renderWorkspaceSearch()
 
 proc showQuickOpen(query: string) =
@@ -4373,7 +4412,7 @@ proc pollWorkspaceSearch() =
         workspaceSearchResults.setLen(0)
         workspaceSearchCancelled = false
         workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery,
-          scopePath = workspaceSearchScope)
+          scopePath = workspaceSearchScope, options = workspaceSearchOptions)
       elif workspaceQuickOpenJob != nil:
         workspaceQuickOpenJob.cancelFuzzySearch()
         workspacePreviewEntries.setLen(0)
@@ -4382,7 +4421,7 @@ proc pollWorkspaceSearch() =
         workspaceSearchResults.setLen(0)
         workspaceSearchCancelled = false
         workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery,
-          scopePath = workspaceSearchScope)
+          scopePath = workspaceSearchScope, options = workspaceSearchOptions)
       elif workspacePreviewMode == "tree":
         refreshWorkspacePreview()
       elif workspacePreviewMode == "quickOpen":
@@ -4422,6 +4461,54 @@ proc secondaryPaneDocument(): ptr FileDocument =
   let tab = editorWorkspaceUi.center.second.pane.activeTabIndex
   if tab < 0 or tab >= editorSession.tabs.len: return nil
   addr editorSession.tabs[tab].document
+
+proc syncDocumentSearchUi() =
+  when defined(macosx):
+    platformSetSearchUiState(0, if documentSearchMatchIndex < 0: uint32.high
+      else: uint32(documentSearchMatchIndex), uint32(documentSearchMatches.len),
+      searchOptionBits(documentSearchOptions), documentSearchReplaceEnabled,
+      false)
+
+proc runDocumentSearch(query: string, selectFirst = true) =
+  documentSearchQuery = query
+  documentSearchMatches.setLen(0)
+  documentSearchMatchIndex = -1
+  let document = if editorSession.split and editorSession.splitActivePane == 1:
+    secondaryPaneDocument() else: activeDocument()
+  if document != nil and query.len > 0:
+    try:
+      documentSearchMatches = document[].search(query, documentSearchOptions)
+      if documentSearchMatches.len > 0:
+        documentSearchMatchIndex = if selectFirst: 0 else:
+          min(max(0, documentSearchMatchIndex), documentSearchMatches.high)
+        let match = documentSearchMatches[documentSearchMatchIndex]
+        if editorSession.split and editorSession.splitActivePane == 1:
+          editorSession.secondaryView.selection = Selection(anchor: match.startByte,
+            active: match.endByte)
+        else:
+          editorViewState.selection = Selection(anchor: match.startByte,
+            active: match.endByte)
+        syncEditorCursor()
+        refreshEditorSyntax()
+    except ValueError as error:
+      editorViewState.statusMessage = "Search error: " & error.msg
+  syncDocumentSearchUi()
+
+proc selectDocumentSearchMatch(delta: int) =
+  if documentSearchMatches.len == 0: return
+  if documentSearchMatchIndex < 0: documentSearchMatchIndex = 0
+  else:
+    documentSearchMatchIndex = (documentSearchMatchIndex + delta +
+      documentSearchMatches.len) mod documentSearchMatches.len
+  let match = documentSearchMatches[documentSearchMatchIndex]
+  if editorSession.split and editorSession.splitActivePane == 1:
+    editorSession.secondaryView.selection = Selection(anchor: match.startByte,
+      active: match.endByte)
+  else:
+    editorViewState.selection = Selection(anchor: match.startByte, active: match.endByte)
+  syncEditorCursor()
+  refreshEditorSyntax()
+  syncDocumentSearchUi()
 
 proc focusedPaneTabIndex(): int =
   if editorSession.split and editorSession.splitActivePane == 1 and
@@ -5309,7 +5396,7 @@ when defined(windows):
         workspaceSearchResults.setLen(0)
         workspaceSearchCancelled = false
         workspaceSearchJob = activeWorkspace.startSearch(workspaceSearchQuery,
-          scopePath = workspaceSearchScope)
+          scopePath = workspaceSearchScope, options = workspaceSearchOptions)
       elif workspaceQuickOpenJob != nil:
         workspaceQuickOpenJob.cancelFuzzySearch()
         workspacePreviewEntries.setLen(0)
@@ -6931,10 +7018,14 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       receiveNativeCommand("reopenClosedTab".cstring)
     of "find":
       when defined(macosx):
+        documentSearchReplaceEnabled = false
         platformShowFindDocument()
+        syncDocumentSearchUi()
     of "replaceDocument":
       when defined(macosx):
+        documentSearchReplaceEnabled = true
         platformShowReplaceDocument()
+        syncDocumentSearchUi()
     of "goToLine":
       when defined(macosx):
         platformShowGoToLine()
@@ -8088,6 +8179,63 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "Search folder is outside workspace"
         else:
           showWorkspaceSearch(fields[1].strip, scope)
+  elif name == "searchToggle:case":
+    if workspacePreviewMode == "search":
+      workspaceSearchOptions.caseSensitive = not workspaceSearchOptions.caseSensitive
+      restartWorkspaceSearch()
+    else:
+      documentSearchOptions.caseSensitive = not documentSearchOptions.caseSensitive
+      runDocumentSearch(documentSearchQuery)
+  elif name == "searchToggle:word":
+    if workspacePreviewMode == "search":
+      workspaceSearchOptions.wholeWord = not workspaceSearchOptions.wholeWord
+      restartWorkspaceSearch()
+    else:
+      documentSearchOptions.wholeWord = not documentSearchOptions.wholeWord
+      runDocumentSearch(documentSearchQuery)
+  elif name == "searchToggle:regex":
+    if workspacePreviewMode == "search":
+      workspaceSearchOptions.regex = not workspaceSearchOptions.regex
+      restartWorkspaceSearch()
+    else:
+      documentSearchOptions.regex = not documentSearchOptions.regex
+      runDocumentSearch(documentSearchQuery)
+  elif name == "searchToggle:replace":
+    if workspacePreviewMode == "search":
+      workspaceSearchReplaceEnabled = not workspaceSearchReplaceEnabled
+      when defined(macosx):
+        platformSetSearchUiState(3, uint32.high, uint32(workspaceSearchResults.len),
+          searchOptionBits(workspaceSearchOptions), workspaceSearchReplaceEnabled,
+          workspaceSearchFiltersEnabled)
+    else:
+      documentSearchReplaceEnabled = not documentSearchReplaceEnabled
+      syncDocumentSearchUi()
+  elif name == "searchToggle:filters":
+    if workspacePreviewMode == "search":
+      workspaceSearchFiltersEnabled = not workspaceSearchFiltersEnabled
+      restartWorkspaceSearch()
+      syncWorkspaceSearchUi()
+  elif name == "searchToggle:ignored":
+    if workspacePreviewMode == "search":
+      workspaceSearchOptions.includeIgnored = not workspaceSearchOptions.includeIgnored
+      restartWorkspaceSearch()
+  elif name == "findPrevious":
+    selectDocumentSearchMatch(-1)
+  elif name == "findNext":
+    selectDocumentSearchMatch(1)
+  elif name == "workspaceSearchPrevious":
+    discard editorWorkspaceUi.movePanelSelection(panelSearch, -1)
+    syncNativeSidebarSelection()
+    syncWorkspaceSearchUi()
+  elif name == "workspaceSearchNext":
+    discard editorWorkspaceUi.movePanelSelection(panelSearch, 1)
+    syncNativeSidebarSelection()
+    syncWorkspaceSearchUi()
+  elif name.startsWith("workspaceSearchFilters:"):
+    let fields = name["workspaceSearchFilters:".len .. ^1].split('\x1f', maxsplit = 1)
+    workspaceSearchOptions.includePatterns = if fields.len > 0: fields[0] else: ""
+    workspaceSearchOptions.excludePatterns = if fields.len > 1: fields[1] else: ""
+    restartWorkspaceSearch()
   elif name.startsWith("workspaceSearch:"):
     showWorkspaceSearch(name[16 .. ^1])
   elif name.startsWith("workspaceFileHistory:"):
@@ -8233,25 +8381,72 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       persistSession()
     except CatchableError as error:
       editorViewState.statusMessage = "Rename failed: " & error.msg
+  elif name.startsWith("findNextDocument:") and document != nil:
+    runDocumentSearch(name["findNextDocument:".len .. ^1], selectFirst = false)
   elif name.startsWith("findDocument:") and document != nil:
     let prefix = "findDocument:"
     let query = if name.len > prefix.len: name[prefix.len .. ^1] else: ""
     if query.len == 0:
       editorViewState.statusMessage = "Find requires a query"
       return
-    let matches = document[].search(query)
-    if matches.len > 0:
-      if editorSession.split and editorSession.splitActivePane == 1:
-        editorSession.secondaryView.selection.anchor = matches[0].startByte
-        editorSession.secondaryView.selection.active = matches[0].endByte
-      else:
-        editorViewState.selection.anchor = matches[0].startByte
-        editorViewState.selection.active = matches[0].endByte
-      editorViewState.statusMessage = "Found " & query
-      syncEditorCursor()
-      refreshEditorSyntax()
-    else:
-      editorViewState.statusMessage = "No matches for " & query
+    runDocumentSearch(query)
+    editorViewState.statusMessage = if documentSearchMatches.len > 0:
+      "Found " & query else: "No matches for " & query
+  elif name.startsWith("replaceDocumentNext:") and document != nil:
+    let payload = name["replaceDocumentNext:".len .. ^1]
+    let separator = payload.find('\x1f')
+    if separator <= 0: return
+    let query = payload[0 ..< separator]
+    documentSearchReplacement = if separator + 1 < payload.len: payload[separator + 1 .. ^1] else: ""
+    runDocumentSearch(query, selectFirst = false)
+    if documentSearchMatches.len > 0 and documentSearchMatchIndex >= 0:
+      let match = documentSearchMatches[documentSearchMatchIndex]
+      document[].buffer.applyEdits(@[Edit(startByte: match.startByte, endByte: match.endByte,
+        text: documentSearchReplacement)])
+      runDocumentSearch(query, selectFirst = false)
+      editorViewState.statusMessage = "Replaced next match"
+  elif name.startsWith("workspaceReplaceNext:") and activeWorkspace != nil:
+    let payload = name["workspaceReplaceNext:".len .. ^1]
+    let separator = payload.find('\x1f')
+    if separator <= 0: return
+    let query = payload[0 ..< separator]
+    let replacement = if separator + 1 < payload.len: payload[separator + 1 .. ^1] else: ""
+    let selected = editorWorkspaceUi.panelSelectedIndex(panelSearch)
+    if selected >= 0 and selected < workspaceSearchResults.len:
+      let match = workspaceSearchResults[selected]
+      try:
+        var target = openDocument(match.path)
+        let lineStart = target.buffer.byteOffsetAtLineColumn(max(0, match.line - 1), 0)
+        let offset = min(target.buffer.toString().len, lineStart + max(0, match.column - 1))
+        let matches = target.search(query, workspaceSearchOptions)
+        for candidate in matches:
+          if candidate.startByte == offset:
+            target.buffer.applyEdits(@[Edit(startByte: candidate.startByte,
+              endByte: candidate.endByte, text: replacement)])
+            target.save()
+            break
+        restartWorkspaceSearch()
+      except CatchableError as error:
+        editorViewState.statusMessage = "Replace failed: " & error.msg
+  elif name.startsWith("workspaceReplaceAll:") and activeWorkspace != nil:
+    let payload = name["workspaceReplaceAll:".len .. ^1]
+    let separator = payload.find('\x1f')
+    if separator <= 0: return
+    let query = payload[0 ..< separator]
+    let replacement = if separator + 1 < payload.len: payload[separator + 1 .. ^1] else: ""
+    var count = 0
+    for entry in activeWorkspace.enumerateFiles(includeIgnored = workspaceSearchOptions.includeIgnored):
+      if not searchEntryIncluded(entry, workspaceSearchOptions): continue
+      try:
+        var target = openDocument(entry.path)
+        let replaced = target.replaceAll(query, replacement, workspaceSearchOptions)
+        if replaced > 0:
+          target.save()
+          count += replaced
+      except CatchableError:
+        discard
+    editorViewState.statusMessage = "Replaced " & $count & " workspace matches"
+    restartWorkspaceSearch()
   elif name.startsWith("replaceDocument:") and document != nil:
     let prefix = "replaceDocument:"
     let payload = if name.len > prefix.len: name[prefix.len .. ^1] else: ""
@@ -8261,7 +8456,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       return
     let query = payload[0 ..< separator]
     let replacement = if separator + 1 < payload.len: payload[separator + 1 .. ^1] else: ""
-    let count = document[].replaceAll(query, replacement)
+    documentSearchReplacement = replacement
+    let count = document[].replaceAll(query, replacement, documentSearchOptions)
     let text = document[].buffer.toString()
     editorViewState.clampSelectionToText(text)
     if editorSession.split:
@@ -8269,6 +8465,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     editorViewState.statusMessage = "Replaced " & $count & " matches"
     syncEditorCursor()
     refreshEditorSyntax()
+    runDocumentSearch(query, selectFirst = false)
   elif name == "cancel":
     imeState.composition.setLen(0)
     when defined(macosx) or defined(windows): platformSetEditorComposition("".cstring)

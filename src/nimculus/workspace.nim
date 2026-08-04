@@ -6,6 +6,7 @@ import std/osproc
 import std/locks
 import std/times
 import gitignore/repo
+import nimculus/search
 
 when defined(posix):
   import posix
@@ -44,8 +45,10 @@ type
     activeEntry: WorkspaceEntry
     activeLine: int
     hasActiveFile: bool
+    options: SearchOptions
     complete*: bool
     truncated*: bool
+    error*: string
     maxResults*: int
     totalResults: int
   FuzzySearchJob* = ref object
@@ -169,13 +172,55 @@ proc listChildrenAt*(workspace: Workspace, root: string; relative = "";
 proc listChildren*(workspace: Workspace, relative = ""): seq[WorkspaceEntry] =
   workspace.listChildrenAt(workspace.root, relative)
 
-proc enumerateFiles*(workspace: Workspace, token: CancelToken = nil): seq[WorkspaceEntry] =
+proc splitSearchPatterns(text: string): seq[string] =
+  for pattern in text.split(','):
+    let trimmed = pattern.strip
+    if trimmed.len > 0: result.add(trimmed)
+
+proc globMatches(pattern, value: string): bool =
+  ## Match the path globs accepted by the project-search filter fields.
+  proc match(patternIndex, valueIndex: int): bool =
+    if patternIndex >= pattern.len: return valueIndex >= value.len
+    if pattern[patternIndex] == '*':
+      var next = patternIndex
+      while next < pattern.len and pattern[next] == '*': inc next
+      if next < pattern.len and pattern[next] == '/' and
+          match(next + 1, valueIndex): return true
+      if match(next, valueIndex): return true
+      return valueIndex < value.len and
+        (next == patternIndex + 1 or value[valueIndex] != '/') and
+        match(patternIndex, valueIndex + 1)
+    if valueIndex >= value.len: return false
+    if pattern[patternIndex] == '?' or pattern[patternIndex] == value[valueIndex]:
+      return match(patternIndex + 1, valueIndex + 1)
+    false
+  match(0, 0)
+
+proc matchesAnyPattern(relativePath, patterns: string): bool =
+  let normalized = relativePath.replace("\\", "/")
+  for pattern in splitSearchPatterns(patterns):
+    let candidate = pattern.replace("\\", "/").strip(chars = {'/'})
+    if globMatches(candidate, normalized) or
+        (normalized.extractFilename.len > 0 and globMatches(candidate, normalized.extractFilename)):
+      return true
+
+proc searchEntryIncluded*(entry: WorkspaceEntry, options: SearchOptions): bool =
+  if not options.includeIgnored and entry.ignored: return false
+  if options.includePatterns.len > 0 and
+      not matchesAnyPattern(entry.relativePath, options.includePatterns): return false
+  if options.excludePatterns.len > 0 and
+      matchesAnyPattern(entry.relativePath, options.excludePatterns): return false
+  true
+
+proc enumerateFiles*(workspace: Workspace, token: CancelToken = nil,
+                     includeIgnored = false): seq[WorkspaceEntry] =
   for root in workspace.roots:
     var pending = @[""]
     while pending.len > 0:
       if token != nil and token.cancelled: return
       let relative = pending.pop()
-      for entry in workspace.listChildrenAt(root, relative):
+      for entry in workspace.listChildrenAt(root, relative,
+          includeIgnored = includeIgnored):
         if token != nil and token.cancelled: return
         if entry.kind == WorkspaceFileKind.directory: pending.add(entry.relativePath)
         else:
@@ -426,7 +471,8 @@ proc pollFuzzySearch*(job: FuzzySearchJob, maxEntries = 256,
 
 proc searchWorkspace*(workspace: Workspace, query: string,
                       token: CancelToken = nil,
-                      maxResults = MaxWorkspaceSearchResults): seq[SearchResult]
+                      maxResults = MaxWorkspaceSearchResults,
+                      options = SearchOptions()): seq[SearchResult]
 
 proc invalidateEntryCache(workspace: Workspace, path: string) =
   ## Filesystem events are the invalidation boundary for the lazy entry cache.
@@ -443,13 +489,22 @@ proc invalidateEntryCache(workspace: Workspace, path: string) =
     workspace.entries.del(key)
 
 proc startSearch*(workspace: Workspace, query: string,
-                  token: CancelToken = nil, scopePath = ""): SearchJob =
+                  token: CancelToken = nil, scopePath = "",
+                  options = SearchOptions()): SearchJob =
   result = SearchJob(workspace: workspace, query: query,
     token: if token == nil: newCancelToken() else: token,
-    truncated: false, maxResults: MaxWorkspaceSearchResults, totalResults: 0)
+    options: options, truncated: false, maxResults: MaxWorkspaceSearchResults,
+    totalResults: 0)
   if query.len == 0:
     result.complete = true
     return
+  if options.regex:
+    try:
+      discard findMatches("", query, options)
+    except ValueError as error:
+      result.error = error.msg
+      result.complete = true
+      return
   if scopePath.len == 0:
     for root in workspace.roots:
       result.pendingDirectories.add((root: root, relative: ""))
@@ -476,17 +531,17 @@ proc isComplete*(job: SearchJob): bool = job == nil or job.complete
 
 proc searchLine(job: SearchJob, line: string, lineNumber: int,
                 entry: WorkspaceEntry) =
-  var offset = 0
-  while true:
-    let column = line.find(job.query, offset)
-    if column < 0: break
-    if job.totalResults >= max(1, job.maxResults):
-      job.truncated = true
-      return
-    job.bufferedResults.add(SearchResult(path: entry.path, rootPath: entry.rootPath,
-      line: lineNumber, column: column + 1, text: line))
-    inc job.totalResults
-    offset = column + max(1, job.query.len)
+  try:
+    for match in findMatches(line, job.query, job.options):
+      if job.totalResults >= max(1, job.maxResults):
+        job.truncated = true
+        return
+      job.bufferedResults.add(SearchResult(path: entry.path, rootPath: entry.rootPath,
+        line: lineNumber, column: match.startByte + 1, text: line))
+      inc job.totalResults
+  except ValueError as error:
+    job.error = error.msg
+    job.complete = true
 
 proc pollSearch*(job: SearchJob, maxFiles = 16, maxLines = 4096): seq[SearchResult] =
   ## Process bounded file/line work. Call this from the application's scheduler
@@ -507,12 +562,14 @@ proc pollSearch*(job: SearchJob, maxFiles = 16, maxLines = 4096): seq[SearchResu
         job.complete = true
         break
       let directory = job.pendingDirectories.pop()
-      for entry in job.workspace.listChildrenAt(directory.root, directory.relative):
+      for entry in job.workspace.listChildrenAt(directory.root, directory.relative,
+          includeIgnored = job.options.includeIgnored):
         if entry.kind == WorkspaceFileKind.directory:
           job.pendingDirectories.add((root: directory.root, relative: entry.relativePath))
         else:
           var file = entry
-          job.pendingFiles.add(file)
+          if searchEntryIncluded(file, job.options):
+            job.pendingFiles.add(file)
       continue
     if not job.hasActiveFile:
       job.activeEntry = job.pendingFiles.pop()
@@ -719,9 +776,11 @@ proc gitWorktreeStates*(workspace: Workspace): Table[string, WorktreeState] =
 
 proc searchWorkspace*(workspace: Workspace, query: string,
                       token: CancelToken = nil,
-                      maxResults = MaxWorkspaceSearchResults): seq[SearchResult] =
+                      maxResults = MaxWorkspaceSearchResults,
+                      options = SearchOptions()): seq[SearchResult] =
   if query.len == 0: return
-  for entry in workspace.enumerateFiles(token):
+  for entry in workspace.enumerateFiles(token, options.includeIgnored):
+    if not searchEntryIncluded(entry, options): continue
     if result.len >= max(1, maxResults): break
     if token != nil and token.cancelled: break
     var file: File
@@ -732,14 +791,13 @@ proc searchWorkspace*(workspace: Workspace, query: string,
       var line = ""
       while file.readLine(line):
         inc lineNumber
-        var offset = 0
-        while true:
-          let column = line.find(query, offset)
-          if column < 0: break
-          if result.len >= max(1, maxResults): break
-          result.add(SearchResult(path: entry.path, rootPath: entry.rootPath, line: lineNumber,
-            column: column + 1, text: line))
-          offset = column + max(1, query.len)
+        try:
+          for match in findMatches(line, query, options):
+            if result.len >= max(1, maxResults): break
+            result.add(SearchResult(path: entry.path, rootPath: entry.rootPath, line: lineNumber,
+              column: match.startByte + 1, text: line))
+        except ValueError:
+          return
         if result.len >= max(1, maxResults): break
     except CatchableError:
       discard

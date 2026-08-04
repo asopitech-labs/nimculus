@@ -8,6 +8,7 @@ import nimculus/editor_buffer
 import nimculus/editor_diagnostics
 import nimculus/lsp
 import nimculus/editor_app
+import nimculus/search
 import nimculus/editor_view
 import nimculus/editor_scroll
 import nimnui/geometry
@@ -295,6 +296,15 @@ suite "M4 editor buffer":
     check nextWordBoundary(".hello", 0) == 6
 
 suite "M5 editor services":
+  test "search options change case, whole-word, and regex matches":
+    let text = "Needle needle scatter cat cat2 needle42"
+    check findMatches(text, "needle", SearchOptions(caseSensitive: true)).len == 2
+    check findMatches(text, "needle", SearchOptions(caseSensitive: false)).len == 3
+    check findMatches(text, "cat", SearchOptions(caseSensitive: true,
+      wholeWord: true)).len == 1
+    check findMatches(text, "needle\\d+", SearchOptions(caseSensitive: true,
+      regex: true)).len == 1
+
   test "open save search replace and external change":
     let path = getTempDir() / "nimculus-m5-日本語🙂.txt"
     writeFile(path, "one\r\n日本語🙂\r\none")

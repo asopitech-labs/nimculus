@@ -5,6 +5,7 @@ import std/sequtils
 import nimculus/editor_buffer
 import nimculus/atomic_io
 import nimculus/editor_view
+import nimculus/search
 
 type
   LineEnding* = enum lf, crlf
@@ -20,8 +21,7 @@ type
     externalIdentity*: string
     externalSize*: int64
     externalModified*: Time
-  SearchMatch* = object
-    startByte*, endByte*: int
+  SearchMatch* = search.SearchMatch
   EditorTab* = object
     document*: FileDocument
     title*: string
@@ -163,20 +163,28 @@ proc acceptExternalState*(document: var FileDocument) =
   document.externalSize = stamp.size
   document.externalModified = stamp.modified
 
-proc search*(document: FileDocument, query: string, caseSensitive = true): seq[SearchMatch] =
-  if query.len == 0: return
-  let haystack = if caseSensitive: document.buffer.toString() else: document.buffer.toString().toLowerAscii()
-  let needle = if caseSensitive: query else: query.toLowerAscii()
-  var offset = 0
-  while true:
-    let found = haystack.find(needle, offset)
-    if found < 0: break
-    result.add(SearchMatch(startByte: found, endByte: found + needle.len))
-    offset = found + max(1, needle.len)
+proc search*(document: FileDocument, query: string, caseSensitive = true,
+             wholeWord = false, regex = false): seq[SearchMatch] =
+  result = findMatches(document.buffer.toString(), query, SearchOptions(
+    caseSensitive: caseSensitive, wholeWord: wholeWord, regex: regex))
+
+proc search*(document: FileDocument, query: string,
+             options: SearchOptions): seq[SearchMatch] =
+  findMatches(document.buffer.toString(), query, options)
 
 proc replaceAll*(document: var FileDocument, query, replacement: string,
-                 caseSensitive = true): int =
-  let matches = document.search(query, caseSensitive)
+                 caseSensitive = true, wholeWord = false,
+                 regex = false): int =
+  let matches = document.search(query, caseSensitive, wholeWord, regex)
+  var edits: seq[Edit]
+  for match in matches: edits.add(Edit(startByte: match.startByte, endByte: match.endByte,
+      text: replacement))
+  if edits.len > 0: document.buffer.applyEdits(edits)
+  matches.len
+
+proc replaceAll*(document: var FileDocument, query, replacement: string,
+                 options: SearchOptions): int =
+  let matches = document.search(query, options)
   var edits: seq[Edit]
   for match in matches: edits.add(Edit(startByte: match.startByte, endByte: match.endByte,
       text: replacement))

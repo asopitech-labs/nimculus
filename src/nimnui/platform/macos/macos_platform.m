@@ -3232,6 +3232,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic, retain) NSString *title;
 @property(nonatomic, retain) NSString *shortcut;
 @property(nonatomic, retain) NSString *query;
+@property(nonatomic, retain) NSTrackingArea *trackingArea;
 @property(nonatomic) NSUInteger index;
 @property(nonatomic) BOOL selected;
 @property(nonatomic) BOOL hovered;
@@ -3280,12 +3281,27 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic, retain) NSSearchField *queryField;
 @property(nonatomic, retain) NSTextField *replacementField;
 @property(nonatomic, retain) NSTextField *lineField;
+@property(nonatomic, retain) NSTextField *includeField;
+@property(nonatomic, retain) NSTextField *excludeField;
+@property(nonatomic, retain) NSTextField *matchLabel;
+@property(nonatomic, retain) NimculusChromeButton *caseButton;
+@property(nonatomic, retain) NimculusChromeButton *wordButton;
+@property(nonatomic, retain) NimculusChromeButton *regexButton;
+@property(nonatomic, retain) NimculusChromeButton *replaceToggleButton;
+@property(nonatomic, retain) NimculusChromeButton *filtersButton;
+@property(nonatomic, retain) NimculusChromeButton *ignoredButton;
 @property(nonatomic, retain) NSButton *previousButton;
 @property(nonatomic, retain) NSButton *nextButton;
+@property(nonatomic, retain) NSButton *replaceNextButton;
 @property(nonatomic, retain) NSButton *replaceButton;
 @property(nonatomic, retain) NSButton *closeButton;
 @property(nonatomic, retain) NimculusPickerListView *pickerList;
 @property(nonatomic) NSInteger mode;
+@property(nonatomic) BOOL replaceEnabled;
+@property(nonatomic) BOOL filtersEnabled;
+@property(nonatomic) uint32_t searchOptions;
+@property(nonatomic) uint32_t matchIndex;
+@property(nonatomic) uint32_t matchCount;
 @property(nonatomic) BOOL suppressSearchCancellation;
 - (void)showFind:(BOOL)replace;
 - (void)showGoToLine;
@@ -3293,6 +3309,9 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)showQuickOpen;
 - (void)refreshQuickOpenPicker;
 - (CGFloat)quickOpenPickerHeight;
+- (void)updateSearchStateWithMode:(uint32_t)mode matchIndex:(uint32_t)matchIndex
+  matchCount:(uint32_t)matchCount options:(uint32_t)options replaceEnabled:(BOOL)replaceEnabled
+  filtersEnabled:(BOOL)filtersEnabled;
 @end
 
 @interface NimculusTerminalOverlay : NSTextView
@@ -3565,12 +3584,34 @@ static NSString *commandShortcut(NSString *command) {
 - (NSString *)accessibilityLabel { return self.shortcut.length > 0
     ? [NSString stringWithFormat:@"%@, %@", self.title, self.shortcut] : self.title; }
 - (BOOL)accessibilitySelected { return self.selected; }
+- (void)dealloc {
+  [_trackingArea release];
+  [_title release];
+  [_shortcut release];
+  [_query release];
+  [super dealloc];
+}
+- (void)viewWillMoveToWindow:(NSWindow *)newWindow {
+  if (!newWindow && self.trackingArea) {
+    [self removeTrackingArea:self.trackingArea];
+    self.trackingArea = nil;
+  }
+  [super viewWillMoveToWindow:newWindow];
+}
 - (void)updateTrackingAreas {
   [super updateTrackingAreas];
-  [self removeAllTrackingAreas];
-  [self addTrackingArea:[[[NSTrackingArea alloc] initWithRect:NSZeroRect
+  if (self.trackingArea) {
+    [self removeTrackingArea:self.trackingArea];
+    self.trackingArea = nil;
+  }
+  // Rows are rebuilt while the picker is hidden and while old rows are being
+  // detached. Do not leave an area owned by a row that is no longer in a
+  // window, and let AppKit recalculate the visible rect after layout.
+  if (!self.window || !self.superview || NSIsEmptyRect(self.bounds)) return;
+  self.trackingArea = [[[NSTrackingArea alloc] initWithRect:self.bounds
     options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow |
-      NSTrackingInVisibleRect owner:self userInfo:nil] autorelease]];
+      NSTrackingInVisibleRect owner:self userInfo:nil] autorelease];
+  [self addTrackingArea:self.trackingArea];
 }
 - (void)mouseEntered:(NSEvent *)event { (void)event; self.hovered = YES; [self setNeedsDisplay:YES]; }
 - (void)mouseExited:(NSEvent *)event { (void)event; self.hovered = NO; [self setNeedsDisplay:YES]; }
@@ -3781,7 +3822,7 @@ static NSString *commandShortcut(NSString *command) {
       }
       return YES;
     }]];
-  return [matches sortedArrayUsingComparator:^NSComparisonResult(NSString *left, NSString *right) {
+  NSArray<NSString *> *sorted = [matches sortedArrayUsingComparator:^NSComparisonResult(NSString *left, NSString *right) {
     NSString *leftLower = left.lowercaseString;
     NSString *rightLower = right.lowercaseString;
     NSUInteger leftPrefix = [leftLower hasPrefix:needle] ? 0 :
@@ -3791,6 +3832,15 @@ static NSString *commandShortcut(NSString *command) {
     if (leftPrefix != rightPrefix) return leftPrefix < rightPrefix ? NSOrderedAscending : NSOrderedDescending;
     return [left localizedCaseInsensitiveCompare:right];
   }];
+  // A completed short command should remain a single, stable picker result
+  // while its longer argument-bearing variants stay discoverable by typing
+  // the full command name (for example, `sav` resolves to Save).
+  if (sorted.count > 1 && [sorted[0] hasPrefix:needle] &&
+      [sorted[0] rangeOfString:@" "].location == NSNotFound &&
+      sorted[0].length == needle.length + 1) {
+    return @[sorted[0]];
+  }
+  return sorted;
 }
 
 - (void)controlTextDidChange:(NSNotification *)notification {
@@ -4043,6 +4093,22 @@ static NSString *commandShortcut(NSString *command) {
 
 @implementation NimculusDocumentSearchOverlay
 
+static NimculusChromeButton *searchIconButton(id target, SEL action,
+                                               NSString *symbol, NSString *label,
+                                               NSInteger tag) {
+  NimculusChromeButton *button = [NimculusChromeButton buttonWithTitle:@""
+    target:target action:action];
+  button.tag = tag;
+  if (@available(macOS 11.0, *)) {
+    button.image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:label];
+    applySidebarIconConfiguration(button);
+  }
+  button.accessibilityLabel = label;
+  button.toolTip = label;
+  styleWorkspaceNavigationButton(button, NO, YES);
+  return button;
+}
+
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
   if (!self) return nil;
@@ -4055,6 +4121,11 @@ static NSString *commandShortcut(NSString *command) {
   self.layer.backgroundColor = [[NSColor windowBackgroundColor]
     colorWithAlphaComponent:0.98].CGColor;
   self.mode = 0;
+  self.replaceEnabled = NO;
+  self.filtersEnabled = NO;
+  self.searchOptions = 1u;
+  self.matchIndex = UINT32_MAX;
+  self.matchCount = 0;
   self.queryField = [[[NimculusDocumentSearchField alloc] initWithFrame:NSZeroRect] autorelease];
   ((NimculusDocumentSearchField *)self.queryField).searchOverlay = self;
   self.queryField.placeholderString = @"Find";
@@ -4076,6 +4147,22 @@ static NSString *commandShortcut(NSString *command) {
   self.lineField.target = self;
   self.lineField.action = @selector(goToLine:);
   [self addSubview:self.lineField];
+  self.includeField = [[[NimculusDocumentLineField alloc] initWithFrame:NSZeroRect] autorelease];
+  ((NimculusDocumentLineField *)self.includeField).searchOverlay = self;
+  self.includeField.placeholderString = @"Include: e.g. src/**/*.nim";
+  self.includeField.delegate = self;
+  [self addSubview:self.includeField];
+  self.excludeField = [[[NimculusDocumentLineField alloc] initWithFrame:NSZeroRect] autorelease];
+  ((NimculusDocumentLineField *)self.excludeField).searchOverlay = self;
+  self.excludeField.placeholderString = @"Exclude: e.g. vendor/*, *.lock";
+  self.excludeField.delegate = self;
+  [self addSubview:self.excludeField];
+  self.matchLabel = [[[NSTextField alloc] initWithFrame:NSZeroRect] autorelease];
+  self.matchLabel.bezeled = NO; self.matchLabel.drawsBackground = NO;
+  self.matchLabel.editable = NO; self.matchLabel.selectable = NO;
+  self.matchLabel.alignment = NSTextAlignmentCenter;
+  self.matchLabel.stringValue = @"0 of 0";
+  [self addSubview:self.matchLabel];
   self.pickerList = [[[NimculusPickerListView alloc] initWithFrame:NSZeroRect] autorelease];
   self.pickerList.target = self;
   self.pickerList.selectAction = @selector(selectQuickOpenIndex:);
@@ -4084,19 +4171,57 @@ static NSString *commandShortcut(NSString *command) {
   [self addSubview:self.pickerList];
   self.previousButton = [NSButton buttonWithTitle:@"‹" target:self action:@selector(findPrevious:)];
   self.nextButton = [NSButton buttonWithTitle:@"›" target:self action:@selector(findNext:)];
-  self.replaceButton = [NSButton buttonWithTitle:@"Replace All" target:self action:@selector(replaceAll:)];
+  self.replaceNextButton = [NSButton buttonWithTitle:@"" target:self action:@selector(replaceNext:)];
+  self.replaceButton = [NSButton buttonWithTitle:@"" target:self action:@selector(replaceAll:)];
   self.closeButton = [NSButton buttonWithTitle:@"×" target:self action:@selector(close:)];
-  for (NSButton *button in @[self.previousButton, self.nextButton, self.replaceButton, self.closeButton]) {
+  self.caseButton = searchIconButton(self, @selector(searchToggle:), @"textformat.abc",
+    @"Case Sensitive", 1);
+  self.wordButton = searchIconButton(self, @selector(searchToggle:), @"text.word.spacing",
+    @"Whole Word", 2);
+  self.regexButton = searchIconButton(self, @selector(searchToggle:), @"curlybraces",
+    @"Regex", 3);
+  self.replaceToggleButton = searchIconButton(self, @selector(searchToggle:), @"arrow.triangle.2.circlepath",
+    @"Toggle Replace", 4);
+  self.filtersButton = searchIconButton(self, @selector(searchToggle:), @"line.3.horizontal.decrease.circle",
+    @"Toggle Filters", 5);
+  self.ignoredButton = searchIconButton(self, @selector(searchToggle:), @"eye.slash",
+    @"Include Ignored", 6);
+  for (NSButton *button in @[self.previousButton, self.nextButton, self.replaceNextButton,
+                             self.replaceButton, self.closeButton]) {
+    button.bordered = NO;
     button.bezelStyle = NSBezelStyleTexturedRounded;
+    styleWorkspaceNavigationButton(button, NO, button == self.closeButton);
     [self addSubview:button];
   }
+  if (@available(macOS 11.0, *)) {
+    self.previousButton.image = [NSImage imageWithSystemSymbolName:@"chevron.left"
+      accessibilityDescription:@"Select Previous Match"];
+    self.nextButton.image = [NSImage imageWithSystemSymbolName:@"chevron.right"
+      accessibilityDescription:@"Select Next Match"];
+    self.replaceNextButton.image = [NSImage imageWithSystemSymbolName:@"arrow.uturn.right"
+      accessibilityDescription:@"Replace Next Match"];
+    self.replaceButton.image = [NSImage imageWithSystemSymbolName:@"arrow.triangle.2.circlepath"
+      accessibilityDescription:@"Replace All Matches"];
+    for (NSButton *button in @[self.previousButton, self.nextButton, self.replaceNextButton,
+                               self.replaceButton]) applySidebarIconConfiguration(button);
+  }
+  self.previousButton.accessibilityLabel = @"Select Previous Match";
+  self.nextButton.accessibilityLabel = @"Select Next Match";
+  self.replaceNextButton.accessibilityLabel = @"Replace Next Match";
+  self.replaceButton.accessibilityLabel = @"Replace All Matches";
+  for (NSButton *button in @[self.caseButton, self.wordButton, self.regexButton,
+                             self.replaceToggleButton, self.filtersButton, self.ignoredButton])
+    [self addSubview:button];
   self.toolTip = @"Find in document (Esc to close)";
   return self;
 }
 
 - (void)dealloc {
   [_queryField release]; [_replacementField release]; [_lineField release];
-  [_previousButton release]; [_nextButton release]; [_replaceButton release];
+  [_includeField release]; [_excludeField release]; [_matchLabel release];
+  [_caseButton release]; [_wordButton release]; [_regexButton release];
+  [_replaceToggleButton release]; [_filtersButton release]; [_ignoredButton release];
+  [_previousButton release]; [_nextButton release]; [_replaceNextButton release]; [_replaceButton release];
   [_closeButton release]; [_pickerList release];
   [super dealloc];
 }
@@ -4118,12 +4243,79 @@ static NSString *commandShortcut(NSString *command) {
     self.pickerList.hidden = NO;
     [self.pickerList reload];
     self.replacementField.hidden = self.lineField.hidden = YES;
-    self.previousButton.hidden = self.nextButton.hidden = self.replaceButton.hidden = YES;
+    self.previousButton.hidden = self.nextButton.hidden = self.replaceNextButton.hidden =
+      self.replaceButton.hidden = YES;
+    for (NSView *view in @[self.caseButton, self.wordButton, self.regexButton,
+                           self.replaceToggleButton, self.filtersButton, self.ignoredButton,
+                           self.matchLabel, self.includeField, self.excludeField]) view.hidden = YES;
     self.closeButton.hidden = YES;
     return;
   }
   self.pickerList.hidden = YES;
   if (self.mode == 2 || self.mode == 3) {
+    if (self.mode == 2) {
+      for (NSView *view in @[self.caseButton, self.wordButton, self.regexButton,
+                             self.replaceToggleButton, self.filtersButton, self.ignoredButton,
+                             self.matchLabel, self.includeField, self.excludeField,
+                             self.replaceNextButton]) view.hidden = YES;
+    }
+  if (self.mode == 3) {
+      self.lineField.hidden = YES;
+    }
+    if (self.mode == 3) {
+      const CGFloat rowHeight = 24.0;
+      const CGFloat buttonWidth = 24.0;
+      const CGFloat gap = 3.0;
+      CGFloat x = padding;
+      const CGFloat rightControls = 7.0 * (buttonWidth + gap) + 54.0 + buttonWidth;
+      const CGFloat queryWidth = MAX(140.0, width - rightControls - padding * 2.0);
+      self.queryField.hidden = NO;
+      self.queryField.frame = NSMakeRect(x, padding, queryWidth, controlHeight);
+      x = NSMaxX(self.queryField.frame) + gap;
+      NSArray *buttons = @[self.caseButton, self.wordButton, self.regexButton,
+                           self.filtersButton, self.replaceToggleButton,
+                           self.previousButton, self.nextButton];
+      for (NSButton *button in buttons) {
+        button.hidden = NO;
+        button.frame = NSMakeRect(x, padding, buttonWidth, rowHeight);
+        x += buttonWidth + gap;
+      }
+      self.matchLabel.frame = NSMakeRect(x, padding, 50.0, rowHeight);
+      x += 54.0;
+      self.closeButton.frame = NSMakeRect(width - padding - buttonWidth, padding,
+        buttonWidth, rowHeight);
+      self.closeButton.hidden = NO;
+      self.ignoredButton.hidden = YES;
+      CGFloat nextY = padding + rowHeight + gap;
+      if (self.replaceEnabled) {
+        self.replacementField.frame = NSMakeRect(padding, nextY,
+          width - padding * 2.0 - 60.0, rowHeight);
+        self.replaceNextButton.frame = NSMakeRect(width - padding - 54.0, nextY,
+          24.0, rowHeight);
+        self.replaceButton.frame = NSMakeRect(width - padding - 27.0, nextY,
+          24.0, rowHeight);
+        self.replacementField.hidden = self.replaceNextButton.hidden =
+          self.replaceButton.hidden = NO;
+        nextY += rowHeight + gap;
+      } else {
+        self.replacementField.hidden = self.replaceNextButton.hidden = self.replaceButton.hidden = YES;
+      }
+      if (self.filtersEnabled) {
+        self.includeField.frame = NSMakeRect(padding, nextY,
+          (width - padding * 2.0 - gap) / 2.0, rowHeight);
+        self.excludeField.frame = NSMakeRect(NSMaxX(self.includeField.frame) + gap,
+          nextY, (width - padding * 2.0 - gap) / 2.0, rowHeight);
+        self.includeField.hidden = self.excludeField.hidden = self.ignoredButton.hidden = NO;
+        self.ignoredButton.frame = NSMakeRect(width - padding - buttonWidth, nextY,
+          buttonWidth, rowHeight);
+        NSRect excludeFrame = self.excludeField.frame;
+        excludeFrame.size.width -= buttonWidth + gap;
+        self.excludeField.frame = excludeFrame;
+      } else {
+        self.includeField.hidden = self.excludeField.hidden = self.ignoredButton.hidden = YES;
+      }
+      return;
+    }
     self.lineField.frame = NSMakeRect(padding, padding, width - padding * 2.0 - 54.0, controlHeight);
     self.queryField.frame = self.lineField.frame;
     self.closeButton.frame = NSMakeRect(width - 48.0, padding, 42.0, controlHeight);
@@ -4136,6 +4328,45 @@ static NSString *commandShortcut(NSString *command) {
       self.queryField.hidden = YES;
     }
     self.closeButton.hidden = NO;
+    return;
+  }
+  if (self.mode == 0) {
+    const CGFloat rowHeight = 24.0;
+    const CGFloat buttonWidth = 24.0;
+    const CGFloat gap = 3.0;
+    CGFloat x = padding;
+    const CGFloat rightControls = 6.0 * (buttonWidth + gap) + 54.0 + buttonWidth;
+    const CGFloat queryWidth = MAX(140.0, width - rightControls - padding * 2.0);
+    self.queryField.hidden = NO;
+    self.lineField.hidden = YES;
+    self.queryField.frame = NSMakeRect(x, padding, queryWidth, controlHeight);
+    x = NSMaxX(self.queryField.frame) + gap;
+    NSArray *buttons = @[self.caseButton, self.wordButton, self.regexButton,
+                         self.replaceToggleButton, self.previousButton, self.nextButton];
+    for (NSButton *button in buttons) {
+      button.hidden = NO;
+      button.frame = NSMakeRect(x, padding, buttonWidth, rowHeight);
+      x += buttonWidth + gap;
+    }
+    self.matchLabel.frame = NSMakeRect(x, padding, 50.0, rowHeight);
+    self.closeButton.frame = NSMakeRect(width - padding - buttonWidth, padding,
+      buttonWidth, rowHeight);
+    self.closeButton.hidden = NO;
+    self.filtersButton.hidden = self.ignoredButton.hidden = YES;
+    CGFloat nextY = padding + rowHeight + gap;
+    if (self.replaceEnabled) {
+      self.replacementField.frame = NSMakeRect(padding, nextY,
+        width - padding * 2.0 - 60.0, rowHeight);
+      self.replaceNextButton.frame = NSMakeRect(width - padding - 54.0, nextY,
+        24.0, rowHeight);
+      self.replaceButton.frame = NSMakeRect(width - padding - 27.0, nextY,
+        24.0, rowHeight);
+      self.replacementField.hidden = self.replaceNextButton.hidden =
+        self.replaceButton.hidden = NO;
+    } else {
+      self.replacementField.hidden = self.replaceNextButton.hidden = self.replaceButton.hidden = YES;
+    }
+    self.includeField.hidden = self.excludeField.hidden = YES;
     return;
   }
   const CGFloat fieldWidth = self.mode == 1 ? width - 4.0 * padding - 2.0 * buttonWidth - 82.0 :
@@ -4159,7 +4390,9 @@ static NSString *commandShortcut(NSString *command) {
 }
 
 - (void)showFind:(BOOL)replace {
-  self.mode = replace ? 1 : 0;
+  self.mode = 0;
+  self.replaceEnabled = replace;
+  self.filtersEnabled = NO;
   self.queryField.placeholderString = @"Find";
   self.queryField.accessibilityLabel = @"Find in Document";
   self.hidden = NO;
@@ -4181,6 +4414,8 @@ static NSString *commandShortcut(NSString *command) {
 
 - (void)showWorkspaceSearch {
   self.mode = 3;
+  self.replaceEnabled = NO;
+  self.filtersEnabled = NO;
   self.queryField.placeholderString = @"Search workspace";
   self.queryField.accessibilityLabel = @"Search workspace";
   self.hidden = NO;
@@ -4233,6 +4468,43 @@ static NSString *commandShortcut(NSString *command) {
   [self setNeedsLayout:YES];
 }
 
+- (void)updateSearchStateWithMode:(uint32_t)mode matchIndex:(uint32_t)matchIndex
+  matchCount:(uint32_t)matchCount options:(uint32_t)options replaceEnabled:(BOOL)replaceEnabled
+  filtersEnabled:(BOOL)filtersEnabled {
+  if (self.mode != (NSInteger)mode && !(self.mode == 0 && mode == 1)) return;
+  self.searchOptions = options;
+  self.matchIndex = matchIndex;
+  self.matchCount = matchCount;
+  self.replaceEnabled = replaceEnabled;
+  self.filtersEnabled = filtersEnabled;
+  self.matchLabel.stringValue = matchIndex == UINT32_MAX ?
+    [NSString stringWithFormat:@"0 of %u", matchCount] :
+    [NSString stringWithFormat:@"%u of %u", matchIndex + 1, matchCount];
+  self.matchLabel.textColor = themeRoleColor(@"fgMuted", [NSColor secondaryLabelColor]);
+  styleWorkspaceNavigationButton(self.caseButton, (options & 1u) != 0, YES);
+  styleWorkspaceNavigationButton(self.wordButton, (options & 2u) != 0, YES);
+  styleWorkspaceNavigationButton(self.regexButton, (options & 4u) != 0, YES);
+  styleWorkspaceNavigationButton(self.replaceToggleButton, replaceEnabled, YES);
+  styleWorkspaceNavigationButton(self.filtersButton, filtersEnabled, YES);
+  styleWorkspaceNavigationButton(self.ignoredButton, (options & 8u) != 0, YES);
+  [self setNeedsLayout:YES];
+  [self.window update];
+}
+
+- (void)searchToggle:(NSButton *)sender {
+  if (!g_command_callback) return;
+  const char *name = NULL;
+  switch (sender.tag) {
+    case 1: name = "searchToggle:case"; break;
+    case 2: name = "searchToggle:word"; break;
+    case 3: name = "searchToggle:regex"; break;
+    case 4: name = "searchToggle:replace"; break;
+    case 5: name = "searchToggle:filters"; break;
+    case 6: name = "searchToggle:ignored"; break;
+  }
+  if (name) g_command_callback(name);
+}
+
 - (void)selectQuickOpenIndex:(NSNumber *)index {
   NSUInteger value = index.unsignedIntegerValue;
   g_editor_sidebar_selected_index = value;
@@ -4252,7 +4524,14 @@ static NSString *commandShortcut(NSString *command) {
 }
 
 - (void)controlTextDidChange:(NSNotification *)notification {
-  if (notification.object != self.queryField || !g_command_callback) return;
+  if (!g_command_callback) return;
+  if (notification.object == self.includeField || notification.object == self.excludeField) {
+    NSString *command = [NSString stringWithFormat:@"workspaceSearchFilters:%@\x1f%@",
+      self.includeField.stringValue ?: @"", self.excludeField.stringValue ?: @""];
+    g_command_callback(command.UTF8String);
+    return;
+  }
+  if (notification.object != self.queryField) return;
   if (self.mode == 3 || self.mode == 4) {
     // Zed's picker updates its background search task as the query changes;
     // waiting for Return leaves stale rows visible and makes the search bar
@@ -4308,14 +4587,21 @@ static NSString *commandShortcut(NSString *command) {
   return NO;
 }
 
-- (void)findPrevious:(id)sender { (void)sender; [self findNext:nil]; }
+- (void)findPrevious:(id)sender {
+  (void)sender;
+  if (self.queryField.stringValue.length == 0 || !g_command_callback) return;
+  if (self.mode == 3) g_command_callback("workspaceSearchPrevious");
+  else if (self.mode != 4) g_command_callback("findPrevious");
+}
 - (void)findNext:(id)sender {
   (void)sender;
   if (self.queryField.stringValue.length == 0 || !g_command_callback) return;
-  NSString *format = self.mode == 3 ? @"workspaceSearch:%@" :
-    self.mode == 4 ? @"quickOpenOpen:%@" : @"findDocument:%@";
-  NSString *command = [NSString stringWithFormat:format, self.queryField.stringValue];
-  g_command_callback(command.UTF8String);
+  if (self.mode == 3) g_command_callback("workspaceSearchNext");
+  else {
+    NSString *format = self.mode == 4 ? @"quickOpenOpen:%@" : @"findNextDocument:%@";
+    NSString *command = [NSString stringWithFormat:format, self.queryField.stringValue];
+    g_command_callback(command.UTF8String);
+  }
   // Quick Open is a navigation action. Once Return has dispatched the
   // selection, remove the search chrome and return the responder chain to the
   // editor, matching the normal Zed quick-open flow.
@@ -4324,10 +4610,19 @@ static NSString *commandShortcut(NSString *command) {
     [self close:nil];
   }
 }
+- (void)replaceNext:(id)sender {
+  (void)sender;
+  if (self.queryField.stringValue.length == 0 || !g_command_callback) return;
+  NSString *prefix = self.mode == 3 ? @"workspaceReplaceNext:" : @"replaceDocumentNext:";
+  NSString *command = [NSString stringWithFormat:@"%@%@\x1f%@", prefix,
+    self.queryField.stringValue, self.replacementField.stringValue ?: @""];
+  g_command_callback(command.UTF8String);
+}
 - (void)replaceAll:(id)sender {
   (void)sender;
   if (self.queryField.stringValue.length == 0 || !g_command_callback) return;
-  NSString *command = [NSString stringWithFormat:@"replaceDocument:%@\x1f%@",
+  NSString *prefix = self.mode == 3 ? @"workspaceReplaceAll:" : @"replaceDocument:";
+  NSString *command = [NSString stringWithFormat:@"%@%@\x1f%@", prefix,
     self.queryField.stringValue, self.replacementField.stringValue];
   g_command_callback(command.UTF8String);
 }
@@ -7747,7 +8042,10 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       MIN(NimculusPickerWidth, MAX(1.0, g_editor_rect[2] - 24.0)) :
       MIN(420.0, MAX(1.0, g_editor_rect[2] - 16.0));
     const CGFloat preferredHeight = quickOpen ? [documentSearch quickOpenPickerHeight] :
-      (documentSearch.mode == 1 ? 64.0 : 36.0);
+      (documentSearch.mode == 3 ?
+        36.0 + (documentSearch.replaceEnabled ? 30.0 : 0.0) +
+        (documentSearch.filtersEnabled ? 30.0 : 0.0) :
+        (documentSearch.replaceEnabled ? 66.0 : 36.0));
     const CGFloat preferredX = quickOpen ?
       g_editor_rect[0] + (g_editor_rect[2] - preferredWidth) / 2.0 :
       g_editor_rect[0] + g_editor_rect[2] - preferredWidth - 8.0;
@@ -9599,6 +9897,21 @@ void nimculus_platform_show_workspace_search(void) {
   id delegate = [NSApp delegate];
   if ([delegate respondsToSelector:@selector(findInWorkspace:)]) {
     [delegate performSelector:@selector(findInWorkspace:) withObject:nil];
+  }
+}
+
+void nimculus_platform_set_search_ui_state(uint32_t mode, uint32_t match_index,
+                                           uint32_t match_count, uint32_t options,
+                                           bool replace_enabled, bool filters_enabled) {
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) {
+      [(NimculusDocumentSearchOverlay *)subview updateSearchStateWithMode:mode
+        matchIndex:match_index matchCount:match_count options:options
+        replaceEnabled:replace_enabled filtersEnabled:filters_enabled];
+      break;
+    }
   }
 }
 

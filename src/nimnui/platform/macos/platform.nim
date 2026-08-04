@@ -269,6 +269,8 @@ proc platformShowReplaceDocument*() {.importc: "nimculus_platform_show_replace_d
 proc platformShowGoToLine*() {.importc: "nimculus_platform_show_go_to_line", cdecl.}
 proc platformShowQuickOpen*() {.importc: "nimculus_platform_show_quick_open", cdecl.}
 proc platformShowWorkspaceSearch*() {.importc: "nimculus_platform_show_workspace_search", cdecl.}
+proc platformSetSearchUiState*(mode, matchIndex, matchCount, options: uint32,
+    replaceEnabled, filtersEnabled: bool) {.importc: "nimculus_platform_set_search_ui_state", cdecl.}
 proc platformShowCommandPalette*() {.importc: "nimculus_platform_show_command_palette", cdecl.}
 proc platformShowSettingsPanel*(theme, editorFontSize, terminalFontSize,
                                 editorFontFamily, terminalFontFamily,

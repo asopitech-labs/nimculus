@@ -7299,3 +7299,28 @@ composition from `references/zed/crates/command_palette/src/command_palette.rs`,
 the elevation/shadow treatment from `references/zed/crates/ui/src/traits/styled_ext.rs`
 and `styles/elevation.rs`, and the light/dark role values from
 `references/zed/assets/themes/one/one.json`.
+
+## UI-092: Port Zed's option-aware search bars and project filters
+
+**Context.** Nimculus's native find overlay previously exposed only a literal
+query and Replace All, while workspace search used a case-sensitive substring
+scan with no replacement or path filters. Zed keeps these controls in the
+search bar: Case Sensitive, Whole Word, Regex, previous/next navigation with
+the active match count, Replace with Replace Next/Replace All, and project
+include/exclude filters plus Include Ignored.
+
+**Decision.** Add a shared option-aware matcher at the Nimculus search boundary
+and pass the same options through document and workspace searches. The native
+AppKit overlay retains the existing command callback and focus paths, but adds
+SF Symbol ghost buttons, explicit accessibility labels, `n of m` state, and
+theme-role styling; active toggles use the accent role in both appearances.
+Workspace jobs carry include/exclude globs and Include Ignored through their
+bounded traversal, and project replacement reuses the same matcher before
+writing files. Invalid regular expressions stay visible as search errors.
+
+**Evidence.** Layout, action names, option labels, replacement actions, and
+filter placement were read from the vendored Zed sources
+`references/zed/crates/search/src/buffer_search.rs`,
+`references/zed/crates/search/src/project_search.rs`, and
+`references/zed/crates/search/src/search_bar.rs`; semantic colors follow
+`assets/themes/one/one.json` and Nimculus's existing theme-role bridge.

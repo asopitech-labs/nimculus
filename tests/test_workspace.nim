@@ -8,6 +8,7 @@ when defined(posix):
   import std/osproc
   import std/envvars
 import nimculus/workspace
+import nimculus/search
 
 suite "M6 workspace":
   when defined(macosx):
@@ -102,6 +103,22 @@ suite "M6 workspace":
     token.cancel()
     check workspace.searchWorkspace("needle", token).len == 0
     removeFile(root / "a.txt"); removeDir(root)
+
+  test "workspace search options honor case, whole-word, regex, and filters":
+    let root = getTempDir() / "nimculus-m6-search-options"
+    createDir(root)
+    writeFile(root / "main.txt", "Needle needle needle42\ncat scatter")
+    writeFile(root / "other.log", "needle")
+    let workspace = openWorkspace(root)
+    check workspace.searchWorkspace("needle", options = SearchOptions(
+      caseSensitive: true)).len == 3
+    check workspace.searchWorkspace("needle", options = SearchOptions(
+      caseSensitive: false, wholeWord: true)).len == 3
+    check workspace.searchWorkspace("needle\\d+", options = SearchOptions(
+      regex: true)).len == 1
+    check workspace.searchWorkspace("needle", options = SearchOptions(
+      caseSensitive: false, includePatterns: "*.log")).len == 1
+    removeFile(root / "main.txt"); removeFile(root / "other.log"); removeDir(root)
 
   test "search job yields bounded batches and can be cancelled":
     let root = getTempDir() / "nimculus-m6-search-job"
