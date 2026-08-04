@@ -189,6 +189,9 @@ static const CGFloat NimculusSpace3 = 12.0;
 static const CGFloat NimculusRowHeight = 28.0;
 static const CGFloat NimculusControlHit = 24.0;
 static const CGFloat NimculusIconPointSize = 14.0;
+static const CGFloat NimculusFindBarRowHeight = NimculusRowHeight - NimculusSpace2;
+static const CGFloat NimculusFindBarRowPadding =
+  (NimculusRowHeight - NimculusFindBarRowHeight) / 2.0;
 static const NSUInteger NimculusSidebarHeaderLineCount = 2;
 
 static NSString *g_crash_report_path = nil;
@@ -4196,20 +4199,40 @@ static NSString *commandShortcut(NSString *command) {
 @implementation NimculusDocumentSearchOverlay
 
 static NimculusChromeButton *searchIconButton(id target, SEL action,
-                                               NSString *symbol, NSString *label,
+                                               NSString *symbol, NSString *svg,
+                                               NSString *label,
                                                NSInteger tag) {
   NimculusChromeButton *button = [NimculusChromeButton buttonWithTitle:@""
     target:target action:action];
   button.tag = tag;
+  NSImage *image = svg ? [[[NSImage alloc] initWithData:
+    [svg dataUsingEncoding:NSUTF8StringEncoding]] autorelease] : nil;
   if (@available(macOS 11.0, *)) {
-    button.image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:label];
-    applySidebarIconConfiguration(button);
+    if (!image && symbol) {
+      image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:label];
+    }
+    button.image = image;
+    if (!svg) applySidebarIconConfiguration(button);
+  } else {
+    button.image = image;
   }
   button.accessibilityLabel = label;
   button.toolTip = label;
   styleWorkspaceNavigationButton(button, NO, YES);
   return button;
 }
+
+// These are the vendored Zed search glyph geometries. Keeping the SVG data
+// here makes the icons available in the native AppKit overlay without adding
+// a separate resource lookup or changing the app bundle contract. They are
+// template images, so the shared chrome styling supplies the light/dark and
+// active accent colors.
+static NSString * const NimculusSearchCaseSensitiveSVG =
+  @"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" fill=\"none\"><path fill=\"#000\" fill-rule=\"evenodd\" d=\"M4.407 4h1.78l2.408 8.39H7.256l-.596-2.04H3.92l-.582 2.04H2l2.407-8.39Zm.89 1.44-1.05 3.7h2.1l-1.05-3.7ZM9.852 12.332h-.005a1.228 1.228 0 0 1-.669-.64v-.005C9.053 11.4 9 11 9 10.503c0-.582.082-1.059.27-1.4.187-.362.5-.607.924-.747.423-.14 1.001-.211 1.733-.211h.962v-.14c0-.323-.038-.554-.115-.708v-.005a.575.575 0 0 0-.342-.308c-.173-.067-.438-.11-.804-.11-.236 0-.428.019-.582.048-.154.029-.255.067-.313.115h-.005c-.115.077-.202.25-.216.583l-.01.149H9.188V7.61c0-.472.072-.857.221-1.136.159-.298.429-.5.785-.611.351-.12.832-.178 1.434-.178.63 0 1.127.067 1.488.202.38.14.654.39.808.741.154.342.226.804.226 1.377v4.39h-1.222v-.573a1.676 1.676 0 0 1-.573.481c-.294.145-.722.207-1.266.207-.515 0-.934-.053-1.237-.178Zm.953-2.883a.638.638 0 0 0-.375.294c-.068.134-.111.346-.111.654 0 .4.082.621.197.727.12.101.38.178.828.178.429 0 .742-.067.944-.183.197-.12.351-.317.442-.616.087-.274.14-.669.15-1.189l-1.19.01c-.39.01-.683.053-.88.12l-.005.005Z\" clip-rule=\"evenodd\"/></svg>";
+static NSString * const NimculusSearchWholeWordSVG =
+  @"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" fill=\"none\"><path fill=\"#000\" fill-rule=\"evenodd\" d=\"m5.425 10.842-.773-3.948-.782 3.948H2.487L1.147 4.58H2.6l.617 3.897.764-3.886h1.342l.754 3.88.616-3.89H8.15l-1.341 6.261H5.425ZM9.885 10.656c-.384-.218-.648-.577-.802-1.047-.152-.463-.222-1.104-.222-1.91 0-.798.066-1.431.21-1.885v-.002c.155-.47.419-.826.804-1.037.374-.212.88-.306 1.496-.306.447 0 .816.052 1.082.177.128.059.244.14.35.243V2.32h1.377v8.52h-1.376v-.337a1.545 1.545 0 0 1-.393.271c-.26.125-.601.178-1.007.178-.622 0-1.134-.09-1.514-.293l-.005-.003Zm2.817-1.679c.08-.288.124-.71.124-1.278 0-.56-.044-.975-.124-1.255-.078-.274-.199-.434-.342-.521l-.008-.005c-.146-.097-.385-.161-.748-.161-.395 0-.665.064-.835.167l-.005.003c-.158.09-.287.251-.37.522-.087.277-.135.69-.135 1.25 0 .568.048.984.134 1.262.084.27.214.439.376.536.17.102.44.167.835.167.364 0 .605-.061.752-.153.146-.094.268-.261.346-.534Z\" clip-rule=\"evenodd\"/><path stroke=\"#000\" stroke-linecap=\"round\" stroke-width=\"1.2\" d=\"M2 13h12\"/></svg>";
+static NSString * const NimculusSearchRegexSVG =
+  @"<svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M4.57132 13.7143C5.20251 13.7143 5.71418 13.2026 5.71418 12.5714C5.71418 11.9403 5.20251 11.4286 4.57132 11.4286C3.94014 11.4286 3.42847 11.9403 3.42847 12.5714C3.42847 13.2026 3.94014 13.7143 4.57132 13.7143Z\" fill=\"#000\"/><path d=\"M10.2856 2.85712V5.71426M10.2856 5.71426V8.5714M10.2856 5.71426H13.1428M10.2856 5.71426H7.42847M10.2856 5.71426L12.1904 3.80949M10.2856 5.71426L8.38084 7.61906M10.2856 5.71426L12.1904 7.61906M10.2856 5.71426L8.38084 3.80949\" stroke=\"#000\" stroke-width=\"1.2\" stroke-linecap=\"round\"/></svg>";
 
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
@@ -4278,18 +4301,18 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
   self.nextButton = [NSButton buttonWithTitle:@"›" target:self action:@selector(findNext:)];
   self.replaceNextButton = [NSButton buttonWithTitle:@"" target:self action:@selector(replaceNext:)];
   self.replaceButton = [NSButton buttonWithTitle:@"" target:self action:@selector(replaceAll:)];
-  self.closeButton = [NSButton buttonWithTitle:@"×" target:self action:@selector(close:)];
-  self.caseButton = searchIconButton(self, @selector(searchToggle:), @"textformat.abc",
-    @"Case Sensitive", 1);
-  self.wordButton = searchIconButton(self, @selector(searchToggle:), @"text.word.spacing",
-    @"Whole Word", 2);
-  self.regexButton = searchIconButton(self, @selector(searchToggle:), @"curlybraces",
-    @"Regex", 3);
-  self.replaceToggleButton = searchIconButton(self, @selector(searchToggle:), @"arrow.triangle.2.circlepath",
+  self.closeButton = [NSButton buttonWithTitle:@"" target:self action:@selector(close:)];
+  self.caseButton = searchIconButton(self, @selector(searchToggle:), nil,
+    NimculusSearchCaseSensitiveSVG, @"Match Case Sensitivity", 1);
+  self.wordButton = searchIconButton(self, @selector(searchToggle:), nil,
+    NimculusSearchWholeWordSVG, @"Match Whole Words", 2);
+  self.regexButton = searchIconButton(self, @selector(searchToggle:), nil,
+    NimculusSearchRegexSVG, @"Use Regular Expressions", 3);
+  self.replaceToggleButton = searchIconButton(self, @selector(searchToggle:), @"arrow.triangle.2.circlepath", nil,
     @"Toggle Replace", 4);
-  self.filtersButton = searchIconButton(self, @selector(searchToggle:), @"line.3.horizontal.decrease.circle",
+  self.filtersButton = searchIconButton(self, @selector(searchToggle:), @"line.3.horizontal.decrease.circle", nil,
     @"Toggle Filters", 5);
-  self.ignoredButton = searchIconButton(self, @selector(searchToggle:), @"eye.slash",
+  self.ignoredButton = searchIconButton(self, @selector(searchToggle:), @"eye.slash", nil,
     @"Include Ignored", 6);
   for (NSButton *button in @[self.previousButton, self.nextButton, self.replaceNextButton,
                              self.replaceButton, self.closeButton]) {
@@ -4299,6 +4322,8 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
     [self addSubview:button];
   }
   if (@available(macOS 11.0, *)) {
+    self.closeButton.image = [NSImage imageWithSystemSymbolName:@"xmark"
+      accessibilityDescription:@"Close Find Bar"];
     self.previousButton.image = [NSImage imageWithSystemSymbolName:@"chevron.left"
       accessibilityDescription:@"Select Previous Match"];
     self.nextButton.image = [NSImage imageWithSystemSymbolName:@"chevron.right"
@@ -4307,9 +4332,12 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
       accessibilityDescription:@"Replace Next Match"];
     self.replaceButton.image = [NSImage imageWithSystemSymbolName:@"arrow.triangle.2.circlepath"
       accessibilityDescription:@"Replace All Matches"];
-    for (NSButton *button in @[self.previousButton, self.nextButton, self.replaceNextButton,
-                               self.replaceButton]) applySidebarIconConfiguration(button);
+    for (NSButton *button in @[self.closeButton, self.previousButton, self.nextButton,
+                               self.replaceNextButton, self.replaceButton])
+      applySidebarIconConfiguration(button);
   }
+  self.closeButton.accessibilityLabel = @"Close Find Bar";
+  self.closeButton.toolTip = @"Close Find Bar";
   self.previousButton.accessibilityLabel = @"Select Previous Match";
   self.nextButton.accessibilityLabel = @"Select Next Match";
   self.replaceNextButton.accessibilityLabel = @"Replace Next Match";
@@ -4370,26 +4398,27 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
       self.lineField.hidden = YES;
     }
     if (self.mode == 3) {
-      const CGFloat rowHeight = 24.0;
-      const CGFloat buttonWidth = 24.0;
+      const CGFloat rowHeight = NimculusFindBarRowHeight;
+      const CGFloat rowPadding = NimculusFindBarRowPadding;
+      const CGFloat buttonWidth = NimculusControlHit;
       const CGFloat gap = 3.0;
       CGFloat x = padding;
       const CGFloat rightControls = 7.0 * (buttonWidth + gap) + 54.0 + buttonWidth;
       const CGFloat queryWidth = MAX(140.0, width - rightControls - padding * 2.0);
       self.queryField.hidden = NO;
-      self.queryField.frame = NSMakeRect(x, padding, queryWidth, controlHeight);
+      self.queryField.frame = NSMakeRect(x, rowPadding, queryWidth, rowHeight);
       x = NSMaxX(self.queryField.frame) + gap;
       NSArray *buttons = @[self.caseButton, self.wordButton, self.regexButton,
                            self.filtersButton, self.replaceToggleButton,
                            self.previousButton, self.nextButton];
       for (NSButton *button in buttons) {
         button.hidden = NO;
-        button.frame = NSMakeRect(x, padding, buttonWidth, rowHeight);
+        button.frame = NSMakeRect(x, rowPadding, buttonWidth, rowHeight);
         x += buttonWidth + gap;
       }
-      self.matchLabel.frame = NSMakeRect(x, padding, 50.0, rowHeight);
+      self.matchLabel.frame = NSMakeRect(x, rowPadding, 50.0, rowHeight);
       x += 54.0;
-      self.closeButton.frame = NSMakeRect(width - padding - buttonWidth, padding,
+      self.closeButton.frame = NSMakeRect(width - padding - buttonWidth, rowPadding,
         buttonWidth, rowHeight);
       self.closeButton.hidden = NO;
       self.ignoredButton.hidden = YES;
@@ -4438,10 +4467,10 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
     return;
   }
   if (self.mode == 0) {
-    const CGFloat rowHeight = NimculusRowHeight - NimculusSpace2;
-    const CGFloat buttonWidth = 24.0;
+    const CGFloat rowHeight = NimculusFindBarRowHeight;
+    const CGFloat buttonWidth = NimculusControlHit;
     const CGFloat gap = 3.0;
-    const CGFloat rowPadding = (NimculusRowHeight - rowHeight) / 2.0;
+    const CGFloat rowPadding = NimculusFindBarRowPadding;
     CGFloat x = rowPadding;
     const CGFloat rightControls = 6.0 * (buttonWidth + gap) + 54.0 + buttonWidth;
     const CGFloat queryWidth = MAX(140.0, width - rightControls - padding * 2.0);
@@ -4449,8 +4478,8 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
     self.matchLabel.hidden = NO;
     self.lineField.hidden = YES;
     self.queryField.frame = NSMakeRect(x, rowPadding, queryWidth, rowHeight);
-    self.matchLabel.frame = NSMakeRect(MAX(0.0, queryWidth - 58.0), 1.0,
-      56.0, MAX(1.0, rowHeight - 2.0));
+    self.matchLabel.frame = NSMakeRect(MAX(0.0, queryWidth - 58.0), 0.0,
+      56.0, rowHeight);
     x = NSMaxX(self.queryField.frame) + gap;
     NSArray *buttons = @[self.caseButton, self.wordButton, self.regexButton,
                          self.replaceToggleButton, self.previousButton, self.nextButton];
@@ -4459,7 +4488,7 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
       button.frame = NSMakeRect(x, rowPadding, buttonWidth, rowHeight);
       x += buttonWidth + gap;
     }
-    self.closeButton.frame = NSMakeRect(width - padding - buttonWidth, padding,
+    self.closeButton.frame = NSMakeRect(width - padding - buttonWidth, rowPadding,
       buttonWidth, rowHeight);
     self.closeButton.hidden = NO;
     self.filtersButton.hidden = self.ignoredButton.hidden = YES;

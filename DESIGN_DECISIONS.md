@@ -1,5 +1,27 @@
 # Design Decisions
 
+## UI-095: Use Zed search glyph geometry and one find-row baseline
+
+The find bar's three search-option controls now use the vendored Zed SVG
+geometry for Case Sensitivity (`Aa`), Whole Words (a word with its boundary
+bar), and Regular Expressions (the dot-and-asterisk mark). Each control uses
+Zed's exact tooltip and accessibility label: `Match Case Sensitivity`,
+`Match Whole Words`, and `Use Regular Expressions`. This keeps the visual
+meaning discoverable without relying on the previous ambiguous `Abc`, list,
+or braces glyphs.
+
+The existing native chrome styling remains the state owner: inactive icons use
+the foreground role, while active icons use the accent role and a rounded,
+accent-tinted fill in both light and dark themes. The document and workspace
+find rows now share `NimculusFindBarRowHeight` and
+`NimculusFindBarRowPadding`; the query field, match count, previous/next
+controls, option toggles, and close button therefore share one vertical row
+metric instead of using control-specific offsets.
+
+The SVGs are embedded as template `NSImage` data rather than added as bundle
+resources, preserving the existing macOS packaging contract while retaining
+the reference artwork's geometry.
+
 ## UI-094: Make editor chrome container-owned and overlay-safe
 
 The macOS editor now treats the pane rectangle as the owner of all document
