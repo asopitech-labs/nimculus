@@ -339,7 +339,12 @@ suite "macOS platform contract":
     check platformEditorUtf16OffsetAtPoint(48.0, 512.0) == 0'u32
     check platformEditorByteOffsetAtPoint(10000.0, 512.0) == 14'u32
     check platformEditorUtf16OffsetAtPoint(10000.0, 512.0) == 6'u32
-    check platformEditorByteOffsetAtPoint(48.0, 490.0) == 15'u32
+    # Pick a point just below the fixed-height first row. The earlier 490pt
+    # literal only crossed that boundary when the editor happened to use a
+    # 15pt line height; the native contract now derives it from the active
+    # font metrics.
+    let nextRowY = 512.0 - platformEditorLineHeight() - 6.0
+    check platformEditorByteOffsetAtPoint(48.0, nextRowY) == 15'u32
     let nulText = "A\0B"
     platformSetEditorText(nulText.cstring, uint32(nulText.len))
     check platformEditorTextUtf8Length() == uint32(nulText.len)
@@ -438,6 +443,9 @@ suite "macOS platform contract":
 
   test "Files sidebar dispatches a native context-menu item":
     check platformValidateSidebarContextDispatch()
+
+  test "Files sidebar reapplies icons, colors, and guides after line metadata":
+    check platformValidateSidebarPresentation()
 
   test "Git sidebar exposes Changes History and Branches tabs":
     check platformValidateGitSidebarTabs()

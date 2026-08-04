@@ -62,6 +62,7 @@ proc platformValidateWorkspaceToolbar*(): bool {.importc: "nimculus_platform_val
 proc platformValidateActivityBar*(): bool {.importc: "nimculus_platform_validate_activity_bar", cdecl.}
 proc platformValidateSidebarScrollContainer*(): bool {.importc: "nimculus_platform_validate_sidebar_scroll_container", cdecl.}
 proc platformValidateSidebarBounds*(): bool {.importc: "nimculus_platform_validate_sidebar_bounds", cdecl.}
+proc platformValidateSidebarPresentation*(): bool {.importc: "nimculus_platform_validate_sidebar_presentation", cdecl.}
 proc platformValidateSecondaryHighlightIsolation*(): bool {.importc: "nimculus_platform_validate_secondary_highlight_isolation", cdecl.}
 proc platformMoveItemToTrash*(path: cstring): bool {.importc: "nimculus_platform_move_item_to_trash", cdecl.}
 proc platformPromptWorkspaceFileAtContext*(path: cstring,

@@ -153,7 +153,8 @@ proc boundaryPath(path: string): string =
   for index in countdown(missing.high, 0):
     result = result / missing[index]
 
-proc listChildrenAt*(workspace: Workspace, root: string; relative = ""): seq[WorkspaceEntry] =
+proc listChildrenAt*(workspace: Workspace, root: string; relative = "";
+    includeIgnored = false): seq[WorkspaceEntry] =
   let directory = root / relative
   if not dirExists(directory): return
   for kind, path in walkDir(directory, relative = false):
@@ -163,7 +164,7 @@ proc listChildrenAt*(workspace: Workspace, root: string; relative = ""): seq[Wor
       kind: if kind == pcDir: WorkspaceFileKind.directory else: WorkspaceFileKind.file,
       ignored: ignored)
     workspace.entries[root / relativePath] = entry
-    if not ignored: result.add(entry)
+    if includeIgnored or not ignored: result.add(entry)
 
 proc listChildren*(workspace: Workspace, relative = ""): seq[WorkspaceEntry] =
   workspace.listChildrenAt(workspace.root, relative)

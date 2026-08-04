@@ -7200,3 +7200,36 @@ definition actions, including each split pane's own cursor-driven updates.
 sub-line motion, horizontal scrolling, native scrollbars, and independent
 split-pane state. A subsequent cursor movement restores the cursor to the
 visible viewport when needed.
+
+## UI-082: Clone Zed's Project Panel presentation in the native Files dock
+
+**Context.** The Files tree already owned selection, expansion, keyboard
+navigation, context menus, reveal, and drag dispatch, but its presentation
+used plain text markers, hid ignored entries, applied a heavy accent selection,
+and kept all header actions visible. Zed's vendored Project Panel and One theme
+are the source of truth for this surface.
+
+**Decision.** Keep the existing row-index bridge and attach four style bits to
+each macOS Files line: ignored, added, modified, and deleted. The asynchronous
+Git porcelain result is reused for status colors, with Zed's precedence of
+deleted, modified, added, then ignored. Files requests ignored entries from the
+existing workspace ignore stack, while search and enumeration retain their
+previous filtered behavior. The native presenter renders folder/file SF
+Symbols, strips textual indentation into 20pt paragraph indents, paints
+`border.variant` guide lines, and uses a 24pt comfortable row rhythm. Selected
+and hovered rows use `element.selected` and `element.hover`; file status colors
+and `ignored` use the One Light/Dark semantic values.
+
+The header uses the project root name with a folder icon. Its existing actions
+remain available, but are revealed only while the Files header is hovered.
+The workspace UI keeps its 240pt default dock size so the interaction boundary
+and persisted resize behavior remain unchanged.
+
+**Evidence.** Values and behavior were read from
+`references/zed/crates/project_panel/src/project_panel.rs`,
+`references/zed/crates/project_panel/src/project_panel_settings.rs`,
+`references/zed/assets/settings/default.json`,
+`references/zed/assets/themes/one/one.json`,
+`references/zed/crates/theme/src/icon_theme.rs`, and the vendored
+`references/zed/assets/icons/file_icons/` set. Nimble format, lint, test, and
+build gates are required before the native launch smoke check.

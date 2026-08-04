@@ -885,6 +885,44 @@ when defined(macosx):
   var editorExtensionPackageEntry: ExtensionCatalogEntry
   var editorExtensionPackagePath = ""
 
+when defined(macosx):
+  const
+    SidebarLineFlagIgnored = 1
+    SidebarLineFlagAdded = 2
+    SidebarLineFlagModified = 4
+    SidebarLineFlagDeleted = 8
+
+  proc workspaceGitStatusFlag(entry: WorkspaceEntry): int32 =
+    ## Project-panel labels follow Zed's precedence: conflict/deleted,
+    ## modified, added/untracked, then ignored. The source entries are the
+    ## existing asynchronous porcelain result, so Files never runs Git on
+    ## the UI thread just to paint a row.
+    if entry.relativePath.len == 0:
+      return 0'i32
+    let candidate = entry.relativePath.replace("\\", "/")
+    var best = 0
+    let statusRootMatches = editorGitStatusRepository == nil or entry.rootPath.len == 0 or
+      normalizedPath(entry.rootPath) == normalizedPath(editorGitStatusRepository.root)
+    if statusRootMatches:
+      for status in editorGitStatusSourceEntries:
+        let statusPath = status.path.replace("\\", "/")
+        let matches = statusPath == candidate or
+          (entry.kind == WorkspaceFileKind.directory and
+            statusPath.startsWith(candidate & "/"))
+        if not matches: continue
+        let flag = if status.conflict or status.indexStatus in {'U', 'A'} and
+            status.worktreeStatus in {'U', 'D'} or status.worktreeStatus == 'D':
+          SidebarLineFlagDeleted
+        elif status.indexStatus in {'M', 'R'} or status.worktreeStatus == 'M':
+          SidebarLineFlagModified
+        elif status.indexStatus in {'A', 'C', '?'} or status.worktreeStatus == '?':
+          SidebarLineFlagAdded
+        else: 0
+        best = max(best, flag)
+    if best > 0: return int32(best)
+    if entry.ignored: return int32(SidebarLineFlagIgnored)
+    0'i32
+
 proc resetEditorTransientState() =
   ## Tab switches must preserve their cursor/selection/viewport. Only reset
   ## interaction and derived UI state which is not owned by an EditorTab.
@@ -3662,11 +3700,14 @@ when defined(macosx):
         completedJob.result.exitCode != 0:
       return
     let entries = parseStatus(completedJob.result.output)
+    editorGitStatusSourceEntries = entries
     var conflicts = 0
     for entry in entries:
       if entry.conflict: inc conflicts
     editorViewState.statusMessage = "Git: " & $entries.len &
       " changed, " & $conflicts & " conflict(s)"
+    if activeWorkspace != nil and editorSidebarMode == sidebarFiles:
+      refreshWorkspacePreview()
 
   proc pollNativeGitBranch() =
     if editorGitBranchJob == nil or not editorGitBranchJob.poll(): return
@@ -3822,6 +3863,9 @@ proc openActiveWorkspace(path: string) =
     workspaceQuickOpenJob = nil
     activeWorkspace = openWorkspace(path)
     when defined(macosx):
+      editorGitStatusSourceEntries.setLen(0)
+      editorGitStatusRepository = nil
+    when defined(macosx):
       platformSetWorkspaceOpen(true)
       # Keep the center entry surface until the first document opens. The
       # native implementation leaves the workspace Files tree visible beside
@@ -3855,6 +3899,8 @@ proc refreshWorkspacePreview() =
     workspacePreviewMode = "tree"
     workspacePreviewEntries.setLen(0)
     var lines = @["Files", "────────"]
+    when defined(macosx):
+      var lineItems: seq[int32] = @[-1'i32, -1'i32]
     # The active document is the presentation source of truth. A watcher
     # refresh can happen after the document callback and before
     # workspaceRevealPath is updated, so derive a canonical target here too.
@@ -3880,7 +3926,7 @@ proc refreshWorkspacePreview() =
       let candidate = canonicalOpenPath(path)
       revealTarget == candidate or revealTarget.startsWith(candidate / "")
     proc appendDirectory(root, relative: string, depth: int) =
-      var children = activeWorkspace.listChildrenAt(root, relative)
+      var children = activeWorkspace.listChildrenAt(root, relative, includeIgnored = true)
       children.sort(proc(a, b: WorkspaceEntry): int =
         let aPriority = if containsReveal(a.path): 0 else: 1
         let bPriority = if containsReveal(b.path): 0 else: 1
@@ -3905,6 +3951,9 @@ proc refreshWorkspacePreview() =
         let marker = if entry.kind == WorkspaceFileKind.directory:
           if expanded: "▾" else: "▸" else: icon
         lines.add(repeat("  ", depth) & marker & " " & relativeName)
+        when defined(macosx):
+          lineItems.add(int32(workspacePreviewEntries.high) or
+            (workspaceGitStatusFlag(entry) shl 24))
         if expanded:
           appendDirectory(root, entry.relativePath, depth + 1)
     var roots = activeWorkspace.rootPaths
@@ -3913,12 +3962,19 @@ proc refreshWorkspacePreview() =
       let bPriority = if containsReveal(b): 0 else: 1
       result = cmp(aPriority, bPriority)
       if result == 0: result = cmp(a, b))
+    if roots.len > 0:
+      let projectName = if roots[0].extractFilename.len > 0:
+        roots[0].extractFilename else: roots[0]
+      lines[0] = projectName
     for root in roots:
       let rootName = if root.extractFilename.len > 0: root.extractFilename else: root
       let expanded = root in workspaceExpandedDirectories
       workspacePreviewEntries.add(WorkspaceEntry(path: root, relativePath: "",
         kind: WorkspaceFileKind.directory))
       lines.add((if expanded: "▾" else: "▸") & " " & rootName)
+      when defined(macosx):
+        lineItems.add(int32(workspacePreviewEntries.high) or
+          (workspaceGitStatusFlag(workspacePreviewEntries[^1]) shl 24))
       if expanded:
         appendDirectory(root, "", 1)
     let text = lines.join("\n")
@@ -3950,6 +4006,9 @@ proc refreshWorkspacePreview() =
         editorSidebarMode = sidebarFiles
         platformSetEditorSidebar(text.cstring, uint32(text.len),
           uint32(workspacePreviewEntries.len), uint32(sidebarFiles))
+        when defined(macosx):
+          platformSetEditorSidebarLineItems(unsafeAddr lineItems[0],
+            uint32(lineItems.len))
         if revealedIndex >= 0:
           # The generic dock selection may still point at the workspace root
           # after a list refresh. The active document is the stronger source

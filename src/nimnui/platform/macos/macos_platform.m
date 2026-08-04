@@ -452,7 +452,9 @@ static NSColor *themeTokenFallback(NSString *key, NSColor *fallback) {
     @"editorActiveLine": @"#ebebecbf",
     @"scrollbarThumb": @"#383a414c", @"scrollbarHover": @"#dfdfe0",
     @"lineNumber": @"#b4b4bb", @"activeLineNumber": @"#44454b", @"hoverLineNumber": @"#61616b",
-    @"caret": @"#5c78e2", @"statusBar": @"#dcdcdd", @"titleBar": @"#dcdcdd"
+    @"caret": @"#5c78e2", @"statusBar": @"#dcdcdd", @"titleBar": @"#dcdcdd",
+    @"added": @"#27a657", @"modified": @"#d3b020", @"deleted": @"#e06c76",
+    @"ignored": @"#7e8086"
   };
   NSDictionary *darkValues = @{
     @"chromeBg": @"#3b414d", @"tabBar": @"#2f343e", @"tabActive": @"#282c33",
@@ -463,7 +465,9 @@ static NSColor *themeTokenFallback(NSString *key, NSColor *fallback) {
     @"editorActiveLine": @"#2f343ebf",
     @"scrollbarThumb": @"#c8ccd44c", @"scrollbarHover": @"#363c46",
     @"lineNumber": @"#4e5a5f", @"activeLineNumber": @"#d0d4da", @"hoverLineNumber": @"#acb0b4",
-    @"caret": @"#74ade8", @"statusBar": @"#3b414d", @"titleBar": @"#3b414d"
+    @"caret": @"#74ade8", @"statusBar": @"#3b414d", @"titleBar": @"#3b414d",
+    @"added": @"#27a657", @"modified": @"#d3b020", @"deleted": @"#e06c76",
+    @"ignored": @"#878a98"
   };
   NSString *value = (light ? lightValues : darkValues)[key];
   return value ? themeHexColor(value, fallback) : fallback;
@@ -604,6 +608,139 @@ static NSString *sidebarContentText(NSString *text) {
     contentStart = secondSeparator + 1;
   }
   return contentStart < text.length ? [text substringFromIndex:contentStart] : @"";
+}
+
+static NSUInteger sidebarItemFromLineValue(int32_t value) {
+  if (value < 0) return NSNotFound;
+  return (NSUInteger)((uint32_t)value & 0x00ffffffu);
+}
+
+static uint32_t sidebarFlagsFromLineValue(int32_t value) {
+  if (value < 0) return 0;
+  return ((uint32_t)value >> 24) & 0x0fu;
+}
+
+static uint32_t sidebarFlagsForContentLine(NSUInteger line) {
+  NSUInteger originalLine = line + NimculusSidebarHeaderLineCount;
+  if (!g_editor_sidebar_line_items || originalLine >= g_editor_sidebar_line_item_count) {
+    return 0;
+  }
+  return sidebarFlagsFromLineValue(g_editor_sidebar_line_items[originalLine]);
+}
+
+static NSColor *sidebarLabelColor(uint32_t flags) {
+  if (flags & 8u) {
+    return themeRoleColor(@"deleted", themeHexColor(@"#e06c76", [NSColor systemRedColor]));
+  }
+  if (flags & 4u) {
+    return themeRoleColor(@"modified", themeHexColor(@"#d3b020", [NSColor systemYellowColor]));
+  }
+  if (flags & 2u) {
+    return themeRoleColor(@"added", themeHexColor(@"#27a657", [NSColor systemGreenColor]));
+  }
+  if (flags & 1u) {
+    return themeRoleColor(@"ignored", themeHexColor(@"#7e8086", [NSColor secondaryLabelColor]));
+  }
+  return themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground, [NSColor labelColor]));
+}
+
+static NSUInteger sidebarIconTokenLength(NSString *line) {
+  if ([line hasPrefix:@"▾"] || [line hasPrefix:@"▸"]) return 1;
+  for (NSString *token in @[@"{}", @"◆", @"≡", @"⚙", @"≋", @"R", @"T", @"J",
+      @"P", @"C", @"H", @"$", @"◇", @"#", @"·", @"•"]) {
+    if ([line hasPrefix:token]) return token.length;
+  }
+  return 0;
+}
+
+static BOOL g_sidebar_debug_logged = NO;
+
+static BOOL sidebarDebugEnabled(void) {
+  const char *enabled = getenv("NIMCULUS_SIDEBAR_DEBUG");
+  return enabled && strcmp(enabled, "1") == 0;
+}
+
+static NSString *sidebarFileSymbolForLine(NSString *line, NSUInteger tokenLength) {
+  if (tokenLength == 0 || line.length <= tokenLength) return @"doc";
+  NSString *filename = [line substringFromIndex:tokenLength];
+  filename = [filename stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+  NSString *lower = filename.lowercaseString;
+  NSString *extension = lower.pathExtension;
+  if ([filename hasPrefix:@"."] && extension.length == 0) extension = lower;
+  if ([extension isEqualToString:@"md"] || [extension isEqualToString:@"markdown"]) {
+    return @"doc.richtext";
+  }
+  if ([extension isEqualToString:@"json"] || [extension isEqualToString:@"jsonc"]) {
+    return @"curlybraces";
+  }
+  if ([extension isEqualToString:@"png"] || [extension isEqualToString:@"jpg"] ||
+      [extension isEqualToString:@"jpeg"] || [extension isEqualToString:@"gif"] ||
+      [extension isEqualToString:@"svg"] || [extension isEqualToString:@"webp"]) {
+    return @"photo";
+  }
+  if ([extension isEqualToString:@"toml"] || [extension isEqualToString:@"yaml"] ||
+      [extension isEqualToString:@"yml"] || [extension isEqualToString:@"ini"]) {
+    return @"gearshape";
+  }
+  if ([extension isEqualToString:@"sh"] || [extension isEqualToString:@"zsh"] ||
+      [extension isEqualToString:@"fish"]) {
+    return @"terminal";
+  }
+  if ([extension isEqualToString:@"txt"] || [extension isEqualToString:@"log"]) {
+    return @"doc.plaintext";
+  }
+  if ([extension isEqualToString:@"nim"] || [extension isEqualToString:@"rs"] ||
+      [extension isEqualToString:@"ts"] || [extension isEqualToString:@"tsx"] ||
+      [extension isEqualToString:@"js"] || [extension isEqualToString:@"jsx"] ||
+      [extension isEqualToString:@"py"] || [extension isEqualToString:@"c"] ||
+      [extension isEqualToString:@"h"] || [extension isEqualToString:@"cpp"] ||
+      [extension isEqualToString:@"hpp"] || [extension isEqualToString:@"html"] ||
+      [extension isEqualToString:@"css"] || [extension isEqualToString:@"xml"]) {
+    return @"chevron.left.forwardslash.chevron.right";
+  }
+  return @"doc";
+}
+
+static NSImage *sidebarSymbolImage(NSString *symbol) {
+  if (!symbol || symbol.length == 0) return nil;
+  if (@available(macOS 11.0, *)) {
+    NSImage *image = [NSImage imageWithSystemSymbolName:symbol
+      accessibilityDescription:nil];
+    if (!image) return nil;
+    image = [image imageWithSymbolConfiguration:
+      [NSImageSymbolConfiguration configurationWithPointSize:13.0 weight:NSFontWeightRegular]];
+    image.template = YES;
+    return image;
+  }
+  return nil;
+}
+
+static void logSidebarPresentationDebug(NSArray<NSString *> *displayLines,
+                                        NSArray<NSNumber *> *depths) {
+  if (g_sidebar_debug_logged || !sidebarDebugEnabled() ||
+      g_editor_sidebar_mode != 1 || g_editor_sidebar_line_item_count == 0) return;
+  g_sidebar_debug_logged = YES;
+  NSMutableString *rows = [NSMutableString string];
+  for (NSUInteger line = 0; line < displayLines.count; line++) {
+    NSString *content = displayLines[line];
+    NSUInteger tokenLength = sidebarIconTokenLength(content);
+    NSString *symbol = tokenLength > 0 && [content hasPrefix:@"▾"] ? @"folder.fill" :
+      (tokenLength > 0 && [content hasPrefix:@"▸"] ? @"folder" :
+       (tokenLength > 0 ? sidebarFileSymbolForLine(content, tokenLength) : @"<none>"));
+    BOOL resolved = tokenLength > 0 && sidebarSymbolImage(symbol) != nil;
+    if (line < 32) {
+      [rows appendFormat:@" row=%lu depth=%lu flags=0x%x symbol=%@ image=%@;",
+        (unsigned long)line, (unsigned long)depths[line].unsignedIntegerValue,
+        sidebarFlagsForContentLine(line), symbol, resolved ? @"ok" : @"nil"];
+    }
+  }
+  if (displayLines.count > 32) {
+    [rows appendFormat:@" …(%lu more rows)",
+      (unsigned long)(displayLines.count - 32)];
+  }
+  NSLog(@"Nimculus sidebar debug mode=%u contentLines=%lu lineItems=%u%@",
+    g_editor_sidebar_mode, (unsigned long)displayLines.count,
+    g_editor_sidebar_line_item_count, rows);
 }
 
 static NSString *sidebarHeaderTitle(void) {
@@ -3154,8 +3291,11 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 
 @interface NimculusOutlineOverlay : NSTextView
 @property(nonatomic) NSUInteger pressedSidebarLine;
+@property(nonatomic) NSUInteger hoveredSidebarLine;
 @property(nonatomic) BOOL hasPressedSidebarLine;
 @property(nonatomic) BOOL suppressMouseUpOpen;
+@property(nonatomic, retain) NSTrackingArea *sidebarTrackingArea;
+- (NSUInteger)sidebarItemForLine:(NSUInteger)line;
 @end
 
 @interface NimculusLineNumberOverlay : NSView
@@ -3212,8 +3352,11 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @end
 
 @interface NimculusSidebarHeader : NSStackView
+@property(nonatomic, retain) NSImageView *titleIcon;
 @property(nonatomic, retain) NSTextField *titleLabel;
 @property(nonatomic, retain) NSStackView *actionStack;
+@property(nonatomic) BOOL headerHovering;
+@property(nonatomic, retain) NSTrackingArea *headerTrackingArea;
 - (void)setTitle:(NSString *)title;
 @end
 
@@ -4049,19 +4192,64 @@ static void dismissExternalChangePanel(const char *command) {
 @end
 
 @implementation NimculusOutlineOverlay
+- (void)dealloc {
+  [_sidebarTrackingArea release];
+  [super dealloc];
+}
 - (BOOL)acceptsFirstResponder { return YES; }
 - (NSView *)hitTest:(NSPoint)point {
   return NSPointInRect(point, self.bounds) ? self : nil;
 }
+- (void)updateTrackingAreas {
+  [super updateTrackingAreas];
+  if (self.sidebarTrackingArea) {
+    [self removeTrackingArea:self.sidebarTrackingArea];
+    self.sidebarTrackingArea = nil;
+  }
+  self.sidebarTrackingArea = [[[NSTrackingArea alloc] initWithRect:NSZeroRect
+    options:NSTrackingMouseMoved | NSTrackingMouseEnteredAndExited |
+      NSTrackingActiveInKeyWindow | NSTrackingInVisibleRect owner:self userInfo:nil]
+    autorelease];
+  [self addTrackingArea:self.sidebarTrackingArea];
+}
+- (NSUInteger)sidebarLineAtPoint:(NSPoint)point {
+  NSUInteger index = [self characterIndexForInsertionAtPoint:point];
+  NSUInteger line = 0;
+  for (NSUInteger offset = 0; offset < MIN(index, self.string.length); offset++) {
+    if ([self.string characterAtIndex:offset] == '\n') line++;
+  }
+  return line;
+}
+- (void)mouseMoved:(NSEvent *)event {
+  NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+  NSUInteger line = [self sidebarLineAtPoint:point];
+  NSUInteger item = [self sidebarItemForLine:line];
+  self.hoveredSidebarLine = item == NSNotFound ? NSNotFound : (NSInteger)line;
+  [self setNeedsDisplay:YES];
+}
+- (void)mouseExited:(NSEvent *)event {
+  (void)event;
+  self.hoveredSidebarLine = NSNotFound;
+  [self setNeedsDisplay:YES];
+}
 - (void)drawRect:(NSRect)dirtyRect {
-  // NSTextView draws an inactive selection with the system's pale grey,
-  // ignoring selectedTextAttributes. The project tree is normally inactive
-  // while the editor owns first responder, so paint its logical selection
-  // ourselves before text instead of using NSTextView's text selection.
   [super drawRect:dirtyRect];
+  // NSTextView paints text before this overlay's retained row state. Repaint
+  // only the hover/selection backgrounds and then redraw the affected glyphs.
+  NSMutableArray<NSNumber *> *backgroundLines = [NSMutableArray array];
+  if (self.hoveredSidebarLine != NSNotFound) {
+    [backgroundLines addObject:@(self.hoveredSidebarLine)];
+  }
   if (g_editor_sidebar_selected_index != NSNotFound &&
       g_editor_sidebar_selected_index < g_editor_outline_symbol_count) {
-    NSUInteger line = editorSidebarLineForItem(g_editor_sidebar_selected_index);
+    NSUInteger selectedLine = editorSidebarLineForItem(g_editor_sidebar_selected_index);
+    if (selectedLine != NSNotFound &&
+        ![backgroundLines containsObject:@(selectedLine)]) {
+      [backgroundLines addObject:@(selectedLine)];
+    }
+  }
+  for (NSNumber *lineNumber in backgroundLines) {
+    NSUInteger line = lineNumber.unsignedIntegerValue;
     NSUInteger start = 0;
     for (NSUInteger current = 0; current < line && start < self.string.length; current++) {
       NSRange newline = [self.string rangeOfString:@"\n" options:0
@@ -4074,33 +4262,65 @@ static void dismissExternalChangePanel(const char *command) {
       NSRange glyphRange = NSMakeRange(0, 0);
       NSRect row = [self.layoutManager lineFragmentRectForGlyphAtIndex:glyph
         effectiveRange:&glyphRange];
-      // The layout manager's fragment is anchored at the glyph top, while
-      // AppKit's inactive selection is vertically centered within the fixed
-      // 18pt line fragment. The overlay owns the full-width theme background,
-      // so use the half-line correction that keeps both presentations on the
-      // same visual row in the flipped NSTextView coordinate space.
       row.origin.y += row.size.height * 0.5;
       row.origin.x = 0.0;
       row.size.width = self.bounds.size.width;
       if (NSIntersectsRect(row, dirtyRect)) {
-        [[themeHexColor(g_theme_selection,
-          [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
-          colorWithAlphaComponent:0.56] setFill];
+        BOOL selected = g_editor_sidebar_selected_index != NSNotFound &&
+          editorSidebarLineForItem(g_editor_sidebar_selected_index) == line;
+        NSColor *background = selected
+          ? themeRoleColor(@"elementSelected", themeRoleColor(@"element", [NSColor selectedControlColor]))
+          : themeRoleColor(@"elementHover", themeRoleColor(@"element", [NSColor controlHighlightColor]));
+        [background setFill];
         NSRectFillUsingOperation(row, NSCompositingOperationSourceOver);
-
-        // AppKit paints an inactive selection after the text view's own
-        // attributes, so redraw the selected glyphs on top of our full-width
-        // theme row. This preserves keyboard/accessibility selection while
-        // keeping the filename readable when the editor owns focus.
-        NSUInteger end = start;
-        while (end < self.string.length && [self.string characterAtIndex:end] != '\n') end++;
-        NSRange selectedCharacters = NSMakeRange(start, end - start);
-        NSRange selectedGlyphs = [self.layoutManager
-          glyphRangeForCharacterRange:selectedCharacters actualCharacterRange:NULL];
-        [self.layoutManager drawGlyphsForGlyphRange:selectedGlyphs
-          atPoint:self.textContainerOrigin];
       }
     }
+  }
+  if (g_editor_sidebar_mode == 1) {
+    NSColor *guideColor = [themeRoleColor(@"borderVariant",
+      themeHexColor(g_theme_border, [NSColor separatorColor])) colorWithAlphaComponent:0.72];
+    [guideColor setFill];
+    NSUInteger lineStart = 0;
+    NSArray<NSString *> *lines = [self.string componentsSeparatedByString:@"\n"];
+    for (NSUInteger line = 0; line < lines.count; line++) {
+      // The presenter strips project indentation before laying out with a
+      // 20pt paragraph head indent. The text view string is therefore already
+      // normalized; use the paragraph style as the guide source.
+      NSRange glyphRange = NSMakeRange(0, 0);
+      NSUInteger glyph = lineStart < self.string.length
+        ? [self.layoutManager glyphIndexForCharacterAtIndex:lineStart] : NSNotFound;
+      if (glyph != NSNotFound) {
+        NSRect row = [self.layoutManager lineFragmentRectForGlyphAtIndex:glyph
+          effectiveRange:&glyphRange];
+        NSParagraphStyle *style = [self.textStorage attribute:NSParagraphStyleAttributeName
+          atIndex:lineStart effectiveRange:NULL];
+        NSUInteger depth = style ? (NSUInteger)floor(MAX(0.0, style.headIndent) / 20.0) : 0;
+        for (NSUInteger level = 1; level <= depth; level++) {
+          NSRect guide = NSMakeRect(self.textContainerInset.width + level * 20.0 - 1.0,
+            row.origin.y + row.size.height * 0.5, 1.0, row.size.height * 0.5);
+          if (NSIntersectsRect(guide, dirtyRect)) NSRectFill(guide);
+        }
+      }
+      NSRange newline = [self.string rangeOfString:@"\n" options:0
+        range:NSMakeRange(lineStart, self.string.length - lineStart)];
+      lineStart = newline.location == NSNotFound ? self.string.length : NSMaxRange(newline);
+    }
+  }
+  for (NSNumber *lineNumber in backgroundLines) {
+    NSUInteger line = lineNumber.unsignedIntegerValue;
+    NSUInteger start = 0;
+    for (NSUInteger current = 0; current < line && start < self.string.length; current++) {
+      NSRange newline = [self.string rangeOfString:@"\n" options:0
+        range:NSMakeRange(start, self.string.length - start)];
+      if (newline.location == NSNotFound) { start = self.string.length; break; }
+      start = NSMaxRange(newline);
+    }
+    if (start >= self.string.length) continue;
+    NSUInteger end = start;
+    while (end < self.string.length && [self.string characterAtIndex:end] != '\n') end++;
+    NSRange glyphs = [self.layoutManager glyphRangeForCharacterRange:
+      NSMakeRange(start, end - start) actualCharacterRange:NULL];
+    [self.layoutManager drawGlyphsForGlyphRange:glyphs atPoint:self.textContainerOrigin];
   }
 }
 - (NSUInteger)sidebarItemForLine:(NSUInteger)line {
@@ -4109,8 +4329,9 @@ static void dismissExternalChangePanel(const char *command) {
   if (g_editor_sidebar_line_items) {
     if (originalLine >= g_editor_sidebar_line_item_count) return NSNotFound;
     int32_t item = g_editor_sidebar_line_items[originalLine];
-    return item < 0 || (uint32_t)item >= g_editor_outline_symbol_count
-      ? NSNotFound : (NSUInteger)item;
+    NSUInteger decoded = sidebarItemFromLineValue(item);
+    return decoded == NSNotFound || decoded >= g_editor_outline_symbol_count
+      ? NSNotFound : decoded;
   }
   NSUInteger item = line;
   return item < g_editor_outline_symbol_count ? item : NSNotFound;
@@ -4899,6 +5120,13 @@ static NSColor *activeTabSurfaceColor(void) {
   self.spacing = NimculusSpace2;
   self.edgeInsets = NSEdgeInsetsMake(0.0, NimculusSpace2, 0.0, NimculusSpace2);
   self.wantsLayer = YES;
+  self.headerHovering = NO;
+  self.titleIcon = [[[NSImageView alloc] initWithFrame:NSZeroRect] autorelease];
+  self.titleIcon.imageScaling = NSImageScaleProportionallyDown;
+  self.titleIcon.translatesAutoresizingMaskIntoConstraints = NO;
+  [self.titleIcon.widthAnchor constraintEqualToConstant:16.0].active = YES;
+  [self.titleIcon.heightAnchor constraintEqualToConstant:16.0].active = YES;
+  [self addArrangedSubview:self.titleIcon];
   self.titleLabel = [NSTextField labelWithString:@""];
   self.titleLabel.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold];
   self.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
@@ -4922,21 +5150,60 @@ static NSColor *activeTabSurfaceColor(void) {
   [self setTitle:@""];
   return self;
 }
-- (void)dealloc { [_titleLabel release]; [_actionStack release]; [super dealloc]; }
+- (void)dealloc {
+  [_titleIcon release];
+  [_titleLabel release];
+  [_actionStack release];
+  [_headerTrackingArea release];
+  [super dealloc];
+}
+- (void)updateTrackingAreas {
+  [super updateTrackingAreas];
+  if (self.headerTrackingArea) {
+    [self removeTrackingArea:self.headerTrackingArea];
+    self.headerTrackingArea = nil;
+  }
+  self.headerTrackingArea = [[[NSTrackingArea alloc] initWithRect:NSZeroRect
+    options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow |
+      NSTrackingInVisibleRect owner:self userInfo:nil] autorelease];
+  [self addTrackingArea:self.headerTrackingArea];
+}
+- (void)mouseEntered:(NSEvent *)event {
+  (void)event;
+  self.headerHovering = YES;
+  self.actionStack.hidden = NO;
+  [self setNeedsLayout:YES];
+}
+- (void)mouseExited:(NSEvent *)event {
+  (void)event;
+  self.headerHovering = NO;
+  self.actionStack.hidden = g_editor_sidebar_mode == 1;
+  [self setNeedsLayout:YES];
+}
 - (void)setTitle:(NSString *)title {
   self.titleLabel.stringValue = title.length > 0 ? title : @"Panel";
   self.titleLabel.toolTip = self.titleLabel.stringValue;
   self.titleLabel.accessibilityLabel = self.titleLabel.stringValue;
+  self.titleIcon.hidden = g_editor_sidebar_mode != 1;
+  if (!self.titleIcon.hidden && @available(macOS 11.0, *)) {
+    self.titleIcon.image = [[NSImage imageWithSystemSymbolName:@"folder"
+      accessibilityDescription:@"Project folder"] imageWithSymbolConfiguration:
+      [NSImageSymbolConfiguration configurationWithPointSize:13.0 weight:NSFontWeightRegular]];
+    self.titleIcon.image.template = YES;
+    self.titleIcon.contentTintColor = themeRoleColor(@"textMuted",
+      themeRoleColor(@"fgMuted", themeHexColor(g_theme_foreground, [NSColor labelColor])));
+  }
+  self.actionStack.hidden = g_editor_sidebar_mode == 1 && !self.headerHovering;
   self.titleLabel.textColor = themeRoleColor(@"fgPrimary",
     themeHexColor(g_theme_foreground, [NSColor labelColor]));
   [self setNeedsLayout:YES];
 }
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
-  [themeRoleColor(@"chromeBg", themeHexColor(g_theme_background,
+  [themeRoleColor(@"panel", themeHexColor(g_theme_background,
     [NSColor windowBackgroundColor])) setFill];
   NSRectFill(self.bounds);
-  [themeRoleColor(@"border", themeHexColor(g_theme_border,
+  [themeRoleColor(@"borderVariant", themeHexColor(g_theme_border,
     [NSColor separatorColor])) setFill];
   NSRectFill(NSMakeRect(0.0, MAX(0.0, self.bounds.size.height - 1.0),
     self.bounds.size.width, 1.0));
@@ -5960,52 +6227,90 @@ static NimculusOutlineOverlay *outlineOverlayForView(NSView *view) {
 // rendering the workspace as an editor-sized block of plain text.
 static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
   if (!outline) return;
-  // The Files/Git tree commonly remains visible while the editor owns first
-  // responder. Use the active theme for its retained selection instead of
-  // AppKit's high-contrast inactive-text selection, which otherwise turns an
-  // active project row into a bright white strip.
+  // Zed's Project Panel uses the semantic element colors for retained focus;
+  // it does not turn a selected row into an accent-colored command surface.
   outline.selectedTextAttributes = @{
-    NSBackgroundColorAttributeName: [themeHexColor(g_theme_selection,
-      [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
-      colorWithAlphaComponent:0.76],
-    NSForegroundColorAttributeName: themeHexColor(g_theme_foreground,
-      [NSColor colorWithCalibratedWhite:0.93 alpha:1.0])
+    NSBackgroundColorAttributeName: themeRoleColor(@"elementSelected",
+      themeRoleColor(@"element", [NSColor selectedControlColor])),
+    NSForegroundColorAttributeName: themeRoleColor(@"fgPrimary",
+      themeHexColor(g_theme_foreground, [NSColor labelColor]))
   };
-  NSString *text = sidebarContentText(g_editor_outline_text ?: @"");
-  NSColor *foreground = themeHexColor(g_theme_foreground,
-    [NSColor colorWithCalibratedWhite:0.84 alpha:1.0]);
+  NSString *rawText = sidebarContentText(g_editor_outline_text ?: @"");
+  NSArray<NSString *> *rawLines = [rawText componentsSeparatedByString:@"\n"];
+  NSMutableArray<NSString *> *displayLines = [NSMutableArray arrayWithCapacity:rawLines.count];
+  NSMutableArray<NSNumber *> *depths = [NSMutableArray arrayWithCapacity:rawLines.count];
+  for (NSString *rawLine in rawLines) {
+    NSString *displayLine = rawLine;
+    NSUInteger depth = 0;
+    if (g_editor_sidebar_mode == 1) {
+      NSUInteger leading = 0;
+      while (leading < rawLine.length && [rawLine characterAtIndex:leading] == ' ') leading++;
+      depth = leading / 2;
+      if (leading > 0) displayLine = [rawLine substringFromIndex:leading];
+    }
+    [displayLines addObject:displayLine];
+    [depths addObject:@(depth)];
+  }
+  NSMutableString *displayText = [[displayLines componentsJoinedByString:@"\n"] mutableCopy];
+  NSUInteger markerCursor = 0;
+  for (NSString *content in displayLines) {
+    NSUInteger tokenLength = sidebarIconTokenLength(content);
+    if (tokenLength > 0 && tokenLength <= content.length) {
+      [displayText replaceCharactersInRange:NSMakeRange(markerCursor, tokenLength)
+                                 withString:@"\uFFFC"];
+    }
+    markerCursor += content.length + 1;
+  }
+  NSString *text = [[displayText copy] autorelease];
+  [displayText release];
+  NSColor *foreground = themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
+    [NSColor labelColor]));
   NSMutableParagraphStyle *rowStyle = [[NSMutableParagraphStyle alloc] init];
   rowStyle.lineBreakMode = NSLineBreakByTruncatingTail;
-  rowStyle.minimumLineHeight = editorLineHeight();
-  rowStyle.maximumLineHeight = editorLineHeight();
+  // ProjectPanelEntrySpacing::Comfortable uses Zed's Dense ListItem spacing.
+  // Keep the native row at the same 24pt rhythm regardless of editor font
+  // settings, while the 20pt head indent remains a panel invariant.
+  rowStyle.minimumLineHeight = 24.0;
+  rowStyle.maximumLineHeight = 24.0;
   NSMutableAttributedString *presented = [[NSMutableAttributedString alloc]
     initWithString:text attributes:@{
       NSFontAttributeName: [NSFont systemFontOfSize:13.0],
-      NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.88],
+      NSForegroundColorAttributeName: foreground,
       NSParagraphStyleAttributeName: rowStyle
     }];
   NSUInteger cursor = 0;
   NSUInteger line = 0;
-  while (cursor < text.length) {
+  while (line < displayLines.count) {
     NSRange newline = [text rangeOfString:@"\n" options:0
       range:NSMakeRange(cursor, text.length - cursor)];
     NSUInteger end = newline.location == NSNotFound ? text.length : newline.location;
     NSRange range = NSMakeRange(cursor, end - cursor);
-    NSString *content = range.length > 0 ? [text substringWithRange:range] : @"";
+    NSString *content = displayLines[line];
+    NSMutableParagraphStyle *lineStyle = [rowStyle mutableCopy];
+    lineStyle.firstLineHeadIndent = depths[line].doubleValue * 20.0;
+    lineStyle.headIndent = depths[line].doubleValue * 20.0;
+    [presented addAttribute:NSParagraphStyleAttributeName value:lineStyle range:range];
+    [lineStyle release];
     if (g_editor_sidebar_mode == 1) {
-      // Project rows retain their textual disclosure markers, but make them
-      // read as a hierarchy affordance instead of part of a file name.
-      NSRange expanded = [content rangeOfString:@"▾"];
-      NSRange collapsed = [content rangeOfString:@"▸"];
-      NSRange marker = expanded.location != NSNotFound ? expanded : collapsed;
-      if (marker.location != NSNotFound) {
-        marker.location += range.location;
-        [presented addAttributes:@{
-          NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold],
-          NSForegroundColorAttributeName: [themeHexColor(g_theme_accent,
-            [NSColor colorWithCalibratedRed:0.31 green:0.66 blue:0.97 alpha:1.0])
-            colorWithAlphaComponent:0.90]
-        } range:marker];
+      uint32_t flags = sidebarFlagsForContentLine(line);
+      [presented addAttribute:NSForegroundColorAttributeName
+        value:sidebarLabelColor(flags) range:range];
+      NSUInteger tokenLength = sidebarIconTokenLength(content);
+      if (tokenLength > 0 && tokenLength <= content.length) {
+        NSRange marker = NSMakeRange(range.location, tokenLength);
+        NSString *symbol = [content hasPrefix:@"▾"] ? @"folder.fill" :
+          ([content hasPrefix:@"▸"] ? @"folder" : sidebarFileSymbolForLine(content, tokenLength));
+        NSImage *image = sidebarSymbolImage(symbol);
+        if (image) {
+          NSTextAttachment *attachment = [[[NSTextAttachment alloc] init] autorelease];
+          attachment.image = image;
+          [presented addAttribute:NSAttachmentAttributeName value:attachment range:marker];
+        } else {
+          [presented addAttributes:@{
+            NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightMedium],
+            NSForegroundColorAttributeName: themeRoleColor(@"textMuted", foreground)
+          } range:marker];
+        }
       }
     } else if (g_editor_sidebar_mode == 3) {
       NSUInteger originalLine = line + NimculusSidebarHeaderLineCount;
@@ -6016,43 +6321,35 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
         // like Zed's collapsible sections without pretending to be a status.
         [presented addAttributes:@{
           NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold],
-          NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
-            [NSColor labelColor]) colorWithAlphaComponent:0.72]
+          NSForegroundColorAttributeName: themeRoleColor(@"textMuted", foreground)
         } range:range];
-        if (newline.location == NSNotFound) break;
-        cursor = NSMaxRange(newline);
-        line++;
-        continue;
-      }
-      // Surface conflicts and Git's two-column porcelain status separately
-      // from the file path, following the Git panel's status-first scan.
-      NSUInteger prefixLength = [content hasPrefix:@"CONFLICT "] ? 8 :
-        MIN((NSUInteger)2, content.length);
-      if (prefixLength > 0) {
-        NSColor *stateColor = [content hasPrefix:@"CONFLICT "]
-          ? [NSColor systemRedColor]
-          : themeHexColor(g_theme_accent,
-              [NSColor colorWithCalibratedRed:0.31 green:0.66 blue:0.97 alpha:1.0]);
-        [presented addAttributes:@{
-          NSFontAttributeName: [NSFont monospacedSystemFontOfSize:12.0 weight:NSFontWeightSemibold],
-          NSForegroundColorAttributeName: stateColor
-        } range:NSMakeRange(range.location, prefixLength)];
+      } else {
+        // Surface conflicts and Git's two-column porcelain status separately
+        // from the file path, following the Git panel's status-first scan.
+        NSUInteger prefixLength = [content hasPrefix:@"CONFLICT "] ? 8 :
+          MIN((NSUInteger)2, content.length);
+        if (prefixLength > 0) {
+          NSColor *stateColor = [content hasPrefix:@"CONFLICT "]
+            ? [NSColor systemRedColor] : themeRoleColor(@"textMuted", foreground);
+          [presented addAttributes:@{
+            NSFontAttributeName: [NSFont monospacedSystemFontOfSize:12.0 weight:NSFontWeightSemibold],
+            NSForegroundColorAttributeName: stateColor
+          } range:NSMakeRange(range.location, prefixLength)];
+        }
       }
     } else if (g_editor_sidebar_mode == 2 && content.length >= 8) {
       // Commit hashes are stable scan anchors; distinguish them from the
       // subject/author without making history rows multi-line and ambiguous.
       [presented addAttributes:@{
         NSFontAttributeName: [NSFont monospacedSystemFontOfSize:12.0 weight:NSFontWeightMedium],
-        NSForegroundColorAttributeName: [themeHexColor(g_theme_accent,
-          [NSColor colorWithCalibratedRed:0.31 green:0.66 blue:0.97 alpha:1.0])
-          colorWithAlphaComponent:0.92]
+        NSForegroundColorAttributeName: themeRoleColor(@"accent", foreground)
       } range:NSMakeRange(range.location, MIN((NSUInteger)8, range.length))];
     }
-    if (newline.location == NSNotFound) break;
-    cursor = NSMaxRange(newline);
+    if (newline.location != NSNotFound) cursor = NSMaxRange(newline);
     line++;
   }
   [outline.textStorage setAttributedString:presented];
+  logSidebarPresentationDebug(displayLines, depths);
   [presented release];
   [rowStyle release];
 }
@@ -6549,6 +6846,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     [activityBar release];
     NimculusOutlineOverlay *outline = [[NimculusOutlineOverlay alloc]
       initWithFrame:NSZeroRect];
+    outline.hoveredSidebarLine = NSNotFound;
     outline.editable = NO;
     outline.selectable = YES;
     outline.drawsBackground = YES;
@@ -12628,12 +12926,84 @@ void nimculus_platform_set_editor_sidebar_line_items(const int32_t *items,
     memcpy(g_editor_sidebar_line_items, items, count * sizeof(int32_t));
     g_editor_sidebar_line_item_count = count;
   }
+  // The text setter intentionally arrives before this metadata setter from
+  // Nim. Rebuild the attributed rows after the line map exists so status
+  // colors, icon attachments, and guide geometry are based on final state.
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  NimculusOutlineOverlay *outline = outlineOverlayForView(view);
+  if (outline) {
+    applySidebarPresentation(outline);
+    nimculus_platform_set_editor_sidebar_selection(
+      g_editor_sidebar_selected_index == NSNotFound ? UINT32_MAX :
+      (uint32_t)g_editor_sidebar_selected_index);
+  }
+  [view updateTerminalFrame];
+}
+
+bool nimculus_platform_validate_sidebar_presentation(void) {
+  @autoreleasepool {
+    id previousView = g_active_view;
+    NSString *previousText = [g_editor_outline_text retain];
+    uint32_t previousMode = g_editor_sidebar_mode;
+    uint32_t previousCount = g_editor_outline_symbol_count;
+    NSUInteger previousSelection = g_editor_sidebar_selected_index;
+    uint32_t previousLineItemCount = g_editor_sidebar_line_item_count;
+    int32_t *previousLineItems = NULL;
+    if (previousLineItemCount > 0 && g_editor_sidebar_line_items) {
+      previousLineItems = calloc(previousLineItemCount, sizeof(int32_t));
+      if (previousLineItems) memcpy(previousLineItems, g_editor_sidebar_line_items,
+        previousLineItemCount * sizeof(int32_t));
+    }
+    NimculusMetalView *view = [[NimculusMetalView alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 480.0)];
+    g_active_view = view;
+    const char *text = "Files\n────────\n▾ src\n  ≡ main.nim\n  • .nimcache";
+    int32_t lineItems[] = {-1, -1, 0, 1 | (4 << 24), 2 | (1 << 24)};
+    nimculus_platform_set_editor_sidebar(text, (uint32_t)strlen(text), 3, 1);
+    nimculus_platform_set_editor_sidebar_line_items(lineItems, 5);
+    NimculusOutlineOverlay *sidebar = outlineOverlayForView(view);
+    NSUInteger folderStart = [sidebar.string rangeOfString:@"\uFFFC src"].location;
+    NSUInteger fileStart = [sidebar.string rangeOfString:@"\uFFFC main.nim"].location;
+    NSUInteger ignoredStart = [sidebar.string rangeOfString:@"\uFFFC .nimcache"].location;
+    NSParagraphStyle *fileStyle = fileStart != NSNotFound
+      ? [sidebar.textStorage attribute:NSParagraphStyleAttributeName atIndex:fileStart + 2
+        effectiveRange:NULL] : nil;
+    NSTextAttachment *fileAttachment = fileStart != NSNotFound
+      ? [sidebar.textStorage attribute:NSAttachmentAttributeName atIndex:fileStart
+        effectiveRange:NULL] : nil;
+    NSColor *ignoredColor = ignoredStart != NSNotFound
+      ? [sidebar.textStorage attribute:NSForegroundColorAttributeName atIndex:ignoredStart
+        effectiveRange:NULL] : nil;
+    BOOL valid = sidebar && folderStart != NSNotFound && fileStart != NSNotFound &&
+      ignoredStart != NSNotFound && fileStyle.headIndent == 20.0 &&
+      fileAttachment != nil && ignoredColor != nil;
+    if (sidebarDebugEnabled()) {
+      NSLog(@"Nimculus sidebar presentation contract sidebar=%@ src=%lu file=%lu "
+            "ignored=%lu headIndent=%.1f attachment=%@ color=%@",
+        sidebar ? @"yes" : @"nil", (unsigned long)folderStart, (unsigned long)fileStart,
+        (unsigned long)ignoredStart, fileStyle.headIndent,
+        fileAttachment ? @"yes" : @"nil", ignoredColor ? @"yes" : @"nil");
+    }
+    [view release];
+    replaceOwnedUTF8String(&g_editor_outline_text, previousText.UTF8String,
+      (uint32_t)[previousText lengthOfBytesUsingEncoding:NSUTF8StringEncoding], @"");
+    g_active_view = previousView;
+    g_editor_sidebar_mode = previousMode;
+    g_editor_outline_symbol_count = previousCount;
+    g_editor_sidebar_selected_index = previousSelection;
+    free(g_editor_sidebar_line_items);
+    g_editor_sidebar_line_items = previousLineItems;
+    g_editor_sidebar_line_item_count = previousLineItems ? previousLineItemCount : 0;
+    [previousText release];
+    return valid;
+  }
 }
 
 static NSUInteger editorSidebarLineForItem(NSUInteger item) {
   if (g_editor_sidebar_line_items) {
     for (uint32_t line = 0; line < g_editor_sidebar_line_item_count; line++) {
-      if (g_editor_sidebar_line_items[line] == (int32_t)item &&
+      if (sidebarItemFromLineValue(g_editor_sidebar_line_items[line]) == item &&
           line >= NimculusSidebarHeaderLineCount) {
         return line - NimculusSidebarHeaderLineCount;
       }
@@ -12852,6 +13222,7 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
       colorWithAlphaComponent:0.96];
     outline.textColor = themeRoleColor(@"foreground", themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]));
+    applySidebarPresentation(outline);
   }
   NimculusWindowContentView *root = nil;
   if ([view.superview isKindOfClass:[NimculusWindowContentView class]]) {
