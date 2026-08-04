@@ -1,5 +1,18 @@
 # Design Decisions
 
+## UI-097: Group the terminal toggle with the status-bar dock controls
+
+The terminal glyph is a panel action, not a buffer-status readout. Keep the
+icon-only `Toggle Terminal` control contiguous with `Toggle Panel Dock` at the
+far-left edge of the footer, then use the existing themed divider before the
+diagnostics, active-file, and Git text readouts. The right cluster remains
+plain text for encoding, language, line ending, and cursor position.
+
+This preserves the existing `commandPalette:toggle terminal` dispatch and
+keyboard shortcut while making the visual order match Zed's status-bar
+composition. The shared 28pt row / 24pt hit-area tokens, semantic border role,
+and SF Symbol configuration apply in both One Light and One Dark.
+
 ## UI-096: Keep footer status semantics text-only and remove dead breadcrumb actions
 
 The macOS footer now keeps the right-side buffer selectors as plain clickable

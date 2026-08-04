@@ -6670,6 +6670,15 @@ static NSView *newFooterDivider(void) {
     @"sidebar.left", NimculusFooterActionDockToggle);
   styleSidebarIconButton(dock, g_editor_sidebar_visible);
   [left addArrangedSubview:dock];
+
+  // Terminal is a bottom-dock toggle, not a buffer-status decoration. Keep
+  // it contiguous with the workspace dock toggle at the far-left edge so the
+  // divider separates panel controls from the diagnostic/file/Git readouts.
+  NimculusFooterStatusButton *terminalButton = newPanelButton(self, @"Toggle Terminal",
+    @"terminal", NimculusFooterActionPanelTerminal);
+  styleSidebarIconButton(terminalButton,
+    footerPanelActionIsActive(NimculusFooterActionPanelTerminal));
+  [left addArrangedSubview:terminalButton];
   [left addArrangedSubview:newFooterDivider()];
 
   NimculusFooterStatusButton *agent = newPanelButton(self, @"Agent", @"sparkles",
@@ -6780,13 +6789,8 @@ static NSView *newFooterDivider(void) {
     styleFooterStatusButton(button, NO);
     [right addArrangedSubview:button];
   }
-  // Panel toggles stay with the left cluster.  The right cluster is reserved
-  // for the four plain-text buffer status selectors, matching Zed's footer.
-  NimculusFooterStatusButton *terminalButton = newPanelButton(self, @"Terminal",
-    @"terminal", NimculusFooterActionPanelTerminal);
-  styleSidebarIconButton(terminalButton,
-    footerPanelActionIsActive(NimculusFooterActionPanelTerminal));
-  [left addArrangedSubview:terminalButton];
+  // The right cluster is reserved for the four plain-text buffer status
+  // selectors, matching Zed's footer.
   [self setNeedsLayout:YES];
 }
 static CGFloat footerClusterWidth(NSStackView *cluster) {
@@ -11884,8 +11888,8 @@ bool nimculus_platform_validate_panel_buttons(void) {
         }
       }
     }
-    NSArray<NSString *> *labels = @[@"Toggle Panel Dock", @"Agent", @"Search Project",
-      @"Diagnostics: no problems", @"Terminal"];
+    NSArray<NSString *> *labels = @[@"Toggle Panel Dock", @"Toggle Terminal", @"Agent",
+      @"Search Project", @"Diagnostics: no problems"];
     BOOL presentation = YES;
     for (NSString *label in labels) {
       NSButton *button = buttons[label];
@@ -11902,8 +11906,18 @@ bool nimculus_platform_validate_panel_buttons(void) {
     NSView *divider = left.arrangedSubviews.count > 1 ? left.arrangedSubviews[1] : nil;
     BOOL dividerPresentation = divider && ![divider isKindOfClass:[NSButton class]] &&
       divider.frame.size.width == 1.0 && divider.frame.size.height == 12.0;
-    BOOL noDuplicateSearch = buttons[@"Search"] == nil && buttons[@"Search Project"] != nil;
     NSButton *dock = buttons[@"Toggle Panel Dock"];
+    NSButton *terminalButton = buttons[@"Toggle Terminal"];
+    NSUInteger dockIndex = [left.arrangedSubviews indexOfObject:dock];
+    NSUInteger terminalIndex = [left.arrangedSubviews indexOfObject:terminalButton];
+    NSUInteger dividerIndex = [left.arrangedSubviews indexOfObject:divider];
+    NSUInteger diagnosticsIndex = [left.arrangedSubviews
+      indexOfObject:buttons[@"Diagnostics: no problems"]];
+    BOOL leftClusterOrder = dockIndex == 0 && terminalIndex == 1 && dividerIndex == 2 &&
+      diagnosticsIndex != NSNotFound && diagnosticsIndex > dividerIndex &&
+      terminalButton.toolTip.length > 0 &&
+      [terminalButton.toolTip isEqualToString:@"Toggle Terminal"];
+    BOOL noDuplicateSearch = buttons[@"Search"] == nil && buttons[@"Search Project"] != nil;
     BOOL active = dock && [(NimculusChromeButton *)dock chromeActive];
     [(NimculusFooterStatusButton *)dock performClick:nil];
     BOOL dockToggle = strcmp(g_validation_command,
@@ -11923,7 +11937,7 @@ bool nimculus_platform_validate_panel_buttons(void) {
     BOOL git = gitButton != nil;
     [gitButton performClick:nil];
     git = git && strcmp(g_validation_command, "commandPalette:git status") == 0;
-    [(NimculusFooterStatusButton *)buttons[@"Terminal"] performClick:nil];
+    [terminalButton performClick:nil];
     BOOL terminal = strcmp(g_validation_command, "commandPalette:toggle terminal") == 0;
     NSStackView *right = nil;
     for (NSView *cluster in footer.subviews) {
@@ -11942,7 +11956,7 @@ bool nimculus_platform_validate_panel_buttons(void) {
     g_editor_sidebar_visible = previousSidebarVisible;
     g_terminal_visible = previousTerminalVisible;
     g_command_callback = previousCallback;
-    return presentation && dividerPresentation && noDuplicateSearch && active && dockToggle &&
+    return presentation && dividerPresentation && leftClusterOrder && noDuplicateSearch && active && dockToggle &&
       agent && search && diagnostics && gitTextOnly && git && terminal && rightTextOnly;
   }
 }
