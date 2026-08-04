@@ -3209,6 +3209,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 // to the editor when dismissed.
 @class NimculusDocumentSearchOverlay;
 @class NimculusCommandPaletteOverlay;
+@class NimculusPickerListView;
 @class NimculusGitCommitOverlay;
 @class NimculusSettingsOverlay;
 @interface NimculusDocumentSearchField : NSSearchField
@@ -3217,7 +3218,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusDocumentLineField : NSTextField
 @property(nonatomic, assign) NimculusDocumentSearchOverlay *searchOverlay;
 @end
-@interface NimculusCommandPaletteField : NSComboBox
+@interface NimculusCommandPaletteField : NSTextField
 @property(nonatomic, assign) NimculusCommandPaletteOverlay *commandPalette;
 @end
 @interface NimculusGitCommitField : NSTextField
@@ -3226,10 +3227,32 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusSettingsTextField : NSTextField
 @property(nonatomic, assign) NimculusSettingsOverlay *settingsOverlay;
 @end
-@interface NimculusCommandPaletteOverlay : NSView <NSComboBoxDelegate>
-@property(nonatomic, retain) NSComboBox *field;
-@property(nonatomic, retain) NSButton *closeButton;
+@interface NimculusPickerRow : NSView
+@property(nonatomic, assign) NimculusPickerListView *pickerList;
+@property(nonatomic, retain) NSString *title;
+@property(nonatomic, retain) NSString *shortcut;
+@property(nonatomic, retain) NSString *query;
+@property(nonatomic) NSUInteger index;
+@property(nonatomic) BOOL selected;
+@property(nonatomic) BOOL hovered;
+@end
+@interface NimculusPickerListView : NSView
+@property(nonatomic, retain) NSArray<NSString *> *items;
+@property(nonatomic, retain) NSArray<NSString *> *shortcuts;
+@property(nonatomic, retain) NSString *query;
+@property(nonatomic) NSInteger selectedIndex;
+@property(nonatomic, assign) id target;
+@property(nonatomic) SEL selectAction;
+@property(nonatomic) SEL confirmAction;
+- (void)reload;
+- (void)selectIndex:(NSInteger)index;
+- (void)clickIndex:(NSUInteger)index;
+@end
+@interface NimculusCommandPaletteOverlay : NSView <NSTextFieldDelegate>
+@property(nonatomic, retain) NimculusCommandPaletteField *field;
 @property(nonatomic, retain) NSArray<NSString *> *commands;
+@property(nonatomic, retain) NSArray<NSString *> *visibleCommands;
+@property(nonatomic, retain) NimculusPickerListView *pickerList;
 - (void)show;
 - (NSArray<NSString *> *)matchingCommandsForQuery:(NSString *)query;
 - (void)refreshCandidatesForQuery:(NSString *)query;
@@ -3261,12 +3284,15 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic, retain) NSButton *nextButton;
 @property(nonatomic, retain) NSButton *replaceButton;
 @property(nonatomic, retain) NSButton *closeButton;
+@property(nonatomic, retain) NimculusPickerListView *pickerList;
 @property(nonatomic) NSInteger mode;
 @property(nonatomic) BOOL suppressSearchCancellation;
 - (void)showFind:(BOOL)replace;
 - (void)showGoToLine;
 - (void)showWorkspaceSearch;
 - (void)showQuickOpen;
+- (void)refreshQuickOpenPicker;
+- (CGFloat)quickOpenPickerHeight;
 @end
 
 @interface NimculusTerminalOverlay : NSTextView
@@ -3414,6 +3440,16 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 
 static NSUInteger editorSidebarLineForItem(NSUInteger item);
 
+static void refreshQuickOpenPickerForView(NimculusMetalView *view) {
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) {
+      NimculusDocumentSearchOverlay *search = (NimculusDocumentSearchOverlay *)subview;
+      if (!search.hidden && search.mode == 4) [search refreshQuickOpenPicker];
+    }
+  }
+}
+
 @interface NimculusExternalChangeActionTarget : NSObject
 - (void)reload:(id)sender;
 - (void)keepEditing:(id)sender;
@@ -3453,27 +3489,207 @@ static void dismissExternalChangePanel(const char *command) {
 - (void)cancelOperation:(id)sender { (void)sender; [self.settingsOverlay close:nil]; }
 @end
 
+static const CGFloat NimculusPickerWidth = 510.0;
+static const CGFloat NimculusPickerHeaderHeight = 48.0;
+static const CGFloat NimculusPickerRowHeight = 34.0;
+static const NSUInteger NimculusPickerVisibleRows = 10;
+static const CGFloat NimculusPickerCornerRadius = 8.0;
+
+static NSParagraphStyle *pickerParagraphStyle(NSTextAlignment alignment);
+
+static NSArray<NSNumber *> *pickerMatchPositions(NSString *query, NSString *title) {
+  NSMutableArray<NSNumber *> *positions = [NSMutableArray array];
+  NSString *needle = query.lowercaseString ?: @"";
+  NSString *haystack = title.lowercaseString ?: @"";
+  NSUInteger cursor = 0;
+  for (NSUInteger index = 0; index < needle.length; index++) {
+    NSString *character = [needle substringWithRange:NSMakeRange(index, 1)];
+    NSRange match = [haystack rangeOfString:character options:0
+      range:NSMakeRange(cursor, haystack.length - cursor)];
+    if (match.location == NSNotFound) return @[];
+    [positions addObject:@(match.location)];
+    cursor = NSMaxRange(match);
+  }
+  return positions;
+}
+
+static NSAttributedString *pickerHighlightedLabel(NSString *title, NSString *query,
+                                                  NSColor *textColor, NSColor *accentColor) {
+  NSMutableAttributedString *label = [[[NSMutableAttributedString alloc]
+    initWithString:title ?: @"" attributes:@{
+      NSFontAttributeName: [NSFont systemFontOfSize:13.0 weight:NSFontWeightRegular],
+      NSForegroundColorAttributeName: textColor,
+      NSParagraphStyleAttributeName: pickerParagraphStyle(NSTextAlignmentLeft)
+    }] autorelease];
+  for (NSNumber *position in pickerMatchPositions(query, title ?: @"")) {
+    NSRange range = NSMakeRange(position.unsignedIntegerValue, 1);
+    [label addAttributes:@{
+      NSFontAttributeName: [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold],
+      NSForegroundColorAttributeName: accentColor
+    } range:range];
+  }
+  return label;
+}
+
+static NSParagraphStyle *pickerParagraphStyle(NSTextAlignment alignment) {
+  NSMutableParagraphStyle *style = [[[NSMutableParagraphStyle alloc] init] autorelease];
+  style.alignment = alignment;
+  style.lineBreakMode = NSLineBreakByTruncatingTail;
+  return style;
+}
+
+static NSString *commandShortcut(NSString *command) {
+  static NSDictionary *bindings;
+  if (!bindings) {
+    bindings = [@{
+      @"new": @"⌘N", @"save": @"⌘S", @"find": @"⌘F",
+      @"command palette": @"⌘⇧P", @"quick open": @"⌘P",
+      @"workspace search": @"⌘⇧F", @"toggle files": @"⌘⇧N",
+      @"toggle outline": @"⌘⇧B", @"split editor": @"⌘\\",
+      @"toggle soft wrap": @"⌥Z", @"fold": @"⌥⌘[", @"unfold": @"⌥⌘]",
+      @"toggle git": @"⌃⇧G", @"toggle terminal": @"⌃`",
+      @"expand selection": @"⌘⌃→", @"shrink selection": @"⌘⌃←",
+      @"select previous syntax node": @"⌘⌃↑", @"select next syntax node": @"⌘⌃↓",
+      @"move to enclosing bracket": @"⌘⇧\\", @"select next": @"⌘D",
+      @"select all matches": @"⌘⇧L", @"add selection above": @"⌥⇧↑",
+      @"add selection below": @"⌥⇧↓"
+    } retain];
+  }
+  return bindings[command.lowercaseString] ?: @"";
+}
+
+@implementation NimculusPickerRow
+- (BOOL)isFlipped { return YES; }
+- (BOOL)isAccessibilityElement { return YES; }
+- (id)accessibilityRole { return NSAccessibilityMenuItemRole; }
+- (NSString *)accessibilityLabel { return self.shortcut.length > 0
+    ? [NSString stringWithFormat:@"%@, %@", self.title, self.shortcut] : self.title; }
+- (BOOL)accessibilitySelected { return self.selected; }
+- (void)updateTrackingAreas {
+  [super updateTrackingAreas];
+  [self removeAllTrackingAreas];
+  [self addTrackingArea:[[[NSTrackingArea alloc] initWithRect:NSZeroRect
+    options:NSTrackingMouseEnteredAndExited | NSTrackingActiveInKeyWindow |
+      NSTrackingInVisibleRect owner:self userInfo:nil] autorelease]];
+}
+- (void)mouseEntered:(NSEvent *)event { (void)event; self.hovered = YES; [self setNeedsDisplay:YES]; }
+- (void)mouseExited:(NSEvent *)event { (void)event; self.hovered = NO; [self setNeedsDisplay:YES]; }
+- (void)mouseDown:(NSEvent *)event { (void)event; [self.pickerList clickIndex:self.index]; }
+- (void)drawRect:(NSRect)dirtyRect {
+  (void)dirtyRect;
+  NSRect rowRect = NSInsetRect(self.bounds, 8.0, 2.0);
+  if (self.selected || self.hovered) {
+    NSColor *color = self.selected ?
+      themeRoleColor(@"elementSelected", themeRoleColor(@"element", [NSColor clearColor])) :
+      themeRoleColor(@"elementHover", themeRoleColor(@"element", [NSColor clearColor]));
+    [color setFill];
+    [[NSBezierPath bezierPathWithRoundedRect:rowRect xRadius:6.0 yRadius:6.0] fill];
+  }
+  NSColor *text = themeRoleColor(@"fgPrimary", [NSColor labelColor]);
+  NSColor *muted = themeRoleColor(@"fgMuted", [NSColor secondaryLabelColor]);
+  NSColor *accent = themeRoleColor(@"textAccent", [NSColor controlAccentColor]);
+  CGFloat shortcutWidth = self.shortcut.length > 0 ?
+    [self.shortcut sizeWithAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:12.0]}].width : 0.0;
+  CGFloat textWidth = MAX(1.0, self.bounds.size.width - 32.0 - shortcutWidth -
+    (shortcutWidth > 0.0 ? 16.0 : 0.0));
+  NSRect titleRect = NSMakeRect(16.0, 0.0, textWidth, self.bounds.size.height);
+  NSAttributedString *label = pickerHighlightedLabel(self.title ?: @"", self.query ?: @"", text, accent);
+  [label drawInRect:titleRect];
+  if (shortcutWidth > 0.0) {
+    NSRect shortcutRect = NSMakeRect(self.bounds.size.width - shortcutWidth - 16.0,
+      0.0, shortcutWidth, self.bounds.size.height);
+    [self.shortcut drawInRect:shortcutRect withAttributes:@{
+      NSFontAttributeName:[NSFont systemFontOfSize:12.0],
+      NSForegroundColorAttributeName:muted,
+      NSParagraphStyleAttributeName:pickerParagraphStyle(NSTextAlignmentRight)
+    }];
+  }
+}
+@end
+
+@implementation NimculusPickerListView
+- (BOOL)isFlipped { return YES; }
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.items = @[];
+  self.shortcuts = @[];
+  self.query = @"";
+  self.selectedIndex = NSNotFound;
+  self.wantsLayer = YES;
+  return self;
+}
+- (void)dealloc { [_items release]; [_shortcuts release]; [_query release]; [super dealloc]; }
+- (void)selectIndex:(NSInteger)index {
+  if (self.items.count == 0) { self.selectedIndex = NSNotFound; [self reload]; return; }
+  self.selectedIndex = MIN(MAX(index, 0), (NSInteger)self.items.count - 1);
+  [self reload];
+}
+- (void)clickIndex:(NSUInteger)index {
+  if (index >= self.items.count) return;
+  [self selectIndex:index];
+  if (self.target && self.selectAction && [self.target respondsToSelector:self.selectAction])
+    [self.target performSelector:self.selectAction withObject:@(index)];
+  if (self.target && self.confirmAction && [self.target respondsToSelector:self.confirmAction])
+    [self.target performSelector:self.confirmAction withObject:@(index)];
+}
+- (void)reload {
+  NSArray *subviews = [self.subviews copy];
+  for (NSView *subview in subviews) [subview removeFromSuperview];
+  [subviews release];
+  NSUInteger count = MIN(self.items.count, NimculusPickerVisibleRows);
+  NSUInteger start = 0;
+  if (self.selectedIndex != NSNotFound && self.selectedIndex >= count)
+    start = MIN((NSUInteger)self.selectedIndex - count + 1, self.items.count - count);
+  for (NSUInteger offset = 0; offset < count; offset++) {
+    NSUInteger index = start + offset;
+    NimculusPickerRow *row = [[[NimculusPickerRow alloc]
+      initWithFrame:NSMakeRect(0.0, offset * NimculusPickerRowHeight,
+        self.bounds.size.width, NimculusPickerRowHeight)] autorelease];
+    row.pickerList = self;
+    row.index = index;
+    row.title = self.items[index];
+    row.shortcut = index < self.shortcuts.count ? self.shortcuts[index] : @"";
+    row.query = self.query ?: @"";
+    row.selected = self.selectedIndex != NSNotFound && index == (NSUInteger)self.selectedIndex;
+    [self addSubview:row];
+  }
+  [self setNeedsDisplay:YES];
+}
+@end
+
 @implementation NimculusCommandPaletteOverlay
 
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
   if (!self) return nil;
-  self.clipsToBounds = YES;
+  self.clipsToBounds = NO;
   self.wantsLayer = YES;
-  self.layer.masksToBounds = YES;
-  self.layer.cornerRadius = 8.0;
+  self.layer.masksToBounds = NO;
+  self.layer.cornerRadius = NimculusPickerCornerRadius;
   self.layer.borderWidth = 1.0;
-  self.layer.borderColor = [[NSColor separatorColor] colorWithAlphaComponent:0.8].CGColor;
-  self.layer.backgroundColor = [[NSColor windowBackgroundColor]
-    colorWithAlphaComponent:0.99].CGColor;
+  self.layer.borderColor = themeRoleColor(@"border", [NSColor separatorColor]).CGColor;
+  self.layer.backgroundColor = themeRoleColor(@"elevated", [NSColor windowBackgroundColor]).CGColor;
+  self.layer.shadowColor = [NSColor blackColor].CGColor;
+  self.layer.shadowOpacity = themeLooksLight() ? 0.16 : 0.32;
+  self.layer.shadowRadius = 12.0;
+  self.layer.shadowOffset = NSMakeSize(0.0, -4.0);
   self.field = [[[NimculusCommandPaletteField alloc] initWithFrame:NSZeroRect] autorelease];
   ((NimculusCommandPaletteField *)self.field).commandPalette = self;
-  self.field.placeholderString = @"Execute a command…";
-  self.field.completes = YES;
-  self.field.numberOfVisibleItems = 12;
+  self.field.placeholderString = @"Search commands";
+  self.field.font = [NSFont systemFontOfSize:15.0];
+  self.field.bezelStyle = NSTextFieldSquareBezel;
+  self.field.drawsBackground = NO;
+  self.field.bordered = NO;
   self.field.delegate = self;
   self.field.target = self;
   self.field.action = @selector(execute:);
+  self.pickerList = [[[NimculusPickerListView alloc] initWithFrame:NSZeroRect] autorelease];
+  self.pickerList.target = self;
+  self.pickerList.confirmAction = @selector(confirmIndex:);
+  [self addSubview:self.pickerList];
+  [self addSubview:self.field];
+  self.toolTip = @"Command Palette";
   self.commands = @[
     @"new", @"save", @"save as", @"find", @"replace", @"go to line",
     @"quick open", @"workspace search", @"cancel search", @"reopen closed tab",
@@ -3509,23 +3725,20 @@ static void dismissExternalChangePanel(const char *command) {
     @"signature help", @"inlay hints", @"semantic tokens", @"format document",
     @"open settings", @"check for updates"
   ];
-  [self.field addItemsWithObjectValues:self.commands];
-  [self addSubview:self.field];
-  self.closeButton = [NSButton buttonWithTitle:@"×" target:self action:@selector(close:)];
-  self.closeButton.bezelStyle = NSBezelStyleTexturedRounded;
-  self.closeButton.toolTip = @"Close Command Palette (Esc)";
-  self.closeButton.accessibilityLabel = self.closeButton.toolTip;
-  [self addSubview:self.closeButton];
-  self.toolTip = @"Command Palette";
+  self.visibleCommands = self.commands;
+  [self refreshCandidatesForQuery:@""];
   return self;
 }
 
-- (void)dealloc { [_field release]; [_closeButton release]; [_commands release]; [super dealloc]; }
+- (void)dealloc { [_field release]; [_commands release]; [_visibleCommands release]; [_pickerList release]; [super dealloc]; }
 
 - (void)layout {
   [super layout];
-  self.field.frame = NSMakeRect(8.0, 7.0, MAX(1.0, self.bounds.size.width - 50.0), 26.0);
-  self.closeButton.frame = NSMakeRect(self.bounds.size.width - 36.0, 7.0, 28.0, 26.0);
+  self.field.frame = NSMakeRect(16.0, self.bounds.size.height - NimculusPickerHeaderHeight + 5.0,
+    MAX(1.0, self.bounds.size.width - 32.0), 34.0);
+  self.pickerList.frame = NSMakeRect(0.0, 0.0, self.bounds.size.width,
+    MAX(1.0, self.bounds.size.height - NimculusPickerHeaderHeight));
+  [self.pickerList reload];
 }
 
 - (void)show {
@@ -3539,8 +3752,14 @@ static void dismissExternalChangePanel(const char *command) {
 
 - (void)refreshCandidatesForQuery:(NSString *)query {
   NSArray<NSString *> *matches = [self matchingCommandsForQuery:query];
-  [self.field removeAllItems];
-  [self.field addItemsWithObjectValues:matches];
+  self.visibleCommands = matches;
+  self.pickerList.items = matches;
+  NSMutableArray *shortcuts = [NSMutableArray arrayWithCapacity:matches.count];
+  for (NSString *command in matches) [shortcuts addObject:commandShortcut(command)];
+  self.pickerList.shortcuts = shortcuts;
+  self.pickerList.query = query ?: @"";
+  self.pickerList.selectedIndex = matches.count > 0 ? 0 : NSNotFound;
+  [self.pickerList reload];
 }
 
 - (NSArray<NSString *> *)matchingCommandsForQuery:(NSString *)query {
@@ -3583,6 +3802,32 @@ static void dismissExternalChangePanel(const char *command) {
   }
 }
 
+- (BOOL)control:(NSControl *)control textView:(NSTextView *)textView
+    doCommandBySelector:(SEL)commandSelector {
+  (void)textView;
+  if (control != self.field) return NO;
+  if (commandSelector == @selector(moveUp:)) {
+    [self.pickerList selectIndex:self.pickerList.selectedIndex == NSNotFound ? 0 :
+      self.pickerList.selectedIndex - 1];
+    return YES;
+  }
+  if (commandSelector == @selector(moveDown:)) {
+    [self.pickerList selectIndex:self.pickerList.selectedIndex == NSNotFound ? 0 :
+      self.pickerList.selectedIndex + 1];
+    return YES;
+  }
+  if (commandSelector == @selector(moveToBeginningOfDocument:)) {
+    [self.pickerList selectIndex:0]; return YES;
+  }
+  if (commandSelector == @selector(moveToEndOfDocument:)) {
+    [self.pickerList selectIndex:self.visibleCommands.count - 1]; return YES;
+  }
+  if (commandSelector == @selector(insertNewline:)) { [self execute:nil]; return YES; }
+  return NO;
+}
+
+- (void)confirmIndex:(NSNumber *)index { (void)index; [self execute:nil]; }
+
 - (void)execute:(id)sender {
   (void)sender;
   NSString *input = [self.field.stringValue
@@ -3590,7 +3835,9 @@ static void dismissExternalChangePanel(const char *command) {
   if (input.length == 0 || !g_command_callback) return;
   NSString *command = input;
   NSArray<NSString *> *matches = [self matchingCommandsForQuery:input];
-  NSString *selected = self.field.objectValueOfSelectedItem;
+  NSString *selected = self.pickerList.selectedIndex != NSNotFound &&
+    self.pickerList.selectedIndex < self.visibleCommands.count ?
+    self.visibleCommands[self.pickerList.selectedIndex] : nil;
   // NSComboBox may leave the raw fuzzy query in stringValue even though its
   // first result is visibly selected.  Zed confirms the selected candidate,
   // not the search spelling; mirror that boundary while preserving commands
@@ -3602,9 +3849,8 @@ static void dismissExternalChangePanel(const char *command) {
     [input hasPrefix:@"git switch "] || [input hasPrefix:@"open symbol "];
   if (!explicitArgument && selected.length > 0 && [matches containsObject:selected]) {
     command = selected;
-  } else if (!explicitArgument && matches.count > 0 &&
-      ![self.commands containsObject:input]) {
-    command = matches[0];
+  } else if (!explicitArgument && matches.count > 0 && ![self.commands containsObject:input]) {
+    command = selected.length > 0 ? selected : matches[0];
   }
   [self close:nil];
   NSString *dispatch = [NSString stringWithFormat:@"commandPalette:%@", command];
@@ -3830,6 +4076,12 @@ static void dismissExternalChangePanel(const char *command) {
   self.lineField.target = self;
   self.lineField.action = @selector(goToLine:);
   [self addSubview:self.lineField];
+  self.pickerList = [[[NimculusPickerListView alloc] initWithFrame:NSZeroRect] autorelease];
+  self.pickerList.target = self;
+  self.pickerList.selectAction = @selector(selectQuickOpenIndex:);
+  self.pickerList.confirmAction = @selector(confirmQuickOpenIndex:);
+  self.pickerList.hidden = YES;
+  [self addSubview:self.pickerList];
   self.previousButton = [NSButton buttonWithTitle:@"‹" target:self action:@selector(findPrevious:)];
   self.nextButton = [NSButton buttonWithTitle:@"›" target:self action:@selector(findNext:)];
   self.replaceButton = [NSButton buttonWithTitle:@"Replace All" target:self action:@selector(replaceAll:)];
@@ -3845,7 +4097,7 @@ static void dismissExternalChangePanel(const char *command) {
 - (void)dealloc {
   [_queryField release]; [_replacementField release]; [_lineField release];
   [_previousButton release]; [_nextButton release]; [_replaceButton release];
-  [_closeButton release];
+  [_closeButton release]; [_pickerList release];
   [super dealloc];
 }
 
@@ -3857,6 +4109,20 @@ static void dismissExternalChangePanel(const char *command) {
   const CGFloat controlHeight = 24.0;
   const CGFloat buttonWidth = 27.0;
   const CGFloat width = self.bounds.size.width;
+  if (self.mode == 4) {
+    self.queryField.frame = NSMakeRect(16.0, self.bounds.size.height - NimculusPickerHeaderHeight + 5.0,
+      MAX(1.0, width - 32.0), 34.0);
+    self.pickerList.frame = NSMakeRect(0.0, 0.0, width,
+      MAX(1.0, self.bounds.size.height - NimculusPickerHeaderHeight));
+    self.queryField.hidden = NO;
+    self.pickerList.hidden = NO;
+    [self.pickerList reload];
+    self.replacementField.hidden = self.lineField.hidden = YES;
+    self.previousButton.hidden = self.nextButton.hidden = self.replaceButton.hidden = YES;
+    self.closeButton.hidden = YES;
+    return;
+  }
+  self.pickerList.hidden = YES;
   if (self.mode == 2 || self.mode == 3) {
     self.lineField.frame = NSMakeRect(padding, padding, width - padding * 2.0 - 54.0, controlHeight);
     self.queryField.frame = self.lineField.frame;
@@ -3926,13 +4192,63 @@ static void dismissExternalChangePanel(const char *command) {
 
 - (void)showQuickOpen {
   self.mode = 4;
+  self.clipsToBounds = NO;
+  self.layer.masksToBounds = NO;
+  self.layer.cornerRadius = NimculusPickerCornerRadius;
+  self.layer.borderColor = themeRoleColor(@"border", [NSColor separatorColor]).CGColor;
+  self.layer.backgroundColor = themeRoleColor(@"elevated", [NSColor windowBackgroundColor]).CGColor;
+  self.layer.shadowColor = [NSColor blackColor].CGColor;
+  self.layer.shadowOpacity = themeLooksLight() ? 0.16 : 0.32;
+  self.layer.shadowRadius = 12.0;
+  self.layer.shadowOffset = NSMakeSize(0.0, -4.0);
   self.queryField.placeholderString = @"Quick Open: file name or path";
   self.queryField.accessibilityLabel = @"Quick Open: file name or path";
+  g_editor_sidebar_selected_index = NSNotFound;
+  [self refreshQuickOpenPicker];
   self.hidden = NO;
   [self setNeedsLayout:YES];
   [self layoutSubtreeIfNeeded];
   [self.window makeFirstResponder:self.queryField];
   [self.queryField selectText:nil];
+}
+
+- (CGFloat)quickOpenPickerHeight {
+  NSUInteger rowCount = MIN(self.pickerList.items.count, NimculusPickerVisibleRows);
+  return NimculusPickerHeaderHeight + MAX(1.0, (CGFloat)rowCount) * NimculusPickerRowHeight;
+}
+
+- (void)refreshQuickOpenPicker {
+  if (self.mode != 4) return;
+  NSArray<NSString *> *lines = [g_editor_outline_text componentsSeparatedByString:@"\n"];
+  NSMutableArray<NSString *> *items = [NSMutableArray array];
+  for (NSUInteger index = 2; index < lines.count; index++) {
+    NSString *line = lines[index];
+    if (line.length > 0 && ![line hasPrefix:@"… searching workspace"]) [items addObject:line];
+  }
+  self.pickerList.items = items;
+  self.pickerList.shortcuts = @[];
+  self.pickerList.query = self.queryField.stringValue ?: @"";
+  self.pickerList.selectedIndex = items.count > 0 ? 0 : NSNotFound;
+  [self.pickerList reload];
+  [self setNeedsLayout:YES];
+}
+
+- (void)selectQuickOpenIndex:(NSNumber *)index {
+  NSUInteger value = index.unsignedIntegerValue;
+  g_editor_sidebar_selected_index = value;
+  if (g_command_callback) {
+    NSString *command = [NSString stringWithFormat:@"sidebarSelect:%lu", (unsigned long)value];
+    g_command_callback(command.UTF8String);
+  }
+}
+
+- (void)confirmQuickOpenIndex:(NSNumber *)index {
+  [self selectQuickOpenIndex:index];
+  if (g_command_callback) {
+    self.suppressSearchCancellation = YES;
+    g_command_callback("sidebarOpenSelected");
+    [self close:nil];
+  }
 }
 
 - (void)controlTextDidChange:(NSNotification *)notification {
@@ -3969,6 +4285,11 @@ static void dismissExternalChangePanel(const char *command) {
   else if (commandSelector == @selector(moveToEndOfDocument:)) navigationCommand = "sidebarLast";
   if (navigationCommand) {
     g_command_callback(navigationCommand);
+    if (self.pickerList.items.count > 0) {
+      NSInteger delta = commandSelector == @selector(moveUp:) ? -1 : 1;
+      [self.pickerList selectIndex:self.pickerList.selectedIndex == NSNotFound ? 0 :
+        self.pickerList.selectedIndex + delta];
+    }
     return YES;
   }
   if (commandSelector == @selector(insertNewline:)) {
@@ -7421,18 +7742,28 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     [secondaryAnnotations setNeedsDisplay:YES];
   }
   if (documentSearch && !documentSearch.hidden) {
-    const CGFloat preferredWidth = MIN(420.0, MAX(1.0, g_editor_rect[2] - 16.0));
-    const CGFloat preferredHeight = documentSearch.mode == 1 ? 64.0 : 36.0;
+    const BOOL quickOpen = documentSearch.mode == 4;
+    const CGFloat preferredWidth = quickOpen ?
+      MIN(NimculusPickerWidth, MAX(1.0, g_editor_rect[2] - 24.0)) :
+      MIN(420.0, MAX(1.0, g_editor_rect[2] - 16.0));
+    const CGFloat preferredHeight = quickOpen ? [documentSearch quickOpenPickerHeight] :
+      (documentSearch.mode == 1 ? 64.0 : 36.0);
+    const CGFloat preferredX = quickOpen ?
+      g_editor_rect[0] + (g_editor_rect[2] - preferredWidth) / 2.0 :
+      g_editor_rect[0] + g_editor_rect[2] - preferredWidth - 8.0;
+    const CGFloat preferredY = g_editor_rect[1] + (quickOpen ? 12.0 : 8.0);
     documentSearch.frame = appKitFrameForLogicalTopRect(self,
-      editorOverlayFrame(preferredWidth, preferredHeight,
-        g_editor_rect[0] + g_editor_rect[2] - preferredWidth - 8.0,
-        g_editor_rect[1] + 8.0));
+      editorOverlayFrame(preferredWidth, preferredHeight, preferredX, preferredY));
     [documentSearch setNeedsLayout:YES];
   }
   if (commandPalette && !commandPalette.hidden) {
-    const CGFloat paletteWidth = MIN(560.0, MAX(1.0, g_editor_rect[2] - 24.0));
+    const CGFloat paletteWidth = MIN(NimculusPickerWidth, MAX(1.0, g_editor_rect[2] - 24.0));
+    const CGFloat paletteRows = MIN((CGFloat)NimculusPickerVisibleRows,
+      (CGFloat)commandPalette.visibleCommands.count);
+    const CGFloat paletteHeight = NimculusPickerHeaderHeight +
+      MAX(1.0, paletteRows) * NimculusPickerRowHeight;
     commandPalette.frame = appKitFrameForLogicalTopRect(self,
-      editorOverlayFrame(paletteWidth, 40.0,
+      editorOverlayFrame(paletteWidth, paletteHeight,
         g_editor_rect[0] + (g_editor_rect[2] - paletteWidth) / 2.0,
         g_editor_rect[1] + 12.0));
     [commandPalette setNeedsLayout:YES];
@@ -9955,6 +10286,12 @@ bool nimculus_platform_validate_command_palette(void) {
     g_validation_command[0] = '\0';
     palette.field.stringValue = @"sav";
     [palette refreshCandidatesForQuery:palette.field.stringValue];
+    NimculusPickerRow *paletteRow = palette.pickerList.subviews.count > 0
+      ? (NimculusPickerRow *)palette.pickerList.subviews[0] : nil;
+    BOOL pickerSurface = palette.pickerList.items.count == 1 && paletteRow != nil &&
+      paletteRow.selected && [paletteRow.title isEqualToString:@"save"] &&
+      [paletteRow.shortcut isEqualToString:@"⌘S"] &&
+      palette.layer.backgroundColor != nil && palette.layer.shadowRadius == 12.0;
     [palette execute:nil];
     BOOL fuzzySelection = strcmp(g_validation_command, "commandPalette:save") == 0;
     g_validation_command[0] = '\0';
@@ -9963,7 +10300,7 @@ bool nimculus_platform_validate_command_palette(void) {
     [palette execute:nil];
     BOOL argumentPreserved = strcmp(g_validation_command,
       "commandPalette:run task nimble test") == 0;
-    valid = valid && fuzzySelection && argumentPreserved;
+    valid = valid && pickerSurface && fuzzySelection && argumentPreserved;
     g_command_callback = previousCallback;
     [palette release];
     return valid;
@@ -11050,7 +11387,9 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
       "cancelWorkspaceSearch") == 0 && search.hidden && window.firstResponder == view;
     [delegate quickOpen:nil];
     BOOL visibleQuickOpen = !search.hidden && search.mode == 4 && !search.queryField.hidden &&
-      [search.queryField.accessibilityLabel isEqualToString:@"Quick Open: file name or path"];
+      [search.queryField.accessibilityLabel isEqualToString:@"Quick Open: file name or path"] &&
+      search.pickerList != nil && !search.pickerList.hidden &&
+      search.layer.shadowRadius == 12.0;
     search.queryField.stringValue = @"main.nim";
     g_validation_command[0] = '\0';
     [search controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification
@@ -11099,8 +11438,8 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     palette.field.stringValue = @"toggle files";
     [palette controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification
       object:palette.field]];
-    BOOL paletteFiltered = palette.field.numberOfItems == 1 &&
-      [[palette.field itemObjectValueAtIndex:0] isEqualToString:@"toggle files"];
+    BOOL paletteFiltered = palette.visibleCommands.count == 1 &&
+      [palette.visibleCommands[0] isEqualToString:@"toggle files"];
     [palette execute:nil];
     BOOL paletteDispatched = strcmp(g_validation_command, "commandPalette:toggle files") == 0 &&
       palette.hidden && window.firstResponder == view;
@@ -11168,9 +11507,11 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
         g_editor_rect[0] + g_editor_rect[2] -
           MIN(420.0, MAX(1.0, g_editor_rect[2] - 16.0)) - 8.0,
         g_editor_rect[1] + 8.0));
-    const CGFloat paletteWidth = MIN(560.0, MAX(1.0, g_editor_rect[2] - 24.0));
+    const CGFloat paletteWidth = MIN(NimculusPickerWidth, MAX(1.0, g_editor_rect[2] - 24.0));
+    const CGFloat paletteHeight = NimculusPickerHeaderHeight +
+      NimculusPickerVisibleRows * NimculusPickerRowHeight;
     const NSRect expectedPalette = appKitFrameForLogicalTopRect(view,
-      editorOverlayFrame(paletteWidth, 40.0,
+      editorOverlayFrame(paletteWidth, paletteHeight,
         g_editor_rect[0] + (g_editor_rect[2] - paletteWidth) / 2.0,
         g_editor_rect[1] + 12.0));
     BOOL overlaysBounded = NSContainsRect(pane, search.frame) &&
@@ -11179,7 +11520,7 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
       NSContainsRect(sidebar, commitEditor.frame) &&
       NSEqualRects(search.frame, expectedSearch) &&
       NSEqualRects(palette.frame, expectedPalette) &&
-      search.clipsToBounds && palette.clipsToBounds &&
+      search.clipsToBounds && !palette.clipsToBounds &&
       commitEditor.clipsToBounds && settings.clipsToBounds;
     NimculusLineNumberOverlay *lineNumbers = nil;
     NimculusIndentGuideOverlay *indentGuides = nil;
@@ -12951,6 +13292,7 @@ void nimculus_platform_set_editor_sidebar(const char *utf8, uint32_t length,
       g_editor_sidebar_selected_index == NSNotFound ? UINT32_MAX :
       (uint32_t)g_editor_sidebar_selected_index);
   }
+  refreshQuickOpenPickerForView(view);
   [view updateTerminalFrame];
 }
 void nimculus_platform_set_editor_sidebar_line_items(const int32_t *items,
@@ -13089,6 +13431,17 @@ void nimculus_platform_set_editor_sidebar_selection(uint32_t item_index) {
   [outline setSelectedRange:range];
   [outline scrollRangeToVisible:range];
   [outline setNeedsDisplay:YES];
+  if (view) {
+    for (NSView *subview in view.subviews) {
+      if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) {
+        NimculusDocumentSearchOverlay *search = (NimculusDocumentSearchOverlay *)subview;
+        if (!search.hidden && search.mode == 4) {
+          search.pickerList.selectedIndex = g_editor_sidebar_selected_index;
+          [search.pickerList reload];
+        }
+      }
+    }
+  }
 }
 void nimculus_platform_set_editor_sidebar_visible(bool visible) {
   g_editor_sidebar_visible = visible ? YES : NO;

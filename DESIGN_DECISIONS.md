@@ -7267,3 +7267,35 @@ from `references/zed/crates/diagnostics/src/items.rs`, and cursor formatting
 from `references/zed/crates/go_to_line/src/cursor_position.rs`. Required
 Nimble format, lint, test, build, and native launch/crash-report checks remain
 the acceptance gate.
+
+## UI-091: Use one Zed-style picker surface for Command Palette and Quick Open
+
+**Context.** Nimculus's command palette was an `NSComboBox` attached to the
+editor edge, while Quick Open used a search field plus the Files sidebar. That
+split presentation did not provide Zed's centered elevated picker, inset rows,
+fuzzy-match emphasis, or trailing keybinding treatment.
+
+**Decision.** Replace the command palette's combo-box presentation with a
+shared native picker list. The card uses the One theme's `elevated` role (the
+Nimculus transport for Zed's `elevated_surface.background`), `border`, an 8pt
+`rounded_lg`-equivalent radius, and the four-layer modal shadow from Zed's
+elevation model. Rows follow `ListItem::new(ix).inset(true).spacing(Sparse)`:
+8pt outer inset, 34pt sparse rhythm, rounded selected/hover fills from
+`element.selected` and `element.hover`, fuzzy subsequence highlighting in
+`text.accent`, and right-aligned keybinding labels when a binding exists.
+
+Quick Open mounts the same card/list implementation and continues to consume
+Nimculus's asynchronous workspace result stream and existing
+`sidebarSelect`/`sidebarOpenSelected` activation route. Picker rows expose
+menu-item accessibility roles, labels, and selected state; Esc still returns
+focus to the editor, while arrows and Enter retain their existing dispatch
+contract.
+
+**Evidence.** The geometry and picker behavior come from
+`references/zed/crates/picker/src/picker.rs` and `shape.rs` (`34rem` default
+width, `24rem` maximum height), the row contract from
+`references/zed/crates/ui/src/components/list/list_item.rs`, the command row
+composition from `references/zed/crates/command_palette/src/command_palette.rs`,
+the elevation/shadow treatment from `references/zed/crates/ui/src/traits/styled_ext.rs`
+and `styles/elevation.rs`, and the light/dark role values from
+`references/zed/assets/themes/one/one.json`.
