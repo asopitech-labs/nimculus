@@ -67,6 +67,7 @@ type
     ignored*: string
     conflict*: string
     warning*: string
+    hint*: string
     error*: string
     info*: string
     success*: string
@@ -229,7 +230,8 @@ proc settingsSchema*(): JsonNode =
       "caret": {"type": "string"}, "terminal": {"type": "string"},
       "added": {"type": "string"}, "modified": {"type": "string"},
       "deleted": {"type": "string"}, "conflict": {"type": "string"},
-      "warning": {"type": "string"}, "error": {"type": "string"},
+      "warning": {"type": "string"}, "hint": {"type": "string"},
+      "error": {"type": "string"},
       "info": {"type": "string"}, "success": {"type": "string"}
     }},
     "terminal": {"type": "object", "properties": {
@@ -370,7 +372,7 @@ proc registerBuiltinThemes*(store: SettingsStore) =
     modified: "#d3b020",
     deleted: "#e06c76", ignored: "#878a98", conflict: "#dec184", warning: "#dec184",
     error: "#d07277", terminalPalette: oneDarkTerminalPalette(),
-    info: "#74ade8", success: "#a1c181", syntax: %*{
+    info: "#74ade8", hint: "#788ca6", success: "#a1c181", syntax: %*{
       "keyword": {"color": "#b477cf", "fontWeight": 400},
       "string": {"color": "#a1c181", "fontWeight": 400},
       "comment": {"color": "#5d636f", "fontWeight": 400},
@@ -393,9 +395,9 @@ proc registerBuiltinThemes*(store: SettingsStore) =
     scrollbarHover: "#dfdfe0", lineNumber: "#b4b4bb", activeLineNumber: "#44454b",
     hoverLineNumber: "#61616b", caret: "#5c78e2", terminal: "#fafafa", added: "#27a657",
     modified: "#d3b020",
-    deleted: "#e06c76", ignored: "#7e8086", conflict: "#b08800", warning: "#b08800",
-    error: "#d73a49", terminalPalette: oneLightTerminalPalette(),
-    info: "#5c78e2", success: "#22863a", syntax: %*{
+    deleted: "#e06c76", ignored: "#7e8086", conflict: "#a48819", warning: "#a48819",
+    error: "#d36151", terminalPalette: oneLightTerminalPalette(),
+    info: "#5c78e2", hint: "#7274a7", success: "#669f59", syntax: %*{
       "keyword": {"color": "#a449ab", "fontWeight": 400},
       "string": {"color": "#649f57", "fontWeight": 400},
       "comment": {"color": "#a2a3a7", "fontWeight": 400},
@@ -435,7 +437,7 @@ proc configuredThemeColors(node: JsonNode; fallback: ThemeColors): ThemeColors =
       "scrollbarHover",
       "lineNumber", "activeLineNumber", "hoverLineNumber", "caret", "elevated",
       "terminal",
-      "added", "modified", "deleted", "ignored", "conflict", "warning", "error", "info", "success"]:
+      "added", "modified", "deleted", "ignored", "conflict", "warning", "hint", "error", "info", "success"]:
     if colors.hasKey(key) and colors[key].kind == JString:
       case key
       of "background": result.background = colors[key].getStr
@@ -482,6 +484,7 @@ proc configuredThemeColors(node: JsonNode; fallback: ThemeColors): ThemeColors =
       of "ignored": result.ignored = colors[key].getStr
       of "conflict": result.conflict = colors[key].getStr
       of "warning": result.warning = colors[key].getStr
+      of "hint": result.hint = colors[key].getStr
       of "error": result.error = colors[key].getStr
       of "info": result.info = colors[key].getStr
       of "success": result.success = colors[key].getStr
@@ -624,7 +627,8 @@ proc themePaletteJson*(colors: ThemeColors): string =
     },
     "added": colors.added, "modified": colors.modified, "deleted": colors.deleted,
     "ignored": colors.ignored,
-    "conflict": colors.conflict, "warning": colors.warning, "error": colors.error,
+    "conflict": colors.conflict, "warning": colors.warning, "hint": colors.hint,
+    "error": colors.error,
     "info": colors.info, "success": colors.success
   })
 

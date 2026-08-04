@@ -166,6 +166,11 @@ when defined(macosx) or defined(windows):
   var pendingLspCodeActions: seq[LspCodeAction]
   var pendingLspSymbols: seq[LspSymbol]
   var pendingLspSymbolDepths: seq[int]
+  ## The native Outline presenter may display a filtered projection. Keep the
+  ## visible-to-source mapping explicit so filtering never changes the jump
+  ## target or the accessibility selection identity.
+  var pendingOutlineSymbolIndices: seq[int]
+  var outlineFilterQuery = ""
   ## Tree-sitter supplies a local outline even when no Language Server is
   ## configured. Keep it separate so an LSP response can take precedence
   ## without losing the immediate syntax fallback during server startup.
@@ -532,6 +537,10 @@ proc setupShortcutRegistry() =
     name: "toggleOutline",
     shortcut: Shortcut(keyCode: 11, modifiers: {commandModifier, shiftModifier}),
     action: nativeShortcutAction("commandPalette:toggle outline")))
+  shortcutRegistry.register(Command(
+    name: "outlinePicker",
+    shortcut: Shortcut(keyCode: 31, modifiers: {commandModifier, shiftModifier}),
+    action: nativeShortcutAction("showOutlinePicker")))
   shortcutRegistry.register(Command(
     name: "expandSyntaxSelection",
     shortcut: Shortcut(keyCode: 124, modifiers: {commandModifier, controlModifier}),
@@ -2806,17 +2815,32 @@ when defined(macosx):
     let symbols = if pendingLspSymbols.len > 0: pendingLspSymbols else:
       pendingSyntaxSymbols
     let depths = if pendingLspSymbols.len > 0: pendingLspSymbolDepths else: @[]
+    let query = outlineFilterQuery.toLowerAscii
+    var visibleSymbols: seq[LspSymbol]
+    var visibleDepths: seq[int]
+    pendingOutlineSymbolIndices.setLen(0)
+    for sourceIndex, symbol in symbols:
+      if query.len > 0 and not symbol.name.toLowerAscii.contains(query): continue
+      visibleSymbols.add(symbol)
+      visibleDepths.add(if sourceIndex < depths.len: depths[sourceIndex] else: 0)
+      pendingOutlineSymbolIndices.add(sourceIndex)
     var lines = @[
       "Outline",
       "────────"
     ]
     var keys: seq[string]
-    if symbols.len == 0:
-      lines.add("No symbols")
+    if visibleSymbols.len == 0:
+      lines.add(if query.len > 0: "No matching symbols" else: "No symbols")
     else:
-      for index, symbol in symbols:
-        let depth = if index < depths.len: depths[index] else: 0
-        lines.add("  ".repeat(depth) & symbol.name & "  " &
+      for index, symbol in visibleSymbols:
+        let depth = visibleDepths[index]
+        let kindToken = case symbol.kind
+          of 5, 10, 11, 23: "◆"
+          of 6, 9, 12: "ƒ"
+          of 7, 8, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25, 26: "·"
+          of 24: "⚡"
+          else: "•"
+        lines.add("  ".repeat(depth) & kindToken & " " & symbol.name & "  " &
           $(symbol.range.start.line + 1))
         # A symbol name alone is not stable across overloads. The LSP range
         # keeps the selected outline entry attached to the same source span.
@@ -2825,17 +2849,23 @@ when defined(macosx):
           $symbol.range.finish.character)
     editorWorkspaceUi.replacePanelItems(panelOutline, keys)
     let text = lines.join("\n")
-    platformSetEditorOutline(text.cstring, uint32(text.len), uint32(symbols.len))
+    platformSetEditorOutline(text.cstring, uint32(text.len), uint32(visibleSymbols.len))
     syncNativeSidebarSelection()
 
-  proc openNativeSymbol(index: int): bool =
+  proc openNativeSymbol(index: int, filteredIndex = false): bool =
     let document = activeDocument()
     let symbols = if pendingLspSymbols.len > 0: pendingLspSymbols else:
       pendingSyntaxSymbols
-    if document == nil or index < 0 or index >= symbols.len:
+    var sourceIndex = index
+    if filteredIndex:
+      if index < 0 or index >= pendingOutlineSymbolIndices.len:
+        editorViewState.statusMessage = "Outline symbol is unavailable"
+        return false
+      sourceIndex = pendingOutlineSymbolIndices[index]
+    if document == nil or sourceIndex < 0 or sourceIndex >= symbols.len:
       editorViewState.statusMessage = "LSP symbol is unavailable"
       return false
-    let symbol = symbols[index]
+    let symbol = symbols[sourceIndex]
     let target = document[].buffer.byteOffsetAtUtf16Position(
       symbol.range.start.line, symbol.range.start.character)
     moveActiveEditorCursor(target)
@@ -2862,7 +2892,14 @@ when defined(macosx):
       # identifiers and astral symbols before a declaration).
       let start = document[].buffer.utf16Position(int(item.startByte))
       let finish = document[].buffer.utf16Position(int(item.endByte))
-      pendingSyntaxSymbols.add(LspSymbol(name: item.name, kind: 0,
+      let syntaxKind = case item.kind.toLowerAscii
+        of "class_definition", "type_declaration", "type_symbol_declaration": 5
+        of "struct_item": 23
+        of "method_definition", "method_item": 6
+        of "function_definition", "function_item", "proc_decl", "proc_declaration",
+            "template_declaration": 12
+        else: 13
+      pendingSyntaxSymbols.add(LspSymbol(name: item.name, kind: syntaxKind,
         range: LspRange(
           start: LspPosition(line: start.line, character: start.character),
           finish: LspPosition(line: finish.line, character: finish.character))))
@@ -7730,6 +7767,12 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       editorSession.tabs[target].document.acceptExternalState()
     externalAlertShown = false
     externalAlertTab = -1
+  elif name == "showOutlinePicker":
+    when defined(macosx):
+      editorWorkspaceUi.openPanel(panelOutline)
+      editorSidebarMode = sidebarOutline
+      syncNativeSymbolTree()
+      platformShowOutlinePicker()
   elif name.startsWith("sidebarSelect:"):
     when defined(macosx):
       try:
@@ -7738,6 +7781,11 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           syncNativeSidebarSelection()
       except ValueError:
         editorViewState.statusMessage = "Invalid sidebar selection"
+  elif name.startsWith("sidebarFilter:"):
+    when defined(macosx):
+      if editorSidebarMode == sidebarOutline:
+        outlineFilterQuery = name["sidebarFilter:".len .. ^1]
+        syncNativeSymbolTree()
   elif name == "sidebarFocusEditor":
     when defined(macosx):
       editorWorkspaceUi.focusCenter()
@@ -7973,7 +8021,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
               startNativeGitAction(editorGitRepository, "switch branch", "",
                 ["switch", "--no-guess", branch.name], source = branch.name)
         of sidebarOutline:
-          discard openNativeSymbol(index)
+          discard openNativeSymbol(index, filteredIndex = true)
         of sidebarDebugger:
           if index < 0 or index >= editorDapSidebarItems.len:
             editorViewState.statusMessage = "Debugger row is unavailable"

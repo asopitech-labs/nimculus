@@ -1,5 +1,26 @@
 # Design Decisions
 
+## UI-084: Clone Zed's Outline and diagnostic presentation
+
+The macOS Outline presenter follows the vendored Zed implementation contract:
+the existing local/LSP symbol stream remains authoritative, while the native
+panel adds a `Search buffer symbols…` field, depth-derived guide lines,
+symbol-kind SF Symbols, themed hover/selection rows, and an overlay scroll
+container. Filtering is represented by an explicit visible-index-to-source
+index map in Nim, so keyboard navigation, accessibility selection, and
+jump-to-symbol continue to target the original UTF-16 range. Cmd+Shift+O now
+opens a sparse symbol picker using the same elevated command-palette chrome and
+match highlighting.
+
+Diagnostics use the One theme's exact `error`, `warning`, `info`, and `hint`
+roles from `references/zed/assets/themes/one/one.json` in both light and dark
+themes. Editor decorations render a repeating squiggle path below the affected
+text instead of a solid underline; the status footer also exposes severity
+icons/counts for all four roles. The Zed source references are
+`references/zed/crates/outline_panel/src/outline_panel.rs`,
+`references/zed/crates/outline/src/outline.rs`, and
+`references/zed/crates/diagnostics/`.
+
 ## UI-083: Use Zed One terminal palettes as the native terminal source of truth
 
 Nimculus now carries Zed's One Dark and One Light terminal roles from

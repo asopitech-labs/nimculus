@@ -225,6 +225,7 @@ void nimculus_platform_set_image_rgba(uint32_t image_id, uint32_t width, uint32_
 void nimculus_platform_set_paint_dirty_regions(const NimculusPaintRegion *regions, uint32_t count);
 void nimculus_platform_show_external_change(const char *path);
 void nimculus_platform_show_find_document(void);
+void nimculus_platform_show_outline_picker(void);
 void nimculus_platform_show_workspace_search(void);
 void nimculus_platform_show_settings_panel(const char *theme, const char *editor_font_size,
                                            const char *terminal_font_size,

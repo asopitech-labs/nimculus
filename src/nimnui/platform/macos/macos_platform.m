@@ -476,6 +476,7 @@ static NSColor *themeTokenFallback(NSString *key, NSColor *fallback) {
     @"lineNumber": @"#b4b4bb", @"activeLineNumber": @"#44454b", @"hoverLineNumber": @"#61616b",
     @"caret": @"#5c78e2", @"statusBar": @"#dcdcdd", @"titleBar": @"#dcdcdd",
     @"added": @"#27a657", @"modified": @"#d3b020", @"deleted": @"#e06c76",
+    @"hint": @"#7274a7",
     @"ignored": @"#7e8086"
   };
   NSDictionary *darkValues = @{
@@ -489,6 +490,7 @@ static NSColor *themeTokenFallback(NSString *key, NSColor *fallback) {
     @"lineNumber": @"#4e5a5f", @"activeLineNumber": @"#d0d4da", @"hoverLineNumber": @"#acb0b4",
     @"caret": @"#74ade8", @"statusBar": @"#3b414d", @"titleBar": @"#3b414d",
     @"added": @"#27a657", @"modified": @"#d3b020", @"deleted": @"#e06c76",
+    @"hint": @"#788ca6",
     @"ignored": @"#878a98"
   };
   NSString *value = (light ? lightValues : darkValues)[key];
@@ -669,10 +671,22 @@ static NSColor *sidebarLabelColor(uint32_t flags) {
 static NSUInteger sidebarIconTokenLength(NSString *line) {
   if ([line hasPrefix:@"▾"] || [line hasPrefix:@"▸"]) return 1;
   for (NSString *token in @[@"{}", @"◆", @"≡", @"⚙", @"≋", @"R", @"T", @"J",
-      @"P", @"C", @"H", @"$", @"◇", @"#", @"·", @"•"]) {
+      @"P", @"C", @"H", @"$", @"◇", @"#", @"·", @"•", @"ƒ", @"⚡"]) {
     if ([line hasPrefix:token]) return token.length;
   }
   return 0;
+}
+
+static NSString *outlineSymbolForToken(NSString *line, NSUInteger tokenLength) {
+  if (tokenLength == 0 || line.length < tokenLength) return @"circle";
+  NSString *token = [line substringToIndex:tokenLength];
+  if ([token isEqualToString:@"◆"]) return @"cube";
+  if ([token isEqualToString:@"ƒ"]) return @"function";
+  if ([token isEqualToString:@"⚡"]) return @"bolt";
+  if ([token isEqualToString:@"◇"]) return @"circle.grid.2x2";
+  if ([token isEqualToString:@"#"]) return @"number";
+  if ([token isEqualToString:@"·"]) return @"circle.fill";
+  return @"circle";
 }
 
 static BOOL g_sidebar_debug_logged = NO;
@@ -2449,22 +2463,31 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       NSUInteger startUnit = utf16OffsetForUTF8Bytes(lineText, startByte);
       NSUInteger endUnit = utf16OffsetForUTF8Bytes(lineText, endByte);
       if (endUnit <= startUnit) continue;
-      CGFloat red = 0.95, green = 0.25, blue = 0.25;
-      if (diagnostic.severity == 2) {
-        red = 0.98; green = 0.62; blue = 0.16;
-      } else if (diagnostic.severity == 3) {
-        red = 0.30; green = 0.60; blue = 0.98;
-      } else if (diagnostic.severity >= 4) {
-        red = 0.55; green = 0.60; blue = 0.68;
-      }
+      NSString *severityRole = diagnostic.severity == 2 ? @"warning" :
+        (diagnostic.severity == 3 ? @"info" :
+        (diagnostic.severity >= 4 ? @"hint" : @"error"));
+      NSColor *diagnosticColor = themeRoleColor(severityRole,
+        themeRoleColor(@"error", [NSColor systemRedColor]));
       CGContextSetStrokeColorWithColor(context,
-        [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1.0].CGColor);
-      CGContextSetLineWidth(context, 1.0);
+        diagnosticColor.CGColor);
+      // Zed's diagnostic decoration is a low, repeating wave rather than a
+      // solid rule. Keep it inside the line fragment so clipped/short spans
+      // remain legible and do not touch the next row.
+      CGContextSetLineWidth(context, 1.2);
       CGFloat x0 = 8.0 + editorTextOffset(lineText, startUnit) - g_editor_scroll_x;
       CGFloat x1 = 8.0 + editorTextOffset(lineText, endUnit) - g_editor_scroll_x;
       CGFloat y = editorTextLineBottom(logicalHeight, lineHeight, renderedIndex) - 1.5;
       CGContextMoveToPoint(context, x0, y);
-      CGContextAddLineToPoint(context, MAX(x0 + 2.0, x1), y);
+      CGFloat endX = MAX(x0 + 2.0, x1);
+      CGFloat cursorX = x0;
+      BOOL raised = YES;
+      while (cursorX < endX) {
+        CGFloat nextX = MIN(endX, cursorX + 3.0);
+        CGFloat nextY = y + (raised ? 1.2 : -1.2);
+        CGContextAddLineToPoint(context, nextX, nextY);
+        cursorX = nextX;
+        raised = !raised;
+      }
       CGContextStrokePath(context);
     }
     [attributed release];
@@ -3233,11 +3256,15 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @class NimculusPickerListView;
 @class NimculusGitCommitOverlay;
 @class NimculusSettingsOverlay;
+@class NimculusOutlineOverlay;
 @interface NimculusDocumentSearchField : NSSearchField
 @property(nonatomic, assign) NimculusDocumentSearchOverlay *searchOverlay;
 @end
 @interface NimculusDocumentLineField : NSTextField
 @property(nonatomic, assign) NimculusDocumentSearchOverlay *searchOverlay;
+@end
+@interface NimculusOutlineFilterField : NSSearchField
+@property(nonatomic, assign) NimculusOutlineOverlay *outline;
 @end
 @interface NimculusCommandPaletteField : NSTextField
 @property(nonatomic, assign) NimculusCommandPaletteOverlay *commandPalette;
@@ -3261,8 +3288,10 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @interface NimculusPickerListView : NSView
 @property(nonatomic, retain) NSArray<NSString *> *items;
 @property(nonatomic, retain) NSArray<NSString *> *shortcuts;
+@property(nonatomic, retain) NSArray<NSNumber *> *itemIndices;
 @property(nonatomic, retain) NSString *query;
 @property(nonatomic) NSInteger selectedIndex;
+@property(nonatomic) CGFloat rowHeight;
 @property(nonatomic, assign) id target;
 @property(nonatomic) SEL selectAction;
 @property(nonatomic) SEL confirmAction;
@@ -3328,7 +3357,10 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (void)showGoToLine;
 - (void)showWorkspaceSearch;
 - (void)showQuickOpen;
+- (void)showOutlinePicker;
 - (void)refreshQuickOpenPicker;
+- (void)refreshOutlinePicker;
+- (CGFloat)outlinePickerHeight;
 - (CGFloat)quickOpenPickerHeight;
 - (void)updateSearchStateWithMode:(uint32_t)mode matchIndex:(uint32_t)matchIndex
   matchCount:(uint32_t)matchCount options:(uint32_t)options replaceEnabled:(BOOL)replaceEnabled
@@ -3363,6 +3395,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic) BOOL suppressMouseUpOpen;
 @property(nonatomic, retain) NSTrackingArea *sidebarTrackingArea;
 @property(nonatomic, retain) NSMutableArray<NSButton *> *gitCheckboxes;
+- (void)controlTextDidChange:(NSNotification *)notification;
 - (NSUInteger)sidebarItemForLine:(NSUInteger)line;
 - (void)refreshGitCheckboxes;
 @end
@@ -3488,6 +3521,7 @@ static void refreshQuickOpenPickerForView(NimculusMetalView *view) {
     if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) {
       NimculusDocumentSearchOverlay *search = (NimculusDocumentSearchOverlay *)subview;
       if (!search.hidden && search.mode == 4) [search refreshQuickOpenPicker];
+      else if (!search.hidden && search.mode == 5) [search refreshOutlinePicker];
     }
   }
 }
@@ -3519,6 +3553,16 @@ static void dismissExternalChangePanel(const char *command) {
 - (void)cancelOperation:(id)sender { (void)sender; [self.searchOverlay close:nil]; }
 @end
 
+@implementation NimculusOutlineFilterField
+- (void)cancelOperation:(id)sender {
+  (void)sender;
+  self.stringValue = @"";
+  [self.outline controlTextDidChange:
+    [NSNotification notificationWithName:NSControlTextDidChangeNotification object:self]];
+  if (self.outline.window) [self.outline.window makeFirstResponder:self.outline];
+}
+@end
+
 @implementation NimculusCommandPaletteField
 - (void)cancelOperation:(id)sender { (void)sender; [self.commandPalette close:nil]; }
 @end
@@ -3534,6 +3578,7 @@ static void dismissExternalChangePanel(const char *command) {
 static const CGFloat NimculusPickerWidth = 510.0;
 static const CGFloat NimculusPickerHeaderHeight = 48.0;
 static const CGFloat NimculusPickerRowHeight = 34.0;
+static const CGFloat NimculusOutlinePickerRowHeight = 36.0;
 static const NSUInteger NimculusPickerVisibleRows = 10;
 static const CGFloat NimculusPickerCornerRadius = 8.0;
 
@@ -3678,12 +3723,17 @@ static NSString *commandShortcut(NSString *command) {
   if (!self) return nil;
   self.items = @[];
   self.shortcuts = @[];
+  self.itemIndices = @[];
   self.query = @"";
   self.selectedIndex = NSNotFound;
+  self.rowHeight = NimculusPickerRowHeight;
   self.wantsLayer = YES;
   return self;
 }
-- (void)dealloc { [_items release]; [_shortcuts release]; [_query release]; [super dealloc]; }
+- (void)dealloc {
+  [_items release]; [_shortcuts release]; [_itemIndices release]; [_query release];
+  [super dealloc];
+}
 - (void)selectIndex:(NSInteger)index {
   if (self.items.count == 0) { self.selectedIndex = NSNotFound; [self reload]; return; }
   self.selectedIndex = MIN(MAX(index, 0), (NSInteger)self.items.count - 1);
@@ -3708,8 +3758,8 @@ static NSString *commandShortcut(NSString *command) {
   for (NSUInteger offset = 0; offset < count; offset++) {
     NSUInteger index = start + offset;
     NimculusPickerRow *row = [[[NimculusPickerRow alloc]
-      initWithFrame:NSMakeRect(0.0, offset * NimculusPickerRowHeight,
-        self.bounds.size.width, NimculusPickerRowHeight)] autorelease];
+      initWithFrame:NSMakeRect(0.0, offset * self.rowHeight,
+        self.bounds.size.width, self.rowHeight)] autorelease];
     row.pickerList = self;
     row.index = index;
     row.title = self.items[index];
@@ -4265,13 +4315,15 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
   const CGFloat controlHeight = 24.0;
   const CGFloat buttonWidth = 27.0;
   const CGFloat width = self.bounds.size.width;
-  if (self.mode == 4) {
+  if (self.mode == 4 || self.mode == 5) {
     self.queryField.frame = NSMakeRect(16.0, self.bounds.size.height - NimculusPickerHeaderHeight + 5.0,
       MAX(1.0, width - 32.0), 34.0);
     self.pickerList.frame = NSMakeRect(0.0, 0.0, width,
       MAX(1.0, self.bounds.size.height - NimculusPickerHeaderHeight));
     self.queryField.hidden = NO;
     self.pickerList.hidden = NO;
+    self.pickerList.rowHeight = self.mode == 5 ? NimculusOutlinePickerRowHeight :
+      NimculusPickerRowHeight;
     [self.pickerList reload];
     self.replacementField.hidden = self.lineField.hidden = YES;
     self.previousButton.hidden = self.nextButton.hidden = self.replaceNextButton.hidden =
@@ -4478,9 +4530,37 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
   [self.queryField selectText:nil];
 }
 
+- (void)showOutlinePicker {
+  self.mode = 5;
+  self.clipsToBounds = NO;
+  self.layer.masksToBounds = NO;
+  self.layer.cornerRadius = NimculusPickerCornerRadius;
+  self.layer.borderColor = themeRoleColor(@"border", [NSColor separatorColor]).CGColor;
+  self.layer.backgroundColor = themeRoleColor(@"elevated", [NSColor windowBackgroundColor]).CGColor;
+  self.layer.shadowColor = [NSColor blackColor].CGColor;
+  self.layer.shadowOpacity = themeLooksLight() ? 0.16 : 0.32;
+  self.layer.shadowRadius = 12.0;
+  self.layer.shadowOffset = NSMakeSize(0.0, -4.0);
+  self.queryField.stringValue = @"";
+  self.queryField.placeholderString = @"Search buffer symbols…";
+  self.queryField.accessibilityLabel = @"Search buffer symbols";
+  g_editor_sidebar_selected_index = NSNotFound;
+  [self refreshOutlinePicker];
+  self.hidden = NO;
+  [self setNeedsLayout:YES];
+  [self layoutSubtreeIfNeeded];
+  [self.window makeFirstResponder:self.queryField];
+  [self.queryField selectText:nil];
+}
+
 - (CGFloat)quickOpenPickerHeight {
   NSUInteger rowCount = MIN(self.pickerList.items.count, NimculusPickerVisibleRows);
   return NimculusPickerHeaderHeight + MAX(1.0, (CGFloat)rowCount) * NimculusPickerRowHeight;
+}
+
+- (CGFloat)outlinePickerHeight {
+  NSUInteger rowCount = MIN(self.pickerList.items.count, NimculusPickerVisibleRows);
+  return NimculusPickerHeaderHeight + MAX(1.0, (CGFloat)rowCount) * NimculusOutlinePickerRowHeight;
 }
 
 - (void)refreshQuickOpenPicker {
@@ -4493,7 +4573,33 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
   }
   self.pickerList.items = items;
   self.pickerList.shortcuts = @[];
+  self.pickerList.itemIndices = @[];
   self.pickerList.query = self.queryField.stringValue ?: @"";
+  self.pickerList.rowHeight = NimculusPickerRowHeight;
+  self.pickerList.selectedIndex = items.count > 0 ? 0 : NSNotFound;
+  [self.pickerList reload];
+  [self setNeedsLayout:YES];
+}
+
+- (void)refreshOutlinePicker {
+  if (self.mode != 5) return;
+  NSArray<NSString *> *lines = [g_editor_outline_text componentsSeparatedByString:@"\n"];
+  NSString *query = self.queryField.stringValue ?: @"";
+  NSMutableArray<NSString *> *items = [NSMutableArray array];
+  NSMutableArray<NSNumber *> *indices = [NSMutableArray array];
+  for (NSUInteger index = 2; index < lines.count; index++) {
+    NSString *line = lines[index];
+    if (line.length == 0 || [line hasPrefix:@"No "]) continue;
+    if (query.length > 0 && [line rangeOfString:query
+        options:NSCaseInsensitiveSearch].location == NSNotFound) continue;
+    [items addObject:line];
+    [indices addObject:@(index - 2)];
+  }
+  self.pickerList.items = items;
+  self.pickerList.itemIndices = indices;
+  self.pickerList.shortcuts = @[];
+  self.pickerList.query = query;
+  self.pickerList.rowHeight = NimculusOutlinePickerRowHeight;
   self.pickerList.selectedIndex = items.count > 0 ? 0 : NSNotFound;
   [self.pickerList reload];
   [self setNeedsLayout:YES];
@@ -4537,7 +4643,11 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
 }
 
 - (void)selectQuickOpenIndex:(NSNumber *)index {
-  NSUInteger value = index.unsignedIntegerValue;
+  NSUInteger visibleIndex = index.unsignedIntegerValue;
+  NSUInteger value = visibleIndex;
+  if (self.mode == 5 && visibleIndex < self.pickerList.itemIndices.count) {
+    value = self.pickerList.itemIndices[visibleIndex].unsignedIntegerValue;
+  }
   g_editor_sidebar_selected_index = value;
   if (g_command_callback) {
     NSString *command = [NSString stringWithFormat:@"sidebarSelect:%lu", (unsigned long)value];
@@ -4563,14 +4673,18 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
     return;
   }
   if (notification.object != self.queryField) return;
-  if (self.mode == 3 || self.mode == 4) {
+  if (self.mode == 3 || self.mode == 4 || self.mode == 5) {
     // Zed's picker updates its background search task as the query changes;
     // waiting for Return leaves stale rows visible and makes the search bar
     // look disconnected from its result list. Keep the query field as the
     // single input surface and let Nim restart/cancel the bounded job.
-    NSString *format = self.mode == 3 ? @"workspaceSearch:%@" : @"quickOpen:%@";
-    NSString *command = [NSString stringWithFormat:format, self.queryField.stringValue];
-    g_command_callback(command.UTF8String);
+    if (self.mode == 3 || self.mode == 4) {
+      NSString *format = self.mode == 3 ? @"workspaceSearch:%@" : @"quickOpen:%@";
+      NSString *command = [NSString stringWithFormat:format, self.queryField.stringValue];
+      g_command_callback(command.UTF8String);
+    } else {
+      [self refreshOutlinePicker];
+    }
   } else if (self.queryField.stringValue.length > 0) {
     NSString *command = [NSString stringWithFormat:@"findDocument:%@", self.queryField.stringValue];
     g_command_callback(command.UTF8String);
@@ -4586,7 +4700,7 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
   // picker keeps the query editor active and routes these commands to its
   // result list; doing the same here prevents a search from becoming a
   // keyboard dead end.
-  if (control != self.queryField || (self.mode != 3 && self.mode != 4) ||
+  if (control != self.queryField || (self.mode != 3 && self.mode != 4 && self.mode != 5) ||
       !g_command_callback) return NO;
   const char *navigationCommand = NULL;
   if (commandSelector == @selector(moveUp:)) navigationCommand = "sidebarPrevious";
@@ -4603,7 +4717,12 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
     return YES;
   }
   if (commandSelector == @selector(insertNewline:)) {
-    if (g_editor_sidebar_selected_index != NSNotFound) {
+    if ((self.mode == 4 || self.mode == 5) && self.pickerList.selectedIndex != NSNotFound) {
+      [self selectQuickOpenIndex:@(self.pickerList.selectedIndex)];
+      g_command_callback("sidebarOpenSelected");
+      self.suppressSearchCancellation = YES;
+      [self close:nil];
+    } else if (g_editor_sidebar_selected_index != NSNotFound) {
       g_command_callback("sidebarOpenSelected");
       self.suppressSearchCancellation = YES;
       [self close:nil];
@@ -4622,6 +4741,7 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
   (void)sender;
   if (self.queryField.stringValue.length == 0 || !g_command_callback) return;
   if (self.mode == 3) g_command_callback("workspaceSearchPrevious");
+  else if (self.mode == 5) return;
   else if (self.mode != 4) g_command_callback("findPrevious");
 }
 - (void)findNext:(id)sender {
@@ -4636,7 +4756,7 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
   // Quick Open is a navigation action. Once Return has dispatched the
   // selection, remove the search chrome and return the responder chain to the
   // editor, matching the normal Zed quick-open flow.
-  if (self.mode == 4) {
+  if (self.mode == 4 || self.mode == 5) {
     self.suppressSearchCancellation = YES;
     [self close:nil];
   }
@@ -4840,6 +4960,14 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
 @end
 
 @implementation NimculusOutlineOverlay
+- (void)controlTextDidChange:(NSNotification *)notification {
+  if (!notification || notification.object == nil || !g_command_callback) return;
+  if (![notification.object isKindOfClass:[NimculusOutlineFilterField class]]) return;
+  NimculusOutlineFilterField *field = (NimculusOutlineFilterField *)notification.object;
+  NSString *query = field.stringValue ?: @"";
+  NSString *command = [NSString stringWithFormat:@"sidebarFilter:%@", query];
+  g_command_callback(command.UTF8String);
+}
 - (void)dealloc {
   [_sidebarTrackingArea release];
   [_gitCheckboxes release];
@@ -5048,7 +5176,7 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
 - (void)dispatchSidebarOpen:(NSUInteger)item {
   if (item == NSNotFound || !g_command_callback) return;
   NSString *command = g_editor_sidebar_mode == 0 ?
-    [NSString stringWithFormat:@"commandPalette:open symbol %lu", (unsigned long)item + 1] :
+    [NSString stringWithFormat:@"sidebarOpen:%lu", (unsigned long)item] :
     [NSString stringWithFormat:@"sidebarOpen:%lu", (unsigned long)item];
   g_command_callback(command.UTF8String);
 }
@@ -6513,9 +6641,13 @@ static NimculusFooterStatusButton *newFooterButton(NimculusFooterOverlay *owner,
 
   uint32_t errorCount = 0;
   uint32_t warningCount = 0;
+  uint32_t infoCount = 0;
+  uint32_t hintCount = 0;
   for (uint32_t index = 0; index < g_diagnostic_count; index++) {
     if (g_diagnostics[index].severity == 1) errorCount++;
     else if (g_diagnostics[index].severity == 2) warningCount++;
+    else if (g_diagnostics[index].severity == 3) infoCount++;
+    else if (g_diagnostics[index].severity >= 4) hintCount++;
   }
   NSArray<NSString *> *items = [g_editor_footer componentsSeparatedByString:@"\t"];
   NSString *lsp = footerItem(items, 5, @"LSP: なし");
@@ -6543,18 +6675,16 @@ static NimculusFooterStatusButton *newFooterButton(NimculusFooterOverlay *owner,
 
   NSString *diagnosticTitle = @"";
   NSString *diagnosticLabel = @"Diagnostics: no problems";
-  if (errorCount > 0 || warningCount > 0) {
-    if (errorCount > 0 && warningCount > 0) {
-      diagnosticTitle = [NSString stringWithFormat:@"%u errors · %u warnings",
-        errorCount, warningCount];
-    } else if (errorCount > 0) {
-      diagnosticTitle = [NSString stringWithFormat:@"%u errors", errorCount];
-    } else {
-      diagnosticTitle = [NSString stringWithFormat:@"%u warnings", warningCount];
-    }
+  if (errorCount > 0 || warningCount > 0 || infoCount > 0 || hintCount > 0) {
+    NSMutableArray<NSString *> *summary = [NSMutableArray array];
+    if (errorCount > 0) [summary addObject:[NSString stringWithFormat:@"%u errors", errorCount]];
+    if (warningCount > 0) [summary addObject:[NSString stringWithFormat:@"%u warnings", warningCount]];
+    if (infoCount > 0) [summary addObject:[NSString stringWithFormat:@"%u info", infoCount]];
+    if (hintCount > 0) [summary addObject:[NSString stringWithFormat:@"%u hints", hintCount]];
+    diagnosticTitle = [summary componentsJoinedByString:@" · "];
     diagnosticLabel = [NSString stringWithFormat:@"Diagnostics: %@", diagnosticTitle];
   }
-  if (errorCount == 0 && warningCount == 0) {
+  if (errorCount == 0 && warningCount == 0 && infoCount == 0 && hintCount == 0) {
     NimculusFooterStatusButton *diagnostics = newFooterButton(self, @"", diagnosticLabel,
       NimculusFooterActionDiagnostics);
     setFooterSymbol(diagnostics, @"checkmark", @"✓");
@@ -6580,6 +6710,24 @@ static NimculusFooterStatusButton *newFooterButton(NimculusFooterOverlay *owner,
       styleFooterStatusButton(warnings, NO);
       warnings.contentTintColor = themeRoleColor(@"warning", [NSColor systemOrangeColor]);
       [left addArrangedSubview:warnings];
+    }
+    if (infoCount > 0) {
+      NimculusFooterStatusButton *info = newFooterButton(self,
+        [NSString stringWithFormat:@"%u", infoCount], diagnosticLabel,
+        NimculusFooterActionDiagnostics);
+      setFooterSymbol(info, @"info.circle", @"ⓘ");
+      styleFooterStatusButton(info, NO);
+      info.contentTintColor = themeRoleColor(@"info", [NSColor systemBlueColor]);
+      [left addArrangedSubview:info];
+    }
+    if (hintCount > 0) {
+      NimculusFooterStatusButton *hints = newFooterButton(self,
+        [NSString stringWithFormat:@"%u", hintCount], diagnosticLabel,
+        NimculusFooterActionDiagnostics);
+      setFooterSymbol(hints, @"lightbulb", @"✦");
+      styleFooterStatusButton(hints, NO);
+      hints.contentTintColor = themeRoleColor(@"hint", [NSColor secondaryLabelColor]);
+      [left addArrangedSubview:hints];
     }
   }
 
@@ -7033,7 +7181,27 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
     lineStyle.headIndent = lineStyle.firstLineHeadIndent;
     [presented addAttribute:NSParagraphStyleAttributeName value:lineStyle range:range];
     [lineStyle release];
-    if (g_editor_sidebar_mode == 1) {
+    if (g_editor_sidebar_mode == 0) {
+      // Outline rows carry a compact symbol-kind token from the shared
+      // symbol model. Replace it with a native SF Symbol while leaving the
+      // label and its depth in the text system, so hit testing, AX, and
+      // keyboard selection keep the same row identity.
+      NSUInteger tokenLength = sidebarIconTokenLength(content);
+      if (tokenLength > 0 && tokenLength <= content.length) {
+        NSRange marker = NSMakeRange(range.location, tokenLength);
+        NSImage *image = sidebarSymbolImage(outlineSymbolForToken(content, tokenLength));
+        if (image) {
+          NSTextAttachment *attachment = [[[NSTextAttachment alloc] init] autorelease];
+          attachment.image = image;
+          [presented addAttribute:NSAttachmentAttributeName value:attachment range:marker];
+        } else {
+          [presented addAttributes:@{
+            NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightMedium],
+            NSForegroundColorAttributeName: themeRoleColor(@"textMuted", foreground)
+          } range:marker];
+        }
+      }
+    } else if (g_editor_sidebar_mode == 1) {
       uint32_t flags = sidebarFlagsForContentLine(line);
       [presented addAttribute:NSForegroundColorAttributeName
         value:sidebarLabelColor(flags) range:range];
@@ -7669,6 +7837,16 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     outlineScroll.documentView = outline;
     [self addSubview:outlineScroll];
     [outlineScroll release];
+    NimculusOutlineFilterField *outlineFilter = [[NimculusOutlineFilterField alloc]
+      initWithFrame:NSZeroRect];
+    outlineFilter.outline = outline;
+    outlineFilter.placeholderString = @"Search buffer symbols…";
+    outlineFilter.accessibilityLabel = @"Filter buffer symbols";
+    outlineFilter.toolTip = @"Filter buffer symbols (Esc clears)";
+    outlineFilter.delegate = outline;
+    outlineFilter.font = [NSFont systemFontOfSize:13.0];
+    [self addSubview:outlineFilter];
+    [outlineFilter release];
     [outline release];
     NimculusSidebarHeader *sidebarHeader = [[NimculusSidebarHeader alloc]
       initWithFrame:NSZeroRect];
@@ -7923,6 +8101,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusCommandPaletteOverlay *commandPalette = nil;
   NimculusGitCommitOverlay *gitCommitEditor = nil;
   NimculusSettingsOverlay *settingsEditor = nil;
+  NimculusOutlineFilterField *outlineFilter = nil;
   for (NSView *subview in self.subviews) {
     if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) lineNumbers = (NimculusLineNumberOverlay *)subview;
     if ([subview isKindOfClass:[NimculusIndentGuideOverlay class]]) indentGuides = (NimculusIndentGuideOverlay *)subview;
@@ -7947,6 +8126,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusCommandPaletteOverlay class]]) commandPalette = (NimculusCommandPaletteOverlay *)subview;
     if ([subview isKindOfClass:[NimculusGitCommitOverlay class]]) gitCommitEditor = (NimculusGitCommitOverlay *)subview;
     if ([subview isKindOfClass:[NimculusSettingsOverlay class]]) settingsEditor = (NimculusSettingsOverlay *)subview;
+    if ([subview isKindOfClass:[NimculusOutlineFilterField class]]) outlineFilter =
+      (NimculusOutlineFilterField *)subview;
     if ([subview isKindOfClass:[NimculusGitSidebarTabs class]]) gitTabs = (NimculusGitSidebarTabs *)subview;
     if ([subview isKindOfClass:[NimculusSidebarHeader class]]) sidebarHeader = (NimculusSidebarHeader *)subview;
     if ([subview isKindOfClass:[NimculusWorkspaceToolbar class]]) workspaceToolbar = (NimculusWorkspaceToolbar *)subview;
@@ -8011,12 +8192,21 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       g_editor_sidebar_mode <= 4;
     const CGFloat sidebarHeaderHeight = sidebarPresented ? NimculusRowHeight : 0.0;
     const CGFloat sidebarNavigationHeight = showGitTabs ? NimculusRowHeight : 0.0;
+    const CGFloat outlineFilterHeight = sidebarPresented && g_editor_sidebar_mode == 0 ? 36.0 : 0.0;
     const BOOL showGitCommitFooter = sidebarPresented && g_editor_sidebar_mode == 3;
     const CGFloat gitCommitFooterHeight = showGitCommitFooter ? 46.0 : 0.0;
     const CGFloat sidebarContentTop = sidebarTop + sidebarHeaderHeight +
-      sidebarNavigationHeight;
+      sidebarNavigationHeight + outlineFilterHeight;
     const CGFloat sidebarContentHeight = MAX(1.0, sidebarHeight - sidebarHeaderHeight -
-      sidebarNavigationHeight - gitCommitFooterHeight);
+      sidebarNavigationHeight - outlineFilterHeight - gitCommitFooterHeight);
+    if (outlineFilter) {
+      outlineFilter.hidden = !(sidebarPresented && g_editor_sidebar_mode == 0);
+      if (!outlineFilter.hidden) {
+        outlineFilter.frame = appKitFrameForLogicalTopRect(self,
+          NSMakeRect(sidebarX + NimculusSpace2, sidebarTop + sidebarHeaderHeight + 5.0,
+            MAX(1.0, width - NimculusSpace3), 26.0));
+      }
+    }
     NSScrollView *scroll = outline.enclosingScrollView;
     if (scroll) {
       scroll.hidden = !sidebarPresented;
@@ -8185,15 +8375,16 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     [secondaryAnnotations setNeedsDisplay:YES];
   }
   if (documentSearch && !documentSearch.hidden) {
-    const BOOL quickOpen = documentSearch.mode == 4;
+    const BOOL quickOpen = documentSearch.mode == 4 || documentSearch.mode == 5;
     const CGFloat preferredWidth = quickOpen ?
       MIN(NimculusPickerWidth, MAX(1.0, g_editor_rect[2] - 24.0)) :
       MIN(420.0, MAX(1.0, g_editor_rect[2] - 16.0));
-    const CGFloat preferredHeight = quickOpen ? [documentSearch quickOpenPickerHeight] :
+    const CGFloat preferredHeight = documentSearch.mode == 5 ? [documentSearch outlinePickerHeight] :
+      (documentSearch.mode == 4 ? [documentSearch quickOpenPickerHeight] :
       (documentSearch.mode == 3 ?
         36.0 + (documentSearch.replaceEnabled ? 30.0 : 0.0) +
         (documentSearch.filtersEnabled ? 30.0 : 0.0) :
-        (documentSearch.replaceEnabled ? 66.0 : 36.0));
+        (documentSearch.replaceEnabled ? 66.0 : 36.0)));
     const CGFloat preferredX = quickOpen ?
       g_editor_rect[0] + (g_editor_rect[2] - preferredWidth) / 2.0 :
       g_editor_rect[0] + g_editor_rect[2] - preferredWidth - 8.0;
@@ -10040,6 +10231,18 @@ void nimculus_platform_show_quick_open(void) {
   id delegate = [NSApp delegate];
   if ([delegate respondsToSelector:@selector(quickOpen:)]) {
     [delegate performSelector:@selector(quickOpen:) withObject:nil];
+  }
+}
+
+void nimculus_platform_show_outline_picker(void) {
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) {
+      [(NimculusDocumentSearchOverlay *)subview showOutlinePicker];
+      [view updateTerminalFrame];
+      return;
+    }
   }
 }
 
@@ -13756,6 +13959,7 @@ void nimculus_platform_set_editor_outline(const char *utf8, uint32_t length,
   if (!view) return;
   NimculusOutlineOverlay *outline = outlineOverlayForView(view);
   if (outline) applySidebarPresentation(outline);
+  refreshQuickOpenPickerForView(view);
   [view updateTerminalFrame];
 }
 void nimculus_platform_set_editor_sidebar(const char *utf8, uint32_t length,
@@ -14097,6 +14301,14 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
       [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]));
     applySidebarPresentation(outline);
   }
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusOutlineFilterField class]]) {
+      NimculusOutlineFilterField *filter = (NimculusOutlineFilterField *)subview;
+      filter.backgroundColor = themeRoleColor(@"element", [NSColor controlBackgroundColor]);
+      filter.textColor = themeRoleColor(@"fgPrimary", [NSColor labelColor]);
+      filter.appearance = view.effectiveAppearance;
+    }
+  }
   NimculusWindowContentView *root = nil;
   if ([view.superview isKindOfClass:[NimculusWindowContentView class]]) {
     root = (NimculusWindowContentView *)view.superview;
@@ -14157,7 +14369,7 @@ void nimculus_platform_set_theme_palette_json(const char *json) {
     @"editorActiveLine",
     @"scrollbarThumb", @"scrollbarHover", @"lineNumber", @"activeLineNumber", @"hoverLineNumber",
     @"caret", @"elevated", @"terminal", @"added", @"modified", @"deleted",
-    @"conflict", @"warning", @"error", @"info", @"success"
+    @"conflict", @"warning", @"hint", @"error", @"info", @"success"
   ];
   NSMutableDictionary *palette = [NSMutableDictionary dictionaryWithCapacity:keys.count];
   NSDictionary *source = (NSDictionary *)object;

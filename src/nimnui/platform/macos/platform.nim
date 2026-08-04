@@ -268,6 +268,7 @@ proc platformShowFindDocument*() {.importc: "nimculus_platform_show_find_documen
 proc platformShowReplaceDocument*() {.importc: "nimculus_platform_show_replace_document", cdecl.}
 proc platformShowGoToLine*() {.importc: "nimculus_platform_show_go_to_line", cdecl.}
 proc platformShowQuickOpen*() {.importc: "nimculus_platform_show_quick_open", cdecl.}
+proc platformShowOutlinePicker*() {.importc: "nimculus_platform_show_outline_picker", cdecl.}
 proc platformShowWorkspaceSearch*() {.importc: "nimculus_platform_show_workspace_search", cdecl.}
 proc platformSetSearchUiState*(mode, matchIndex, matchCount, options: uint32,
     replaceEnabled, filtersEnabled: bool) {.importc: "nimculus_platform_set_search_ui_state", cdecl.}
