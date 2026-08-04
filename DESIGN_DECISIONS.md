@@ -1,6 +1,34 @@
 # Design Decisions
 
+## UI-093: Condense the status-bar dock controls to a Zed-style left cluster
+
+The first status-bar dock pass moved every Files, Search, Outline, Git, and
+Debug panel button into the footer, then added a second project-search button.
+That made the left edge crowded and rendered the magnifying-glass affordance
+twice. Zed treats the dock as one status-bar toggle; the selected panel stays
+inside the dock and panel-specific commands remain available through the View,
+Agent, Debug, and Search surfaces and their existing keybindings.
+
+The final macOS footer therefore begins with one ghost `Toggle Panel Dock`
+button, a 1px themed divider, one compact Agent button, one project-search
+button, and the existing diagnostics indicator. The active file name and Git
+summary remain unchanged. The dock toggle changes only left-dock visibility,
+preserving the selected panel, while `Toggle Panel Dock` is also exposed in the
+View menu. Search's native panel header retains New Search and Cancel Search;
+Files, Outline, Git, Terminal, and Debug remain reachable through their existing
+menu and shortcut routes, so removing per-panel footer buttons does not strand
+any panel.
+
+The source reference is Zed's `crates/zed/src/zed.rs` status registration and
+`crates/workspace/src/status_bar.rs`; the local implementation is the native
+`NimculusFooterOverlay`. The divider uses the shared `border` role in both One
+Light and One Dark, and all new controls retain the existing ghost-button and
+accessibility contracts.
+
 ## UI-092: Replace the left activity rail with Zed-style status-bar panel buttons
+
+_Superseded in the final footer composition by UI-093; the activity rail
+removal and panel command routes remain in force._
 
 The current workspace follows Zed's `crates/workspace/src/dock.rs` contract:
 panel identity supplies an icon, tooltip, and accessible label, while the

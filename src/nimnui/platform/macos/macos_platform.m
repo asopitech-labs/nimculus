@@ -6400,18 +6400,14 @@ typedef NS_ENUM(NSInteger, NimculusFooterAction) {
   NimculusFooterActionWorkspaceSearch = 0,
   NimculusFooterActionDiagnostics = 1,
   NimculusFooterActionGit = 2,
-  NimculusFooterActionLsp = 3,
   NimculusFooterActionCursor = 4,
   NimculusFooterActionLanguage = 5,
   NimculusFooterActionEncoding = 6,
   NimculusFooterActionLineEnding = 7,
   NimculusFooterActionIndentation = 8,
-  NimculusFooterActionPanelFiles = 10,
-  NimculusFooterActionPanelSearch = 11,
-  NimculusFooterActionPanelOutline = 12,
-  NimculusFooterActionPanelGit = 13,
-  NimculusFooterActionPanelTerminal = 14,
-  NimculusFooterActionPanelDebug = 15
+  NimculusFooterActionPanelTerminal = 10,
+  NimculusFooterActionDockToggle = 11,
+  NimculusFooterActionAgent = 12
 };
 
 static NSString *footerItem(NSArray<NSString *> *items, NSUInteger index, NSString *fallback) {
@@ -6515,19 +6511,8 @@ static NimculusFooterStatusButton *newPanelButton(NimculusFooterOverlay *owner,
 
 static BOOL footerPanelActionIsActive(NimculusFooterAction action) {
   switch (action) {
-    case NimculusFooterActionPanelFiles:
-      return g_editor_sidebar_visible && g_editor_sidebar_mode == 1;
-    case NimculusFooterActionPanelSearch:
-      return g_editor_sidebar_visible && g_editor_sidebar_mode == 5;
-    case NimculusFooterActionPanelOutline:
-      return g_editor_sidebar_visible && g_editor_sidebar_mode == 0;
-    case NimculusFooterActionPanelGit:
-      return g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 &&
-        g_editor_sidebar_mode <= 4;
     case NimculusFooterActionPanelTerminal:
       return g_terminal_visible;
-    case NimculusFooterActionPanelDebug:
-      return g_editor_sidebar_visible && g_editor_sidebar_mode == 6;
     default:
       return NO;
   }
@@ -6535,14 +6520,21 @@ static BOOL footerPanelActionIsActive(NimculusFooterAction action) {
 
 static const char *footerPanelCommand(NimculusFooterAction action) {
   switch (action) {
-    case NimculusFooterActionPanelFiles: return "commandPalette:show files";
-    case NimculusFooterActionPanelSearch: return "commandPalette:workspace search";
-    case NimculusFooterActionPanelOutline: return "commandPalette:show outline";
-    case NimculusFooterActionPanelGit: return "commandPalette:git status";
     case NimculusFooterActionPanelTerminal: return "commandPalette:toggle terminal";
-    case NimculusFooterActionPanelDebug: return "commandPalette:debug threads";
     default: return NULL;
   }
+}
+
+static NSView *newFooterDivider(void) {
+  NSView *divider = [[[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 1.0, 12.0)]
+    autorelease];
+  divider.wantsLayer = YES;
+  divider.layer.backgroundColor = [themeRoleColor(@"border",
+    [NSColor colorWithCalibratedWhite:0.5 alpha:1.0]) colorWithAlphaComponent:0.55].CGColor;
+  divider.translatesAutoresizingMaskIntoConstraints = NO;
+  [divider.widthAnchor constraintEqualToConstant:1.0].active = YES;
+  [divider.heightAnchor constraintEqualToConstant:12.0].active = YES;
+  return divider;
 }
 
 @implementation NimculusFooterStatusButton
@@ -6607,46 +6599,28 @@ static const char *footerPanelCommand(NimculusFooterAction action) {
     else if (g_diagnostics[index].severity >= 4) hintCount++;
   }
   NSArray<NSString *> *items = [g_editor_footer componentsSeparatedByString:@"\t"];
-  NSString *lsp = footerItem(items, 5, @"LSP: なし");
   NSString *activeFile = footerItem(items, 6, @"");
 
-  // Zed keeps panel navigation in the status bar. Left-dock surfaces lead
-  // the left cluster; the bottom-dock Terminal control leads the right
-  // cluster alongside status metadata. These controls are icon-only, with
-  // explicit tooltip and accessibility labels for keyboard and AX users.
-  NSArray<NSArray *> *leftPanelEntries = @[
-    @[@"Files", @"folder", @(NimculusFooterActionPanelFiles)],
-    @[@"Search", @"magnifyingglass", @(NimculusFooterActionPanelSearch)],
-    @[@"Outline", @"list.bullet", @(NimculusFooterActionPanelOutline)],
-    @[@"Git", @"arrow.triangle.branch", @(NimculusFooterActionPanelGit)],
-    @[@"Debug", @"ladybug", @(NimculusFooterActionPanelDebug)]
-  ];
-  for (NSArray *entry in leftPanelEntries) {
-    NimculusFooterAction action = (NimculusFooterAction)[entry[2] integerValue];
-    NimculusFooterStatusButton *button = newPanelButton(self, entry[0], entry[1], action);
-    styleSidebarIconButton(button, footerPanelActionIsActive(action));
-    [left addArrangedSubview:button];
-  }
+  // Zed keeps the dock itself as one compact status-bar affordance. The
+  // selected panel remains owned by the dock, so toggling it never strands
+  // Files, Search, Outline, Git, or Debug behind a per-panel footer button.
+  NimculusFooterStatusButton *dock = newPanelButton(self, @"Toggle Panel Dock",
+    @"sidebar.left", NimculusFooterActionDockToggle);
+  styleSidebarIconButton(dock, g_editor_sidebar_visible);
+  [left addArrangedSubview:dock];
+  [left addArrangedSubview:newFooterDivider()];
 
-  // Zed registers project search before every other left-side item.
+  NimculusFooterStatusButton *agent = newPanelButton(self, @"Agent", @"sparkles",
+    NimculusFooterActionAgent);
+  [left addArrangedSubview:agent];
+
+  // Keep exactly one project-search affordance in the footer. Search's own
+  // panel header still exposes New Search and Cancel Search.
   NimculusFooterStatusButton *search = newFooterButton(self, @"", @"Search Project",
     NimculusFooterActionWorkspaceSearch);
   setFooterSymbol(search, @"magnifyingglass", @"⌕");
   styleFooterStatusButton(search, YES);
   [left addArrangedSubview:search];
-
-  NSString *lspLower = lsp.lowercaseString;
-  BOOL lspConnected = [lsp rangeOfString:@"接続済み"].location != NSNotFound ||
-    [lspLower rangeOfString:@"connected"].location != NSNotFound ||
-    [lspLower rangeOfString:@"ready"].location != NSNotFound;
-  NimculusFooterStatusButton *lspButton = newFooterButton(self, @"LSP",
-    [NSString stringWithFormat:@"Language server: %@", lsp], NimculusFooterActionLsp);
-  setFooterSymbol(lspButton, lspConnected ? @"checkmark.circle" : @"circle.slash",
-    lspConnected ? @"●" : @"○");
-  styleFooterStatusButton(lspButton, NO);
-  lspButton.contentTintColor = lspConnected ? themeRoleColor(@"success",
-    [NSColor systemGreenColor]) : themeRoleColor(@"textMuted", [NSColor secondaryLabelColor]);
-  [left addArrangedSubview:lspButton];
 
   NSString *diagnosticTitle = @"";
   NSString *diagnosticLabel = @"Diagnostics: no problems";
@@ -6825,16 +6799,18 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
 - (void)dispatchStatusItem:(NimculusFooterStatusButton *)sender {
   if (!g_command_callback) return;
   switch ((NimculusFooterAction)sender.tag) {
-    case NimculusFooterActionPanelFiles:
-    case NimculusFooterActionPanelSearch:
-    case NimculusFooterActionPanelOutline:
-    case NimculusFooterActionPanelGit:
     case NimculusFooterActionPanelTerminal:
-    case NimculusFooterActionPanelDebug: {
+    {
       const char *command = footerPanelCommand((NimculusFooterAction)sender.tag);
       if (command) g_command_callback(command);
       break;
     }
+    case NimculusFooterActionDockToggle:
+      g_command_callback("commandPalette:toggle workspace dock");
+      break;
+    case NimculusFooterActionAgent:
+      g_command_callback("commandPalette:agent start");
+      break;
     case NimculusFooterActionWorkspaceSearch:
       g_command_callback("commandPalette:workspace search");
       break;
@@ -6851,9 +6827,8 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
     case NimculusFooterActionEncoding:
     case NimculusFooterActionLineEnding:
     case NimculusFooterActionIndentation:
-    case NimculusFooterActionLsp:
       // Keep the existing settings command route until dedicated selectors
-      // exist for language, encoding, line endings, indentation, and LSP.
+      // exist for language, encoding, line endings, and indentation.
       g_command_callback("commandPalette:settings");
       break;
     default:
@@ -9277,6 +9252,10 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   toggleFiles.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
   toggleFiles.representedObject = @"commandPalette:toggle files";
   [viewMenu addItem:toggleFiles];
+  NSMenuItem *toggleDock = [[NSMenuItem alloc] initWithTitle:@"Toggle Panel Dock"
+    action:@selector(dispatchCommand:) keyEquivalent:@""];
+  toggleDock.representedObject = @"commandPalette:toggle workspace dock";
+  [viewMenu addItem:toggleDock];
   NSMenuItem *toggleOutline = [[NSMenuItem alloc] initWithTitle:@"Toggle Outline"
     action:@selector(dispatchCommand:) keyEquivalent:@"b"];
   toggleOutline.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
@@ -11842,30 +11821,47 @@ bool nimculus_platform_validate_panel_buttons(void) {
         }
       }
     }
-    NSArray<NSString *> *labels = @[@"Files", @"Search", @"Outline", @"Git",
-      @"Terminal", @"Debug"];
+    NSArray<NSString *> *labels = @[@"Toggle Panel Dock", @"Agent", @"Search Project",
+      @"Diagnostics: no problems", @"Terminal"];
     BOOL presentation = YES;
     for (NSString *label in labels) {
       NSButton *button = buttons[label];
       presentation = presentation && button != nil && !button.bordered &&
         button.toolTip.length > 0 && button.layer.backgroundColor != nil;
     }
-    NSButton *files = buttons[@"Files"];
-    BOOL active = files && [(NimculusChromeButton *)files chromeActive];
-    [(NimculusFooterStatusButton *)buttons[@"Search"] performClick:nil];
+    NSStackView *left = nil;
+    for (NSView *cluster in footer.subviews) {
+      if ([cluster isKindOfClass:[NSStackView class]]) {
+        left = (NSStackView *)cluster;
+        break;
+      }
+    }
+    NSView *divider = left.arrangedSubviews.count > 1 ? left.arrangedSubviews[1] : nil;
+    BOOL dividerPresentation = divider && ![divider isKindOfClass:[NSButton class]] &&
+      divider.frame.size.width == 1.0 && divider.frame.size.height == 12.0;
+    BOOL noDuplicateSearch = buttons[@"Search"] == nil && buttons[@"Search Project"] != nil;
+    NSButton *dock = buttons[@"Toggle Panel Dock"];
+    BOOL active = dock && [(NimculusChromeButton *)dock chromeActive];
+    [(NimculusFooterStatusButton *)dock performClick:nil];
+    BOOL dockToggle = strcmp(g_validation_command,
+      "commandPalette:toggle workspace dock") == 0;
+    [(NimculusFooterStatusButton *)buttons[@"Agent"] performClick:nil];
+    BOOL agent = strcmp(g_validation_command, "commandPalette:agent start") == 0;
+    [(NimculusFooterStatusButton *)buttons[@"Search Project"] performClick:nil];
     BOOL search = strcmp(g_validation_command, "commandPalette:workspace search") == 0;
-    [(NimculusFooterStatusButton *)buttons[@"Git"] performClick:nil];
+    [(NimculusFooterStatusButton *)buttons[@"Diagnostics: no problems"] performClick:nil];
+    BOOL diagnostics = strcmp(g_validation_command, "commandPalette:show problems") == 0;
+    [(NimculusFooterStatusButton *)buttons[@"Git: Git; Ready"] performClick:nil];
     BOOL git = strcmp(g_validation_command, "commandPalette:git status") == 0;
     [(NimculusFooterStatusButton *)buttons[@"Terminal"] performClick:nil];
     BOOL terminal = strcmp(g_validation_command, "commandPalette:toggle terminal") == 0;
-    [(NimculusFooterStatusButton *)buttons[@"Debug"] performClick:nil];
-    BOOL debug = strcmp(g_validation_command, "commandPalette:debug threads") == 0;
     [footer release];
     g_editor_sidebar_mode = previousMode;
     g_editor_sidebar_visible = previousSidebarVisible;
     g_terminal_visible = previousTerminalVisible;
     g_command_callback = previousCallback;
-    return presentation && active && search && git && terminal && debug;
+    return presentation && dividerPresentation && noDuplicateSearch && active && dockToggle &&
+      agent && search && diagnostics && git && terminal;
   }
 }
 

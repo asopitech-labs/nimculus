@@ -7007,6 +7007,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command.startsWith("quick open "): "__quick_open__"
       elif command in ["show files", "show explorer", "show project"]: "__show_files__"
       elif command in ["toggle files", "toggle explorer", "toggle project"]: "__toggle_files__"
+      elif command in ["toggle workspace dock", "toggle panel dock", "toggle dock"]:
+        "__toggle_workspace_dock__"
       elif command in ["reveal active file", "reveal in files", "reveal in explorer"]:
         "__reveal_active_file__"
       elif command in ["collapse all files", "collapse all folders", "collapse workspace folders"]:
@@ -7486,6 +7488,18 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           refreshWorkspacePreview()
         if didFocusPanel: platformFocusEditorSidebar()
         else: platformFocusEditor()
+    of "__toggle_workspace_dock__":
+      when defined(macosx):
+        # The footer owns one dock toggle, while the dock's active panel and
+        # the existing View/Agent/Debug/Search affordances retain panel
+        # selection. Do not reset the selected panel when the dock is hidden.
+        editorWorkspaceUi.leftDock.isOpen = not editorWorkspaceUi.leftDock.isOpen
+        editorWorkspaceUi.focusedRegion = if editorWorkspaceUi.leftDock.isOpen:
+          regionLeftDock else: regionCenter
+        setupDemoUi()
+        if editorWorkspaceUi.leftDock.isOpen: platformFocusEditorSidebar()
+        else: platformFocusEditor()
+        persistSession()
     of "__reveal_active_file__":
       when defined(macosx): revealActiveDocumentInWorkspace()
     of "__collapse_all_files__":
