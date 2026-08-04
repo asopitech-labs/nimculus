@@ -2798,13 +2798,11 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
   if (!self) return nil;
-  self.branchButton = [NSButton buttonWithTitle:@"No Git branch" target:self
+  self.branchButton = [NimculusChromeButton buttonWithTitle:@"No Git branch" target:self
     action:@selector(openBranches:)];
-  self.branchButton.bordered = NO;
-  self.branchButton.wantsLayer = YES;
-  self.branchButton.layer.cornerRadius = 0.0;
-  self.branchButton.layer.backgroundColor = NSColor.clearColor.CGColor;
-  self.branchButton.layer.borderWidth = 0.0;
+  styleWorkspaceNavigationButton(self.branchButton, NO, NO);
+  self.branchButton.alignment = NSTextAlignmentLeft;
+  self.branchButton.imageHugsTitle = YES;
   self.branchButton.toolTip = @"Git branch — click to open Branches";
   self.branchButton.accessibilityLabel = @"Git branch, open branch picker";
   [self addSubview:self.branchButton];
@@ -2831,7 +2829,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]));
   NSDictionary *titleAttributes = @{
     NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.92],
-    NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold]
+    NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightRegular]
   };
   // The document breadcrumb is intentionally independent from the workspace
   // title. Its first component is the filename, while this title remains the
@@ -2841,8 +2839,14 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 }
 - (void)layout {
   [super layout];
-  self.branchButton.frame = NSMakeRect(145.0, 2.0, MIN(260.0,
-    MAX(150.0, self.bounds.size.width - 150.0)), NimculusControlHit);
+  NSDictionary *titleAttributes = @{
+    NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightRegular]
+  };
+  CGFloat titleWidth = ceil([@"Nimculus" sizeWithAttributes:titleAttributes].width);
+  CGFloat branchX = 76.0 + titleWidth + NimculusSpace2;
+  CGFloat availableWidth = MAX(1.0, self.bounds.size.width - branchX - NimculusSpace2);
+  self.branchButton.frame = NSMakeRect(branchX, 2.0, MIN(260.0, availableWidth),
+    NimculusControlHit);
 }
 - (void)updateBranchButton {
   NSString *branch = g_editor_git_branch.length > 0 ? g_editor_git_branch : @"No Git branch";
@@ -2853,7 +2857,10 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     self.branchButton.image = [NSImage imageWithSystemSymbolName:@"arrow.triangle.branch"
       accessibilityDescription:@"Git branch"];
     self.branchButton.imagePosition = NSImageLeft;
+    applySidebarIconConfiguration(self.branchButton);
   }
+  self.branchButton.alignment = NSTextAlignmentLeft;
+  self.branchButton.imageHugsTitle = YES;
   self.branchButton.attributedTitle = [[[NSAttributedString alloc]
     initWithString:branch attributes:@{NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.92],
       NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightMedium]}]
@@ -3094,6 +3101,12 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @end
 
 @interface NimculusEditorContextOverlay : NSTextField
+@property(nonatomic, retain) NSButton *previewButton;
+@property(nonatomic, retain) NSButton *searchButton;
+@property(nonatomic, retain) NSButton *formatButton;
+- (NSButton *)breadcrumbButtonWithSymbol:(NSString *)symbol label:(NSString *)label
+                                  action:(SEL)action;
+- (void)updateBreadcrumbPresentation;
 @end
 
 @interface NimculusEditorAnnotationOverlay : NSView {
@@ -5532,8 +5545,125 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
 @end
 
 @implementation NimculusEditorContextOverlay
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (!self) return nil;
+  self.previewButton = [self breadcrumbButtonWithSymbol:@"eye"
+    label:@"Preview Markdown document" action:@selector(previewMarkdown:)];
+  self.searchButton = [self breadcrumbButtonWithSymbol:@"magnifyingglass"
+    label:@"Find in document" action:@selector(findDocument:)];
+  self.formatButton = [self breadcrumbButtonWithSymbol:@"text.alignleft"
+    label:@"Format buffer" action:@selector(formatDocument:)];
+  [self addSubview:self.previewButton];
+  [self addSubview:self.searchButton];
+  [self addSubview:self.formatButton];
+  [self updateBreadcrumbPresentation];
+  return self;
+}
+- (void)dealloc {
+  [_previewButton release];
+  [_searchButton release];
+  [_formatButton release];
+  [super dealloc];
+}
+- (NSButton *)breadcrumbButtonWithSymbol:(NSString *)symbol label:(NSString *)label
+                                  action:(SEL)action {
+  NimculusChromeButton *button = [NimculusChromeButton buttonWithTitle:@""
+    target:self action:action];
+  if (@available(macOS 11.0, *)) {
+    button.image = [NSImage imageWithSystemSymbolName:symbol
+      accessibilityDescription:label];
+    button.imagePosition = NSImageOnly;
+  }
+  button.toolTip = label;
+  button.accessibilityLabel = label;
+  styleWorkspaceNavigationButton(button, NO, YES);
+  return button;
+}
+- (void)setStringValue:(NSString *)stringValue {
+  [super setStringValue:stringValue ?: @""];
+  [self updateBreadcrumbPresentation];
+}
 - (BOOL)acceptsFirstResponder { return NO; }
-- (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
+- (void)layout {
+  [super layout];
+  const CGFloat rightInset = NimculusSpace1;
+  CGFloat x = self.bounds.size.width - rightInset - NimculusControlHit;
+  self.formatButton.frame = NSMakeRect(x, NimculusSpace1,
+    NimculusControlHit, NimculusControlHit);
+  x -= NimculusSpace1 + NimculusControlHit;
+  self.searchButton.frame = NSMakeRect(x, NimculusSpace1,
+    NimculusControlHit, NimculusControlHit);
+  x -= NimculusSpace1 + NimculusControlHit;
+  self.previewButton.frame = NSMakeRect(x, NimculusSpace1,
+    NimculusControlHit, NimculusControlHit);
+}
+- (void)drawRect:(NSRect)dirtyRect {
+  (void)dirtyRect;
+  if (self.attributedStringValue.length == 0) return;
+  const CGFloat actionWidth = (NimculusControlHit * 3.0) +
+    (NimculusSpace1 * 4.0);
+  NSRect textRect = NSMakeRect(0.0, 4.0,
+    MAX(1.0, self.bounds.size.width - actionWidth),
+    MAX(1.0, self.bounds.size.height - 4.0));
+  [self.attributedStringValue drawInRect:textRect
+    options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading];
+}
+- (void)updateBreadcrumbPresentation {
+  NSString *text = self.stringValue ?: @"";
+  NSColor *muted = [themeRoleColor(@"textMuted", themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0]))
+    colorWithAlphaComponent:0.78];
+  NSColor *heading = [themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedWhite:0.90 alpha:1.0])) colorWithAlphaComponent:0.90];
+  NSFont *regularFont = [NSFont systemFontOfSize:12.0 weight:NSFontWeightRegular];
+  NSFont *headingFont = [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold];
+  NSMutableAttributedString *styled = [[[NSMutableAttributedString alloc] init]
+    autorelease];
+  NSArray<NSString *> *components = [text componentsSeparatedByString:@" › "];
+  for (NSUInteger index = 0; index < components.count; index++) {
+    if (index > 0) {
+      [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:@" › "
+        attributes:@{NSForegroundColorAttributeName: muted,
+          NSFontAttributeName: regularFont}] autorelease]];
+    }
+    NSString *component = components[index];
+    BOOL isHeading = [component hasPrefix:@"#"];
+    [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:component
+      attributes:@{NSForegroundColorAttributeName: isHeading ? heading : muted,
+        NSFontAttributeName: isHeading ? headingFont : regularFont}] autorelease]];
+  }
+  self.attributedStringValue = styled;
+  id delegate = [NSApp delegate];
+  BOOL markdownPreviewAvailable = [delegate respondsToSelector:@selector(previewMarkdown:)];
+  self.previewButton.enabled = markdownPreviewAvailable;
+  self.previewButton.toolTip = markdownPreviewAvailable ?
+    @"Preview Markdown document" : @"Markdown preview unavailable";
+  self.previewButton.accessibilityLabel = self.previewButton.toolTip;
+  styleWorkspaceNavigationButton(self.previewButton, NO, YES);
+  styleWorkspaceNavigationButton(self.searchButton, NO, YES);
+  styleWorkspaceNavigationButton(self.formatButton, NO, YES);
+  [self setNeedsDisplay:YES];
+}
+- (void)previewMarkdown:(id)sender {
+  (void)sender;
+  id delegate = [NSApp delegate];
+  if ([delegate respondsToSelector:@selector(previewMarkdown:)]) {
+    [delegate performSelector:@selector(previewMarkdown:) withObject:self];
+  }
+}
+- (void)findDocument:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("commandPalette:find");
+}
+- (void)formatDocument:(id)sender {
+  (void)sender;
+  if (g_command_callback) g_command_callback("commandPalette:format document");
+}
+- (NSView *)hitTest:(NSPoint)point {
+  NSView *hit = [super hitTest:point];
+  return hit == self ? nil : hit;
+}
 @end
 
 @implementation NimculusEditorAnnotationOverlay
@@ -6317,6 +6447,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0]))
       colorWithAlphaComponent:0.72];
     context.toolTip = @"Current document";
+    [context updateBreadcrumbPresentation];
     [self addSubview:context];
     [context release];
     NimculusWelcomeOverlay *welcome = [[NimculusWelcomeOverlay alloc]
@@ -9716,20 +9847,40 @@ bool nimculus_platform_validate_git_branch_context(void) {
 bool nimculus_platform_validate_editor_context_header(void) {
   @autoreleasepool {
     NSString *previous = [g_editor_context retain];
+    NimculusCommandCallback previousCallback = g_command_callback;
     replaceOwnedString(&g_editor_context, @"DEVELOPMENT_GUIDELINES.md › # Breadcrumb");
     NimculusEditorContextOverlay *context = [[NimculusEditorContextOverlay alloc]
       initWithFrame:NSMakeRect(12.0, 480.0, 300.0, 20.0)];
     context.stringValue = g_editor_context;
     context.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    [context updateBreadcrumbPresentation];
+    [context layout];
+    NSRange headingRange = [context.stringValue rangeOfString:@"# Breadcrumb"];
+    NSFont *headingFont = headingRange.location == NSNotFound ? nil :
+      [context.attributedStringValue attribute:NSFontAttributeName
+        atIndex:headingRange.location effectiveRange:nil];
+    BOOL headingIsEmphasized = headingFont != nil &&
+      (headingFont.fontDescriptor.symbolicTraits & NSFontDescriptorTraitBold) != 0;
+    BOOL hasActions = [context.searchButton.accessibilityLabel isEqualToString:@"Find in document"] &&
+      [context.formatButton.accessibilityLabel isEqualToString:@"Format buffer"] &&
+      context.previewButton != nil && context.searchButton.frame.size.width == NimculusControlHit &&
+      context.formatButton.frame.size.width == NimculusControlHit;
+    g_command_callback = validationCommandCallback;
+    [context.searchButton performClick:nil];
+    BOOL dispatchesFind = strcmp(g_validation_command, "commandPalette:find") == 0;
+    [context.formatButton performClick:nil];
+    BOOL dispatchesFormat = strcmp(g_validation_command, "commandPalette:format document") == 0;
     BOOL valid = [context.stringValue isEqualToString:g_editor_context] &&
       [[context.stringValue componentsSeparatedByString:@" › "][0]
         isEqualToString:@"DEVELOPMENT_GUIDELINES.md"] &&
       context.lineBreakMode == NSLineBreakByTruncatingMiddle &&
       context.frame.size.height == 20.0 && !context.acceptsFirstResponder &&
-      [context hitTest:NSMakePoint(2.0, 2.0)] == nil;
+      [context hitTest:NSMakePoint(2.0, 2.0)] == nil && headingIsEmphasized &&
+      hasActions && dispatchesFind && dispatchesFormat;
     [context release];
     replaceOwnedString(&g_editor_context, previous ?: @"");
     [previous release];
+    g_command_callback = previousCallback;
     return valid;
   }
 }
@@ -11974,7 +12125,9 @@ void nimculus_platform_set_editor_context(const char *utf8) {
   if (!view) return;
   for (NSView *subview in view.subviews) {
     if ([subview isKindOfClass:[NimculusEditorContextOverlay class]]) {
-      ((NSTextField *)subview).stringValue = g_editor_context;
+      NimculusEditorContextOverlay *context = (NimculusEditorContextOverlay *)subview;
+      context.stringValue = g_editor_context;
+      [context updateBreadcrumbPresentation];
       break;
     }
   }
@@ -12524,6 +12677,8 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
     } else if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
       [(NimculusFooterOverlay *)subview reloadStatusItems];
       [subview setNeedsDisplay:YES];
+    } else if ([subview isKindOfClass:[NimculusEditorContextOverlay class]]) {
+      [(NimculusEditorContextOverlay *)subview updateBreadcrumbPresentation];
     }
   }
   if (g_queue) updateTerminalGlyphAtlas(g_queue.device);

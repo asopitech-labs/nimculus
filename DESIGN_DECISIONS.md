@@ -1,5 +1,22 @@
 # Design Decisions
 
+## UX-028: Align macOS titlebar and breadcrumb actions with Zed
+
+The macOS titlebar keeps the native traffic lights, but places the regular-weight
+`Nimculus` workspace label immediately before the Git branch icon and branch
+name. The branch control is left-aligned in that same group rather than being
+centered independently, so the light and dark layouts preserve the same visual
+relationship.
+
+The filename-first breadcrumb remains the existing native document-navigation
+contract. Its Markdown heading and symbol segments are rendered as an
+attributed string so heading components receive a modest semibold emphasis
+while filenames, separators, and paths remain muted. Three right-aligned
+ghost `NimculusChromeButton` controls share the existing hover, tooltip, and
+accessibility treatment: document Find and buffer formatting route through the
+existing command callback, while Markdown Preview activates only when the
+application delegate exposes that optional action.
+
 ## UX-027: Align macOS editor tabs and breadcrumbs with Zed
 
 The macOS editor tab bar now follows the verified Zed light-theme geometry and
