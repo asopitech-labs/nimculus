@@ -146,9 +146,9 @@ var activePointerNode = NodeId(0)
 var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 var demoSecondaryEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 var demoBottomDockBounds = Rect(size: Size(width: px(0), height: px(0)))
-  # Match Zed's default macOS workspace: the activity bar is outermost left and
-  # the Files panel sits immediately inside it. WorkspaceUiState already owns
-  # the logical left dock, so the macOS projection uses the same side.
+  # Match Zed's default macOS workspace: the Files panel is the outermost
+  # workspace surface. Panel navigation lives in the status bar, not beside
+  # the dock, so the logical left dock maps directly to the native sidebar.
 const MacProjectDockOnRight = false
 when defined(macosx) or defined(windows):
   var appSettings: SettingsStore
@@ -291,13 +291,11 @@ proc setupDemoUi() =
   let workspaceLayout = editorWorkspaceUi.layout(
     Size(width: px(viewportWidth), height: px(viewportHeight)))
   let logicalDockWidth = float32(workspaceLayout.leftDock.size.width)
-  # The native Project presenter needs 124pt of content plus the 38pt
-  # activity bar and the 16pt outer spacing used by the AppKit boundary. If
-  # the logical dock has already yielded that space to the editor, retire the
-  # dock as one visual unit rather than leaving an empty Metal gutter beside
-  # a hidden native sidebar. Its open/panel state remains in WorkspaceUiState
-  # and returns automatically when the window is widened again.
-  const MacNativeSidebarMinimumDockWidth = 178'f32
+  # If the logical dock has already yielded its space to the editor, retire
+  # the dock as one visual unit rather than leaving an empty Metal gutter
+  # beside a hidden native sidebar. Its open/panel state remains in
+  # WorkspaceUiState and returns automatically when the window is widened.
+  const MacNativeSidebarMinimumDockWidth = 128'f32
   let nativePresenterMinimum = if MacProjectDockOnRight:
     MacNativeSidebarMinimumDockWidth else: 0'f32
   let leftDockWidth = dockPresentationWidth(logicalDockWidth,
@@ -527,8 +525,8 @@ proc setupShortcutRegistry() =
     shortcut: Shortcut(keyCode: 3, modifiers: {commandModifier, shiftModifier}),
     action: proc() = platformShowWorkspaceSearch()))
   # Match Zed's macOS workspace entry points. These forward through the same
-  # palette dispatch used by the activity bar, keeping keyboard and pointer
-  # navigation on one panel-state path.
+  # palette dispatch used by the status-bar panel buttons, keeping keyboard
+  # and pointer navigation on one panel-state path.
   shortcutRegistry.register(Command(
     name: "toggleFiles",
     shortcut: Shortcut(keyCode: 14, modifiers: {commandModifier, shiftModifier}),

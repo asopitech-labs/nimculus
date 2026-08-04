@@ -459,8 +459,8 @@ suite "macOS platform contract":
   test "workspace toolbar exposes primary panel actions":
     check platformValidateWorkspaceToolbar()
 
-  test "activity bar exposes persistent workspace navigation":
-    check platformValidateActivityBar()
+  test "status bar exposes accessible panel navigation":
+    check platformValidatePanelButtons()
 
   test "sidebar supports scrolling long file and Git history lists":
     check platformValidateSidebarScrollContainer()

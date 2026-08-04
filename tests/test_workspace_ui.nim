@@ -73,6 +73,21 @@ suite "workspace UI state":
     check layout.regionAt(Point(x: px(10), y: px(10))) == regionLeftDock
     check layout.regionAt(Point(x: px(500), y: px(590))) == regionStatus
 
+  test "left dock geometry has no activity rail between panel and editor":
+    var state = initWorkspaceUi()
+    let viewport = Size(width: px(960), height: px(640))
+    let layout = state.layout(viewport)
+    check float32(layout.leftDock.size.width) == DefaultLeftDockWidth
+    check float32(layout.center.origin.x) == DefaultLeftDockWidth
+    check layout.presentedRegionAt(viewport, Point(x: px(239), y: px(120)),
+      dockOnRight = false, presentedDockWidth = DefaultLeftDockWidth) == regionLeftDock
+    check layout.presentedRegionAt(viewport, Point(x: px(240), y: px(120)),
+      dockOnRight = false, presentedDockWidth = DefaultLeftDockWidth) == regionCenter
+    check state.dockResizeDivider(dockLeft, 960, dockOnRight = false) ==
+      DefaultLeftDockWidth
+    state.resizeDock(dockLeft, dockResizeRequest(dockLeft, 300, 960), 960)
+    check state.leftDock.size == 300
+
   test "right-presented project dock maps its divider and drag to logical width":
     var state = initWorkspaceUi()
     check state.dockResizeDivider(dockLeft, 1200, dockOnRight = true) == 960

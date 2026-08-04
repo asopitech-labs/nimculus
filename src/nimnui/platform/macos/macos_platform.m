@@ -187,8 +187,6 @@ static const CGFloat NimculusSpace2 = 8.0;
 static const CGFloat NimculusSpace3 = 12.0;
 static const CGFloat NimculusRowHeight = 28.0;
 static const CGFloat NimculusControlHit = 24.0;
-static const CGFloat NimculusActivityBarWidth = 34.0;
-static const CGFloat NimculusActivityIconSize = 28.0;
 static const CGFloat NimculusIconPointSize = 14.0;
 static const NSUInteger NimculusSidebarHeaderLineCount = 2;
 
@@ -3477,11 +3475,6 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 
 @class NimculusAppDelegate;
 
-@interface NimculusActivityBar : NSStackView
-- (void)reloadSelection;
-- (void)dispatchWorkspaceCommand:(NSButton *)sender;
-@end
-
 @interface NimculusStatusOverlay : NSTextField
 @end
 
@@ -6397,96 +6390,6 @@ static NSColor *activeTabSurfaceColor(void) {
 @end
 
 // Zed keeps workspace navigation at the left edge, independently of the
-// current editor tab. This compact activity bar makes the same destinations
-// reachable without consuming document or tree space with text-only controls.
-@implementation NimculusActivityBar
-- (instancetype)initWithFrame:(NSRect)frame {
-  if (frame.size.width <= 0.0 || frame.size.height <= 0.0) {
-    frame = NSMakeRect(0.0, 0.0, 32.0, 260.0);
-  }
-  self = [super initWithFrame:frame];
-  if (!self) return nil;
-  self.orientation = NSUserInterfaceLayoutOrientationVertical;
-  self.alignment = NSLayoutAttributeCenterX;
-  self.distribution = NSStackViewDistributionGravityAreas;
-  self.spacing = NimculusSpace2;
-  NSArray<NSArray<NSString *> *> *buttons = @[
-    @[@"folder", @"Files", @"commandPalette:show files"],
-    @[@"magnifyingglass", @"Search", @"commandPalette:workspace search"],
-    @[@"list.bullet", @"Outline", @"commandPalette:show outline"],
-    @[@"arrow.triangle.branch", @"Git", @"commandPalette:git status"],
-    @[@"terminal", @"Terminal", @"commandPalette:toggle terminal"],
-    @[@"rectangle.split.2x1", @"Split", @"splitEditor"],
-    @[@"ladybug", @"Debug", @"commandPalette:debug threads"]
-  ];
-  for (NSArray<NSString *> *entry in buttons) {
-    NSButton *button = [NimculusChromeButton buttonWithTitle:entry[1] target:self
-      action:@selector(dispatchWorkspaceCommand:)];
-    if (@available(macOS 11.0, *)) {
-      button.image = [NSImage imageWithSystemSymbolName:entry[0]
-        accessibilityDescription:entry[1]];
-      button.imagePosition = NSImageOnly;
-    }
-    button.bezelStyle = NSBezelStyleTexturedRounded;
-    button.identifier = entry[2];
-    button.toolTip = entry[1];
-    // An SF Symbol's accessibility description is not consistently exposed
-    // as the button's AX name by AppKit. The activity bar is icon-only, so
-    // make its user-visible destination an explicit accessibility label for
-    // VoiceOver and for the public GUI acceptance workflow.
-    button.accessibilityLabel = entry[1];
-    [button setFrameSize:NSMakeSize(NimculusActivityIconSize, NimculusControlHit)];
-    applySidebarIconConfiguration(button);
-    [self addArrangedSubview:button];
-  }
-  [self reloadSelection];
-  return self;
-}
-- (BOOL)isFlipped { return YES; }
-- (void)drawRect:(NSRect)dirtyRect {
-  (void)dirtyRect;
-  [[themeRoleColor(@"border", themeHexColor(g_theme_border,
-    [NSColor colorWithCalibratedWhite:0.24 alpha:1.0])) colorWithAlphaComponent:0.85] setFill];
-  NSRectFill(NSMakeRect(MAX(0.0, self.bounds.size.width - 1.0), 0.0,
-    1.0, self.bounds.size.height));
-}
-- (void)reloadSelection {
-  for (NSView *view in self.arrangedSubviews) {
-    if (![view isKindOfClass:[NSButton class]]) continue;
-    NSButton *button = (NSButton *)view;
-    NSString *command = button.identifier;
-    if ([command isEqualToString:@"splitEditor"] || [command isEqualToString:@"closeSplit"]) {
-      const BOOL split = g_secondary_editor_visible;
-      button.identifier = split ? @"closeSplit" : @"splitEditor";
-      button.toolTip = split ? @"Close Split" : @"Split";
-      if (@available(macOS 11.0, *)) {
-        button.image = [NSImage imageWithSystemSymbolName:
-          (split ? @"rectangle.split.2x1.fill" : @"rectangle.split.2x1")
-          accessibilityDescription:button.toolTip];
-      }
-      command = button.identifier;
-    }
-    BOOL active = [command isEqualToString:@"commandPalette:show files"] ?
-        g_editor_sidebar_visible && g_editor_sidebar_mode == 1 :
-      [command isEqualToString:@"commandPalette:workspace search"] ?
-        g_editor_sidebar_visible && g_editor_sidebar_mode == 5 :
-      [command isEqualToString:@"commandPalette:show outline"] ?
-        g_editor_sidebar_visible && g_editor_sidebar_mode == 0 :
-      [command isEqualToString:@"commandPalette:git status"] ?
-        g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 && g_editor_sidebar_mode <= 4 :
-      [command isEqualToString:@"commandPalette:debug threads"] ?
-        g_editor_sidebar_visible && g_editor_sidebar_mode == 6 :
-      [command isEqualToString:@"commandPalette:toggle terminal"] ? g_terminal_visible : NO;
-    styleSidebarIconButton(button, active);
-  }
-}
-- (void)dispatchWorkspaceCommand:(NSButton *)sender {
-  if (g_command_callback && sender.identifier.length > 0) {
-    g_command_callback(sender.identifier.UTF8String);
-  }
-}
-@end
-
 @implementation NimculusStatusOverlay
 - (BOOL)acceptsFirstResponder { return NO; }
 - (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
@@ -6502,7 +6405,13 @@ typedef NS_ENUM(NSInteger, NimculusFooterAction) {
   NimculusFooterActionLanguage = 5,
   NimculusFooterActionEncoding = 6,
   NimculusFooterActionLineEnding = 7,
-  NimculusFooterActionIndentation = 8
+  NimculusFooterActionIndentation = 8,
+  NimculusFooterActionPanelFiles = 10,
+  NimculusFooterActionPanelSearch = 11,
+  NimculusFooterActionPanelOutline = 12,
+  NimculusFooterActionPanelGit = 13,
+  NimculusFooterActionPanelTerminal = 14,
+  NimculusFooterActionPanelDebug = 15
 };
 
 static NSString *footerItem(NSArray<NSString *> *items, NSUInteger index, NSString *fallback) {
@@ -6588,6 +6497,54 @@ static NimculusFooterStatusButton *newFooterButton(NimculusFooterOverlay *owner,
   return button;
 }
 
+static NimculusFooterStatusButton *newPanelButton(NimculusFooterOverlay *owner,
+                                                   NSString *label,
+                                                   NSString *symbol,
+                                                   NimculusFooterAction action) {
+  NimculusFooterStatusButton *button = newFooterButton(owner, @"", label, action);
+  if (@available(macOS 11.0, *)) {
+    button.image = [NSImage imageWithSystemSymbolName:symbol
+      accessibilityDescription:label];
+    button.imagePosition = NSImageOnly;
+  }
+  styleFooterStatusButton(button, YES);
+  button.footerPreferredWidth = NimculusControlHit;
+  [button.widthAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
+  return button;
+}
+
+static BOOL footerPanelActionIsActive(NimculusFooterAction action) {
+  switch (action) {
+    case NimculusFooterActionPanelFiles:
+      return g_editor_sidebar_visible && g_editor_sidebar_mode == 1;
+    case NimculusFooterActionPanelSearch:
+      return g_editor_sidebar_visible && g_editor_sidebar_mode == 5;
+    case NimculusFooterActionPanelOutline:
+      return g_editor_sidebar_visible && g_editor_sidebar_mode == 0;
+    case NimculusFooterActionPanelGit:
+      return g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 &&
+        g_editor_sidebar_mode <= 4;
+    case NimculusFooterActionPanelTerminal:
+      return g_terminal_visible;
+    case NimculusFooterActionPanelDebug:
+      return g_editor_sidebar_visible && g_editor_sidebar_mode == 6;
+    default:
+      return NO;
+  }
+}
+
+static const char *footerPanelCommand(NimculusFooterAction action) {
+  switch (action) {
+    case NimculusFooterActionPanelFiles: return "commandPalette:show files";
+    case NimculusFooterActionPanelSearch: return "commandPalette:workspace search";
+    case NimculusFooterActionPanelOutline: return "commandPalette:show outline";
+    case NimculusFooterActionPanelGit: return "commandPalette:git status";
+    case NimculusFooterActionPanelTerminal: return "commandPalette:toggle terminal";
+    case NimculusFooterActionPanelDebug: return "commandPalette:debug threads";
+    default: return NULL;
+  }
+}
+
 @implementation NimculusFooterStatusButton
 - (void)rightMouseDown:(NSEvent *)event {
   if (self.footerOwner) [self.footerOwner showStatusBarMenuForEvent:event];
@@ -6652,6 +6609,24 @@ static NimculusFooterStatusButton *newFooterButton(NimculusFooterOverlay *owner,
   NSArray<NSString *> *items = [g_editor_footer componentsSeparatedByString:@"\t"];
   NSString *lsp = footerItem(items, 5, @"LSP: なし");
   NSString *activeFile = footerItem(items, 6, @"");
+
+  // Zed keeps panel navigation in the status bar. Left-dock surfaces lead
+  // the left cluster; the bottom-dock Terminal control leads the right
+  // cluster alongside status metadata. These controls are icon-only, with
+  // explicit tooltip and accessibility labels for keyboard and AX users.
+  NSArray<NSArray *> *leftPanelEntries = @[
+    @[@"Files", @"folder", @(NimculusFooterActionPanelFiles)],
+    @[@"Search", @"magnifyingglass", @(NimculusFooterActionPanelSearch)],
+    @[@"Outline", @"list.bullet", @(NimculusFooterActionPanelOutline)],
+    @[@"Git", @"arrow.triangle.branch", @(NimculusFooterActionPanelGit)],
+    @[@"Debug", @"ladybug", @(NimculusFooterActionPanelDebug)]
+  ];
+  for (NSArray *entry in leftPanelEntries) {
+    NimculusFooterAction action = (NimculusFooterAction)[entry[2] integerValue];
+    NimculusFooterStatusButton *button = newPanelButton(self, entry[0], entry[1], action);
+    styleSidebarIconButton(button, footerPanelActionIsActive(action));
+    [left addArrangedSubview:button];
+  }
 
   // Zed registers project search before every other left-side item.
   NimculusFooterStatusButton *search = newFooterButton(self, @"", @"Search Project",
@@ -6769,6 +6744,11 @@ static NimculusFooterStatusButton *newFooterButton(NimculusFooterOverlay *owner,
     styleFooterStatusButton(button, NO);
     [right addArrangedSubview:button];
   }
+  NimculusFooterStatusButton *terminalButton = newPanelButton(self, @"Terminal",
+    @"terminal", NimculusFooterActionPanelTerminal);
+  styleSidebarIconButton(terminalButton,
+    footerPanelActionIsActive(NimculusFooterActionPanelTerminal));
+  [right insertArrangedSubview:terminalButton atIndex:0];
   [self setNeedsLayout:YES];
 }
 static CGFloat footerClusterWidth(NSStackView *cluster) {
@@ -6845,6 +6825,16 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
 - (void)dispatchStatusItem:(NimculusFooterStatusButton *)sender {
   if (!g_command_callback) return;
   switch ((NimculusFooterAction)sender.tag) {
+    case NimculusFooterActionPanelFiles:
+    case NimculusFooterActionPanelSearch:
+    case NimculusFooterActionPanelOutline:
+    case NimculusFooterActionPanelGit:
+    case NimculusFooterActionPanelTerminal:
+    case NimculusFooterActionPanelDebug: {
+      const char *command = footerPanelCommand((NimculusFooterAction)sender.tag);
+      if (command) g_command_callback(command);
+      break;
+    }
     case NimculusFooterActionWorkspaceSearch:
       g_command_callback("commandPalette:workspace search");
       break;
@@ -7803,10 +7793,6 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     self.markedText = @"";
     self.markedTextRange = NSMakeRange(NSNotFound, 0);
     self.selectedTextRange = NSMakeRange(0, 0);
-    NimculusActivityBar *activityBar = [[NimculusActivityBar alloc]
-      initWithFrame:NSZeroRect];
-    [self addSubview:activityBar];
-    [activityBar release];
     NimculusOutlineOverlay *outline = [[NimculusOutlineOverlay alloc]
       initWithFrame:NSZeroRect];
     outline.hoveredSidebarLine = NSNotFound;
@@ -8079,7 +8065,6 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusGitCommitButton *gitCommit = nil;
   NimculusGitRefreshButton *gitRefresh = nil;
   NimculusGitChangesActions *gitChangesActions = nil;
-  NimculusActivityBar *activityBar = nil;
   NimculusFilesSidebarActions *filesActions = nil;
   NimculusSearchSidebarActions *searchActions = nil;
   NimculusWorkspaceToolbar *workspaceToolbar = nil;
@@ -8131,7 +8116,6 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusGitSidebarTabs class]]) gitTabs = (NimculusGitSidebarTabs *)subview;
     if ([subview isKindOfClass:[NimculusSidebarHeader class]]) sidebarHeader = (NimculusSidebarHeader *)subview;
     if ([subview isKindOfClass:[NimculusWorkspaceToolbar class]]) workspaceToolbar = (NimculusWorkspaceToolbar *)subview;
-    if ([subview isKindOfClass:[NimculusActivityBar class]]) activityBar = (NimculusActivityBar *)subview;
   }
   for (NSView *subview in sidebarHeader.actionStack.arrangedSubviews) {
     if ([subview isKindOfClass:[NimculusGitCommitButton class]]) gitCommit = (NimculusGitCommitButton *)subview;
@@ -8140,7 +8124,6 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusFilesSidebarActions class]]) filesActions = (NimculusFilesSidebarActions *)subview;
     if ([subview isKindOfClass:[NimculusSearchSidebarActions class]]) searchActions = (NimculusSearchSidebarActions *)subview;
   }
-  const CGFloat activityBarWidth = NimculusActivityBarWidth;
   // The logical editor begins after its 28pt tab strip and 28pt breadcrumb
   // header. The dock is a workspace sibling rather than a document child, so
   // its activity/header controls start at the workspace top instead of
@@ -8161,31 +8144,16 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   // window is narrowed below the combined dock + center minimum.  Do not
   // undo that decision at the AppKit boundary by forcing a 140pt sidebar:
   // that placed the native Files/Git views beyond the right edge while the
-  // logical dock had already collapsed.  A presented sidebar needs room for
-  // its own controls *and* the activity bar; otherwise preserve the dock's
-  // logical open state but hide this transient presentation until the window
-  // is wide enough again.
+  // logical dock had already collapsed. A presented sidebar needs room for
+  // its own controls; otherwise preserve the dock's logical open state but
+  // hide this transient presentation until the window is wide enough again.
   const CGFloat minimumSidebarContentWidth = 128.0;
-  const CGFloat requestedSidebarWidth = dockAvailableWidth - activityBarWidth;
+  const CGFloat requestedSidebarWidth = dockAvailableWidth;
   const BOOL sidebarPresented = g_editor_sidebar_visible &&
     requestedSidebarWidth >= minimumSidebarContentWidth;
   const CGFloat sidebarWidth = MAX(1.0, requestedSidebarWidth);
-  const CGFloat activityBarX = g_editor_sidebar_on_right ? dockOuterX + sidebarWidth : 0.0;
-  const CGFloat sidebarX = g_editor_sidebar_on_right ? dockOuterX :
-    activityBarX + activityBarWidth;
+  const CGFloat sidebarX = g_editor_sidebar_on_right ? dockOuterX : 0.0;
   const CGFloat sidebarControlX = sidebarX + NimculusSpace1;
-  if (activityBar) {
-    // Welcome owns only the document center. Keep the activity bar and Files
-    // tree available while a workspace has no active document so the user can
-    // still navigate the project without dismissing the entry surface.
-    activityBar.hidden = !sidebarPresented;
-    if (!activityBar.hidden) {
-      activityBar.frame = appKitFrameForLogicalTopRect(self,
-        NSMakeRect(activityBarX, sidebarTop, activityBarWidth,
-          MAX(1.0, sidebarHeight)));
-      [activityBar reloadSelection];
-    }
-  }
   if (outline) {
     CGFloat width = sidebarWidth;
     BOOL showGitTabs = sidebarPresented && g_editor_sidebar_mode >= 2 &&
@@ -8295,10 +8263,10 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     }
   }
   if (workspaceToolbar) {
-    // Navigation belongs in the persistent activity bar, as in Zed.  The
-    // old text-button row stole vertical space from documents and duplicated
-    // the same actions. Keep its implementation only for compatibility with
-    // existing native callers; do not compose it into the workspace.
+    // Navigation belongs in the status bar, as in Zed. The old text-button
+    // row stole vertical space from documents and duplicated the same
+    // actions. Keep its implementation only for compatibility with existing
+    // native callers; do not compose it into the workspace.
     workspaceToolbar.hidden = YES;
   }
   if (lineNumbers) {
@@ -11852,64 +11820,52 @@ bool nimculus_platform_validate_workspace_toolbar(void) {
   }
 }
 
-bool nimculus_platform_validate_activity_bar(void) {
+bool nimculus_platform_validate_panel_buttons(void) {
   @autoreleasepool {
     NimculusCommandCallback previousCallback = g_command_callback;
     uint32_t previousMode = g_editor_sidebar_mode;
     BOOL previousSidebarVisible = g_editor_sidebar_visible;
     BOOL previousTerminalVisible = g_terminal_visible;
-    BOOL previousSecondaryVisible = g_secondary_editor_visible;
     g_command_callback = validationCommandCallback;
     g_editor_sidebar_visible = YES;
     g_editor_sidebar_mode = 1;
     g_terminal_visible = NO;
-    NimculusActivityBar *bar = [[NimculusActivityBar alloc]
-      initWithFrame:NSMakeRect(0.0, 0.0, 30.0, 180.0)];
-    NSArray<NSView *> *buttons = bar.arrangedSubviews;
-    BOOL presentation = buttons.count == 7 &&
-      [((NSButton *)buttons[0]).toolTip isEqualToString:@"Files"] &&
-      [((NSButton *)buttons[1]).toolTip isEqualToString:@"Search"] &&
-      [((NSButton *)buttons[2]).toolTip isEqualToString:@"Outline"] &&
-      [((NSButton *)buttons[3]).toolTip isEqualToString:@"Git"] &&
-      [((NSButton *)buttons[4]).toolTip isEqualToString:@"Terminal"] &&
-      [((NSButton *)buttons[5]).toolTip isEqualToString:@"Split"] &&
-      [((NSButton *)buttons[0]).accessibilityLabel isEqualToString:@"Files"] &&
-      [((NSButton *)buttons[1]).accessibilityLabel isEqualToString:@"Search"] &&
-      [((NSButton *)buttons[2]).accessibilityLabel isEqualToString:@"Outline"] &&
-      [((NSButton *)buttons[3]).accessibilityLabel isEqualToString:@"Git"] &&
-      [((NSButton *)buttons[4]).accessibilityLabel isEqualToString:@"Terminal"] &&
-      [((NSButton *)buttons[5]).accessibilityLabel isEqualToString:@"Split"] &&
-      [((NSButton *)buttons[6]).toolTip isEqualToString:@"Debug"] &&
-      [((NSButton *)buttons[6]).accessibilityLabel isEqualToString:@"Debug"] &&
-      ((NSButton *)buttons[0]).contentTintColor != nil &&
-      ![((NSButton *)buttons[0]).contentTintColor
-        isEqual:((NSButton *)buttons[1]).contentTintColor] &&
-      !((NSButton *)buttons[0]).bordered &&
-      ((NSButton *)buttons[0]).layer.backgroundColor != nil;
-    [bar dispatchWorkspaceCommand:(NSButton *)buttons[1]];
+    NimculusFooterOverlay *footer = [[NimculusFooterOverlay alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 1200.0, 24.0)];
+    NSMutableDictionary<NSString *, NSButton *> *buttons = [NSMutableDictionary dictionary];
+    for (NSView *cluster in footer.subviews) {
+      if (![cluster isKindOfClass:[NSStackView class]]) continue;
+      for (NSView *view in ((NSStackView *)cluster).arrangedSubviews) {
+        if ([view isKindOfClass:[NSButton class]] &&
+            ((NSButton *)view).accessibilityLabel.length > 0) {
+          buttons[((NSButton *)view).accessibilityLabel] = (NSButton *)view;
+        }
+      }
+    }
+    NSArray<NSString *> *labels = @[@"Files", @"Search", @"Outline", @"Git",
+      @"Terminal", @"Debug"];
+    BOOL presentation = YES;
+    for (NSString *label in labels) {
+      NSButton *button = buttons[label];
+      presentation = presentation && button != nil && !button.bordered &&
+        button.toolTip.length > 0 && button.layer.backgroundColor != nil;
+    }
+    NSButton *files = buttons[@"Files"];
+    BOOL active = files && [(NimculusChromeButton *)files chromeActive];
+    [(NimculusFooterStatusButton *)buttons[@"Search"] performClick:nil];
     BOOL search = strcmp(g_validation_command, "commandPalette:workspace search") == 0;
-    [bar dispatchWorkspaceCommand:(NSButton *)buttons[3]];
+    [(NimculusFooterStatusButton *)buttons[@"Git"] performClick:nil];
     BOOL git = strcmp(g_validation_command, "commandPalette:git status") == 0;
-    g_terminal_visible = YES;
-    [bar reloadSelection];
-    BOOL terminalSelected = ((NSButton *)buttons[4]).contentTintColor != nil;
-    [bar dispatchWorkspaceCommand:(NSButton *)buttons[5]];
-    BOOL split = strcmp(g_validation_command, "splitEditor") == 0;
-    g_secondary_editor_visible = YES;
-    [bar reloadSelection];
-    BOOL closePresentation = [((NSButton *)buttons[5]).toolTip isEqualToString:@"Close Split"];
-    [bar dispatchWorkspaceCommand:(NSButton *)buttons[5]];
-    BOOL closeSplit = strcmp(g_validation_command, "closeSplit") == 0;
-    [bar dispatchWorkspaceCommand:(NSButton *)buttons[6]];
+    [(NimculusFooterStatusButton *)buttons[@"Terminal"] performClick:nil];
+    BOOL terminal = strcmp(g_validation_command, "commandPalette:toggle terminal") == 0;
+    [(NimculusFooterStatusButton *)buttons[@"Debug"] performClick:nil];
     BOOL debug = strcmp(g_validation_command, "commandPalette:debug threads") == 0;
-    [bar release];
+    [footer release];
     g_editor_sidebar_mode = previousMode;
     g_editor_sidebar_visible = previousSidebarVisible;
     g_terminal_visible = previousTerminalVisible;
-    g_secondary_editor_visible = previousSecondaryVisible;
     g_command_callback = previousCallback;
-    return presentation && search && git && terminalSelected && split && closePresentation &&
-      closeSplit && debug;
+    return presentation && active && search && git && terminal && debug;
   }
 }
 
@@ -11964,35 +11920,25 @@ bool nimculus_platform_validate_sidebar_bounds(void) {
     g_editor_sidebar_on_right = YES;
     g_welcome_visible = NO;
 
-    // The logical 160pt dock leaves only 106pt after its activity bar. It is
-    // too narrow for Files/Git controls, so both native presenters must be
-    // hidden rather than overrunning the root view.
+    // The logical dock leaves only 120pt on the right, below the native
+    // sidebar's 128pt content floor, so the presenter must stay hidden.
     g_editor_rect[0] = 28.0; g_editor_rect[1] = 80.0;
-    g_editor_rect[2] = 332.0; g_editor_rect[3] = 300.0;
+    g_editor_rect[2] = 372.0; g_editor_rect[3] = 300.0;
     [view updateTerminalFrame];
     NimculusOutlineOverlay *outline = outlineOverlayForView(view);
-    NimculusActivityBar *activityBar = nil;
-    for (NSView *subview in view.subviews) {
-      if ([subview isKindOfClass:[NimculusActivityBar class]]) {
-        activityBar = (NimculusActivityBar *)subview;
-        break;
-      }
-    }
     NSScrollView *scroll = outline.enclosingScrollView;
-    BOOL hiddenWhenCollapsed = scroll && activityBar && scroll.hidden && activityBar.hidden;
+    BOOL hiddenWhenCollapsed = scroll && scroll.hidden;
 
-    // Once the actual dock can host both its content and activity bar, the
-    // same views reappear and every frame is wholly inside the AppKit root.
+    // Once the actual dock can host its content, the same view reappears and
+    // its frame remains wholly inside the AppKit root.
     [view setFrame:NSMakeRect(0.0, 0.0, 640.0, 420.0)];
     [view updateTerminalFrame];
-    BOOL shownWhenUsable = scroll && activityBar && !scroll.hidden && !activityBar.hidden;
+    BOOL shownWhenUsable = scroll && !scroll.hidden;
     BOOL containedWhenUsable = shownWhenUsable &&
-      NSContainsRect(view.bounds, scroll.frame) &&
-      NSContainsRect(view.bounds, activityBar.frame);
+      NSContainsRect(view.bounds, scroll.frame);
     BOOL dockAdjoinsEditor = shownWhenUsable &&
       fabs(NSMinX(scroll.frame) - (g_editor_rect[0] + g_editor_rect[2])) < 0.01 &&
-      fabs(NSMaxX(scroll.frame) - NSMinX(activityBar.frame)) < 0.01 &&
-      NSMaxX(activityBar.frame) <= NSMaxX(view.bounds) + 0.01;
+      NSMaxX(scroll.frame) <= NSMaxX(view.bounds) + 0.01;
 
     memcpy(g_editor_rect, previousRect, sizeof(previousRect));
     g_editor_sidebar_visible = previousSidebarVisible;
@@ -13980,6 +13926,13 @@ void nimculus_platform_set_editor_sidebar(const char *utf8, uint32_t length,
       (uint32_t)g_editor_sidebar_selected_index);
   }
   refreshQuickOpenPickerForView(view);
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
+      [(NimculusFooterOverlay *)subview reloadStatusItems];
+      [subview setNeedsDisplay:YES];
+      break;
+    }
+  }
   [view updateTerminalFrame];
 }
 void nimculus_platform_set_editor_sidebar_line_items(const int32_t *items,
@@ -14136,6 +14089,13 @@ void nimculus_platform_set_editor_sidebar_visible(bool visible) {
   if (!view) return;
   NimculusOutlineOverlay *outline = outlineOverlayForView(view);
   if (outline.enclosingScrollView) outline.enclosingScrollView.hidden = !g_editor_sidebar_visible;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
+      [(NimculusFooterOverlay *)subview reloadStatusItems];
+      [subview setNeedsDisplay:YES];
+      break;
+    }
+  }
   [view updateTerminalFrame];
   [view requestRedraw];
 }
@@ -14190,7 +14150,15 @@ void nimculus_platform_prompt_extension_permissions(const char *title,
 void nimculus_platform_set_terminal_visible(bool visible) {
   g_terminal_visible = visible ? YES : NO;
   if (g_active_view) {
-    [(NimculusMetalView *)g_active_view updateTerminalFrame];
+    NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+    for (NSView *subview in view.subviews) {
+      if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
+        [(NimculusFooterOverlay *)subview reloadStatusItems];
+        [subview setNeedsDisplay:YES];
+        break;
+      }
+    }
+    [view updateTerminalFrame];
     markSceneFullyDirty();
     [g_active_view requestRedraw];
   }
@@ -14316,10 +14284,7 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
     [root.titlebarView setNeedsDisplay:YES];
   }
   for (NSView *subview in view.subviews) {
-    if ([subview isKindOfClass:[NimculusActivityBar class]]) {
-      [(NimculusActivityBar *)subview reloadSelection];
-      [subview setNeedsDisplay:YES];
-    } else if ([subview isKindOfClass:[NimculusFilesSidebarActions class]]) {
+    if ([subview isKindOfClass:[NimculusFilesSidebarActions class]]) {
       [(NimculusFilesSidebarActions *)subview reloadActions];
     } else if ([subview isKindOfClass:[NimculusTabBarOverlay class]]) {
       for (NSView *buttonView in subview.subviews) {

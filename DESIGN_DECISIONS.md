@@ -1,5 +1,26 @@
 # Design Decisions
 
+## UI-092: Replace the left activity rail with Zed-style status-bar panel buttons
+
+The current workspace follows Zed's `crates/workspace/src/dock.rs` contract:
+panel identity supplies an icon, tooltip, and accessible label, while the
+status bar owns `PanelButtons`. Nimculus removes the permanent
+`NimculusActivityBar` overlay and places Files, Search, Outline, Git, and
+Debug buttons in the status bar's left cluster; Terminal leads the
+bottom-dock controls in the right cluster. Buttons dispatch the existing panel
+commands, highlight from the existing native sidebar/terminal state, and keep
+ghost styling in both One light and One dark themes.
+
+This reclaims the former rail width. The logical workspace dock now maps
+directly to the native Files/Git/Outline presenter, so editor geometry,
+presented-region hit testing, and dock divider resizing share one boundary.
+Accessibility labels, keyboard shortcuts, command routing, and persisted dock
+state remain unchanged because the status buttons are only a new pointer
+surface over the existing workspace state machine.
+
+The source reference is `references/zed/crates/workspace/src/dock.rs`, with
+status-bar registration mirrored by the local `NimculusFooterOverlay`.
+
 ## UI-084: Clone Zed's Outline and diagnostic presentation
 
 The macOS Outline presenter follows the vendored Zed implementation contract:
@@ -175,9 +196,10 @@ diagnostics item uses the new commandPalette:show problems route. The
 existing Status Bar Settings / Hide context menu remains available from the
 bar and every status button.
 
-Activity-bar panel destinations are intentionally not copied into the
-footer. Files, Search, Outline, Git, Terminal, Split, and Debug remain owned
-by the left activity bar, avoiding two competing control surfaces.
+Panel destinations are intentionally represented once in the footer. Files,
+Search, Outline, Git, and Debug use the left status-bar cluster; Terminal uses
+the bottom-dock position in the right cluster. Split remains an editor action
+in its existing command/toolbar path, avoiding competing control surfaces.
 
 **Consequences.** Theme roles, spacing tokens, and the ghost hover treatment
 are shared with the rest of macOS chrome. Diagnostics refresh the summary
