@@ -411,6 +411,16 @@ suite "M5 editor services":
     check session.displayTitle(1) == "Untitled 2"
     check session.displayTitle(2) == "Untitled 3"
 
+  test "named tab labels retain their file extension":
+    let path = getTempDir() / "DEVELOPMENT_GUIDELINES.md"
+    writeFile(path, "# Breadcrumb\n")
+    defer:
+      if fileExists(path): removeFile(path)
+    var session: EditorSession
+    session.addTab(openDocument(path))
+    check session.displayTitle(0) == "DEVELOPMENT_GUIDELINES.md"
+    check session.tabDisplayLabel(0) == "DEVELOPMENT_GUIDELINES.md"
+
   test "pinning tabs preserves pane document identity and session order":
     var session: EditorSession
     var first = newDocument()

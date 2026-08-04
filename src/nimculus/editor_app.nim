@@ -199,16 +199,25 @@ proc addBackgroundTab*(session: var EditorSession, document: FileDocument): int 
   result = session.activeTab
   session.activeTab = active
 
+proc visibleTabTitle(tab: EditorTab): string =
+  ## A tab's persisted title is kept separate from its filesystem identity,
+  ## but a named document always presents its complete filename in chrome.
+  if tab.document.path.len > 0:
+    let parts = splitFile(tab.document.path)
+    if parts.name.len > 0:
+      return parts.name & parts.ext
+  if tab.title.len > 0: tab.title else: "Untitled"
+
 proc displayTitle*(session: EditorSession, index: int): string =
   ## Titles are item labels, not stable identities. A restored set of unsaved
   ## buffers can legitimately contain several "Untitled" entries; number only
   ## duplicate labels so every visible tab remains an actionable target.
   if index < 0 or index >= session.tabs.len: return "Untitled"
-  let title = session.tabs[index].title
+  let title = visibleTabTitle(session.tabs[index])
   var total = 0
   var ordinal = 0
   for candidate, tab in session.tabs:
-    if tab.title == title:
+    if visibleTabTitle(tab) == title:
       inc total
       if candidate <= index: inc ordinal
   result = if total > 1: title & " " & $ordinal else: title

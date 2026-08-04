@@ -970,25 +970,63 @@ when defined(macosx):
   proc scheduleNativeGitHunks(document: ptr FileDocument)
   proc scheduleNativeSecondaryGitHunks(document: ptr FileDocument)
 
+  proc breadcrumbSymbolsAtCursor(symbols: seq[LspSymbol], depths: seq[int],
+                                 cursorLine: int): seq[string] =
+    var matches: seq[tuple[depth, order: int, name: string]]
+    for index, symbol in symbols:
+      if cursorLine < symbol.range.start.line or cursorLine > symbol.range.finish.line:
+        continue
+      matches.add((depth: if index < depths.len: depths[index] else: 0,
+        order: index, name: symbol.name))
+    matches.sort(proc(left, right: tuple[depth, order: int, name: string]): int =
+      let depthOrder = cmp(left.depth, right.depth)
+      if depthOrder != 0: depthOrder else: cmp(left.order, right.order))
+    for match in matches:
+      if match.name.len > 0: result.add(match.name)
+
+  proc markdownBreadcrumbHeadings(source: string, cursorLine: int): seq[string] =
+    var levels: seq[int]
+    var lineIndex = 0
+    for line in source.splitLines:
+      if lineIndex > cursorLine: break
+      inc lineIndex
+      let trimmed = line.strip
+      var level = 0
+      while level < trimmed.len and trimmed[level] == '#': inc level
+      if level == 0 or level > 6 or level >= trimmed.len or
+          trimmed[level] notin {' ', '\t'}: continue
+      let heading = trimmed[level .. ^1].strip
+      if heading.len == 0: continue
+      while levels.len > 0 and levels[^1] >= level:
+        levels.setLen(levels.len - 1)
+        result.setLen(result.len - 1)
+      levels.add(level)
+      result.add(trimmed[0 ..< level] & " " & heading)
+
   proc editorContextText(document: ptr FileDocument): string =
-    ## Keep the compact native header meaningful even when several similarly
-    ## named tabs are open. Workspace-relative breadcrumbs avoid leaking an
-    ## unreadable absolute path into the editor chrome.
+    ## Zed starts the breadcrumb with the complete filename and then follows
+    ## it with the heading/symbol path at the cursor. Keep the fallback useful
+    ## even before a language server or local syntax tree is ready.
     if document == nil:
       return ""
+    let filename = if document[].path.len > 0:
+      let parts = splitFile(document[].path)
+      if parts.name.len > 0: parts.name & parts.ext else:
+        editorSession.displayTitle(editorSession.activeTab)
+    else:
+      editorSession.displayTitle(editorSession.activeTab)
     if document[].path.len == 0:
-      return editorSession.displayTitle(editorSession.activeTab)
-    if activeWorkspace != nil:
-      try:
-        let location = activeWorkspace.splitWorkspacePath(document[].path)
-        let root = location.root.extractFilename
-        let relative = location.relative.replace("/", " › ")
-        return if root.len > 0 and relative.len > 0: root & " › " & relative
-          elif relative.len > 0: relative
-          else: root
-      except CatchableError:
-        discard
-    document[].path
+      return filename
+    let cursorLine = document[].buffer.lineColumn(editorViewState.cursor).line
+    var hierarchy: seq[string]
+    let extension = splitFile(document[].path).ext.toLowerAscii
+    if extension in [".md", ".markdown", ".mdown", ".mkdn"]:
+      hierarchy = markdownBreadcrumbHeadings(document[].buffer.toString(), cursorLine)
+    if hierarchy.len == 0:
+      hierarchy = breadcrumbSymbolsAtCursor(
+        if pendingLspSymbols.len > 0: pendingLspSymbols else: pendingSyntaxSymbols,
+        if pendingLspSymbols.len > 0: pendingLspSymbolDepths else: @[], cursorLine)
+    if hierarchy.len > 0: filename & " › " & hierarchy.join(" › ") else: filename
 
   proc gitRepositoryForDocument(document: ptr FileDocument): GitRepository =
     # Zed's Git panel is owned by a workspace repository, not by an editor

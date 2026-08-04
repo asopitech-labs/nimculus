@@ -1,5 +1,27 @@
 # Design Decisions
 
+## UX-027: Align macOS editor tabs and breadcrumbs with Zed
+
+The macOS editor tab bar now follows the verified Zed light-theme geometry and
+keeps the same contract in dark mode and split panes. Previous/next use arrow
+SF Symbols, tabs retain measured content widths, and the active tab is marked
+only by its raised surface. A dirty tab renders a bullet, while the close
+target and glyph are reserved for the hovered tab; this keeps the active tab
+from carrying a permanent close affordance.
+
+Visible named-tab labels are derived from the document basename plus extension
+without changing the persisted title field, so restored sessions and Save As
+semantics remain stable while `DEVELOPMENT_GUIDELINES.md` is shown in chrome.
+The label uses a 12pt leading inset and the existing trailing control hit area,
+with tail truncation inside the measured content-width tab.
+
+The breadcrumb is now a document navigation path: it begins with the complete
+filename at the pane's far-left edge, then adds cursor-containing Markdown
+heading levels or available LSP/local symbol ranges. If no hierarchy is
+available it shows only the filename. The application/workspace title remains
+independent of this document breadcrumb, preventing a filename change from
+renaming the titlebar.
+
 ## UI-081: Make editor and project-panel chrome share hard Zed-style edges
 
 The macOS workspace no longer emits an accent-colored active-pane rectangle at
@@ -9,8 +31,9 @@ independent and unchanged. The normal editor path also omits the outer pane
 border so focus does not create a second left-edge line.
 
 Editor panes now begin exactly at the logical dock boundary and consume the
-remaining center width. Breadcrumb text uses the same 8pt left inset as editor
-text, tabs, and the horizontal scrollbar track. The shared text viewport ends
+remaining center width. The breadcrumb begins at that pane edge, while tab
+labels retain their own content inset and the horizontal scrollbar track keeps
+the editor text inset. The shared text viewport ends
 14pt above the pane bottom, matching the scrollbar overlay instead of leaving
 an oversized body/scrollbar/footer gap. Vertical scrollbar geometry and line
 number clipping use that same top/bottom contract in both light and dark themes.

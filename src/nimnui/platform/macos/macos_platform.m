@@ -2833,11 +2833,10 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.92],
     NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold]
   };
+  // The document breadcrumb is intentionally independent from the workspace
+  // title. Its first component is the filename, while this title remains the
+  // application/workspace label.
   NSString *workspaceName = @"Nimculus";
-  if (g_editor_context.length > 0) {
-    NSString *first = [[g_editor_context componentsSeparatedByString:@" › "] firstObject];
-    if (first.length > 0) workspaceName = first;
-  }
   [workspaceName drawAtPoint:NSMakePoint(76.0, 7.0) withAttributes:titleAttributes];
 }
 - (void)layout {
@@ -4196,9 +4195,24 @@ static void dismissExternalChangePanel(const char *command) {
 @end
 
 static CGFloat tabContentWidth(NSString *title) {
+  NSString *label = title ?: @"Untitled";
+  BOOL dirty = [label hasSuffix:@" •"];
+  if (dirty) label = [label substringToIndex:label.length - 2];
   NSDictionary *attributes = @{NSFontAttributeName: [NSFont systemFontOfSize:12.0]};
-  CGFloat labelWidth = [title sizeWithAttributes:attributes].width;
+  CGFloat labelWidth = [label sizeWithAttributes:attributes].width;
+  if (dirty) {
+    labelWidth += [@"•" sizeWithAttributes:attributes].width + NimculusSpace1;
+  }
   return MIN(240.0, MAX(84.0, labelWidth + NimculusSpace3 * 2.0 + NimculusControlHit));
+}
+
+static BOOL tabTitleIsDirty(NSString *title) {
+  return title.length >= 2 && [title hasSuffix:@" •"];
+}
+
+static NSString *tabTitleWithoutDirtyMarker(NSString *title) {
+  NSString *label = title ?: @"Untitled";
+  return tabTitleIsDirty(label) ? [label substringToIndex:label.length - 2] : label;
 }
 
 static CGFloat tabNavigationLeftWidth(void) {
@@ -4257,9 +4271,9 @@ static NSColor *activeTabSurfaceColor(void) {
     _dragSourceIndex = NSNotFound;
     _hoveredTabIndex = NSNotFound;
     self.clipsToBounds = YES;
-    self.backButton = [self tabButtonWithSymbol:@"chevron.left"
+    self.backButton = [self tabButtonWithSymbol:@"arrow.left"
       label:@"Previous tab" action:@selector(previousTab:)];
-    self.forwardButton = [self tabButtonWithSymbol:@"chevron.right"
+    self.forwardButton = [self tabButtonWithSymbol:@"arrow.right"
       label:@"Next tab" action:@selector(nextTab:)];
     self.tabListButton = [self tabButtonWithSymbol:@"chevron.down"
       label:@"Open tabs" action:@selector(openTabList:)];
@@ -4414,17 +4428,27 @@ static NSColor *activeTabSurfaceColor(void) {
     if (index == active) {
       [activeTabSurfaceColor() setFill];
       NSRectFill(NSMakeRect(x, 0.0, tabWidth, self.bounds.size.height));
-      [themeRoleColor(@"accent", themeHexColor(g_theme_accent,
-        [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0])) setFill];
-      NSRectFill(NSMakeRect(x, 0.0, tabWidth, 2.0));
     }
-    NSString *title = titles[index] ?: @"Untitled";
-    NSRect titleRect = NSMakeRect(x + NimculusSpace2, 5.0,
-      MAX(12.0, tabWidth - NimculusSpace2 * 2.0 - NimculusControlHit),
+    NSString *rawTitle = titles[index] ?: @"Untitled";
+    NSString *title = tabTitleWithoutDirtyMarker(rawTitle);
+    BOOL dirty = tabTitleIsDirty(rawTitle);
+    CGFloat labelX = x + NimculusSpace3;
+    if (dirty) {
+      NSDictionary *dirtyAttributes = @{
+        NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightMedium],
+        NSForegroundColorAttributeName: themeRoleColor(@"textAccent",
+          themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
+            [NSColor colorWithCalibratedWhite:0.88 alpha:1.0])))
+      };
+      [@"•" drawAtPoint:NSMakePoint(labelX, 6.0) withAttributes:dirtyAttributes];
+      labelX += [@"•" sizeWithAttributes:dirtyAttributes].width + NimculusSpace1;
+    }
+    NSRect titleRect = NSMakeRect(labelX, 5.0,
+      MAX(12.0, x + tabWidth - NimculusSpace3 - NimculusControlHit - labelX),
       self.bounds.size.height - 8.0);
     [title drawWithRect:titleRect options:NSStringDrawingTruncatesLastVisibleLine |
       NSStringDrawingUsesLineFragmentOrigin attributes:attributes context:nil];
-    if (index == active || index == self.hoveredTabIndex) {
+    if (index == self.hoveredTabIndex) {
       NSDictionary *closeAttributes = @{
         NSFontAttributeName: [NSFont systemFontOfSize:16.0 weight:NSFontWeightMedium],
         NSForegroundColorAttributeName: [themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
@@ -4453,7 +4477,8 @@ static NSColor *activeTabSurfaceColor(void) {
     for (NSUInteger visualIndex = 0; visualIndex < visible; visualIndex++) {
       NSUInteger candidate = first + visualIndex;
       CGFloat width = tabContentWidth(titles[candidate]);
-      if (candidate == index && point.x < x + width - NimculusControlHit) {
+      if (candidate == index &&
+          (candidate != self.hoveredTabIndex || point.x < x + width - NimculusControlHit)) {
         self.dragSourceIndex = index;
         break;
       }
@@ -4545,7 +4570,8 @@ static NSColor *activeTabSurfaceColor(void) {
   for (NSUInteger visualIndex = 0; visualIndex < visible; visualIndex++) {
     NSUInteger candidate = first + visualIndex;
     CGFloat width = tabContentWidth(titles[candidate]);
-    if (candidate == index && point.x >= x + width - NimculusControlHit) {
+    if (candidate == index && candidate == self.hoveredTabIndex &&
+        point.x >= x + width - NimculusControlHit) {
       NSString *command = [NSString stringWithFormat:@"closePaneTab:%u:%lu",
         self.secondary ? 1 : 0, (unsigned long)index];
       g_command_callback(command.UTF8String);
@@ -6693,9 +6719,9 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     // repaints only dirty editor content beneath it.
     context.hidden = g_welcome_visible || g_editor_context.length == 0;
     context.frame = appKitFrameForLogicalTopRect(self,
-      NSMakeRect(g_editor_rect[0] + 8.0,
+      NSMakeRect(g_editor_rect[0],
         g_editor_rect[1] - NimculusRowHeight,
-        MAX(1.0, g_editor_rect[2] - 16.0), NimculusRowHeight));
+        MAX(1.0, g_editor_rect[2] - NimculusSpace2), NimculusRowHeight));
     context.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
   }
   if (welcome) {
@@ -9592,12 +9618,18 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
     NimculusTabBarOverlay *tabs = [[NimculusTabBarOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 400.0, 28.0)];
     BOOL tabStripClipsToPane = tabs.clipsToBounds;
+    BOOL navigationSymbols = [tabs.backButton.image.accessibilityDescription
+      isEqualToString:@"Previous tab"] &&
+      [tabs.forwardButton.image.accessibilityDescription isEqualToString:@"Next tab"];
     // Use the measured content-width presenter instead of assuming equal tab
     // widths or a reserved navigation block.
+    tabs.hoveredTabIndex = 0;
     [tabs dispatchTabAtPoint:NSMakePoint(130.0, 12.0)];
     BOOL closeFirst = strcmp(g_validation_command, "closePaneTab:0:0") == 0;
+    tabs.hoveredTabIndex = 1;
     [tabs dispatchTabAtPoint:NSMakePoint(220.0, 12.0)];
     BOOL closeSecond = strcmp(g_validation_command, "closePaneTab:0:1") == 0;
+    tabs.hoveredTabIndex = NSNotFound;
     [tabs dispatchTabAtPoint:NSMakePoint(185.0, 12.0)];
     BOOL selectSecond = strcmp(g_validation_command, "selectPaneTab:0:1") == 0;
     [tabs dispatchTabContextAtPoint:NSMakePoint(70.0, 12.0)];
@@ -9625,7 +9657,8 @@ bool nimculus_platform_validate_tab_bar_close_targets(void) {
     g_editor_active_tab = previousActive;
     [previousTitles release];
     g_command_callback = previousCallback;
-    return tabStripClipsToPane && closeFirst && closeSecond && selectSecond && contextFirst && movesSecondToFirst &&
+    return tabStripClipsToPane && navigationSymbols && closeFirst && closeSecond && selectSecond &&
+      contextFirst && movesSecondToFirst &&
       contextNavigationIgnored && previousTab && nextTab && selectOverflowItem;
   }
 }
@@ -9683,12 +9716,14 @@ bool nimculus_platform_validate_git_branch_context(void) {
 bool nimculus_platform_validate_editor_context_header(void) {
   @autoreleasepool {
     NSString *previous = [g_editor_context retain];
-    replaceOwnedString(&g_editor_context, @"nimculus › src › nimculus › main.nim");
+    replaceOwnedString(&g_editor_context, @"DEVELOPMENT_GUIDELINES.md › # Breadcrumb");
     NimculusEditorContextOverlay *context = [[NimculusEditorContextOverlay alloc]
       initWithFrame:NSMakeRect(12.0, 480.0, 300.0, 20.0)];
     context.stringValue = g_editor_context;
     context.lineBreakMode = NSLineBreakByTruncatingMiddle;
     BOOL valid = [context.stringValue isEqualToString:g_editor_context] &&
+      [[context.stringValue componentsSeparatedByString:@" › "][0]
+        isEqualToString:@"DEVELOPMENT_GUIDELINES.md"] &&
       context.lineBreakMode == NSLineBreakByTruncatingMiddle &&
       context.frame.size.height == 20.0 && !context.acceptsFirstResponder &&
       [context hitTest:NSMakePoint(2.0, 2.0)] == nil;
