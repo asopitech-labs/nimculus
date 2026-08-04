@@ -1,5 +1,30 @@
 # Design Decisions
 
+## UI-094: Make editor chrome container-owned and overlay-safe
+
+The macOS editor now treats the pane rectangle as the owner of all document
+coordinates. The line-number gutter is framed at the editor's left edge,
+right-aligned inside a digit-count-based width, and the text origin is derived
+from that gutter plus a fixed content gap. Core Text, Metal glyphs, selections,
+caret, diagnostics, indent guides, Git gutter routing, pointer hit testing, and
+IME candidate coordinates all consume the same origin and viewport helpers;
+line numbers are never placed in the sidebar or clipped by the window edge.
+
+Scrollbars are overlays. Their visibility does not subtract from the text
+viewport or wrapping width, and their retained paint scissor uses the owning
+editor pane so thumbs can float over content without changing layout. The
+find bar is an editor-owned toolbar row at the pane's top boundary; opening it
+adds a toolbar inset to document content rather than covering the first text
+rows. Its match count is a child of the query field at the trailing baseline,
+and its Case Sensitive, Whole Word, and Regex controls use semantic SF Symbol
+buttons with tooltip/accessibility labels and accent-colored active states.
+
+Tabs, breadcrumbs, panel headers, search, and the status footer use the shared
+28pt chrome row token and centered control hit boxes. SF Symbols are configured
+with the body text style before the point-size/weight override, keeping icon
+optical centers paired with the neighboring text metrics in both One Light and
+One Dark.
+
 ## UI-093: Condense the status-bar dock controls to a Zed-style left cluster
 
 The first status-bar dock pass moved every Files, Search, Outline, Git, and
@@ -163,11 +188,11 @@ border so focus does not create a second left-edge line.
 
 Editor panes now begin exactly at the logical dock boundary and consume the
 remaining center width. The breadcrumb begins at that pane edge, while tab
-labels retain their own content inset and the horizontal scrollbar track keeps
-the editor text inset. The shared text viewport ends
-14pt above the pane bottom, matching the scrollbar overlay instead of leaving
-an oversized body/scrollbar/footer gap. Vertical scrollbar geometry and line
-number clipping use that same top/bottom contract in both light and dark themes.
+labels retain their own content inset. Scrollbar thumbs float over the pane and
+do not reserve a right edge in the text layout; the shared text viewport still
+ends 14pt above the footer so the bottom overlay cannot clip glyphs. Vertical
+scrollbar geometry and line-number clipping use that same top/bottom contract
+in both light and dark themes.
 
 The Metal project-panel surface now starts at the content origin and ends at the
 status bar (or bottom-dock boundary), matching the native Files scroll view and
@@ -189,9 +214,9 @@ fixed.
 
 The native macOS backend measures the currently visible lines with Core Text
 and is the authority for the widest-line width and maximum horizontal offset.
-The Nim scrollbar geometry mirrors the native text viewport (including the
-reserved vertical-scrollbar edge), so horizontal and vertical thumbs never
-overlap and the horizontal thumb cannot be under-sized by a monospace estimate.
+The Nim scrollbar geometry mirrors the native text viewport without reserving a
+vertical-scrollbar edge, so horizontal and vertical thumbs float over the pane
+and the horizontal thumb cannot be under-sized by a monospace estimate.
 Horizontal-thumb visibility is derived only from that measured widest visible
 line versus the text viewport. Core Text reports zero while wrapping is active,
 so the geometry does not consult a separately tracked Nim soft-wrap flag that

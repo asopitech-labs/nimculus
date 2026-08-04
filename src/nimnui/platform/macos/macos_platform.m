@@ -156,6 +156,7 @@ static BOOL g_editor_indent_guides = YES;
 static NSUInteger g_editor_indent_width = 2;
 static BOOL g_editor_line_numbers = YES;
 static BOOL g_editor_soft_wrap = NO;
+static BOOL g_editor_find_bar_visible = NO;
 static NSString *g_terminal_text = @"";
 static NSString *g_editor_outline_text = @"Outline\n────────\nNo symbols";
 static uint32_t g_editor_outline_symbol_count = 0;
@@ -597,8 +598,10 @@ static void applySidebarIconConfiguration(NSButton *button) {
   if (@available(macOS 11.0, *)) {
     if (button.image) {
       NSImageSymbolConfiguration *configuration =
+        [NSImageSymbolConfiguration configurationWithTextStyle:NSFontTextStyleBody];
+      configuration = [configuration configurationByApplyingConfiguration:
         [NSImageSymbolConfiguration configurationWithPointSize:NimculusIconPointSize
-          weight:NSFontWeightMedium];
+          weight:NSFontWeightMedium]];
       button.image = [button.image imageWithSymbolConfiguration:configuration];
     }
   }
@@ -1245,8 +1248,8 @@ static NimculusPaintRegion paintCommandScissor(NimculusPaintCommand paint) {
   return clip;
 }
 
-// An editor pane is not itself a text viewport.  The pane also owns its
-// border, the reserved scrollbar edge, and a small vertical safety margin.
+// An editor pane is not itself a text viewport. The pane owns its border, an
+// optional editor toolbar row, and a small vertical safety margin.
 // Keeping this geometry in one place mirrors Zed's content-bounds mask and
 // prevents any renderer (atlas or Core Text texture) from painting into that
 // chrome.  Do not use the pane rectangle as a text clip.
@@ -1256,19 +1259,44 @@ static const CGFloat NimculusEditorTextGlyphSafety = 2.0;
 // two points above the glyph clip preserves the established click contract at
 // the top edge without moving rendered text.
 static const CGFloat NimculusEditorHitTestTopInset = 4.0;
+static const CGFloat NimculusEditorTextGutterGap = 8.0;
+
+static CGFloat editorContentTopInset(void) {
+  return NimculusEditorTextTopInset +
+    (g_editor_find_bar_visible ? NimculusRowHeight : 0.0);
+}
+
+static CGFloat editorLineNumberCharacterWidth(void) {
+  NSDictionary *attributes = @{NSFontAttributeName:
+    [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular]};
+  return MAX(1.0, [@"0" sizeWithAttributes:attributes].width);
+}
+
+static CGFloat editorGutterWidth(void) {
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
+  NSUInteger widest = MAX((NSUInteger)1, lines.count);
+  NSUInteger digits = 0;
+  while (widest > 0) { digits++; widest /= 10; }
+  digits = MAX((NSUInteger)4, digits);
+  return ceil((CGFloat)digits * editorLineNumberCharacterWidth()) +
+    editorLineNumberCharacterWidth() * 2.0;
+}
+
+static CGFloat editorTextOriginX(const double rect[4]) {
+  (void)rect;
+  return editorGutterWidth() + NimculusEditorTextGutterGap;
+}
 
 static NimculusPaintRegion editorTextViewport(const double rect[4]) {
-  // This is intentionally asymmetric. The left edge only needs a text
-  // gutter, while the right edge also reserves the scrollbar overlay. The
-  // bottom meets the horizontal overlay; merely clipping to the pane rectangle
-  // lets a partially visible final glyph read as overflow.
+  // The gutter and the text both belong to the editor pane. The right edge is
+  // deliberately not inset for a scrollbar: Zed's scrollbar is an overlay and
+  // must never change wrapping or the available text width.
   // Keep every text producer (atlas, Core Text fallback, wrapping) tied to
   // these constants rather than independently guessing its content bounds.
-  const double leftInset = 8.0;
-  const double rightInset = 14.0;
-  const double topInset = NimculusEditorTextTopInset;
+  const double leftInset = editorTextOriginX(rect);
+  const double topInset = editorContentTopInset();
   const double bottomInset = 14.0;
-  const double width = MAX(0.0, rect[2] - leftInset - rightInset);
+  const double width = MAX(0.0, rect[2] - leftInset);
   const double height = MAX(0.0, rect[3] - topInset - bottomInset);
   NimculusPaintRegion viewport = {
     (float)(rect[0] + leftInset), (float)(rect[1] + topInset),
@@ -1706,7 +1734,7 @@ static CGFloat editorLineHeight(void) { return g_editor_line_height; }
 // the first row cannot be clipped by the pane's top boundary.
 static CGFloat editorTextLineBottom(CGFloat editorHeight, CGFloat lineHeight,
                                     CGFloat displayIndex) {
-  return editorHeight - NimculusEditorTextTopInset -
+  return editorHeight - editorContentTopInset() -
     lineHeight * (displayIndex + 1.0) + g_editor_scroll_y_fraction;
 }
 
@@ -1715,14 +1743,14 @@ static CGFloat editorTextBaseline(CGFloat editorHeight, CGFloat lineHeight,
   CGFloat ascent = font ? CTFontGetAscent(font) : lineHeight * 0.78;
   CGFloat descent = font ? CTFontGetDescent(font) : lineHeight * 0.22;
   CGFloat paddingTop = MAX(0.0, (lineHeight - ascent - descent) / 2.0);
-  CGFloat lineTop = NimculusEditorTextTopInset +
+  CGFloat lineTop = editorContentTopInset() +
     lineHeight * displayIndex - g_editor_scroll_y_fraction;
   return editorHeight - lineTop - paddingTop - ascent -
     NimculusEditorTextGlyphSafety;
 }
 
 static CGFloat editorTextCursorYForRow(CGFloat displayRow) {
-  return NimculusEditorTextTopInset + editorLineHeight() *
+  return editorContentTopInset() + editorLineHeight() *
     displayRow + editorLineHeight() / 2.0 - g_editor_scroll_y_fraction;
 }
 
@@ -1940,7 +1968,7 @@ static CGPoint editorSoftWrapPointForUTF16Offset(NSUInteger documentOffset) {
         ? MIN(remaining - segmentStart, segment.length) : 0;
       NSInteger visibleRow = displayRow + rowInLine >= scrollRow
         ? (NSInteger)(displayRow + rowInLine - scrollRow) : 0;
-      return CGPointMake(8.0 + editorTextOffset(segment, localOffset),
+      return CGPointMake(editorTextOriginX(g_editor_rect) + editorTextOffset(segment, localOffset),
         editorTextCursorYForRow((CGFloat)MAX(0, visibleRow)));
     }
     segmentStart += segmentLength;
@@ -1948,7 +1976,7 @@ static CGPoint editorSoftWrapPointForUTF16Offset(NSUInteger documentOffset) {
   }
   NSInteger visibleRow = displayRow + rowInLine >= scrollRow
     ? (NSInteger)(displayRow + rowInLine - scrollRow) : 0;
-  return CGPointMake(8.0 + editorTextOffset(@"", 0),
+  return CGPointMake(editorTextOriginX(g_editor_rect) + editorTextOffset(@"", 0),
     editorTextCursorYForRow((CGFloat)MAX(0, visibleRow)));
 }
 
@@ -1971,13 +1999,13 @@ static CGPoint editorPointForUTF16Offset(NSUInteger documentOffset) {
   for (NSUInteger index = firstLine; index < lineIndex; index++) {
     if (!editorLineIsFolded(index)) visibleLine++;
   }
-  return CGPointMake(8.0 + editorTextOffset(lineText, remaining) - g_editor_scroll_x,
+  return CGPointMake(editorTextOriginX(g_editor_rect) + editorTextOffset(lineText, remaining) - g_editor_scroll_x,
                      editorTextCursorYForRow((CGFloat)visibleLine));
 }
 
 static CGPoint editorPointForUTF8Offset(NSUInteger byteOffset) {
   NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
-  if (lines.count == 0) return CGPointMake(8.0, editorTextCursorYForRow(0.0));
+  if (lines.count == 0) return CGPointMake(editorTextOriginX(g_editor_rect), editorTextCursorYForRow(0.0));
   NSUInteger bounded = MIN(byteOffset, (NSUInteger)[g_editor_text lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
   NSUInteger lineIndex = 0;
   for (NSUInteger index = 1; index < lines.count; index++) {
@@ -2055,7 +2083,7 @@ static NSUInteger editorUTF16OffsetAtPoint(double x, double y) {
       initWithString:segment attributes:attributes];
     CTLineRef ctLine = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
     CFIndex index = CTLineGetStringIndexForPosition(ctLine,
-      CGPointMake(MAX(0.0, x - g_editor_rect[0] - 8.0 + g_editor_scroll_x), 0.0));
+      CGPointMake(MAX(0.0, x - g_editor_rect[0] - editorTextOriginX(g_editor_rect) + g_editor_scroll_x), 0.0));
     if (index != kCFNotFound) localIndex = MIN((NSUInteger)index, segment.length);
     else localIndex = segment.length;
     CFRelease(ctLine);
@@ -2370,7 +2398,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       // Keep the gutter marker and the document highlight separate, like
       // Zed's diff map: the low-alpha body fill remains readable below text.
       CGContextSetRGBFillColor(context, red, green, blue, 0.10);
-      CGContextFillRect(context, CGRectMake(8.0,
+      CGContextFillRect(context, CGRectMake(editorTextOriginX(g_editor_rect),
         editorTextLineBottom(logicalHeight, lineHeight, renderedIndex) - 4.0,
         MAX(1.0, g_editor_rect[2] - 8.0), 20.0));
       break;
@@ -2390,7 +2418,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
         colorWithAlphaComponent:0.45];
       CGContextSetFillColorWithColor(context, selectionColor.CGColor);
-      CGContextFillRect(context, CGRectMake(8.0 + editorTextOffset(lineText, startUnit) - g_editor_scroll_x,
+      CGContextFillRect(context, CGRectMake(editorTextOriginX(g_editor_rect) + editorTextOffset(lineText, startUnit) - g_editor_scroll_x,
         editorTextLineBottom(logicalHeight, lineHeight, renderedIndex) - 4.0,
         MAX(1.0, editorTextOffset(lineText, endUnit) - editorTextOffset(lineText, startUnit)), 20.0));
     }
@@ -2443,7 +2471,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     if (drawColorEmojiFallback) maskNonColorEmojiRuns(attributed);
     if (drawFallbackText || drawColorEmojiFallback) {
       CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
-      CGContextSetTextPosition(context, 8.0 - g_editor_scroll_x,
+      CGContextSetTextPosition(context, editorTextOriginX(g_editor_rect) - g_editor_scroll_x,
         editorTextBaseline(logicalHeight, lineHeight, font, renderedIndex));
       CTLineDraw(line, context);
       CFRelease(line);
@@ -2472,8 +2500,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       // solid rule. Keep it inside the line fragment so clipped/short spans
       // remain legible and do not touch the next row.
       CGContextSetLineWidth(context, 1.2);
-      CGFloat x0 = 8.0 + editorTextOffset(lineText, startUnit) - g_editor_scroll_x;
-      CGFloat x1 = 8.0 + editorTextOffset(lineText, endUnit) - g_editor_scroll_x;
+      CGFloat x0 = editorTextOriginX(g_editor_rect) + editorTextOffset(lineText, startUnit) - g_editor_scroll_x;
+      CGFloat x1 = editorTextOriginX(g_editor_rect) + editorTextOffset(lineText, endUnit) - g_editor_scroll_x;
       CGFloat y = editorTextLineBottom(logicalHeight, lineHeight, renderedIndex) - 1.5;
       CGContextMoveToPoint(context, x0, y);
       CGFloat endX = MAX(x0 + 2.0, x1);
@@ -2504,7 +2532,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     CGFloat ascent = CTFontGetAscent(font);
     CGFloat descent = CTFontGetDescent(font);
     CGFloat paddingTop = MAX(0.0, (lineHeight - ascent - descent) / 2.0);
-    CGFloat cursorLineTop = MAX(NimculusEditorTextTopInset,
+    CGFloat cursorLineTop = MAX(editorContentTopInset(),
       g_editor_cursor[1] - lineHeight / 2.0);
     CGFloat baseline = logicalHeight - cursorLineTop - paddingTop - ascent;
     CGContextSetTextPosition(context, g_editor_cursor[0], MAX(0.0, baseline));
@@ -2566,7 +2594,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]));
     CGContextSetStrokeColorWithColor(context, caretColor.CGColor);
     CGContextSetLineWidth(context, 2.0);
-    CGFloat cursorLineTop = MAX(NimculusEditorTextTopInset,
+    CGFloat cursorLineTop = MAX(editorContentTopInset(),
       g_editor_cursor[1] - lineHeight / 2.0);
     CGFloat caretY = logicalHeight - cursorLineTop - lineHeight;
     CGContextMoveToPoint(context, g_editor_cursor[0], caretY);
@@ -2579,7 +2607,7 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
          selectionIndex < editorSelectionCountForRender; selectionIndex++) {
       CGPoint point = editorPointForUTF8Offset(
         editorSelectionsForRender[selectionIndex].cursor_byte);
-      CGFloat selectionLineTop = MAX(NimculusEditorTextTopInset,
+      CGFloat selectionLineTop = MAX(editorContentTopInset(),
         point.y - lineHeight / 2.0);
       CGFloat selectionCaretY = logicalHeight - selectionLineTop - lineHeight;
       CGContextMoveToPoint(context, point.x, selectionCaretY);
@@ -2805,7 +2833,7 @@ static void appendGlyphQuad(CGSize sceneSize, CGRect editorRect, CGFloat scale,
   if (entry.width == 0 || entry.height == 0 || sceneSize.width <= 0 ||
       sceneSize.height <= 0 || editorRect.size.width <= 0 ||
       editorRect.size.height <= 0) return;
-  CGFloat x0 = editorRect.origin.x + 8.0 + glyphOrigin.x + entry.bounds_x - g_editor_scroll_x;
+  CGFloat x0 = editorRect.origin.x + editorTextOriginX(g_editor_rect) + glyphOrigin.x + entry.bounds_x - g_editor_scroll_x;
   CGFloat x1 = x0 + entry.bounds_width;
   CGFloat bottomOrigin = baselineY + entry.bounds_y;
   CGFloat y0 = editorRect.origin.y + editorRect.size.height -
@@ -4236,7 +4264,10 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
   self.matchLabel.editable = NO; self.matchLabel.selectable = NO;
   self.matchLabel.alignment = NSTextAlignmentCenter;
   self.matchLabel.stringValue = @"0 of 0";
-  [self addSubview:self.matchLabel];
+  // The match count belongs to the query field, not to the surrounding
+  // toolbar. Keeping it as a field child lets it share the field's baseline
+  // and right inset while the query remains the single input surface.
+  [self.queryField addSubview:self.matchLabel];
   self.pickerList = [[[NimculusPickerListView alloc] initWithFrame:NSZeroRect] autorelease];
   self.pickerList.target = self;
   self.pickerList.selectAction = @selector(selectQuickOpenIndex:);
@@ -4407,24 +4438,27 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
     return;
   }
   if (self.mode == 0) {
-    const CGFloat rowHeight = 24.0;
+    const CGFloat rowHeight = NimculusRowHeight - NimculusSpace2;
     const CGFloat buttonWidth = 24.0;
     const CGFloat gap = 3.0;
-    CGFloat x = padding;
+    const CGFloat rowPadding = (NimculusRowHeight - rowHeight) / 2.0;
+    CGFloat x = rowPadding;
     const CGFloat rightControls = 6.0 * (buttonWidth + gap) + 54.0 + buttonWidth;
     const CGFloat queryWidth = MAX(140.0, width - rightControls - padding * 2.0);
     self.queryField.hidden = NO;
+    self.matchLabel.hidden = NO;
     self.lineField.hidden = YES;
-    self.queryField.frame = NSMakeRect(x, padding, queryWidth, controlHeight);
+    self.queryField.frame = NSMakeRect(x, rowPadding, queryWidth, rowHeight);
+    self.matchLabel.frame = NSMakeRect(MAX(0.0, queryWidth - 58.0), 1.0,
+      56.0, MAX(1.0, rowHeight - 2.0));
     x = NSMaxX(self.queryField.frame) + gap;
     NSArray *buttons = @[self.caseButton, self.wordButton, self.regexButton,
                          self.replaceToggleButton, self.previousButton, self.nextButton];
     for (NSButton *button in buttons) {
       button.hidden = NO;
-      button.frame = NSMakeRect(x, padding, buttonWidth, rowHeight);
+      button.frame = NSMakeRect(x, rowPadding, buttonWidth, rowHeight);
       x += buttonWidth + gap;
     }
-    self.matchLabel.frame = NSMakeRect(x, padding, 50.0, rowHeight);
     self.closeButton.frame = NSMakeRect(width - padding - buttonWidth, padding,
       buttonWidth, rowHeight);
     self.closeButton.hidden = NO;
@@ -4468,6 +4502,7 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
 - (void)showFind:(BOOL)replace {
   self.mode = 0;
   self.replaceEnabled = replace;
+  g_editor_find_bar_visible = YES;
   self.filtersEnabled = NO;
   self.queryField.placeholderString = @"Find";
   self.queryField.accessibilityLabel = @"Find in Document";
@@ -4480,6 +4515,7 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
 
 - (void)showGoToLine {
   self.mode = 2;
+  g_editor_find_bar_visible = NO;
   self.lineField.stringValue = @"";
   self.hidden = NO;
   [self setNeedsLayout:YES];
@@ -4490,6 +4526,7 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
 
 - (void)showWorkspaceSearch {
   self.mode = 3;
+  g_editor_find_bar_visible = NO;
   self.replaceEnabled = NO;
   self.filtersEnabled = NO;
   self.queryField.placeholderString = @"Search workspace";
@@ -4503,6 +4540,7 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
 
 - (void)showQuickOpen {
   self.mode = 4;
+  g_editor_find_bar_visible = NO;
   self.clipsToBounds = NO;
   self.layer.masksToBounds = NO;
   self.layer.cornerRadius = NimculusPickerCornerRadius;
@@ -4525,6 +4563,7 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
 
 - (void)showOutlinePicker {
   self.mode = 5;
+  g_editor_find_bar_visible = NO;
   self.clipsToBounds = NO;
   self.layer.masksToBounds = NO;
   self.layer.cornerRadius = NimculusPickerCornerRadius;
@@ -4794,7 +4833,16 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
     g_command_callback("cancelWorkspaceSearch");
   }
   self.hidden = YES;
+  g_editor_find_bar_visible = NO;
   [self.window makeFirstResponder:self.superview];
+  if (g_queue) {
+    updateEditorTextTexture(g_queue.device, g_editor_text, YES);
+    rebuildSecondaryEditorTexture(g_queue.device);
+  }
+  markSceneFullyDirty();
+  if ([g_active_view respondsToSelector:@selector(requestRedraw)]) {
+    [g_active_view requestRedraw];
+  }
 }
 - (void)cancelOperation:(id)sender { (void)sender; [self close:nil]; }
 @end
@@ -5301,22 +5349,6 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
 }
 @end
 
-static CGFloat editorLineNumberCharacterWidth(void) {
-  NSDictionary *attributes = @{NSFontAttributeName:
-    [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular]};
-  return MAX(1.0, [@"0" sizeWithAttributes:attributes].width);
-}
-
-static CGFloat editorGutterWidth(void) {
-  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
-  NSUInteger widest = MAX((NSUInteger)1, lines.count);
-  NSUInteger digits = 0;
-  while (widest > 0) { digits++; widest /= 10; }
-  digits = MAX((NSUInteger)4, digits);
-  return ceil((CGFloat)digits * editorLineNumberCharacterWidth()) +
-    editorLineNumberCharacterWidth() * 2.0;
-}
-
 @implementation NimculusLineNumberOverlay
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return NO; }
@@ -5328,8 +5360,10 @@ static CGFloat editorGutterWidth(void) {
   // The gutter shares the editor's vertical content bounds. Its view is
   // intentionally wider than the text viewport, but it must not continue
   // drawing into the tab/status chrome at the bottom of a short pane.
-  NSRect gutterClip = NSMakeRect(0.0, NimculusEditorTextTopInset, self.bounds.size.width,
-    MAX(0.0, self.bounds.size.height - NimculusEditorTextTopInset - 14.0));
+  const CGFloat toolbarInset = g_editor_find_bar_visible ? NimculusRowHeight : 0.0;
+  NSRect gutterClip = NSMakeRect(0.0, NimculusEditorTextTopInset + toolbarInset,
+    self.bounds.size.width,
+    MAX(0.0, self.bounds.size.height - NimculusEditorTextTopInset - toolbarInset - 14.0));
   if (NSIsEmptyRect(gutterClip)) return;
   NSRectClip(gutterClip);
   [themeRoleColor(@"gutter", themeRoleColor(@"editor", [NSColor clearColor])) setFill];
@@ -5366,8 +5400,8 @@ static CGFloat editorGutterWidth(void) {
       [activeBackground setFill];
       NSRectFill(NSMakeRect(0.0, y - 1.0, self.bounds.size.width, editorLineHeight()));
     }
-    [number drawAtPoint:NSMakePoint(MAX(2.0, self.bounds.size.width - size.width -
-      editorLineNumberCharacterWidth()), y)
+    [number drawAtPoint:NSMakePoint(MAX(editorLineNumberCharacterWidth(),
+      self.bounds.size.width - size.width - editorLineNumberCharacterWidth()), y)
       withAttributes:attributes];
     if (editorLineHasFoldStart(index)) {
       NSBezierPath *marker = [NSBezierPath bezierPath];
@@ -5424,7 +5458,7 @@ static CGFloat editorGutterWidth(void) {
       else break;
     }
     for (NSUInteger guide = indentWidth; guide <= columns; guide += indentWidth) {
-      NSRect line = NSMakeRect(8.0 + characterWidth * guide -
+      NSRect line = NSMakeRect(editorTextOriginX(g_editor_rect) + characterWidth * guide -
         (g_editor_soft_wrap ? 0.0 : g_editor_scroll_x),
         rowY, 1.0, lineHeight);
       NSRectFill(line);
@@ -8248,7 +8282,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     lineNumbers.hidden = g_welcome_visible || !g_editor_line_numbers;
     CGFloat gutterWidth = editorGutterWidth();
     lineNumbers.frame = appKitFrameForLogicalTopRect(self,
-      NSMakeRect(MAX(0.0, g_editor_rect[0] - gutterWidth), g_editor_rect[1],
+      NSMakeRect(g_editor_rect[0], g_editor_rect[1],
         gutterWidth, g_editor_rect[3]));
     lineNumbers.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
     [lineNumbers setNeedsDisplay:YES];
@@ -8319,19 +8353,22 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
   if (documentSearch && !documentSearch.hidden) {
     const BOOL quickOpen = documentSearch.mode == 4 || documentSearch.mode == 5;
+    const BOOL editorFind = documentSearch.mode == 0 || documentSearch.mode == 1;
     const CGFloat preferredWidth = quickOpen ?
       MIN(NimculusPickerWidth, MAX(1.0, g_editor_rect[2] - 24.0)) :
-      MIN(420.0, MAX(1.0, g_editor_rect[2] - 16.0));
+      (editorFind ? MAX(1.0, g_editor_rect[2]) :
+       MIN(420.0, MAX(1.0, g_editor_rect[2] - 16.0)));
     const CGFloat preferredHeight = documentSearch.mode == 5 ? [documentSearch outlinePickerHeight] :
       (documentSearch.mode == 4 ? [documentSearch quickOpenPickerHeight] :
       (documentSearch.mode == 3 ?
         36.0 + (documentSearch.replaceEnabled ? 30.0 : 0.0) +
         (documentSearch.filtersEnabled ? 30.0 : 0.0) :
-        (documentSearch.replaceEnabled ? 66.0 : 36.0)));
+        (documentSearch.replaceEnabled ? 66.0 : NimculusRowHeight)));
     const CGFloat preferredX = quickOpen ?
       g_editor_rect[0] + (g_editor_rect[2] - preferredWidth) / 2.0 :
-      g_editor_rect[0] + g_editor_rect[2] - preferredWidth - 8.0;
-    const CGFloat preferredY = g_editor_rect[1] + (quickOpen ? 12.0 : 8.0);
+      (editorFind ? g_editor_rect[0] : g_editor_rect[0] + g_editor_rect[2] - preferredWidth - 8.0);
+    const CGFloat preferredY = quickOpen ? g_editor_rect[1] + 12.0 :
+      (editorFind ? g_editor_rect[1] : g_editor_rect[1] + 8.0);
     documentSearch.frame = appKitFrameForLogicalTopRect(self,
       editorOverlayFrame(preferredWidth, preferredHeight, preferredX, preferredY));
     [documentSearch setNeedsLayout:YES];
@@ -8404,6 +8441,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) {
       [(NimculusDocumentSearchOverlay *)subview showFind:replace];
       [self updateTerminalFrame];
+      if (g_queue) {
+        updateEditorTextTexture(g_queue.device, g_editor_text, YES);
+        rebuildSecondaryEditorTexture(g_queue.device);
+      }
+      markSceneFullyDirty();
+      [self requestRedraw];
       return;
     }
   }
@@ -9014,7 +9057,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NSAttributedString *attributed = [[NSAttributedString alloc]
     initWithString:lineText attributes:attributes];
   CTLineRef ctLine = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
-  CGFloat textX = MAX(0.0, viewPoint.x - g_editor_rect[0] - 8.0 + g_editor_scroll_x);
+  CGFloat textX = MAX(0.0, viewPoint.x - g_editor_rect[0] - editorTextOriginX(g_editor_rect) + g_editor_scroll_x);
   CFIndex index = CTLineGetStringIndexForPosition(ctLine, CGPointMake(textX, 0.0));
   if (index == kCFNotFound) index = (CFIndex)lineText.length;
   CGFloat left = CTLineGetOffsetForStringIndex(ctLine, index, NULL);
@@ -10507,23 +10550,24 @@ bool nimculus_platform_validate_editor_pane_geometry(void) {
 bool nimculus_platform_validate_editor_text_viewport(void) {
   const double pane[4] = {40.0, 60.0, 300.0, 180.0};
   NimculusPaintRegion viewport = editorTextViewport(pane);
+  const CGFloat textOrigin = editorTextOriginX(pane);
   CGRect coreGraphicsViewport = editorTextViewportCoreGraphicsRect(pane);
   NSRect localViewport = editorTextViewportLocalRect(pane);
   NimculusPaintRegion outsideRight = {340.0f, 60.0f, 12.0f, 180.0f};
   NimculusPaintRegion outsideBottom = {40.0f, 240.0f, 300.0f, 12.0f};
   NimculusPaintRegion rightVisible = intersectPaintRegions(viewport, outsideRight);
   NimculusPaintRegion bottomVisible = intersectPaintRegions(viewport, outsideBottom);
-  return fabs(viewport.x - 48.0f) < 0.01f &&
+  return fabs(viewport.x - (pane[0] + textOrigin)) < 0.01f &&
     fabs(viewport.y - 66.0f) < 0.01f &&
-    fabs(viewport.width - 278.0f) < 0.01f &&
+    fabs(viewport.width - (pane[2] - textOrigin)) < 0.01f &&
     fabs(viewport.height - 160.0f) < 0.01f &&
-    fabs(coreGraphicsViewport.origin.x - 8.0) < 0.01 &&
+    fabs(coreGraphicsViewport.origin.x - textOrigin) < 0.01 &&
     fabs(coreGraphicsViewport.origin.y - 14.0) < 0.01 &&
-    fabs(coreGraphicsViewport.size.width - 278.0) < 0.01 &&
+    fabs(coreGraphicsViewport.size.width - (pane[2] - textOrigin)) < 0.01 &&
     fabs(coreGraphicsViewport.size.height - 160.0) < 0.01 &&
-    fabs(NSMinX(localViewport) - 8.0) < 0.01 &&
+    fabs(NSMinX(localViewport) - textOrigin) < 0.01 &&
     fabs(NSMinY(localViewport) - 6.0) < 0.01 &&
-    fabs(NSWidth(localViewport) - 278.0) < 0.01 &&
+    fabs(NSWidth(localViewport) - (pane[2] - textOrigin)) < 0.01 &&
     fabs(NSHeight(localViewport) - 160.0) < 0.01 &&
     editorVisibleLineCapacity(pane, 20.0) == 7 &&
     rightVisible.width == 0.0f && bottomVisible.height == 0.0f;
@@ -10532,11 +10576,12 @@ bool nimculus_platform_validate_editor_text_viewport(void) {
 bool nimculus_platform_validate_editor_annotation_viewport(void) {
   const double pane[4] = {40.0, 60.0, 300.0, 180.0};
   NSRect clip = editorAnnotationClipRect(pane);
-  return fabs(NSMinX(clip) - 48.0) < 0.01 &&
+  const CGFloat textOrigin = editorTextOriginX(pane);
+  return fabs(NSMinX(clip) - (pane[0] + textOrigin)) < 0.01 &&
     fabs(NSMinY(clip) - 66.0) < 0.01 &&
-    fabs(NSWidth(clip) - 278.0) < 0.01 &&
+    fabs(NSWidth(clip) - (pane[2] - textOrigin)) < 0.01 &&
     fabs(NSHeight(clip) - 160.0) < 0.01 &&
-    NSMaxX(clip) <= pane[0] + pane[2] - 14.0 + 0.01 &&
+    NSMaxX(clip) <= pane[0] + pane[2] + 0.01 &&
     NSMaxY(clip) <= pane[1] + pane[3] - 14.0 + 0.01;
 }
 
@@ -12131,10 +12176,8 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
       NSMakeRect(46.0, validationSidebarTop, validationSidebarWidth,
         validationSidebarHeight));
     const NSRect expectedSearch = appKitFrameForLogicalTopRect(view,
-      editorOverlayFrame(MIN(420.0, MAX(1.0, g_editor_rect[2] - 16.0)), 36.0,
-        g_editor_rect[0] + g_editor_rect[2] -
-          MIN(420.0, MAX(1.0, g_editor_rect[2] - 16.0)) - 8.0,
-        g_editor_rect[1] + 8.0));
+      editorOverlayFrame(g_editor_rect[2], NimculusRowHeight,
+        g_editor_rect[0], g_editor_rect[1]));
     const CGFloat paletteWidth = MIN(NimculusPickerWidth, MAX(1.0, g_editor_rect[2] - 24.0));
     const CGFloat paletteHeight = NimculusPickerHeaderHeight +
       NimculusPickerVisibleRows * NimculusPickerRowHeight;
@@ -12171,7 +12214,7 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     // content, chrome and welcome frames against the same logical pane that
     // bounds Metal text and editor overlays.
     const NSRect expectedLineNumbers = appKitFrameForLogicalTopRect(view,
-      NSMakeRect(0.0, g_editor_rect[1], MAX(36.0, g_editor_rect[0]),
+      NSMakeRect(g_editor_rect[0], g_editor_rect[1], editorGutterWidth(),
         g_editor_rect[3]));
     const NSRect expectedTabs = appKitFrameForLogicalTopRect(view,
       NSMakeRect(g_editor_rect[0], g_editor_rect[1] - NimculusRowHeight * 2.0,
@@ -13175,6 +13218,41 @@ void nimculus_platform_set_editor_font_name(const char *name) {
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 double nimculus_platform_editor_line_height(void) { return editorLineHeight(); }
+double nimculus_platform_editor_gutter_width(void) { return editorGutterWidth(); }
+double nimculus_platform_editor_text_origin_x(void) {
+  return editorTextOriginX(g_editor_rect);
+}
+double nimculus_platform_editor_text_viewport_width(void) {
+  return editorTextViewport(g_editor_rect).width;
+}
+double nimculus_platform_secondary_editor_text_viewport_width(void) {
+  if (!g_secondary_editor_visible) return 0.0;
+  double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
+                            g_editor_rect[2], g_editor_rect[3]};
+  BOOL previousRenderingSecondary = g_rendering_secondary_editor;
+  memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
+  g_rendering_secondary_editor = YES;
+  swapEditorTextState();
+  double result = editorTextViewport(g_editor_rect).width;
+  swapEditorTextState();
+  g_rendering_secondary_editor = previousRenderingSecondary;
+  memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
+  return result;
+}
+double nimculus_platform_secondary_editor_text_origin_x(void) {
+  if (!g_secondary_editor_visible) return 0.0;
+  double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
+                            g_editor_rect[2], g_editor_rect[3]};
+  BOOL previousRenderingSecondary = g_rendering_secondary_editor;
+  memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
+  g_rendering_secondary_editor = YES;
+  swapEditorTextState();
+  double result = editorTextOriginX(g_editor_rect);
+  swapEditorTextState();
+  g_rendering_secondary_editor = previousRenderingSecondary;
+  memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
+  return result;
+}
 void nimculus_platform_invalidate_ime_coordinates(void) {
   // Zed invalidates NSTextInputContext's cached character coordinates whenever
   // the editor cursor moves. Without this, AppKit can keep placing the IME
@@ -13205,7 +13283,7 @@ uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y) {
     initWithString:lineText attributes:attributes];
   CTLineRef ctLine = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
   CFIndex localIndex = CTLineGetStringIndexForPosition(ctLine,
-    CGPointMake(MAX(0.0, x - g_editor_rect[0] - 8.0 + g_editor_scroll_x), 0.0));
+    CGPointMake(MAX(0.0, x - g_editor_rect[0] - editorTextOriginX(g_editor_rect) + g_editor_scroll_x), 0.0));
   if (localIndex == kCFNotFound) localIndex = (CFIndex)lineText.length;
   NSUInteger documentIndex = editorLineUTF16Offset(lineIndex, lines);
   documentIndex += MIN((NSUInteger)localIndex, lineText.length);
@@ -13239,7 +13317,7 @@ uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y) {
   NSAttributedString *attributed = [[NSAttributedString alloc]
     initWithString:lineText attributes:attributes];
   CTLineRef ctLine = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
-  CGFloat textX = MAX(0.0, x - g_editor_rect[0] - 8.0 + g_editor_scroll_x);
+  CGFloat textX = MAX(0.0, x - g_editor_rect[0] - editorTextOriginX(g_editor_rect) + g_editor_scroll_x);
   CFIndex utf16Index = CTLineGetStringIndexForPosition(ctLine, CGPointMake(textX, 0.0));
   if (utf16Index == kCFNotFound) utf16Index = (CFIndex)lineText.length;
   NSUInteger localByte = utf8BytesForUTF16Offset(lineText, (NSUInteger)utf16Index);

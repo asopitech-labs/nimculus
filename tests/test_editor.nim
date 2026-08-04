@@ -26,11 +26,15 @@ suite "session persistence scheduling":
     let bounds = Rect(origin: Point(x: px(20), y: px(40)),
       size: Size(width: px(400), height: px(240)))
     let viewportWidth = editorTextViewportWidth(bounds)
-    check viewportWidth == 378'f32
+    check viewportWidth == 392'f32
     check clampEditorScrollX(-12'f32, 900'f32, viewportWidth) == 0'f32
-    check clampEditorScrollX(999'f32, 900'f32, viewportWidth) == 522'f32
+    check clampEditorScrollX(999'f32, 900'f32, viewportWidth) == 508'f32
     let scrollbar = horizontalEditorScrollbar(bounds, 900'f32, 999'f32)
-    check float32(scrollbar.track.origin.x) == 28'f32
+    check scrollbar.viewportWidth == viewportWidth
+    let hiddenScrollbar = horizontalEditorScrollbar(bounds, viewportWidth - 1'f32, 0'f32)
+    check hiddenScrollbar.viewportWidth == viewportWidth
+    check hiddenScrollbar.track.size.width == px(0)
+    check float32(scrollbar.track.origin.x) == 20'f32
     check float32(scrollbar.track.size.width) == viewportWidth
     check float32(scrollbar.thumb.origin.x + scrollbar.thumb.size.width) <=
       float32(scrollbar.track.origin.x + scrollbar.track.size.width)

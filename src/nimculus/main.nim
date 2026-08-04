@@ -234,7 +234,8 @@ when defined(windows):
 proc widestVisibleEditorLineWidth(buffer: PieceTable, view: EditorViewState,
                                   visibleLines: int): float32
 proc addEditorScrollbars(paint: var PaintList, bounds: Rect, view: EditorViewState,
-                         lineCount, visibleLines: int, widestLineWidth: float32)
+                         lineCount, visibleLines: int, widestLineWidth: float32,
+                         secondary = false)
 proc drawCurrentEditorScrollbars(paint: var PaintList, primary, secondary: Rect,
                                  lineCount: int, document: ptr FileDocument)
 when defined(macosx):
@@ -674,6 +675,16 @@ proc applySettingsTheme() =
       platformSetThemePaletteJson(themePaletteJson(colors).cstring)
 
 when defined(macosx):
+  proc editorTextLayoutWidth(secondary = false): float32 =
+    let width = if secondary: platformSecondaryEditorTextViewportWidth()
+      else: platformEditorTextViewportWidth()
+    if width > 0.0: float32(width) else: float32(EditorTextLeftInset)
+
+  proc editorTextLayoutOrigin(secondary = false): float32 =
+    let origin = if secondary: platformSecondaryEditorTextOriginX()
+      else: platformEditorTextOriginX()
+    if origin > 0.0: float32(origin) else: EditorTextLeftInset
+
   proc syncEditorHorizontalScrollForRender(primary, secondary: Rect) =
     ## Layout and native text state must be current before either the clamp or
     ## scrollbar geometry is measured.  In particular, a previous frame may
@@ -683,7 +694,7 @@ when defined(macosx):
       float32(platformEditorWidestVisibleLineWidth())
     editorViewState.scrollX = if editorViewState.softWrap: 0'f32 else:
       clampEditorScrollX(editorViewState.scrollX, primaryWidest,
-        editorTextViewportWidth(primary))
+        editorTextLayoutWidth())
     platformSetEditorScrollX(cdouble(editorViewState.scrollX))
     editorViewState.scrollX = float32(max(0.0, platformEditorScrollX()))
 
@@ -694,7 +705,7 @@ when defined(macosx):
         float32(platformSecondaryEditorWidestVisibleLineWidth())
       view.scrollX = if view.softWrap: 0'f32 else:
         clampEditorScrollX(view.scrollX, secondaryWidest,
-          editorTextViewportWidth(secondary))
+          editorTextLayoutWidth(secondary = true))
       platformSetSecondaryEditorScrollX(cdouble(view.scrollX))
       view.scrollX = float32(max(0.0, platformSecondaryEditorScrollX()))
       editorSession.secondaryView = view
@@ -978,7 +989,8 @@ proc widestVisibleEditorLineWidth(buffer: PieceTable, view: EditorViewState,
     result = max(result, float32(columns) * 7.2'f32)
 
 proc addEditorScrollbars(paint: var PaintList, bounds: Rect, view: EditorViewState,
-                         lineCount, visibleLines: int, widestLineWidth: float32) =
+                         lineCount, visibleLines: int, widestLineWidth: float32,
+                         secondary = false) =
   let width = max(0'f32, float32(bounds.size.width))
   let height = max(0'f32, float32(bounds.size.height))
   if lineCount > max(1, visibleLines):
@@ -992,7 +1004,12 @@ proc addEditorScrollbars(paint: var PaintList, bounds: Rect, view: EditorViewSta
       min(1'f32, max(0'f32, view.scrollYPixels) / maxScrollPixels)
     paint.drawScrollbar(Rect(origin: Point(x: px(float32(bounds.origin.x) + width - 10'f32),
       y: px(thumbY)), size: Size(width: px(6), height: px(min(trackHeight, thumbHeight)))))
-  let scrollbar = horizontalEditorScrollbar(bounds, widestLineWidth, view.scrollX)
+  let scrollbar = when defined(macosx):
+      horizontalEditorScrollbar(bounds, widestLineWidth, view.scrollX,
+      contentOriginX = editorTextLayoutOrigin(secondary),
+      measuredViewportWidth = editorTextLayoutWidth(secondary))
+    else:
+      horizontalEditorScrollbar(bounds, widestLineWidth, view.scrollX)
   if float32(scrollbar.thumb.size.width) > 0'f32:
     paint.drawScrollbar(scrollbar.thumb)
   when defined(macosx):
@@ -1023,7 +1040,7 @@ proc drawCurrentEditorScrollbars(paint: var PaintList, primary, secondary: Rect,
       secondaryVisibleLines, when defined(macosx):
         float32(platformSecondaryEditorWidestVisibleLineWidth())
       else: widestVisibleEditorLineWidth(secondaryDocument[].buffer, secondaryView,
-        secondaryVisibleLines))
+      secondaryVisibleLines), secondary = true)
 
 proc resetPointerInteractions() =
   demoSplitDragging = false
@@ -4715,7 +4732,7 @@ proc syncEditorCursor(ensureCursor = true) =
       float32(platformEditorWidestVisibleLineWidth())
     editorViewState.scrollX = if editorViewState.softWrap: 0'f32 else:
       clampEditorScrollX(editorViewState.scrollX, widestVisibleLine,
-        editorTextViewportWidth(demoEditorBounds))
+        editorTextLayoutWidth())
     let maxScrollPixels = if document == nil: 0'f32 else:
       float32(max(0, document[].buffer.lineStarts.len - visibleLines)) * editorLineHeight()
     editorViewState.reconcileScrollPosition(editorLineHeight(), maxScrollPixels)
@@ -4834,7 +4851,7 @@ when defined(macosx):
       float32(platformSecondaryEditorWidestVisibleLineWidth())
     view.scrollX = if view.softWrap: 0'f32 else:
       clampEditorScrollX(view.scrollX, widestVisibleLine,
-        editorTextViewportWidth(demoSecondaryEditorBounds))
+        editorTextLayoutWidth(secondary = true))
     let secondaryVisibleLines = secondaryEditorVisibleLineCount()
     let maxScrollPixels = float32(max(0, document[].buffer.lineStarts.len -
       secondaryVisibleLines)) * editorLineHeight()
@@ -8794,7 +8811,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       if pane == 1:
         if not editorSession.secondaryView.softWrap and abs(horizontalDelta) > 0.01'f32:
           let widest = float32(platformSecondaryEditorWidestVisibleLineWidth())
-          let viewportWidth = editorTextViewportWidth(demoSecondaryEditorBounds)
+          let viewportWidth = editorTextLayoutWidth(secondary = true)
           editorSession.secondaryView.scrollX = clampEditorScrollX(
             editorSession.secondaryView.scrollX + horizontalDelta, widest,
             viewportWidth)
@@ -8809,7 +8826,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       else:
         if not editorViewState.softWrap and abs(horizontalDelta) > 0.01'f32:
           let widest = float32(platformEditorWidestVisibleLineWidth())
-          let viewportWidth = editorTextViewportWidth(demoEditorBounds)
+          let viewportWidth = editorTextLayoutWidth()
           editorViewState.scrollX = clampEditorScrollX(
             editorViewState.scrollX + horizontalDelta, widest, viewportWidth)
         if abs(verticalDelta) > 0.01'f32:
@@ -8863,7 +8880,10 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           editorSession.secondaryView.scrollLine else: editorViewState.scrollLine
       let gutterScrollFraction = if gutterPane == 1:
           editorSession.secondaryView.scrollYFraction else: editorViewState.scrollYFraction
-      if gutterDocument != nil and float32(event.x) - float32(gutterBounds.origin.x) < 8'f32 and
+      let gutterWidth = when defined(macosx): float32(platformEditorGutterWidth())
+        else: EditorTextLeftInset
+      if gutterDocument != nil and float32(event.x) >= float32(gutterBounds.origin.x) and
+          float32(event.x) - float32(gutterBounds.origin.x) < gutterWidth and
           handleGitGutterClick(gutterDocument, gutterBounds, gutterScrollLine,
             float32(event.x), uiY, event.modifiers, gutterScrollFraction):
         return

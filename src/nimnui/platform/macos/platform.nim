@@ -134,6 +134,11 @@ proc platformSetEditorCursorByte*(byteOffset, line: uint32) {.importc: "nimculus
 proc platformSetEditorFontSize*(size: cdouble) {.importc: "nimculus_platform_set_editor_font_size", cdecl.}
 proc platformSetEditorFontName*(name: cstring) {.importc: "nimculus_platform_set_editor_font_name", cdecl.}
 proc platformEditorLineHeight*(): cdouble {.importc: "nimculus_platform_editor_line_height", cdecl.}
+proc platformEditorGutterWidth*(): cdouble {.importc: "nimculus_platform_editor_gutter_width", cdecl.}
+proc platformEditorTextOriginX*(): cdouble {.importc: "nimculus_platform_editor_text_origin_x", cdecl.}
+proc platformEditorTextViewportWidth*(): cdouble {.importc: "nimculus_platform_editor_text_viewport_width", cdecl.}
+proc platformSecondaryEditorTextViewportWidth*(): cdouble {.importc: "nimculus_platform_secondary_editor_text_viewport_width", cdecl.}
+proc platformSecondaryEditorTextOriginX*(): cdouble {.importc: "nimculus_platform_secondary_editor_text_origin_x", cdecl.}
 proc platformInvalidateImeCoordinates*() {.importc: "nimculus_platform_invalidate_ime_coordinates", cdecl.}
 proc platformEditorByteOffsetAtPoint*(x, y: cdouble): uint32 {.importc: "nimculus_platform_editor_byte_offset_at_point", cdecl.}
 proc platformSecondaryEditorByteOffsetAtPoint*(x, y: cdouble): uint32 {.importc: "nimculus_platform_secondary_editor_byte_offset_at_point", cdecl.}

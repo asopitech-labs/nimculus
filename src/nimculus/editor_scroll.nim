@@ -1,8 +1,10 @@
 import nimnui/geometry
 
 const
+  ## The text origin is supplied by the editor gutter. Keep this fallback for
+  ## non-native callers, but never reserve a right-hand layout column for a
+  ## scrollbar: scrollbars are painted over the editor content.
   EditorTextLeftInset* = 8'f32
-  EditorTextRightInset* = 14'f32
   EditorScrollbarTopInset* = 6'f32
   EditorScrollbarBottomInset* = 14'f32
   EditorScrollbarHeight* = 6'f32
@@ -20,16 +22,17 @@ proc emptyRect(): Rect =
   Rect(size: Size(width: px(0), height: px(0)))
 
 proc editorTextViewportWidth*(bounds: Rect): float32 =
-  max(0'f32, float32(bounds.size.width) - EditorTextLeftInset -
-    EditorTextRightInset)
+  max(0'f32, float32(bounds.size.width) - EditorTextLeftInset)
 
 proc clampEditorScrollX*(scrollX, widestLineWidth, viewportWidth: float32): float32 =
   let maxScroll = max(0'f32, widestLineWidth - max(0'f32, viewportWidth))
   min(max(0'f32, scrollX), maxScroll)
 
 proc horizontalEditorScrollbar*(bounds: Rect, widestLineWidth,
-                                scrollX: float32): EditorHorizontalScrollbar =
-  let viewportWidth = editorTextViewportWidth(bounds)
+                                scrollX: float32, contentOriginX = -1'f32,
+                                measuredViewportWidth = -1'f32): EditorHorizontalScrollbar =
+  let viewportWidth = if measuredViewportWidth >= 0'f32:
+    measuredViewportWidth else: editorTextViewportWidth(bounds)
   let contentWidth = max(0'f32, widestLineWidth)
   result.viewportWidth = viewportWidth
   result.contentWidth = contentWidth
@@ -40,7 +43,10 @@ proc horizontalEditorScrollbar*(bounds: Rect, widestLineWidth,
   # geometry instead of a second, potentially stale soft-wrap flag.
   if viewportWidth <= 0'f32 or contentWidth <= viewportWidth:
     return
-  let trackX = float32(bounds.origin.x) + EditorTextLeftInset
+  # The thumb floats over the content and therefore uses the full pane width.
+  # The text viewport is intentionally independent of this geometry.
+  let trackX = if contentOriginX >= 0'f32: float32(bounds.origin.x) + contentOriginX
+    else: float32(bounds.origin.x)
   let editorBottom = float32(bounds.origin.y) + float32(bounds.size.height)
   let trackY = min(editorBottom - EditorScrollbarHeight,
     max(float32(bounds.origin.y), editorBottom - EditorScrollbarBottomInset))
