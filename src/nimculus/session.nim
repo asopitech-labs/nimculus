@@ -45,9 +45,10 @@ proc serializedView(view: EditorViewState): JsonNode =
   var additional = newJArray()
   for selection in view.additionalSelections:
     additional.add(%*{"anchor": selection.anchor, "active": selection.active})
-  let derivedLine = int(floor(max(0'f32, view.scrollYPixels) / 18'f32))
+  let lineHeight = editorLineHeight()
+  let derivedLine = int(floor(max(0'f32, view.scrollYPixels) / lineHeight))
   let scrollPixels = if view.scrollLine == derivedLine: view.scrollYPixels
-    else: float32(max(0, view.scrollLine)) * 18'f32
+    else: float32(max(0, view.scrollLine)) * lineHeight
   %*{"anchor": view.selection.anchor, "active": view.selection.active,
       "additionalSelections": additional,
       "scrollLine": view.scrollLine, "scrollYPixels": scrollPixels,
@@ -69,8 +70,9 @@ proc loadView(node: JsonNode, text: string): EditorViewState =
         active: floorGraphemeBoundary(text, jsonInt(item, "active", 0))))
     result.clampSelectionToText(text)
   result.scrollLine = max(0, jsonInt(node, "scrollLine", 0))
+  let lineHeight = editorLineHeight()
   result.setScrollYPixels(jsonFloat(node, "scrollYPixels",
-    float32(result.scrollLine) * 18'f32), 18'f32)
+    float32(result.scrollLine) * lineHeight), lineHeight)
   result.scrollX = max(0'f32, jsonFloat(node, "scrollX", 0'f32))
   result.showLineNumbers = jsonBool(node, "showLineNumbers", true)
   # A missing preference uses the Zed-compatible no-wrap default. An explicit

@@ -4,6 +4,7 @@ import std/unicode
 import std/math
 import nimculus/editor_buffer
 import nimnui/text
+import nimnui/nimnui
 import nimculus/syntax
 
 type
@@ -36,13 +37,24 @@ proc newEditorView*(): EditorViewState =
   EditorViewState(showLineNumbers: true, softWrap: false,
     showIndentGuides: true, indentWidth: 2)
 
-proc reconcileScrollPosition*(view: var EditorViewState, lineHeight = 18'f32,
+proc editorLineHeight*(): float32 =
+  ## One metric shared by rendering, scrolling, hit testing, IME placement,
+  ## line numbers, Git gutter actions, diagnostics, and session persistence.
+  ## Zed's comfortable buffer line height is 1.618 times its 15px font.
+  float32(max(1.0, platformEditorLineHeight()))
+
+proc editorLineIndex(pixels, lineHeight: float32): int =
+  ## Keep exact line multiples on the intended row despite the rounding of
+  ## the platform's fractional comfortable line height in float32.
+  int(floor(max(0'f32, pixels) / max(1'f32, lineHeight) + 0.0001'f32))
+
+proc reconcileScrollPosition*(view: var EditorViewState, lineHeight = editorLineHeight(),
                               maxScrollPixels = -1'f32) =
   ## Keep the new continuous position compatible with old code that assigns
   ## `scrollLine` directly. A disagreement means a legacy caller changed the
   ## line field, so adopt that value before deriving the display fields.
   let height = max(1'f32, lineHeight)
-  let derivedLine = int(floor(max(0'f32, view.scrollYPixels) / height))
+  let derivedLine = editorLineIndex(view.scrollYPixels, height)
   let legacyFraction = if view.scrollLine == derivedLine:
     max(0'f32, view.scrollYFraction) else: 0'f32
   let legacyPixels = max(0'f32, float32(max(0, view.scrollLine)) * height +
@@ -52,8 +64,9 @@ proc reconcileScrollPosition*(view: var EditorViewState, lineHeight = 18'f32,
   if maxScrollPixels >= 0'f32:
     view.scrollYPixels = min(view.scrollYPixels, maxScrollPixels)
   view.scrollYPixels = max(0'f32, view.scrollYPixels)
-  view.scrollLine = int(floor(view.scrollYPixels / height))
-  view.scrollYFraction = view.scrollYPixels - float32(view.scrollLine) * height
+  view.scrollLine = editorLineIndex(view.scrollYPixels, height)
+  let fraction = view.scrollYPixels - float32(view.scrollLine) * height
+  view.scrollYFraction = if abs(fraction) < 0.001'f32: 0'f32 else: fraction
 
 proc setScrollYPixels*(view: var EditorViewState, pixels, lineHeight: float32,
                        maxScrollPixels = -1'f32) =
@@ -61,8 +74,9 @@ proc setScrollYPixels*(view: var EditorViewState, pixels, lineHeight: float32,
   view.scrollYPixels = max(0'f32, pixels)
   if maxScrollPixels >= 0'f32:
     view.scrollYPixels = min(view.scrollYPixels, maxScrollPixels)
-  view.scrollLine = int(floor(view.scrollYPixels / height))
-  view.scrollYFraction = view.scrollYPixels - float32(view.scrollLine) * height
+  view.scrollLine = editorLineIndex(view.scrollYPixels, height)
+  let fraction = view.scrollYPixels - float32(view.scrollLine) * height
+  view.scrollYFraction = if abs(fraction) < 0.001'f32: 0'f32 else: fraction
 
 proc cursor*(view: EditorViewState): int = view.selection.active
 
@@ -231,7 +245,7 @@ proc nextWordBoundary*(text: string, offset: int): int =
   text.len
 
 proc scrollLineDelta*(remainder: var float32, deltaY: float32,
-                      precise: bool, lineHeight = 18'f32): int =
+                      precise: bool, lineHeight = editorLineHeight()): int =
   ## Convert AppKit/Zed-style scroll deltas into whole logical lines while
   ## retaining sub-line precise trackpad motion for the next event.
   let units = if precise: -deltaY / max(1'f32, lineHeight) else: -deltaY
@@ -241,7 +255,7 @@ proc scrollLineDelta*(remainder: var float32, deltaY: float32,
   remainder -= float32(result)
 
 proc scrollPixelDelta*(remainder: var float32, deltaY: float32,
-                       precise: bool, lineHeight = 18'f32): float32 =
+                       precise: bool, lineHeight = editorLineHeight()): float32 =
   ## Preserve the established line/remainder conversion for callers that
   ## still need it, while exposing the same event as a continuous pixel delta.
   discard scrollLineDelta(remainder, deltaY, precise, lineHeight)

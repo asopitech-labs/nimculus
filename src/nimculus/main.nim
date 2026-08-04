@@ -210,7 +210,7 @@ when defined(windows):
     float32(max(1.0, platformEditorLineHeight()))
 
   proc windowsEditorCellWidth(): float32 =
-    let size = if appSettings != nil: appSettings.intSetting("editor.fontSize", 14) else: 14
+    let size = if appSettings != nil: appSettings.intSetting("editor.fontSize", 15) else: 15
     max(4'f32, float32(size) * 0.5'f32)
 
   proc registerWindowsDemoImage() =
@@ -237,6 +237,13 @@ when defined(macosx):
 
 when defined(macosx):
   proc syncEditorHorizontalScrollForRender(primary, secondary: Rect)
+
+var imeState = newImeState()
+var editorSession: EditorSession
+var editorViewState = newEditorView()
+var syntaxState: EditorSyntaxState
+when defined(macosx):
+  var secondarySyntaxState: EditorSyntaxState
 
 proc setupDemoUi() =
   ## Keep rendering state synchronized with the document session at the
@@ -384,6 +391,28 @@ proc setupDemoUi() =
       y: px(viewportHeight - DefaultStatusHeight - bottomDockHeight)),
       size: Size(width: px(max(0'f32, viewportWidth - leftDockWidth)), height: px(1))))
   paint.drawWorkspacePanel(workspaceLayout.status)
+  if hasDocument:
+    paint.drawEditorBackground(primaryEditor)
+    if demoSplitEnabled:
+      paint.drawEditorBackground(secondaryEditor)
+    let lineHeight = editorLineHeight()
+    let primaryLocation = document[].buffer.lineColumn(editorViewState.cursor)
+    let primaryRow = primaryLocation.line - editorViewState.scrollLine
+    if primaryRow >= -1:
+      paint.drawEditorActiveLine(Rect(
+        origin: Point(x: primaryEditor.origin.x,
+          y: px(float32(primaryEditor.origin.y) + 6'f32 +
+            float32(primaryRow) * lineHeight - editorViewState.scrollYFraction)),
+        size: Size(width: primaryEditor.size.width, height: px(lineHeight))))
+    if demoSplitEnabled:
+      let secondaryLocation = document[].buffer.lineColumn(editorSession.secondaryView.cursor)
+      let secondaryRow = secondaryLocation.line - editorSession.secondaryView.scrollLine
+      if secondaryRow >= -1:
+        paint.drawEditorActiveLine(Rect(
+          origin: Point(x: secondaryEditor.origin.x,
+            y: px(float32(secondaryEditor.origin.y) + 6'f32 +
+              float32(secondaryRow) * lineHeight - editorSession.secondaryView.scrollYFraction)),
+          size: Size(width: secondaryEditor.size.width, height: px(lineHeight))))
   if getEnv("NIMCULUS_UI_GALLERY", "") == "1":
     # Keep the M2 renderer gallery available for explicit visual inspection,
     # but do not let placeholder paint kinds obscure the normal editor.
@@ -621,26 +650,19 @@ proc applySettingsTheme() =
   when defined(macosx) or defined(windows):
     if appSettings == nil: return
     when defined(windows):
-      platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize", 14)))
-      platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily", "Consolas").cstring)
+      platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize", 15)))
+      platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily", ".ZedMono").cstring)
       platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize", 12)))
       platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily",
           "Consolas").cstring)
     elif defined(macosx):
       let colors = appSettings.resolvedTheme(platformIsDarkAppearance())
-      platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize", 14)))
-      platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily", "Menlo").cstring)
+      platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize", 15)))
+      platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily", ".ZedMono").cstring)
       platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize", 12)))
       platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily", "Menlo").cstring)
       resizeNativeTerminals()
       platformSetThemePaletteJson(themePaletteJson(colors).cstring)
-
-var imeState = newImeState()
-var editorSession: EditorSession
-var editorViewState = newEditorView()
-var syntaxState: EditorSyntaxState
-when defined(macosx):
-  var secondarySyntaxState: EditorSyntaxState
 
 when defined(macosx):
   proc syncEditorHorizontalScrollForRender(primary, secondary: Rect) =
@@ -901,9 +923,9 @@ proc addEditorScrollbars(paint: var PaintList, bounds: Rect, view: EditorViewSta
     let trackY = float32(bounds.origin.y) + EditorScrollbarTopInset
     let trackHeight = max(0'f32, height - EditorScrollbarTopInset -
       EditorScrollbarBottomInset)
-    let thumbHeight = max(18'f32, trackHeight * float32(visibleLines) /
+    let thumbHeight = max(editorLineHeight(), trackHeight * float32(visibleLines) /
       float32(max(1, lineCount)))
-    let maxScrollPixels = max(1'f32, float32(lineCount - max(1, visibleLines)) * 18'f32)
+    let maxScrollPixels = max(1'f32, float32(lineCount - max(1, visibleLines)) * editorLineHeight())
     let thumbY = trackY + max(0'f32, trackHeight - thumbHeight) *
       min(1'f32, max(0'f32, view.scrollYPixels) / maxScrollPixels)
     paint.drawScrollbar(Rect(origin: Point(x: px(float32(bounds.origin.x) + width - 10'f32),
@@ -922,7 +944,7 @@ proc addEditorScrollbars(paint: var PaintList, bounds: Rect, view: EditorViewSta
 proc drawCurrentEditorScrollbars(paint: var PaintList, primary, secondary: Rect,
                                  lineCount: int, document: ptr FileDocument) =
   let primaryVisibleLines = when defined(macosx): editorVisibleLineCount()
-    else: max(1, int(ceil(float32(primary.size.height) / 18'f32)))
+    else: max(1, int(ceil(float32(primary.size.height) / editorLineHeight())))
   addEditorScrollbars(paint, primary, editorViewState, lineCount,
     primaryVisibleLines, when defined(macosx):
       float32(platformEditorWidestVisibleLineWidth())
@@ -932,7 +954,7 @@ proc drawCurrentEditorScrollbars(paint: var PaintList, primary, secondary: Rect,
     let secondaryView = editorSession.secondaryView
     let secondaryDocument = secondaryPaneDocument()
     let secondaryVisibleLines = when defined(macosx): secondaryEditorVisibleLineCount()
-      else: max(1, int(ceil(float32(secondary.size.height) / 18'f32)))
+      else: max(1, int(ceil(float32(secondary.size.height) / editorLineHeight())))
     let secondaryLineCount = if secondaryDocument == nil: 0 else:
       secondaryDocument[].buffer.lineStarts.len
     addEditorScrollbars(paint, secondary, secondaryView, secondaryLineCount,
@@ -3144,7 +3166,7 @@ when defined(macosx):
           editorSession.secondaryView.scrollYFraction else: editorViewState.scrollYFraction
         platformSetEditorHoverPane(uint32(pane))
         platformSetEditorHoverPosition(float64(float32(location.column) * 7.2'f32),
-          float64(float32(location.line - scrollLine) * 18'f32 - scrollFraction))
+      float64(float32(location.line - scrollLine) * editorLineHeight() - scrollFraction))
       syncNativeHover()
       var lines: seq[string]
       for item in signature.signatures:
@@ -3665,7 +3687,7 @@ when defined(macosx):
       renderNativeGitStatus(editorGitStatusSourceEntries)
 
   proc editorVisibleLineCountForBounds(bounds: Rect): int =
-    max(1, int(ceil(float32(bounds.size.height) / 18'f32)))
+    max(1, int(ceil(float32(bounds.size.height) / editorLineHeight())))
 
   proc editorVisibleLineCount(): int =
     ## Keep cursor reveal, syntax requests, and native text rendering on the
@@ -4478,8 +4500,8 @@ proc syncEditorCursor(ensureCursor = true) =
       clampEditorScrollX(editorViewState.scrollX, widestVisibleLine,
         editorTextViewportWidth(demoEditorBounds))
     let maxScrollPixels = if document == nil: 0'f32 else:
-      float32(max(0, document[].buffer.lineStarts.len - visibleLines)) * 18'f32
-    editorViewState.reconcileScrollPosition(18'f32, maxScrollPixels)
+      float32(max(0, document[].buffer.lineStarts.len - visibleLines)) * editorLineHeight()
+    editorViewState.reconcileScrollPosition(editorLineHeight(), maxScrollPixels)
     platformSetEditorScrollLine(uint32(max(0, editorViewState.scrollLine)))
     platformSetEditorScrollYFraction(cdouble(max(0'f32,
       editorViewState.scrollYFraction)))
@@ -4598,8 +4620,8 @@ when defined(macosx):
         editorTextViewportWidth(demoSecondaryEditorBounds))
     let secondaryVisibleLines = secondaryEditorVisibleLineCount()
     let maxScrollPixels = float32(max(0, document[].buffer.lineStarts.len -
-      secondaryVisibleLines)) * 18'f32
-    view.reconcileScrollPosition(18'f32, maxScrollPixels)
+      secondaryVisibleLines)) * editorLineHeight()
+    view.reconcileScrollPosition(editorLineHeight(), maxScrollPixels)
     platformSetSecondaryEditorScrollLine(uint32(max(0, view.scrollLine)))
     platformSetSecondaryEditorScrollYFraction(cdouble(max(0'f32,
       view.scrollYFraction)))
@@ -4785,7 +4807,7 @@ when defined(windows):
     platformGetMetrics(addr metrics)
     let viewHeight = if metrics.heightPoints > 0: metrics.heightPoints else: 640'u32
     let top = float32(viewHeight) - float32(y) - float32(demoEditorBounds.origin.y)
-    let line = int(floor((top - 4.0'f32) / 18.0'f32))
+    let line = int(floor((top - 4.0'f32) / editorLineHeight()))
     let entryIndex = line - 1
     if entryIndex < 0 or entryIndex >= workspacePreviewEntries.len: return
     let entry = workspacePreviewEntries[entryIndex]
@@ -4800,7 +4822,7 @@ when defined(windows):
     platformGetMetrics(addr metrics)
     let viewHeight = if metrics.heightPoints > 0: metrics.heightPoints else: 640'u32
     let top = float32(viewHeight) - float32(y) - float32(demoEditorBounds.origin.y)
-    let line = int(floor((top - 4.0'f32) / 18.0'f32))
+    let line = int(floor((top - 4.0'f32) / editorLineHeight()))
     let resultIndex = line - 1
     if resultIndex < 0 or resultIndex >= workspaceSearchResults.len: return
     let match = workspaceSearchResults[resultIndex]
@@ -5621,7 +5643,7 @@ when defined(macosx):
     platformGetMetrics(addr metrics)
     let viewHeight = if metrics.heightPoints > 0: metrics.heightPoints else: 640'u32
     let top = float32(viewHeight) - float32(y) - float32(demoEditorBounds.origin.y)
-    let line = int(floor((top - 4.0'f32) / 18.0'f32))
+    let line = int(floor((top - 4.0'f32) / editorLineHeight()))
     let entryIndex = line - 1
     if entryIndex < 0 or entryIndex >= workspacePreviewEntries.len: return
     let entry = workspacePreviewEntries[entryIndex]
@@ -5636,7 +5658,7 @@ when defined(macosx):
     platformGetMetrics(addr metrics)
     let viewHeight = if metrics.heightPoints > 0: metrics.heightPoints else: 640'u32
     let top = float32(viewHeight) - float32(y) - float32(demoEditorBounds.origin.y)
-    let line = int(floor((top - 4.0'f32) / 18.0'f32))
+    let line = int(floor((top - 4.0'f32) / editorLineHeight()))
     let resultIndex = line - 1
     if resultIndex < 0 or resultIndex >= workspaceSearchResults.len: return
     let match = workspaceSearchResults[resultIndex]
@@ -6572,10 +6594,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "openSettingsUI":
     when defined(macosx):
       let theme = if appSettings != nil: appSettings.stringSetting("theme", "system") else: "system"
-      let editorSize = if appSettings != nil: $appSettings.intSetting("editor.fontSize", 14) else: "14"
+      let editorSize = if appSettings != nil: $appSettings.intSetting("editor.fontSize", 15) else: "15"
       let terminalSize = if appSettings != nil: $appSettings.intSetting("terminal.fontSize", 12) else: "12"
       let editorFont = if appSettings != nil: appSettings.stringSetting("editor.fontFamily",
-          "Menlo") else: "Menlo"
+          ".ZedMono") else: ".ZedMono"
       let terminalFont = if appSettings != nil: appSettings.stringSetting("terminal.fontFamily",
           "Menlo") else: "Menlo"
       let shell = if appSettings != nil: appSettings.stringSetting("terminal.shell",
@@ -8416,11 +8438,11 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
             viewportWidth)
         if abs(verticalDelta) > 0.01'f32:
           var view = editorSession.secondaryView
-          view.reconcileScrollPosition(18'f32, float32(maxScroll) * 18'f32)
+          view.reconcileScrollPosition(editorLineHeight(), float32(maxScroll) * editorLineHeight())
           let pixelDelta = scrollPixelDelta(editorSecondaryScrollRemainder,
             verticalDelta, event.preciseScrolling)
-          view.setScrollYPixels(view.scrollYPixels + pixelDelta, 18'f32,
-            float32(maxScroll) * 18'f32)
+          view.setScrollYPixels(view.scrollYPixels + pixelDelta, editorLineHeight(),
+            float32(maxScroll) * editorLineHeight())
           editorSession.secondaryView = view
       else:
         if not editorViewState.softWrap and abs(horizontalDelta) > 0.01'f32:
@@ -8429,12 +8451,12 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           editorViewState.scrollX = clampEditorScrollX(
             editorViewState.scrollX + horizontalDelta, widest, viewportWidth)
         if abs(verticalDelta) > 0.01'f32:
-          editorViewState.reconcileScrollPosition(18'f32,
-            float32(maxScroll) * 18'f32)
+          editorViewState.reconcileScrollPosition(editorLineHeight(),
+            float32(maxScroll) * editorLineHeight())
           let pixelDelta = scrollPixelDelta(editorScrollRemainder, verticalDelta,
             event.preciseScrolling)
           editorViewState.setScrollYPixels(editorViewState.scrollYPixels + pixelDelta,
-            18'f32, float32(maxScroll) * 18'f32)
+            editorLineHeight(), float32(maxScroll) * editorLineHeight())
       # Wheel input changes only the viewport. Do not let cursor visibility
       # synchronization pull the freely scrolled position back into view.
       syncEditorCursor(ensureCursor = false)

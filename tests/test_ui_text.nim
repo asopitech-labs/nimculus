@@ -565,25 +565,39 @@ suite "M3 text foundation":
 
   test "precise scroll accumulates sub-line trackpad deltas":
     var remainder = 0'f32
-    check scrollLineDelta(remainder, 9'f32, true) == 0
+    let lineHeight = editorLineHeight()
+    check scrollLineDelta(remainder, lineHeight / 2'f32, true) == 0
     check remainder < 0'f32
-    check scrollLineDelta(remainder, 9'f32, true) == -1
-    check scrollLineDelta(remainder, -18'f32, true) == 1
+    check scrollLineDelta(remainder, lineHeight / 2'f32, true) == -1
+    check scrollLineDelta(remainder, -lineHeight, true) == 1
     check remainder == 0'f32
 
   test "editor scroll position preserves sub-line pixels and legacy lines":
     var view = newEditorView()
-    view.setScrollYPixels(9'f32, 18'f32, 180'f32)
+    let lineHeight = editorLineHeight()
+    view.setScrollYPixels(lineHeight / 2'f32, lineHeight, lineHeight * 10'f32)
     check view.scrollLine == 0
-    check abs(view.scrollYFraction - 9'f32) < 0.001'f32
-    check abs(view.scrollYPixels - 9'f32) < 0.001'f32
+    check abs(view.scrollYFraction - lineHeight / 2'f32) < 0.001'f32
+    check abs(view.scrollYPixels - lineHeight / 2'f32) < 0.001'f32
     view.scrollLine = 3
-    view.reconcileScrollPosition(18'f32, 180'f32)
+    view.reconcileScrollPosition(lineHeight, lineHeight * 10'f32)
     check view.scrollLine == 3
     check view.scrollYFraction == 0'f32
-    check view.scrollYPixels == 54'f32
+    check view.scrollYPixels == lineHeight * 3'f32
     var remainder = 0'f32
     check abs(scrollPixelDelta(remainder, 4'f32, true) + 4'f32) < 0.001'f32
+
+  test "all editor line metrics use the platform line-height authority":
+    let lineHeight = editorLineHeight()
+    check abs(lineHeight - float32(platformEditorLineHeight())) < 0.001'f32
+    check lineHeight > 20'f32
+    var view = newEditorView()
+    view.scrollLine = 2
+    view.reconcileScrollPosition()
+    check abs(view.scrollYPixels - lineHeight * 2'f32) < 0.001'f32
+    view.setScrollYPixels(lineHeight * 3'f32 / 2'f32, lineHeight, lineHeight * 8'f32)
+    check view.scrollLine == 1
+    check abs(view.scrollYFraction - lineHeight / 2'f32) < 0.001'f32
 
   test "IME state separates composition from committed text":
     var ime = newImeState()

@@ -4,7 +4,8 @@ import std/unicode
 import nimculus/tree_sitter
 
 type
-  HighlightKind* = enum keyword, stringLiteral, numberLiteral, comment, identifier, punctuation
+  HighlightKind* = enum keyword, stringLiteral, numberLiteral, comment, identifier, punctuation,
+    functionName, typeName, title, emphasisStrong
   HighlightSpan* = object
     startByte*, endByte*: uint32
     kind*: HighlightKind
@@ -20,7 +21,15 @@ proc classify(kind: string): HighlightKind =
   if lower.contains("string") or lower.contains("template"): return stringLiteral
   if lower.contains("number") or lower.contains("integer") or lower.contains(
       "float"): return numberLiteral
-  if lower in ["identifier", "type_identifier", "property_identifier"]: return identifier
+  if lower.contains("heading") or lower.contains("atx_h") or lower.contains("setext_h"):
+    return title
+  if lower.contains("strong") or lower.contains("bold"): return emphasisStrong
+  if lower.contains("function") or lower.contains("method") or lower.contains("call"):
+    return functionName
+  if lower in ["type_identifier", "primitive_type", "class_name", "struct_name",
+      "enum_name", "interface_name"] or lower.contains("type_name"):
+    return typeName
+  if lower in ["identifier", "property_identifier"]: return identifier
   if lower in [";", ",", ".", ":", "(", ")", "[", "]", "{", "}"]: return punctuation
   if lower in ["if", "else", "for", "while", "proc", "func", "let", "var", "const", "type",
       "return", "import", "from", "fn", "struct", "class", "def", "async", "await"]: return keyword

@@ -1,5 +1,32 @@
 # Design Decisions
 
+## UI-082: Adopt Zed One themes and a single comfortable editor line metric
+
+The built-in light and dark themes copy the semantic colors from
+`references/zed/assets/themes/one/one.json`: editor and gutter backgrounds,
+editor foreground, active-line alpha, panel/surface/elevated chrome, tabs,
+status/title bars, borders, text roles, scrollbar tokens, line-number roles,
+caret, and the keyword/string/comment/function/type/number/title syntax
+palette. The syntax entries retain Zed's regular title weight and bold
+`emphasis.strong` weight. Native fallback values use the same tokens so a
+palette update and the macOS renderer cannot diverge.
+
+Editor typography follows
+`references/zed/assets/settings/default.json`: buffer size 15, `.ZedMono`
+with a sensible native fallback, and `comfortable` line height at 1.618x the
+font size (24.27px at the default size). `editorLineHeight()` is now the
+single Nim-side source for cursor placement, scrolling, hit testing, IME
+coordinates, line numbers, Git gutter actions, diagnostics, and session
+scroll restoration; the platform line-height export is the native authority.
+
+The line-number gutter follows the vendored Zed editor contract: a minimum of
+four digits, digit-count-based width, one character of right padding, and
+right-aligned numbers. Its background is the editor background, the active row
+uses the active-line token across the full row, and the active number uses the
+emphasized line-number token. The caret uses Zed's player cursor color and a
+2px bar. Markdown ATX headings use muted `#` markers and bold, title-colored
+heading text.
+
 ## UX-028: Align macOS titlebar and breadcrumb actions with Zed
 
 The macOS titlebar keeps the native traffic lights, but places the regular-weight

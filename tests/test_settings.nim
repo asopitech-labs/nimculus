@@ -2,6 +2,7 @@ import std/os
 import std/json
 import std/strutils
 import std/unittest
+import std/tables
 import nimculus/settings
 import nimnui/commands
 
@@ -162,3 +163,21 @@ suite "M12 settings foundation":
     check store.resolvedTheme(true).background == "#123456"
     removeFile(path)
     removeDir(root)
+
+  test "built-in One themes publish Zed editor roles and syntax weights":
+    let store = newSettingsStore("", "", "")
+    let light = store.themeRegistry["light"].colors
+    let dark = store.themeRegistry["dark"].colors
+    check light.editor == "#fafafa"
+    check light.editorForeground == "#242529"
+    check light.gutter == light.editor
+    check light.editorActiveLine == "#ebebecbf"
+    check dark.editor == "#282c33"
+    check dark.editorForeground == "#acb2be"
+    check dark.gutter == dark.editor
+    check dark.editorActiveLine == "#2f343ebf"
+    check light.syntax["title"]["color"].getStr == "#d3604f"
+    check dark.syntax["emphasis.strong"]["fontWeight"].getInt == 700
+    let palette = themePaletteJson(dark)
+    check palette.find("\"syntax\"") >= 0
+    check palette.find("#74ade8") >= 0

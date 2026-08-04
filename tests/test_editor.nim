@@ -560,18 +560,19 @@ suite "M5 editor services":
       lines.add("line " & $line)
     let buffer = initPieceTable(lines.join("\n"))
     var view = newEditorView()
+    let lineHeight = editorLineHeight()
     view.moveCursor(buffer.lineStarts[13])
     view.scrollLine = 0
     view.reconcileScrollPosition()
     let cursorLine = buffer.lineColumn(view.cursor).line
     var remainder = 0'f32
     for _ in 0 .. 20:
-      view.reconcileScrollPosition(18'f32, 35'f32 * 18'f32)
-      let pixelDelta = scrollPixelDelta(remainder, -18'f32, true)
-      view.setScrollYPixels(view.scrollYPixels + pixelDelta, 18'f32, 35'f32 * 18'f32)
-    view.reconcileScrollPosition(18'f32, 35'f32 * 18'f32)
+      view.reconcileScrollPosition(lineHeight, 35'f32 * lineHeight)
+      let pixelDelta = scrollPixelDelta(remainder, -lineHeight, true)
+      view.setScrollYPixels(view.scrollYPixels + pixelDelta, lineHeight, 35'f32 * lineHeight)
+    view.reconcileScrollPosition(lineHeight, 35'f32 * lineHeight)
     check view.scrollLine > cursorLine
-    check view.scrollYPixels > float32(cursorLine) * 18'f32
+    check view.scrollYPixels > float32(cursorLine) * lineHeight
 
   test "focused split pane owns navigation destinations":
     var session: EditorSession

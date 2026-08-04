@@ -167,7 +167,7 @@ else:
   proc platformSetEditorFontName*(name: cstring) = discard name
   proc platformSetTerminalFontSize*(size: cdouble) = discard size
   proc platformSetTerminalFontName*(name: cstring) = discard name
-  proc platformEditorLineHeight*(): cdouble = 16.0
+  proc platformEditorLineHeight*(): cdouble = 15.0 * 1.618
   proc platformInvalidateImeCoordinates*() = discard
   proc clipboardSet*(text: cstring, length: uint32) = discard (text, length)
   proc clipboardGet*(): string = ""

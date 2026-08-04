@@ -22,6 +22,7 @@ type
     selection*: string
     border*: string
     surface*: string
+    elevated*: string
     panel*: string
     element*: string
     elementHover*: string
@@ -42,11 +43,16 @@ type
     tabInactive*: string
     statusBar*: string
     editor*: string
+    editorForeground*: string
     gutter*: string
     editorSubheader*: string
     editorActiveLine*: string
     scrollbarThumb*: string
     scrollbarHover*: string
+    lineNumber*: string
+    activeLineNumber*: string
+    hoverLineNumber*: string
+    caret*: string
     terminal*: string
     added*: string
     modified*: string
@@ -197,7 +203,7 @@ proc settingsSchema*(): JsonNode =
       "background": {"type": "string"}, "foreground": {"type": "string"},
       "accent": {"type": "string"}, "selection": {"type": "string"},
       "border": {"type": "string"}, "surface": {"type": "string"},
-      "panel": {"type": "string"}, "element": {"type": "string"},
+      "panel": {"type": "string"}, "elevated": {"type": "string"}, "element": {"type": "string"},
       "elementHover": {"type": "string"}, "elementActive": {"type": "string"},
       "elementSelected": {"type": "string"}, "textMuted": {"type": "string"},
       "textPlaceholder": {"type": "string"}, "textDisabled": {"type": "string"},
@@ -207,9 +213,11 @@ proc settingsSchema*(): JsonNode =
       "toolbar": {"type": "string"}, "tabBar": {"type": "string"},
       "tabActive": {"type": "string"}, "tabInactive": {"type": "string"},
       "statusBar": {"type": "string"}, "editor": {"type": "string"},
-      "gutter": {"type": "string"}, "editorSubheader": {"type": "string"},
+      "editorForeground": {"type": "string"}, "gutter": {"type": "string"},
       "editorActiveLine": {"type": "string"}, "scrollbarThumb": {"type": "string"},
-      "scrollbarHover": {"type": "string"}, "terminal": {"type": "string"},
+      "scrollbarHover": {"type": "string"}, "lineNumber": {"type": "string"},
+      "activeLineNumber": {"type": "string"}, "hoverLineNumber": {"type": "string"},
+      "caret": {"type": "string"}, "terminal": {"type": "string"},
       "added": {"type": "string"}, "modified": {"type": "string"},
       "deleted": {"type": "string"}, "conflict": {"type": "string"},
       "warning": {"type": "string"}, "error": {"type": "string"},
@@ -273,30 +281,52 @@ proc registerBuiltinThemes*(store: SettingsStore) =
   if store == nil: return
   var dark = ThemeColors(
     background: "#3b414d", foreground: "#dce0e5", accent: "#74ade8", selection: "#47679e",
-    border: "#464b57", surface: "#2f343e", panel: "#2f343e", element: "#2e343e",
+    border: "#464b57", surface: "#2f343e", elevated: "#2f343e", panel: "#2f343e",
+    element: "#2e343e",
     elementHover: "#363c46", elementActive: "#454a56", elementSelected: "#454a56",
     textMuted: "#a9afbc", textPlaceholder: "#878a98", textDisabled: "#878a98",
     textAccent: "#74ade8", borderVariant: "#363c46", borderFocused: "#47679e",
     borderSelected: "#293b5b", titleBar: "#3b414d", titleBarInactive: "#2e343e",
     toolbar: "#282c33", tabBar: "#2f343e", tabActive: "#282c33", tabInactive: "#2f343e",
-    statusBar: "#3b414d", editor: "#282c33", gutter: "#282c33",
-    editorSubheader: "#2f343e", editorActiveLine: "#2f343e", scrollbarThumb: "#c8ccd4",
-    scrollbarHover: "#363c46", terminal: "#282c34", added: "#27a657", modified: "#dec184",
+    statusBar: "#3b414d", editor: "#282c33", editorForeground: "#acb2be", gutter: "#282c33",
+    editorSubheader: "#2f343e", editorActiveLine: "#2f343ebf", scrollbarThumb: "#c8ccd44c",
+    scrollbarHover: "#363c46", lineNumber: "#4e5a5f", activeLineNumber: "#d0d4da",
+    hoverLineNumber: "#acb0b4", caret: "#74ade8", terminal: "#282c34", added: "#27a657",
+    modified: "#dec184",
     deleted: "#d07277", conflict: "#dec184", warning: "#dec184", error: "#d07277",
-    info: "#74ade8", success: "#a1c181", syntax: objectNode())
+    info: "#74ade8", success: "#a1c181", syntax: %*{
+      "keyword": {"color": "#b477cf", "fontWeight": 400},
+      "string": {"color": "#a1c181", "fontWeight": 400},
+      "comment": {"color": "#5d636f", "fontWeight": 400},
+      "function": {"color": "#73ade9", "fontWeight": 400},
+      "type": {"color": "#6eb4bf", "fontWeight": 400},
+      "number": {"color": "#bf956a", "fontWeight": 400},
+      "title": {"color": "#d07277", "fontWeight": 400},
+      "emphasis.strong": {"color": "#bf956a", "fontWeight": 700}})
   var light = ThemeColors(
     background: "#dcdcdd", foreground: "#242529", accent: "#5c78e2", selection: "#7d82e8",
-    border: "#c9c9ca", surface: "#ebebec", panel: "#ebebec", element: "#ebebec",
+    border: "#c9c9ca", surface: "#ebebec", elevated: "#ebebec", panel: "#ebebec",
+    element: "#ebebec",
     elementHover: "#dfdfe0", elementActive: "#cacaca", elementSelected: "#cacaca",
     textMuted: "#58585a", textPlaceholder: "#7e8086", textDisabled: "#7e8086",
     textAccent: "#5c78e2", borderVariant: "#dfdfe0", borderFocused: "#7d82e8",
     borderSelected: "#cbcdf6", titleBar: "#dcdcdd", titleBarInactive: "#ebebec",
     toolbar: "#fafafa", tabBar: "#ebebec", tabActive: "#fafafa", tabInactive: "#ebebec",
-    statusBar: "#dcdcdd", editor: "#fafafa", gutter: "#fafafa",
-    editorSubheader: "#ebebec", editorActiveLine: "#ebebec", scrollbarThumb: "#383a41",
-    scrollbarHover: "#dfdfe0", terminal: "#fafafa", added: "#22863a", modified: "#b08800",
+    statusBar: "#dcdcdd", editor: "#fafafa", editorForeground: "#242529", gutter: "#fafafa",
+    editorSubheader: "#ebebec", editorActiveLine: "#ebebecbf", scrollbarThumb: "#383a414c",
+    scrollbarHover: "#dfdfe0", lineNumber: "#b4b4bb", activeLineNumber: "#44454b",
+    hoverLineNumber: "#61616b", caret: "#5c78e2", terminal: "#fafafa", added: "#22863a",
+    modified: "#b08800",
     deleted: "#d73a49", conflict: "#b08800", warning: "#b08800", error: "#d73a49",
-    info: "#5c78e2", success: "#22863a", syntax: objectNode())
+    info: "#5c78e2", success: "#22863a", syntax: %*{
+      "keyword": {"color": "#a449ab", "fontWeight": 400},
+      "string": {"color": "#649f57", "fontWeight": 400},
+      "comment": {"color": "#a2a3a7", "fontWeight": 400},
+      "function": {"color": "#5b79e3", "fontWeight": 400},
+      "type": {"color": "#3882b7", "fontWeight": 400},
+      "number": {"color": "#ad6e25", "fontWeight": 400},
+      "title": {"color": "#d3604f", "fontWeight": 400},
+      "emphasis.strong": {"color": "#ad6e25", "fontWeight": 700}})
   store.themeRegistry["dark"] = themeWithColors("dark", "dark", dark)
   store.themeRegistry["light"] = themeWithColors("light", "light", light)
   # Keep the default tree legible without requiring a separately installed
@@ -324,7 +354,9 @@ proc configuredThemeColors(node: JsonNode; fallback: ThemeColors): ThemeColors =
       "element", "elementHover", "elementActive", "elementSelected", "textMuted", "textPlaceholder",
       "textDisabled", "textAccent", "borderVariant", "borderFocused", "borderSelected", "titleBar",
       "titleBarInactive", "toolbar", "tabBar", "tabActive", "tabInactive", "statusBar", "editor",
-      "gutter", "editorSubheader", "editorActiveLine", "scrollbarThumb", "scrollbarHover",
+      "gutter", "editorForeground", "editorSubheader", "editorActiveLine", "scrollbarThumb",
+      "scrollbarHover",
+      "lineNumber", "activeLineNumber", "hoverLineNumber", "caret", "elevated",
       "terminal",
       "added", "modified", "deleted", "conflict", "warning", "error", "info", "success"]:
     if colors.hasKey(key) and colors[key].kind == JString:
@@ -335,6 +367,7 @@ proc configuredThemeColors(node: JsonNode; fallback: ThemeColors): ThemeColors =
       of "selection": result.selection = colors[key].getStr
       of "border": result.border = colors[key].getStr
       of "surface": result.surface = colors[key].getStr
+      of "elevated": result.elevated = colors[key].getStr
       of "panel": result.panel = colors[key].getStr
       of "element": result.element = colors[key].getStr
       of "elementHover": result.elementHover = colors[key].getStr
@@ -355,11 +388,16 @@ proc configuredThemeColors(node: JsonNode; fallback: ThemeColors): ThemeColors =
       of "tabInactive": result.tabInactive = colors[key].getStr
       of "statusBar": result.statusBar = colors[key].getStr
       of "editor": result.editor = colors[key].getStr
+      of "editorForeground": result.editorForeground = colors[key].getStr
       of "gutter": result.gutter = colors[key].getStr
       of "editorSubheader": result.editorSubheader = colors[key].getStr
       of "editorActiveLine": result.editorActiveLine = colors[key].getStr
       of "scrollbarThumb": result.scrollbarThumb = colors[key].getStr
       of "scrollbarHover": result.scrollbarHover = colors[key].getStr
+      of "lineNumber": result.lineNumber = colors[key].getStr
+      of "activeLineNumber": result.activeLineNumber = colors[key].getStr
+      of "hoverLineNumber": result.hoverLineNumber = colors[key].getStr
+      of "caret": result.caret = colors[key].getStr
       of "terminal": result.terminal = colors[key].getStr
       of "added": result.added = colors[key].getStr
       of "modified": result.modified = colors[key].getStr
@@ -476,7 +514,8 @@ proc themePaletteJson*(colors: ThemeColors): string =
   $(%*{
     "background": colors.background, "foreground": colors.foreground,
     "accent": colors.accent, "selection": colors.selection, "border": colors.border,
-    "surface": colors.surface, "panel": colors.panel, "element": colors.element,
+    "surface": colors.surface, "elevated": colors.elevated, "panel": colors.panel,
+    "element": colors.element,
     "elementHover": colors.elementHover, "elementActive": colors.elementActive,
     "elementSelected": colors.elementSelected, "textMuted": colors.textMuted,
     "textPlaceholder": colors.textPlaceholder, "textDisabled": colors.textDisabled,
@@ -485,9 +524,12 @@ proc themePaletteJson*(colors: ThemeColors): string =
     "titleBar": colors.titleBar, "titleBarInactive": colors.titleBarInactive,
     "toolbar": colors.toolbar, "tabBar": colors.tabBar, "tabActive": colors.tabActive,
     "tabInactive": colors.tabInactive, "statusBar": colors.statusBar,
-    "editor": colors.editor, "gutter": colors.gutter, "editorSubheader": colors.editorSubheader,
+    "editor": colors.editor, "editorForeground": colors.editorForeground, "gutter": colors.gutter,
+    "editorSubheader": colors.editorSubheader,
     "editorActiveLine": colors.editorActiveLine, "scrollbarThumb": colors.scrollbarThumb,
-    "scrollbarHover": colors.scrollbarHover, "terminal": colors.terminal,
+    "scrollbarHover": colors.scrollbarHover, "lineNumber": colors.lineNumber,
+    "activeLineNumber": colors.activeLineNumber, "hoverLineNumber": colors.hoverLineNumber,
+    "caret": colors.caret, "syntax": colors.syntax, "terminal": colors.terminal,
     "added": colors.added, "modified": colors.modified, "deleted": colors.deleted,
     "conflict": colors.conflict, "warning": colors.warning, "error": colors.error,
     "info": colors.info, "success": colors.success

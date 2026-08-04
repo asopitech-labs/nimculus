@@ -102,9 +102,9 @@ static NimculusPaintRegion *g_paint_dirty_regions = NULL;
 static uint32_t g_paint_dirty_count = 0;
 static double g_editor_cursor[2] = {8.0, 12.0};
 static NSUInteger g_editor_cursor_line = 0;
-static CGFloat g_editor_font_size = 14.0;
-static CGFloat g_editor_line_height = 18.0;
-static NSString *g_editor_font_name = @"Menlo";
+static CGFloat g_editor_font_size = 15.0;
+static CGFloat g_editor_line_height = 15.0 * 1.618;
+static NSString *g_editor_font_name = @".ZedMono";
 static CGFloat g_terminal_font_size = 12.0;
 static NSString *g_terminal_font_name = @"Menlo";
 static NSUInteger g_editor_scroll_line = 0;
@@ -176,7 +176,7 @@ static NSString *g_theme_foreground = @"#d7dae0";
 static NSString *g_theme_accent = @"#4daafc";
 static NSString *g_theme_selection = @"#264f78";
 static NSString *g_theme_border = @"#3b4048";
-static NSDictionary<NSString *, NSString *> *g_theme_palette = nil;
+static NSDictionary *g_theme_palette = nil;
 
 // Zed-aligned workspace tokens. Keep chrome geometry and semantic colors in
 // one platform-owned place so AppKit presenters do not grow independent
@@ -401,24 +401,36 @@ static NSUInteger editorLineUTF8Offset(NSUInteger lineIndex,
 }
 
 static NSColor *themeHexColor(NSString *value, NSColor *fallback) {
-  if (!value || value.length != 7 || [value characterAtIndex:0] != '#') return fallback;
+  if (!value || (value.length != 7 && value.length != 9) ||
+      [value characterAtIndex:0] != '#') return fallback;
   unsigned int red = 0, green = 0, blue = 0;
-  NSScanner *scanner = [NSScanner scannerWithString:[value substringFromIndex:1]];
+  unsigned int alpha = 0xFF;
+  NSScanner *scanner = [NSScanner scannerWithString:[value substringWithRange:NSMakeRange(1, 6)]];
   if (![scanner scanHexInt:&red] || red > 0xFFFFFF) return fallback;
+  if (value.length == 9) {
+    scanner = [NSScanner scannerWithString:[value substringFromIndex:7]];
+    if (![scanner scanHexInt:&alpha] || alpha > 0xFF) return fallback;
+  }
   green = (red >> 8) & 0xFF;
   blue = red & 0xFF;
   red = (red >> 16) & 0xFF;
   return [NSColor colorWithCalibratedRed:red / 255.0 green:green / 255.0
-                                   blue:blue / 255.0 alpha:1.0];
+                                   blue:blue / 255.0 alpha:alpha / 255.0];
+}
+
+static BOOL validThemeToken(NSString *value) {
+  return [value isKindOfClass:[NSString class]] && (value.length == 7 || value.length == 9) &&
+    [value characterAtIndex:0] == '#';
 }
 
 static NSString *themeRole(NSString *key, NSString *fallback) {
-  NSString *value = g_theme_palette[key];
+  NSString *value = [g_theme_palette[key] isKindOfClass:[NSString class]] ?
+    g_theme_palette[key] : nil;
   if (!value && [key isEqualToString:@"chromeBg"]) value = g_theme_palette[@"titleBar"] ?: g_theme_palette[@"background"];
   if (!value && [key isEqualToString:@"fgPrimary"]) value = g_theme_palette[@"foreground"];
   if (!value && [key isEqualToString:@"fgMuted"]) value = g_theme_palette[@"textMuted"] ?: g_theme_palette[@"foreground"];
   if (!value && [key isEqualToString:@"accent"]) value = g_theme_palette[@"textAccent"] ?: g_theme_palette[@"accent"];
-  return value.length == 7 && [value characterAtIndex:0] == '#' ? value : fallback;
+  return validThemeToken(value) ? value : fallback;
 }
 
 static BOOL themeLooksLight(void) {
@@ -431,30 +443,30 @@ static BOOL themeLooksLight(void) {
 
 static NSColor *themeTokenFallback(NSString *key, NSColor *fallback) {
   const BOOL light = themeLooksLight();
-  if ([key isEqualToString:@"chromeBg"]) {
-    return [NSColor colorWithCalibratedWhite:light ? 0.97 : 0.105 alpha:1.0];
-  }
-  if ([key isEqualToString:@"tabBar"]) {
-    return [NSColor colorWithCalibratedWhite:light ? 0.93 : 0.08 alpha:1.0];
-  }
-  if ([key isEqualToString:@"tabActive"]) {
-    return light ? [NSColor colorWithCalibratedRed:0.16 green:0.42 blue:0.78 alpha:1.0] :
-      [NSColor colorWithCalibratedRed:0.25 green:0.62 blue:0.95 alpha:1.0];
-  }
-  if ([key isEqualToString:@"border"]) {
-    return [NSColor colorWithCalibratedWhite:light ? 0.76 : 0.24 alpha:1.0];
-  }
-  if ([key isEqualToString:@"fgPrimary"]) {
-    return [NSColor colorWithCalibratedWhite:light ? 0.12 : 0.90 alpha:1.0];
-  }
-  if ([key isEqualToString:@"fgMuted"]) {
-    return [NSColor colorWithCalibratedWhite:light ? 0.38 : 0.72 alpha:1.0];
-  }
-  if ([key isEqualToString:@"accent"]) {
-    return light ? [NSColor colorWithCalibratedRed:0.08 green:0.35 blue:0.74 alpha:1.0] :
-      [NSColor colorWithCalibratedRed:0.30 green:0.67 blue:0.98 alpha:1.0];
-  }
-  return fallback;
+  NSDictionary *lightValues = @{
+    @"chromeBg": @"#dcdcdd", @"tabBar": @"#ebebec", @"tabActive": @"#fafafa",
+    @"surface": @"#ebebec", @"panel": @"#ebebec", @"elevated": @"#ebebec",
+    @"border": @"#c9c9ca", @"borderVariant": @"#dfdfe0", @"fgPrimary": @"#242529",
+    @"fgMuted": @"#58585a", @"accent": @"#5c78e2", @"textMuted": @"#58585a",
+    @"editor": @"#fafafa", @"editorForeground": @"#242529", @"gutter": @"#fafafa",
+    @"editorActiveLine": @"#ebebecbf",
+    @"scrollbarThumb": @"#383a414c", @"scrollbarHover": @"#dfdfe0",
+    @"lineNumber": @"#b4b4bb", @"activeLineNumber": @"#44454b", @"hoverLineNumber": @"#61616b",
+    @"caret": @"#5c78e2", @"statusBar": @"#dcdcdd", @"titleBar": @"#dcdcdd"
+  };
+  NSDictionary *darkValues = @{
+    @"chromeBg": @"#3b414d", @"tabBar": @"#2f343e", @"tabActive": @"#282c33",
+    @"surface": @"#2f343e", @"panel": @"#2f343e", @"elevated": @"#2f343e",
+    @"border": @"#464b57", @"borderVariant": @"#363c46", @"fgPrimary": @"#dce0e5",
+    @"fgMuted": @"#a9afbc", @"accent": @"#74ade8", @"textMuted": @"#a9afbc",
+    @"editor": @"#282c33", @"editorForeground": @"#acb2be", @"gutter": @"#282c33",
+    @"editorActiveLine": @"#2f343ebf",
+    @"scrollbarThumb": @"#c8ccd44c", @"scrollbarHover": @"#363c46",
+    @"lineNumber": @"#4e5a5f", @"activeLineNumber": @"#d0d4da", @"hoverLineNumber": @"#acb0b4",
+    @"caret": @"#74ade8", @"statusBar": @"#3b414d", @"titleBar": @"#3b414d"
+  };
+  NSString *value = (light ? lightValues : darkValues)[key];
+  return value ? themeHexColor(value, fallback) : fallback;
 }
 
 static NSColor *themeRoleColor(NSString *key, NSColor *fallback) {
@@ -1301,9 +1313,18 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
     // it reads as a hint over the content instead of a heavy gutter element.
     themeRGB(themeRole(@"scrollbarThumb", g_theme_foreground), [NSColor grayColor],
       &themeRed, &themeGreen, &themeBlue);
+    CGFloat alpha = 0.5;
+    NSColor *thumb = themeHexColor(themeRole(@"scrollbarThumb", nil), nil);
+    if (thumb) {
+      CGFloat red = 0.0, green = 0.0, blue = 0.0;
+      [thumb getRed:&red green:&green blue:&blue alpha:&alpha];
+      themeRed = (float)red;
+      themeGreen = (float)green;
+      themeBlue = (float)blue;
+    }
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height,
-      themeRed, themeGreen, themeBlue, 0.5f, transform);
+      themeRed, themeGreen, themeBlue, alpha, transform);
   } else if (paint.kind == 11) { // workspace background
     themeRGB(themeRole(@"background", g_theme_background),
       [NSColor colorWithCalibratedRed:0.055 green:0.065 blue:0.090 alpha:1.0],
@@ -1322,6 +1343,27 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
       &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height, themeRed, themeGreen, themeBlue, 0.9f, transform);
+  } else if (paint.kind == 14) { // editor active line
+    themeRGB(themeRole(@"editorActiveLine", themeRole(@"editor", g_theme_background)),
+      [NSColor colorWithCalibratedWhite:0.18 alpha:1.0],
+      &themeRed, &themeGreen, &themeBlue);
+    CGFloat alpha = 0.75;
+    NSColor *activeLine = themeHexColor(themeRole(@"editorActiveLine", nil), nil);
+    if (activeLine) {
+      CGFloat red = 0.0, green = 0.0, blue = 0.0;
+      [activeLine getRed:&red green:&green blue:&blue alpha:&alpha];
+      themeRed = (float)red;
+      themeGreen = (float)green;
+      themeBlue = (float)blue;
+    }
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y, width, height, themeRed, themeGreen, themeBlue, alpha, transform);
+  } else if (paint.kind == 15) { // editor background
+    themeRGB(themeRole(@"editor", g_theme_background),
+      [NSColor colorWithCalibratedWhite:0.12 alpha:1.0],
+      &themeRed, &themeGreen, &themeBlue);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y, width, height, themeRed, themeGreen, themeBlue, 1.0f, transform);
   }
 }
 
@@ -1357,6 +1399,20 @@ static void highlightColor(uint32_t kind, CGFloat *r, CGFloat *g, CGFloat *b) {
   // washes out on a light background (pale token text on near-white), so keep a
   // parallel light palette with the same hue identity but darker, readable
   // luminance. Both branches share the same `kind` mapping.
+  NSString *syntaxKey = kind == 0 ? @"keyword" : kind == 1 ? @"string" :
+    kind == 2 ? @"number" : kind == 3 ? @"comment" : kind == 6 ? @"function" :
+    kind == 7 ? @"type" : kind == 8 ? @"title" : kind == 9 ? @"emphasis.strong" :
+    (kind == 5 ? @"punctuation" : @"primary");
+  NSDictionary *syntax = [g_theme_palette[@"syntax"] isKindOfClass:[NSDictionary class]] ?
+    g_theme_palette[@"syntax"] : nil;
+  NSString *value = [syntax[syntaxKey] isKindOfClass:[NSDictionary class]] ?
+    syntax[syntaxKey][@"color"] : nil;
+  if (validThemeToken(value)) {
+    NSColor *color = themeHexColor(value, nil);
+    CGFloat alpha = 1.0;
+    [color getRed:r green:g blue:b alpha:&alpha];
+    return;
+  }
   if (themeLooksLight()) {
     *r = 0.13; *g = 0.15; *b = 0.19;
     if (kind == 0) { *r = 0.11; *g = 0.34; *b = 0.78; }
@@ -1374,12 +1430,100 @@ static void highlightColor(uint32_t kind, CGFloat *r, CGFloat *g, CGFloat *b) {
   else if (kind == 5) { *r = 0.65; *g = 0.70; *b = 0.78; }
 }
 
+static NSColor *themeSyntaxColor(NSString *key, NSColor *fallback) {
+  NSDictionary *syntax = [g_theme_palette[@"syntax"] isKindOfClass:[NSDictionary class]] ?
+    g_theme_palette[@"syntax"] : nil;
+  NSDictionary *token = [syntax[key] isKindOfClass:[NSDictionary class]] ? syntax[key] : nil;
+  NSString *value = [token[@"color"] isKindOfClass:[NSString class]] ? token[@"color"] : nil;
+  return themeHexColor(value, fallback);
+}
+
+static NSString *syntaxKeyForKind(uint32_t kind) {
+  if (kind == 0) return @"keyword";
+  if (kind == 1) return @"string";
+  if (kind == 2) return @"number";
+  if (kind == 3) return @"comment";
+  if (kind == 6) return @"function";
+  if (kind == 7) return @"type";
+  if (kind == 8) return @"title";
+  if (kind == 9) return @"emphasis.strong";
+  return nil;
+}
+
+static CTFontRef syntaxFontForKind(uint32_t kind, CTFontRef baseFont) {
+  if (!baseFont) return NULL;
+  NSString *key = syntaxKeyForKind(kind);
+  if (!key) return NULL;
+  NSDictionary *syntax = [g_theme_palette[@"syntax"] isKindOfClass:[NSDictionary class]] ?
+    g_theme_palette[@"syntax"] : nil;
+  NSDictionary *token = [syntax[key] isKindOfClass:[NSDictionary class]] ? syntax[key] : nil;
+  NSNumber *weight = [token[@"fontWeight"] isKindOfClass:[NSNumber class]] ?
+    token[@"fontWeight"] : nil;
+  if (!weight || weight.doubleValue < 700.0) return NULL;
+  return CTFontCreateCopyWithSymbolicTraits(baseFont, 0.0, NULL,
+    kCTFontTraitBold, kCTFontTraitBold);
+}
+
+static void applyMarkdownHeadingAttributes(NSMutableAttributedString *attributed,
+                                           NSString *line, NSUInteger offset,
+                                           CTFontRef font) {
+  if (!attributed || !line || !font) return;
+  NSUInteger cursor = 0;
+  while (cursor < line.length && cursor < 3 && [line characterAtIndex:cursor] == ' ') cursor++;
+  NSUInteger markerStart = cursor;
+  while (cursor < line.length && cursor - markerStart < 6 && [line characterAtIndex:cursor] == '#') cursor++;
+  NSUInteger markerLength = cursor - markerStart;
+  if (markerLength == 0 || (cursor < line.length && [line characterAtIndex:cursor] != ' ' &&
+      [line characterAtIndex:cursor] != '\t')) return;
+  NSUInteger textStart = cursor;
+  while (textStart < line.length && ([line characterAtIndex:textStart] == ' ' ||
+      [line characterAtIndex:textStart] == '\t')) textStart++;
+  if (textStart >= line.length) return;
+  NSColor *muted = themeRoleColor(@"textMuted", [NSColor grayColor]);
+  NSColor *title = themeSyntaxColor(@"title", themeRoleColor(@"editorForeground", [NSColor textColor]));
+  [attributed addAttribute:(id)kCTForegroundColorAttributeName value:(id)muted.CGColor
+    range:NSMakeRange(offset + markerStart, markerLength)];
+  CTFontRef boldFont = CTFontCreateCopyWithSymbolicTraits(font, 0.0, NULL,
+    kCTFontTraitBold, kCTFontTraitBold);
+  if (boldFont) {
+    [attributed addAttribute:(id)kCTFontAttributeName value:(id)boldFont
+      range:NSMakeRange(offset + textStart, line.length - textStart)];
+    CFRelease(boldFont);
+  }
+  [attributed addAttribute:(id)kCTForegroundColorAttributeName value:(id)title.CGColor
+    range:NSMakeRange(offset + textStart, line.length - textStart)];
+}
+
 static CTFontRef editorFont(void) {
-  NSString *fontName = g_editor_font_name.length > 0 ? g_editor_font_name : @"Menlo";
   CGFloat size = isfinite(g_editor_font_size) && g_editor_font_size > 0.0
-    ? g_editor_font_size : 14.0;
-  CTFontRef font = CTFontCreateWithName((__bridge CFStringRef)fontName, size, NULL);
-  if (!font) font = CTFontCreateUIFontForLanguage(kCTFontSystemFontType, size, NULL);
+    ? g_editor_font_size : 15.0;
+  NSArray<NSString *> *candidates = [g_editor_font_name isEqualToString:@".ZedMono"] ?
+    @[@"Lilex", @"SF Mono", @"Menlo"] :
+    (g_editor_font_name.length > 0 ? @[g_editor_font_name, @"SF Mono", @"Menlo"] :
+      @[@"SF Mono", @"Menlo"]);
+  // CTFontCreateWithName never returns NULL: an unavailable family silently
+  // resolves to a substitute (".ZedMono"/"Lilex"/"SF Mono" all come back as
+  // Times/Helvetica here), which would render the editor in a proportional
+  // face. Accept a candidate only when Core Text actually resolved the family
+  // that was asked for, and fall back to the monospaced system font so the
+  // editor stays fixed-pitch on machines without Zed's bundled font.
+  CTFontRef font = NULL;
+  for (NSString *fontName in candidates) {
+    CTFontRef candidate = CTFontCreateWithName((__bridge CFStringRef)fontName, size, NULL);
+    if (!candidate) continue;
+    CFStringRef resolved = CTFontCopyFamilyName(candidate);
+    BOOL matches = resolved && CFStringCompare(resolved, (__bridge CFStringRef)fontName,
+      kCFCompareCaseInsensitive) == kCFCompareEqualTo;
+    if (resolved) CFRelease(resolved);
+    if (matches) { font = candidate; break; }
+    CFRelease(candidate);
+  }
+  if (!font) {
+    NSFont *monospaced = [NSFont monospacedSystemFontOfSize:size weight:NSFontWeightRegular];
+    if (monospaced) font = CTFontCreateWithName((__bridge CFStringRef)monospaced.fontName,
+      size, NULL);
+  }
+  if (!font) font = CTFontCreateUIFontForLanguage(kCTFontUserFixedPitchFontType, size, NULL);
   return font;
 }
 
@@ -1899,8 +2043,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   NimculusPaintRegion textViewport = editorTextViewport(g_editor_rect);
   CGContextClipToRect(context, editorTextViewportCoreGraphicsRect(g_editor_rect));
   CTFontRef font = editorFont();
-  NSColor *baseColor = themeHexColor(g_theme_foreground,
-    [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]);
+  NSColor *baseColor = themeRoleColor(@"editorForeground", themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]));
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
     (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
   NSArray<NSString *> *lines = editorLinesForText(text);
@@ -1930,14 +2074,6 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     for (NSUInteger visibleIndex = 0; visibleIndex < visible.count; visibleIndex++) {
       NSString *visibleLine = visible[visibleIndex];
       NSUInteger documentLine = visibleSourceLines[visibleIndex].unsignedIntegerValue;
-      if (documentLine == g_editor_cursor_line && visibleLine.length > 0) {
-        NSColor *currentLine = [themeHexColor(g_theme_selection,
-          [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
-          colorWithAlphaComponent:0.16];
-        [wrappedAttributed addAttribute:(id)kCTBackgroundColorAttributeName
-          value:(id)currentLine.CGColor
-          range:NSMakeRange(wrappedLineUnit, visibleLine.length)];
-      }
       NimculusGitHunkSpan *hunks = g_rendering_secondary_editor
         ? g_secondary_git_hunks : g_git_hunks;
       uint32_t hunkCount = g_rendering_secondary_editor
@@ -1972,9 +2108,21 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
           span.start_byte, span.end_byte, &startUnit, &endUnit)) continue;
       CGFloat red, green, blue;
       highlightColor(span.kind, &red, &green, &blue);
-      NSColor *color = [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1.0];
-      [wrappedAttributed addAttribute:(id)kCTForegroundColorAttributeName
-        value:(id)color.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
+          NSColor *color = [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1.0];
+          [wrappedAttributed addAttribute:(id)kCTForegroundColorAttributeName
+            value:(id)color.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
+          CTFontRef syntaxFont = syntaxFontForKind(span.kind, font);
+          if (syntaxFont) {
+            [wrappedAttributed addAttribute:(id)kCTFontAttributeName value:(id)syntaxFont
+              range:NSMakeRange(startUnit, endUnit - startUnit)];
+            CFRelease(syntaxFont);
+          }
+    }
+    wrappedLineUnit = 0;
+    for (NSUInteger visibleIndex = 0; visibleIndex < visible.count; visibleIndex++) {
+      applyMarkdownHeadingAttributes(wrappedAttributed, visible[visibleIndex],
+        wrappedLineUnit, font);
+      wrappedLineUnit += visible[visibleIndex].length + 1;
     }
     for (uint32_t selectionIndex = 0; selectionIndex < editorSelectionCountForRender;
          selectionIndex++) {
@@ -2033,16 +2181,6 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
     lineStartUnit = editorLineUTF16Offset(index, lines);
     NSUInteger lineEndUnit = lineStartUnit + lineText.length;
     NSUInteger documentLine = index;
-    NSUInteger cursorLine = g_editor_cursor_line;
-    if (documentLine == cursorLine) {
-      NSColor *currentLine = [themeHexColor(g_theme_selection,
-        [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
-        colorWithAlphaComponent:0.16];
-      CGContextSetFillColorWithColor(context, currentLine.CGColor);
-      CGContextFillRect(context, CGRectMake(0.0,
-        editorTextLineBottom(logicalHeight, lineHeight, renderedIndex) - 3.0,
-        MAX(1.0, g_editor_rect[2]), lineHeight));
-    }
     NimculusGitHunkSpan *hunks = g_rendering_secondary_editor
       ? g_secondary_git_hunks : g_git_hunks;
     uint32_t hunkCount = g_rendering_secondary_editor
@@ -2121,9 +2259,16 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
           NSColor *color = [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1.0];
           [attributed addAttribute:(id)kCTForegroundColorAttributeName
             value:(id)color.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
+          CTFontRef syntaxFont = syntaxFontForKind(span.kind, font);
+          if (syntaxFont) {
+            [attributed addAttribute:(id)kCTFontAttributeName value:(id)syntaxFont
+              range:NSMakeRange(startUnit, endUnit - startUnit)];
+            CFRelease(syntaxFont);
+          }
         }
       }
     }
+    applyMarkdownHeadingAttributes(attributed, lineText, 0, font);
     if (drawColorEmojiFallback) maskNonColorEmojiRuns(attributed);
     if (drawFallbackText || drawColorEmojiFallback) {
       CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
@@ -2237,9 +2382,10 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   // A welcome page is a workspace entry surface, not an empty editable
   // buffer. Suppress the text-presenter caret until an actual document opens.
   if (renderingInputPane && !g_welcome_visible) {
-    CGContextSetStrokeColorWithColor(context, [NSColor colorWithCalibratedRed:0.85
-      green:0.90 blue:1.0 alpha:1.0].CGColor);
-    CGContextSetLineWidth(context, 1.0);
+    NSColor *caretColor = themeRoleColor(@"caret", themeRoleColor(@"editorForeground",
+      [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]));
+    CGContextSetStrokeColorWithColor(context, caretColor.CGColor);
+    CGContextSetLineWidth(context, 2.0);
     CGFloat cursorLineTop = MAX(NimculusEditorTextTopInset,
       g_editor_cursor[1] - lineHeight / 2.0);
     CGFloat caretY = logicalHeight - cursorLineTop - lineHeight;
@@ -2541,8 +2687,8 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
   uint64_t evictionCountBefore = g_glyph_atlas_eviction_count;
   CTFontRef baseFont = editorFont();
   if (!baseFont) return;
-  NSColor *baseColor = themeHexColor(g_theme_foreground,
-    [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]);
+  NSColor *baseColor = themeRoleColor(@"editorForeground", themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]));
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)baseFont,
     (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
   NSArray<NSString *> *lines = editorLinesForText(text);
@@ -2586,9 +2732,16 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
           NSColor *color = [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1.0];
           [attributed addAttribute:(id)kCTForegroundColorAttributeName
             value:(id)color.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
+          CTFontRef syntaxFont = syntaxFontForKind(span.kind, baseFont);
+          if (syntaxFont) {
+            [attributed addAttribute:(id)kCTFontAttributeName value:(id)syntaxFont
+              range:NSMakeRange(startUnit, endUnit - startUnit)];
+            CFRelease(syntaxFont);
+          }
         }
       }
     }
+    applyMarkdownHeadingAttributes(attributed, lineText, 0, baseFont);
     CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
     CFArrayRef runs = CTLineGetGlyphRuns(line);
     CGFloat baselineY = editorTextBaseline(editorSize.height, lineHeight,
@@ -3472,9 +3625,9 @@ static void dismissExternalChangePanel(const char *command) {
     terminalFontFamily:(NSString *)terminalFontFamily shell:(NSString *)shell {
   NSInteger index = [self.themePopup indexOfItemWithTitle:theme ?: @"system"];
   [self.themePopup selectItemAtIndex:index >= 0 ? index : 0];
-  self.editorSizeField.stringValue = editorFontSize ?: @"14";
+  self.editorSizeField.stringValue = editorFontSize ?: @"15";
   self.terminalSizeField.stringValue = terminalFontSize ?: @"12";
-  self.editorFontField.stringValue = editorFontFamily ?: @"Menlo";
+  self.editorFontField.stringValue = editorFontFamily ?: @".ZedMono";
   self.terminalFontField.stringValue = terminalFontFamily ?: @"Menlo";
   self.shellField.stringValue = shell ?: @"/bin/zsh";
   self.hidden = NO;
@@ -3488,8 +3641,8 @@ static void dismissExternalChangePanel(const char *command) {
   (void)sender;
   if (g_command_callback) {
     NSString *command = [NSString stringWithFormat:@"settingsApply:%@\x1f%@\x1f%@\x1f%@\x1f%@\x1f%@",
-      self.themePopup.titleOfSelectedItem ?: @"system", self.editorSizeField.stringValue ?: @"14",
-      self.terminalSizeField.stringValue ?: @"12", self.editorFontField.stringValue ?: @"Menlo",
+      self.themePopup.titleOfSelectedItem ?: @"system", self.editorSizeField.stringValue ?: @"15",
+      self.terminalSizeField.stringValue ?: @"12", self.editorFontField.stringValue ?: @".ZedMono",
       self.terminalFontField.stringValue ?: @"Menlo", self.shellField.stringValue ?: @"/bin/zsh"];
     g_command_callback(command.UTF8String);
   }
@@ -4102,6 +4255,22 @@ static void dismissExternalChangePanel(const char *command) {
 }
 @end
 
+static CGFloat editorLineNumberCharacterWidth(void) {
+  NSDictionary *attributes = @{NSFontAttributeName:
+    [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular]};
+  return MAX(1.0, [@"0" sizeWithAttributes:attributes].width);
+}
+
+static CGFloat editorGutterWidth(void) {
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
+  NSUInteger widest = MAX((NSUInteger)1, lines.count);
+  NSUInteger digits = 0;
+  while (widest > 0) { digits++; widest /= 10; }
+  digits = MAX((NSUInteger)4, digits);
+  return ceil((CGFloat)digits * editorLineNumberCharacterWidth()) +
+    editorLineNumberCharacterWidth() * 2.0;
+}
+
 @implementation NimculusLineNumberOverlay
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return NO; }
@@ -4117,15 +4286,18 @@ static void dismissExternalChangePanel(const char *command) {
     MAX(0.0, self.bounds.size.height - NimculusEditorTextTopInset - 14.0));
   if (NSIsEmptyRect(gutterClip)) return;
   NSRectClip(gutterClip);
+  [themeRoleColor(@"gutter", themeRoleColor(@"editor", [NSColor clearColor])) setFill];
+  NSRectFill(gutterClip);
   NSUInteger first = editorFirstVisibleLine(g_editor_scroll_line, lines.count);
   const BOOL hasTopExtraLine = first > 0;
   if (hasTopExtraLine) first--;
-  NSDictionary *attributes = @{
-    NSFontAttributeName: [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular],
-    NSForegroundColorAttributeName: [themeHexColor(g_theme_foreground,
-      [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0])
-      colorWithAlphaComponent:0.58]
-  };
+  NSFont *regularFont = [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular];
+  NSFont *activeFont = [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightBold];
+  NSColor *regularColor = themeRoleColor(@"lineNumber", [themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0])
+    colorWithAlphaComponent:0.58]);
+  NSColor *activeColor = themeRoleColor(@"activeLineNumber", regularColor);
+  NSColor *activeBackground = themeRoleColor(@"editorActiveLine", [NSColor clearColor]);
   CGFloat visibleRows = hasTopExtraLine ? -1.0 : 0.0;
   CGFloat usableHeight = NSHeight(gutterClip) - NimculusEditorTextGlyphSafety * 2.0;
   NSUInteger maxRows = (NSUInteger)MAX(1.0,
@@ -4136,10 +4308,20 @@ static void dismissExternalChangePanel(const char *command) {
       continue;
     }
     NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)index + 1];
+    BOOL active = index == g_editor_cursor_line;
+    NSDictionary *attributes = @{
+      NSFontAttributeName: active ? activeFont : regularFont,
+      NSForegroundColorAttributeName: active ? activeColor : regularColor
+    };
     NSSize size = [number sizeWithAttributes:attributes];
     CGFloat y = NSMinY(gutterClip) + visibleRows * editorLineHeight() -
       g_editor_scroll_y_fraction + 1.0;
-    [number drawAtPoint:NSMakePoint(MAX(2.0, self.bounds.size.width - size.width - 6.0), y)
+    if (active) {
+      [activeBackground setFill];
+      NSRectFill(NSMakeRect(0.0, y - 1.0, self.bounds.size.width, editorLineHeight()));
+    }
+    [number drawAtPoint:NSMakePoint(MAX(2.0, self.bounds.size.width - size.width -
+      editorLineNumberCharacterWidth()), y)
       withAttributes:attributes];
     if (editorLineHasFoldStart(index)) {
       NSBezierPath *marker = [NSBezierPath bezierPath];
@@ -5295,6 +5477,11 @@ static NimculusFooterStatusButton *newFooterButton(NimculusFooterOverlay *owner,
   button.tag = action;
   button.toolTip = label;
   button.accessibilityLabel = label;
+  // Footer clusters are NSStackView-managed.  Disable the button's initial
+  // zero-sized autoresizing-mask constraints before adding the required
+  // status-bar dimensions, otherwise AppKit can see height==0 and height==24
+  // as mutually exclusive during the first window layout.
+  button.translatesAutoresizingMaskIntoConstraints = NO;
   [button.widthAnchor constraintGreaterThanOrEqualToConstant:NimculusControlHit].active = YES;
   [button.heightAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
   return button;
@@ -5322,14 +5509,19 @@ static NimculusFooterStatusButton *newFooterButton(NimculusFooterOverlay *owner,
   left.alignment = NSLayoutAttributeCenterY;
   left.distribution = NSStackViewDistributionFill;
   left.spacing = NimculusSpace1;
-  left.translatesAutoresizingMaskIntoConstraints = YES;
+  // These clusters are positioned by -layout, not by the footer's
+  // constraint engine.  Keeping the autoresizing mask enabled creates a
+  // transient height==0 constraint while the footer is attached; that
+  // conflicts with the status buttons' required 24pt height and makes
+  // AppKit raise LAYOUT_CONSTRAINTS_NOT_SATISFIABLE during launch.
+  left.translatesAutoresizingMaskIntoConstraints = NO;
   [self addSubview:left];
   NSStackView *right = [[[NSStackView alloc] initWithFrame:NSZeroRect] autorelease];
   right.orientation = NSUserInterfaceLayoutOrientationHorizontal;
   right.alignment = NSLayoutAttributeCenterY;
   right.distribution = NSStackViewDistributionFill;
   right.spacing = NimculusSpace1;
-  right.translatesAutoresizingMaskIntoConstraints = YES;
+  right.translatesAutoresizingMaskIntoConstraints = NO;
   [self addSubview:right];
   [self reloadStatusItems];
   return self;
@@ -5606,8 +5798,8 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
   NSRect textRect = NSMakeRect(0.0, 4.0,
     MAX(1.0, self.bounds.size.width - actionWidth),
     MAX(1.0, self.bounds.size.height - 4.0));
-  [self.attributedStringValue drawInRect:textRect
-    options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading];
+  [self.attributedStringValue drawWithRect:textRect
+    options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading context:nil];
 }
 - (void)updateBreadcrumbPresentation {
   NSString *text = self.stringValue ?: @"";
@@ -5784,8 +5976,8 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
     [NSColor colorWithCalibratedWhite:0.84 alpha:1.0]);
   NSMutableParagraphStyle *rowStyle = [[NSMutableParagraphStyle alloc] init];
   rowStyle.lineBreakMode = NSLineBreakByTruncatingTail;
-  rowStyle.minimumLineHeight = 18.0;
-  rowStyle.maximumLineHeight = 18.0;
+  rowStyle.minimumLineHeight = editorLineHeight();
+  rowStyle.maximumLineHeight = editorLineHeight();
   NSMutableAttributedString *presented = [[NSMutableAttributedString alloc]
     initWithString:text attributes:@{
       NSFontAttributeName: [NSFont systemFontOfSize:13.0],
@@ -6801,8 +6993,17 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     searchActions.hidden = !showSearchActions;
   }
   if (sidebarHeader) {
-    [sidebarHeader setNeedsLayout:YES];
-    [sidebarHeader layoutSubtreeIfNeeded];
+    // During the first AppKit attachment pass the Metal view can still have a
+    // zero-sized bounds while the logical editor rect already contains its
+    // normal default.  The header is then temporarily collapsed to a one
+    // point frame, but its arranged action buttons retain required intrinsic
+    // widths.  Forcing that hidden stack to lay out makes AppKit raise
+    // LAYOUT_CONSTRAINTS_NOT_SATISFIABLE and _crashOnException: terminates the
+    // packaged app before its first frame.  Let the normal layout pass wait
+    // until the dock has enough width for the header's controls.
+    if (sidebarPresented) {
+      [sidebarHeader setNeedsLayout:YES];
+    }
   }
   if (workspaceToolbar) {
     // Navigation belongs in the persistent activity bar, as in Zed.  The
@@ -6813,9 +7014,10 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
   if (lineNumbers) {
     lineNumbers.hidden = g_welcome_visible || !g_editor_line_numbers;
+    CGFloat gutterWidth = editorGutterWidth();
     lineNumbers.frame = appKitFrameForLogicalTopRect(self,
-      NSMakeRect(0.0, g_editor_rect[1],
-        MAX(36.0, g_editor_rect[0]), g_editor_rect[3]));
+      NSMakeRect(MAX(0.0, g_editor_rect[0] - gutterWidth), g_editor_rect[1],
+        gutterWidth, g_editor_rect[3]));
     lineNumbers.autoresizingMask = NSViewHeightSizable | NSViewMaxXMargin;
     [lineNumbers setNeedsDisplay:YES];
   }
@@ -8748,9 +8950,9 @@ void nimculus_platform_show_settings_panel(const char *theme, const char *editor
   id delegate = [NSApp delegate];
   if ([delegate respondsToSelector:@selector(showSettingsPanelWithTheme:editorFontSize:terminalFontSize:editorFontFamily:terminalFontFamily:shell:)]) {
     [delegate showSettingsPanelWithTheme:theme ? [NSString stringWithUTF8String:theme] : @"system"
-      editorFontSize:editor_font_size ? [NSString stringWithUTF8String:editor_font_size] : @"14"
+      editorFontSize:editor_font_size ? [NSString stringWithUTF8String:editor_font_size] : @"15"
       terminalFontSize:terminal_font_size ? [NSString stringWithUTF8String:terminal_font_size] : @"12"
-      editorFontFamily:editor_font_family ? [NSString stringWithUTF8String:editor_font_family] : @"Menlo"
+      editorFontFamily:editor_font_family ? [NSString stringWithUTF8String:editor_font_family] : @".ZedMono"
       terminalFontFamily:terminal_font_family ? [NSString stringWithUTF8String:terminal_font_family] : @"Menlo"
       shell:shell ? [NSString stringWithUTF8String:shell] : @"/bin/zsh"];
   }
@@ -10589,7 +10791,7 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     [commitEditor.messageField cancelOperation:nil];
     BOOL commitEscaped = commitEditor.hidden && window.firstResponder == view;
     [delegate showSettingsPanelWithTheme:@"dark" editorFontSize:@"15" terminalFontSize:@"13"
-      editorFontFamily:@"Menlo" terminalFontFamily:@"SF Mono" shell:@"/bin/zsh"];
+      editorFontFamily:@".ZedMono" terminalFontFamily:@"SF Mono" shell:@"/bin/zsh"];
     NimculusSettingsOverlay *settings = nil;
     for (NSView *subview in view.subviews) {
       if ([subview isKindOfClass:[NimculusSettingsOverlay class]]) {
@@ -10602,7 +10804,7 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
       [settings.themePopup.titleOfSelectedItem isEqualToString:@"dark"];
     [settings apply:nil];
     BOOL settingsDispatched = strcmp(g_validation_command,
-      "settingsApply:dark\03715\03713\037Menlo\037SF Mono\037/bin/zsh") == 0;
+      "settingsApply:dark\03715\03713\037.ZedMono\037SF Mono\037/bin/zsh") == 0;
     [settings.editorSizeField cancelOperation:nil];
     BOOL settingsEscaped = settings.hidden && window.firstResponder == view;
     // A narrow split pane used to retain the overlays' visual minimum width,
@@ -11646,7 +11848,7 @@ void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t lin
 }
 void nimculus_platform_set_editor_font_size(double size) {
   g_editor_font_size = MIN(96.0, MAX(6.0, size > 0.0 ? size : 14.0));
-  g_editor_line_height = MAX(12.0, ceil(g_editor_font_size * 1.2857142857));
+  g_editor_line_height = MAX(12.0, g_editor_font_size * 1.618);
   if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
   markSceneFullyDirty();
   if (g_active_view) {
@@ -11658,7 +11860,7 @@ void nimculus_platform_set_editor_font_size(double size) {
 }
 void nimculus_platform_set_editor_font_name(const char *name) {
   NSString *requested = name ? [NSString stringWithUTF8String:name] : nil;
-  replaceOwnedString(&g_editor_font_name, requested.length > 0 ? requested : @"Menlo");
+  replaceOwnedString(&g_editor_font_name, requested.length > 0 ? requested : @".ZedMono");
   if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
   markSceneFullyDirty();
   if (g_active_view) {
@@ -12697,17 +12899,21 @@ void nimculus_platform_set_theme_palette_json(const char *json) {
     @"element", @"elementHover", @"elementActive", @"elementSelected", @"textMuted",
     @"textPlaceholder", @"textDisabled", @"textAccent", @"borderVariant", @"borderFocused",
     @"borderSelected", @"titleBar", @"titleBarInactive", @"toolbar", @"tabBar", @"tabActive",
-    @"tabInactive", @"statusBar", @"editor", @"gutter", @"editorSubheader", @"editorActiveLine",
-    @"scrollbarThumb", @"scrollbarHover", @"terminal", @"added", @"modified", @"deleted",
+    @"tabInactive", @"statusBar", @"editor", @"editorForeground", @"gutter", @"editorSubheader",
+    @"editorActiveLine",
+    @"scrollbarThumb", @"scrollbarHover", @"lineNumber", @"activeLineNumber", @"hoverLineNumber",
+    @"caret", @"elevated", @"terminal", @"added", @"modified", @"deleted",
     @"conflict", @"warning", @"error", @"info", @"success"
   ];
   NSMutableDictionary *palette = [NSMutableDictionary dictionaryWithCapacity:keys.count];
   NSDictionary *source = (NSDictionary *)object;
   for (NSString *key in keys) {
     id value = source[key];
-    if ([value isKindOfClass:[NSString class]] && [value length] == 7 &&
-        [value characterAtIndex:0] == '#') palette[key] = value;
+    if (validThemeToken(value)) palette[key] = value;
   }
+  NSDictionary *syntax = [source[@"syntax"] isKindOfClass:[NSDictionary class]] ?
+    source[@"syntax"] : nil;
+  if (syntax) palette[@"syntax"] = syntax;
   if (palette.count == 0) return;
   [g_theme_palette release];
   g_theme_palette = [palette copy];

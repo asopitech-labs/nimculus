@@ -1,4 +1,5 @@
 import std/math
+import nimculus/editor_view
 
 type
   GitGutterActionKind* = enum
@@ -21,6 +22,6 @@ proc gitGutterActionAt*(pointerX, pointerY, gutterOriginX, gutterOriginY,
       pointerY < gutterOriginY:
     return GitGutterAction(kind: gitGutterNone, line: -1)
   let line = max(0, int(floor((pointerY - gutterOriginY - 4'f32 +
-    scrollYFraction) / 18'f32)) + scrollLine)
+    scrollYFraction) / editorLineHeight())) + scrollLine)
   result = GitGutterAction(kind: if (modifiers and gitGutterUnstageModifier) != 0:
       gitGutterUnstage else: gitGutterStage, line: line)
