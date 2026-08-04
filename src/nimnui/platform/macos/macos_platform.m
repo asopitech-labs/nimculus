@@ -105,8 +105,8 @@ static NSUInteger g_editor_cursor_line = 0;
 static CGFloat g_editor_font_size = 15.0;
 static CGFloat g_editor_line_height = 15.0 * 1.618;
 static NSString *g_editor_font_name = @".ZedMono";
-static CGFloat g_terminal_font_size = 12.0;
-static NSString *g_terminal_font_name = @"Menlo";
+static CGFloat g_terminal_font_size = 15.0;
+static NSString *g_terminal_font_name = @".ZedMono";
 static NSUInteger g_editor_scroll_line = 0;
 static CGFloat g_editor_scroll_y_fraction = 0.0;
 static CGFloat g_editor_scroll_x = 0.0;
@@ -422,6 +422,27 @@ static NSColor *themeHexColor(NSString *value, NSColor *fallback) {
 static BOOL validThemeToken(NSString *value) {
   return [value isKindOfClass:[NSString class]] && (value.length == 7 || value.length == 9) &&
     [value characterAtIndex:0] == '#';
+}
+
+static NSDictionary *validatedTerminalPalette(id value) {
+  if (![value isKindOfClass:[NSDictionary class]]) return nil;
+  NSDictionary *source = (NSDictionary *)value;
+  NSMutableDictionary *result = [NSMutableDictionary dictionary];
+  for (NSString *key in @[@"background", @"foreground", @"brightForeground",
+                          @"dimForeground", @"cursor", @"selection"]) {
+    if (validThemeToken(source[key])) result[key] = source[key];
+  }
+  for (NSString *key in @[@"normal", @"bright", @"dim"]) {
+    NSArray *values = [source[key] isKindOfClass:[NSArray class]] ? source[key] : nil;
+    BOOL valid = values.count == 16;
+    if (valid) {
+      for (id token in values) {
+        if (!validThemeToken(token)) { valid = NO; break; }
+      }
+    }
+    if (valid) result[key] = values;
+  }
+  return result.count > 0 ? result : nil;
 }
 
 static NSString *themeRole(NSString *key, NSString *fallback) {
@@ -7129,6 +7150,8 @@ static NSUInteger terminalUTF16OffsetForCell(uint32_t row, uint32_t column) {
   return utf16OffsetForUTF8Bytes(g_terminal_text, target);
 }
 
+static NSColor *terminalPaletteRoleColor(NSString *key, NSColor *fallback);
+
 static void applyTerminalSelection(NSTextView *terminal) {
   if (!terminal || !g_terminal_has_selection) {
     if (terminal) terminal.selectedRange = NSMakeRange(0, 0);
@@ -7142,22 +7165,38 @@ static void applyTerminalSelection(NSTextView *terminal) {
   NSUInteger upper = MAX(start, end);
   terminal.selectedRange = NSMakeRange(lower, upper - lower);
   terminal.selectedTextAttributes = @{
-    NSBackgroundColorAttributeName: [themeHexColor(g_theme_selection,
+    NSBackgroundColorAttributeName: terminalPaletteRoleColor(@"selection",
       [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
-      colorWithAlphaComponent:0.65]
   };
 }
 
-static void terminalIndexedColor(uint32_t index, CGFloat *red, CGFloat *green, CGFloat *blue) {
-  static const CGFloat ansi[16][3] = {
-    {0.08, 0.09, 0.12}, {0.85, 0.25, 0.28}, {0.30, 0.78, 0.42}, {0.82, 0.68, 0.25},
-    {0.30, 0.52, 0.92}, {0.72, 0.36, 0.80}, {0.28, 0.75, 0.78}, {0.78, 0.82, 0.88},
-    {0.35, 0.38, 0.45}, {1.00, 0.40, 0.43}, {0.42, 0.94, 0.52}, {1.00, 0.84, 0.38},
-    {0.45, 0.65, 1.00}, {0.88, 0.48, 0.96}, {0.42, 0.90, 0.92}, {0.96, 0.97, 1.00}
-  };
-  if (index < 16) {
-    *red = ansi[index][0]; *green = ansi[index][1]; *blue = ansi[index][2]; return;
-  }
+static NSDictionary *terminalPaletteDictionary(void) {
+  NSDictionary *palette = [g_theme_palette[@"terminalPalette"] isKindOfClass:[NSDictionary class]] ?
+    g_theme_palette[@"terminalPalette"] : nil;
+  return palette;
+}
+
+static NSColor *terminalPaletteRoleColor(NSString *key, NSColor *fallback) {
+  NSString *value = [terminalPaletteDictionary()[key] isKindOfClass:[NSString class]] ?
+    terminalPaletteDictionary()[key] : nil;
+  return validThemeToken(value) ? themeHexColor(value, fallback) : fallback;
+}
+
+static BOOL terminalPaletteIndexedComponents(uint32_t index, BOOL dim,
+                                             CGFloat *red, CGFloat *green, CGFloat *blue) {
+  NSDictionary *palette = terminalPaletteDictionary();
+  NSString *setName = dim ? @"dim" : (index >= 8 ? @"bright" : @"normal");
+  NSArray *values = [palette[setName] isKindOfClass:[NSArray class]] ? palette[setName] : nil;
+  if (!values || index >= values.count || !validThemeToken(values[index])) return NO;
+  NSColor *color = themeHexColor(values[index], nil);
+  if (!color) return NO;
+  [color getRed:red green:green blue:blue alpha:NULL];
+  return YES;
+}
+
+static void terminalIndexedColor(uint32_t index, BOOL dim,
+                                 CGFloat *red, CGFloat *green, CGFloat *blue) {
+  if (index < 16 && terminalPaletteIndexedComponents(index, dim, red, green, blue)) return;
   if (index >= 232) {
     CGFloat value = 8.0 + (CGFloat)(index - 232) * 10.0;
     *red = *green = *blue = value / 255.0; return;
@@ -7171,11 +7210,15 @@ static void terminalIndexedColor(uint32_t index, CGFloat *red, CGFloat *green, C
 
 static NSColor *terminalColor(uint32_t kind, uint32_t index,
                               uint32_t red, uint32_t green, uint32_t blue,
-                              BOOL foreground) {
+                              BOOL foreground, uint32_t flags) {
   CGFloat r = foreground ? 0.82 : 0.025;
   CGFloat g = foreground ? 0.88 : 0.030;
   CGFloat b = foreground ? 0.92 : 0.045;
-  if (kind == 1) terminalIndexedColor(index, &r, &g, &b);
+  if (kind == 0) {
+    NSColor *role = terminalPaletteRoleColor(foreground ? @"foreground" : @"background",
+      [NSColor colorWithCalibratedRed:r green:g blue:b alpha:1.0]);
+    [role getRed:&r green:&g blue:&b alpha:NULL];
+  } else if (kind == 1) terminalIndexedColor(index, (flags & 2) != 0, &r, &g, &b);
   else if (kind == 2) { r = red / 255.0; g = green / 255.0; b = blue / 255.0; }
   return [NSColor colorWithCalibratedRed:r green:g blue:b alpha:1.0];
 }
@@ -7198,9 +7241,19 @@ static CGFloat terminalCellWidth(void) {
 
 static CGFloat terminalLineHeight(void) {
   NSLayoutManager *layoutManager = [[NSLayoutManager alloc] init];
-  CGFloat height = [layoutManager defaultLineHeightForFont:terminalBaseFont()];
+  // Zed's default terminal line_height is "standard", i.e. 1.3x the font's
+  // natural line height. Keep the same multiplier for grid math and text.
+  CGFloat height = [layoutManager defaultLineHeightForFont:terminalBaseFont()] * 1.3;
   [layoutManager release];
   return MAX(1.0, height);
+}
+
+static NSParagraphStyle *terminalParagraphStyle(void) {
+  NSMutableParagraphStyle *style = [[NSMutableParagraphStyle alloc] init];
+  style.minimumLineHeight = terminalLineHeight();
+  style.maximumLineHeight = terminalLineHeight();
+  style.lineBreakMode = NSLineBreakByClipping;
+  return [style autorelease];
 }
 
 static BOOL terminalRangeContainsColorEmoji(NSRange range) {
@@ -7221,16 +7274,16 @@ static void applyTerminalRuns(NSTextView *terminal) {
   const BOOL metalTerminal = g_glyph_pipeline != nil &&
     g_glyph_atlas_texture != nil && g_terminal_glyph_vertex_count > 0;
   NSColor *baseForeground = metalTerminal ? [NSColor clearColor] :
-    terminalColor(0, 0, 0, 0, 0, YES);
+    terminalColor(0, 0, 0, 0, 0, YES, 0);
   NSColor *baseBackground = metalTerminal ? [NSColor clearColor] :
-    terminalColor(0, 0, 0, 0, 0, NO);
-  terminal.drawsBackground = !metalTerminal;
-  if (metalTerminal) terminal.backgroundColor = [NSColor clearColor];
+    terminalColor(0, 0, 0, 0, 0, NO, 0);
+  terminal.drawsBackground = YES;
   NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
     initWithString:g_terminal_text ?: @"" attributes:@{
       NSFontAttributeName: terminalBaseFont(),
       NSForegroundColorAttributeName: baseForeground,
-      NSBackgroundColorAttributeName: baseBackground
+      NSBackgroundColorAttributeName: baseBackground,
+      NSParagraphStyleAttributeName: terminalParagraphStyle()
     }];
   for (uint32_t index = 0; index < g_terminal_run_count; index++) {
     NimculusTerminalRun run = g_terminal_runs[index];
@@ -7239,9 +7292,9 @@ static void applyTerminalRuns(NSTextView *terminal) {
     if (end <= start || start >= attributed.length) continue;
     end = MIN(end, attributed.length);
     NSColor *foreground = terminalColor(run.foreground_kind, run.foreground_index,
-      run.foreground_red, run.foreground_green, run.foreground_blue, YES);
+      run.foreground_red, run.foreground_green, run.foreground_blue, YES, run.flags);
     NSColor *background = terminalColor(run.background_kind, run.background_index,
-      run.background_red, run.background_green, run.background_blue, NO);
+      run.background_red, run.background_green, run.background_blue, NO, run.flags);
     if (run.flags & 16) { NSColor *swap = foreground; foreground = background; background = swap; }
     if (metalTerminal) {
       if (!terminalRangeContainsColorEmoji(NSMakeRange(start, end - start))) {
@@ -7258,7 +7311,6 @@ static void applyTerminalRuns(NSTextView *terminal) {
     [attributed addAttribute:NSBackgroundColorAttributeName value:background range:range];
     if (run.flags & 8) [attributed addAttribute:NSUnderlineStyleAttributeName value:@(NSUnderlineStyleSingle) range:range];
     if (run.flags & 32) [attributed addAttribute:NSStrikethroughStyleAttributeName value:@(NSUnderlineStyleSingle) range:range];
-    if (run.flags & 2) [attributed addAttribute:NSForegroundColorAttributeName value:[foreground colorWithAlphaComponent:0.65] range:range];
     if (g_terminal_hyperlinks && index < g_terminal_hyperlinks.count) {
       NSString *hyperlink = g_terminal_hyperlinks[index];
       if (hyperlink.length > 0) {
@@ -7354,7 +7406,7 @@ static void terminalRunColorComponents(NimculusTerminalRun run, BOOL foreground,
     foreground ? run.foreground_index : run.background_index,
     foreground ? run.foreground_red : run.background_red,
     foreground ? run.foreground_green : run.background_green,
-    foreground ? run.foreground_blue : run.background_blue, foreground);
+    foreground ? run.foreground_blue : run.background_blue, foreground, run.flags);
   NSColor *rgb = [color colorUsingColorSpace:[NSColorSpace genericRGBColorSpace]];
   if (!rgb) return;
   *red = rgb.redComponent; *green = rgb.greenComponent; *blue = rgb.blueComponent;
@@ -7388,7 +7440,7 @@ static void updateTerminalGlyphAtlas(id<MTLDevice> device) {
       convertFont:font toHaveTrait:NSItalicFontMask] ?: font;
     CGFloat red = 0.85, green = 0.90, blue = 1.0;
     terminalRunColorComponents(run, YES, &red, &green, &blue);
-    CGFloat alpha = (run.flags & 2) ? 0.65 : 1.0;
+    CGFloat alpha = 1.0;
     if (run.flags & 16) terminalRunColorComponents(run, NO, &red, &green, &blue);
     NSDictionary *attributes = @{
       (id)kCTFontAttributeName: (id)font,
@@ -7719,11 +7771,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     // remain disabled so PTY keyboard input stays owned by the Metal view.
     terminal.selectable = YES;
     terminal.drawsBackground = YES;
-    terminal.backgroundColor = [themeRoleColor(@"terminal", themeHexColor(g_theme_background,
-      [NSColor colorWithCalibratedRed:0.025 green:0.030 blue:0.045 alpha:1.0]))
-      colorWithAlphaComponent:0.98];
-    terminal.textColor = themeRoleColor(@"foreground", themeHexColor(g_theme_foreground,
+    terminal.backgroundColor = terminalPaletteRoleColor(@"background", themeHexColor(g_theme_background,
+      [NSColor colorWithCalibratedRed:0.025 green:0.030 blue:0.045 alpha:1.0]));
+    terminal.textColor = terminalPaletteRoleColor(@"foreground", themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]));
+    terminal.insertionPointColor = terminalPaletteRoleColor(@"cursor",
+      terminalPaletteRoleColor(@"brightForeground", terminal.textColor));
     terminal.font = terminalBaseFont();
     terminal.textContainerInset = NSMakeSize(8.0, 6.0);
     // Preserve the PTY's explicit row breaks. The terminal grid owns columns;
@@ -14023,15 +14076,15 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
   for (NSView *subview in view.subviews) {
     if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) {
       NSTextView *terminal = (NSTextView *)subview;
-      terminal.backgroundColor = [themeRoleColor(@"terminal", themeHexColor(g_theme_background,
-        [NSColor colorWithCalibratedRed:0.025 green:0.030 blue:0.045 alpha:1.0]))
-        colorWithAlphaComponent:0.98];
-      terminal.textColor = themeRoleColor(@"foreground", themeHexColor(g_theme_foreground,
+      terminal.backgroundColor = terminalPaletteRoleColor(@"background", themeHexColor(g_theme_background,
+        [NSColor colorWithCalibratedRed:0.025 green:0.030 blue:0.045 alpha:1.0]));
+      terminal.textColor = terminalPaletteRoleColor(@"foreground", themeHexColor(g_theme_foreground,
         [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]));
+      terminal.insertionPointColor = terminalPaletteRoleColor(@"cursor",
+        terminalPaletteRoleColor(@"brightForeground", terminal.textColor));
       terminal.selectedTextAttributes = @{
-        NSBackgroundColorAttributeName: [themeHexColor(g_theme_selection,
+        NSBackgroundColorAttributeName: terminalPaletteRoleColor(@"selection",
           [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
-          colorWithAlphaComponent:0.65]
       };
     }
   }
@@ -14115,6 +14168,8 @@ void nimculus_platform_set_theme_palette_json(const char *json) {
   NSDictionary *syntax = [source[@"syntax"] isKindOfClass:[NSDictionary class]] ?
     source[@"syntax"] : nil;
   if (syntax) palette[@"syntax"] = syntax;
+  NSDictionary *terminalPalette = validatedTerminalPalette(source[@"terminalPalette"]);
+  if (terminalPalette) palette[@"terminalPalette"] = terminalPalette;
   if (palette.count == 0) return;
   [g_theme_palette release];
   g_theme_palette = [palette copy];

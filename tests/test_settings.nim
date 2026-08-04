@@ -181,3 +181,63 @@ suite "M12 settings foundation":
     let palette = themePaletteJson(dark)
     check palette.find("\"syntax\"") >= 0
     check palette.find("#74ade8") >= 0
+
+  test "built-in One themes preserve Zed terminal ANSI tables":
+    let store = newSettingsStore("", "", "")
+    let dark = store.themeRegistry["dark"].colors.terminalPalette
+    let light = store.themeRegistry["light"].colors.terminalPalette
+    let darkNormal = [
+      "#282c34", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#abb2bf",
+      "#636d83", "#EA858B", "#AAD581", "#FFD885", "#85C1FF", "#D398EB", "#6ED5DE", "#fafafa"
+    ]
+    let darkBright = [
+      "#636d83", "#EA858B", "#AAD581", "#FFD885", "#85C1FF", "#D398EB", "#6ED5DE", "#fafafa",
+      "#636d83", "#EA858B", "#AAD581", "#FFD885", "#85C1FF", "#D398EB", "#6ED5DE", "#fafafa"
+    ]
+    let darkDim = [
+      "#3b3f4a", "#a7545a", "#6d8f59", "#b8985b", "#457cad", "#8d54a0", "#3c818a", "#8f969b",
+      "#3b3f4a", "#a7545a", "#6d8f59", "#b8985b", "#457cad", "#8d54a0", "#3c818a", "#8f969b"
+    ]
+    let lightNormal = [
+      "#000000", "#de3e35", "#3f953a", "#d2b67c", "#2f5af3", "#950095", "#0997b3", "#bbbbbb",
+      "#000000", "#de3e35", "#3f953a", "#d2b67c", "#2f5af3", "#a00095", "#0bbcd6", "#ffffff"
+    ]
+    let lightBright = [
+      "#000000", "#de3e35", "#3f953a", "#d2b67c", "#2f5af3", "#a00095", "#0bbcd6", "#ffffff",
+      "#000000", "#de3e35", "#3f953a", "#d2b67c", "#2f5af3", "#a00095", "#0bbcd6", "#ffffff"
+    ]
+    let lightDim = [
+      "#555555", "#9c2b26", "#2b6927", "#a48c5a", "#2140ab", "#6a006a", "#0a7b92", "#888888",
+      "#555555", "#9c2b26", "#2b6927", "#a48c5a", "#2140ab", "#6a006a", "#0a7b92", "#888888"
+    ]
+    check dark.background == "#282c34"
+    check dark.foreground == "#abb2bf"
+    check dark.brightForeground == "#dce0e5"
+    check dark.dimForeground == "#636d83"
+    check dark.cursor == dark.brightForeground
+    check dark.selection == dark.dimForeground
+    check dark.normal == darkNormal
+    check dark.bright == darkBright
+    check dark.dim == darkDim
+    check light.background == "#fafafa"
+    check light.foreground == "#2a2c33"
+    check light.brightForeground == "#2a2c33"
+    check light.dimForeground == "#bbbbbb"
+    check light.cursor == light.brightForeground
+    check light.selection == light.dimForeground
+    check light.normal == lightNormal
+    check light.bright == lightBright
+    check light.dim == lightDim
+    let systemRoot = getTempDir() / "nimculus-terminal-theme-switch"
+    createDir(systemRoot)
+    let systemStore = newSettingsStore(systemRoot / "settings.json", "", "")
+    writeFile(systemRoot / "settings.json", "{\"theme\":\"system\"}")
+    check systemStore.reload()
+    check systemStore.resolvedTheme(false).terminalPalette.background == "#fafafa"
+    check systemStore.resolvedTheme(true).terminalPalette.background == "#282c34"
+    removeFile(systemRoot / "settings.json")
+    removeDir(systemRoot)
+    let serialized = parseJson(themePaletteJson(store.themeRegistry["light"].colors))
+    check serialized["terminalPalette"]["normal"][15].getStr == "#ffffff"
+    check serialized["terminalPalette"]["bright"][13].getStr == "#a00095"
+    check serialized["terminalPalette"]["dim"][4].getStr == "#2140ab"

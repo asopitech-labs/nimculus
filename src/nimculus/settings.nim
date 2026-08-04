@@ -15,6 +15,13 @@ type
     command*: string
     whenClause*: string
 
+  TerminalPalette* = object
+    ## Zed's terminal roles plus the normal, bright, and dim ANSI tables.
+    ## The arrays use the terminal's canonical indexes 0..15.
+    background*, foreground*, brightForeground*, dimForeground*: string
+    cursor*, selection*: string
+    normal*, bright*, dim*: array[16, string]
+
   ThemeColors* = object
     background*: string
     foreground*: string
@@ -64,6 +71,7 @@ type
     info*: string
     success*: string
     syntax*: JsonNode
+    terminalPalette*: TerminalPalette
 
   ThemeDefinition* = object
     name*: string
@@ -278,6 +286,72 @@ proc newSettingsStore*(globalPath, workspacePath: string; languageId = ""): Sett
 proc themeWithColors(name, appearance: string; colors: ThemeColors): ThemeDefinition =
   ThemeDefinition(name: name, appearance: appearance, colors: colors)
 
+proc oneDarkTerminalPalette(): TerminalPalette =
+  result.background = "#282c34"
+  result.foreground = "#abb2bf"
+  result.brightForeground = "#dce0e5"
+  result.dimForeground = "#636d83"
+  ## Zed exposes no separate cursor/selection tokens for the One theme. Keep
+  ## those terminal affordances on terminal role colors rather than borrowing
+  ## editor chrome: bright foreground for the cursor and dim foreground for a
+  ## selection background.
+  result.cursor = result.brightForeground
+  result.selection = result.dimForeground
+  result.normal = [
+    "#282c34", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#abb2bf",
+    "#636d83", "#EA858B", "#AAD581", "#FFD885", "#85C1FF", "#D398EB", "#6ED5DE", "#fafafa"
+  ]
+  result.bright = [
+    "#636d83", "#EA858B", "#AAD581", "#FFD885", "#85C1FF", "#D398EB", "#6ED5DE", "#fafafa",
+    "#636d83", "#EA858B", "#AAD581", "#FFD885", "#85C1FF", "#D398EB", "#6ED5DE", "#fafafa"
+  ]
+  result.dim = [
+    "#3b3f4a", "#a7545a", "#6d8f59", "#b8985b", "#457cad", "#8d54a0", "#3c818a", "#8f969b",
+    "#3b3f4a", "#a7545a", "#6d8f59", "#b8985b", "#457cad", "#8d54a0", "#3c818a", "#8f969b"
+  ]
+
+proc oneLightTerminalPalette(): TerminalPalette =
+  result.background = "#fafafa"
+  result.foreground = "#2a2c33"
+  result.brightForeground = "#2a2c33"
+  result.dimForeground = "#bbbbbb"
+  result.cursor = result.brightForeground
+  result.selection = result.dimForeground
+  result.normal = [
+    "#000000", "#de3e35", "#3f953a", "#d2b67c", "#2f5af3", "#950095", "#0997b3", "#bbbbbb",
+    "#000000", "#de3e35", "#3f953a", "#d2b67c", "#2f5af3", "#a00095", "#0bbcd6", "#ffffff"
+  ]
+  result.bright = [
+    "#000000", "#de3e35", "#3f953a", "#d2b67c", "#2f5af3", "#a00095", "#0bbcd6", "#ffffff",
+    "#000000", "#de3e35", "#3f953a", "#d2b67c", "#2f5af3", "#a00095", "#0bbcd6", "#ffffff"
+  ]
+  result.dim = [
+    "#555555", "#9c2b26", "#2b6927", "#a48c5a", "#2140ab", "#6a006a", "#0a7b92", "#888888",
+    "#555555", "#9c2b26", "#2b6927", "#a48c5a", "#2140ab", "#6a006a", "#0a7b92", "#888888"
+  ]
+
+proc configuredTerminalArray(node: JsonNode; target: var array[16, string]) =
+  if node == nil or node.kind != JArray: return
+  for index in 0 ..< min(node.len, target.len):
+    if node[index].kind == JString: target[index] = node[index].getStr
+
+proc configuredTerminalPalette(node: JsonNode; fallback: TerminalPalette): TerminalPalette =
+  result = fallback
+  if node == nil or node.kind != JObject: return
+  for key in ["background", "foreground", "brightForeground", "dimForeground", "cursor", "selection"]:
+    if node.hasKey(key) and node[key].kind == JString:
+      case key
+      of "background": result.background = node[key].getStr
+      of "foreground": result.foreground = node[key].getStr
+      of "brightForeground": result.brightForeground = node[key].getStr
+      of "dimForeground": result.dimForeground = node[key].getStr
+      of "cursor": result.cursor = node[key].getStr
+      of "selection": result.selection = node[key].getStr
+      else: discard
+  if node.hasKey("normal"): configuredTerminalArray(node["normal"], result.normal)
+  if node.hasKey("bright"): configuredTerminalArray(node["bright"], result.bright)
+  if node.hasKey("dim"): configuredTerminalArray(node["dim"], result.dim)
+
 proc registerBuiltinThemes*(store: SettingsStore) =
   if store == nil: return
   var dark = ThemeColors(
@@ -295,7 +369,7 @@ proc registerBuiltinThemes*(store: SettingsStore) =
     hoverLineNumber: "#acb0b4", caret: "#74ade8", terminal: "#282c34", added: "#27a657",
     modified: "#d3b020",
     deleted: "#e06c76", ignored: "#878a98", conflict: "#dec184", warning: "#dec184",
-    error: "#d07277",
+    error: "#d07277", terminalPalette: oneDarkTerminalPalette(),
     info: "#74ade8", success: "#a1c181", syntax: %*{
       "keyword": {"color": "#b477cf", "fontWeight": 400},
       "string": {"color": "#a1c181", "fontWeight": 400},
@@ -320,7 +394,7 @@ proc registerBuiltinThemes*(store: SettingsStore) =
     hoverLineNumber: "#61616b", caret: "#5c78e2", terminal: "#fafafa", added: "#27a657",
     modified: "#d3b020",
     deleted: "#e06c76", ignored: "#7e8086", conflict: "#b08800", warning: "#b08800",
-    error: "#d73a49",
+    error: "#d73a49", terminalPalette: oneLightTerminalPalette(),
     info: "#5c78e2", success: "#22863a", syntax: %*{
       "keyword": {"color": "#a449ab", "fontWeight": 400},
       "string": {"color": "#649f57", "fontWeight": 400},
@@ -413,6 +487,9 @@ proc configuredThemeColors(node: JsonNode; fallback: ThemeColors): ThemeColors =
       of "success": result.success = colors[key].getStr
       else: discard
   if colors.hasKey("syntax") and colors["syntax"].kind == JObject: result.syntax = colors["syntax"]
+  if colors.hasKey("terminalPalette"):
+    result.terminalPalette = configuredTerminalPalette(colors["terminalPalette"],
+        result.terminalPalette)
 
 proc registerConfiguredThemes*(store: SettingsStore) =
   if store == nil: return
@@ -534,6 +611,17 @@ proc themePaletteJson*(colors: ThemeColors): string =
     "scrollbarHover": colors.scrollbarHover, "lineNumber": colors.lineNumber,
     "activeLineNumber": colors.activeLineNumber, "hoverLineNumber": colors.hoverLineNumber,
     "caret": colors.caret, "syntax": colors.syntax, "terminal": colors.terminal,
+    "terminalPalette": {
+      "background": colors.terminalPalette.background,
+      "foreground": colors.terminalPalette.foreground,
+      "brightForeground": colors.terminalPalette.brightForeground,
+      "dimForeground": colors.terminalPalette.dimForeground,
+      "cursor": colors.terminalPalette.cursor,
+      "selection": colors.terminalPalette.selection,
+      "normal": colors.terminalPalette.normal,
+      "bright": colors.terminalPalette.bright,
+      "dim": colors.terminalPalette.dim
+    },
     "added": colors.added, "modified": colors.modified, "deleted": colors.deleted,
     "ignored": colors.ignored,
     "conflict": colors.conflict, "warning": colors.warning, "error": colors.error,

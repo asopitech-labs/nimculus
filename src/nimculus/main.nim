@@ -653,15 +653,16 @@ proc applySettingsTheme() =
     when defined(windows):
       platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize", 15)))
       platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily", ".ZedMono").cstring)
-      platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize", 12)))
+      platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize", 15)))
       platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily",
-          "Consolas").cstring)
+          ".ZedMono").cstring)
     elif defined(macosx):
       let colors = appSettings.resolvedTheme(platformIsDarkAppearance())
       platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize", 15)))
       platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily", ".ZedMono").cstring)
-      platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize", 12)))
-      platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily", "Menlo").cstring)
+      platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize", 15)))
+      platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily",
+          ".ZedMono").cstring)
       resizeNativeTerminals()
       platformSetThemePaletteJson(themePaletteJson(colors).cstring)
 
@@ -6776,11 +6777,11 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     when defined(macosx):
       let theme = if appSettings != nil: appSettings.stringSetting("theme", "system") else: "system"
       let editorSize = if appSettings != nil: $appSettings.intSetting("editor.fontSize", 15) else: "15"
-      let terminalSize = if appSettings != nil: $appSettings.intSetting("terminal.fontSize", 12) else: "12"
+      let terminalSize = if appSettings != nil: $appSettings.intSetting("terminal.fontSize", 15) else: "15"
       let editorFont = if appSettings != nil: appSettings.stringSetting("editor.fontFamily",
           ".ZedMono") else: ".ZedMono"
       let terminalFont = if appSettings != nil: appSettings.stringSetting("terminal.fontFamily",
-          "Menlo") else: "Menlo"
+          ".ZedMono") else: ".ZedMono"
       let shell = if appSettings != nil: appSettings.stringSetting("terminal.shell",
           "/bin/zsh") else: "/bin/zsh"
       platformShowSettingsPanel(theme.cstring, editorSize.cstring, terminalSize.cstring,

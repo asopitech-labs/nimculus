@@ -1,5 +1,22 @@
 # Design Decisions
 
+## UI-083: Use Zed One terminal palettes as the native terminal source of truth
+
+Nimculus now carries Zed's One Dark and One Light terminal roles from
+`references/zed/assets/themes/one/one.json` through the existing theme JSON
+boundary. Each built-in theme includes the exact terminal background,
+foreground, bright/dim foreground, and ANSI normal/bright/dim tables. The
+macOS renderer uses those values for default and indexed colors in both the
+Metal glyph path and the AppKit text fallback, including SGR dim output.
+
+The terminal cursor maps to the palette's `brightForeground` role and terminal
+selection maps to `dimForeground`; Zed's One theme does not publish separate
+terminal cursor/selection tokens. This keeps both affordances in the terminal
+role family instead of reusing editor chrome colors. Zed's default terminal
+settings in `references/zed/assets/settings/default.json` specify standard
+line height (1.3x) and otherwise inherit the buffer defaults, so Nimculus uses
+15pt `.ZedMono` and a 1.3x terminal line-height multiplier.
+
 ## UI-082: Adopt Zed One themes and a single comfortable editor line metric
 
 The built-in light and dark themes copy the semantic colors from
