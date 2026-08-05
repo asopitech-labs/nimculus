@@ -208,6 +208,11 @@ static const CGFloat NimculusDefaultWindowHeight = 791.0;
 static const CGFloat NimculusMaximumWindowWidth = 10000.0;
 static const CGFloat NimculusMaximumWindowHeight = 10000.0;
 static const CGFloat NimculusControlHit = 24.0;
+// The SF Symbols in the navigation buttons have a small optical inset. Zed's
+// first tab-strip ink starts three retina pixels farther left than the old
+// AppKit placement, so keep the button frame and its measured ink inset
+// explicit instead of changing the tab content geometry.
+static const CGFloat NimculusTabNavigationOpticalInset = 6.5;
 static const CGFloat NimculusIconPointSize = 14.0;
 static const CGFloat NimculusFindBarRowHeight = NimculusRowHeight - NimculusSpace2;
 static const CGFloat NimculusFindBarRowPadding =
@@ -345,6 +350,13 @@ static NSFont *editorUiFontWithWeight(NSFontWeight weight) {
     if (weighted) font = weighted;
   }
   return font;
+}
+
+static NSFont *editorUiItalicFontWithWeight(NSFontWeight weight) {
+  NSFont *font = editorUiFontWithWeight(weight);
+  NSFont *italic = [[NSFontManager sharedFontManager]
+    convertFont:font toHaveTrait:NSItalicFontMask];
+  return italic ?: font;
 }
 
 static NSString *terminalResolvedFontName(void) {
@@ -1361,8 +1373,19 @@ static NimculusPaintRegion paintCommandScissor(NimculusPaintCommand paint) {
 // Keeping this geometry in one place mirrors Zed's content-bounds mask and
 // prevents any renderer (atlas or Core Text texture) from painting into that
 // chrome.  Do not use the pane rectangle as a text clip.
-static const CGFloat NimculusEditorTextTopInset = 6.0;
+// Zed's first editor glyph row begins four logical points higher at the
+// reference 2x scale. This is the shared content inset for Core Text, the
+// glyph atlas, clipping, and line-number/guide layout.
+static const CGFloat NimculusEditorTextTopInset = 2.0;
 static const CGFloat NimculusEditorTextGlyphSafety = 2.0;
+// The theme RGB values remain unchanged. Zed's glyph atlas is lighter because
+// its rasterized coverage is thinner; applying coverage at the compositing
+// boundary reproduces that antialiasing without inventing replacement hex
+// colors or bypassing the resolved syntax roles.
+static const CGFloat NimculusEditorGlyphCoverage = 0.72;
+// The footer is flipped, so a small positive frame offset moves its glyphs
+// down to the vertical center of the painted status band.
+static const CGFloat NimculusStatusItemVerticalOffset = 4.5;
 // Hit testing uses the midpoint boundary between adjacent rows. Keeping this
 // two points above the glyph clip preserves the established click contract at
 // the top edge without moving rendered text.
@@ -1857,6 +1880,13 @@ static CTFontRef syntaxFontForKind(uint32_t kind, CTFontRef baseFont) {
     kCTFontTraitBold, kCTFontTraitBold);
 }
 
+static NSColor *editorGlyphColor(NSColor *color) {
+  if (!color) return nil;
+  NSColor *rgb = [color colorUsingColorSpace:[NSColorSpace genericRGBColorSpace]];
+  if (!rgb) rgb = color;
+  return [rgb colorWithAlphaComponent:rgb.alphaComponent * NimculusEditorGlyphCoverage];
+}
+
 static void applyMarkdownHeadingAttributes(NSMutableAttributedString *attributed,
                                            NSString *line, NSUInteger offset,
                                            CTFontRef font) {
@@ -1872,8 +1902,9 @@ static void applyMarkdownHeadingAttributes(NSMutableAttributedString *attributed
   while (textStart < line.length && ([line characterAtIndex:textStart] == ' ' ||
       [line characterAtIndex:textStart] == '\t')) textStart++;
   if (textStart >= line.length) return;
-  NSColor *muted = themeRoleColor(@"textMuted", [NSColor grayColor]);
-  NSColor *title = themeSyntaxColor(@"title", themeRoleColor(@"editorForeground", [NSColor textColor]));
+  NSColor *muted = editorGlyphColor(themeRoleColor(@"textMuted", [NSColor grayColor]));
+  NSColor *title = editorGlyphColor(themeSyntaxColor(@"title",
+    themeRoleColor(@"editorForeground", [NSColor textColor])));
   [attributed addAttribute:(id)kCTForegroundColorAttributeName value:(id)muted.CGColor
     range:NSMakeRange(offset + markerStart, markerLength)];
   CTFontRef boldFont = CTFontCreateCopyWithSymbolicTraits(font, 0.0, NULL,
@@ -2428,8 +2459,9 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   NimculusPaintRegion textViewport = editorTextViewport(g_editor_rect);
   CGContextClipToRect(context, editorTextViewportCoreGraphicsRect(g_editor_rect));
   CTFontRef font = editorFont();
-  NSColor *baseColor = themeRoleColor(@"editorForeground", themeHexColor(g_theme_foreground,
-    [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]));
+  NSColor *baseColor = editorGlyphColor(themeRoleColor(@"editorForeground",
+    themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0])));
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
     (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
   NSArray<NSString *> *lines = editorLinesForText(text);
@@ -2493,7 +2525,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
           span.start_byte, span.end_byte, &startUnit, &endUnit)) continue;
       CGFloat red, green, blue;
       highlightColor(span.kind, &red, &green, &blue);
-          NSColor *color = [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1.0];
+          NSColor *color = editorGlyphColor([NSColor colorWithCalibratedRed:red
+            green:green blue:blue alpha:1.0]);
           [wrappedAttributed addAttribute:(id)kCTForegroundColorAttributeName
             value:(id)color.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
           CTFontRef syntaxFont = syntaxFontForKind(span.kind, font);
@@ -2641,7 +2674,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         if (endUnit > startUnit) {
           CGFloat red, green, blue;
           highlightColor(span.kind, &red, &green, &blue);
-          NSColor *color = [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1.0];
+          NSColor *color = editorGlyphColor([NSColor colorWithCalibratedRed:red
+            green:green blue:blue alpha:1.0]);
           [attributed addAttribute:(id)kCTForegroundColorAttributeName
             value:(id)color.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
           CTFontRef syntaxFont = syntaxFontForKind(span.kind, font);
@@ -3081,8 +3115,9 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
   uint64_t evictionCountBefore = g_glyph_atlas_eviction_count;
   CTFontRef baseFont = editorFont();
   if (!baseFont) return;
-  NSColor *baseColor = themeRoleColor(@"editorForeground", themeHexColor(g_theme_foreground,
-    [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]));
+  NSColor *baseColor = editorGlyphColor(themeRoleColor(@"editorForeground",
+    themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0])));
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)baseFont,
     (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
   NSArray<NSString *> *lines = editorLinesForText(text);
@@ -3123,7 +3158,8 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
         if (endUnit > startUnit) {
           CGFloat red, green, blue;
           highlightColor(span.kind, &red, &green, &blue);
-          NSColor *color = [NSColor colorWithCalibratedRed:red green:green blue:blue alpha:1.0];
+          NSColor *color = editorGlyphColor([NSColor colorWithCalibratedRed:red
+            green:green blue:blue alpha:1.0]);
           [attributed addAttribute:(id)kCTForegroundColorAttributeName
             value:(id)color.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
           CTFontRef syntaxFont = syntaxFontForKind(span.kind, baseFont);
@@ -5829,7 +5865,7 @@ static NSColor *activeTabSurfaceColor(void) {
   [super layout];
   const CGFloat left = tabNavigationLeftWidth();
   const CGFloat right = tabNavigationRightWidth();
-  CGFloat x = NimculusSpace2;
+  CGFloat x = NimculusTabNavigationOpticalInset;
   self.backButton.frame = NSMakeRect(x, NimculusSpace1,
     NimculusControlHit, NimculusControlHit);
   x += NimculusControlHit + NimculusSpace1;
@@ -5924,11 +5960,6 @@ static NSColor *activeTabSurfaceColor(void) {
     tabNavigationRightWidth());
   NSUInteger first = 0, visible = 0;
   visibleTabRange(titles, active, tabAreaWidth, &first, &visible);
-  NSDictionary *attributes = @{
-    NSFontAttributeName: editorUiFontWithWeight(NSFontWeightRegular),
-    NSForegroundColorAttributeName: [themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
-      [NSColor colorWithCalibratedWhite:0.88 alpha:1.0])) colorWithAlphaComponent:0.92]
-  };
   CGFloat x = tabAreaStart;
   for (NSUInteger visualIndex = 0; visualIndex < visible; visualIndex++) {
     NSUInteger index = first + visualIndex;
@@ -5940,6 +5971,19 @@ static NSColor *activeTabSurfaceColor(void) {
     NSString *rawTitle = titles[index] ?: @"Untitled";
     NSString *title = tabTitleWithoutDirtyMarker(rawTitle);
     BOOL dirty = tabTitleIsDirty(rawTitle);
+    const BOOL activeTab = index == active;
+    NSColor *titleColor = activeTab
+      ? [themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
+          [NSColor colorWithCalibratedWhite:0.88 alpha:1.0]))
+          colorWithAlphaComponent:0.74]
+      : themeRoleColor(@"textMuted", themeHexColor(g_theme_foreground,
+          [NSColor colorWithCalibratedWhite:0.72 alpha:1.0]));
+    NSDictionary *attributes = @{
+      NSFontAttributeName: activeTab
+        ? editorUiFontWithWeight(NSFontWeightRegular)
+        : editorUiItalicFontWithWeight(NSFontWeightRegular),
+      NSForegroundColorAttributeName: titleColor
+    };
     CGFloat labelX = x + NimculusSpace3;
     if (dirty) {
       NSDictionary *dirtyAttributes = @{
@@ -6741,11 +6785,18 @@ static void styleFooterStatusButton(NimculusFooterStatusButton *button, BOOL ima
   [button setContentHuggingPriority:NSLayoutPriorityRequired
     forOrientation:NSLayoutConstraintOrientationHorizontal];
   styleWorkspaceNavigationButton(button, NO, imageOnly);
-  if (!imageOnly) {
+  if (imageOnly) {
+    // Footer symbols are status metadata, not primary chrome actions. Resolve
+    // them through the muted role so their rendered ink has the same quiet
+    // antialiased weight as Zed's status icons.
+    button.contentTintColor = themeRoleColor(@"textMuted",
+      themeRoleColor(@"fgMuted", themeHexColor(g_theme_foreground,
+        [NSColor colorWithCalibratedWhite:0.86 alpha:1.0])));
+  } else {
     NSColor *foreground = themeRoleColor(@"fgMuted", themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedWhite:0.86 alpha:1.0]));
     button.attributedTitle = [[[NSAttributedString alloc] initWithString:button.title ?: @""
-      attributes:@{NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.90],
+      attributes:@{NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.96],
         NSFontAttributeName: editorUiFontWithWeight(NSFontWeightMedium)}]
       autorelease];
   }
@@ -6893,6 +6944,10 @@ static NSView *newFooterDivider(void) {
   NimculusFooterStatusButton *dock = newPanelButton(self, @"Toggle Panel Dock",
     @"sidebar.left", NimculusFooterActionDockToggle);
   styleSidebarIconButton(dock, g_editor_sidebar_visible);
+  if (!g_editor_sidebar_visible) {
+    dock.contentTintColor = themeRoleColor(@"textMuted",
+      themeRoleColor(@"fgMuted", [NSColor secondaryLabelColor]));
+  }
   [left addArrangedSubview:dock];
 
   // Terminal is a bottom-dock toggle, not a buffer-status decoration. Keep
@@ -6902,6 +6957,10 @@ static NSView *newFooterDivider(void) {
     @"terminal", NimculusFooterActionPanelTerminal);
   styleSidebarIconButton(terminalButton,
     footerPanelActionIsActive(NimculusFooterActionPanelTerminal));
+  if (!footerPanelActionIsActive(NimculusFooterActionPanelTerminal)) {
+    terminalButton.contentTintColor = themeRoleColor(@"textMuted",
+      themeRoleColor(@"fgMuted", [NSColor secondaryLabelColor]));
+  }
   [left addArrangedSubview:terminalButton];
   [left addArrangedSubview:newFooterDivider()];
 
@@ -6933,8 +6992,8 @@ static NSView *newFooterDivider(void) {
       NimculusFooterActionDiagnostics);
     setFooterSymbol(diagnostics, @"checkmark", @"✓");
     styleFooterStatusButton(diagnostics, YES);
-    diagnostics.contentTintColor = themeRoleColor(@"fgPrimary",
-      [NSColor labelColor]);
+    diagnostics.contentTintColor = themeRoleColor(@"textMuted",
+      themeRoleColor(@"fgMuted", [NSColor secondaryLabelColor]));
     [left addArrangedSubview:diagnostics];
   } else {
     if (errorCount > 0) {
@@ -7053,9 +7112,10 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
   [self hideFooterItemsUntilTheyFit:left right:right available:available];
   CGFloat rightWidth = footerClusterWidth(right);
   CGFloat leftWidth = footerClusterWidth(left);
-  left.frame = NSMakeRect(inset, 0.0, leftWidth, self.bounds.size.height);
+  left.frame = NSMakeRect(inset, NimculusStatusItemVerticalOffset, leftWidth,
+    self.bounds.size.height);
   right.frame = NSMakeRect(MAX(inset, self.bounds.size.width - inset - rightWidth),
-    0.0, rightWidth, self.bounds.size.height);
+    NimculusStatusItemVerticalOffset, rightWidth, self.bounds.size.height);
   [left layoutSubtreeIfNeeded];
   [right layoutSubtreeIfNeeded];
 }
@@ -10909,18 +10969,18 @@ bool nimculus_platform_validate_editor_text_viewport(void) {
   NimculusPaintRegion rightVisible = intersectPaintRegions(viewport, outsideRight);
   NimculusPaintRegion bottomVisible = intersectPaintRegions(viewport, outsideBottom);
   return fabs(viewport.x - (pane[0] + textOrigin)) < 0.01f &&
-    fabs(viewport.y - 66.0f) < 0.01f &&
+    fabs(viewport.y - 62.0f) < 0.01f &&
     fabs(viewport.width - (pane[2] - textOrigin)) < 0.01f &&
-    fabs(viewport.height - 160.0f) < 0.01f &&
+    fabs(viewport.height - 164.0f) < 0.01f &&
     fabs(coreGraphicsViewport.origin.x - textOrigin) < 0.01 &&
     fabs(coreGraphicsViewport.origin.y - 14.0) < 0.01 &&
     fabs(coreGraphicsViewport.size.width - (pane[2] - textOrigin)) < 0.01 &&
-    fabs(coreGraphicsViewport.size.height - 160.0) < 0.01 &&
+    fabs(coreGraphicsViewport.size.height - 164.0) < 0.01 &&
     fabs(NSMinX(localViewport) - textOrigin) < 0.01 &&
-    fabs(NSMinY(localViewport) - 6.0) < 0.01 &&
+    fabs(NSMinY(localViewport) - 2.0) < 0.01 &&
     fabs(NSWidth(localViewport) - (pane[2] - textOrigin)) < 0.01 &&
-    fabs(NSHeight(localViewport) - 160.0) < 0.01 &&
-    editorVisibleLineCapacity(pane, 20.0) == 7 &&
+    fabs(NSHeight(localViewport) - 164.0) < 0.01 &&
+    editorVisibleLineCapacity(pane, 20.0) == 8 &&
     rightVisible.width == 0.0f && bottomVisible.height == 0.0f;
 }
 
@@ -10929,9 +10989,9 @@ bool nimculus_platform_validate_editor_annotation_viewport(void) {
   NSRect clip = editorAnnotationClipRect(pane);
   const CGFloat textOrigin = editorTextOriginX(pane);
   return fabs(NSMinX(clip) - (pane[0] + textOrigin)) < 0.01 &&
-    fabs(NSMinY(clip) - 66.0) < 0.01 &&
+    fabs(NSMinY(clip) - 62.0) < 0.01 &&
     fabs(NSWidth(clip) - (pane[2] - textOrigin)) < 0.01 &&
-    fabs(NSHeight(clip) - 160.0) < 0.01 &&
+    fabs(NSHeight(clip) - 164.0) < 0.01 &&
     NSMaxX(clip) <= pane[0] + pane[2] + 0.01 &&
     NSMaxY(clip) <= pane[1] + pane[3] - 14.0 + 0.01;
 }
