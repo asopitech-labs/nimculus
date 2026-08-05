@@ -5394,8 +5394,11 @@ static NSString * const NimculusSearchRegexSVG =
     MAX(0.0, self.bounds.size.height - NimculusEditorTextTopInset - toolbarInset - 14.0));
   if (NSIsEmptyRect(gutterClip)) return;
   NSRectClip(gutterClip);
-  [themeRoleColor(@"gutter", themeRoleColor(@"editor", [NSColor clearColor])) setFill];
-  NSRectFill(gutterClip);
+  // The Metal editor rectangle already paints this entire region with the
+  // opaque editor background. Keep the native line-number overlay transparent
+  // so AppKit color conversion cannot introduce a one-channel seam between
+  // the gutter and the editor body. The active-line rectangle is also painted
+  // by Metal below this overlay; only the line-number glyphs belong here.
   NSUInteger first = editorFirstVisibleLine(g_editor_scroll_line, lines.count);
   const BOOL hasTopExtraLine = first > 0;
   if (hasTopExtraLine) first--;
@@ -5405,7 +5408,6 @@ static NSString * const NimculusSearchRegexSVG =
     [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0])
     colorWithAlphaComponent:0.58]);
   NSColor *activeColor = themeRoleColor(@"activeLineNumber", regularColor);
-  NSColor *activeBackground = themeRoleColor(@"editorActiveLine", [NSColor clearColor]);
   CGFloat visibleRows = hasTopExtraLine ? -1.0 : 0.0;
   CGFloat usableHeight = NSHeight(gutterClip) - NimculusEditorTextGlyphSafety * 2.0;
   NSUInteger maxRows = (NSUInteger)MAX(1.0,
@@ -5424,10 +5426,6 @@ static NSString * const NimculusSearchRegexSVG =
     NSSize size = [number sizeWithAttributes:attributes];
     CGFloat y = NSMinY(gutterClip) + visibleRows * editorLineHeight() -
       g_editor_scroll_y_fraction + 1.0;
-    if (active) {
-      [activeBackground setFill];
-      NSRectFill(NSMakeRect(0.0, y - 1.0, self.bounds.size.width, editorLineHeight()));
-    }
     [number drawAtPoint:NSMakePoint(MAX(editorLineNumberCharacterWidth(),
       self.bounds.size.width - size.width - editorLineNumberCharacterWidth()), y)
       withAttributes:attributes];
@@ -5559,11 +5557,10 @@ static void visibleTabRange(NSArray<NSString *> *titles, NSUInteger active, CGFl
 static NSColor *activeTabSurfaceColor(void) {
   NSColor *tabBar = themeRoleColor(@"tabBar", [NSColor colorWithCalibratedWhite:0.08 alpha:1.0]);
   NSColor *surface = themeRoleColor(@"surface", tabBar);
-  // The built-in light palette's tabActive is the Zed-like near-white tab
-  // face. In dark mode elementActive is the intentionally raised surface;
-  // the dark tabActive token is reserved for the toolbar/editor role.
-  return themeLooksLight() ? themeRoleColor(@"tabActive", surface) :
-    themeRoleColor(@"elementActive", surface);
+  // The active tab is a theme role in both appearances. Do not substitute a
+  // hover/active element surface: that makes the painted tab differ from
+  // Zed's `tab.active_background`, especially in One Dark.
+  return themeRoleColor(@"tabActive", surface);
 }
 
 @implementation NimculusTabBarOverlay
@@ -5705,8 +5702,7 @@ static NSColor *activeTabSurfaceColor(void) {
 - (void)drawRect:(NSRect)dirtyRect {
   [NSGraphicsContext saveGraphicsState];
   NSRectClip(NSIntersectionRect(self.bounds, dirtyRect));
-  [[themeRoleColor(@"tabBar", [NSColor colorWithCalibratedWhite:0.08 alpha:1.0])
-    colorWithAlphaComponent:0.98] setFill];
+  [themeRoleColor(@"tabBar", [NSColor colorWithCalibratedWhite:0.08 alpha:1.0]) setFill];
   NSRectFill(self.bounds);
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
   NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
@@ -6859,8 +6855,8 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
 }
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
-  NSColor *background = [themeRoleColor(@"statusBar",
-    [NSColor colorWithCalibratedWhite:0.075 alpha:1.0]) colorWithAlphaComponent:0.98];
+  NSColor *background = themeRoleColor(@"statusBar",
+    [NSColor colorWithCalibratedWhite:0.075 alpha:1.0]);
   [background setFill];
   NSRectFill(self.bounds);
 }
@@ -7894,6 +7890,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     [sidebarHeader release];
     NimculusLineNumberOverlay *lineNumbers = [[NimculusLineNumberOverlay alloc]
       initWithFrame:NSZeroRect];
+    lineNumbers.opaque = NO;
     [self addSubview:lineNumbers];
     NimculusIndentGuideOverlay *indentGuides = [[NimculusIndentGuideOverlay alloc]
       initWithFrame:NSZeroRect];
@@ -10025,6 +10022,11 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
     descriptor.vertexFunction = [[library newFunctionWithName:@"vs"] autorelease];
     descriptor.fragmentFunction = [[library newFunctionWithName:@"fs"] autorelease];
     descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+    descriptor.colorAttachments[0].blendingEnabled = YES;
+    descriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+    descriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    descriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+    descriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
     g_pipeline = [device newRenderPipelineStateWithDescriptor:descriptor error:&error];
     MTLRenderPipelineDescriptor *textDescriptor = [MTLRenderPipelineDescriptor new];
     textDescriptor.vertexFunction = [[library newFunctionWithName:@"textVs"] autorelease];

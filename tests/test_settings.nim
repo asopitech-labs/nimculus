@@ -176,6 +176,12 @@ suite "M12 settings foundation":
     check dark.editorForeground == "#acb2be"
     check dark.gutter == dark.editor
     check dark.editorActiveLine == "#2f343ebf"
+    # The native gutter overlay inherits the opaque editor fill. Keep both
+    # resolved roles equal so a palette change cannot reintroduce a seam.
+    let lightPalette = parseJson(themePaletteJson(light))
+    let darkPalette = parseJson(themePaletteJson(dark))
+    check lightPalette["editor"] == lightPalette["gutter"]
+    check darkPalette["editor"] == darkPalette["gutter"]
     check light.syntax["title"]["color"].getStr == "#d3604f"
     check dark.syntax["emphasis.strong"]["fontWeight"].getInt == 700
     let palette = themePaletteJson(dark)
