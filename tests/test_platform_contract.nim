@@ -143,6 +143,9 @@ suite "macOS platform contract":
   test "native split pane geometry keeps hit regions disjoint":
     check platformValidateEditorPaneGeometry()
 
+  test "native editor gutter follows Zed's singleton formula":
+    check platformValidateEditorGutterGeometry()
+
   test "native editor text viewport excludes pane right and bottom chrome":
     check platformValidateEditorTextViewport()
 

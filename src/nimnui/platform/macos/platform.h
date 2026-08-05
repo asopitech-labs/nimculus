@@ -7,6 +7,7 @@ bool nimculus_platform_validate_window_lifecycle(void);
 bool nimculus_platform_validate_window_delegate(void);
 bool nimculus_platform_validate_fullscreen_transition(void);
 bool nimculus_platform_validate_editor_pane_geometry(void);
+bool nimculus_platform_validate_editor_gutter_geometry(void);
 bool nimculus_platform_validate_editor_text_viewport(void);
 bool nimculus_platform_validate_editor_annotation_viewport(void);
 bool nimculus_platform_validate_secondary_annotation_isolation(void);

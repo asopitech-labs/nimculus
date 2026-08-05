@@ -44,6 +44,9 @@ static NimculusCommandCallback g_command_callback = NULL;
 static NimculusIdleCallback g_idle_callback = NULL;
 static BOOL g_validation_appearance_command_received = NO;
 static BOOL g_editor_scroll_debug_logged = NO;
+static NSUInteger g_editor_gutter_debug_line_count = 0;
+static CGFloat g_editor_gutter_debug_width = -1.0;
+static CGFloat g_editor_gutter_debug_origin = -1.0;
 
 void nimculus_platform_log_editor_scroll_debug(const char *pane, double widest,
                                                double viewport, double scroll_x,
@@ -1332,32 +1335,118 @@ static const CGFloat NimculusEditorTextGlyphSafety = 2.0;
 // two points above the glyph clip preserves the established click contract at
 // the top edge without moving rendered text.
 static const CGFloat NimculusEditorHitTestTopInset = 4.0;
-static const CGFloat NimculusEditorTextGutterGap = 8.0;
+static CTFontRef editorFont(void);
 
 static CGFloat editorContentTopInset(void) {
   return NimculusEditorTextTopInset +
     (g_editor_find_bar_visible ? NimculusRowHeight : 0.0);
 }
 
-static CGFloat editorLineNumberCharacterWidth(void) {
-  NSDictionary *attributes = @{NSFontAttributeName:
-    [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular]};
-  return MAX(1.0, [@"0" sizeWithAttributes:attributes].width);
+typedef struct NimculusEditorGutterMetrics {
+  CGFloat ch_width;
+  CGFloat ch_advance;
+  CGFloat max_line_number_width;
+  CGFloat line_gutter_width;
+  CGFloat left_padding;
+  CGFloat right_padding;
+  CGFloat width;
+  CGFloat margin;
+} NimculusEditorGutterMetrics;
+
+static CGFloat editorGlyphTypographicWidth(CTFontRef font, UniChar character) {
+  if (!font) return 0.0;
+  CGGlyph glyph = 0;
+  if (!CTFontGetGlyphsForCharacters(font, &character, &glyph, 1)) return 0.0;
+  CGRect bounds = CTFontGetBoundingRectsForGlyphs(font, kCTFontOrientationDefault,
+    &glyph, NULL, 1);
+  return MAX(0.0, bounds.size.width);
+}
+
+static CGFloat editorGlyphAdvance(CTFontRef font, UniChar character) {
+  if (!font) return 0.0;
+  CGGlyph glyph = 0;
+  if (!CTFontGetGlyphsForCharacters(font, &character, &glyph, 1)) return 0.0;
+  CGSize advance = CGSizeZero;
+  CTFontGetAdvancesForGlyphs(font, kCTFontOrientationDefault, &glyph, &advance, 1);
+  return MAX(0.0, advance.width);
+}
+
+static CGFloat editorMeasuredLineNumberWidth(NSString *number, CTFontRef font) {
+  if (!font || number.length == 0) return 0.0;
+  NSDictionary *attributes = @{(id)kCTFontAttributeName: (__bridge id)font};
+  NSAttributedString *attributed = [[NSAttributedString alloc]
+    initWithString:number attributes:attributes];
+  CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
+  CGFloat width = 0.0;
+  if (line) {
+    width = (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL);
+    CFRelease(line);
+  }
+  [attributed release];
+  return MAX(0.0, width);
+}
+
+static NimculusEditorGutterMetrics editorGutterMetrics(void) {
+  NimculusEditorGutterMetrics metrics = {0};
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
+  NSUInteger lineCount = MAX((NSUInteger)1, lines.count);
+  CTFontRef font = editorFont();
+  metrics.ch_width = editorGlyphTypographicWidth(font, '0');
+  metrics.ch_advance = editorGlyphAdvance(font, '0');
+  if (metrics.ch_width <= 0.0) metrics.ch_width = MAX(1.0, g_editor_font_size * 0.6);
+  if (metrics.ch_advance <= 0.0) metrics.ch_advance = metrics.ch_width;
+  NSString *widestLineNumber = [NSString stringWithFormat:@"%lu",
+    (unsigned long)lineCount];
+  metrics.max_line_number_width = editorMeasuredLineNumberWidth(widestLineNumber, font);
+  if (metrics.max_line_number_width <= 0.0) {
+    metrics.max_line_number_width = metrics.ch_advance * widestLineNumber.length;
+  }
+
+  // This is the singleton-buffer branch of Zed's gutter_dimensions with the
+  // default settings: runnables/breakpoints/bookmarks occupy the 3ch leading
+  // span and folds plus line numbers occupy the 4ch trailing span.
+  metrics.line_gutter_width = MAX(metrics.max_line_number_width,
+    metrics.ch_advance * 4.0);
+  metrics.left_padding = metrics.ch_width * 3.0;
+  metrics.right_padding = metrics.ch_width * 4.0;
+  metrics.width = metrics.line_gutter_width + metrics.left_padding +
+    metrics.right_padding;
+  metrics.margin = font ? -CTFontGetDescent(font) : -g_editor_font_size * 0.22;
+  if (font) CFRelease(font);
+  return metrics;
 }
 
 static CGFloat editorGutterWidth(void) {
-  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
-  NSUInteger widest = MAX((NSUInteger)1, lines.count);
-  NSUInteger digits = 0;
-  while (widest > 0) { digits++; widest /= 10; }
-  digits = MAX((NSUInteger)4, digits);
-  return ceil((CGFloat)digits * editorLineNumberCharacterWidth()) +
-    editorLineNumberCharacterWidth() * 2.0;
+  return editorGutterMetrics().width;
+}
+
+static CGFloat editorGutterFrameWidth(const double rect[4]) {
+  return MIN(editorGutterWidth(), MAX(0.0, rect[2]));
 }
 
 static CGFloat editorTextOriginX(const double rect[4]) {
   (void)rect;
-  return editorGutterWidth() + NimculusEditorTextGutterGap;
+  NimculusEditorGutterMetrics metrics = editorGutterMetrics();
+  const char *debug = getenv("NIMCULUS_GUTTER_DEBUG");
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
+  NSUInteger lineCount = MAX((NSUInteger)1, lines.count);
+  if (debug && strcmp(debug, "1") == 0 &&
+      (lineCount != g_editor_gutter_debug_line_count ||
+       fabs(metrics.width - g_editor_gutter_debug_width) > 0.001 ||
+       fabs(metrics.width + metrics.margin - g_editor_gutter_debug_origin) > 0.001)) {
+    NSLog(@"Nimculus gutter geometry line_count=%lu ch_width=%.3f "
+      "ch_advance=%.3f max_line_number_width=%.3f line_gutter_width=%.3f "
+      "left_padding=%.3f right_padding=%.3f gutter_width=%.3f "
+      "margin=%.3f text_origin=%.3f",
+      (unsigned long)lineCount, metrics.ch_width,
+      metrics.ch_advance, metrics.max_line_number_width,
+      metrics.line_gutter_width, metrics.left_padding, metrics.right_padding,
+      metrics.width, metrics.margin, metrics.width + metrics.margin);
+    g_editor_gutter_debug_line_count = lineCount;
+    g_editor_gutter_debug_width = metrics.width;
+    g_editor_gutter_debug_origin = metrics.width + metrics.margin;
+  }
+  return metrics.width + metrics.margin;
 }
 
 static NimculusPaintRegion editorTextViewport(const double rect[4]) {
@@ -5433,6 +5522,7 @@ static NSString * const NimculusSearchRegexSVG =
   (void)dirtyRect;
   NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) return;
+  NimculusEditorGutterMetrics gutter = editorGutterMetrics();
   // The gutter shares the editor's vertical content bounds. Its view is
   // intentionally wider than the text viewport, but it must not continue
   // drawing into the tab/status chrome at the bottom of a short pane.
@@ -5450,8 +5540,12 @@ static NSString * const NimculusSearchRegexSVG =
   NSUInteger first = editorFirstVisibleLine(g_editor_scroll_line, lines.count);
   const BOOL hasTopExtraLine = first > 0;
   if (hasTopExtraLine) first--;
-  NSFont *regularFont = [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightRegular];
-  NSFont *activeFont = [NSFont monospacedSystemFontOfSize:11.0 weight:NSFontWeightBold];
+  NSFont *regularFont = [NSFont fontWithName:editorResolvedFontName()
+    size:g_editor_font_size];
+  if (!regularFont) regularFont = [NSFont monospacedSystemFontOfSize:g_editor_font_size
+    weight:NSFontWeightRegular];
+  NSFont *activeFont = [[NSFontManager sharedFontManager]
+    convertFont:regularFont toHaveTrait:NSBoldFontMask];
   NSColor *regularColor = themeRoleColor(@"lineNumber", [themeHexColor(g_theme_foreground,
     [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0])
     colorWithAlphaComponent:0.58]);
@@ -5474,12 +5568,13 @@ static NSString * const NimculusSearchRegexSVG =
     NSSize size = [number sizeWithAttributes:attributes];
     CGFloat y = NSMinY(gutterClip) + visibleRows * editorLineHeight() -
       g_editor_scroll_y_fraction + 1.0;
-    [number drawAtPoint:NSMakePoint(MAX(editorLineNumberCharacterWidth(),
-      self.bounds.size.width - size.width - editorLineNumberCharacterWidth()), y)
+    CGFloat numberX = self.bounds.size.width - gutter.right_padding - size.width;
+    [number drawAtPoint:NSMakePoint(MAX(0.0, numberX), y)
       withAttributes:attributes];
     if (editorLineHasFoldStart(index)) {
       NSBezierPath *marker = [NSBezierPath bezierPath];
-      CGFloat markerX = MAX(2.0, self.bounds.size.width - size.width - 19.0);
+      CGFloat markerX = gutter.line_gutter_width + gutter.left_padding +
+        MAX(0.0, (gutter.right_padding - 8.0) / 2.0);
       [marker moveToPoint:NSMakePoint(markerX, y + 4.0)];
       [marker lineToPoint:NSMakePoint(markerX + 5.0, y + 7.0)];
       [marker lineToPoint:NSMakePoint(markerX, y + 10.0)];
@@ -5487,6 +5582,22 @@ static NSString * const NimculusSearchRegexSVG =
       [[themeHexColor(g_theme_foreground, [NSColor whiteColor])
         colorWithAlphaComponent:0.72] setFill];
       [marker fill];
+    }
+    for (uint32_t hunkIndex = 0; hunkIndex < g_git_hunk_count; hunkIndex++) {
+      NimculusGitHunkSpan hunk = g_git_hunks[hunkIndex];
+      NSUInteger hunkEnd = hunk.start_line + MAX((uint32_t)1, hunk.line_count);
+      if (index < hunk.start_line || index >= hunkEnd) continue;
+      CGFloat red = 0.30, green = 0.75, blue = 0.42;
+      if (hunk.kind == 1) {
+        red = 0.92; green = 0.34; blue = 0.34;
+      } else if (hunk.kind >= 2) {
+        red = 0.35; green = 0.58; blue = 0.95;
+      }
+      [[NSColor colorWithCalibratedRed:red green:green blue:blue alpha:0.9] setFill];
+      NSRect marker = NSMakeRect(MAX(0.0, (gutter.left_padding - 2.0) / 2.0),
+        y + 2.0, 2.0, MAX(1.0, editorLineHeight() - 4.0));
+      NSRectFill(marker);
+      break;
     }
     visibleRows += g_editor_soft_wrap ? editorSoftWrapRowCount(lines[index]) : 1;
     index = editorFirstVisibleLine(index + 1, lines.count);
@@ -8331,7 +8442,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
   if (lineNumbers) {
     lineNumbers.hidden = g_welcome_visible || !g_editor_line_numbers;
-    CGFloat gutterWidth = editorGutterWidth();
+    CGFloat gutterWidth = editorGutterFrameWidth(g_editor_rect);
     lineNumbers.frame = appKitFrameForLogicalTopRect(self,
       NSMakeRect(g_editor_rect[0], g_editor_rect[1],
         gutterWidth, g_editor_rect[3]));
@@ -11965,7 +12076,10 @@ bool nimculus_platform_validate_panel_buttons(void) {
         break;
       }
     }
-    NSView *divider = left.arrangedSubviews.count > 1 ? left.arrangedSubviews[1] : nil;
+    // The panel controls are deliberately ordered dock, terminal, divider.
+    // Keep this lookup aligned with the ordering assertion below so the
+    // presentation check inspects the divider rather than the terminal.
+    NSView *divider = left.arrangedSubviews.count > 2 ? left.arrangedSubviews[2] : nil;
     BOOL dividerPresentation = divider && ![divider isKindOfClass:[NSButton class]] &&
       divider.frame.size.width == 1.0 && divider.frame.size.height == 12.0;
     NSButton *dock = buttons[@"Toggle Panel Dock"];
@@ -12327,7 +12441,7 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
     // content, chrome and welcome frames against the same logical pane that
     // bounds Metal text and editor overlays.
     const NSRect expectedLineNumbers = appKitFrameForLogicalTopRect(view,
-      NSMakeRect(g_editor_rect[0], g_editor_rect[1], editorGutterWidth(),
+      NSMakeRect(g_editor_rect[0], g_editor_rect[1], editorGutterFrameWidth(g_editor_rect),
         g_editor_rect[3]));
     const NSRect expectedTabs = appKitFrameForLogicalTopRect(view,
       NSMakeRect(g_editor_rect[0], g_editor_rect[1] - NimculusTabBarHeight + 1.0,
@@ -14076,6 +14190,41 @@ void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
   if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
   if (g_active_view) [g_active_view requestRedraw];
 }
+
+bool nimculus_platform_validate_editor_gutter_geometry(void) {
+  NSString *previousText = [g_editor_text retain];
+  NSMutableString *sample = [NSMutableString string];
+  for (NSUInteger index = 0; index < 1000; index++) {
+    [sample appendString:@"line"];
+    if (index + 1 < 1000) [sample appendString:@"\n"];
+  }
+  NSUInteger sampleLength = [sample lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+  nimculus_platform_set_editor_text(sample.UTF8String, (uint32_t)sampleLength);
+
+  NimculusEditorGutterMetrics metrics = editorGutterMetrics();
+  CTFontRef font = editorFont();
+  CGFloat descent = font ? CTFontGetDescent(font) : g_editor_font_size * 0.22;
+  CGFloat expectedLineGutterWidth = MAX(metrics.max_line_number_width,
+    metrics.ch_advance * 4.0);
+  CGFloat expectedWidth = expectedLineGutterWidth + metrics.ch_width * 3.0 +
+    metrics.ch_width * 4.0;
+  CGFloat expectedOrigin = expectedWidth - descent;
+  CGFloat origin = editorTextOriginX(g_editor_rect);
+  BOOL valid = fabs(metrics.line_gutter_width - expectedLineGutterWidth) < 0.01 &&
+    fabs(metrics.left_padding - metrics.ch_width * 3.0) < 0.01 &&
+    fabs(metrics.right_padding - metrics.ch_width * 4.0) < 0.01 &&
+    fabs(metrics.width - expectedWidth) < 0.01 &&
+    fabs(metrics.margin + descent) < 0.01 &&
+    fabs(origin - expectedOrigin) < 0.01 &&
+    metrics.width > metrics.ch_advance * 4.0;
+  if (font) CFRelease(font);
+
+  nimculus_platform_set_editor_text(previousText.UTF8String,
+    (uint32_t)[previousText lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
+  [previousText release];
+  return valid;
+}
+
 void nimculus_platform_set_secondary_editor_text(const char *utf8, uint32_t length) {
   replaceOwnedUTF8String(&g_secondary_editor_text, utf8, length, @"");
   rebuildSecondaryEditorLineIndex();

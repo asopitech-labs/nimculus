@@ -1,5 +1,21 @@
 # Design Decisions
 
+## UI-098: Match Zed's singleton editor gutter geometry
+
+The macOS editor now derives its singleton-buffer gutter from the same Zed
+formula as the vendored editor implementation: the line-number span is the
+maximum of the measured widest line number and four ch advances, with a
+three-ch leading padding span and a four-ch trailing span. Line numbers are
+right-aligned at the line-number span's trailing edge; Git markers stay in the
+leading padding and fold markers stay in the trailing padding, so indicators
+never widen the gutter.
+
+The gutter margin is the negative descent of the active editor font. The text
+origin, viewport, wrapping, cursor, selection, hit testing, and IME
+coordinates all consume that origin, while native gutter frames are bounded
+to the editor pane. This preserves the Zed content offset and prevents narrow
+panes from painting or routing input outside their editor rectangle.
+
 ## UI-097: Group the terminal toggle with the status-bar dock controls
 
 The terminal glyph is a panel action, not a buffer-status readout. Keep the
@@ -57,8 +73,8 @@ the reference artwork's geometry.
 
 The macOS editor now treats the pane rectangle as the owner of all document
 coordinates. The line-number gutter is framed at the editor's left edge,
-right-aligned inside a digit-count-based width, and the text origin is derived
-from that gutter plus a fixed content gap. Core Text, Metal glyphs, selections,
+right-aligned inside a Zed-compatible measured width, and the text origin is
+derived from that gutter and its font-descent margin. Core Text, Metal glyphs, selections,
 caret, diagnostics, indent guides, Git gutter routing, pointer hit testing, and
 IME candidate coordinates all consume the same origin and viewport helpers;
 line numbers are never placed in the sidebar or clipped by the window edge.
