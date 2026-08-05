@@ -4651,6 +4651,7 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
     if document != nil and document[].path.len > 0:
       try:
         language = $grammarForPath(document[].path)
+        if language == "markdown": language = "Markdown"
       except ValueError:
         discard
     let lineEnding = if document != nil and document[].lineEnding == crlf: "CRLF" else: "LF"

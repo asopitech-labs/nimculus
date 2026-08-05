@@ -40,7 +40,8 @@ proc newEditorView*(): EditorViewState =
 proc editorLineHeight*(): float32 =
   ## One metric shared by rendering, scrolling, hit testing, IME placement,
   ## line numbers, Git gutter actions, diagnostics, and session persistence.
-  ## Zed's comfortable buffer line height is 1.618 times its 15px font.
+  ## Zed resolves comfortable line height as 1.618 times the buffer font and
+  ## rounds it to a whole device pixel before laying out consecutive rows.
   float32(max(1.0, platformEditorLineHeight()))
 
 proc editorLineIndex(pixels, lineHeight: float32): int =

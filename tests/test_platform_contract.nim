@@ -257,6 +257,8 @@ suite "macOS platform contract":
     platformSetEditorFontName("Menlo")
     platformSetEditorFontSize(20.0)
     check platformEditorLineHeight() >= 20.0
+    platformSetEditorFontSize(15.0)
+    check abs(platformEditorLineHeight() - 24.0) < 0.001
     platformSetEditorFontSize(14.0)
     check platformEditorLineHeight() > 0.0
 

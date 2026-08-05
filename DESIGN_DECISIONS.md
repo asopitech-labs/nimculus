@@ -7506,6 +7506,35 @@ filter placement were read from the vendored Zed sources
 `references/zed/crates/search/src/project_search.rs`, and
 `references/zed/crates/search/src/search_bar.rs`; semantic colors follow
 `assets/themes/one/one.json` and Nimculus's existing theme-role bridge.
+
+## UI-094: Snap editor rows and wrap width to Zed's pixel contract
+
+**Context.** The macOS editor resolved the comfortable buffer line height as
+the fractional value `15 * 1.618 = 24.27`, and soft wrapping used the full
+post-gutter viewport. Against the same One Light document this produced a
+systematic vertical drift and different paragraph breaks.
+
+**Decision.** Match Zed's `TextStyle::line_height_in_pixels` by rounding the
+resolved comfortable line height to a whole device pixel before sharing it
+with Core Text, the atlas, scrolling, hit testing, cursor placement, and IME
+coordinates. Match `EditorElement`'s editor-width calculation by reserving
+two typographic `em` widths after the gutter; the scrollbar remains an
+overlay. Use the same reduced width for the Core Text soft-wrap frame so line
+breaks and painted continuation rows use one boundary.
+
+The footer keeps the existing native commands and accessibility labels but
+now presents the compact Zed-like shape observed for this acceptance case:
+the left side contains only the icon cluster, while the right side starts
+with cursor position and language (`25:53` / `Markdown` for the reference
+document), followed by encoding and line-ending controls. Active-file and Git
+summary text remain available through the breadcrumb and source-control
+surfaces rather than widening the footer's left cluster.
+
+**Evidence.** The rounding rule is from
+`references/zed/crates/gpui/src/style.rs` (`line_height_in_pixels`), and the
+two-em reservation is from
+`references/zed/crates/editor/src/element.rs` (`editor_width` and
+`calculate_wrap_width`).
 ## UI-093: Make Git Changes rows native checkbox controls with a pinned commit footer
 
 **Context.** The existing Git sidebar already had section-aware stage/unstage
