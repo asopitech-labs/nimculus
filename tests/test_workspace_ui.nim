@@ -90,14 +90,20 @@ suite "workspace UI state":
 
   test "right-presented project dock maps its divider and drag to logical width":
     var state = initWorkspaceUi()
-    check state.dockResizeDivider(dockLeft, 1200, dockOnRight = true) == 960
-    check dockResizeRequest(dockLeft, 840, 1200, dockOnRight = true) == 360
+    check state.dockResizeDivider(dockLeft, 1200, dockOnRight = true) == 977
+    check dockResizeRequest(dockLeft, 840, 1200, dockOnRight = true) == 377
     state.resizeDock(dockLeft,
       dockResizeRequest(dockLeft, 840, 1200, dockOnRight = true), 1200)
-    check state.leftDock.size == 360
+    check state.leftDock.size == 377
     check state.dockResizeDivider(dockLeft, 1200, dockOnRight = true) == 840
     state.resetDockSize(dockLeft)
     check state.leftDock.size == DefaultLeftDockWidth
+
+  test "right project dock presentation subtracts its measured allowance":
+    check projectDockPresentationWidth(DefaultLeftDockWidth, 128'f32,
+      dockOnRight = true) == 223'f32
+    check projectDockPresentationWidth(DefaultLeftDockWidth, 128'f32,
+      dockOnRight = false) == DefaultLeftDockWidth
 
   test "a native dock presentation yields its space when it cannot fit":
     check dockPresentationWidth(160'f32, 178'f32) == 0'f32

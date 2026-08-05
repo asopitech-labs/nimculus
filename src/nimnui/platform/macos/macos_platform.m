@@ -7148,6 +7148,10 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
 - (BOOL)acceptsFirstResponder { return NO; }
 - (void)layout {
   [super layout];
+  // The breadcrumb is a single, clipped line. Rebuild after AppKit assigns
+  // the real width so the complete document/heading chain remains visible
+  // beside the three actions instead of wrapping the tail onto a hidden row.
+  [self updateBreadcrumbPresentation];
   const CGFloat rightInset = NimculusSpace1;
   const CGFloat actionTop = (NimculusRowHeight - NimculusControlHit) / 2.0;
   CGFloat x = self.bounds.size.width - rightInset - NimculusControlHit;
@@ -7180,8 +7184,17 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
     colorWithAlphaComponent:0.78];
   NSColor *heading = [themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
     [NSColor colorWithCalibratedWhite:0.90 alpha:1.0])) colorWithAlphaComponent:0.90];
-  NSFont *regularFont = [NSFont systemFontOfSize:12.0 weight:NSFontWeightRegular];
-  NSFont *headingFont = [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold];
+  const CGFloat actionWidth = (NimculusControlHit * 3.0) +
+    (NimculusSpace1 * 4.0);
+  CGFloat fontSize = 12.0;
+  CGFloat availableWidth = MAX(1.0, self.bounds.size.width - actionWidth);
+  while (fontSize > 10.0 && [text sizeWithAttributes:@{
+      NSFontAttributeName: [NSFont systemFontOfSize:fontSize weight:NSFontWeightSemibold]
+    }].width > availableWidth) {
+    fontSize -= 0.25;
+  }
+  NSFont *regularFont = [NSFont systemFontOfSize:fontSize weight:NSFontWeightRegular];
+  NSFont *headingFont = [NSFont systemFontOfSize:fontSize weight:NSFontWeightSemibold];
   NSMutableAttributedString *styled = [[[NSMutableAttributedString alloc] init]
     autorelease];
   NSArray<NSString *> *components = [text componentsSeparatedByString:@" > "];
@@ -7196,6 +7209,12 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
     [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:component
       attributes:@{NSForegroundColorAttributeName: isHeading ? heading : muted,
         NSFontAttributeName: isHeading ? headingFont : regularFont}] autorelease]];
+  }
+  NSMutableParagraphStyle *paragraph = [[[NSMutableParagraphStyle alloc] init] autorelease];
+  paragraph.lineBreakMode = NSLineBreakByClipping;
+  if (styled.length > 0) {
+    [styled addAttribute:NSParagraphStyleAttributeName value:paragraph
+      range:NSMakeRange(0, styled.length)];
   }
   self.attributedStringValue = styled;
   styleWorkspaceNavigationButton(self.searchButton, NO, YES);
@@ -11672,7 +11691,7 @@ bool nimculus_platform_validate_editor_context_header(void) {
   @autoreleasepool {
     NSString *previous = [g_editor_context retain];
     NimculusCommandCallback previousCallback = g_command_callback;
-    replaceOwnedString(&g_editor_context, @"DEVELOPMENT_GUIDELINES.md › # Breadcrumb");
+    replaceOwnedString(&g_editor_context, @"DEVELOPMENT_GUIDELINES.md > # Breadcrumb");
     NimculusEditorContextOverlay *context = [[NimculusEditorContextOverlay alloc]
       initWithFrame:NSMakeRect(12.0, 480.0, 300.0, NimculusRowHeight)];
     context.stringValue = g_editor_context;
@@ -11685,13 +11704,15 @@ bool nimculus_platform_validate_editor_context_header(void) {
         atIndex:headingRange.location effectiveRange:nil];
     BOOL headingIsEmphasized = headingFont != nil &&
       (headingFont.fontDescriptor.symbolicTraits & NSFontDescriptorTraitBold) != 0;
-    BOOL hasActions = context.subviews.count == 2 &&
+    BOOL hasActions = context.subviews.count == 3 &&
+      [context.previewButton.accessibilityLabel isEqualToString:@"Preview document"] &&
       [context.searchButton.accessibilityLabel isEqualToString:@"Find in file"] &&
       [context.formatButton.accessibilityLabel isEqualToString:@"Format buffer"] &&
       [context.searchButton.toolTip isEqualToString:@"Find in file"] &&
       [context.formatButton.toolTip isEqualToString:@"Format buffer"] &&
       [context.searchButton.image.accessibilityDescription isEqualToString:@"Find in file"] &&
       [context.formatButton.image.accessibilityDescription isEqualToString:@"Format buffer"] &&
+      context.previewButton.frame.size.width == NimculusControlHit &&
       context.searchButton.frame.size.width == NimculusControlHit &&
       context.formatButton.frame.size.width == NimculusControlHit &&
       context.searchButton.frame.origin.y == (NimculusRowHeight - NimculusControlHit) / 2.0 &&
@@ -11702,7 +11723,7 @@ bool nimculus_platform_validate_editor_context_header(void) {
     [context.formatButton performClick:nil];
     BOOL dispatchesFormat = strcmp(g_validation_command, "commandPalette:format document") == 0;
     BOOL valid = [context.stringValue isEqualToString:g_editor_context] &&
-      [[context.stringValue componentsSeparatedByString:@" › "][0]
+      [[context.stringValue componentsSeparatedByString:@" > "][0]
         isEqualToString:@"DEVELOPMENT_GUIDELINES.md"] &&
       context.lineBreakMode == NSLineBreakByTruncatingMiddle &&
       context.frame.size.height == NimculusRowHeight && !context.acceptsFirstResponder &&

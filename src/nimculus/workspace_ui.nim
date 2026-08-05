@@ -88,6 +88,10 @@ proc `==`*(a, b: PaneId): bool {.borrow.}
 
 const
   DefaultLeftDockWidth* = 240'f32
+  ## Zed's right-presented Project Panel reserves 17pt outside its declared
+  ## logical width. Keep this presentation allowance separate from the
+  ## persisted 240pt dock size so the shared workspace model remains honest.
+  RightDockPresentationAllowance* = 17'f32
   DefaultBottomDockHeight* = 260'f32
   ## Zed's logical separator/status surface is presented by AppKit in the
   ## 16pt band above the native 30pt footer. Leave only its two-point Metal
@@ -117,6 +121,15 @@ proc dockPresentationWidth*(logicalWidth, minimumPresenterWidth: float32): float
     0'f32
   else:
     width
+
+proc projectDockPresentationWidth*(logicalWidth, minimumPresenterWidth: float32,
+                                  dockOnRight = false): float32 =
+  ## The native right-side presenter consumes an edge allowance in addition
+  ## to its logical dock width. Left-presented docks remain one-to-one.
+  let adjustedWidth = if dockOnRight:
+      max(0'f32, logicalWidth - RightDockPresentationAllowance)
+    else: logicalWidth
+  dockPresentationWidth(adjustedWidth, minimumPresenterWidth)
 
 proc newPane(id: int, tabIndices: seq[int] = @[], activeTabIndex = -1): PaneTree =
   PaneTree(kind: paneLeaf, pane: PaneState(id: PaneId(id), tabIndices: tabIndices,
@@ -277,7 +290,9 @@ proc dockResizeDivider*(state: WorkspaceUiState, side: DockSide,
   ## Return the visible divider coordinate on its resize axis. Workspace state
   ## stores the Project dock logically on the left; macOS may present it on
   ## the right, as Zed does, without changing that cross-platform ownership.
-  let size = state.dock(side).size
+  let size = if side == dockLeft and dockOnRight:
+      max(0'f32, state.dock(side).size - RightDockPresentationAllowance)
+    else: state.dock(side).size
   case side
   of dockLeft:
     if dockOnRight: max(0'f32, available - size) else: size
@@ -291,7 +306,9 @@ proc dockResizeRequest*(side: DockSide, pointer, available: float32,
   ## from their left edge rather than accidentally using a left-side width.
   case side
   of dockLeft:
-    if dockOnRight: max(0'f32, available - pointer) else: max(0'f32, pointer)
+    if dockOnRight:
+      max(0'f32, available - pointer) + RightDockPresentationAllowance
+    else: max(0'f32, pointer)
   of dockBottom:
     max(0'f32, available - pointer)
 

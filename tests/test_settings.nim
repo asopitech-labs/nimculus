@@ -23,6 +23,11 @@ suite "M12 settings foundation":
     removeFile(workspacePath)
     removeDir(root)
 
+  test "Markdown keeps Zed's language-scoped editor-width wrapping":
+    check softWrapEnabledForPath("DEVELOPMENT_GUIDELINES.md", "none")
+    check not softWrapEnabledForPath("main.nim", "none")
+    check softWrapEnabledForPath("main.nim", "editor_width")
+
   test "publishes a machine-readable settings schema":
     let schema = settingsSchema()
     check schema["$schema"].kind == JString

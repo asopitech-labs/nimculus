@@ -299,8 +299,8 @@ proc setupDemoUi() =
   const MacNativeSidebarMinimumDockWidth = 128'f32
   let nativePresenterMinimum = if MacProjectDockOnRight:
     MacNativeSidebarMinimumDockWidth else: 0'f32
-  let leftDockWidth = dockPresentationWidth(logicalDockWidth,
-    nativePresenterMinimum)
+  let leftDockWidth = projectDockPresentationWidth(logicalDockWidth,
+    nativePresenterMinimum, dockOnRight = MacProjectDockOnRight)
   let sidebarCanPresent = not MacProjectDockOnRight or leftDockWidth > 0'f32
   let bottomDockHeight = float32(workspaceLayout.bottomDock.size.height)
   # Keep the platform projection aligned with WorkspaceUiState: the logical
@@ -4618,6 +4618,9 @@ proc refreshDocumentLanguageSettings() =
     if appSettings.setLanguageId(languageId):
       applySettingsKeymap()
       applySettingsTheme()
+    editorViewState.softWrap = softWrapEnabledForPath(
+      if document == nil: "" else: document[].path,
+      appSettings.softWrapMode())
 
 proc activeEditorCursor(): int =
   ## A split owns two independent views over the same document. Position-based
@@ -8740,8 +8743,9 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     let workspaceViewport = Size(width: px(viewportWidth), height: px(viewportHeight))
     let workspaceLayout = editorWorkspaceUi.layout(workspaceViewport)
     let logicalDockWidth = float32(workspaceLayout.leftDock.size.width)
-    let presentedDockWidth = dockPresentationWidth(logicalDockWidth,
-      if MacProjectDockOnRight: 178'f32 else: 0'f32)
+    let presentedDockWidth = projectDockPresentationWidth(logicalDockWidth,
+      if MacProjectDockOnRight: 128'f32 else: 0'f32,
+      dockOnRight = MacProjectDockOnRight)
     let leftDividerX = editorWorkspaceUi.dockResizeDivider(dockLeft,
       viewportWidth, dockOnRight = MacProjectDockOnRight)
     let bottomDividerY = float32(workspaceLayout.bottomDock.origin.y)

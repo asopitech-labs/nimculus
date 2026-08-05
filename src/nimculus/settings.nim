@@ -101,6 +101,13 @@ type
 
 const DefaultSoftWrapMode* = "none"
 
+proc softWrapEnabledForPath*(path, configuredMode: string): bool =
+  ## Zed's global default is `none`, but Markdown has a language-scoped
+  ## `editor_width` default. Preserve that distinction at the settings edge.
+  if configuredMode in ["editor_width", "bounded"]: return true
+  if configuredMode != DefaultSoftWrapMode: return false
+  splitFile(path).ext.toLowerAscii in [".md", ".markdown"]
+
 proc objectNode(): JsonNode = newJObject()
 
 proc mergeJson*(base, overlay: JsonNode): JsonNode =
