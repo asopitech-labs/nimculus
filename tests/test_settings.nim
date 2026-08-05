@@ -18,6 +18,7 @@ suite "M12 settings foundation":
     check store.intSetting("editor.fontSize", 0) == 16
     check store.intSetting("editor.tabSize", 0) == 4
     check store.stringSetting("themeColors.accent") == "#ff00aa"
+    check store.softWrapMode() == DefaultSoftWrapMode
     removeFile(globalPath)
     removeFile(workspacePath)
     removeDir(root)

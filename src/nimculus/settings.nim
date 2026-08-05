@@ -99,6 +99,8 @@ type
     themeRegistry*: Table[string, ThemeDefinition]
     iconThemeRegistry*: Table[string, IconThemeDefinition]
 
+const DefaultSoftWrapMode* = "none"
+
 proc objectNode(): JsonNode = newJObject()
 
 proc mergeJson*(base, overlay: JsonNode): JsonNode =
@@ -206,6 +208,7 @@ proc settingsSchema*(): JsonNode =
         "insertSpaces": {"type": "boolean"}
     }},
     "theme": {"type": "string"},
+    "soft_wrap": {"type": "string", "enum": ["none", "editor_width", "bounded"]},
     "iconTheme": {"type": "string"},
     "themes": {"type": "object", "additionalProperties": {"type": "object"}},
     "iconThemes": {"type": "object", "additionalProperties": {"type": "object"}},
@@ -550,6 +553,13 @@ proc values*(store: SettingsStore): JsonNode =
 
 proc stringSetting*(store: SettingsStore, path: string; fallback = ""): string =
   jsonStringAt(store.values, path, fallback)
+
+proc softWrapMode*(store: SettingsStore): string =
+  ## Zed's factory default is the explicit string "none". Keep the setting
+  ## value visible at the settings boundary instead of inferring it from a
+  ## boolean view default.
+  let mode = store.stringSetting("soft_wrap", DefaultSoftWrapMode)
+  if mode in ["none", "editor_width", "bounded"]: mode else: DefaultSoftWrapMode
 
 proc intSetting*(store: SettingsStore, path: string, fallback: int): int =
   jsonIntAt(store.values, path, fallback)

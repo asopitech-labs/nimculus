@@ -147,9 +147,9 @@ var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 var demoSecondaryEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 var demoBottomDockBounds = Rect(size: Size(width: px(0), height: px(0)))
   # Match Zed's default macOS workspace: the Files panel is the outermost
-  # workspace surface. Panel navigation lives in the status bar, not beside
-  # the dock, so the logical left dock maps directly to the native sidebar.
-const MacProjectDockOnRight = false
+  # workspace surface on the right. Panel navigation lives in the status bar,
+  # while the logical left dock state is projected to the native right sidebar.
+const MacProjectDockOnRight = true
 when defined(macosx) or defined(windows):
   var appSettings: SettingsStore
   var editorLspSemanticTokens: seq[LspSemanticToken]
@@ -320,14 +320,14 @@ proc setupDemoUi() =
   # created a dead strip between the native Files panel and editor chrome.
   let editorWidth = contentWidth
   # The app-owned titlebar is outside this Metal view. Zed's document chrome
-  # has one 32pt tab row directly below it; the old breadcrumb row created an
-  # extra painted band and shifted the editor 28pt too far down.
+  # has a 32pt tab row followed by a 28pt breadcrumb row.
   const EditorTabStripHeight = 32'f32
-  const EditorTopInset = EditorTabStripHeight
-  # The status bar is the only persistent chrome below the editor. Align the
-  # editor's bottom edge directly with the logical status-panel top; an extra
-  # gutter here becomes a visible blank strip between the editor and footer.
-  const EditorBottomInset = DefaultStatusHeight
+  const EditorBreadcrumbHeight = 28'f32
+  const EditorTopInset = EditorTabStripHeight + EditorBreadcrumbHeight
+  # The native full-size content view leaves a 14pt AppKit presentation gap
+  # between the Metal metrics viewport and the visible status band. Extend the
+  # retained editor surface across that gap so the document ends at 745pt.
+  const EditorBottomInset = -12'f32
   let editorHeight = max(0'f32, float32(workspaceLayout.center.size.height) -
     EditorTopInset - EditorBottomInset)
   let editor = Rect(origin: Point(x: px(contentX), y: px(EditorTopInset)),
@@ -392,6 +392,12 @@ proc setupDemoUi() =
       size: Size(width: px(max(0'f32, viewportWidth - leftDockWidth)), height: px(1))))
   paint.drawWorkspacePanel(workspaceLayout.status)
   if hasDocument:
+    # The breadcrumb shares the editor surface with the text presenter. Keep
+    # its fill in the retained Metal scene so the native row never exposes
+    # the workspace background between the tab strip and the document.
+    paint.drawEditorBackground(Rect(origin: Point(x: px(contentX),
+        y: px(EditorTabStripHeight)),
+      size: Size(width: px(contentWidth), height: px(EditorBreadcrumbHeight))))
     paint.drawEditorBackground(primaryEditor)
     if demoSplitEnabled:
       paint.drawEditorBackground(secondaryEditor)
@@ -1122,7 +1128,7 @@ when defined(macosx):
       hierarchy = breadcrumbSymbolsAtCursor(
         if pendingLspSymbols.len > 0: pendingLspSymbols else: pendingSyntaxSymbols,
         if pendingLspSymbols.len > 0: pendingLspSymbolDepths else: @[], cursorLine)
-    if hierarchy.len > 0: filename & " › " & hierarchy.join(" › ") else: filename
+    if hierarchy.len > 0: filename & " > " & hierarchy.join(" > ") else: filename
 
   proc gitRepositoryForDocument(document: ptr FileDocument): GitRepository =
     # Zed's Git panel is owned by a workspace repository, not by an editor
