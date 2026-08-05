@@ -319,16 +319,11 @@ proc setupDemoUi() =
   # The dock and center share a hard boundary. Keeping an extra 28pt here
   # created a dead strip between the native Files panel and editor chrome.
   let editorWidth = contentWidth
-  # Keep a compact Zed-like workspace header. The AppKit traffic lights sit
-  # over the app-owned titlebar, while this Metal view remains the content
-  # region below it. Breadcrumb, tabs, and text occupy the first 56pt of the
-  # workspace in sequence.
-  # The native tab strip occupies the first 28pt of the editor surface. Keep
-  # the text viewport below it instead of treating the pane's outer rectangle
-  # as editable content: otherwise the first rendered line can appear behind
-  # tabs and a resized pane has no unambiguous bottom boundary.
-  const EditorTabStripHeight = 28'f32
-  const EditorTopInset = 28'f32 + EditorTabStripHeight
+  # The app-owned titlebar is outside this Metal view. Zed's document chrome
+  # has one 32pt tab row directly below it; the old breadcrumb row created an
+  # extra painted band and shifted the editor 28pt too far down.
+  const EditorTabStripHeight = 32'f32
+  const EditorTopInset = EditorTabStripHeight
   # The status bar is the only persistent chrome below the editor. Align the
   # editor's bottom edge directly with the logical status-panel top; an extra
   # gutter here becomes a visible blank strip between the editor and footer.

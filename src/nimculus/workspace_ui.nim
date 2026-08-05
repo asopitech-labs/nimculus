@@ -89,7 +89,9 @@ proc `==`*(a, b: PaneId): bool {.borrow.}
 const
   DefaultLeftDockWidth* = 240'f32
   DefaultBottomDockHeight* = 260'f32
-  DefaultStatusHeight* = 22'f32
+  ## Zed's bottom status surface occupies 30pt in the full-window capture.
+  ## Keep the logical layout and the native footer on the same boundary.
+  DefaultStatusHeight* = 30'f32
   DefaultDockMinimumSize* = 160'f32
   MinimumCenterWidth* = 360'f32
   MinimumCenterHeight* = 180'f32

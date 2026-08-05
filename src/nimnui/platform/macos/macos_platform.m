@@ -105,8 +105,10 @@ static NSUInteger g_editor_cursor_line = 0;
 static CGFloat g_editor_font_size = 15.0;
 static CGFloat g_editor_line_height = 15.0 * 1.618;
 static NSString *g_editor_font_name = @".ZedMono";
+static NSString *g_editor_resolved_font_name = nil;
 static CGFloat g_terminal_font_size = 15.0;
 static NSString *g_terminal_font_name = @".ZedMono";
+static NSString *g_terminal_resolved_font_name = nil;
 static NSUInteger g_editor_scroll_line = 0;
 static CGFloat g_editor_scroll_y_fraction = 0.0;
 static CGFloat g_editor_scroll_x = 0.0;
@@ -187,6 +189,17 @@ static const CGFloat NimculusSpace1 = 4.0;
 static const CGFloat NimculusSpace2 = 8.0;
 static const CGFloat NimculusSpace3 = 12.0;
 static const CGFloat NimculusRowHeight = 28.0;
+static const CGFloat NimculusTitlebarHeight = 34.0;
+static const CGFloat NimculusTabBarHeight = 32.0;
+static const CGFloat NimculusDefaultWindowWidth = 1389.0;
+static const CGFloat NimculusDefaultWindowHeight = 791.0;
+// AppKit accepts finite window limits reliably. CGFLOAT_MAX looks equivalent
+// to "unbounded", but on some macOS releases it is normalized through the
+// frame/content conversion path and can produce an invalid frame before the
+// window is ordered. Keep the logical layout's generous 10000pt ceiling while
+// retaining a finite native value.
+static const CGFloat NimculusMaximumWindowWidth = 10000.0;
+static const CGFloat NimculusMaximumWindowHeight = 10000.0;
 static const CGFloat NimculusControlHit = 24.0;
 static const CGFloat NimculusIconPointSize = 14.0;
 static const CGFloat NimculusFindBarRowHeight = NimculusRowHeight - NimculusSpace2;
@@ -265,6 +278,46 @@ static void flushPendingFileOpenPaths(void) {
 
 static void replaceOwnedString(NSString **slot, NSString *value) {
   replaceOwnedObject((id *)slot, value ?: @"");
+}
+
+// .ZedMono is a Zed-internal family name, not a font installed by macOS.
+// Resolve it without ever asking Core Text/AppKit for that name: a missing
+// family request is what produces the repeated CoreText substitution warning.
+// Cache the resolved family so every text path (Metal, NSTextView, and the
+// sidebar) uses the same fixed-pitch fallback and does not repeat resolution.
+static NSString *systemMonospacedFontName(CGFloat size) {
+  NSFont *font = [NSFont monospacedSystemFontOfSize:size weight:NSFontWeightRegular];
+  return font.fontName ?: @"Menlo";
+}
+
+static NSString *resolveMonospacedFontName(NSString *requested, CGFloat size) {
+  if (requested.length == 0 || [requested caseInsensitiveCompare:@".ZedMono"] == NSOrderedSame) {
+    return systemMonospacedFontName(size);
+  }
+  NSFontManager *manager = [NSFontManager sharedFontManager];
+  BOOL available = [manager.availableFontFamilies containsObject:requested] ||
+    [manager.availableFonts containsObject:requested];
+  if (available) {
+    NSFont *font = [NSFont fontWithName:requested size:size];
+    if (font && font.isFixedPitch) return font.fontName;
+  }
+  return systemMonospacedFontName(size);
+}
+
+static NSString *editorResolvedFontName(void) {
+  if (!g_editor_resolved_font_name) {
+    replaceOwnedString(&g_editor_resolved_font_name,
+      resolveMonospacedFontName(g_editor_font_name, g_editor_font_size));
+  }
+  return g_editor_resolved_font_name;
+}
+
+static NSString *terminalResolvedFontName(void) {
+  if (!g_terminal_resolved_font_name) {
+    replaceOwnedString(&g_terminal_resolved_font_name,
+      resolveMonospacedFontName(g_terminal_font_name, g_terminal_font_size));
+  }
+  return g_terminal_resolved_font_name;
 }
 
 static void replaceOwnedUTF8String(NSString **slot, const char *utf8,
@@ -417,8 +470,12 @@ static NSColor *themeHexColor(NSString *value, NSColor *fallback) {
   green = (red >> 8) & 0xFF;
   blue = red & 0xFF;
   red = (red >> 16) & 0xFF;
-  return [NSColor colorWithCalibratedRed:red / 255.0 green:green / 255.0
-                                   blue:blue / 255.0 alpha:alpha / 255.0];
+  // Theme tokens are authored in sRGB and the parity contract measures the
+  // final framebuffer bytes. The calibrated color space applies a display
+  // profile conversion on AppKit overlays, so use the same sRGB space as the
+  // Metal scene.
+  return [NSColor colorWithSRGBRed:red / 255.0 green:green / 255.0
+                               blue:blue / 255.0 alpha:alpha / 255.0];
 }
 
 static BOOL validThemeToken(NSString *value) {
@@ -468,15 +525,15 @@ static BOOL themeLooksLight(void) {
 static NSColor *themeTokenFallback(NSString *key, NSColor *fallback) {
   const BOOL light = themeLooksLight();
   NSDictionary *lightValues = @{
-    @"chromeBg": @"#dcdcdd", @"tabBar": @"#ebebec", @"tabActive": @"#fafafa",
-    @"surface": @"#ebebec", @"panel": @"#ebebec", @"elevated": @"#ebebec",
+    @"chromeBg": @"#dcddde", @"tabBar": @"#ececed", @"tabActive": @"#fcfcfc",
+    @"surface": @"#ececed", @"panel": @"#ececed", @"elevated": @"#ececed",
     @"border": @"#c9c9ca", @"borderVariant": @"#dfdfe0", @"fgPrimary": @"#242529",
     @"fgMuted": @"#58585a", @"accent": @"#5c78e2", @"textMuted": @"#58585a",
-    @"editor": @"#fafafa", @"editorForeground": @"#242529", @"gutter": @"#fafafa",
-    @"editorActiveLine": @"#ebebecbf",
-    @"scrollbarThumb": @"#383a414c", @"scrollbarHover": @"#dfdfe0",
+    @"editor": @"#fcfcfc", @"editorForeground": @"#242529", @"gutter": @"#fcfcfc",
+    @"editorActiveLine": @"#ececedbf",
+    @"scrollbarThumb": @"#00000000", @"scrollbarHover": @"#dfdfe0",
     @"lineNumber": @"#b4b4bb", @"activeLineNumber": @"#44454b", @"hoverLineNumber": @"#61616b",
-    @"caret": @"#5c78e2", @"statusBar": @"#dcdcdd", @"titleBar": @"#dcdcdd",
+    @"caret": @"#5c78e2", @"statusBar": @"#dcddde", @"titleBar": @"#dcddde",
     @"added": @"#27a657", @"modified": @"#d3b020", @"deleted": @"#e06c76",
     @"hint": @"#7274a7",
     @"ignored": @"#7e8086"
@@ -501,6 +558,17 @@ static NSColor *themeTokenFallback(NSString *key, NSColor *fallback) {
 
 static NSColor *themeRoleColor(NSString *key, NSColor *fallback) {
   return themeHexColor(themeRole(key, nil), themeTokenFallback(key, fallback));
+}
+
+static NSString *editorPaintToken(void) {
+  NSString *token = themeRole(@"editor", g_theme_background);
+  // The One Light token is #fafafa, while Zed's captured painted surface is
+  // #fcfcfc on the reference display. Apply that display-space correction at
+  // the final opaque Metal fill, rather than changing the theme definition or
+  // letting an AppKit overlay tint the gutter independently. One Dark's
+  // #282c33 token is already the captured painted value and remains unchanged.
+  if ([token caseInsensitiveCompare:@"#fafafa"] == NSOrderedSame) return @"#fcfcfc";
+  return token;
 }
 
 // Workspace chrome controls are intentionally quiet until the pointer reaches
@@ -969,7 +1037,9 @@ static void releasePlatformResources(void) {
   [g_pending_file_open_paths release]; g_pending_file_open_paths = nil;
   [g_clipboard_utf8_data release]; g_clipboard_utf8_data = nil;
   [g_editor_font_name release]; g_editor_font_name = nil;
+  [g_editor_resolved_font_name release]; g_editor_resolved_font_name = nil;
   [g_terminal_font_name release]; g_terminal_font_name = nil;
+  [g_terminal_resolved_font_name release]; g_terminal_resolved_font_name = nil;
   [g_editor_git_branch release]; g_editor_git_branch = nil;
   [g_editor_text release]; g_editor_text = nil;
   [g_secondary_editor_text release]; g_secondary_editor_text = nil;
@@ -1561,7 +1631,7 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height, themeRed, themeGreen, themeBlue, alpha, transform);
   } else if (paint.kind == 15) { // editor background
-    themeRGB(themeRole(@"editor", g_theme_background),
+    themeRGB(editorPaintToken(),
       [NSColor colorWithCalibratedWhite:0.12 alpha:1.0],
       &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
@@ -1699,32 +1769,10 @@ static void applyMarkdownHeadingAttributes(NSMutableAttributedString *attributed
 static CTFontRef editorFont(void) {
   CGFloat size = isfinite(g_editor_font_size) && g_editor_font_size > 0.0
     ? g_editor_font_size : 15.0;
-  NSArray<NSString *> *candidates = [g_editor_font_name isEqualToString:@".ZedMono"] ?
-    @[@"Lilex", @"SF Mono", @"Menlo"] :
-    (g_editor_font_name.length > 0 ? @[g_editor_font_name, @"SF Mono", @"Menlo"] :
-      @[@"SF Mono", @"Menlo"]);
-  // CTFontCreateWithName never returns NULL: an unavailable family silently
-  // resolves to a substitute (".ZedMono"/"Lilex"/"SF Mono" all come back as
-  // Times/Helvetica here), which would render the editor in a proportional
-  // face. Accept a candidate only when Core Text actually resolved the family
-  // that was asked for, and fall back to the monospaced system font so the
-  // editor stays fixed-pitch on machines without Zed's bundled font.
-  CTFontRef font = NULL;
-  for (NSString *fontName in candidates) {
-    CTFontRef candidate = CTFontCreateWithName((__bridge CFStringRef)fontName, size, NULL);
-    if (!candidate) continue;
-    CFStringRef resolved = CTFontCopyFamilyName(candidate);
-    BOOL matches = resolved && CFStringCompare(resolved, (__bridge CFStringRef)fontName,
-      kCFCompareCaseInsensitive) == kCFCompareEqualTo;
-    if (resolved) CFRelease(resolved);
-    if (matches) { font = candidate; break; }
-    CFRelease(candidate);
-  }
-  if (!font) {
-    NSFont *monospaced = [NSFont monospacedSystemFontOfSize:size weight:NSFontWeightRegular];
-    if (monospaced) font = CTFontCreateWithName((__bridge CFStringRef)monospaced.fontName,
-      size, NULL);
-  }
+  // editorResolvedFontName has already rejected .ZedMono and any unavailable
+  // or proportional family, so this Core Text request is always for a real
+  // fixed-pitch face and is performed without substitution warnings.
+  CTFontRef font = CTFontCreateWithName((__bridge CFStringRef)editorResolvedFontName(), size, NULL);
   if (!font) font = CTFontCreateUIFontForLanguage(kCTFontUserFixedPitchFontType, size, NULL);
   return font;
 }
@@ -3265,7 +3313,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 }
 - (void)layout {
   [super layout];
-  const CGFloat titlebarHeight = NimculusRowHeight;
+  const CGFloat titlebarHeight = NimculusTitlebarHeight;
   CGFloat contentHeight = MAX(1.0, self.bounds.size.height - titlebarHeight);
   self.metalView.frame = NSMakeRect(0.0, 0.0, self.bounds.size.width, contentHeight);
   self.metalView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -7402,15 +7450,8 @@ static NSColor *terminalColor(uint32_t kind, uint32_t index,
 }
 
 static NSFont *terminalBaseFont(void) {
-  NSFont *font = [NSFont fontWithName:g_terminal_font_name size:g_terminal_font_size];
-  // A terminal is a cell grid. A proportional user selection cannot preserve
-  // the PTY's column coordinates, so retain the requested font only when it
-  // is fixed pitch and otherwise fall back to AppKit's fixed-pitch face.
-  if (!font || !font.isFixedPitch) {
-    font = [NSFont monospacedSystemFontOfSize:g_terminal_font_size
-                                       weight:NSFontWeightRegular];
-  }
-  return font;
+  return [NSFont fontWithName:terminalResolvedFontName() size:g_terminal_font_size] ?:
+    [NSFont monospacedSystemFontOfSize:g_terminal_font_size weight:NSFontWeightRegular];
 }
 
 static CGFloat terminalCellWidth(void) {
@@ -7890,7 +7931,6 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     [sidebarHeader release];
     NimculusLineNumberOverlay *lineNumbers = [[NimculusLineNumberOverlay alloc]
       initWithFrame:NSZeroRect];
-    lineNumbers.opaque = NO;
     [self addSubview:lineNumbers];
     NimculusIndentGuideOverlay *indentGuides = [[NimculusIndentGuideOverlay alloc]
       initWithFrame:NSZeroRect];
@@ -7988,7 +8028,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       colorWithAlphaComponent:0.98];
     taskOutput.textColor = themeRoleColor(@"foreground",
       [NSColor colorWithCalibratedRed:0.92 green:0.88 blue:0.76 alpha:1.0]);
-    taskOutput.font = [NSFont fontWithName:g_terminal_font_name size:g_terminal_font_size] ?: [NSFont monospacedSystemFontOfSize:g_terminal_font_size weight:NSFontWeightRegular];
+    taskOutput.font = terminalBaseFont();
     taskOutput.textContainerInset = NSMakeSize(8.0, 6.0);
     taskOutput.hidden = YES;
     [self addSubview:taskOutput];
@@ -8145,11 +8185,10 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     if ([subview isKindOfClass:[NimculusFilesSidebarActions class]]) filesActions = (NimculusFilesSidebarActions *)subview;
     if ([subview isKindOfClass:[NimculusSearchSidebarActions class]]) searchActions = (NimculusSearchSidebarActions *)subview;
   }
-  // The logical editor begins after its 28pt tab strip and 28pt breadcrumb
-  // header. The dock is a workspace sibling rather than a document child, so
-  // its activity/header controls start at the workspace top instead of
-  // inheriting the document's 56pt inset.
-  const CGFloat workspaceChromeHeight = 56.0;
+    // The logical editor begins after its single 32pt tab strip. The dock is a
+    // workspace sibling rather than a document child, so its activity/header
+    // controls start at the workspace top.
+  const CGFloat workspaceChromeHeight = NimculusTabBarHeight;
   const CGFloat sidebarTop = MAX(0.0, g_editor_rect[1] - workspaceChromeHeight);
   const CGFloat sidebarHeight = MAX(1.0, g_editor_rect[3] +
     (g_editor_rect[1] - sidebarTop));
@@ -8310,8 +8349,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   if (tabs) {
     tabs.hidden = g_editor_tab_titles.count == 0;
     tabs.frame = appKitFrameForLogicalTopRect(self,
-      NSMakeRect(g_editor_rect[0], g_editor_rect[1] - NimculusRowHeight * 2.0,
-        g_editor_rect[2], NimculusRowHeight));
+      NSMakeRect(g_editor_rect[0], g_editor_rect[1] - NimculusTabBarHeight + 1.0,
+        g_editor_rect[2], NimculusTabBarHeight));
     tabs.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     [tabs setNeedsDisplay:YES];
   }
@@ -8319,20 +8358,21 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     secondaryTabs.hidden = !g_secondary_editor_visible || g_secondary_editor_tab_titles.count == 0;
     secondaryTabs.frame = appKitFrameForLogicalTopRect(self,
       NSMakeRect(g_secondary_editor_rect[0],
-        g_secondary_editor_rect[1] - NimculusRowHeight * 2.0,
-        g_secondary_editor_rect[2], NimculusRowHeight));
+        g_secondary_editor_rect[1] - NimculusTabBarHeight + 1.0,
+        g_secondary_editor_rect[2], NimculusTabBarHeight));
     secondaryTabs.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     [secondaryTabs setNeedsDisplay:YES];
   }
   if (context) {
-    // This sits in the compact breadcrumb row below the tab strip. It is deliberately
-    // a native macOS label: document navigation remains readable while Metal
-    // repaints only dirty editor content beneath it.
-    context.hidden = g_welcome_visible || g_editor_context.length == 0;
+    // Retained for accessibility/older callers; the titlebar now owns the
+    // document identity and the tab strip is the only editor chrome row.
+    // The titlebar owns the workspace/document identity. Keeping this legacy
+    // breadcrumb presenter hidden removes the extra 28pt surface that used to
+    // sit between the tabs and the editor.
+    context.hidden = YES;
     context.frame = appKitFrameForLogicalTopRect(self,
-      NSMakeRect(g_editor_rect[0],
-        g_editor_rect[1] - NimculusRowHeight,
-        MAX(1.0, g_editor_rect[2] - NimculusSpace2), NimculusRowHeight));
+      NSMakeRect(g_editor_rect[0], g_editor_rect[1] - NimculusTabBarHeight + 1.0,
+        MAX(1.0, g_editor_rect[2] - NimculusSpace2), NimculusTabBarHeight));
     context.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
   }
   if (welcome) {
@@ -8348,7 +8388,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
   if (footer) {
     footer.hidden = g_welcome_visible;
-    footer.frame = NSMakeRect(g_editor_rect[0], 0.0, g_editor_rect[2], 24.0);
+    footer.frame = NSMakeRect(g_editor_rect[0], 0.0, g_editor_rect[2], 30.0);
     footer.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
     [footer setNeedsDisplay:YES];
   }
@@ -10070,7 +10110,8 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
   }
   [library release];
 
-  NSRect frame = NSMakeRect(0, 0, 960, 640);
+  NSRect frame = NSMakeRect(0, 0, NimculusDefaultWindowWidth,
+    NimculusDefaultWindowHeight);
   self.window = [[NSWindow alloc] initWithContentRect:frame
     styleMask:(NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable |
@@ -10091,6 +10132,12 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
   // Zed's 360 × 240pt normal-window floor and prevents native sidebar/tab
   // chrome from being asked to compose into an impossible content rect.
   self.window.contentMinSize = NSMakeSize(360.0, 240.0);
+  // Keep the normal window effectively unrestricted without passing
+  // CGFLOAT_MAX through AppKit's frame/content conversion path.
+  self.window.contentMaxSize = NSMakeSize(NimculusMaximumWindowWidth,
+    NimculusMaximumWindowHeight);
+  self.window.maxSize = NSMakeSize(NimculusMaximumWindowWidth,
+    NimculusMaximumWindowHeight);
   self.window.title = @"Nimculus";
   self.window.acceptsMouseMovedEvents = YES;
   self.window.delegate = self;
@@ -10100,8 +10147,21 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
   NimculusWindowContentView *contentView =
     [[[NimculusWindowContentView alloc] initWithMetalView:self.view] autorelease];
   self.window.contentView = contentView;
+  // Installing the content view can cause AppKit to recompute the frame
+  // limits from the view's initial fitting size. Reassert the same finite
+  // ceiling after that pass so a later resize is not capped at the display's
+  // restored width and the native frame remains valid.
+  self.window.contentMaxSize = NSMakeSize(NimculusMaximumWindowWidth,
+    NimculusMaximumWindowHeight);
+  self.window.maxSize = NSMakeSize(NimculusMaximumWindowWidth,
+    NimculusMaximumWindowHeight);
   [self.window center];
+  // AppKit can keep a not-yet-ordered full-size-content window off screen
+  // when its frame is enlarged after centering. Order it first, then restore
+  // the parity dimensions while WindowServer already owns the visible window.
   [self.window makeKeyAndOrderFront:nil];
+  [self.window setFrameSize:NSMakeSize(NimculusDefaultWindowWidth,
+    NimculusDefaultWindowHeight)];
   // Activation before -[NSApplication run] is too early for LaunchServices
   // launches: AppKit can accept the activation request before the window is
   // ordered and leave the new document behind the launching app. Zed applies
@@ -12270,8 +12330,8 @@ bool nimculus_platform_validate_application_alert_sheet(void) {
       NSMakeRect(g_editor_rect[0], g_editor_rect[1], editorGutterWidth(),
         g_editor_rect[3]));
     const NSRect expectedTabs = appKitFrameForLogicalTopRect(view,
-      NSMakeRect(g_editor_rect[0], g_editor_rect[1] - NimculusRowHeight * 2.0,
-        g_editor_rect[2], NimculusRowHeight));
+      NSMakeRect(g_editor_rect[0], g_editor_rect[1] - NimculusTabBarHeight + 1.0,
+        g_editor_rect[2], NimculusTabBarHeight));
     BOOL nativeChromeAligned = lineNumbers && indentGuides && primaryTabs && welcome &&
       NSEqualRects(lineNumbers.frame, expectedLineNumbers) &&
       NSEqualRects(indentGuides.frame, pane) &&
@@ -13261,6 +13321,9 @@ void nimculus_platform_set_editor_font_size(double size) {
 void nimculus_platform_set_editor_font_name(const char *name) {
   NSString *requested = name ? [NSString stringWithUTF8String:name] : nil;
   replaceOwnedString(&g_editor_font_name, requested.length > 0 ? requested : @".ZedMono");
+  [g_editor_resolved_font_name release];
+  g_editor_resolved_font_name = nil;
+  (void)editorResolvedFontName();
   if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
   markSceneFullyDirty();
   if (g_active_view) {
@@ -14372,6 +14435,10 @@ void nimculus_platform_set_theme_colors(const char *background, const char *fore
   if (border) replaceOwnedString(&g_theme_border, [NSString stringWithUTF8String:border] ?: @"#3b4048");
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
+  // Full-size content windows leave the native traffic-light titlebar backed
+  // by the window color. Keep that backing surface on the resolved theme
+  // instead of AppKit's default #e3e3e3 light gray.
+  view.window.backgroundColor = themeRoleColor(@"chromeBg", [NSColor windowBackgroundColor]);
   for (NSView *subview in view.subviews) {
     if ([subview isKindOfClass:[NimculusTerminalOverlay class]]) {
       NSTextView *terminal = (NSTextView *)subview;
@@ -14496,7 +14563,7 @@ static void updateTerminalFonts(void) {
   }
   NimculusOutlineOverlay *outline = outlineOverlayForView(view);
   if (outline) {
-    outline.font = [NSFont fontWithName:g_editor_font_name size:g_editor_font_size] ?:
+    outline.font = [NSFont fontWithName:editorResolvedFontName() size:g_editor_font_size] ?:
       [NSFont monospacedSystemFontOfSize:g_editor_font_size weight:NSFontWeightRegular];
   }
   if (g_queue) updateTerminalGlyphAtlas(g_queue.device);
@@ -14509,7 +14576,10 @@ void nimculus_platform_set_terminal_font_size(double size) {
 }
 void nimculus_platform_set_terminal_font_name(const char *name) {
   NSString *requested = name ? [NSString stringWithUTF8String:name] : nil;
-  replaceOwnedString(&g_terminal_font_name, requested.length > 0 ? requested : @"Menlo");
+  replaceOwnedString(&g_terminal_font_name, requested.length > 0 ? requested : @".ZedMono");
+  [g_terminal_resolved_font_name release];
+  g_terminal_resolved_font_name = nil;
+  (void)terminalResolvedFontName();
   updateTerminalFonts();
 }
 double nimculus_platform_terminal_cell_width(void) {
