@@ -7562,3 +7562,31 @@ projection receives an unchecked checkbox and stages. Existing keyboard
 navigation, context menus, async Git refresh, and status-list selection remain
 unchanged. The native controls inherit light/dark theme roles and remain
 inspectable by macOS accessibility tooling.
+## M20-XXX: Match Zed's breadcrumb hierarchy and text metrics
+
+The macOS editor breadcrumb now carries the complete Markdown ATX heading
+ancestor chain at the cursor and uses Zed's `›` separator. The AppKit presenter
+renders heading markers in the muted role and heading titles in a bold copy of
+the configured buffer font, rather than using the proportional chrome font.
+Its text origin is explicitly lowered within the 28pt row to match the measured
+Zed capture. Nim emits a plain UTF-8 breadcrumb payload and the macOS layer
+owns font, color, and baseline styling. The native editor-context contract in
+`tests/test_platform_contract.nim` covers the complete hierarchy, separator,
+font, and marker/title styling.
+
+## M20-XXX: Resolve chrome text through Zed's UI scale
+
+The breadcrumb, tab labels, footer status items, panel headers, and panel rows
+must use the configured buffer font family without inheriting the buffer font
+size. Zed's `text_ui(cx)` uses the UI text scale, whose default is 14px, while
+the editor buffer in this acceptance case is 15px. The macOS native chrome now
+shares one UI-font helper for those paths; its 13.6pt AppKit request is the
+Retina raster calibration that produces Zed's 14px columns. Editor and terminal
+content retain their independent configured sizes. Tab content measurement uses
+the same font as painting, and the tab label origin remains lowered to preserve
+the measured row baseline.
+
+Evidence: `references/zed/crates/breadcrumbs/src/breadcrumbs.rs` applies
+`.text_ui(cx)`, `references/zed/crates/editor/src/items.rs` supplies the buffer
+font family, and `references/zed/crates/ui/src/styles/typography.rs` defines
+`TextSize::Default` from 14px.

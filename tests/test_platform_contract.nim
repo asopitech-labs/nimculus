@@ -290,7 +290,7 @@ suite "macOS platform contract":
   test "Git branch context action retains its selected branch row":
     check platformValidateGitBranchContext()
 
-  test "editor header keeps a non-interactive truncated document breadcrumb":
+  test "editor header keeps the complete Zed-shaped document breadcrumb":
     check platformValidateEditorContextHeader()
 
   test "native glyph atlas uploads and reuses visible glyphs":

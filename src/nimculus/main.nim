@@ -1087,7 +1087,10 @@ when defined(macosx):
       if match.name.len > 0: result.add(match.name)
 
   proc markdownBreadcrumbHeadings(source: string, cursorLine: int): seq[string] =
-    var levels: seq[int]
+    ## Keep the complete enclosing ATX heading path, including skipped levels.
+    ## Retaining the heading records makes the ancestor walk explicit and
+    ## prevents a partial breadcrumb from being emitted.
+    var headings: seq[tuple[level: int, text: string]]
     var lineIndex = 0
     for line in source.splitLines:
       if lineIndex > cursorLine: break
@@ -1099,11 +1102,11 @@ when defined(macosx):
           trimmed[level] notin {' ', '\t'}: continue
       let heading = trimmed[level .. ^1].strip
       if heading.len == 0: continue
-      while levels.len > 0 and levels[^1] >= level:
-        levels.setLen(levels.len - 1)
-        result.setLen(result.len - 1)
-      levels.add(level)
-      result.add(trimmed[0 ..< level] & " " & heading)
+      while headings.len > 0 and headings[^1].level >= level:
+        headings.setLen(headings.len - 1)
+      headings.add((level: level, text: trimmed[0 ..< level] & " " & heading))
+    for heading in headings:
+      result.add(heading.text)
 
   proc editorContextText(document: ptr FileDocument): string =
     ## Zed starts the breadcrumb with the complete filename and then follows
@@ -1119,7 +1122,8 @@ when defined(macosx):
       editorSession.displayTitle(editorSession.activeTab)
     if document[].path.len == 0:
       return filename
-    let cursorLine = document[].buffer.lineColumn(editorViewState.cursor).line
+    let cursorLine = max(0, min(document[].buffer.lineStarts.high,
+      document[].buffer.lineColumn(editorViewState.cursor).line))
     var hierarchy: seq[string]
     let extension = splitFile(document[].path).ext.toLowerAscii
     if extension in [".md", ".markdown", ".mdown", ".mkdn"]:
@@ -1128,7 +1132,7 @@ when defined(macosx):
       hierarchy = breadcrumbSymbolsAtCursor(
         if pendingLspSymbols.len > 0: pendingLspSymbols else: pendingSyntaxSymbols,
         if pendingLspSymbols.len > 0: pendingLspSymbolDepths else: @[], cursorLine)
-    if hierarchy.len > 0: filename & " > " & hierarchy.join(" > ") else: filename
+    if hierarchy.len > 0: filename & " › " & hierarchy.join(" › ") else: filename
 
   proc gitRepositoryForDocument(document: ptr FileDocument): GitRepository =
     # Zed's Git panel is owned by a workspace repository, not by an editor

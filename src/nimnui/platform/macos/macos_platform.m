@@ -212,6 +212,12 @@ static const CGFloat NimculusIconPointSize = 14.0;
 static const CGFloat NimculusFindBarRowHeight = NimculusRowHeight - NimculusSpace2;
 static const CGFloat NimculusFindBarRowPadding =
   (NimculusRowHeight - NimculusFindBarRowHeight) / 2.0;
+// The breadcrumb is drawn in a non-flipped NSTextField. Raise its drawing
+// origin within the row to match Zed's measured baseline instead of reusing
+// the top-biased find-row padding that put Nimculus's ink 20 retina pixels too
+// high. The left inset is the measured Zed text start in retina coordinates.
+static const CGFloat NimculusBreadcrumbTextLeft = 12.0;
+static const CGFloat NimculusBreadcrumbTextBottom = 14.0;
 static const NSUInteger NimculusSidebarHeaderLineCount = 2;
 
 static NSString *g_crash_report_path = nil;
@@ -317,6 +323,28 @@ static NSString *editorResolvedFontName(void) {
       resolveMonospacedFontName(g_editor_font_name, g_editor_font_size));
   }
   return g_editor_resolved_font_name;
+}
+
+// Zed's `text_ui(cx)` resolves chrome text at the UI scale independently of
+// the buffer's configured size.  The family still comes from the buffer text
+// style (items.rs supplies that family), so keep the family and weight logic
+// shared while fixing the size at Zed's measured 14px UI default. AppKit/Core
+// Text needs a 13.6pt request on this 2x Retina capture to rasterize the same
+// 14px glyph columns; this is independent of the 15pt editor buffer setting.
+static const CGFloat NimculusUiTextSizePixels = 14.0;
+static const CGFloat NimculusUiTextSize = NimculusUiTextSizePixels * (13.6 / 14.0);
+
+static NSFont *editorUiFontWithWeight(NSFontWeight weight) {
+  NSFont *font = [NSFont fontWithName:editorResolvedFontName()
+    size:NimculusUiTextSize];
+  if (!font) font = [NSFont monospacedSystemFontOfSize:NimculusUiTextSize
+    weight:NSFontWeightRegular];
+  if (weight >= NSFontWeightSemibold) {
+    NSFont *weighted = [[NSFontManager sharedFontManager]
+      convertFont:font toHaveTrait:NSBoldFontMask];
+    if (weighted) font = weighted;
+  }
+  return font;
 }
 
 static NSString *terminalResolvedFontName(void) {
@@ -5138,7 +5166,7 @@ static NSString * const NimculusSearchRegexSVG =
   self.titleLabel.selectable = NO;
   self.titleLabel.bezeled = NO;
   self.titleLabel.drawsBackground = NO;
-  self.titleLabel.font = [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold];
+  self.titleLabel.font = editorUiFontWithWeight(NSFontWeightSemibold);
   self.titleLabel.textColor = themeRoleColor(@"textMuted",
     [NSColor colorWithCalibratedRed:0.92 green:0.88 blue:0.76 alpha:1.0]);
   [self addSubview:self.titleLabel];
@@ -5680,7 +5708,7 @@ static CGFloat tabContentWidth(NSString *title) {
   NSString *label = title ?: @"Untitled";
   BOOL dirty = [label hasSuffix:@" •"];
   if (dirty) label = [label substringToIndex:label.length - 2];
-  NSDictionary *attributes = @{NSFontAttributeName: [NSFont systemFontOfSize:12.0]};
+  NSDictionary *attributes = @{NSFontAttributeName: editorUiFontWithWeight(NSFontWeightRegular)};
   CGFloat labelWidth = [label sizeWithAttributes:attributes].width;
   if (dirty) {
     labelWidth += [@"•" sizeWithAttributes:attributes].width + NimculusSpace1;
@@ -5897,7 +5925,7 @@ static NSColor *activeTabSurfaceColor(void) {
   NSUInteger first = 0, visible = 0;
   visibleTabRange(titles, active, tabAreaWidth, &first, &visible);
   NSDictionary *attributes = @{
-    NSFontAttributeName: [NSFont systemFontOfSize:12.0],
+    NSFontAttributeName: editorUiFontWithWeight(NSFontWeightRegular),
     NSForegroundColorAttributeName: [themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedWhite:0.88 alpha:1.0])) colorWithAlphaComponent:0.92]
   };
@@ -5915,17 +5943,17 @@ static NSColor *activeTabSurfaceColor(void) {
     CGFloat labelX = x + NimculusSpace3;
     if (dirty) {
       NSDictionary *dirtyAttributes = @{
-        NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightMedium],
+        NSFontAttributeName: editorUiFontWithWeight(NSFontWeightMedium),
         NSForegroundColorAttributeName: themeRoleColor(@"textAccent",
           themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
             [NSColor colorWithCalibratedWhite:0.88 alpha:1.0])))
       };
-      [@"•" drawAtPoint:NSMakePoint(labelX, 6.0) withAttributes:dirtyAttributes];
+      [@"•" drawAtPoint:NSMakePoint(labelX, 9.0) withAttributes:dirtyAttributes];
       labelX += [@"•" sizeWithAttributes:dirtyAttributes].width + NimculusSpace1;
     }
-    NSRect titleRect = NSMakeRect(labelX, 5.0,
+    NSRect titleRect = NSMakeRect(labelX, 8.0,
       MAX(12.0, x + tabWidth - NimculusSpace3 - NimculusControlHit - labelX),
-      self.bounds.size.height - 8.0);
+      self.bounds.size.height - 11.0);
     [title drawWithRect:titleRect options:NSStringDrawingTruncatesLastVisibleLine |
       NSStringDrawingUsesLineFragmentOrigin attributes:attributes context:nil];
     if (index == self.hoveredTabIndex) {
@@ -6159,7 +6187,7 @@ static NSColor *activeTabSurfaceColor(void) {
     button.attributedTitle = [[[NSAttributedString alloc] initWithString:entry[0]
       attributes:@{NSForegroundColorAttributeName: primary ? NSColor.whiteColor :
           themeHexColor(g_theme_foreground, [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]),
-        NSFontAttributeName: [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium]}] autorelease];
+        NSFontAttributeName: editorUiFontWithWeight(NSFontWeightMedium)}] autorelease];
     [stack addArrangedSubview:button];
     [[button.widthAnchor constraintEqualToConstant:260.0] setActive:YES];
     [[button.heightAnchor constraintEqualToConstant:34.0] setActive:YES];
@@ -6192,7 +6220,7 @@ static NSColor *activeTabSurfaceColor(void) {
   [self.titleIcon.heightAnchor constraintEqualToConstant:16.0].active = YES;
   [self addArrangedSubview:self.titleIcon];
   self.titleLabel = [NSTextField labelWithString:@""];
-  self.titleLabel.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightSemibold];
+  self.titleLabel.font = editorUiFontWithWeight(NSFontWeightSemibold);
   self.titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
   self.titleLabel.translatesAutoresizingMaskIntoConstraints = NO;
   [self.titleLabel setContentHuggingPriority:NSLayoutPriorityDefaultHigh
@@ -6718,7 +6746,7 @@ static void styleFooterStatusButton(NimculusFooterStatusButton *button, BOOL ima
       [NSColor colorWithCalibratedWhite:0.86 alpha:1.0]));
     button.attributedTitle = [[[NSAttributedString alloc] initWithString:button.title ?: @""
       attributes:@{NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.90],
-        NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightMedium]}]
+        NSFontAttributeName: editorUiFontWithWeight(NSFontWeightMedium)}]
       autorelease];
   }
   NSRect titleRect = [button.attributedTitle boundingRectWithSize:
@@ -7165,9 +7193,9 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
   if (self.attributedStringValue.length == 0) return;
   const CGFloat actionWidth = (NimculusControlHit * 3.0) +
     (NimculusSpace1 * 4.0);
-  NSRect textRect = NSMakeRect(0.0, NimculusFindBarRowPadding,
-    MAX(1.0, self.bounds.size.width - actionWidth),
-    MAX(1.0, self.bounds.size.height - NimculusFindBarRowPadding * 2.0));
+  NSRect textRect = NSMakeRect(NimculusBreadcrumbTextLeft, NimculusBreadcrumbTextBottom,
+    MAX(1.0, self.bounds.size.width - actionWidth - NimculusBreadcrumbTextLeft),
+    MAX(1.0, self.bounds.size.height - NimculusBreadcrumbTextBottom));
   [self.attributedStringValue drawWithRect:textRect
     options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading context:nil];
 }
@@ -7180,29 +7208,48 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
     [NSColor colorWithCalibratedWhite:0.90 alpha:1.0])) colorWithAlphaComponent:0.90];
   const CGFloat actionWidth = (NimculusControlHit * 3.0) +
     (NimculusSpace1 * 4.0);
-  CGFloat fontSize = 12.0;
-  CGFloat availableWidth = MAX(1.0, self.bounds.size.width - actionWidth);
-  while (fontSize > 10.0 && [text sizeWithAttributes:@{
-      NSFontAttributeName: [NSFont systemFontOfSize:fontSize weight:NSFontWeightSemibold]
-    }].width > availableWidth) {
-    fontSize -= 0.25;
-  }
-  NSFont *regularFont = [NSFont systemFontOfSize:fontSize weight:NSFontWeightRegular];
-  NSFont *headingFont = [NSFont systemFontOfSize:fontSize weight:NSFontWeightSemibold];
+  NSFont *regularFont = editorUiFontWithWeight(NSFontWeightRegular);
+  NSFont *headingFont = editorUiFontWithWeight(NSFontWeightSemibold);
   NSMutableAttributedString *styled = [[[NSMutableAttributedString alloc] init]
     autorelease];
-  NSArray<NSString *> *components = [text componentsSeparatedByString:@" > "];
+  NSArray<NSString *> *components = [text componentsSeparatedByString:@" › "];
   for (NSUInteger index = 0; index < components.count; index++) {
     if (index > 0) {
-      [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:@" > "
+      [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:@" › "
         attributes:@{NSForegroundColorAttributeName: muted,
           NSFontAttributeName: regularFont}] autorelease]];
     }
     NSString *component = components[index];
-    BOOL isHeading = [component hasPrefix:@"#"];
+    if ([component hasPrefix:@"#"]) {
+      NSUInteger markerLength = 0;
+      while (markerLength < component.length &&
+          [component characterAtIndex:markerLength] == '#') markerLength++;
+      NSUInteger titleStart = markerLength;
+      while (titleStart < component.length &&
+          ([component characterAtIndex:titleStart] == ' ' ||
+           [component characterAtIndex:titleStart] == '\t')) titleStart++;
+      if (markerLength > 0 && titleStart < component.length) {
+        NSString *marker = [component substringToIndex:markerLength];
+        NSString *spacing = [component substringWithRange:NSMakeRange(markerLength,
+          titleStart - markerLength)];
+        NSString *title = [component substringFromIndex:titleStart];
+        [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:marker
+          attributes:@{NSForegroundColorAttributeName: muted,
+            NSFontAttributeName: regularFont}] autorelease]];
+        if (spacing.length > 0) {
+          [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:spacing
+            attributes:@{NSForegroundColorAttributeName: muted,
+              NSFontAttributeName: regularFont}] autorelease]];
+        }
+        [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:title
+          attributes:@{NSForegroundColorAttributeName: heading,
+            NSFontAttributeName: headingFont}] autorelease]];
+        continue;
+      }
+    }
     [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:component
-      attributes:@{NSForegroundColorAttributeName: isHeading ? heading : muted,
-        NSFontAttributeName: isHeading ? headingFont : regularFont}] autorelease]];
+      attributes:@{NSForegroundColorAttributeName: muted,
+        NSFontAttributeName: regularFont}] autorelease]];
   }
   NSMutableParagraphStyle *paragraph = [[[NSMutableParagraphStyle alloc] init] autorelease];
   paragraph.lineBreakMode = NSLineBreakByClipping;
@@ -7383,7 +7430,7 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
   rowStyle.maximumLineHeight = 24.0;
   NSMutableAttributedString *presented = [[NSMutableAttributedString alloc]
     initWithString:text attributes:@{
-      NSFontAttributeName: [NSFont systemFontOfSize:13.0],
+      NSFontAttributeName: editorUiFontWithWeight(NSFontWeightRegular),
       NSForegroundColorAttributeName: foreground,
       NSParagraphStyleAttributeName: rowStyle
     }];
@@ -7417,7 +7464,7 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
           [presented addAttribute:NSAttachmentAttributeName value:attachment range:marker];
         } else {
           [presented addAttributes:@{
-            NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightMedium],
+            NSFontAttributeName: editorUiFontWithWeight(NSFontWeightMedium),
             NSForegroundColorAttributeName: themeRoleColor(@"textMuted", foreground)
           } range:marker];
         }
@@ -7438,7 +7485,7 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
           [presented addAttribute:NSAttachmentAttributeName value:attachment range:marker];
         } else {
           [presented addAttributes:@{
-            NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightMedium],
+            NSFontAttributeName: editorUiFontWithWeight(NSFontWeightMedium),
             NSForegroundColorAttributeName: themeRoleColor(@"textMuted", foreground)
           } range:marker];
         }
@@ -7451,7 +7498,7 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
         // row. Keep them quiet and semibold so the three change groups scan
         // like Zed's collapsible sections without pretending to be a status.
         [presented addAttributes:@{
-          NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightSemibold],
+          NSFontAttributeName: editorUiFontWithWeight(NSFontWeightSemibold),
           NSForegroundColorAttributeName: themeRoleColor(@"textMuted", foreground)
         } range:range];
       } else {
@@ -7471,7 +7518,7 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
           NSUInteger directoryStart = firstSeparator.location + firstSeparator.length;
           if (directoryStart < secondSeparator.location) {
             [presented addAttributes:@{
-              NSFontAttributeName: [NSFont systemFontOfSize:12.0],
+              NSFontAttributeName: editorUiFontWithWeight(NSFontWeightRegular),
               NSForegroundColorAttributeName: themeRoleColor(@"textMuted",
                 themeRoleColor(@"fgMuted", foreground))
             } range:NSMakeRange(range.location + directoryStart,
@@ -7482,8 +7529,7 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
             [status isEqualToString:@"-"] ? @"deleted" :
             [status isEqualToString:@"!"] ? @"conflict" : @"modified";
           [presented addAttributes:@{
-            NSFontAttributeName: [NSFont monospacedSystemFontOfSize:12.0
-              weight:NSFontWeightSemibold],
+            NSFontAttributeName: editorUiFontWithWeight(NSFontWeightSemibold),
             NSForegroundColorAttributeName: themeRoleColor(role,
               themeRoleColor(@"textMuted", foreground))
           } range:NSMakeRange(range.location + statusRange.location, 1)];
@@ -7493,7 +7539,7 @@ static void applySidebarPresentation(NimculusOutlineOverlay *outline) {
       // Commit hashes are stable scan anchors; distinguish them from the
       // subject/author without making history rows multi-line and ambiguous.
       [presented addAttributes:@{
-        NSFontAttributeName: [NSFont monospacedSystemFontOfSize:12.0 weight:NSFontWeightMedium],
+        NSFontAttributeName: editorUiFontWithWeight(NSFontWeightMedium),
         NSForegroundColorAttributeName: themeRoleColor(@"accent", foreground)
       } range:NSMakeRange(range.location, MIN((NSUInteger)8, range.length))];
     }
@@ -8028,7 +8074,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       colorWithAlphaComponent:0.96];
     outline.textColor = themeRoleColor(@"foreground", themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedRed:0.82 green:0.88 blue:0.92 alpha:1.0]));
-    outline.font = [NSFont systemFontOfSize:13.0];
+    outline.font = editorUiFontWithWeight(NSFontWeightRegular);
     outline.textContainerInset = NSMakeSize(8.0, 8.0);
     outline.horizontallyResizable = NO;
     outline.verticallyResizable = YES;
@@ -8054,7 +8100,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     outlineFilter.accessibilityLabel = @"Filter buffer symbols";
     outlineFilter.toolTip = @"Filter buffer symbols (Esc clears)";
     outlineFilter.delegate = outline;
-    outlineFilter.font = [NSFont systemFontOfSize:13.0];
+    outlineFilter.font = editorUiFontWithWeight(NSFontWeightRegular);
     [self addSubview:outlineFilter];
     [outlineFilter release];
     [outline release];
@@ -8115,7 +8161,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     context.alignment = NSTextAlignmentLeft;
     context.lineBreakMode = NSLineBreakByTruncatingMiddle;
     context.stringValue = g_editor_context;
-    context.font = [NSFont systemFontOfSize:12.0 weight:NSFontWeightMedium];
+    context.font = editorUiFontWithWeight(NSFontWeightRegular);
     context.textColor = [themeRoleColor(@"textMuted", themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0]))
       colorWithAlphaComponent:0.72];
@@ -10472,7 +10518,7 @@ void nimculus_platform_show_external_change(const char *path) {
     [content addSubview:title];
     NSTextField *detail = [[[NSTextField alloc] initWithFrame:NSMakeRect(16.0, 48.0, width - 32.0, 18.0)] autorelease];
     detail.stringValue = [NSString stringWithFormat:@"%@ was changed by another application.", filePath.lastPathComponent];
-    detail.font = [NSFont systemFontOfSize:12.0];
+    detail.font = editorUiFontWithWeight(NSFontWeightRegular);
     detail.lineBreakMode = NSLineBreakByTruncatingMiddle;
     detail.bezeled = NO; detail.drawsBackground = NO; detail.editable = NO; detail.selectable = YES;
     [content addSubview:detail];
@@ -11685,19 +11731,30 @@ bool nimculus_platform_validate_editor_context_header(void) {
   @autoreleasepool {
     NSString *previous = [g_editor_context retain];
     NimculusCommandCallback previousCallback = g_command_callback;
-    replaceOwnedString(&g_editor_context, @"DEVELOPMENT_GUIDELINES.md > # Breadcrumb");
+    replaceOwnedString(&g_editor_context,
+      @"DEVELOPMENT_GUIDELINES.md › # Nimculus 開発ガイドライン › ## 2. 基本原則 › ### 2.1 macOS を先行する");
     NimculusEditorContextOverlay *context = [[NimculusEditorContextOverlay alloc]
       initWithFrame:NSMakeRect(12.0, 480.0, 300.0, NimculusRowHeight)];
     context.stringValue = g_editor_context;
     context.lineBreakMode = NSLineBreakByTruncatingMiddle;
     [context updateBreadcrumbPresentation];
     [context layout];
-    NSRange headingRange = [context.stringValue rangeOfString:@"# Breadcrumb"];
+    NSRange headingRange = [context.stringValue rangeOfString:@"Nimculus 開発ガイドライン"];
     NSFont *headingFont = headingRange.location == NSNotFound ? nil :
       [context.attributedStringValue attribute:NSFontAttributeName
         atIndex:headingRange.location effectiveRange:nil];
     BOOL headingIsEmphasized = headingFont != nil &&
       (headingFont.fontDescriptor.symbolicTraits & NSFontDescriptorTraitBold) != 0;
+    NSRange markerRange = [context.stringValue rangeOfString:@"#"];
+    NSColor *markerColor = markerRange.location == NSNotFound ? nil :
+      [context.attributedStringValue attribute:NSForegroundColorAttributeName
+        atIndex:markerRange.location effectiveRange:nil];
+    NSColor *titleColor = headingRange.location == NSNotFound ? nil :
+      [context.attributedStringValue attribute:NSForegroundColorAttributeName
+        atIndex:headingRange.location effectiveRange:nil];
+    NSFont *breadcrumbFont = [context.attributedStringValue attribute:NSFontAttributeName
+      atIndex:0 effectiveRange:nil];
+    NSFont *bufferFont = editorUiFontWithWeight(NSFontWeightRegular);
     BOOL hasActions = context.subviews.count == 3 &&
       [context.previewButton.accessibilityLabel isEqualToString:@"Preview document"] &&
       [context.searchButton.accessibilityLabel isEqualToString:@"Find in file"] &&
@@ -11717,8 +11774,14 @@ bool nimculus_platform_validate_editor_context_header(void) {
     [context.formatButton performClick:nil];
     BOOL dispatchesFormat = strcmp(g_validation_command, "commandPalette:format document") == 0;
     BOOL valid = [context.stringValue isEqualToString:g_editor_context] &&
-      [[context.stringValue componentsSeparatedByString:@" > "][0]
+      [[context.stringValue componentsSeparatedByString:@" › "][0]
         isEqualToString:@"DEVELOPMENT_GUIDELINES.md"] &&
+      [context.stringValue containsString:@" › ## 2. 基本原則 › ### 2.1 macOS を先行する"] &&
+      [context.stringValue rangeOfString:@" > "].location == NSNotFound &&
+      markerColor != nil && titleColor != nil && ![markerColor isEqual:titleColor] &&
+      breadcrumbFont != nil && bufferFont != nil &&
+      [breadcrumbFont.fontName isEqualToString:bufferFont.fontName] &&
+      fabs(breadcrumbFont.pointSize - NimculusUiTextSize) < 0.001 &&
       context.lineBreakMode == NSLineBreakByTruncatingMiddle &&
       context.frame.size.height == NimculusRowHeight && !context.acceptsFirstResponder &&
       [context hitTest:NSMakePoint(2.0, 2.0)] == nil && headingIsEmphasized &&
@@ -14435,9 +14498,14 @@ bool nimculus_platform_validate_sidebar_presentation(void) {
     NSColor *ignoredColor = ignoredStart != NSNotFound
       ? [sidebar.textStorage attribute:NSForegroundColorAttributeName atIndex:ignoredStart
         effectiveRange:NULL] : nil;
+    NSFont *fileFont = fileStart != NSNotFound
+      ? [sidebar.textStorage attribute:NSFontAttributeName atIndex:fileStart + 2
+        effectiveRange:NULL] : nil;
     BOOL valid = sidebar && folderStart != NSNotFound && fileStart != NSNotFound &&
       ignoredStart != NSNotFound && fileStyle.headIndent == 20.0 &&
-      fileAttachment != nil && ignoredColor != nil;
+      fileAttachment != nil && ignoredColor != nil && fileFont != nil &&
+      fabs(fileFont.pointSize - NimculusUiTextSize) < 0.001 &&
+      [fileFont.fontName isEqualToString:editorUiFontWithWeight(NSFontWeightRegular).fontName];
     if (sidebarDebugEnabled()) {
       NSLog(@"Nimculus sidebar presentation contract sidebar=%@ src=%lu file=%lu "
             "ignored=%lu headIndent=%.1f attachment=%@ color=%@",
@@ -14814,8 +14882,7 @@ static void updateTerminalFonts(void) {
   }
   NimculusOutlineOverlay *outline = outlineOverlayForView(view);
   if (outline) {
-    outline.font = [NSFont fontWithName:editorResolvedFontName() size:g_editor_font_size] ?:
-      [NSFont monospacedSystemFontOfSize:g_editor_font_size weight:NSFontWeightRegular];
+    outline.font = editorUiFontWithWeight(NSFontWeightRegular);
   }
   if (g_queue) updateTerminalGlyphAtlas(g_queue.device);
   markSceneFullyDirty();
