@@ -212,12 +212,12 @@ static const CGFloat NimculusIconPointSize = 14.0;
 static const CGFloat NimculusFindBarRowHeight = NimculusRowHeight - NimculusSpace2;
 static const CGFloat NimculusFindBarRowPadding =
   (NimculusRowHeight - NimculusFindBarRowHeight) / 2.0;
-// The breadcrumb is drawn in a non-flipped NSTextField. Raise its drawing
-// origin within the row to match Zed's measured baseline instead of reusing
-// the top-biased find-row padding that put Nimculus's ink 20 retina pixels too
-// high. The left inset is the measured Zed text start in retina coordinates.
+// The breadcrumb is drawn in a non-flipped NSTextField. Lower its drawing
+// origin within the row by one point so its measured ink rows match Zed's
+// two-retina-pixel lower baseline. The left inset is the measured Zed text
+// start in retina coordinates.
 static const CGFloat NimculusBreadcrumbTextLeft = 12.0;
-static const CGFloat NimculusBreadcrumbTextBottom = 14.0;
+static const CGFloat NimculusBreadcrumbTextBottom = 15.0;
 static const NSUInteger NimculusSidebarHeaderLineCount = 2;
 
 static NSString *g_crash_report_path = nil;
@@ -7201,11 +7201,11 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
 }
 - (void)updateBreadcrumbPresentation {
   NSString *text = self.stringValue ?: @"";
-  NSColor *muted = [themeRoleColor(@"textMuted", themeHexColor(g_theme_foreground,
-    [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0]))
-    colorWithAlphaComponent:0.78];
-  NSColor *heading = [themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
-    [NSColor colorWithCalibratedWhite:0.90 alpha:1.0])) colorWithAlphaComponent:0.90];
+  // Zed's breadcrumbs use Color::Muted for every segment. Heading names stay
+  // semibold, while markers, separators, and path text remain regular.
+  NSColor *muted = themeRoleColor(@"textMuted", themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0]));
+  NSColor *heading = muted;
   const CGFloat actionWidth = (NimculusControlHit * 3.0) +
     (NimculusSpace1 * 4.0);
   NSFont *regularFont = editorUiFontWithWeight(NSFontWeightRegular);
@@ -11752,6 +11752,9 @@ bool nimculus_platform_validate_editor_context_header(void) {
     NSColor *titleColor = headingRange.location == NSNotFound ? nil :
       [context.attributedStringValue attribute:NSForegroundColorAttributeName
         atIndex:headingRange.location effectiveRange:nil];
+    NSFont *markerFont = markerRange.location == NSNotFound ? nil :
+      [context.attributedStringValue attribute:NSFontAttributeName
+        atIndex:markerRange.location effectiveRange:nil];
     NSFont *breadcrumbFont = [context.attributedStringValue attribute:NSFontAttributeName
       atIndex:0 effectiveRange:nil];
     NSFont *bufferFont = editorUiFontWithWeight(NSFontWeightRegular);
@@ -11778,7 +11781,9 @@ bool nimculus_platform_validate_editor_context_header(void) {
         isEqualToString:@"DEVELOPMENT_GUIDELINES.md"] &&
       [context.stringValue containsString:@" › ## 2. 基本原則 › ### 2.1 macOS を先行する"] &&
       [context.stringValue rangeOfString:@" > "].location == NSNotFound &&
-      markerColor != nil && titleColor != nil && ![markerColor isEqual:titleColor] &&
+      markerColor != nil && titleColor != nil && [markerColor isEqual:titleColor] &&
+      markerFont != nil && headingFont != nil &&
+      (markerFont.fontDescriptor.symbolicTraits & NSFontDescriptorTraitBold) == 0 &&
       breadcrumbFont != nil && bufferFont != nil &&
       [breadcrumbFont.fontName isEqualToString:bufferFont.fontName] &&
       fabs(breadcrumbFont.pointSize - NimculusUiTextSize) < 0.001 &&
