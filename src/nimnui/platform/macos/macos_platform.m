@@ -2484,9 +2484,26 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       [visibleSourceLines addObject:@(sourceLine)];
     }
     NSString *wrappedText = [visible componentsJoinedByString:@"\n"];
-    NSUInteger wrappedByteLength = [[wrappedText dataUsingEncoding:NSUTF8StringEncoding] length];
     NSMutableAttributedString *wrappedAttributed = [[NSMutableAttributedString alloc]
       initWithString:wrappedText attributes:attributes];
+    // CTFramesetter otherwise derives each line fragment from the font's
+    // natural metrics.  That makes an empty paragraph and a wrapped paragraph
+    // advance by different amounts, so the source line below a blank line no
+    // longer lands on the display-row grid.  Zed's display map assigns every
+    // display row one fixed line-height slot; make Core Text use that same
+    // contract, including paragraph boundaries and empty lines.
+    NSMutableParagraphStyle *editorRowStyle = [[NSMutableParagraphStyle alloc] init];
+    editorRowStyle.minimumLineHeight = lineHeight;
+    editorRowStyle.maximumLineHeight = lineHeight;
+    editorRowStyle.lineSpacing = 0.0;
+    editorRowStyle.paragraphSpacing = 0.0;
+    editorRowStyle.paragraphSpacingBefore = 0.0;
+    editorRowStyle.lineHeightMultiple = 0.0;
+    if (wrappedText.length > 0) {
+      [wrappedAttributed addAttribute:NSParagraphStyleAttributeName
+        value:editorRowStyle range:NSMakeRange(0, wrappedText.length)];
+    }
+    [editorRowStyle release];
     NSUInteger wrappedLineUnit = 0;
     for (NSUInteger visibleIndex = 0; visibleIndex < visible.count; visibleIndex++) {
       NSString *visibleLine = visible[visibleIndex];
