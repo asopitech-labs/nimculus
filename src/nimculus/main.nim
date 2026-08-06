@@ -6565,10 +6565,16 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       let paneIndex = parseInt(payload[0])
       let target = parseInt(payload[1])
       if target < 0 or target >= editorSession.tabs.len or
-          editorWorkspaceUi.center == nil or editorWorkspaceUi.center.kind != paneSplit:
+          editorWorkspaceUi.center == nil:
         return
-      let pane = if paneIndex == 0: editorWorkspaceUi.center.first.pane.id
-        elif paneIndex == 1: editorWorkspaceUi.center.second.pane.id else: PaneId(-1)
+      # The native tab bar uses the same pane-scoped command in both layouts.
+      # In the single-pane layout `center` is a leaf, so the primary command
+      # must resolve to its first pane instead of being rejected as if a split
+      # were required. The secondary pane remains valid only for a split.
+      let pane = if paneIndex == 0: editorWorkspaceUi.center.firstPane().id
+        elif paneIndex == 1 and editorWorkspaceUi.center.kind == paneSplit:
+          editorWorkspaceUi.center.second.pane.id
+        else: PaneId(-1)
       if pane == PaneId(-1) or not editorWorkspaceUi.selectPaneTab(pane, target): return
       if paneIndex == 0:
         discard editorWorkspaceUi.focusPane(pane)
