@@ -149,6 +149,9 @@ suite "macOS platform contract":
   test "native editor text viewport excludes pane right and bottom chrome":
     check platformValidateEditorTextViewport()
 
+  test "native editor paints glyphs for a non-empty wrapped document":
+    check platformValidateEditorBodyInk()
+
   test "native measured overflow produces an in-bounds horizontal thumb":
     # Menlo at 14pt makes this deliberately concrete: 128 monospace
     # characters are comfortably wider than the 584px text viewport inside a

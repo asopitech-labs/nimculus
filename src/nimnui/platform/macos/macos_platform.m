@@ -1853,6 +1853,22 @@ static void highlightColor(uint32_t kind, CGFloat *r, CGFloat *g, CGFloat *b) {
   // washes out on a light background (pale token text on near-white), so keep a
   // parallel light palette with the same hue identity but darker, readable
   // luminance. Both branches share the same `kind` mapping.
+  // Markdown headings use Zed's muted editor foreground rather than the
+  // theme's warm `syntax.title` token. Keep this in the existing syntax-color
+  // pass: adding a second foreground/font attribute pass to a wrapped Core
+  // Text string can make CTFramesetter stall on mixed paragraph attributes.
+  if (kind == 8) {
+    NSColor *headingBase = themeRoleColor(@"editorForeground", [NSColor textColor]);
+    NSColor *headingRGB = [headingBase colorUsingColorSpace:[NSColorSpace genericRGBColorSpace]];
+    CGFloat alpha = 1.0;
+    [headingRGB getRed:r green:g blue:b alpha:&alpha];
+    if (*r + *g + *b < 1.5) {
+      *r = MIN(1.0, *r + 0.025);
+      *g = MIN(1.0, *g + 0.030);
+      *b = MIN(1.0, *b + 0.035);
+    }
+    return;
+  }
   NSString *syntaxKey = kind == 0 ? @"keyword" : kind == 1 ? @"string" :
     kind == 2 ? @"number" : kind == 3 ? @"comment" : kind == 6 ? @"function" :
     kind == 7 ? @"type" : kind == 8 ? @"title" : kind == 9 ? @"emphasis.strong" :
@@ -1906,6 +1922,12 @@ static NSString *syntaxKeyForKind(uint32_t kind) {
 
 static CTFontRef syntaxFontForKind(uint32_t kind, CTFontRef baseFont) {
   if (!baseFont) return NULL;
+  if (kind == 8) {
+    // Apply heading weight through the existing syntax pass. A later, separate
+    // heading-font mutation is unsafe for wrapped Core Text paragraphs.
+    return CTFontCreateCopyWithSymbolicTraits(baseFont, 0.0, NULL,
+      kCTFontTraitBold, kCTFontTraitBold);
+  }
   NSString *key = syntaxKeyForKind(kind);
   if (!key) return NULL;
   NSDictionary *syntax = [g_theme_palette[@"syntax"] isKindOfClass:[NSDictionary class]] ?
@@ -1923,60 +1945,6 @@ static NSColor *editorGlyphColor(NSColor *color) {
   NSColor *rgb = [color colorUsingColorSpace:[NSColorSpace genericRGBColorSpace]];
   if (!rgb) rgb = color;
   return [rgb colorWithAlphaComponent:rgb.alphaComponent * NimculusEditorGlyphCoverage];
-}
-
-static void applyMarkdownHeadingAttributes(NSMutableAttributedString *attributed,
-                                           NSString *line, NSUInteger offset,
-                                           CTFontRef font) {
-  if (!attributed || !line || !font) return;
-  NSUInteger cursor = 0;
-  while (cursor < line.length && cursor < 3 && [line characterAtIndex:cursor] == ' ') cursor++;
-  NSUInteger markerStart = cursor;
-  while (cursor < line.length && cursor - markerStart < 6 && [line characterAtIndex:cursor] == '#') cursor++;
-  NSUInteger markerLength = cursor - markerStart;
-  if (markerLength == 0 || (cursor < line.length && [line characterAtIndex:cursor] != ' ' &&
-      [line characterAtIndex:cursor] != '\t')) return;
-  NSUInteger textStart = cursor;
-  while (textStart < line.length && ([line characterAtIndex:textStart] == ' ' ||
-      [line characterAtIndex:textStart] == '\t')) textStart++;
-  if (textStart >= line.length) return;
-  // The resolved editor foreground is the ordinary rendered Markdown text
-  // fallback. `textMuted` is a UI/chrome role and, after the editor glyph
-  // coverage pass, lands visibly lighter than Zed's heading pixels. Bold
-  // glyph coverage darkens this fallback slightly, so lift only the very
-  // dark foreground used by One Light in rendered color space.
-  NSColor *headingBase = themeRoleColor(@"editorForeground", [NSColor textColor]);
-  NSColor *headingRGB = [headingBase colorUsingColorSpace:[NSColorSpace genericRGBColorSpace]];
-  CGFloat headingRed = 0.0, headingGreen = 0.0, headingBlue = 0.0, headingAlpha = 1.0;
-  [headingRGB getRed:&headingRed green:&headingGreen blue:&headingBlue alpha:&headingAlpha];
-  if (headingRed + headingGreen + headingBlue < 1.5) {
-    headingBase = [NSColor colorWithGenericRed:MIN(1.0, headingRed + 0.025)
-      green:MIN(1.0, headingGreen + 0.030) blue:MIN(1.0, headingBlue + 0.035)
-      alpha:headingAlpha];
-  }
-  NSColor *muted = editorGlyphColor(headingBase);
-  [attributed addAttribute:(id)kCTForegroundColorAttributeName value:(id)muted.CGColor
-    range:NSMakeRange(offset + markerStart, markerLength)];
-  CTFontRef markerFont = CTFontCreateCopyWithSymbolicTraits(font, 0.0, NULL,
-    kCTFontTraitItalic, kCTFontTraitItalic);
-  if (markerFont) {
-    [attributed addAttribute:(id)kCTFontAttributeName value:(id)markerFont
-      range:NSMakeRange(offset + markerStart, markerLength)];
-    CFRelease(markerFont);
-  }
-  CTFontRef boldFont = CTFontCreateCopyWithSymbolicTraits(font, 0.0, NULL,
-    kCTFontTraitBold, kCTFontTraitBold);
-  if (boldFont) {
-    [attributed addAttribute:(id)kCTFontAttributeName value:(id)boldFont
-      range:NSMakeRange(offset + textStart, line.length - textStart)];
-    CFRelease(boldFont);
-  }
-  // Markdown's `@title.markup` capture has no dedicated One theme role. Zed
-  // therefore leaves the heading in the buffer's muted text treatment and
-  // expresses the distinction through weight; applying syntax.title here
-  // incorrectly turns the heading red-brown.
-  [attributed addAttribute:(id)kCTForegroundColorAttributeName value:(id)muted.CGColor
-    range:NSMakeRange(offset + textStart, line.length - textStart)];
 }
 
 static CTFontRef editorFont(void) {
@@ -2676,8 +2644,8 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
       lineStyle.headIndent = editorMarkdownContinuationIndent(visibleLine, font);
       lineStyle.firstLineHeadIndent = 0.0;
       NSUInteger length = visibleLine.length;
-      if (paragraphUnit < wrappedText.length) {
-        NSUInteger rangeLength = MIN(length + 1, wrappedText.length - paragraphUnit);
+      if (length > 0 && paragraphUnit < wrappedText.length) {
+        NSUInteger rangeLength = MIN(length, wrappedText.length - paragraphUnit);
         [wrappedAttributed addAttribute:NSParagraphStyleAttributeName value:lineStyle
           range:NSMakeRange(paragraphUnit, rangeLength)];
       }
@@ -2732,12 +2700,6 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
               range:NSMakeRange(startUnit, endUnit - startUnit)];
             CFRelease(syntaxFont);
           }
-    }
-    wrappedLineUnit = 0;
-    for (NSUInteger visibleIndex = 0; visibleIndex < visible.count; visibleIndex++) {
-      applyMarkdownHeadingAttributes(wrappedAttributed, visible[visibleIndex],
-        wrappedLineUnit, font);
-      wrappedLineUnit += visible[visibleIndex].length + 1;
     }
     for (uint32_t selectionIndex = 0; selectionIndex < editorSelectionCountForRender;
          selectionIndex++) {
@@ -2884,7 +2846,6 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         }
       }
     }
-    applyMarkdownHeadingAttributes(attributed, lineText, 0, font);
     if (drawColorEmojiFallback) maskNonColorEmojiRuns(attributed);
     if (drawFallbackText || drawColorEmojiFallback) {
       CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
@@ -3368,7 +3329,6 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
         }
       }
     }
-    applyMarkdownHeadingAttributes(attributed, lineText, 0, baseFont);
     CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
     CFArrayRef runs = CTLineGetGlyphRuns(line);
     CGFloat baselineY = editorTextBaseline(editorSize.height, lineHeight,
@@ -11217,6 +11177,76 @@ bool nimculus_platform_validate_editor_text_viewport(void) {
     fabs(NSHeight(localViewport) - 164.0) < 0.01 &&
     editorVisibleLineCapacity(pane, 20.0) == 8 &&
     rightVisible.width == 0.0f && bottomVisible.height == 0.0f;
+}
+
+static NSUInteger editorTextureInkCount(id<MTLTexture> texture) {
+  if (!texture || texture.pixelFormat != MTLPixelFormatRGBA8Unorm ||
+      texture.width == 0 || texture.height == 0) return 0;
+  NSUInteger bytesPerRow = texture.width * 4;
+  uint8_t *pixels = calloc(texture.height, bytesPerRow);
+  if (!pixels) return 0;
+  [texture getBytes:pixels bytesPerRow:bytesPerRow
+    fromRegion:MTLRegionMake2D(0, 0, texture.width, texture.height) mipmapLevel:0];
+  CGRect viewport = editorTextViewportCoreGraphicsRect(g_editor_rect);
+  NSUInteger x0 = MIN(texture.width, (NSUInteger)MAX(0.0, floor(viewport.origin.x * g_metrics.scale_factor)));
+  NSUInteger y0 = MIN(texture.height, (NSUInteger)MAX(0.0, floor(viewport.origin.y * g_metrics.scale_factor)));
+  NSUInteger x1 = MIN(texture.width, (NSUInteger)ceil((viewport.origin.x + viewport.size.width) * g_metrics.scale_factor));
+  NSUInteger y1 = MIN(texture.height, (NSUInteger)ceil((viewport.origin.y + viewport.size.height) * g_metrics.scale_factor));
+  NSUInteger ink = 0;
+  for (NSUInteger y = y0; y < y1; y++) {
+    for (NSUInteger x = x0; x < x1; x++) {
+      if (pixels[y * bytesPerRow + x * 4 + 3] > 8) {
+        ink++;
+      }
+    }
+  }
+  free(pixels);
+  return ink;
+}
+
+bool nimculus_platform_validate_editor_body_ink(void) {
+  @autoreleasepool {
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    if (!device) return false;
+    NimculusPlatformMetrics previousMetrics = g_metrics;
+    NSString *previousText = [g_editor_text retain];
+    CGFloat previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
+      g_editor_rect[2], g_editor_rect[3]};
+    NSUInteger previousScrollLine = g_editor_scroll_line;
+    CGFloat previousScrollYFraction = g_editor_scroll_y_fraction;
+    NSUInteger previousScrollDisplayRow = g_editor_scroll_display_row;
+    BOOL previousSoftWrap = g_editor_soft_wrap;
+    BOOL previousWelcome = g_welcome_visible;
+    g_metrics.scale_factor = 2.0;
+    g_editor_rect[0] = 0.0;
+    g_editor_rect[1] = 0.0;
+    g_editor_rect[2] = 640.0;
+    g_editor_rect[3] = 320.0;
+    g_editor_scroll_line = 0;
+    g_editor_scroll_y_fraction = 0.0;
+    g_editor_scroll_display_row = 0;
+    g_editor_soft_wrap = YES;
+    g_welcome_visible = YES;
+    const char *sample = "# Heading\n\nBody text must produce visible glyphs.";
+    nimculus_platform_set_editor_text(sample, (uint32_t)strlen(sample));
+    updateEditorTextTexture(device, g_editor_text, YES);
+    NSUInteger ink = editorTextureInkCount(g_text_texture);
+    BOOL valid = ink > 100;
+    nimculus_platform_set_editor_text(previousText.UTF8String,
+      (uint32_t)[previousText lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
+    g_editor_rect[0] = previousRect[0];
+    g_editor_rect[1] = previousRect[1];
+    g_editor_rect[2] = previousRect[2];
+    g_editor_rect[3] = previousRect[3];
+    g_editor_scroll_line = previousScrollLine;
+    g_editor_scroll_y_fraction = previousScrollYFraction;
+    g_editor_scroll_display_row = previousScrollDisplayRow;
+    g_editor_soft_wrap = previousSoftWrap;
+    g_welcome_visible = previousWelcome;
+    g_metrics = previousMetrics;
+    [previousText release];
+    return valid;
+  }
 }
 
 bool nimculus_platform_validate_editor_annotation_viewport(void) {

@@ -14,6 +14,7 @@ proc platformValidateFullscreenTransition*(): bool {.importc: "nimculus_platform
 proc platformValidateEditorPaneGeometry*(): bool {.importc: "nimculus_platform_validate_editor_pane_geometry", cdecl.}
 proc platformValidateEditorGutterGeometry*(): bool {.importc: "nimculus_platform_validate_editor_gutter_geometry", cdecl.}
 proc platformValidateEditorTextViewport*(): bool {.importc: "nimculus_platform_validate_editor_text_viewport", cdecl.}
+proc platformValidateEditorBodyInk*(): bool {.importc: "nimculus_platform_validate_editor_body_ink", cdecl.}
 proc platformValidateEditorAnnotationViewport*(): bool {.importc: "nimculus_platform_validate_editor_annotation_viewport", cdecl.}
 proc platformValidateEditorTextPopupBounds*(): bool {.importc: "nimculus_platform_validate_editor_text_popup_bounds", cdecl.}
 proc platformValidateSecondaryAnnotationIsolation*(): bool {.importc: "nimculus_platform_validate_secondary_annotation_isolation", cdecl.}
