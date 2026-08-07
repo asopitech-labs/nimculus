@@ -458,7 +458,10 @@ static void replaceOwnedData(NSData **slot, NSData *value) {
   [previous release];
 }
 
+static void invalidateSoftWrapRowCounts(void);
+
 static void rebuildEditorLineIndex(void) {
+  invalidateSoftWrapRowCounts();
   NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
   replaceOwnedArray(&g_editor_lines, lines);
   free(g_editor_line_utf16_offsets); g_editor_line_utf16_offsets = NULL;
@@ -2006,14 +2009,31 @@ static NSColor *editorGlyphColor(NSColor *color) {
   return [rgb colorWithAlphaComponent:rgb.alphaComponent * NimculusEditorGlyphCoverage];
 }
 
+// Building the face from its name is not free, and the wrap and metrics paths
+// ask for it thousands of times per scroll. Keep one and hand out retained
+// references so every existing CFRelease stays balanced.
+static CTFontRef g_editor_font_cache = NULL;
+static CGFloat g_editor_font_cache_size = 0.0;
+static NSString *g_editor_font_cache_name = nil;
+
 static CTFontRef editorFont(void) {
   CGFloat size = isfinite(g_editor_font_size) && g_editor_font_size > 0.0
     ? g_editor_font_size : 15.0;
+  NSString *name = editorResolvedFontName();
+  if (g_editor_font_cache && g_editor_font_cache_size == size &&
+      [g_editor_font_cache_name isEqualToString:name]) {
+    return (CTFontRef)CFRetain(g_editor_font_cache);
+  }
+  if (g_editor_font_cache) { CFRelease(g_editor_font_cache); g_editor_font_cache = NULL; }
+  [g_editor_font_cache_name release];
+  g_editor_font_cache_name = [name copy];
+  g_editor_font_cache_size = size;
   // editorResolvedFontName has already rejected .ZedMono and any unavailable
   // or proportional family, so this Core Text request is always for a real
   // fixed-pitch face and is performed without substitution warnings.
-  CTFontRef font = CTFontCreateWithName((__bridge CFStringRef)editorResolvedFontName(), size, NULL);
+  CTFontRef font = CTFontCreateWithName((__bridge CFStringRef)name, size, NULL);
   if (!font) font = CTFontCreateUIFontForLanguage(kCTFontUserFixedPitchFontType, size, NULL);
+  g_editor_font_cache = font ? (CTFontRef)CFRetain(font) : NULL;
   return font;
 }
 
@@ -2282,13 +2302,54 @@ static CGFloat editorMarkdownContinuationIndent(NSString *line, CTFontRef font) 
   return MAX(0.0, width);
 }
 
+// Counting the display rows above a line used to typeset every line before it,
+// once per call, on every scroll event: each call built a font, an attributed
+// string and a CTTypesetter per wrapped row. Memoize the per-line counts and
+// throw the table away when the text, the wrap width, or the font changes.
+static uint32_t *g_wrap_row_counts = NULL;
+static NSUInteger g_wrap_row_counts_capacity = 0;
+static CGFloat g_wrap_row_counts_width = -1.0;
+static CGFloat g_wrap_row_counts_font_size = -1.0;
+static NSArray<NSString *> *g_wrap_row_counts_lines = nil;
+
+static void invalidateSoftWrapRowCounts(void) {
+  free(g_wrap_row_counts);
+  g_wrap_row_counts = NULL;
+  g_wrap_row_counts_capacity = 0;
+  g_wrap_row_counts_width = -1.0;
+  g_wrap_row_counts_font_size = -1.0;
+  g_wrap_row_counts_lines = nil;
+}
+
+static NSUInteger editorSoftWrapRowCountCached(NSArray<NSString *> *lines,
+                                               NSUInteger index) {
+  const CGFloat width = editorWrapWidth();
+  const CGFloat size = g_editor_font_size;
+  if (lines != g_wrap_row_counts_lines || width != g_wrap_row_counts_width ||
+      size != g_wrap_row_counts_font_size ||
+      g_wrap_row_counts_capacity != lines.count) {
+    invalidateSoftWrapRowCounts();
+    g_wrap_row_counts = calloc(MAX((NSUInteger)1, lines.count), sizeof(uint32_t));
+    if (!g_wrap_row_counts) return editorSoftWrapRowCount(lines[index]);
+    g_wrap_row_counts_capacity = lines.count;
+    g_wrap_row_counts_width = width;
+    g_wrap_row_counts_font_size = size;
+    g_wrap_row_counts_lines = lines;
+  }
+  if (index >= g_wrap_row_counts_capacity) return editorSoftWrapRowCount(lines[index]);
+  if (g_wrap_row_counts[index] == 0) {
+    g_wrap_row_counts[index] = (uint32_t)editorSoftWrapRowCount(lines[index]);
+  }
+  return g_wrap_row_counts[index];
+}
+
 static NSUInteger editorSoftWrapRowsBeforeLine(NSArray<NSString *> *lines,
                                                 NSUInteger lineIndex) {
   NSUInteger rows = 0;
   NSUInteger limit = MIN(lineIndex, lines.count);
   for (NSUInteger index = 0; index < limit; index++) {
     if (editorLineIsFolded(index)) continue;
-    rows += editorSoftWrapRowCount(lines[index]);
+    rows += editorSoftWrapRowCountCached(lines, index);
   }
   return rows;
 }
@@ -14108,6 +14169,13 @@ void nimculus_platform_set_editor_cursor(double x, double y) {
   markSceneFullyDirty();
 }
 void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t line) {
+  // Scrolling does not move the cursor, but the input handler republishes it
+  // after every event and each publish re-rasterized the visible text.
+  static uint32_t lastByte = UINT32_MAX;
+  static uint32_t lastLine = UINT32_MAX;
+  if (byte_offset == lastByte && line == lastLine) return;
+  lastByte = byte_offset;
+  lastLine = line;
   NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) return;
   NSUInteger lineIndex = MIN((NSUInteger)line, lines.count - 1);
@@ -14593,6 +14661,7 @@ void nimculus_platform_set_editor_line_numbers(bool visible) {
   }
 }
 void nimculus_platform_set_editor_soft_wrap(bool enabled) {
+  if (g_editor_soft_wrap == (enabled ? YES : NO)) return;
   g_editor_soft_wrap = enabled ? YES : NO;
   if (g_editor_soft_wrap) g_editor_scroll_x = 0.0;
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
@@ -14912,7 +14981,16 @@ void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_by
 }
 void nimculus_platform_set_editor_selections(const NimculusEditorSelection *selections,
                                              uint32_t count) {
-  g_editor_selection_count = MIN(count, NIMCULUS_MAX_EDITOR_SELECTIONS);
+  // Same story as the cursor, and this one walks the whole document to map
+  // byte offsets to UTF-16 units before rebuilding the texture.
+  const uint32_t bounded = MIN(count, NIMCULUS_MAX_EDITOR_SELECTIONS);
+  if (bounded == g_editor_selection_count &&
+      (bounded == 0 || (selections &&
+        memcmp(g_editor_selections, selections,
+          bounded * sizeof(NimculusEditorSelection)) == 0))) {
+    return;
+  }
+  g_editor_selection_count = bounded;
   if (g_editor_selection_count > 0 && selections) {
     memcpy(g_editor_selections, selections,
       g_editor_selection_count * sizeof(NimculusEditorSelection));
@@ -14927,7 +15005,22 @@ void nimculus_platform_set_editor_selections(const NimculusEditorSelection *sele
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
+// Nim resynchronises the whole document after every input event, so these
+// setters are called at the trackpad's event rate with values that have not
+// changed. Each one used to rebuild the text texture. Compare first: an
+// equality check on the payload is orders of magnitude cheaper than
+// re-running Core Text over the visible lines.
+static BOOL editorPayloadUnchanged(NSString *current, const char *utf8, uint32_t length) {
+  NSString *candidate = utf8 && length > 0
+    ? [[[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
+        autorelease]
+    : @"";
+  if (!candidate) return NO;
+  return [(current ?: @"") isEqualToString:candidate];
+}
+
 void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
+  if (editorPayloadUnchanged(g_editor_text, utf8, length)) return;
   replaceOwnedUTF8String(&g_editor_text, utf8, length, @"");
   rebuildEditorLineIndex();
   if (g_active_view) {
@@ -15576,6 +15669,7 @@ void nimculus_platform_set_task_output_text(const char *utf8, uint32_t length) {
   }
 }
 void nimculus_platform_set_editor_completions(const char *utf8, uint32_t length) {
+  if (editorPayloadUnchanged(g_editor_completions, utf8, length)) return;
   replaceOwnedUTF8String(&g_editor_completions, utf8, length, @"");
   markSceneFullyDirty();
   if (g_queue) {
@@ -15817,6 +15911,11 @@ void nimculus_platform_set_secondary_editor_annotations(
   if (g_active_view) [(NimculusMetalView *)g_active_view updateTerminalFrame];
 }
 void nimculus_platform_set_editor_git_hunks(const NimculusGitHunkSpan *spans, uint32_t count) {
+  if (count == g_git_hunk_count &&
+      (count == 0 || (g_git_hunks && spans &&
+        memcmp(g_git_hunks, spans, sizeof(NimculusGitHunkSpan) * count) == 0))) {
+    return;
+  }
   free(g_git_hunks);
   g_git_hunks = NULL;
   g_git_hunk_count = 0;
