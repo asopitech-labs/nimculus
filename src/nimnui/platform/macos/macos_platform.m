@@ -231,6 +231,16 @@ static const CGFloat NimculusToolbarSlotPitch = 23.0;
 static const CGFloat NimculusToolbarSlotRightInset = 20.0;
 static const NSUInteger NimculusToolbarSlotCount = 5;
 
+// getenv on a per-frame path is not free; cache it like the input log gate.
+static BOOL rectDebugEnabled(void) {
+  static int cached = -1;
+  if (cached < 0) {
+    const char *value = getenv("NIMCULUS_RECT_DEBUG");
+    cached = (value && value[0] != '\0' && value[0] != '0') ? 1 : 0;
+  }
+  return cached == 1;
+}
+
 static BOOL tabDebugEnabled(void) {
   const char *enabled = getenv("NIMCULUS_TAB_DEBUG");
   return enabled && strcmp(enabled, "1") == 0;
@@ -1554,10 +1564,16 @@ static CGFloat editorGutterFrameWidth(const double rect[4]) {
 static CGFloat editorTextOriginX(const double rect[4]) {
   (void)rect;
   NimculusEditorGutterMetrics metrics = editorGutterMetrics();
+  // This runs on the per-frame text-viewport path. Splitting the whole
+  // document into lines only to report a line count in a diagnostic belongs
+  // behind the diagnostic's own gate.
   const char *debug = getenv("NIMCULUS_GUTTER_DEBUG");
-  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
-  NSUInteger lineCount = MAX((NSUInteger)1, lines.count);
-  if (debug && strcmp(debug, "1") == 0 &&
+  const BOOL debugEnabled = debug && strcmp(debug, "1") == 0;
+  NSUInteger lineCount = 1;
+  if (debugEnabled) {
+    lineCount = MAX((NSUInteger)1, editorLinesForText(g_editor_text).count);
+  }
+  if (debugEnabled &&
       (lineCount != g_editor_gutter_debug_line_count ||
        fabs(metrics.width - g_editor_gutter_debug_width) > 0.001 ||
        fabs(metrics.width + metrics.margin - g_editor_gutter_debug_origin) > 0.001)) {
@@ -2577,6 +2593,29 @@ static void maskNonColorEmojiRuns(NSMutableAttributedString *attributed) {
     }
   }
   if (line) CFRelease(line);
+}
+
+// Scroll delivers three or four platform updates per event -- scroll line,
+// sub-line fraction, horizontal offset, then the composed editor rect -- and
+// each one used to re-run Core Text over every visible line and re-upload the
+// texture. At trackpad event rates that is several full rasterizations per
+// frame for one visible result. Mark the texture dirty instead and rebuild it
+// once, at the top of the frame that will actually show it.
+static BOOL g_editor_texture_rebuild_pending = NO;
+static void rebuildSecondaryEditorTexture(id<MTLDevice> device);
+static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
+                                    BOOL force);
+
+static void scheduleEditorTextTextureRebuild(void) {
+  g_editor_texture_rebuild_pending = YES;
+}
+
+static void flushEditorTextTextureRebuild(void) {
+  if (!g_editor_texture_rebuild_pending) return;
+  g_editor_texture_rebuild_pending = NO;
+  if (!g_queue) return;
+  updateEditorTextTexture(g_queue.device, g_editor_text, YES);
+  rebuildSecondaryEditorTexture(g_queue.device);
 }
 
 static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
@@ -9207,6 +9246,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 
 - (void)drawFrame {
   uint64_t start = mach_absolute_time();
+  flushEditorTextTextureRebuild();
   // Keep native offsets valid even on a display-link frame that arrives after
   // content/layout changed but before another Nim synchronization callback.
   clampEditorScrollOffsetsForFrame();
@@ -14246,7 +14286,7 @@ void nimculus_platform_set_editor_scroll_line(uint32_t line) {
     }
   }
   markSceneFullyDirty();
-  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
+  scheduleEditorTextTextureRebuild();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_editor_scroll_y_fraction(double pixels) {
@@ -14259,13 +14299,13 @@ void nimculus_platform_set_editor_scroll_y_fraction(double pixels) {
     }
   }
   markSceneFullyDirty();
-  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
+  scheduleEditorTextTextureRebuild();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_editor_scroll_display_row(uint32_t row) {
   g_editor_scroll_display_row = row;
   markSceneFullyDirty();
-  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
+  scheduleEditorTextTextureRebuild();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 uint32_t nimculus_platform_editor_display_rows_before_line(uint32_t line) {
@@ -14294,7 +14334,7 @@ double nimculus_platform_editor_display_fraction_for_scroll_pixels(double pixels
 }
 void nimculus_platform_set_editor_scroll_x(double offset) {
   g_editor_scroll_x = editorClampedScrollX(offset);
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, YES);
+  scheduleEditorTextTextureRebuild();
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
@@ -14303,15 +14343,24 @@ double nimculus_platform_editor_widest_visible_line_width(void) {
   return editorWidestVisibleLineWidth();
 }
 void nimculus_platform_set_editor_rect(double x, double y, double width, double height) {
-  if (getenv("NIMCULUS_RECT_DEBUG")) {
-    fprintf(stderr, "editor_rect %.1f %.1f %.1f %.1f\n", x, y, width, height);
+  const double next[4] = {MAX(0.0, x), MAX(0.0, y), MAX(1.0, width), MAX(1.0, height)};
+  // The compose pass republishes this rect on every frame, and it is unchanged
+  // on all but a resize. Re-laying out every AppKit overlay and re-rasterizing
+  // the text for an identical rect is the single most expensive thing scrolling
+  // used to do.
+  if (next[0] == g_editor_rect[0] && next[1] == g_editor_rect[1] &&
+      next[2] == g_editor_rect[2] && next[3] == g_editor_rect[3]) {
+    return;
   }
-  g_editor_rect[0] = MAX(0.0, x);
-  g_editor_rect[1] = MAX(0.0, y);
-  g_editor_rect[2] = MAX(1.0, width);
-  g_editor_rect[3] = MAX(1.0, height);
+  if (rectDebugEnabled()) {
+    fprintf(stderr, "editor_rect %.1f %.1f %.1f %.1f\n", next[0], next[1], next[2], next[3]);
+  }
+  g_editor_rect[0] = next[0];
+  g_editor_rect[1] = next[1];
+  g_editor_rect[2] = next[2];
+  g_editor_rect[3] = next[3];
   if (g_active_view) [(NimculusMetalView *)g_active_view updateTerminalFrame];
-  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
+  scheduleEditorTextTextureRebuild();
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
@@ -15839,7 +15888,7 @@ void nimculus_platform_set_paint_dirty_regions(const NimculusPaintRegion *region
   g_scene_dirty = YES;
 }
 void nimculus_platform_set_ui_rectangle(double x, double y, double width, double height) {
-  if (getenv("NIMCULUS_RECT_DEBUG")) {
+  if (rectDebugEnabled()) {
     fprintf(stderr, "ui_rect %.1f %.1f %.1f %.1f metrics %.1f %.1f\n", x, y, width,
       height, (double)g_metrics.width_points, (double)g_metrics.height_points);
   }
