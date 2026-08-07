@@ -20,15 +20,25 @@ APP=build/macos/Nimculus.app
 pkill -x Nimculus 2>/dev/null
 sleep 2
 open "$APP" || exit 1
-sleep 6
-osascript -e 'tell application "System Events" to tell process "Nimculus" \
-  to set size of window 1 to {1389, 791}' >/dev/null 2>&1 || {
-  echo "cannot drive Nimculus through Apple Events." >&2
-  echo "Grant Automation to the terminal app, then QUIT AND REOPEN it: the" >&2
-  echo "grant is read when a process starts, so a running one stays denied." >&2
+
+# A freshly launched window is not addressable for a second or two. Retry
+# rather than reporting the first failure as a permission problem.
+sized=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  sleep 2
+  if err=$(osascript -e 'tell application "System Events" to tell process "Nimculus" to set size of window 1 to {1389, 791}' 2>&1); then
+    sized=yes
+    break
+  fi
+done
+if [ -z "$sized" ]; then
+  echo "cannot drive Nimculus through Apple Events: $err" >&2
+  echo "If that is a -1743 permission error, grant Automation to the app that" >&2
+  echo "runs this script and start it again: the grant is read at process" >&2
+  echo "start, so a running process stays denied." >&2
   exit 2
-}
-sleep 2
+fi
+sleep 1
 
 PID="$(pgrep -x Nimculus)"
 [ -n "$PID" ] || { echo "Nimculus is not running" >&2; exit 1; }
