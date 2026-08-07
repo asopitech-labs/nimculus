@@ -349,6 +349,13 @@ static NSString *systemMonospacedFontName(CGFloat size) {
   return font.fontName ?: @"Menlo";
 }
 
+// Zed's `.ZedMono` is Lilex (assets/fonts/lilex, OFL). Bundling it and using
+// it here is the real fix for our glyph advances -- the system monospace face
+// advances 9.272pt per ASCII character against Lilex's 9.0 at Zed's 15pt
+// default -- but the gutter's line numbers and the Metal text layer resolve
+// their wrap points through different metrics, so swapping the family drops
+// them out of step and the numbers stop lining up with their rows. Reconcile
+// those two paths before changing this.
 static NSString *resolveMonospacedFontName(NSString *requested, CGFloat size) {
   if (requested.length == 0 || [requested caseInsensitiveCompare:@".ZedMono"] == NSOrderedSame) {
     return systemMonospacedFontName(size);
@@ -1517,7 +1524,14 @@ static NimculusEditorGutterMetrics editorGutterMetrics(void) {
   metrics.right_padding = metrics.ch_width * 4.0;
   metrics.width = metrics.line_gutter_width + metrics.left_padding +
     metrics.right_padding;
-  metrics.margin = font ? -CTFontGetDescent(font) : -g_editor_font_size * 0.22;
+  // Zed's `default_gutter_margin` is `-descent`, but GPUI's descent is the
+  // signed distance from the baseline to the bottom of the glyph box, so it is
+  // negative and the margin comes out positive -- "roughly half a character
+  // wide", as Zed's own comment on the content offset puts it. Core Text
+  // returns the descent as a positive magnitude, so transcribing the minus
+  // sign literally pushed our text origin a full 2 x descent to the left of
+  // Zed's (measured: our first glyph at x=84.0pt against Zed's 91.5pt).
+  metrics.margin = font ? CTFontGetDescent(font) : g_editor_font_size * 0.22;
   if (font) CFRelease(font);
   return metrics;
 }
@@ -8955,7 +8969,10 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
   if (footer) {
     footer.hidden = g_welcome_visible;
-    footer.frame = NSMakeRect(g_editor_rect[0], 0.0, g_editor_rect[2], 30.0);
+    // Zed's status bar is a workspace row, not a document one: its #dcddde
+    // spans the whole window, dock included. Ours stopped at the editor's
+    // right edge and left the dock's #ececed showing for the last 223pt.
+    footer.frame = NSMakeRect(0.0, 0.0, self.bounds.size.width, 30.0);
     footer.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
     [footer setNeedsDisplay:YES];
   }
@@ -14838,13 +14855,13 @@ bool nimculus_platform_validate_editor_gutter_geometry(void) {
     metrics.ch_advance * 4.0);
   CGFloat expectedWidth = expectedLineGutterWidth + metrics.ch_width * 3.0 +
     metrics.ch_width * 4.0;
-  CGFloat expectedOrigin = expectedWidth - descent;
+  CGFloat expectedOrigin = expectedWidth + descent;
   CGFloat origin = editorTextOriginX(g_editor_rect);
   BOOL valid = fabs(metrics.line_gutter_width - expectedLineGutterWidth) < 0.01 &&
     fabs(metrics.left_padding - metrics.ch_width * 3.0) < 0.01 &&
     fabs(metrics.right_padding - metrics.ch_width * 4.0) < 0.01 &&
     fabs(metrics.width - expectedWidth) < 0.01 &&
-    fabs(metrics.margin + descent) < 0.01 &&
+    fabs(metrics.margin - descent) < 0.01 &&
     fabs(origin - expectedOrigin) < 0.01 &&
     metrics.width > metrics.ch_advance * 4.0;
   if (font) CFRelease(font);
