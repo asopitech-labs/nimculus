@@ -232,11 +232,30 @@ CPU を使わなかっただけで、体感は逆に良くなっている。CPU/
   `clearGitRepositoryCache()` を用意してあるので、clone / `git init` /
   ワークスペース切り替えの際はそこから呼ぶこと。
 
-残差の所在は `refreshEditorSyntax`（404 サンプル）。スクロールでバッファは
-変わらないのに毎イベント走っている。ただし**単純に呼び出しを外すと悪化する**
-（上記）。バッファ版数（`buffer.version`）で内部を早期リターンさせる方向で、
-外すのではなく中を空振りさせて測ること。プロファイルは
-`sample <pid> 6 1 -file out.txt` をスクロールと重ねて取る。
+### 残差は実装方式の差（ここから先は設計変更）
+
+Zed のスクロールハンドラ（`references/zed/crates/editor/src/element/mouse.rs`
+の `ScrollWheelEvent`）は**スクロール位置を計算して `editor.scroll` を呼ぶだけ**。
+構文解析もリポジトリ解決もバッファ再送出もしない。こちらもホイール分岐を
+それに合わせた（`refreshEditorSyntax` の呼び出しを削除）。
+
+それでも 20ms 前後から下がらない。プロファイルの残りは全部ここ:
+
+```
+syncEditorCursor → set_editor_input_pane / set_editor_cursor_byte
+  → updateEditorTextTexture
+     → CTFramesetterCreateWithAttributedString   （可視行を毎回組版）
+     → [IOGPUMetalTexture replaceRegion:...]     （テクスチャ全面アップロード）
+```
+
+**フレームごとに可視テキストをテクスチャへ描き直している**のが方式そのものの差。
+セッター側の重複呼び出しはフレーム 1 回に集約済み（`scheduleEditorTextTextureRebuild`）
+なので、これ以上はセッターを塞いでも減らない。
+
+Zed は行レイアウトを字形アトラスへ一度シェープしてキャッシュし、フレームでは
+四角形を並べ直すだけ（`crates/gpui/src/text_system` の `LineLayoutCache`）。
+**次にやるのは、行ごとのシェープ結果をキャッシュし、編集で無効化する仕組み**。
+テクスチャ全面再構築をやめない限り Zed の 10ms には届かない。
 
 ### 1. エディタ本文のフォントメトリクス（フォールバック維持で確定・残差として受容）
 

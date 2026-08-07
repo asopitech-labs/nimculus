@@ -8925,10 +8925,13 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           else:
             editorViewState.setScrollYPixels(editorViewState.scrollYPixels + pixelDelta,
               editorLineHeight(), float32(maxScroll) * editorLineHeight())
-      # Wheel input changes only the viewport. Do not let cursor visibility
-      # synchronization pull the freely scrolled position back into view.
+      # Wheel input changes only the viewport. Zed's scroll handler
+      # (element/mouse.rs) computes the new scroll position and calls
+      # `editor.scroll`; it does not re-run the syntax pass, re-resolve the
+      # repository, or republish the buffer, because none of that depends on
+      # where the viewport sits. Ours did all three per event. Keep the cursor
+      # projection, which does depend on the scroll offset, and nothing else.
       syncEditorCursor(ensureCursor = false)
-      refreshEditorSyntax()
     if document != nil and kind in {pointerDown, pointerMove, pointerUp} and
         (editorScrollbarDragging or kind == pointerDown):
       let pane = if editorScrollbarDragging: editorScrollbarPane

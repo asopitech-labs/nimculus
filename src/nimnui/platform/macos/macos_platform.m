@@ -14165,7 +14165,7 @@ void nimculus_platform_set_idle_callback(NimculusIdleCallback callback) { g_idle
 void nimculus_platform_set_editor_cursor(double x, double y) {
   g_editor_cursor[0] = x;
   g_editor_cursor[1] = y;
-  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, NO); rebuildSecondaryEditorTexture(g_queue.device); }
+  scheduleEditorTextTextureRebuild();
   markSceneFullyDirty();
 }
 void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t line) {
@@ -14173,9 +14173,19 @@ void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t lin
   // after every event and each publish re-rasterized the visible text.
   static uint32_t lastByte = UINT32_MAX;
   static uint32_t lastLine = UINT32_MAX;
-  if (byte_offset == lastByte && line == lastLine) return;
+  static uint32_t lastScrollLine = UINT32_MAX;
+  static double lastScrollFraction = -1.0;
+  // The caret's screen point is derived from the scroll offset, so a scroll
+  // has to re-run this even when the cursor itself has not moved.
+  if (byte_offset == lastByte && line == lastLine &&
+      g_editor_scroll_line == lastScrollLine &&
+      g_editor_scroll_y_fraction == lastScrollFraction) {
+    return;
+  }
   lastByte = byte_offset;
   lastLine = line;
+  lastScrollLine = g_editor_scroll_line;
+  lastScrollFraction = g_editor_scroll_y_fraction;
   NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   if (lines.count == 0) return;
   NSUInteger lineIndex = MIN((NSUInteger)line, lines.count - 1);
@@ -14190,13 +14200,13 @@ void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t lin
   CGPoint point = editorEnsureCursorVisible(documentOffset + utf16);
   g_editor_cursor[0] = point.x;
   g_editor_cursor[1] = point.y;
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  scheduleEditorTextTextureRebuild();
   markSceneFullyDirty();
 }
 void nimculus_platform_set_editor_font_size(double size) {
   g_editor_font_size = MIN(96.0, MAX(6.0, size > 0.0 ? size : 14.0));
   g_editor_line_height = MAX(12.0, round(g_editor_font_size * 1.618));
-  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
+  scheduleEditorTextTextureRebuild();
   markSceneFullyDirty();
   if (g_active_view) {
     for (NSView *subview in ((NimculusMetalView *)g_active_view).subviews) {
@@ -14211,7 +14221,7 @@ void nimculus_platform_set_editor_font_name(const char *name) {
   [g_editor_resolved_font_name release];
   g_editor_resolved_font_name = nil;
   (void)editorResolvedFontName();
-  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
+  scheduleEditorTextTextureRebuild();
   markSceneFullyDirty();
   if (g_active_view) {
     for (NSView *subview in ((NimculusMetalView *)g_active_view).subviews) {
@@ -14674,7 +14684,7 @@ void nimculus_platform_set_editor_soft_wrap(bool enabled) {
     }
   }
   markSceneFullyDirty();
-  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
+  scheduleEditorTextTextureRebuild();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 static void replaceEditorFolds(NimculusFoldRange **slot, uint32_t *count,
@@ -14697,7 +14707,7 @@ void nimculus_platform_set_editor_folds(const NimculusFoldRange *ranges, uint32_
   }
   replaceEditorFolds(&g_editor_folds, &g_editor_fold_count, ranges, count);
   g_editor_scroll_line = editorFirstVisibleLine(g_editor_scroll_line, g_editor_line_count);
-  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
+  scheduleEditorTextTextureRebuild();
   markSceneFullyDirty();
   if (g_active_view) {
     NimculusMetalView *view = (NimculusMetalView *)g_active_view;
@@ -14987,7 +14997,7 @@ void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_by
     view.selectedTextRange = NSMakeRange(g_editor_selection_start,
       g_editor_selection_end - g_editor_selection_start);
   }
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  scheduleEditorTextTextureRebuild();
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
@@ -15013,7 +15023,7 @@ void nimculus_platform_set_editor_selections(const NimculusEditorSelection *sele
     g_editor_selection_start = MIN(start, end);
     g_editor_selection_end = MAX(start, end);
   }
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  scheduleEditorTextTextureRebuild();
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
@@ -15041,7 +15051,7 @@ void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
     }
   }
   markSceneFullyDirty();
-  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
+  scheduleEditorTextTextureRebuild();
   if (g_active_view) [g_active_view requestRedraw];
 }
 
@@ -15831,7 +15841,7 @@ void nimculus_platform_set_editor_diagnostics(const NimculusDiagnosticSpan *span
     }
   }
   markSceneFullyDirty();
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  scheduleEditorTextTextureRebuild();
   if (g_active_view) {
     NimculusMetalView *view = (NimculusMetalView *)g_active_view;
     for (NSView *subview in view.subviews) {
@@ -15939,7 +15949,7 @@ void nimculus_platform_set_editor_git_hunks(const NimculusGitHunkSpan *spans, ui
     }
   }
   markSceneFullyDirty();
-  if (g_queue) updateEditorTextTexture(g_queue.device, g_editor_text, NO);
+  scheduleEditorTextTextureRebuild();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_set_secondary_editor_git_hunks(const NimculusGitHunkSpan *spans,
