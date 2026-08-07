@@ -147,9 +147,15 @@ proc platformSecondaryEditorByteOffsetAtPoint*(x, y: cdouble): uint32 {.importc:
 proc platformEditorUtf16OffsetAtPoint*(x, y: cdouble): uint32 {.importc: "nimculus_platform_editor_utf16_offset_at_point", cdecl.}
 proc platformSetEditorScrollLine*(line: uint32) {.importc: "nimculus_platform_set_editor_scroll_line", cdecl.}
 proc platformSetEditorScrollYFraction*(pixels: cdouble) {.importc: "nimculus_platform_set_editor_scroll_y_fraction", cdecl.}
+proc platformSetEditorScrollDisplayRow*(row: uint32) {.importc: "nimculus_platform_set_editor_scroll_display_row", cdecl.}
 proc platformSetEditorScrollX*(offset: cdouble) {.importc: "nimculus_platform_set_editor_scroll_x", cdecl.}
 proc platformEditorScrollX*(): cdouble {.importc: "nimculus_platform_editor_scroll_x", cdecl.}
 proc platformEditorWidestVisibleLineWidth*(): cdouble {.importc: "nimculus_platform_editor_widest_visible_line_width", cdecl.}
+proc platformEditorDisplayRowsBeforeLine*(line: uint32): uint32 {.importc: "nimculus_platform_editor_display_rows_before_line", cdecl.}
+proc platformEditorDisplayRowCount*(): uint32 {.importc: "nimculus_platform_editor_display_row_count", cdecl.}
+proc platformEditorSourceLineForDisplayPixels*(pixels: cdouble): uint32 {.importc: "nimculus_platform_editor_source_line_for_display_pixels", cdecl.}
+proc platformEditorDisplayFractionForScrollPixels*(
+  pixels: cdouble): cdouble {.importc: "nimculus_platform_editor_display_fraction_for_scroll_pixels", cdecl.}
 proc platformSetEditorRect*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_editor_rect", cdecl.}
 proc platformSetTerminalPanelRect*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_terminal_panel_rect", cdecl.}
 proc platformSetSecondaryEditorRect*(visible: bool, x, y, width,

@@ -4714,6 +4714,27 @@ when defined(macosx):
     else:
       platformSetEditorFolds(folds, uint32(nativeFolds.len))
 
+proc syncSoftWrappedDisplayScroll(view: var EditorViewState, visibleLines: int) =
+  ## The native Markdown layout is a display-row map, not a source-line map:
+  ## one source line can occupy several wrapped rows. Keep the continuous
+  ## wheel position in that display space and derive the legacy source-line
+  ## fields only at the platform boundary.
+  let height = editorLineHeight()
+  if not view.scrollDisplayInitialized:
+    view.scrollDisplayPixels = float32(platformEditorDisplayRowsBeforeLine(
+      uint32(max(0, view.scrollLine)))) * height + view.scrollYFraction
+    view.scrollDisplayInitialized = true
+  let totalRows = int(platformEditorDisplayRowCount())
+  let maxDisplayPixels = float32(max(0, totalRows - max(1, visibleLines))) * height
+  view.scrollDisplayPixels = max(0'f32, min(view.scrollDisplayPixels, maxDisplayPixels))
+  let displayRow = int(floor(view.scrollDisplayPixels / max(1'f32, height)))
+  view.scrollLine = int(platformEditorSourceLineForDisplayPixels(
+    cdouble(view.scrollDisplayPixels)))
+  view.scrollYFraction = float32(platformEditorDisplayFractionForScrollPixels(
+    cdouble(view.scrollDisplayPixels)))
+  view.scrollYPixels = float32(view.scrollLine) * height + view.scrollYFraction
+  platformSetEditorScrollDisplayRow(uint32(max(0, displayRow)))
+
 proc syncEditorCursor(ensureCursor = true) =
   when defined(macosx):
     let document = activeDocument()
@@ -4745,6 +4766,8 @@ proc syncEditorCursor(ensureCursor = true) =
     let maxScrollPixels = if document == nil: 0'f32 else:
       float32(max(0, document[].buffer.lineStarts.len - visibleLines)) * editorLineHeight()
     editorViewState.reconcileScrollPosition(editorLineHeight(), maxScrollPixels)
+    if editorViewState.softWrap:
+      syncSoftWrappedDisplayScroll(editorViewState, visibleLines)
     platformSetEditorScrollLine(uint32(max(0, editorViewState.scrollLine)))
     platformSetEditorScrollYFraction(cdouble(max(0'f32,
       editorViewState.scrollYFraction)))
@@ -6911,6 +6934,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         "Soft wrap enabled in secondary pane" else: "Soft wrap disabled in secondary pane"
     else:
       editorViewState.softWrap = not editorViewState.softWrap
+      editorViewState.scrollDisplayInitialized = false
       if editorViewState.softWrap: editorViewState.scrollX = 0'f32
       editorViewState.statusMessage = if editorViewState.softWrap:
         "Soft wrap enabled" else: "Soft wrap disabled"
@@ -8850,8 +8874,28 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
             float32(maxScroll) * editorLineHeight())
           let pixelDelta = scrollPixelDelta(editorScrollRemainder, verticalDelta,
             event.preciseScrolling)
-          editorViewState.setScrollYPixels(editorViewState.scrollYPixels + pixelDelta,
-            editorLineHeight(), float32(maxScroll) * editorLineHeight())
+          if editorViewState.softWrap:
+            if not editorViewState.scrollDisplayInitialized:
+              editorViewState.scrollDisplayPixels = float32(
+                platformEditorDisplayRowsBeforeLine(uint32(max(0,
+                  editorViewState.scrollLine)))) * editorLineHeight() +
+                editorViewState.scrollYFraction
+              editorViewState.scrollDisplayInitialized = true
+            let totalRows = int(platformEditorDisplayRowCount())
+            let maxDisplayPixels = float32(max(0, totalRows -
+              max(1, visibleLines))) * editorLineHeight()
+            editorViewState.scrollDisplayPixels = max(0'f32, min(maxDisplayPixels,
+              editorViewState.scrollDisplayPixels + pixelDelta))
+            editorViewState.scrollLine = int(platformEditorSourceLineForDisplayPixels(
+              cdouble(editorViewState.scrollDisplayPixels)))
+            editorViewState.scrollYFraction = float32(
+              platformEditorDisplayFractionForScrollPixels(
+                cdouble(editorViewState.scrollDisplayPixels)))
+            editorViewState.scrollYPixels = float32(editorViewState.scrollLine) *
+              editorLineHeight() + editorViewState.scrollYFraction
+          else:
+            editorViewState.setScrollYPixels(editorViewState.scrollYPixels + pixelDelta,
+              editorLineHeight(), float32(maxScroll) * editorLineHeight())
       # Wheel input changes only the viewport. Do not let cursor visibility
       # synchronization pull the freely scrolled position back into view.
       syncEditorCursor(ensureCursor = false)

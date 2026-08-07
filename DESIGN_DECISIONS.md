@@ -1,5 +1,16 @@
 # Design Decisions
 
+## UI-099: Preserve the fractional editor scroll phase
+
+The editor viewport follows Zed's fractional display-row model. The continuous
+pixel position (`scrollYPixels`) is authoritative; `scrollLine` selects the
+source row with `floor`, and `scrollYFraction` is the remaining pixel offset
+used to clip the first row and position every following row on the fixed line
+grid. When older callers or persisted state change only `scrollLine`, the
+existing fractional remainder is retained rather than resetting the viewport
+to a whole-line boundary. This keeps legacy navigation compatible without
+discarding trackpad or restored sub-line scroll state.
+
 ## UI-098: Match Zed's singleton editor gutter geometry
 
 The macOS editor now derives its singleton-buffer gutter from the same Zed
@@ -205,8 +216,11 @@ four digits, digit-count-based width, one character of right padding, and
 right-aligned numbers. Its background is the editor background, the active row
 uses the active-line token across the full row, and the active number uses the
 emphasized line-number token. The caret uses Zed's player cursor color and a
-2px bar. Markdown ATX headings use muted `#` markers and bold, title-colored
-heading text.
+2px bar. Markdown ATX headings use the editor's muted text treatment for both
+the `#` markers and heading text; the markers are italic and the heading text
+is bold. This follows the Markdown language capture (`title.markup`) falling
+back to the ordinary text treatment in the One theme rather than using the
+generic `title` syntax color.
 
 ## UX-028: Align macOS titlebar and breadcrumb actions with Zed
 

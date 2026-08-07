@@ -106,9 +106,14 @@ uint32_t nimculus_platform_secondary_editor_byte_offset_at_point(double x, doubl
 uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y);
 void nimculus_platform_set_editor_scroll_line(uint32_t line);
 void nimculus_platform_set_editor_scroll_y_fraction(double pixels);
+void nimculus_platform_set_editor_scroll_display_row(uint32_t row);
 void nimculus_platform_set_editor_scroll_x(double offset);
 double nimculus_platform_editor_scroll_x(void);
 double nimculus_platform_editor_widest_visible_line_width(void);
+uint32_t nimculus_platform_editor_display_rows_before_line(uint32_t line);
+uint32_t nimculus_platform_editor_display_row_count(void);
+uint32_t nimculus_platform_editor_source_line_for_display_pixels(double pixels);
+double nimculus_platform_editor_display_fraction_for_scroll_pixels(double pixels);
 void nimculus_platform_set_editor_rect(double x, double y, double width, double height);
 void nimculus_platform_set_terminal_panel_rect(double x, double y, double width, double height);
 void nimculus_platform_set_secondary_editor_rect(bool visible, double x, double y,

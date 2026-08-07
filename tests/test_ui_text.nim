@@ -582,10 +582,21 @@ suite "M3 text foundation":
     view.scrollLine = 3
     view.reconcileScrollPosition(lineHeight, lineHeight * 10'f32)
     check view.scrollLine == 3
-    check view.scrollYFraction == 0'f32
-    check view.scrollYPixels == lineHeight * 3'f32
+    check abs(view.scrollYFraction - lineHeight / 2'f32) < 0.001'f32
+    check abs(view.scrollYPixels - (lineHeight * 3'f32 + lineHeight / 2'f32)) < 0.001'f32
     var remainder = 0'f32
     check abs(scrollPixelDelta(remainder, 4'f32, true) + 4'f32) < 0.001'f32
+
+  test "legacy row changes retain the fractional viewport phase":
+    var view = newEditorView()
+    let lineHeight = editorLineHeight()
+    view.setScrollYPixels(lineHeight * 2'f32 + 12'f32, lineHeight,
+      lineHeight * 10'f32)
+    view.scrollLine = 3
+    view.reconcileScrollPosition(lineHeight, lineHeight * 10'f32)
+    check view.scrollLine == 3
+    check abs(view.scrollYFraction - 12'f32) < 0.001'f32
+    check abs(view.scrollYPixels - (lineHeight * 3'f32 + 12'f32)) < 0.001'f32
 
   test "all editor line metrics use the platform line-height authority":
     let lineHeight = editorLineHeight()

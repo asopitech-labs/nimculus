@@ -16,11 +16,17 @@ type
     ## atomically with it.
     additionalSelections*: seq[Selection]
     scrollLine*: int
-    ## Continuous top-of-viewport position in logical pixels. `scrollLine`
-    ## and `scrollYFraction` are derived compatibility fields for callers and
-    ## persisted sessions that still address the viewport by line.
+    ## Continuous top-of-viewport position in logical pixels. This is the
+    ## source of truth for rendering; `scrollLine` and `scrollYFraction` are
+    ## derived compatibility fields for callers and persisted sessions that
+    ## still address the viewport by line.
     scrollYPixels*: float32
     scrollYFraction*: float32
+    ## Soft-wrapped Markdown keeps its own continuous display-row position.
+    ## `scrollLine` remains the source-line compatibility field used by syntax
+    ## requests and persistence.
+    scrollDisplayPixels*: float32
+    scrollDisplayInitialized*: bool
     scrollX*: float32
     showLineNumbers*, softWrap*, showIndentGuides*: bool
     indentWidth*: int
@@ -51,13 +57,12 @@ proc editorLineIndex(pixels, lineHeight: float32): int =
 
 proc reconcileScrollPosition*(view: var EditorViewState, lineHeight = editorLineHeight(),
                               maxScrollPixels = -1'f32) =
-  ## Keep the new continuous position compatible with old code that assigns
+  ## Keep the continuous position compatible with old code that assigns
   ## `scrollLine` directly. A disagreement means a legacy caller changed the
-  ## line field, so adopt that value before deriving the display fields.
+  ## row anchor; retain the existing sub-line phase instead of snapping the
+  ## viewport to that row boundary.
   let height = max(1'f32, lineHeight)
-  let derivedLine = editorLineIndex(view.scrollYPixels, height)
-  let legacyFraction = if view.scrollLine == derivedLine:
-    max(0'f32, view.scrollYFraction) else: 0'f32
+  let legacyFraction = max(0'f32, min(view.scrollYFraction, height - 0.001'f32))
   let legacyPixels = max(0'f32, float32(max(0, view.scrollLine)) * height +
     legacyFraction)
   if abs(view.scrollYPixels - legacyPixels) > 0.01'f32:
@@ -72,6 +77,7 @@ proc reconcileScrollPosition*(view: var EditorViewState, lineHeight = editorLine
 proc setScrollYPixels*(view: var EditorViewState, pixels, lineHeight: float32,
                        maxScrollPixels = -1'f32) =
   let height = max(1'f32, lineHeight)
+  view.scrollDisplayInitialized = false
   view.scrollYPixels = max(0'f32, pixels)
   if maxScrollPixels >= 0'f32:
     view.scrollYPixels = min(view.scrollYPixels, maxScrollPixels)

@@ -118,6 +118,8 @@ static NSString *g_terminal_font_name = @".ZedMono";
 static NSString *g_terminal_resolved_font_name = nil;
 static NSUInteger g_editor_scroll_line = 0;
 static CGFloat g_editor_scroll_y_fraction = 0.0;
+static NSUInteger g_editor_scroll_display_row = 0;
+static NSUInteger g_secondary_editor_scroll_display_row = 0;
 static CGFloat g_editor_scroll_x = 0.0;
 static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
@@ -457,6 +459,9 @@ static void swapEditorTextState(void) {
   NSUInteger *utf16 = g_editor_line_utf16_offsets; g_editor_line_utf16_offsets = g_secondary_editor_line_utf16_offsets; g_secondary_editor_line_utf16_offsets = utf16;
   NSUInteger *utf8 = g_editor_line_utf8_offsets; g_editor_line_utf8_offsets = g_secondary_editor_line_utf8_offsets; g_secondary_editor_line_utf8_offsets = utf8;
   NSUInteger count = g_editor_line_count; g_editor_line_count = g_secondary_editor_line_count; g_secondary_editor_line_count = count;
+  NSUInteger displayRow = g_editor_scroll_display_row;
+  g_editor_scroll_display_row = g_secondary_editor_scroll_display_row;
+  g_secondary_editor_scroll_display_row = displayRow;
 }
 
 static void rebuildSecondaryEditorLineIndex(void) {
@@ -1935,11 +1940,30 @@ static void applyMarkdownHeadingAttributes(NSMutableAttributedString *attributed
   while (textStart < line.length && ([line characterAtIndex:textStart] == ' ' ||
       [line characterAtIndex:textStart] == '\t')) textStart++;
   if (textStart >= line.length) return;
-  NSColor *muted = editorGlyphColor(themeRoleColor(@"textMuted", [NSColor grayColor]));
-  NSColor *title = editorGlyphColor(themeSyntaxColor(@"title",
-    themeRoleColor(@"editorForeground", [NSColor textColor])));
+  // The resolved editor foreground is the ordinary rendered Markdown text
+  // fallback. `textMuted` is a UI/chrome role and, after the editor glyph
+  // coverage pass, lands visibly lighter than Zed's heading pixels. Bold
+  // glyph coverage darkens this fallback slightly, so lift only the very
+  // dark foreground used by One Light in rendered color space.
+  NSColor *headingBase = themeRoleColor(@"editorForeground", [NSColor textColor]);
+  NSColor *headingRGB = [headingBase colorUsingColorSpace:[NSColorSpace genericRGBColorSpace]];
+  CGFloat headingRed = 0.0, headingGreen = 0.0, headingBlue = 0.0, headingAlpha = 1.0;
+  [headingRGB getRed:&headingRed green:&headingGreen blue:&headingBlue alpha:&headingAlpha];
+  if (headingRed + headingGreen + headingBlue < 1.5) {
+    headingBase = [NSColor colorWithGenericRed:MIN(1.0, headingRed + 0.025)
+      green:MIN(1.0, headingGreen + 0.030) blue:MIN(1.0, headingBlue + 0.035)
+      alpha:headingAlpha];
+  }
+  NSColor *muted = editorGlyphColor(headingBase);
   [attributed addAttribute:(id)kCTForegroundColorAttributeName value:(id)muted.CGColor
     range:NSMakeRange(offset + markerStart, markerLength)];
+  CTFontRef markerFont = CTFontCreateCopyWithSymbolicTraits(font, 0.0, NULL,
+    kCTFontTraitItalic, kCTFontTraitItalic);
+  if (markerFont) {
+    [attributed addAttribute:(id)kCTFontAttributeName value:(id)markerFont
+      range:NSMakeRange(offset + markerStart, markerLength)];
+    CFRelease(markerFont);
+  }
   CTFontRef boldFont = CTFontCreateCopyWithSymbolicTraits(font, 0.0, NULL,
     kCTFontTraitBold, kCTFontTraitBold);
   if (boldFont) {
@@ -1947,7 +1971,11 @@ static void applyMarkdownHeadingAttributes(NSMutableAttributedString *attributed
       range:NSMakeRange(offset + textStart, line.length - textStart)];
     CFRelease(boldFont);
   }
-  [attributed addAttribute:(id)kCTForegroundColorAttributeName value:(id)title.CGColor
+  // Markdown's `@title.markup` capture has no dedicated One theme role. Zed
+  // therefore leaves the heading in the buffer's muted text treatment and
+  // expresses the distinction through weight; applying syntax.title here
+  // incorrectly turns the heading red-brown.
+  [attributed addAttribute:(id)kCTForegroundColorAttributeName value:(id)muted.CGColor
     range:NSMakeRange(offset + textStart, line.length - textStart)];
 }
 
@@ -2173,6 +2201,60 @@ static NSUInteger editorSoftWrapRowCount(NSString *line) {
   return MAX(1, rows);
 }
 
+static NSString *editorSoftWrapLastRow(NSString *line) {
+  NSString *value = line ?: @"";
+  if (value.length == 0) return value;
+  NSUInteger start = 0;
+  while (start < value.length) {
+    NSUInteger length = editorSoftWrapBreakLength(value, start);
+    if (start + length >= value.length) {
+      return [value substringWithRange:NSMakeRange(start, value.length - start)];
+    }
+    start += length;
+  }
+  return @"";
+}
+
+static CGFloat editorMarkdownContinuationIndent(NSString *line, CTFontRef font) {
+  if (!line || line.length == 0 || !font) return 0.0;
+  NSUInteger cursor = 0;
+  while (cursor < line.length && [line characterAtIndex:cursor] == ' ') cursor++;
+  if (cursor < line.length && [line characterAtIndex:cursor] == '>') {
+    cursor++;
+    if (cursor < line.length && [line characterAtIndex:cursor] == ' ') cursor++;
+  }
+  if (cursor < line.length &&
+      ([line characterAtIndex:cursor] == '-' ||
+       [line characterAtIndex:cursor] == '*' ||
+       [line characterAtIndex:cursor] == '+')) {
+    cursor++;
+    if (cursor < line.length && [line characterAtIndex:cursor] == ' ') cursor++;
+  } else {
+    NSUInteger digitStart = cursor;
+    while (cursor < line.length &&
+           [line characterAtIndex:cursor] >= '0' &&
+           [line characterAtIndex:cursor] <= '9') cursor++;
+    if (cursor > digitStart && cursor < line.length &&
+        ([line characterAtIndex:cursor] == '.' ||
+         [line characterAtIndex:cursor] == ')')) {
+      cursor++;
+      if (cursor < line.length && [line characterAtIndex:cursor] == ' ') cursor++;
+    } else {
+      cursor = digitStart;
+    }
+  }
+  if (cursor == 0) return 0.0;
+  NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
+  NSString *prefix = [line substringToIndex:cursor];
+  NSAttributedString *attributed = [[NSAttributedString alloc]
+    initWithString:prefix attributes:attributes];
+  CTLineRef ctLine = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
+  CGFloat width = ctLine ? (CGFloat)CTLineGetTypographicBounds(ctLine, NULL, NULL, NULL) : 0.0;
+  if (ctLine) CFRelease(ctLine);
+  [attributed release];
+  return MAX(0.0, width);
+}
+
 static NSUInteger editorSoftWrapRowsBeforeLine(NSArray<NSString *> *lines,
                                                 NSUInteger lineIndex) {
   NSUInteger rows = 0;
@@ -2182,6 +2264,38 @@ static NSUInteger editorSoftWrapRowsBeforeLine(NSArray<NSString *> *lines,
     rows += editorSoftWrapRowCount(lines[index]);
   }
   return rows;
+}
+
+static NSString *editorSoftWrapRowAt(NSString *line, NSUInteger rowIndex) {
+  NSString *value = line ?: @"";
+  if (value.length == 0) return @"";
+  NSUInteger start = 0;
+  for (NSUInteger row = 0; start < value.length; row++) {
+    NSUInteger length = editorSoftWrapBreakLength(value, start);
+    if (row == rowIndex || start + length >= value.length) {
+      return [value substringWithRange:NSMakeRange(start, MIN(length,
+        value.length - start))];
+    }
+    start += length;
+  }
+  return @"";
+}
+
+static NSString *editorSoftWrapTextAtDisplayRow(NSArray<NSString *> *lines,
+                                                 NSUInteger displayRow,
+                                                 NSUInteger *sourceLine) {
+  NSUInteger rows = 0;
+  for (NSUInteger lineIndex = 0; lineIndex < lines.count; lineIndex++) {
+    if (editorLineIsFolded(lineIndex)) continue;
+    NSUInteger lineRows = editorSoftWrapRowCount(lines[lineIndex]);
+    if (displayRow < rows + lineRows) {
+      if (sourceLine) *sourceLine = lineIndex;
+      return editorSoftWrapRowAt(lines[lineIndex], displayRow - rows);
+    }
+    rows += lineRows;
+  }
+  if (sourceLine) *sourceLine = lines.count;
+  return @"";
 }
 
 static CGPoint editorSoftWrapPointForUTF16Offset(NSUInteger documentOffset) {
@@ -2511,6 +2625,14 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
   if (g_editor_soft_wrap) {
     NSMutableArray<NSString *> *visible = [NSMutableArray array];
     NSMutableArray<NSNumber *> *visibleSourceLines = [NSMutableArray array];
+    // A fractional display-row scroll is allowed to expose the tail of the
+    // preceding source line. Keep that fragment in the frame so Core Text's
+    // clip removes its upper portion instead of snapping the first visible
+    // row to the next source-line boundary.
+    if (g_editor_scroll_y_fraction > 0.001 && startLine > 0) {
+      [visible addObject:editorSoftWrapLastRow(lines[startLine - 1])];
+      [visibleSourceLines addObject:@(startLine - 1)];
+    }
     for (NSUInteger sourceLine = startLine; sourceLine < lines.count; sourceLine++) {
       if (editorLineIsFolded(sourceLine)) continue;
       [visible addObject:lines[sourceLine]];
@@ -2537,6 +2659,31 @@ static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
         value:editorRowStyle range:NSMakeRange(0, wrappedText.length)];
     }
     [editorRowStyle release];
+    // Core Text otherwise starts every continuation fragment at the frame's
+    // left edge. Zed's markdown line wrapper preserves the leading block/list
+    // prefix on wrapped rows, so a continuation aligns under the paragraph's
+    // first text character.
+    NSUInteger paragraphUnit = 0;
+    for (NSUInteger visibleIndex = 0; visibleIndex < visible.count; visibleIndex++) {
+      NSString *visibleLine = visible[visibleIndex];
+      NSMutableParagraphStyle *lineStyle = [[NSMutableParagraphStyle alloc] init];
+      lineStyle.minimumLineHeight = lineHeight;
+      lineStyle.maximumLineHeight = lineHeight;
+      lineStyle.lineSpacing = 0.0;
+      lineStyle.paragraphSpacing = 0.0;
+      lineStyle.paragraphSpacingBefore = 0.0;
+      lineStyle.lineHeightMultiple = 0.0;
+      lineStyle.headIndent = editorMarkdownContinuationIndent(visibleLine, font);
+      lineStyle.firstLineHeadIndent = 0.0;
+      NSUInteger length = visibleLine.length;
+      if (paragraphUnit < wrappedText.length) {
+        NSUInteger rangeLength = MIN(length + 1, wrappedText.length - paragraphUnit);
+        [wrappedAttributed addAttribute:NSParagraphStyleAttributeName value:lineStyle
+          range:NSMakeRange(paragraphUnit, rangeLength)];
+      }
+      paragraphUnit += length + 1;
+      [lineStyle release];
+    }
     NSUInteger wrappedLineUnit = 0;
     for (NSUInteger visibleIndex = 0; visibleIndex < visible.count; visibleIndex++) {
       NSString *visibleLine = visible[visibleIndex];
@@ -13962,6 +14109,36 @@ void nimculus_platform_set_editor_scroll_y_fraction(double pixels) {
   markSceneFullyDirty();
   if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
+}
+void nimculus_platform_set_editor_scroll_display_row(uint32_t row) {
+  g_editor_scroll_display_row = row;
+  markSceneFullyDirty();
+  if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
+}
+uint32_t nimculus_platform_editor_display_rows_before_line(uint32_t line) {
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
+  return (uint32_t)MIN(UINT32_MAX,
+    editorSoftWrapRowsBeforeLine(lines, MIN((NSUInteger)line, lines.count)));
+}
+uint32_t nimculus_platform_editor_display_row_count(void) {
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
+  return (uint32_t)MIN(UINT32_MAX, editorSoftWrapRowsBeforeLine(lines, lines.count));
+}
+uint32_t nimculus_platform_editor_source_line_for_display_pixels(double pixels) {
+  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
+  if (lines.count == 0) return 0;
+  NSUInteger row = (NSUInteger)floor(MAX(0.0, pixels) / editorLineHeight());
+  NSUInteger sourceLine = 0;
+  editorSoftWrapTextAtDisplayRow(lines, row, &sourceLine);
+  return (uint32_t)MIN(UINT32_MAX, sourceLine);
+}
+double nimculus_platform_editor_display_fraction_for_scroll_pixels(double pixels) {
+  CGFloat height = editorLineHeight();
+  if (height <= 0.0) return 0.0;
+  double bounded = MAX(0.0, pixels);
+  double fraction = fmod(bounded, height);
+  return MIN(MAX(0.0, fraction), height - 0.001);
 }
 void nimculus_platform_set_editor_scroll_x(double offset) {
   g_editor_scroll_x = editorClampedScrollX(offset);
