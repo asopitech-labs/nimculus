@@ -223,6 +223,13 @@ static const CGFloat NimculusControlHit = 24.0;
 // explicit instead of changing the tab content geometry.
 static const CGFloat NimculusTabNavigationOpticalInset = 6.5;
 static const CGFloat NimculusIconPointSize = 14.0;
+// Zed's quick action bar draws IconSize::Small glyphs on a 23pt slot pitch,
+// with the rightmost slot's centre 20pt inside the pane's right edge. Measured
+// on its window: ink 10.5pt tall, slot centres at 1038/1061/1084/1107/1130pt.
+static const CGFloat NimculusToolbarIconPointSize = 11.0;
+static const CGFloat NimculusToolbarSlotPitch = 23.0;
+static const CGFloat NimculusToolbarSlotRightInset = 20.0;
+static const NSUInteger NimculusToolbarSlotCount = 5;
 
 static BOOL tabDebugEnabled(void) {
   const char *enabled = getenv("NIMCULUS_TAB_DEBUG");
@@ -1819,11 +1826,14 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height, themeRed, themeGreen, themeBlue, 0.96f, transform);
   } else if (paint.kind == 13) { // workspace separator
-    themeRGB(themeRole(@"borderVariant", g_theme_border),
+    // Zed rules workspace edges with `border` at full strength -- measured
+    // #cfd1d2 where the dock meets the editor. `border.variant` at 90% came
+    // out as #e2e3e4, visibly lighter than the rule it stands in for.
+    themeRGB(themeRole(@"border", g_theme_border),
       [NSColor colorWithCalibratedRed:0.20 green:0.23 blue:0.29 alpha:1.0],
       &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
-      x, y, width, height, themeRed, themeGreen, themeBlue, 0.9f, transform);
+      x, y, width, height, themeRed, themeGreen, themeBlue, 1.0f, transform);
   } else if (paint.kind == 14) { // editor active line
     themeRGB(themeRole(@"editorActiveLine", themeRole(@"editor", g_theme_background)),
       [NSColor colorWithCalibratedWhite:0.18 alpha:1.0],
@@ -1842,6 +1852,12 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
   } else if (paint.kind == 15) { // editor background
     themeRGB(editorPaintToken(),
       [NSColor colorWithCalibratedWhite:0.12 alpha:1.0],
+      &themeRed, &themeGreen, &themeBlue);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y, width, height, themeRed, themeGreen, themeBlue, 1.0f, transform);
+  } else if (paint.kind == 16) { // scrollbar track rule
+    themeRGB(themeRole(@"scrollbarTrackBorder", themeRole(@"borderVariant", g_theme_border)),
+      [NSColor colorWithCalibratedWhite:0.24 alpha:1.0],
       &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height, themeRed, themeGreen, themeBlue, 1.0f, transform);
@@ -7441,7 +7457,11 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
     button.image = [NSImage imageWithSystemSymbolName:symbol
       accessibilityDescription:label];
     button.imagePosition = NSImageOnly;
-    applySidebarIconConfiguration(button);
+    button.imageScaling = NSImageScaleProportionallyDown;
+    NSImageSymbolConfiguration *configuration = [NSImageSymbolConfiguration
+      configurationWithPointSize:NimculusToolbarIconPointSize
+      weight:NSFontWeightMedium];
+    button.image = [button.image imageWithSymbolConfiguration:configuration];
   }
   button.toolTip = label;
   button.accessibilityLabel = label;
@@ -7459,19 +7479,24 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
   // the real width so the complete document/heading chain remains visible
   // beside the three actions instead of wrapping the tail onto a hidden row.
   [self updateBreadcrumbPresentation];
-  const CGFloat rightInset = NimculusSpace1;
   // Center the actions in the toolbar's content band, above its bottom rule.
   const CGFloat actionTop = (self.bounds.size.height -
     NimculusChromeBorderHeight - NimculusControlHit) / 2.0;
-  CGFloat x = self.bounds.size.width - rightInset - NimculusControlHit;
-  self.formatButton.frame = NSMakeRect(x, actionTop,
-    NimculusControlHit, NimculusControlHit);
-  x -= NimculusSpace1 + NimculusControlHit;
-  self.searchButton.frame = NSMakeRect(x, actionTop,
-    NimculusControlHit, NimculusControlHit);
-  x -= NimculusSpace1 + NimculusControlHit;
-  self.previewButton.frame = NSMakeRect(x, actionTop,
-    NimculusControlHit, NimculusControlHit);
+  // Zed right-aligns a five-slot cluster; its first two slots are the same
+  // preview and search actions we own, so fill its slots from the left rather
+  // than right-aligning three buttons into slots three through five. The
+  // trailing slots stay empty because we have no inline assistant or editor
+  // settings menu to put there, and a button that does nothing would be
+  // decoration.
+  const CGFloat rightmostCenter = self.bounds.size.width +
+    NimculusSpace2 - NimculusToolbarSlotRightInset;
+  NSButton *slots[3] = {self.previewButton, self.searchButton, self.formatButton};
+  for (NSUInteger index = 0; index < 3; index++) {
+    const CGFloat center = rightmostCenter -
+      NimculusToolbarSlotPitch * (CGFloat)(NimculusToolbarSlotCount - 1 - index);
+    slots[index].frame = NSMakeRect(center - NimculusControlHit / 2.0, actionTop,
+      NimculusControlHit, NimculusControlHit);
+  }
 }
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
@@ -7509,9 +7534,21 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
   NSArray<NSString *> *components = [text componentsSeparatedByString:@" › "];
   for (NSUInteger index = 0; index < components.count; index++) {
     if (index > 0) {
-      [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:@" › "
+      // Zed separates breadcrumb segments with layout gaps, not spaces: its
+      // path ends at x=221pt, the chevron's ink runs 227.5-231pt, and the next
+      // segment starts at 236pt. A monospace space on either side puts those
+      // gaps at 12pt and 11pt, so tighten each one by its measured excess.
+      [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:@" "
+        attributes:@{NSForegroundColorAttributeName: muted,
+          NSFontAttributeName: regularFont,
+          NSKernAttributeName: @(-5.5)}] autorelease]];
+      [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:@"›"
         attributes:@{NSForegroundColorAttributeName: muted,
           NSFontAttributeName: regularFont}] autorelease]];
+      [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:@" "
+        attributes:@{NSForegroundColorAttributeName: muted,
+          NSFontAttributeName: regularFont,
+          NSKernAttributeName: @(-6.0)}] autorelease]];
     }
     NSString *component = components[index];
     if ([component hasPrefix:@"#"]) {
@@ -12178,7 +12215,7 @@ bool nimculus_platform_validate_editor_context_header(void) {
     replaceOwnedString(&g_editor_context,
       @"DEVELOPMENT_GUIDELINES.md › # Nimculus 開発ガイドライン › ## 2. 基本原則 › ### 2.1 macOS を先行する");
     NimculusEditorContextOverlay *context = [[NimculusEditorContextOverlay alloc]
-      initWithFrame:NSMakeRect(12.0, 480.0, 300.0, NimculusRowHeight)];
+      initWithFrame:NSMakeRect(12.0, 480.0, 300.0, NimculusBreadcrumbHeight)];
     context.stringValue = g_editor_context;
     context.lineBreakMode = NSLineBreakByTruncatingMiddle;
     [context updateBreadcrumbPresentation];
@@ -12213,8 +12250,15 @@ bool nimculus_platform_validate_editor_context_header(void) {
       context.previewButton.frame.size.width == NimculusControlHit &&
       context.searchButton.frame.size.width == NimculusControlHit &&
       context.formatButton.frame.size.width == NimculusControlHit &&
-      context.searchButton.frame.origin.y == (NimculusRowHeight - NimculusControlHit) / 2.0 &&
-      context.formatButton.frame.origin.y == (NimculusRowHeight - NimculusControlHit) / 2.0;
+      context.searchButton.frame.origin.y == (NimculusBreadcrumbHeight -
+        NimculusChromeBorderHeight - NimculusControlHit) / 2.0 &&
+      context.formatButton.frame.origin.y == (NimculusBreadcrumbHeight -
+        NimculusChromeBorderHeight - NimculusControlHit) / 2.0 &&
+      // Zed's slots are 23pt apart, so the actions we own keep that pitch.
+      context.searchButton.frame.origin.x - context.previewButton.frame.origin.x ==
+        NimculusToolbarSlotPitch &&
+      context.formatButton.frame.origin.x - context.searchButton.frame.origin.x ==
+        NimculusToolbarSlotPitch;
     g_command_callback = validationCommandCallback;
     [context.searchButton performClick:nil];
     BOOL dispatchesFind = strcmp(g_validation_command, "commandPalette:find") == 0;
@@ -12232,7 +12276,7 @@ bool nimculus_platform_validate_editor_context_header(void) {
       [breadcrumbFont.fontName isEqualToString:bufferFont.fontName] &&
       fabs(breadcrumbFont.pointSize - NimculusUiTextSize) < 0.001 &&
       context.lineBreakMode == NSLineBreakByTruncatingMiddle &&
-      context.frame.size.height == NimculusRowHeight && !context.acceptsFirstResponder &&
+      context.frame.size.height == NimculusBreadcrumbHeight && !context.acceptsFirstResponder &&
       [context hitTest:NSMakePoint(2.0, 2.0)] == nil && headingIsEmphasized &&
       hasActions && dispatchesFind && dispatchesFormat;
     [context release];
@@ -15327,7 +15371,8 @@ void nimculus_platform_set_theme_palette_json(const char *json) {
     @"borderSelected", @"titleBar", @"titleBarInactive", @"toolbar", @"tabBar", @"tabActive",
     @"tabInactive", @"statusBar", @"editor", @"editorForeground", @"gutter", @"editorSubheader",
     @"editorActiveLine",
-    @"scrollbarThumb", @"scrollbarHover", @"lineNumber", @"activeLineNumber", @"hoverLineNumber",
+    @"scrollbarThumb", @"scrollbarTrackBorder", @"scrollbarHover", @"lineNumber",
+    @"activeLineNumber", @"hoverLineNumber",
     @"caret", @"elevated", @"terminal", @"added", @"modified", @"deleted",
     @"conflict", @"warning", @"hint", @"error", @"info", @"success"
   ];

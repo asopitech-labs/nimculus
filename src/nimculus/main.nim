@@ -381,9 +381,13 @@ proc setupDemoUi() =
     let dockHeight = max(0'f32, viewportHeight - DefaultStatusHeight - bottomDockHeight)
     paint.drawWorkspacePanel(Rect(origin: Point(x: px(dockX), y: px(0)),
       size: Size(width: px(leftDockWidth), height: px(dockHeight))))
-    paint.drawWorkspaceSeparator(Rect(origin: Point(x: px(
-        if MacProjectDockOnRight: dockX else: leftDockWidth - 1), y: px(0)),
-      size: Size(width: px(1), height: px(dockHeight))))
+    # Zed rules the dock's outer edge, not its first column: the border sits at
+    # x=1149pt with the panel surface starting at 1150pt. For a right-side dock
+    # the editor surface covers that column, so the rule is re-emitted above the
+    # editor background further down instead of here.
+    if not MacProjectDockOnRight:
+      paint.drawWorkspaceSeparator(Rect(origin: Point(x: px(leftDockWidth - 1),
+        y: px(0)), size: Size(width: px(1), height: px(dockHeight))))
   if bottomDockHeight > 0:
     paint.drawWorkspacePanel(Rect(origin: Point(x: px(contentX),
       y: px(viewportHeight - DefaultStatusHeight - bottomDockHeight)),
@@ -402,15 +406,27 @@ proc setupDemoUi() =
     paint.drawEditorBackground(primaryEditor)
     if demoSplitEnabled:
       paint.drawEditorBackground(secondaryEditor)
+    if leftDockWidth > 0 and MacProjectDockOnRight:
+      # The editor surface reaches the dock's border column, so this rule has
+      # to be laid over it rather than under it. Zed paints it at x=1149pt of a
+      # 1389pt window, immediately left of the panel's #ececed.
+      let dockRuleX = viewportWidth - leftDockWidth - 1'f32
+      let dockRuleHeight = max(0'f32, viewportHeight - DefaultStatusHeight -
+        bottomDockHeight)
+      paint.drawWorkspaceSeparator(Rect(origin: Point(x: px(dockRuleX), y: px(0)),
+        size: Size(width: px(1), height: px(dockRuleHeight))))
     let lineHeight = editorLineHeight()
     let primaryLocation = document[].buffer.lineColumn(editorViewState.cursor)
     let primaryRow = primaryLocation.line - editorViewState.scrollLine
     if primaryRow >= -1:
+      # Zed stops the active-line band at the scrollbar column rather than
+      # running it under the track.
       paint.drawEditorActiveLine(Rect(
         origin: Point(x: primaryEditor.origin.x,
           y: px(float32(primaryEditor.origin.y) +
             float32(primaryRow) * lineHeight - editorViewState.scrollYFraction)),
-        size: Size(width: primaryEditor.size.width, height: px(lineHeight))))
+        size: Size(width: px(max(0'f32, float32(primaryEditor.size.width) -
+          EditorScrollbarWidth)), height: px(lineHeight))))
     if demoSplitEnabled:
       let secondaryLocation = document[].buffer.lineColumn(editorSession.secondaryView.cursor)
       let secondaryRow = secondaryLocation.line - editorSession.secondaryView.scrollLine
@@ -419,7 +435,8 @@ proc setupDemoUi() =
           origin: Point(x: secondaryEditor.origin.x,
             y: px(float32(secondaryEditor.origin.y) +
               float32(secondaryRow) * lineHeight - editorSession.secondaryView.scrollYFraction)),
-          size: Size(width: secondaryEditor.size.width, height: px(lineHeight))))
+          size: Size(width: px(max(0'f32, float32(secondaryEditor.size.width) -
+            EditorScrollbarWidth)), height: px(lineHeight))))
   if getEnv("NIMCULUS_UI_GALLERY", "") == "1":
     # Keep the M2 renderer gallery available for explicit visual inspection,
     # but do not let placeholder paint kinds obscure the normal editor.
@@ -996,6 +1013,11 @@ proc addEditorScrollbars(paint: var PaintList, bounds: Rect, view: EditorViewSta
   let width = max(0'f32, float32(bounds.size.width))
   let height = max(0'f32, float32(bounds.size.height))
   if lineCount > max(1, visibleLines):
+    # The track's inner rule runs the pane's full height, thumb or not.
+    paint.drawScrollbarTrack(Rect(origin: Point(
+      x: px(float32(bounds.origin.x) + width - EditorScrollbarWidth),
+      y: bounds.origin.y),
+      size: Size(width: px(1), height: bounds.size.height)))
     let trackY = float32(bounds.origin.y) + EditorScrollbarTopInset
     let trackHeight = max(0'f32, height - EditorScrollbarTopInset -
       EditorScrollbarBottomInset)
@@ -1004,8 +1026,14 @@ proc addEditorScrollbars(paint: var PaintList, bounds: Rect, view: EditorViewSta
     let maxScrollPixels = max(1'f32, float32(lineCount - max(1, visibleLines)) * editorLineHeight())
     let thumbY = trackY + max(0'f32, trackHeight - thumbHeight) *
       min(1'f32, max(0'f32, view.scrollYPixels) / maxScrollPixels)
-    paint.drawScrollbar(Rect(origin: Point(x: px(float32(bounds.origin.x) + width - 10'f32),
-      y: px(thumbY)), size: Size(width: px(6), height: px(min(trackHeight, thumbHeight)))))
+    # Zed's vertical scrollbar is a 16pt column at the pane's right edge: a 1pt
+    # rule, then a 15pt track the thumb fills edge to edge. Measured at 1389pt
+    # wide, the rule is at x=1134pt and the thumb spans 1135-1149pt.
+    paint.drawScrollbar(Rect(origin: Point(
+      x: px(float32(bounds.origin.x) + width - EditorScrollbarWidth + 1'f32),
+      y: px(thumbY)),
+      size: Size(width: px(EditorScrollbarWidth - 2'f32),
+        height: px(min(trackHeight, thumbHeight)))))
   let scrollbar = when defined(macosx):
       horizontalEditorScrollbar(bounds, widestLineWidth, view.scrollX,
       contentOriginX = editorTextLayoutOrigin(secondary),

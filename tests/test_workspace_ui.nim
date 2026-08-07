@@ -101,7 +101,7 @@ suite "workspace UI state":
 
   test "right project dock presentation subtracts its measured allowance":
     check projectDockPresentationWidth(DefaultLeftDockWidth, 128'f32,
-      dockOnRight = true) == 223'f32
+      dockOnRight = true) == 239'f32
     check projectDockPresentationWidth(DefaultLeftDockWidth, 128'f32,
       dockOnRight = false) == DefaultLeftDockWidth
 

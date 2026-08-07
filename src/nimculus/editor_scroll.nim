@@ -5,7 +5,13 @@ const
   ## non-native callers, but never reserve a right-hand layout column for a
   ## scrollbar: scrollbars are painted over the editor content.
   EditorTextLeftInset* = 8'f32
-  EditorScrollbarTopInset* = 6'f32
+  ## Zed's vertical track starts at the pane's first row, not below it: with
+  ## the document at the top its thumb begins at y=112pt, the same y as line 1.
+  EditorScrollbarTopInset* = 0'f32
+  ## Zed spends 16pt at the pane's right edge on the vertical scrollbar: a 1pt
+  ## track rule plus a 15pt column the thumb fills. Painting over the content
+  ## rather than reserving layout width is what keeps wrapping unchanged.
+  EditorScrollbarWidth* = 16'f32
   EditorScrollbarBottomInset* = 14'f32
   EditorScrollbarHeight* = 6'f32
   EditorScrollbarMinimumThumb* = 24'f32

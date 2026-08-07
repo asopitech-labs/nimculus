@@ -6,7 +6,10 @@ type
     shadow, caret, selection, scrollbar,
     ## Workspace chrome has semantic paint kinds so the Metal backend can use
     ## the active theme rather than the gallery's fixed placeholder blue.
-    workspaceBackground, workspacePanel, workspaceSeparator, editorActiveLine, editorBackground
+    workspaceBackground, workspacePanel, workspaceSeparator, editorActiveLine, editorBackground,
+    ## Zed rules the vertical scrollbar's inner edge in its own lighter role
+    ## (`scrollbar.track.border`), distinct from the workspace `border`.
+    scrollbarTrack
 
   PaintCommand* = object
     kind*: PaintKind
@@ -127,3 +130,5 @@ proc drawEditorActiveLine*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: editorActiveLine, bounds: bounds, clip: bounds))
 proc drawEditorBackground*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: editorBackground, bounds: bounds, clip: bounds))
+proc drawScrollbarTrack*(paint: var PaintList, bounds: Rect) =
+  paint.add(PaintCommand(kind: scrollbarTrack, bounds: bounds, clip: bounds))

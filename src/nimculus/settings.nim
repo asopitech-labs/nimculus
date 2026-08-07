@@ -55,6 +55,7 @@ type
     editorSubheader*: string
     editorActiveLine*: string
     scrollbarThumb*: string
+    scrollbarTrackBorder*: string
     scrollbarHover*: string
     lineNumber*: string
     activeLineNumber*: string
@@ -235,6 +236,7 @@ proc settingsSchema*(): JsonNode =
       "statusBar": {"type": "string"}, "editor": {"type": "string"},
       "editorForeground": {"type": "string"}, "gutter": {"type": "string"},
       "editorActiveLine": {"type": "string"}, "scrollbarThumb": {"type": "string"},
+      "scrollbarTrackBorder": {"type": "string"},
       "scrollbarHover": {"type": "string"}, "lineNumber": {"type": "string"},
       "activeLineNumber": {"type": "string"}, "hoverLineNumber": {"type": "string"},
       "caret": {"type": "string"}, "terminal": {"type": "string"},
@@ -377,6 +379,7 @@ proc registerBuiltinThemes*(store: SettingsStore) =
     toolbar: "#282c33", tabBar: "#2f343e", tabActive: "#282c33", tabInactive: "#2f343e",
     statusBar: "#3b414d", editor: "#282c33", editorForeground: "#acb2be", gutter: "#282c33",
     editorSubheader: "#2f343e", editorActiveLine: "#2f343ebf", scrollbarThumb: "#c8ccd44c",
+    scrollbarTrackBorder: "#3b414d",
     scrollbarHover: "#363c46", lineNumber: "#4e5a5f", activeLineNumber: "#d0d4da",
     hoverLineNumber: "#acb0b4", caret: "#74ade8", terminal: "#282c34", added: "#27a657",
     modified: "#d3b020",
@@ -401,7 +404,8 @@ proc registerBuiltinThemes*(store: SettingsStore) =
     borderSelected: "#cbcdf6", titleBar: "#dcddde", titleBarInactive: "#ececed",
     toolbar: "#fcfcfc", tabBar: "#ececed", tabActive: "#fcfcfc", tabInactive: "#ececed",
     statusBar: "#dcddde", editor: "#fcfcfc", editorForeground: "#242529", gutter: "#fcfcfc",
-    editorSubheader: "#ececed", editorActiveLine: "#ececedbf", scrollbarThumb: "#00000000",
+    editorSubheader: "#ececed", editorActiveLine: "#ececedbf", scrollbarThumb: "#ccced0",
+    scrollbarTrackBorder: "#efeff0",
     scrollbarHover: "#dfdfe0", lineNumber: "#b4b4bb", activeLineNumber: "#44454b",
     hoverLineNumber: "#61616b", caret: "#5c78e2", terminal: "#fafafa", added: "#27a657",
     modified: "#d3b020",
@@ -444,6 +448,7 @@ proc configuredThemeColors(node: JsonNode; fallback: ThemeColors): ThemeColors =
       "textDisabled", "textAccent", "borderVariant", "borderFocused", "borderSelected", "titleBar",
       "titleBarInactive", "toolbar", "tabBar", "tabActive", "tabInactive", "statusBar", "editor",
       "gutter", "editorForeground", "editorSubheader", "editorActiveLine", "scrollbarThumb",
+      "scrollbarTrackBorder",
       "scrollbarHover",
       "lineNumber", "activeLineNumber", "hoverLineNumber", "caret", "elevated",
       "terminal",
@@ -482,6 +487,7 @@ proc configuredThemeColors(node: JsonNode; fallback: ThemeColors): ThemeColors =
       of "editorSubheader": result.editorSubheader = colors[key].getStr
       of "editorActiveLine": result.editorActiveLine = colors[key].getStr
       of "scrollbarThumb": result.scrollbarThumb = colors[key].getStr
+      of "scrollbarTrackBorder": result.scrollbarTrackBorder = colors[key].getStr
       of "scrollbarHover": result.scrollbarHover = colors[key].getStr
       of "lineNumber": result.lineNumber = colors[key].getStr
       of "activeLineNumber": result.activeLineNumber = colors[key].getStr
@@ -628,6 +634,7 @@ proc themePaletteJson*(colors: ThemeColors): string =
     "editor": colors.editor, "editorForeground": colors.editorForeground, "gutter": colors.gutter,
     "editorSubheader": colors.editorSubheader,
     "editorActiveLine": colors.editorActiveLine, "scrollbarThumb": colors.scrollbarThumb,
+    "scrollbarTrackBorder": colors.scrollbarTrackBorder,
     "scrollbarHover": colors.scrollbarHover, "lineNumber": colors.lineNumber,
     "activeLineNumber": colors.activeLineNumber, "hoverLineNumber": colors.hoverLineNumber,
     "caret": colors.caret, "syntax": colors.syntax, "terminal": colors.terminal,

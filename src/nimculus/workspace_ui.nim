@@ -88,10 +88,12 @@ proc `==`*(a, b: PaneId): bool {.borrow.}
 
 const
   DefaultLeftDockWidth* = 240'f32
-  ## Zed's right-presented Project Panel reserves 17pt outside its declared
-  ## logical width. Keep this presentation allowance separate from the
-  ## persisted 240pt dock size so the shared workspace model remains honest.
-  RightDockPresentationAllowance* = 17'f32
+  ## Zed's right-presented Project Panel spends its declared width on a 1pt
+  ## `border` rule plus its own surface: measured at 1389pt wide, the rule sits
+  ## at x=1149pt and the #ececed panel runs 1150-1389pt, which is 240pt in
+  ## total. Keep this presentation allowance separate from the persisted 240pt
+  ## dock size so the shared workspace model remains honest.
+  RightDockPresentationAllowance* = 1'f32
   DefaultBottomDockHeight* = 260'f32
   ## Zed's logical separator/status surface is presented by AppKit in the
   ## 16pt band above the native 30pt footer. Leave only its two-point Metal
