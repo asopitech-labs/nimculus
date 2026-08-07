@@ -6913,11 +6913,27 @@ static NSColor *activeTabSurfaceColor(void) {
 - (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
+  // Zed closes the window's last editor row with a full-width `border` rule at
+  // 760pt, directly above the status bar. This view is not flipped, so its
+  // visual bottom is y = 0.
+  [themeRoleColor(@"border", [NSColor separatorColor]) setFill];
+  NSRectFill(NSMakeRect(0.0, 0.0, self.bounds.size.width,
+    NimculusChromeBorderHeight));
+
+  // Above that rule Zed paints its horizontal scrollbar. Measured, its thumb
+  // covers the text column only: the gutter (x < 92pt) and the dock keep their
+  // own surfaces. We do not yet track the thumb's length -- Zed's ended at
+  // 915pt of a 92-1134pt track -- so this still spans the whole text column.
+  // Do not widen it back over the gutter or the dock; both are measured.
   // Calibrated NSColor is converted through the active display profile; these
   // source values render as Zed's measured #cccecf on the parity display.
+  const CGFloat thumbLeft = g_editor_rect[0] + editorTextOriginX(g_editor_rect);
+  const CGFloat thumbRight = MAX(thumbLeft, g_editor_rect[0] + g_editor_rect[2]);
   [[NSColor colorWithCalibratedRed:192.0 / 255.0 green:195.0 / 255.0
     blue:196.0 / 255.0 alpha:1.0] setFill];
-  NSRectFill(self.bounds);
+  NSRectFill(NSMakeRect(thumbLeft, NimculusChromeBorderHeight,
+    MAX(0.0, thumbRight - thumbLeft),
+    MAX(0.0, self.bounds.size.height - NimculusChromeBorderHeight)));
 }
 @end
 
@@ -8920,9 +8936,16 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   if (editorGap) {
     // The metrics-backed Metal viewport ends 14pt above the AppKit status
     // presenter on a full-size content window. Restore the editor surface in
-    // that seam so the horizontal bands remain continuous.
-    editorGap.frame = NSMakeRect(0.0, 46.0, self.bounds.size.width, 14.0);
+    // that seam so the horizontal bands remain continuous. Zed keeps its
+    // editor surface all the way down to the 760pt rule, and keeps the dock's
+    // own surface beside it, so this stays inside the editor's width. It must
+    // not grow down into the scrollbar band: it is opaque, and it would paint
+    // over the document row Zed still shows there.
+    editorGap.frame = NSMakeRect(g_editor_rect[0], 46.0,
+      MAX(1.0, g_editor_rect[2]), 14.0);
     editorGap.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
+    editorGap.backgroundColor = themeHexColor(editorPaintToken(),
+      [NSColor colorWithCalibratedWhite:0.98 alpha:1.0]);
     [editorGap setNeedsDisplay:YES];
   }
   if (statusBand) {
