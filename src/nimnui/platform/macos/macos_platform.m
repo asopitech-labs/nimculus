@@ -14690,6 +14690,11 @@ static void replaceEditorFolds(NimculusFoldRange **slot, uint32_t *count,
   *count = range_count;
 }
 void nimculus_platform_set_editor_folds(const NimculusFoldRange *ranges, uint32_t count) {
+  if (count == g_editor_fold_count &&
+      (count == 0 || (g_editor_folds && ranges &&
+        memcmp(g_editor_folds, ranges, sizeof(NimculusFoldRange) * count) == 0))) {
+    return;
+  }
   replaceEditorFolds(&g_editor_folds, &g_editor_fold_count, ranges, count);
   g_editor_scroll_line = editorFirstVisibleLine(g_editor_scroll_line, g_editor_line_count);
   if (g_queue) { updateEditorTextTexture(g_queue.device, g_editor_text, YES); rebuildSecondaryEditorTexture(g_queue.device); }
@@ -14963,6 +14968,13 @@ void nimculus_platform_show_save_panel_and_close(void) {
   else [panel beginWithCompletionHandler:complete];
 }
 void nimculus_platform_set_editor_selection(uint32_t start_byte, uint32_t end_byte) {
+  // Republished after every input event, and it walks the whole document twice
+  // to map byte offsets to UTF-16 units before rebuilding the texture.
+  static uint32_t lastStart = UINT32_MAX;
+  static uint32_t lastEnd = UINT32_MAX;
+  if (start_byte == lastStart && end_byte == lastEnd) return;
+  lastStart = start_byte;
+  lastEnd = end_byte;
   NSUInteger start = utf16OffsetForUTF8Bytes(g_editor_text ?: @"", start_byte);
   NSUInteger end = utf16OffsetForUTF8Bytes(g_editor_text ?: @"", end_byte);
   g_editor_selection_start = MIN(start, end);

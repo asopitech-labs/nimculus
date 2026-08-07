@@ -1,4 +1,5 @@
 import std/os
+import std/tables
 import std/osproc
 import std/streams
 import std/strutils
@@ -123,27 +124,51 @@ proc gitProcessOptions(): set[ProcessOption] =
 proc newGitJob(process: Process): GitJob =
   result = GitJob(process: process, output: process.peekableOutputStream())
 
+var gitRepositoryCache: Table[string, GitRepository]
+
+proc clearGitRepositoryCache*() =
+  ## Call this when the worktree layout can have changed under us -- a clone,
+  ## a `git init`, a workspace switch. Resolution is otherwise stable for the
+  ## life of a path.
+  gitRepositoryCache.clear()
+
 proc newGitRepository*(root: string): GitRepository =
+  ## Resolution spawns `git rev-parse --show-toplevel` and blocks the caller
+  ## until it answers. That is fine once per document; it is not fine per input
+  ## event, which is what the editor's per-event resync was doing -- a profile
+  ## of a scroll burst found the main thread parked in nanosleep inside this
+  ## probe. The answer only depends on the path, so remember it, including the
+  ## negative answer for a path that is not in a worktree.
+  if gitRepositoryCache.hasKey(root): return gitRepositoryCache[root]
   let absolute = absolutePath(root)
-  if not dirExists(absolute): return nil
+  if not dirExists(absolute):
+    gitRepositoryCache[root] = nil
+    return nil
   var probe: Process
   try:
     probe = startProcess("git", "", @["-C", absolute, "rev-parse", "--show-toplevel"],
       options = gitProcessOptions())
   except CatchableError:
+    gitRepositoryCache[root] = nil
     return nil
   let job = newGitJob(probe)
   let startedAt = epochTime()
   while not job.poll():
     if (epochTime() - startedAt) * 1_000.0 >= float64(GitProbeTimeoutMs):
       job.cancel()
+      # A timeout is not an answer about the path; do not remember it.
       return nil
     sleep(1)
-  if job.result.exitCode != 0 or job.result.outputTruncated: return nil
+  if job.result.exitCode != 0 or job.result.outputTruncated:
+    gitRepositoryCache[root] = nil
+    return nil
   let resolved = job.result.output.strip()
-  if resolved.len == 0: return nil
-  try: GitRepository(root: absolutePath(resolved))
-  except CatchableError: nil
+  if resolved.len == 0:
+    gitRepositoryCache[root] = nil
+    return nil
+  result = try: GitRepository(root: absolutePath(resolved))
+    except CatchableError: nil
+  gitRepositoryCache[root] = result
 
 proc repositoryForPath*(path: string): GitRepository =
   ## Resolve a repository from the document's own location. This remains
