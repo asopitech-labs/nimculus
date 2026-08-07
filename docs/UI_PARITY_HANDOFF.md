@@ -252,10 +252,33 @@ syncEditorCursor → set_editor_input_pane / set_editor_cursor_byte
 セッター側の重複呼び出しはフレーム 1 回に集約済み（`scheduleEditorTextTextureRebuild`）
 なので、これ以上はセッターを塞いでも減らない。
 
-Zed は行レイアウトを字形アトラスへ一度シェープしてキャッシュし、フレームでは
-四角形を並べ直すだけ（`crates/gpui/src/text_system` の `LineLayoutCache`）。
-**次にやるのは、行ごとのシェープ結果をキャッシュし、編集で無効化する仕組み**。
-テクスチャ全面再構築をやめない限り Zed の 10ms には届かない。
+Zed は行レイアウトを一度シェープしてキャッシュし、フレームでは四角形を
+並べ直すだけ（`crates/gpui/src/text_system/line_layout.rs` の `LineLayoutCache`）。
+キーは (テキスト, フォント, サイズ, ラン)、`previous_frame` / `current_frame` の
+2 枚持ちで、フレーム終端に未使用分を落とす。スクロールで表示範囲が動いても、
+**残った行のレイアウトはそのまま再利用される**。
+
+### 実装すべきもの（`updateEditorTextTexture` の作り替え）
+
+現状の `macos_platform.m:2882` は、**可視行を 1 本の NSAttributedString に連結して
+CTFramesetter を毎フレーム作り直している**。連結しているので、行が 1 行ぶん
+スクロールしただけでもキー全体が変わり、キャッシュが効かない構造になっている。
+
+やること:
+
+1. `updateEditorTextTexture` を「連結ブロックを 1 回組版」から
+   **「ソース行ごとに CTLine を作り、各行の y に描く」**へ変える。
+2. `CTLine` を (行テキスト, フォント, サイズ, ハイライトのラン) をキーに
+   キャッシュする。Zed と同じく 2 フレーム持ちにして、使われなかった行を落とす。
+3. 選択・診断の下線は現在 UTF-16 の絶対オフセットを連結ブロックに対して
+   計算している（`editorProjectedUTF16RangeForBytes`）。行単位に変えると
+   行ローカルのレンジになるので、ここも合わせて書き換える。
+4. 折り返しは行ごとに `CTTypesetterSuggestLineBreak` で分割し、
+   分割位置も行キャッシュに載せる（今の `editorSoftWrapRowCount` の
+   メモ化と統合できる）。
+
+3 が一番の作業量。ここを飛ばすと選択とエラー下線が壊れるので、
+**変更後は必ず選択とエラー表示をキャプチャで確認すること**。
 
 ### 1. エディタ本文のフォントメトリクス（フォールバック維持で確定・残差として受容）
 
