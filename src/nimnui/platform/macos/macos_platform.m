@@ -2500,7 +2500,16 @@ static BOOL editorProjectedUTF16RangeForBytes(NSArray<NSString *> *lines,
     NSUInteger sourceLine = visibleSourceLines[visibleIndex].unsignedIntegerValue;
     NSString *line = lines[sourceLine];
     NSUInteger sourceStart = editorLineUTF8Offset(sourceLine, lines);
-    NSUInteger sourceLength = [[line dataUsingEncoding:NSUTF8StringEncoding] length];
+    // The cached offset table already knows every line's UTF-8 length: the gap
+    // to the next line, less its newline. Re-encoding the line to measure it
+    // allocated an NSData per visible line per span.
+    NSUInteger sourceLength;
+    if (g_editor_line_utf8_offsets && lines == g_editor_lines &&
+        sourceLine + 1 < g_editor_line_count) {
+      sourceLength = g_editor_line_utf8_offsets[sourceLine + 1] - sourceStart - 1;
+    } else {
+      sourceLength = [[line dataUsingEncoding:NSUTF8StringEncoding] length];
+    }
     NSUInteger sourceEnd = sourceStart + sourceLength;
     if (endByte > sourceStart && startByte < sourceEnd) {
       NSUInteger localStart = startByte > sourceStart ? startByte - sourceStart : 0;
@@ -15696,6 +15705,15 @@ void nimculus_platform_set_editor_highlights(const NimculusHighlightSpan *spans,
   markSceneFullyDirty();
 }
 void nimculus_platform_set_editor_diagnostics(const NimculusDiagnosticSpan *spans, uint32_t count) {
+  // Nim republishes diagnostics after every input event, and almost every one
+  // of those publishes the same set. Rebuilding the text texture and reloading
+  // the footer for an identical set was the largest single cost of a key or
+  // scroll event in a profile of a 250-event burst.
+  if (count == g_diagnostic_count &&
+      (count == 0 || (g_diagnostics && spans &&
+        memcmp(g_diagnostics, spans, sizeof(NimculusDiagnosticSpan) * count) == 0))) {
+    return;
+  }
   free(g_diagnostics);
   g_diagnostics = NULL;
   g_diagnostic_count = 0;
