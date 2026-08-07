@@ -17,6 +17,7 @@ let pointX = arguments.count > 3 ? Double(arguments[2]) ?? 0 : 0
 let pointY = arguments.count > 3 ? Double(arguments[3]) ?? 0 : 0
 let lines = arguments.count > 4 ? Int32(arguments[4]) ?? 3 : 3
 let intervalMs = arguments.count > 5 ? UInt32(arguments[5]) ?? 16 : 16
+let upwards = arguments.count > 6 && arguments[6] == "up"
 
 if pointX > 0 || pointY > 0 {
   CGWarpMouseCursorPosition(CGPoint(x: pointX, y: pointY))
@@ -33,10 +34,10 @@ guard CGPreflightListenEventAccess() || CGRequestListenEventAccess() else {
   exit(2)
 }
 
-for index in 0..<count {
-  // Alternate direction so a document end never turns the rest of the run into
-  // free no-ops.
-  let delta = index % 2 == 0 ? -lines : lines
+for _ in 0..<count {
+  // One direction per run. Alternating looks fair but nets zero displacement,
+  // which is indistinguishable from an editor that never scrolled at all.
+  let delta = upwards ? lines : -lines
   guard
     let event = CGEvent(
       scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: delta, wheel2: 0,

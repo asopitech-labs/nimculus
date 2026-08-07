@@ -160,6 +160,12 @@ statusbar  94.03% / >32 3.66%   (761-791pt)
 8. **`codex exec` はバックグラウンド実行時に stdin で固まる** → `< /dev/null` を必ず付ける
    （付け忘れて 4 時間ハングした）。
 9. **`open -n` は二重起動になり `_RegisterApplication` で SIGABRT** する。通常は `open` を使う。
+9b. **Claude Code がセッション中に自動更新すると画面収録・Apple Events が全部落ちる**。
+    実行中プロセスのバンドル（`~/Library/Application Support/Claude/claude-code/<版>/`）が
+    削除され、TCC が照合できなくなるため。`screencapture` が
+    "could not create image from display" になったら、まず
+    `ps -Ao comm= | grep claude-code` で動いている版とディスク上の版を比べる。
+    直し方は Claude の完全終了と再起動（設定の再トグルでは直らない）。
 10. **テーマ JSON の色をそのまま実装に写した** → Zed の描画は sRGB 変換後の値になる。
     `border` は JSON `#c9c9ca` に対し実描画 `#cfd1d2`、`border.variant` は `#dfdfe0`
     に対し `#dfe0e1`、`editor.background` は `#fafafa` に対し `#fcfcfc`。
@@ -182,6 +188,36 @@ statusbar  94.03% / >32 3.66%   (761-791pt)
 
 フォントのフォールバックは**現状のままで確定**（下記 1）。それ以外の箇所は
 `5031673` までで実測に基づいて合わせてある。
+
+### 0. スクロール性能（Zed の約 2 倍・未解決）
+
+`tools/scroll_cost.sh` で実測（実ホイールイベント、同一文書・1389×791、先頭から
+40 イベント × 5 行、両方とも描画変化を確認）:
+
+| | CPU / スクロールイベント |
+| --- | --- |
+| Zed | 10.00 – 10.50 ms |
+| Nimculus | 20.00 – 21.25 ms |
+
+**キーイベントで測ってはいけない。** Nimculus は Page Down / Page Up を処理しない
+（Zed は処理する）ので、キー駆動の測定は「捨てられたイベント」のコストを測る。
+実際これで一度 6ms と誤報告した（実体は 39ms）。`tools/post_scroll.swift` が
+実ホイールイベントを送る。ポインタ位置のウィンドウに配送されるので、必ず
+エディタ上へワープさせること。
+
+済んだこと（39.25 → 20 ms 前後）:
+- 入力ごとの再同期に早期リターン（text / soft_wrap / completions / git_hunks /
+  cursor / selections / diagnostics が同値なら何もしない）
+- 折り返し行数のメモ化（毎回 CTTypesetter を行ごとに作っていた）
+- `editorFont` のキャッシュ（呼ばれるたびに書体を名前から再構築していた）
+
+**試して逆効果だったので戻したもの**: ホイール分岐から `refreshEditorSyntax()` を
+外す → 32.5ms が 35.0ms に**悪化**した（3 回とも再現）。ネイティブ側の状態が
+古いままになり別経路で作業が増えるらしい。理屈で消すのではなく、外した状態を
+必ず測ること。
+
+残差の所在は `receiveNativeInput` 配下。プロファイルは
+`sample <pid> 6 1 -file out.txt` をスクロールと重ねて取る。
 
 ### 1. エディタ本文のフォントメトリクス（フォールバック維持で確定・残差として受容）
 

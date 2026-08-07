@@ -1,13 +1,16 @@
 #!/bin/bash
 # Measure what one scroll costs the editor, in CPU time and in frames.
 #
-# The parity tooling needs Screen Recording; this deliberately does not. It
-# drives the app with Page Down through Apple Events and reads the process's
-# own CPU accounting, so it can run whenever the app can be driven at all.
+# It drives the app with real scroll-wheel events and reads the process's own
+# CPU accounting.
+#
+# Do not measure this with key events. Nimculus ignores Page Down entirely, so
+# a key-driven run times an event the editor throws away and reports a cost for
+# work that never happened - which is exactly how this file once reported
+# 6ms per scroll for a build that actually cost 39ms.
 #
 # Run it on the build you want to measure, then on the other build, and compare
-# ms_cpu_per_scroll. Frame counts come from the app's metrics, so a build that
-# renders the same result with fewer rasterizations shows up here.
+# ms_cpu_per_scroll. Run it against Zed for the number that matters.
 #
 # Usage: tools/scroll_cost.sh [scroll_count] [app_name]
 #
@@ -67,31 +70,34 @@ cpu_ms() {
   } END { print total }'
 }
 
+POSTER="${TMPDIR:-/tmp}/nimculus-post-scroll"
+[ -x "$POSTER" ] || swiftc -O tools/post_scroll.swift -o "$POSTER" || exit 1
+
+# Scroll goes to the window under the pointer, so aim at the middle of the
+# editor: the window origin plus roughly a third of its width.
+read -r WX WY <<EOF
+$(osascript -e "tell application \"System Events\" to tell process \"$APP_NAME\" to get position of window 1" 2>/dev/null | tr ',' ' ')
+EOF
+POINT_X=$(( ${WX:-0} + 500 ))
+POINT_Y=$(( ${WY:-0} + 400 ))
+
+osascript -e "tell application \"$APP_NAME\" to activate" >/dev/null 2>&1
+sleep 0.5
+# Park at the top first: paging into a document end turns the rest of the run
+# into clamped no-ops that cost nothing and flatter the average.
+"$POSTER" 60 "$POINT_X" "$POINT_Y" 5 15 up >/dev/null 2>&1
+sleep 1
+
 BEFORE="$(cpu_ms "$PIDS")"
-# Alternate Page Down and Page Up. Paging in one direction reaches the end of
-# the document after a dozen events on any normal file, and every event after
-# that is a no-op that costs nothing and flatters the average.
-HALF=$((COUNT / 2))
-osascript <<OSA >/dev/null 2>&1
-tell application "$APP_NAME" to activate
-delay 0.5
-tell application "System Events"
-  repeat $HALF times
-    key code 121
-    delay 0.02
-    key code 116
-    delay 0.02
-  end repeat
-end tell
-OSA
+"$POSTER" "$COUNT" "$POINT_X" "$POINT_Y" 5 15 >/dev/null 2>&1
 sleep 1
 AFTER="$(cpu_ms "$PIDS")"
 
 DELTA=$((AFTER - BEFORE))
 echo "app              $APP_NAME"
-echo "scrolls          $((HALF * 2)) (alternating page down/up)"
+echo "scrolls          $COUNT (wheel, 5 lines each)"
 echo "cpu_ms_total     $DELTA"
-awk -v d="$DELTA" -v c="$((HALF * 2))" 'BEGIN { printf "ms_cpu_per_scroll %.2f\n", d / c }'
+awk -v d="$DELTA" -v c="$COUNT" 'BEGIN { printf "ms_cpu_per_scroll %.2f\n", d / c }'
 echo
-echo "Compare this number across builds. It excludes GPU time, so pair it with"
-echo "a visual check once Screen Recording is available."
+echo "Confirm the view actually moved before trusting the number: a run that"
+echo "scrolls nothing is cheap and meaningless."
