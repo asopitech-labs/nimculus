@@ -198,9 +198,15 @@ static const CGFloat NimculusSpace1 = 4.0;
 static const CGFloat NimculusSpace2 = 8.0;
 static const CGFloat NimculusSpace3 = 12.0;
 static const CGFloat NimculusRowHeight = 28.0;
-static const CGFloat NimculusTitlebarHeight = 34.0;
+// Measured from Zed's own window pixels (One Light, 1389x791): the title bar
+// paints 34pt of chrome plus a 1pt `border` rule, the tab strip 31pt plus the
+// same rule, and the toolbar 6 + 32 + 6pt plus a 1pt `border.variant` rule.
+// That is what puts Zed's first editor row at y=112pt; deriving the toolbar
+// from its own text height instead left our first row 17.5pt too high.
+static const CGFloat NimculusTitlebarHeight = 35.0;
 static const CGFloat NimculusTabBarHeight = 32.0;
-static const CGFloat NimculusBreadcrumbHeight = 28.0;
+static const CGFloat NimculusBreadcrumbHeight = 45.0;
+static const CGFloat NimculusChromeBorderHeight = 1.0;
 static const CGFloat NimculusDefaultWindowWidth = 1389.0;
 static const CGFloat NimculusDefaultWindowHeight = 791.0;
 // AppKit accepts finite window limits reliably. CGFLOAT_MAX looks equivalent
@@ -257,7 +263,7 @@ static const CGFloat NimculusFindBarRowPadding =
 // two-retina-pixel lower baseline. The left inset is the measured Zed text
 // start in retina coordinates.
 static const CGFloat NimculusBreadcrumbTextLeft = 12.0;
-static const CGFloat NimculusBreadcrumbTextBottom = 15.0;
+static const CGFloat NimculusBreadcrumbTextBottom = 13.0;
 static const NSUInteger NimculusSidebarHeaderLineCount = 2;
 
 static NSString *g_crash_report_path = nil;
@@ -1359,9 +1365,16 @@ static void setScissorForRegion(id<MTLRenderCommandEncoder> encoder,
   double y = MAX(0.0, MIN(logicalSize.height, region.y));
   double right = MAX(x, MIN(logicalSize.width, region.x + region.width));
   double bottom = MAX(y, MIN(logicalSize.height, region.y + region.height));
+  // MTLScissorRect is in drawable pixels with a top-left origin, the same
+  // orientation as the logical rectangles the paint list produces. Subtracting
+  // the region's bottom from the logical height mirrored every clip about the
+  // viewport's middle: a region that started `t` points below the top lost `t`
+  // points off its bottom instead. Full-height clips hid it; the editor body,
+  // which starts below the tab strip and toolbar, lost exactly that much of
+  // its last rows to the workspace background.
   MTLScissorRect scissor = {
     (NSUInteger)floor(x * scaleX),
-    (NSUInteger)floor((logicalSize.height - bottom) * scaleY),
+    (NSUInteger)floor(y * scaleY),
     (NSUInteger)ceil((right - x) * scaleX),
     (NSUInteger)ceil((bottom - y) * scaleY)
   };
@@ -3559,11 +3572,14 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   [background setFill];
   NSRectFill(self.bounds);
 
-  NSColor *border = [themeRoleColor(@"border", themeHexColor(g_theme_foreground,
-    [NSColor colorWithCalibratedWhite:0.85 alpha:1.0])) colorWithAlphaComponent:0.28];
+  // Zed paints this rule at full strength: measured #cfd1d2 against the
+  // #dcddde title bar. A 28% wash produced #f0f0f0, lighter than either.
+  NSColor *border = themeRoleColor(@"border", themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedWhite:0.85 alpha:1.0]));
   [border setFill];
-  NSRectFill(NSMakeRect(0.0, MAX(0.0, self.bounds.size.height - 1.0),
-    self.bounds.size.width, 1.0));
+  NSRectFill(NSMakeRect(0.0, MAX(0.0, self.bounds.size.height -
+    NimculusChromeBorderHeight), self.bounds.size.width,
+    NimculusChromeBorderHeight));
 
   NSColor *foreground = themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
     [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]));
@@ -6130,6 +6146,14 @@ static NSColor *activeTabSurfaceColor(void) {
   NSRectClip(NSIntersectionRect(self.bounds, dirtyRect));
   [themeRoleColor(@"tabBar", [NSColor colorWithCalibratedWhite:0.08 alpha:1.0]) setFill];
   NSRectFill(self.bounds);
+  // Zed rules the bottom of the tab strip with `border`, except under the
+  // active tab, whose surface runs on into the toolbar below it. The active
+  // tab paints over this rule further down.
+  const CGFloat tabBorderTop = MAX(0.0, self.bounds.size.height -
+    NimculusChromeBorderHeight);
+  [themeRoleColor(@"border", [NSColor separatorColor]) setFill];
+  NSRectFill(NSMakeRect(0.0, tabBorderTop, self.bounds.size.width,
+    NimculusChromeBorderHeight));
   NSArray<NSString *> *titles = self.secondary ? g_secondary_editor_tab_titles : g_editor_tab_titles;
   NSUInteger active = self.secondary ? g_secondary_editor_active_tab : g_editor_active_tab;
   if (titles.count == 0) {
@@ -7406,7 +7430,9 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
   // beside the three actions instead of wrapping the tail onto a hidden row.
   [self updateBreadcrumbPresentation];
   const CGFloat rightInset = NimculusSpace1;
-  const CGFloat actionTop = (NimculusRowHeight - NimculusControlHit) / 2.0;
+  // Center the actions in the toolbar's content band, above its bottom rule.
+  const CGFloat actionTop = (self.bounds.size.height -
+    NimculusChromeBorderHeight - NimculusControlHit) / 2.0;
   CGFloat x = self.bounds.size.width - rightInset - NimculusControlHit;
   self.formatButton.frame = NSMakeRect(x, actionTop,
     NimculusControlHit, NimculusControlHit);
@@ -7421,6 +7447,13 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
   (void)dirtyRect;
   [themeHexColor(editorPaintToken(), [NSColor colorWithCalibratedWhite:0.98 alpha:1.0]) setFill];
   NSRectFill(self.bounds);
+  // Zed closes the toolbar with a 1pt `border.variant` rule (measured
+  // #dfe0e1) along its bottom edge.
+  [themeRoleColor(@"borderVariant", themeHexColor(g_theme_border,
+    [NSColor separatorColor])) setFill];
+  NSRectFill(NSMakeRect(0.0, MAX(0.0, self.bounds.size.height -
+    NimculusChromeBorderHeight), self.bounds.size.width,
+    NimculusChromeBorderHeight));
   if (self.attributedStringValue.length == 0) return;
   const CGFloat actionWidth = (NimculusControlHit * 3.0) +
     (NimculusSpace1 * 4.0);
@@ -8680,7 +8713,12 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     // The logical editor begins after its single 32pt tab strip. The dock is a
     // workspace sibling rather than a document child, so its activity/header
     // controls start at the workspace top.
-  const CGFloat workspaceChromeHeight = NimculusTabBarHeight;
+  // Zed's dock is a workspace sibling: its surface starts directly under the
+  // title bar, not under the document's tab strip. Measured, the One Light
+  // dock paints one uninterrupted #ececed band from y=35pt down to the status
+  // bar, so the dock has to clear the editor's whole chrome stack.
+  const CGFloat workspaceChromeHeight = NimculusTabBarHeight +
+    NimculusBreadcrumbHeight;
   const CGFloat sidebarTop = MAX(0.0, g_editor_rect[1] - workspaceChromeHeight);
   const CGFloat sidebarHeight = MAX(1.0, g_editor_rect[3] +
     (g_editor_rect[1] - sidebarTop));
@@ -14181,6 +14219,9 @@ double nimculus_platform_editor_widest_visible_line_width(void) {
   return editorWidestVisibleLineWidth();
 }
 void nimculus_platform_set_editor_rect(double x, double y, double width, double height) {
+  if (getenv("NIMCULUS_RECT_DEBUG")) {
+    fprintf(stderr, "editor_rect %.1f %.1f %.1f %.1f\n", x, y, width, height);
+  }
   g_editor_rect[0] = MAX(0.0, x);
   g_editor_rect[1] = MAX(0.0, y);
   g_editor_rect[2] = MAX(1.0, width);
@@ -15713,6 +15754,10 @@ void nimculus_platform_set_paint_dirty_regions(const NimculusPaintRegion *region
   g_scene_dirty = YES;
 }
 void nimculus_platform_set_ui_rectangle(double x, double y, double width, double height) {
+  if (getenv("NIMCULUS_RECT_DEBUG")) {
+    fprintf(stderr, "ui_rect %.1f %.1f %.1f %.1f metrics %.1f %.1f\n", x, y, width,
+      height, (double)g_metrics.width_points, (double)g_metrics.height_points);
+  }
   g_ui_rect[0] = x; g_ui_rect[1] = y; g_ui_rect[2] = width; g_ui_rect[3] = height;
   markSceneFullyDirty();
 }

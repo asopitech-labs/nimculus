@@ -319,15 +319,16 @@ proc setupDemoUi() =
   # The dock and center share a hard boundary. Keeping an extra 28pt here
   # created a dead strip between the native Files panel and editor chrome.
   let editorWidth = contentWidth
-  # The app-owned titlebar is outside this Metal view. Zed's document chrome
-  # has a 32pt tab row followed by a 28pt breadcrumb row.
+  # The app-owned titlebar is outside this Metal view. Measured from Zed's
+  # window: a 31pt tab row plus its 1pt rule, then a 44pt toolbar plus its own
+  # 1pt rule, which places the first editor row at y=112pt in the window.
   const EditorTabStripHeight = 32'f32
-  const EditorBreadcrumbHeight = 28'f32
+  const EditorBreadcrumbHeight = 45'f32
   const EditorTopInset = EditorTabStripHeight + EditorBreadcrumbHeight
   # The native full-size content view leaves a 14pt AppKit presentation gap
   # between the Metal metrics viewport and the visible status band. Extend the
   # retained editor surface across that gap so the document ends at 745pt.
-  const EditorBottomInset = -12'f32
+  const EditorBottomInset = -29'f32
   let editorHeight = max(0'f32, float32(workspaceLayout.center.size.height) -
     EditorTopInset - EditorBottomInset)
   let editor = Rect(origin: Point(x: px(contentX), y: px(EditorTopInset)),
@@ -407,7 +408,7 @@ proc setupDemoUi() =
     if primaryRow >= -1:
       paint.drawEditorActiveLine(Rect(
         origin: Point(x: primaryEditor.origin.x,
-          y: px(float32(primaryEditor.origin.y) + 6'f32 +
+          y: px(float32(primaryEditor.origin.y) +
             float32(primaryRow) * lineHeight - editorViewState.scrollYFraction)),
         size: Size(width: primaryEditor.size.width, height: px(lineHeight))))
     if demoSplitEnabled:
@@ -416,7 +417,7 @@ proc setupDemoUi() =
       if secondaryRow >= -1:
         paint.drawEditorActiveLine(Rect(
           origin: Point(x: secondaryEditor.origin.x,
-            y: px(float32(secondaryEditor.origin.y) + 6'f32 +
+            y: px(float32(secondaryEditor.origin.y) +
               float32(secondaryRow) * lineHeight - editorSession.secondaryView.scrollYFraction)),
           size: Size(width: secondaryEditor.size.width, height: px(lineHeight))))
   if getEnv("NIMCULUS_UI_GALLERY", "") == "1":
