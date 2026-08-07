@@ -25,8 +25,13 @@ print(f"  diff <= 8      {(m<=8).mean()*100:6.2f}%")
 print(f"  diff <= 32     {(m<=32).mean()*100:6.2f}%")
 print(f"  diff  > 32     {(m>32).mean()*100:6.2f}%")
 print(f"  mean abs diff  {d.mean():6.2f}")
-for k,(a,b) in {'titlebar':(0,68),'tabbar':(68,132),'breadcrumb':(132,192),
-                'editor':(192,1490),'statusbar':(1490,h)}.items():
+# Retina row ranges of Zed's own chrome bands, measured from its window:
+# 34pt title bar + rule, 31pt tab strip + rule, 44pt toolbar + rule, then the
+# editor body down to the 745pt seam. Report against Zed's geometry, not ours,
+# so a band number cannot silently describe the wrong strip of pixels.
+for k,(a,b) in {'titlebar':(0,68),'tabbar':(70,132),'toolbar':(134,222),
+                'editor':(224,1490),'seam':(1490,1522),
+                'statusbar':(1522,h)}.items():
     s=m[a:b]
     print(f"  {k:11s} identical {(s==0).mean()*100:6.2f}%  >32 {(s>32).mean()*100:6.2f}%")
 Image.fromarray(np.clip(m*3,0,255).astype('uint8')).save('/tmp/bd-heatmap.png')
