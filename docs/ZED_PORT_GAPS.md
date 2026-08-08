@@ -39,15 +39,15 @@ Zed 側にあるモジュールで、Nimculus 側に対応物が見当たらな�
 | `window/a11y.rs` / `_accessibility.rs` | 無し | **移植漏れ確定。着手済み**（docs/MACOS_UI_TEST_GUIDELINES.md §4） |
 | `text_system/line_layout.rs` | `src/nimnui/text.nim` | 移植済み（`LineLayout` / `LineLayoutCache` / `computeWrapBoundaries`） |
 | `scene.rs` | `src/nimnui/render.nim`（`PaintList`）、`macos_platform.m`（`NimculusMonochromeSprite`） | **部分移植**。グリフの `MonochromeSprite` は入れたが、`PolychromeSprite` / `Quad` / `Shadow` / `Path` など他のプリミティブは未確認 |
-| `taffy.rs` | `src/nimnui/layout.nim`（Row/Column/Stack のみ） | **未確認**。Zed は Taffy（Flexbox）でレイアウトする。こちらは独自の簡易レイアウト。要調査 |
-| `bounds_tree.rs` | 見当たらない | **未確認**。ヒットテスト／再描画範囲の構造 |
-| `tab_stop.rs` | 見当たらない | **未確認**。フォーカス巡回 |
-| `key_dispatch.rs` / `keymap/` | `src/nimnui/commands.nim`、`src/nimculus/settings.nim` | **未確認**。Zed の `KeyContext` によるコンテキスト依存ディスパッチが移植されているか |
-| `path_builder.rs` | 見当たらない | **未確認**。ベクタパス描画 |
-| `svg_renderer.rs` | `macos_platform.m` に SVG 言及あり | **未確認** |
-| `gestures.rs` | `macos_platform.m` / `main.nim` に言及あり | **未確認** |
-| `asset_cache.rs` | 見当たらない | **未確認** |
-| `arena.rs` | 見当たらない | **未確認**。フレームごとのアリーナ確保 |
+| `taffy.rs` + `style.rs` | `src/nimnui/layout.nim` / `layout_types.nim` | **部分移植（2026-08-09 確認）**。`LayoutSpec` は direction / size / min / max / padding / gap / flexGrow / alignment。Zed の `Style`（style.rs:182-309）にある **`position` + `inset`（絶対配置）・`margin`・`overflow`・`align_items` と `justify_content` の分離・grid・`flex_shrink` / `flex_basis`・`display`** が無い。Zed は Taffy に委譲、こちらは自前の Row/Column/Stack |
+| `bounds_tree.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `scene.rs:43` で `primitive_bounds: BoundsTree<ScaledPixels>` として使い、プリミティブの重なり順を R-tree で解決する。こちらは `ui_tree.nim:134` の `hitTest` が全ノードを逆順に線形走査するのみで、描画側に相当物が無い |
+| `tab_stop.rs` | `commands.nim:133` `focusNext` | **部分移植（2026-08-09 確認）**。Zed は `TabStopMap`（SumTree）で `tab_index` 順に巡回し、`window.rs:349` の `tab_stop` フラグで参加を制御する。こちらは毎回 `focusables` を線形に組み直し、**tab index による順序指定が無い**（宣言順のみ） |
+| `key_dispatch.rs` / `keymap/` | `src/nimnui/commands.nim` | **部分移植（2026-08-09 確認）**。Zed は `DispatchTree` が `context_stack: Vec<KeyContext>`（key_dispatch.rs:73,127）を持ち、フォーカス位置に応じて同じキーを別アクションへ振り分ける。こちらは `CommandRegistry` が `Shortcut` → `Command` の**単一の平坦な表**で、コンテキストの概念が無い |
+| `path_builder.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `Primitive::Path`（scene.rs:111,893）を描画プリミティブとして持ち、lyon でパスを組む。`render.nim` の `PaintKind` は rectangle / border / roundedRectangle / text / image / clip / transform / shadow / caret / selection / scrollbar 等で、**任意パスが無い** |
+| `svg_renderer.rs` | `macos_platform.m:4587`（`NSImage initWithData:`） | **方式が違う（2026-08-09 確認）**。Zed は `SvgRenderer` を `App` が保持し（app.rs:203,727）、`AssetSource` から SVG を読んでラスタライズしアトラスへ載せる。こちらは AppKit の `NSImage` に丸投げで、framework 層に相当物が無い |
+| `gestures.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `TouchEvent` からジェスチャを認識する語彙を framework に持つ。こちらの `gesture` という語はコメント中の用法のみで、ピンチ・回転・スワイプの認識が無い。macOS のトラックパッド操作に関わる |
+| `asset_cache.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は非同期に解決したアセットをキャッシュする。こちらにアセットの概念自体が無い（アイコンは AppKit の SF Symbols / NSImage 直結） |
+| `arena.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `window.rs:273` で `ELEMENT_ARENA: RefCell<Arena>`（1MB）をフレームごとの要素確保に使う。こちらは Nim の GC 任せ。スクロールのプロファイルに malloc/free が出ていたので、実測で効く可能性がある |
 | `executor.rs` / `platform_scheduler.rs` / `queue.rs` | 見当たらない | **未確認**。非同期実行基盤 |
 | `inspector.rs` | 見当たらない（`macos_platform.m` の言及は別物） | **未確認**。UI デバッグ用インスペクタ |
 | `style.rs` / `styled.rs` / `color.rs` / `colors.rs` | `src/nimculus/settings.nim` のテーマ表 | **未確認** |
