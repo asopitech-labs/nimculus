@@ -795,6 +795,19 @@ M0 → M1 → M2 → M3 → M4 → M5 → M6 → M7 → M8 → M9 → M10 → M1
 
 ## Codex への実装規則
 
+## UI-101：Accessibility Tree を UI 自動化の前提に固定
+
+対応マイルストーン：M5 の macOS 実用版受入れを支える縦切り。完了条件は、NimNUI の
+element 層が role・属性・identifier を申告し、framework 層が親子関係と synthetic
+children を含む Accessibility Tree を構築し、macOS platform 層がそれを
+NSAccessibility として公開すること。`toolbar.save` を identifier で指定する
+XCUITest を追加し、Role / Title / Value / Identifier / Children / Parent を実行中の
+アプリから取得できることを確認する。
+
+`a11y_role` 相当が無しの要素はツリーへ入れず、エディタ本文は synthetic TextRun と
+テキスト位置・選択範囲を公開する。実装の設計判断と Zed 対応表は
+`DESIGN_DECISIONS.md` の UI-101 に記録する。
+
 各マイルストーン開始前に必ず次を実施する。
 
 1. 前マイルストーンの完了条件を検証する

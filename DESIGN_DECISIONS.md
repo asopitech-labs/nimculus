@@ -1,5 +1,49 @@
 # Design Decisions
 
+## UI-100: Port Zed's text-layout layers without moving document state into platform
+
+対応マイルストーンは ROADMAP.md の M3（macOS テキスト描画・IME）と M20（性能・安定性強化）。
+完了条件は、(1) platform が 1 行のシェープと glyph/font の OS 実装だけを公開する、
+(2) `src/nimnui/text.nim` が OS 非依存の `LineLayout` / `WrappedLineLayout` /
+`LineLayoutCache` を持ち、`CacheKey` は text・font size・font runs・wrap width・force
+width だけで構成する、(3) app が可視表示行レンジを閉じた行ローカルの decoration runs を
+組み立てる、(4) soft-wrap 境界を同じ cache から得る、(5) glyph ごとの emoji 判定を使い
+全文走査をしない、(6) 指定の unit / integration / benchmark と macOS の capture、
+`tools/scroll_cost.sh 40`、`bitdiff.sh`、`ink_check.py`、`nimble format/lint/test/build`
+を実測して記録する、である。
+
+Zed の 3 層は `references/zed/crates/gpui/src/platform.rs:947`
+（`PlatformTextSystem`、`layout_line` は 1 行）、
+`references/zed/crates/gpui/src/text_system.rs:51,365`
+（`TextSystem` / `WindowTextSystem`）、
+`references/zed/crates/gpui/src/text_system/line_layout.rs:16,32,40,212,393,497,577,815,825`
+（layout 型と 2-frame cache）、および
+`references/zed/crates/editor/src/element.rs:3051,7045`
+（可視 display row と行ローカル `from_chunks`）で確認した。
+
+Nimculus では platform は `src/nimnui/platform/contracts.h` / `contracts.nim` と
+`src/nimnui/platform/macos/macos_platform.m` の font metrics、1 行シェープ、glyph
+rasterization に対応させる。framework は `src/nimnui/text.nim` の
+`LineLayout`、`ShapedRun`、`ShapedGlyph`、`WrappedLineLayout`、`FontRun`、`CacheKey`、
+`LineLayoutCache` に対応させる。app は `src/nimculus/` の editor display-row map と
+可視行ごとの `TextRun` / decoration を対応させ、platform へ document、scroll、fold、
+highlight、selection、diagnostic の状態を個別 setter で渡さない。文字単位は、文書と
+decoration の境界を UTF-8 byte、シェープ glyph の対応を codepoint / grapheme 境界、
+Core Text / IME の OS 境界を UTF-16、layout cache の `len` を UTF-8 byte と明示する。
+
+却下案は「`macos_platform.m` の中に `LineLayoutCache` を足す」案である。これは Zed が
+framework (`gpui/src/text_system`) に置く OS 非依存 cache を platform 層へ移すため、層が
+違う。文書全体・スクロール・折り返し・装飾を platform に残す追認にもなるので採用しない。
+
+UI スレッドは 1 行シェープ結果と cache の同期的な小さな lookup のみを扱い、全文再走査、
+可視行以外の組版、別経路の CTTypesetter 再作成を frame callback で行わない。必要な全文
+index / syntax / LSP 更新は app の既存非同期境界で完了させ、描画時は可視 display row
+だけを消費する。Unit は cache key の色非依存性、current/previous の移送、frame swap/clear、
+wrap boundary、UTF-8/UTF-16 行内 range、emoji flag を検証する。Integration は macOS
+platform contract と selection / diagnostic / fold / soft-wrap の split-pane isolation、
+行番号対応を検証する。Benchmark は cache hit/miss、visible-row shaping、wrap lookup、
+scroll cost、text shaping と M20 の frame/layout 指標を記録する。
+
 ## UI-099: Preserve the fractional editor scroll phase
 
 The editor viewport follows Zed's fractional display-row model. The continuous
@@ -7604,3 +7648,40 @@ Evidence: `references/zed/crates/breadcrumbs/src/breadcrumbs.rs` applies
 `.text_ui(cx)`, `references/zed/crates/editor/src/items.rs` supplies the buffer
 font family, and `references/zed/crates/ui/src/styles/typography.rs` defines
 `TextSize::Default` from 14px.
+
+## UI-101: Port Zed's accessibility tree through NimNUI and NSAccessibility
+
+対応マイルストーンは ROADMAP.md の M1〜M6（macOS window/NimNUI/text/workspace）に
+またがる UI テスト基盤である。完了条件は、実起動した Nimculus の AX tree から Window
+の Role / Title / Value / Identifier / Children / Parent を取得でき、主要なタブ、
+ツールバー操作、ステータス項目、Project Panel 行、`editor.content` を identifier で
+解決できること、さらに XCUITest が `app.buttons["toolbar.save"].click()` の形で
+操作できることである。Metal の editor surface は framework が synthetic TextRun
+children と byte 単位の selection を生成して公開する。
+
+Zed との層対応は次のとおりとする。
+
+| 層 | Zed のファイル:行と構造名 | Nimculus のファイル:行と構造名 | 概念の対応 |
+| --- | --- | --- | --- |
+| element（app） | `crates/gpui/src/element.rs:112` `Element::a11y_role`、`:120` `write_a11y_info`、`:131` `a11y_synthetic_children`、`:228` `GlobalElementId::accesskit_node_id` | `src/nimnui/ui_tree.nim` の `UiNode` accessibility fields、`src/nimnui/controls.nim` の `makeControl` | 各コントロールが role と title/value/identifier を申告する。role が `none`、または identifier が空の node は公開しない。Node ID と generation から安定 ID を得る |
+| framework | `crates/gpui/src/window/a11y.rs:166` `A11y`、`:300` `A11ySubtreeBuilder`、`:386` `A11yNodeBuilder` | `src/nimnui/accessibility.nim` の `AccessibilityTree`、`AccessibilityBuilder`、`addSyntheticChild` | UI tree の申告を親子関係つきの値型へ集約し、root/focus/selection と synthetic TextRun を作る。ここには AppKit 型を入れない |
+| platform | `crates/gpui_macos/src/window.rs:535` `SubclassingAdapter`、`:1881` `a11y_tree_update`、`:1902` `ActivationHandler`、`:1908` `A11yActionHandler` | `src/nimnui/platform/contracts.nim` / `contracts.h` の C ABI、`src/nimnui/platform/macos/macos_platform.m` の `NimculusAXNode` と `NimculusMetalView` accessibility bridge | framework の flat update を保持し、NSAccessibility の Role/Title/Value/Identifier/Children/Parent と press action を公開する。platform は UI 構造を判断せず、受け取った tree と action command を OS 表現へ変換する |
+
+AccessKit は Rust crate で Nim に等価物がないため、`accesskit_macos` 相当の
+NSAccessibility adapter は platform 層に直接実装する。これは OS 依存型を NimNUI core
+へ漏らさず、Zed の element → framework → platform の依存方向を保つための選択である。
+候補だった AccessKit の C/Rust bridge 追加は、今回の最小縦切りに新しい runtime と
+ownership 境界を持ち込むため採用しない。AppKit の既存 native overlays を置き換える
+ことも、描画・入力の回帰範囲を広げるので採用しない。
+
+Identifier は Web の `data-testid` 相当の安定した公開 API として、ドット区切りの
+小文字 namespace を使う。主要な値は `toolbar.new`、`toolbar.open`、`toolbar.save`、
+`sidebar.projects`、`sidebar.projects.row.<stable-id>`、`editor.content`、
+`editor.tab.<stable-id>`、`statusbar.<item>`、`dialog.confirm.ok` とする。表示文言や
+行番号を identifier に使わず、タブ・行の stable Node ID を suffix に使う。
+
+Zed の `a11y_role() == None` と同じく role が無い element は tree に入れない。ただし
+window root は platform が必要とする固定の Window node として framework が生成する。
+TextRun は `editor.content` の synthetic child とし、本文の UTF-8 byte range、caret、
+selection を親の属性へコピーする。これで Metal renderer に NSView の子を追加せずに
+XCUITest と assistive technology の双方から本文構造を取得できる。
