@@ -579,14 +579,29 @@ suite "M5 editor services":
     view.scrollLine = 0
     view.reconcileScrollPosition()
     let cursorLine = buffer.lineColumn(view.cursor).line
-    var remainder = 0'f32
     for _ in 0 .. 20:
       view.reconcileScrollPosition(lineHeight, 35'f32 * lineHeight)
-      let pixelDelta = scrollPixelDelta(remainder, -lineHeight, true)
+      let pixelDelta = scrollPixelDelta(-lineHeight, true)
       view.setScrollYPixels(view.scrollYPixels + pixelDelta, lineHeight, 35'f32 * lineHeight)
     view.reconcileScrollPosition(lineHeight, 35'f32 * lineHeight)
     check view.scrollLine > cursorLine
     check view.scrollYPixels > float32(cursorLine) * lineHeight
+
+  test "forty native wheel events use the unnormalized Zed delta":
+    var lines: seq[string]
+    for line in 0 .. 399:
+      lines.add("line " & $line)
+    var view = newEditorView()
+    let lineHeight = editorLineHeight()
+    let maxScrollPixels = float32(399) * lineHeight
+    for _ in 0 ..< 40:
+      # A precise event is already a pixel delta in Zed; no wheel threshold or
+      # fixed divisor is applied here.
+      let pixelDelta = scrollPixelDelta(-120'f32, true, lineHeight)
+      view.setScrollYPixels(view.scrollYPixels + pixelDelta, lineHeight,
+        maxScrollPixels)
+    check abs(view.scrollYPixels - 4800'f32) < 0.001'f32
+    check view.scrollLine == 200
 
   test "focused split pane owns navigation destinations":
     var session: EditorSession

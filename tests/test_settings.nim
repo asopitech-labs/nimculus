@@ -19,6 +19,9 @@ suite "M12 settings foundation":
     check store.intSetting("editor.tabSize", 0) == 4
     check store.stringSetting("themeColors.accent") == "#ff00aa"
     check store.softWrapMode() == DefaultSoftWrapMode
+    check store.editorScrollSensitivity(false) == DefaultScrollSensitivity
+    check store.editorScrollSensitivity(true) == DefaultFastScrollSensitivity
+    check store.terminalScrollMultiplier() == DefaultTerminalScrollMultiplier
     removeFile(globalPath)
     removeFile(workspacePath)
     removeDir(root)
@@ -28,6 +31,22 @@ suite "M12 settings foundation":
     check not softWrapEnabledForPath("main.nim", "none")
     check softWrapEnabledForPath("main.nim", "editor_width")
 
+  test "scroll sensitivity settings keep Zed's minimum":
+    let root = getTempDir() / "nimculus-scroll-settings"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{
+      "scroll_sensitivity": 0,
+      "fast_scroll_sensitivity": 0.005,
+      "terminal": {"scroll_multiplier": 0}
+    }""")
+    let store = newSettingsStore(path, "", "")
+    check store.editorScrollSensitivity(false) == MinimumScrollSensitivity
+    check store.editorScrollSensitivity(true) == MinimumScrollSensitivity
+    check store.terminalScrollMultiplier() == MinimumScrollSensitivity
+    removeFile(path)
+    removeDir(root)
+
   test "publishes a machine-readable settings schema":
     let schema = settingsSchema()
     check schema["$schema"].kind == JString
@@ -35,15 +54,18 @@ suite "M12 settings foundation":
     check schema["properties"]["editor"]["properties"]["fontFamily"]["type"].getStr == "string"
     check schema["properties"]["terminal"]["properties"]["fontSize"]["maximum"].getInt == 48
     check schema["properties"]["terminal"]["properties"]["fontFamily"]["type"].getStr == "string"
+    check schema["properties"]["scroll_sensitivity"]["default"].getFloat == 1.0
+    check schema["properties"]["fast_scroll_sensitivity"]["default"].getFloat == 4.0
+    check schema["properties"]["terminal"]["properties"]["scroll_multiplier"]["default"].getFloat == 1.0
     check schema["properties"]["keymap"]["items"]["required"].len == 2
 
   test "validates types and exposes layered keymap and theme":
     let root = getTempDir() / "nimculus-settings-validation"
     createDir(root)
     let path = root / "settings.json"
-    writeFile(path, """{"editor":{"fontSize":"large"},"keymap":[{"key":"cmd+s","command":"save"}],"themeColors":{"background":"#000000"}}""")
+    writeFile(path, """{"editor":{"fontSize":"large"},"scroll_sensitivity":"fast","keymap":[{"key":"cmd+s","command":"save"}],"themeColors":{"background":"#000000"}}""")
     let store = newSettingsStore(path, "", "")
-    check store.diagnostics.len == 1
+    check store.diagnostics.len == 2
     check store.keyBindings().len == 1
     check store.keyBindings()[0].command == "save"
     check store.theme().background == "#000000"

@@ -150,6 +150,14 @@ proc jsonIntAt*(root: JsonNode, path: string, fallback: int): int =
   if node != nil and node.kind == JInt: return node.getInt
   fallback
 
+proc jsonFloatAt*(root: JsonNode, path: string, fallback: float32): float32 =
+  let node = nodeAt(root, path)
+  if node == nil: return fallback
+  case node.kind
+  of JInt: float32(node.getInt)
+  of JFloat: float32(node.getFloat)
+  else: fallback
+
 proc jsonBoolAt*(root: JsonNode, path: string, fallback: bool): bool =
   let node = nodeAt(root, path)
   if node != nil and node.kind == JBool: return node.getBool
@@ -174,6 +182,10 @@ proc validateSettings*(root: JsonNode): seq[SettingsDiagnostic] =
     result.add(SettingsDiagnostic(path: "terminal.fontSize", message: "must be an integer"))
   elif terminalFontSize != nil and (terminalFontSize.getInt < 6 or terminalFontSize.getInt > 48):
     result.add(SettingsDiagnostic(path: "terminal.fontSize", message: "must be between 6 and 48"))
+  for key in ["scroll_sensitivity", "fast_scroll_sensitivity", "terminal.scroll_multiplier"]:
+    let value = nodeAt(root, key)
+    if value != nil and value.kind notin {JInt, JFloat}:
+      result.add(SettingsDiagnostic(path: key, message: "must be a number"))
   let insertSpaces = nodeAt(root, "editor.insertSpaces")
   if insertSpaces != nil and insertSpaces.kind != JBool:
     result.add(SettingsDiagnostic(path: "editor.insertSpaces", message: "must be a boolean"))
@@ -217,6 +229,8 @@ proc settingsSchema*(): JsonNode =
     }},
     "theme": {"type": "string"},
     "soft_wrap": {"type": "string", "enum": ["none", "editor_width", "bounded"]},
+    "scroll_sensitivity": {"type": "number", "default": 1.0},
+    "fast_scroll_sensitivity": {"type": "number", "default": 4.0},
     "iconTheme": {"type": "string"},
     "themes": {"type": "object", "additionalProperties": {"type": "object"}},
     "iconThemes": {"type": "object", "additionalProperties": {"type": "object"}},
@@ -248,7 +262,8 @@ proc settingsSchema*(): JsonNode =
     }},
     "terminal": {"type": "object", "properties": {
       "shell": {"type": "string"}, "fontFamily": {"type": "string"},
-      "fontSize": {"type": "integer", "minimum": 6, "maximum": 48}
+      "fontSize": {"type": "integer", "minimum": 6, "maximum": 48},
+      "scroll_multiplier": {"type": "number", "default": 1.0}
     }},
     "lsp": {"type": "object", "properties": {"command": {"type": "string"}}},
     "keymap": {"type": "array", "items": {"type": "object",
@@ -576,6 +591,24 @@ proc softWrapMode*(store: SettingsStore): string =
 
 proc intSetting*(store: SettingsStore, path: string, fallback: int): int =
   jsonIntAt(store.values, path, fallback)
+
+proc floatSetting*(store: SettingsStore, path: string, fallback: float32): float32 =
+  jsonFloatAt(store.values, path, fallback)
+
+const
+  DefaultScrollSensitivity* = 1'f32
+  DefaultFastScrollSensitivity* = 4'f32
+  DefaultTerminalScrollMultiplier* = 1'f32
+  MinimumScrollSensitivity* = 0.01'f32
+
+proc editorScrollSensitivity*(store: SettingsStore, fast: bool): float32 =
+  let path = if fast: "fast_scroll_sensitivity" else: "scroll_sensitivity"
+  max(MinimumScrollSensitivity, store.floatSetting(path,
+    if fast: DefaultFastScrollSensitivity else: DefaultScrollSensitivity))
+
+proc terminalScrollMultiplier*(store: SettingsStore): float32 =
+  max(MinimumScrollSensitivity, store.floatSetting("terminal.scroll_multiplier",
+    DefaultTerminalScrollMultiplier))
 
 proc boolSetting*(store: SettingsStore, path: string, fallback: bool): bool =
   jsonBoolAt(store.values, path, fallback)

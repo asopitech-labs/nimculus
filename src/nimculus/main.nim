@@ -17,6 +17,7 @@ import nimculus/editor_scroll
 import nimculus/workspace_ui
 import nimculus/editor_syntax
 import nimculus/syntax
+import nimculus/editor_text_layout
 import nimculus/tree_sitter
 import nimculus/workspace
 import nimculus/session
@@ -251,6 +252,72 @@ var editorViewState = newEditorView()
 var syntaxState: EditorSyntaxState
 when defined(macosx):
   var secondarySyntaxState: EditorSyntaxState
+  var editorLineLayoutCache: LineLayoutCache
+  var editorRenderDiagnostics: seq[EditorDiagnostic]
+  var secondaryEditorRenderDiagnostics: seq[EditorDiagnostic]
+
+when defined(macosx):
+  proc publishEditorTextLayout(document: ptr FileDocument, view: EditorViewState,
+                               syntax: EditorSyntaxState, secondary: bool)
+
+when defined(macosx):
+  proc publishAccessibilityTree(document: ptr FileDocument) =
+    let editorText = if document != nil: document[].buffer.toString() else: ""
+    let selection = editorViewState.selectedRange()
+    let tree = buildAccessibilityTree(demoTree, editorText,
+      uint32(max(0, editorViewState.cursor)), uint32(max(0, selection.startByte)),
+      uint32(max(0, selection.endByte)))
+    let native = toNativeAccessibility(tree)
+    platformSetAccessibilityTree(
+      if native.nodes.len > 0: unsafeAddr native.nodes[0] else: nil,
+      uint32(native.nodes.len), if native.children.len > 0: unsafeAddr native.children[0] else: nil,
+      uint32(native.children.len))
+
+when defined(macosx):
+  proc drawEditorDecorationPaint(paint: var PaintList, bounds: Rect,
+                                 view: EditorViewState, buffer: PieceTable,
+                                 diagnostics: openArray[EditorDiagnostic],
+                                 secondary = false) =
+    let selection = view.selectedRange()
+    let startByte = max(0, selection.startByte)
+    let endByte = max(startByte, selection.endByte)
+    let lineHeight = editorLineHeight()
+    let fontSize = if appSettings != nil: appSettings.intSetting("editor.fontSize", 15) else: 15
+    let cellWidth = max(4'f32, float32(fontSize) * 0.6'f32)
+    let textOrigin = if secondary: float32(platformSecondaryEditorTextOriginX())
+      else: float32(platformEditorTextOriginX())
+    if endByte > startByte:
+      let first = buffer.lineColumn(startByte)
+      let last = buffer.lineColumn(endByte)
+      let firstLine = max(0, first.line)
+      let lastLine = max(firstLine, last.line)
+      for lineIndex in firstLine .. lastLine:
+        if lineIndex < view.scrollLine - 1: continue
+        let row = lineIndex - view.scrollLine
+        let startColumn = if lineIndex == firstLine: first.column else: 0
+        let endColumn = if lineIndex == lastLine: last.column else:
+          max(startColumn + 1, buffer.lineColumn(buffer.lineEndByteOffset(lineIndex)).column)
+        let x = float32(bounds.origin.x) + textOrigin +
+          float32(startColumn) * cellWidth - view.scrollX
+        let width = max(cellWidth, float32(endColumn - startColumn) * cellWidth)
+        let y = float32(bounds.origin.y) + float32(row) * lineHeight - view.scrollYFraction
+        paint.drawSelection(Rect(origin: Point(x: px(x), y: px(y)),
+          size: Size(width: px(width), height: px(lineHeight))))
+    for diagnostic in diagnostics:
+      if diagnostic.endByte <= diagnostic.startByte: continue
+      let first = buffer.lineColumn(diagnostic.startByte)
+      let last = buffer.lineColumn(diagnostic.endByte)
+      let lineIndex = max(0, first.line)
+      if lineIndex < view.scrollLine - 1: continue
+      let row = lineIndex - view.scrollLine
+      let x = float32(bounds.origin.x) + textOrigin + float32(first.column) * cellWidth - view.scrollX
+      let endColumn = if last.line == lineIndex: max(first.column + 1, last.column)
+        else: first.column + 1
+      let width = max(cellWidth, float32(endColumn - first.column) * cellWidth)
+      let y = float32(bounds.origin.y) + float32(row + 1) * lineHeight - 2'f32 -
+        view.scrollYFraction
+      paint.drawEditorDiagnostic(Rect(origin: Point(x: px(x), y: px(y)),
+        size: Size(width: px(width), height: px(1.5'f32))), diagnostic.severity)
 
 proc setupDemoUi() =
   ## Keep rendering state synchronized with the document session at the
@@ -269,9 +336,27 @@ proc setupDemoUi() =
   demoTree = newUiTree()
   resetPointerInteractions()
   let root = demoTree.addNode()
-  let button = makeControl(demoTree, root, ControlKind.button, "Nimculus", focusable = true)
+  let toolbarControl = makeControl(demoTree, root, ControlKind.toolbar, "Toolbar")
+  let button = makeControl(demoTree, toolbarControl.node, ControlKind.button, "Save",
+      focusable = true)
   let split = makeControl(demoTree, root, ControlKind.splitPane, "Editor split")
-  let scroll = makeControl(demoTree, root, ControlKind.scrollView, "Editor scroll")
+  let scroll = makeControl(demoTree, root, ControlKind.editor, "Editor")
+  let tabs = makeControl(demoTree, root, ControlKind.tabBar, "Tabs")
+  let activeTab = makeControl(demoTree, tabs.node, ControlKind.button, "Active tab")
+  let sidebar = makeControl(demoTree, root, ControlKind.scrollView, "Projects")
+  let projectRow = makeControl(demoTree, sidebar.node, ControlKind.row, "Project row")
+  let statusBar = makeControl(demoTree, root, ControlKind.statusBar, "Status bar")
+  let statusItem = makeControl(demoTree, statusBar.node, ControlKind.button, "Cursor")
+  setControlAccessibility(demoTree, toolbarControl, "toolbar", "Toolbar", "")
+  setControlAccessibility(demoTree, button, "toolbar.save", "Save", "", "save")
+  setControlAccessibility(demoTree, split, "", "Editor split", "")
+  setControlAccessibility(demoTree, scroll, "editor.content", "Editor", "")
+  setControlAccessibility(demoTree, tabs, "tabs", "Tabs", "")
+  setControlAccessibility(demoTree, activeTab, "editor.tab.active", "Active tab", "")
+  setControlAccessibility(demoTree, sidebar, "sidebar.projects", "Projects", "")
+  setControlAccessibility(demoTree, projectRow, "sidebar.projects.row.active", "Project", "")
+  setControlAccessibility(demoTree, statusBar, "statusbar", "Status bar", "")
+  setControlAccessibility(demoTree, statusItem, "statusbar.cursor", "Cursor position", "")
   demoButton = button.node
   demoSplitNode = split.node
   demoScrollNode = scroll.node
@@ -352,8 +437,15 @@ proc setupDemoUi() =
   demoEditorBounds = primaryEditor
   demoSecondaryEditorBounds = secondaryEditor
   demoTree.node(button.node).bounds = toolbar
+  demoTree.node(toolbarControl.node).bounds = toolbar
   demoTree.node(split.node).bounds = splitBar
   demoTree.node(scroll.node).bounds = editor
+  demoTree.node(tabs.node).bounds = Rect(size: Size(width: px(viewportWidth), height: px(32)))
+  demoTree.node(activeTab.node).bounds = demoTree.node(tabs.node).bounds
+  demoTree.node(sidebar.node).bounds = workspaceLayout.leftDock
+  demoTree.node(projectRow.node).bounds = workspaceLayout.leftDock
+  demoTree.node(statusBar.node).bounds = demoBottomDockBounds
+  demoTree.node(statusItem.node).bounds = demoBottomDockBounds
   # Install the current pane geometry before measuring native visible lines or
   # constructing scrollbars.  The native width/soft-wrap state is otherwise
   # one composition behind, which can suppress a valid horizontal thumb.
@@ -370,6 +462,14 @@ proc setupDemoUi() =
       float64(float32(secondaryEditor.size.width)),
       float64(float32(secondaryEditor.size.height)))
     syncEditorHorizontalScrollForRender(primaryEditor, secondaryEditor)
+    publishEditorTextLayout(document, editorViewState, syntaxState, secondary = false)
+    if demoSplitEnabled:
+      publishEditorTextLayout(secondaryPaneDocument(), editorSession.secondaryView,
+        secondarySyntaxState, secondary = true)
+    else:
+      platformSetEditorLayout(true, nil, 0, nil, 0)
+    editorLineLayoutCache.finishFrame()
+    publishAccessibilityTree(document)
   var paint: PaintList
   paint.invalidate(viewport)
   # The native text overlays remain transitional content presenters, but their
@@ -406,6 +506,13 @@ proc setupDemoUi() =
     paint.drawEditorBackground(primaryEditor)
     if demoSplitEnabled:
       paint.drawEditorBackground(secondaryEditor)
+    drawEditorDecorationPaint(paint, primaryEditor, editorViewState, document[].buffer,
+      editorRenderDiagnostics)
+    if demoSplitEnabled:
+      let secondaryDocument = secondaryPaneDocument()
+      if secondaryDocument != nil:
+        drawEditorDecorationPaint(paint, secondaryEditor, editorSession.secondaryView,
+          secondaryDocument[].buffer, secondaryEditorRenderDiagnostics, secondary = true)
     if leftDockWidth > 0 and MacProjectDockOnRight:
       # The editor surface reaches the dock's border column, so this rule has
       # to be laid over it rather than under it. Zed paints it at x=1149pt of a
@@ -809,8 +916,6 @@ var editorPointerDragging = false
 var editorPointerPane = 0
 var editorScrollbarDragging = false
 var editorScrollbarPane = 0
-var editorScrollRemainder = 0'f32
-var editorSecondaryScrollRemainder = 0'f32
 var sessionFilePath = ""
 var recoveryFilePath = ""
 var crashReportPath = ""
@@ -980,8 +1085,6 @@ when defined(macosx):
 proc resetEditorTransientState() =
   ## Tab switches must preserve their cursor/selection/viewport. Only reset
   ## interaction and derived UI state which is not owned by an EditorTab.
-  editorScrollRemainder = 0'f32
-  editorSecondaryScrollRemainder = 0'f32
   when defined(macosx):
     pendingLspSymbols.setLen(0)
     pendingLspSymbolDepths.setLen(0)
@@ -3531,11 +3634,12 @@ when defined(macosx):
       return true
     if kind == scroll:
       let rows = terminalScrollLineDelta(editorTerminalScrollRemainder, deltaY,
-        preciseScrolling, float32(platformTerminalLineHeight()))
+        preciseScrolling, float32(platformTerminalLineHeight()),
+        if appSettings != nil: appSettings.terminalScrollMultiplier()
+        else: DefaultTerminalScrollMultiplier)
       if rows != 0:
         editorTerminalScrollOffset = terminalScrollOffset(editorTerminalScrollOffset,
           editorTerminal.screen.lineCount(), editorTerminal.screen.rows, rows)
-        editorTerminalScrollRemainder -= float32(rows)
         syncNativeTerminal()
         syncNativeTerminalSelection()
       return true
@@ -3870,6 +3974,68 @@ when defined(macosx):
     ## A horizontal split gives the secondary pane a different viewport height;
     ## it must not borrow the primary pane's cursor and scroll geometry.
     editorVisibleLineCountForBounds(demoSecondaryEditorBounds)
+
+  proc publishEditorTextLayout(document: ptr FileDocument, view: EditorViewState,
+                              syntax: EditorSyntaxState, secondary: bool) =
+    if editorLineLayoutCache == nil:
+      editorLineLayoutCache = newLineLayoutCache(platformTextSystemLayoutLine)
+    if document == nil:
+      platformSetEditorLayout(secondary, nil, 0, nil, 0)
+      return
+    let firstByte = if view.scrollLine < document[].buffer.lineStarts.len:
+      document[].buffer.lineStarts[max(0, view.scrollLine)] else: 0
+    let visibleLines = if secondary: secondaryEditorVisibleLineCount()
+      else: editorVisibleLineCount()
+    let lastLine = min(document[].buffer.lineStarts.high,
+      max(0, view.scrollLine) + visibleLines + 2)
+    let lastByte = if lastLine + 1 < document[].buffer.lineStarts.len:
+      document[].buffer.lineStarts[lastLine + 1] else: document[].buffer.contentLength
+    var decorations: seq[TextDecoration]
+    if syntax != nil:
+      for span in syntax.visibleHighlights(uint32(firstByte), uint32(lastByte)):
+        decorations.add(TextDecoration(startByte: int(span.startByte),
+          endByte: int(span.endByte), kind: ord(span.kind)))
+    let fontSize = px(float32(if appSettings != nil:
+      appSettings.intSetting("editor.fontSize", 15) else: 15))
+    let layout = buildVisibleEditorLayout(document[].buffer, max(0, view.scrollLine),
+      visibleLines, view.softWrap, editorTextLayoutWidth(secondary), fontSize,
+      editorLineLayoutCache, decorations, view.foldedRanges)
+    var nativeRows = newSeq[NativeEditorLayoutRow](layout.rows.len)
+    var nativeGlyphs: seq[NativeEditorLayoutGlyph]
+    var colors: array[10, NativeEditorGlyphColor]
+    for kind in 0 ..< colors.len:
+      platformGetEditorGlyphColor(uint32(kind), addr colors[kind])
+    var primaryColor: NativeEditorGlyphColor
+    platformGetEditorGlyphColor(high(uint32), addr primaryColor)
+    for rowIndex, row in layout.rows:
+      nativeRows[rowIndex] = NativeEditorLayoutRow(
+        sourceLine: uint32(max(0, row.sourceLine)),
+        displayRow: uint32(max(0, row.displayRow)),
+        sourceStartByte: uint32(max(0, row.sourceStartByte)),
+        segmentStartByte: uint32(max(0, row.segmentStartByte)),
+        segmentEndByte: uint32(max(0, row.segmentEndByte)),
+        glyphStart: uint32(nativeGlyphs.len), glyphCount: uint32(row.glyphs.len),
+        fontSize: float32(fontSize), ascent: float32(row.layout.ascent),
+        descent: float32(row.layout.descent))
+      for glyph in row.glyphs:
+        let kind = decorationKindAt(row.sourceStartByte + glyph.glyph.index, decorations)
+        let color = if kind >= 0 and kind < colors.len: colors[kind] else: primaryColor
+        nativeGlyphs.add(NativeEditorLayoutGlyph(glyphId: glyph.glyph.id,
+          x: float32(glyph.glyph.position.x), y: float32(glyph.glyph.position.y),
+          index: uint32(max(0, glyph.glyph.index)), fontId: glyph.fontId,
+          colorKind: if kind >= 0 and kind < colors.len: uint32(kind) else: high(uint32),
+          isEmoji: glyph.glyph.isEmoji, red: color.red, green: color.green,
+          blue: color.blue, alpha: color.alpha))
+    platformSetEditorLayout(secondary,
+      if nativeRows.len > 0: addr nativeRows[0] else: nil,
+      uint32(nativeRows.len), if nativeGlyphs.len > 0: addr nativeGlyphs[0] else: nil,
+      uint32(nativeGlyphs.len))
+    # Set the viewport projection after replacing the visible rows. The native
+    # renderer consumes both payloads in its next Metal frame; publishing the
+    # position last makes the row payload and its scroll phase one atomic
+    # scroll projection from the renderer's point of view.
+    platformSetEditorLayoutScroll(secondary, cdouble(max(0'f32, view.scrollX)),
+      cdouble(max(0'f32, view.scrollYFraction)))
 
 proc setupPersistencePaths() =
   let directory = when defined(macosx):
@@ -4710,6 +4876,41 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
     platformSetEditorFooter(footer.join("\t").cstring)
 
 when defined(macosx):
+  proc syncEditorScrollViewport(secondary: bool) =
+    ## ScrollWheelEvent is a viewport mutation. Keep this projection limited
+    ## to the state consumed by the native editor renderer; cursor, status,
+    ## sidebar, and footer state belong to the surrounding editor sync paths.
+    let view = if secondary: editorSession.secondaryView else: editorViewState
+    if secondary:
+      platformSetSecondaryEditorScrollLine(uint32(max(0, view.scrollLine)))
+      platformSetSecondaryEditorScrollYFraction(cdouble(max(0'f32,
+        view.scrollYFraction)))
+      platformSetSecondaryEditorScrollX(cdouble(max(0'f32, view.scrollX)))
+    else:
+      platformSetEditorScrollLine(uint32(max(0, view.scrollLine)))
+      platformSetEditorScrollYFraction(cdouble(max(0'f32,
+        view.scrollYFraction)))
+      platformSetEditorScrollX(cdouble(max(0'f32, view.scrollX)))
+    # `setupDemoUi` used to refresh this projection as a side effect of every
+    # wheel event. Keep the retained UI tree untouched, but publish the new
+    # visible rows so the native renderer has actual text at the new viewport
+    # position. This is the Nimculus equivalent of Zed's `editor.scroll`:
+    # mutate the viewport and update its render projection, without cursor or
+    # document/UI synchronization.
+    let document = if secondary: secondaryPaneDocument() else: activeDocument()
+    if document != nil:
+      publishEditorTextLayout(document,
+        if secondary: editorSession.secondaryView else: editorViewState,
+        if secondary: secondarySyntaxState else: syntaxState, secondary)
+      # `publishEditorTextLayout` replaces the visible row payload. Reassert
+      # the viewport projection after that replacement so a wheel event cannot
+      # leave the new rows paired with the previous frame's scroll phase.
+      platformSetEditorLayoutScroll(secondary,
+        cdouble(max(0'f32, view.scrollX)),
+        cdouble(max(0'f32, view.scrollYFraction)))
+      editorLineLayoutCache.finishFrame()
+
+when defined(macosx):
   proc unfoldFoldContainingCursor(document: ptr FileDocument,
                                   view: var EditorViewState): bool =
     if document == nil or view.foldedRanges.len == 0: return false
@@ -4749,20 +4950,32 @@ proc syncSoftWrappedDisplayScroll(view: var EditorViewState, visibleLines: int) 
   ## wheel position in that display space and derive the legacy source-line
   ## fields only at the platform boundary.
   let height = editorLineHeight()
+  let document = activeDocument()
+  if document == nil: return
+  if editorLineLayoutCache == nil:
+    editorLineLayoutCache = newLineLayoutCache(platformTextSystemLayoutLine)
+  var decorations: seq[TextDecoration]
+  if syntaxState != nil and syntaxState.tree != nil:
+    for span in syntaxState.tree.highlight():
+      decorations.add(TextDecoration(startByte: int(span.startByte),
+        endByte: int(span.endByte), kind: ord(span.kind)))
+  let fontSize = px(float32(if appSettings != nil:
+    appSettings.intSetting("editor.fontSize", 15) else: 15))
+  let wrapWidth = editorTextLayoutWidth()
   if not view.scrollDisplayInitialized:
-    view.scrollDisplayPixels = float32(platformEditorDisplayRowsBeforeLine(
-      uint32(max(0, view.scrollLine)))) * height + view.scrollYFraction
+    view.scrollDisplayPixels = float32(displayRowsBeforeLine(document[].buffer,
+      max(0, view.scrollLine), true, wrapWidth, fontSize, editorLineLayoutCache,
+      decorations, view.foldedRanges)) * height + view.scrollYFraction
     view.scrollDisplayInitialized = true
-  let totalRows = int(platformEditorDisplayRowCount())
+  let totalRows = displayRowCount(document[].buffer, true, wrapWidth, fontSize,
+    editorLineLayoutCache, decorations, view.foldedRanges)
   let maxDisplayPixels = float32(max(0, totalRows - max(1, visibleLines))) * height
   view.scrollDisplayPixels = max(0'f32, min(view.scrollDisplayPixels, maxDisplayPixels))
   let displayRow = int(floor(view.scrollDisplayPixels / max(1'f32, height)))
-  view.scrollLine = int(platformEditorSourceLineForDisplayPixels(
-    cdouble(view.scrollDisplayPixels)))
-  view.scrollYFraction = float32(platformEditorDisplayFractionForScrollPixels(
-    cdouble(view.scrollDisplayPixels)))
+  view.scrollLine = sourceLineForDisplayRow(document[].buffer, displayRow, true,
+    wrapWidth, fontSize, editorLineLayoutCache, decorations, view.foldedRanges)
+  view.scrollYFraction = view.scrollDisplayPixels - float32(displayRow) * height
   view.scrollYPixels = float32(view.scrollLine) * height + view.scrollYFraction
-  platformSetEditorScrollDisplayRow(uint32(max(0, displayRow)))
 
 proc syncEditorCursor(ensureCursor = true) =
   when defined(macosx):
@@ -4947,12 +5160,14 @@ when defined(macosx):
 
   proc syncNativeDiagnostics(document: ptr FileDocument) =
     if lspBridge == nil or document == nil:
+      editorRenderDiagnostics.setLen(0)
       platformSetEditorDiagnostics(nil, 0)
       return
     let text = document[].buffer.toString()
     lspBridge.updateDocument(document[].path, text)
     discard lspBridge.poll()
     let diagnostics = document[].buffer.resolveDiagnostics(lspBridge.diagnostics())
+    editorRenderDiagnostics = diagnostics
     var nativeDiagnostics = newSeq[NativeDiagnosticSpan](diagnostics.len)
     for index, diagnostic in diagnostics:
       nativeDiagnostics[index] = NativeDiagnosticSpan(
@@ -4969,12 +5184,14 @@ when defined(macosx):
     ## primary-pane requests. The URI-keyed LSP session can then render its
     ## own byte offsets instead of borrowing primary diagnostics.
     if lspBridge == nil or document == nil:
+      secondaryEditorRenderDiagnostics.setLen(0)
       platformSetSecondaryEditorDiagnostics(nil, 0)
       return
     let text = document[].buffer.toString()
     lspBridge.syncDocument(document[].path, text)
     let diagnostics = document[].buffer.resolveDiagnostics(
       lspBridge.diagnosticsForPath(document[].path))
+    secondaryEditorRenderDiagnostics = diagnostics
     var nativeDiagnostics = newSeq[NativeDiagnosticSpan](diagnostics.len)
     for index, diagnostic in diagnostics:
       nativeDiagnostics[index] = NativeDiagnosticSpan(
@@ -8872,6 +9089,9 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
         max(0, scrollDocument[].buffer.lineStarts.len - visibleLines)
       let modifiers = macOSModifiers(event.modifiers)
       let shiftScroll = shiftModifier in modifiers
+      let scrollSensitivity = if appSettings != nil:
+          appSettings.editorScrollSensitivity(optionModifier in modifiers) else:
+        DefaultScrollSensitivity
       let horizontalDelta = if abs(float32(event.deltaX)) > 0.01'f32:
           float32(event.deltaX)
         elif shiftScroll: float32(event.deltaY) else: 0'f32
@@ -8882,13 +9102,13 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           let widest = float32(platformSecondaryEditorWidestVisibleLineWidth())
           let viewportWidth = editorTextLayoutWidth(secondary = true)
           editorSession.secondaryView.scrollX = clampEditorScrollX(
-            editorSession.secondaryView.scrollX + horizontalDelta, widest,
+            editorSession.secondaryView.scrollX + horizontalDelta * scrollSensitivity, widest,
             viewportWidth)
         if abs(verticalDelta) > 0.01'f32:
           var view = editorSession.secondaryView
           view.reconcileScrollPosition(editorLineHeight(), float32(maxScroll) * editorLineHeight())
-          let pixelDelta = scrollPixelDelta(editorSecondaryScrollRemainder,
-            verticalDelta, event.preciseScrolling)
+          let pixelDelta = scrollPixelDelta(
+            verticalDelta, event.preciseScrolling, editorLineHeight(), scrollSensitivity)
           view.setScrollYPixels(view.scrollYPixels + pixelDelta, editorLineHeight(),
             float32(maxScroll) * editorLineHeight())
           editorSession.secondaryView = view
@@ -8897,41 +9117,48 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           let widest = float32(platformEditorWidestVisibleLineWidth())
           let viewportWidth = editorTextLayoutWidth()
           editorViewState.scrollX = clampEditorScrollX(
-            editorViewState.scrollX + horizontalDelta, widest, viewportWidth)
+            editorViewState.scrollX + horizontalDelta * scrollSensitivity, widest, viewportWidth)
         if abs(verticalDelta) > 0.01'f32:
           editorViewState.reconcileScrollPosition(editorLineHeight(),
             float32(maxScroll) * editorLineHeight())
-          let pixelDelta = scrollPixelDelta(editorScrollRemainder, verticalDelta,
-            event.preciseScrolling)
+          let pixelDelta = scrollPixelDelta(verticalDelta,
+            event.preciseScrolling, editorLineHeight(), scrollSensitivity)
           if editorViewState.softWrap:
+            let fontSize = px(float32(if appSettings != nil:
+              appSettings.intSetting("editor.fontSize", 15) else: 15))
             if not editorViewState.scrollDisplayInitialized:
               editorViewState.scrollDisplayPixels = float32(
-                platformEditorDisplayRowsBeforeLine(uint32(max(0,
-                  editorViewState.scrollLine)))) * editorLineHeight() +
+                displayRowsBeforeLine(document[].buffer,
+                  max(0, editorViewState.scrollLine), true,
+                  editorTextLayoutWidth(), fontSize, editorLineLayoutCache, @[],
+                  editorViewState.foldedRanges)) * editorLineHeight() +
                 editorViewState.scrollYFraction
               editorViewState.scrollDisplayInitialized = true
-            let totalRows = int(platformEditorDisplayRowCount())
+            let totalRows = displayRowCount(document[].buffer, true,
+              editorTextLayoutWidth(), fontSize, editorLineLayoutCache,
+              @[], editorViewState.foldedRanges)
             let maxDisplayPixels = float32(max(0, totalRows -
               max(1, visibleLines))) * editorLineHeight()
             editorViewState.scrollDisplayPixels = max(0'f32, min(maxDisplayPixels,
               editorViewState.scrollDisplayPixels + pixelDelta))
-            editorViewState.scrollLine = int(platformEditorSourceLineForDisplayPixels(
-              cdouble(editorViewState.scrollDisplayPixels)))
-            editorViewState.scrollYFraction = float32(
-              platformEditorDisplayFractionForScrollPixels(
-                cdouble(editorViewState.scrollDisplayPixels)))
+            let displayRow = int(floor(editorViewState.scrollDisplayPixels /
+              max(1'f32, editorLineHeight())))
+            editorViewState.scrollLine = sourceLineForDisplayRow(document[].buffer,
+              displayRow, true, editorTextLayoutWidth(), fontSize,
+              editorLineLayoutCache, @[], editorViewState.foldedRanges)
+            editorViewState.scrollYFraction = editorViewState.scrollDisplayPixels -
+              float32(displayRow) * editorLineHeight()
             editorViewState.scrollYPixels = float32(editorViewState.scrollLine) *
               editorLineHeight() + editorViewState.scrollYFraction
           else:
             editorViewState.setScrollYPixels(editorViewState.scrollYPixels + pixelDelta,
               editorLineHeight(), float32(maxScroll) * editorLineHeight())
-      # Wheel input changes only the viewport. Zed's scroll handler
+      # Wheel input changes only the viewport. Zed's ScrollWheelEvent handler
       # (element/mouse.rs) computes the new scroll position and calls
-      # `editor.scroll`; it does not re-run the syntax pass, re-resolve the
-      # repository, or republish the buffer, because none of that depends on
-      # where the viewport sits. Ours did all three per event. Keep the cursor
-      # projection, which does depend on the scroll offset, and nothing else.
-      syncEditorCursor(ensureCursor = false)
+      # `editor.scroll`; it does not rebuild the element tree or recreate
+      # native views. Do the equivalent projection here without entering
+      # syncEditorCursor/setupDemoUi, whose work belongs to state changes.
+      syncEditorScrollViewport(pane == 1)
     if document != nil and kind in {pointerDown, pointerMove, pointerUp} and
         (editorScrollbarDragging or kind == pointerDown):
       let pane = if editorScrollbarDragging: editorScrollbarPane
@@ -8955,8 +9182,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           editorSession.secondaryView.scrollX = targetScrollX
         else:
           editorViewState.scrollX = targetScrollX
-        syncEditorCursor(ensureCursor = false)
-        refreshEditorSyntax()
+        syncEditorScrollViewport(pane == 1)
         return
       if kind == pointerUp and editorScrollbarDragging:
         editorScrollbarDragging = false

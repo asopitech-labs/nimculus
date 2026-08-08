@@ -250,12 +250,13 @@ proc terminalScrollOffset*(offset, totalLines, rows, deltaRows: int): int {.inli
   max(0, min(maximum, offset + deltaRows))
 
 proc terminalScrollLineDelta*(remainder: var float32, deltaY: float32,
-                              precise: bool, lineHeight: float32): int =
-  ## AppKit supplies line units for ordinary wheels and pixel units for
-  ## trackpads. Preserve sub-line pixel motion while keeping line-wheel input
-  ## direct, matching the editor and Zed's ScrollDelta distinction.
-  let units = if precise: -deltaY / max(1'f32, lineHeight) else: -deltaY
-  remainder += units
+                              precise: bool, lineHeight: float32,
+                              sensitivity = 1'f32): int =
+  ## Match Zed's terminal pixel_delta(line_height): precise deltas are pixels,
+  ## ordinary wheel deltas are line counts multiplied by the line height.
+  let effectiveLineHeight = max(1'f32, lineHeight)
+  let pixels = if precise: deltaY else: deltaY * effectiveLineHeight
+  remainder += -pixels * sensitivity / effectiveLineHeight
   let whole = if remainder >= 0'f32: floor(remainder) else: ceil(remainder)
   result = int(whole)
   remainder -= float32(result)

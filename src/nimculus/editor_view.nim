@@ -251,22 +251,27 @@ proc nextWordBoundary*(text: string, offset: int): int =
     inc index
   text.len
 
+proc scrollPixelDelta*(deltaY: float32, precise: bool,
+                       lineHeight = editorLineHeight(),
+                       sensitivity = 1'f32): float32 =
+  ## Zed's ScrollDelta::Pixels keeps the native delta in pixels. Its
+  ## ScrollDelta::Lines conversion multiplies the native line count by the
+  ## line height; neither path applies wheel-unit normalization.
+  let effectiveLineHeight = max(1'f32, lineHeight)
+  let pixels = if precise: deltaY else: deltaY * effectiveLineHeight
+  result = -pixels * sensitivity
+
 proc scrollLineDelta*(remainder: var float32, deltaY: float32,
-                      precise: bool, lineHeight = editorLineHeight()): int =
-  ## Convert AppKit/Zed-style scroll deltas into whole logical lines while
-  ## retaining sub-line precise trackpad motion for the next event.
-  let units = if precise: -deltaY / max(1'f32, lineHeight) else: -deltaY
-  remainder += units
+                      precise: bool, lineHeight = editorLineHeight(),
+                      sensitivity = 1'f32): int =
+  ## Convert Zed's pixel or line scroll delta into whole logical lines while
+  ## retaining sub-line motion for the next event.
+  let effectiveLineHeight = max(1'f32, lineHeight)
+  remainder += scrollPixelDelta(deltaY, precise, effectiveLineHeight,
+    sensitivity) / effectiveLineHeight
   let whole = if remainder >= 0'f32: floor(remainder) else: ceil(remainder)
   result = int(whole)
   remainder -= float32(result)
-
-proc scrollPixelDelta*(remainder: var float32, deltaY: float32,
-                       precise: bool, lineHeight = editorLineHeight()): float32 =
-  ## Preserve the established line/remainder conversion for callers that
-  ## still need it, while exposing the same event as a continuous pixel delta.
-  discard scrollLineDelta(remainder, deltaY, precise, lineHeight)
-  result = (if precise: -deltaY else: -deltaY * max(1'f32, lineHeight))
 
 proc selectedRange*(view: EditorViewState): tuple[startByte, endByte: int] =
   (startByte: min(view.selection.anchor, view.selection.active),
