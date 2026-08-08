@@ -47,11 +47,12 @@ Zed 側にあるモジュールで、Nimculus 側に対応物が見当たらな�
 | `svg_renderer.rs` | `macos_platform.m:4587`（`NSImage initWithData:`） | **方式が違う（2026-08-09 確認）**。Zed は `SvgRenderer` を `App` が保持し（app.rs:203,727）、`AssetSource` から SVG を読んでラスタライズしアトラスへ載せる。こちらは AppKit の `NSImage` に丸投げで、framework 層に相当物が無い |
 | `gestures.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `TouchEvent` からジェスチャを認識する語彙を framework に持つ。こちらの `gesture` という語はコメント中の用法のみで、ピンチ・回転・スワイプの認識が無い。macOS のトラックパッド操作に関わる |
 | `asset_cache.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は非同期に解決したアセットをキャッシュする。こちらにアセットの概念自体が無い（アイコンは AppKit の SF Symbols / NSImage 直結） |
-| `arena.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `window.rs:273` で `ELEMENT_ARENA: RefCell<Arena>`（1MB）をフレームごとの要素確保に使う。こちらは Nim の GC 任せ。スクロールのプロファイルに malloc/free が出ていたので、実測で効く可能性がある |
+| `arena.rs` | 無し | **単独では移植できない（2026-08-09 調査）**。Zed の `draw()` は `ArenaClearNeeded` を返し、次の draw の前に `clear()` される（window.rs:2679, :337）。`AnyElement::new` は要素を作るたびにアリーナから確保する（element.rs:596）。つまり**アリーナは即時モードの帰結**で、毎フレーム作り直される要素の置き場である。Nimculus は `UiTree` を保持し続ける保持モードなので、アリーナに入れるものが無い。→ 下の「要素モデル」の行を参照 |
 | `executor.rs` / `platform_scheduler.rs` / `queue.rs` | `src/nimculus/poll_scheduler.nim`（アイドル間隔の調整のみ） | **方式が違う（2026-08-09 確認）**。Zed は `BackgroundExecutor` / `ForegroundExecutor` に future を `spawn` し、優先度も指定できる（executor.rs:14,22,89,101,314）。こちらに非同期実行基盤は無く、LSP は `poll()`（lsp.nim:811）をイベントループから叩き、プロセス終了は `waitForExit` で同期的に待つ。`git rev-parse` を同期で待って UI をブロックしていた過去の不具合（handoff §5）はこの構造に由来する |
 | `inspector.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `InspectorElementId` で要素を一意に指し、デバッグビルドで UI を調査できる。開発用途なので優先度は低いが、Accessibility Tree が入った今は identifier が既にあるので土台はある |
 | `style.rs` / `styled.rs` / `color.rs` / `colors.rs` | `src/nimculus/settings.nim`（`ThemeColors`、settings.nim:315,629） | **部分移植（2026-08-09 確認）**。色の役割表は移植済みで実描画値まで合わせてある。一方 `style.rs` のレイアウト部分（`Style`）は `taffy.rs` の行を参照。`styled.rs` に相当する「要素にスタイルを積む API」は無く、コントロールごとに個別実装 |
-| `element.rs` / `view.rs` / `interactive.rs` | `src/nimnui/ui_tree.nim` / `controls.nim` / `events.nim` | **部分移植（2026-08-09 確認）**。要素ツリー・コントロール記述子・capture/target/bubble のイベント段階は移植済み。`a11y_role` / `write_a11y_info`（element.rs:112,120）も移植した。未確認は `view.rs` の状態保持モデルと `interactive.rs` のドラッグ&ドロップ・ツールチップ経路 |
+| **要素モデル（即時 vs 保持）** — `element.rs` / `view.rs` / `window.rs` の draw サイクル | `src/nimnui/ui_tree.nim`（保持） | **方式が違う（2026-08-09 調査）。移植漏れとしては最大級**。Zed は毎フレーム要素ツリーを作り直す即時モードで、`arena.rs` はその置き場。こちらは `UiTree` を保持して差分更新する。どちらの方式を取るかで、`arena`・`bounds_tree`・`taffy` の要否と、状態をどこに置くかが全部決まる。**着手前に `DESIGN_DECISIONS.md` へ記録すること** |
+| `element.rs` / `interactive.rs`（要素モデル以外） | `src/nimnui/controls.nim` / `events.nim` | **部分移植（2026-08-09 確認）**。コントロール記述子と capture/target/bubble のイベント段階、`a11y_role` / `write_a11y_info`（element.rs:112,120）は移植済み。未確認は `interactive.rs` のドラッグ&ドロップとツールチップ経路 |
 | `profiler.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は spawn 時刻を集計する自前プロファイラを持つ。こちらは `sample`(1) と `tools/ui_test.sh profile` で外から測っている。今回の作業ではそれで足りたので優先度は低い |
 
 ## gpui_macos（platform）
@@ -82,8 +83,11 @@ Zed 側にあるモジュールで、Nimculus 側に対応物が見当たらな�
 
 ### 実測で効きそうな順
 
-1. **`arena.rs`** — スクロールのプロファイルに malloc/free が出ていた。フレームごとの
-   要素確保を Zed と同じアリーナにすれば減る可能性がある。**次に着手する候補**
+1. ~~**`arena.rs`**~~ — **取り下げ（2026-08-09）**。着手して分かったこと: (1) アリーナは
+   即時モードの帰結なので、保持モードのこちらには入れるものが無い。(2) 根拠にした
+   malloc/free は、ホイール経路から UI ツリー再構築を外した時点で**消えていた**
+   （再測定で Nim 側の確保・コピーは最大 17 サンプル、突出なし）。
+   プロファイルを取り直さずに前回の観察を根拠にしたのが誤りだった
 2. **`executor.rs` + `dispatcher.rs`** — 非同期実行基盤が無いため、LSP は
    `poll()` をイベントループから叩き、外部プロセスは `waitForExit` で同期的に待つ。
    `git rev-parse` の同期待ちで UI がブロックしていた不具合（handoff §5）と同根。
