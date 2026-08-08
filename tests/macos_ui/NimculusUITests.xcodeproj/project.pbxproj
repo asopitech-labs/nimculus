@@ -1,0 +1,55 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A11Y00000000000000000101 /* ZedParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11Y00000000000000000102 /* ZedParityTests.swift */; };
+		A11Y00000000000000000001 /* NimculusUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11Y00000000000000000002 /* NimculusUITests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A11Y00000000000000000102 /* ZedParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZedParityTests.swift; sourceTree = "<group>"; };
+		A11Y00000000000000000002 /* NimculusUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NimculusUITests.swift; sourceTree = "<group>"; };
+		A11Y00000000000000000003 /* NimculusUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NimculusUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A11Y00000000000000000004 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A11Y00000000000000000005 = {isa = PBXGroup; children = (A11Y00000000000000000006, A11Y00000000000000000007); sourceTree = "<group>"; };
+		A11Y00000000000000000006 /* NimculusUITests */ = {isa = PBXGroup; children = (A11Y00000000000000000002, A11Y00000000000000000102); path = .; sourceTree = "<group>"; };
+		A11Y00000000000000000007 /* Products */ = {isa = PBXGroup; children = (A11Y00000000000000000003); name = Products; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A11Y00000000000000000008 /* NimculusUITests */ = {isa = PBXNativeTarget; buildConfigurationList = A11Y00000000000000000009 /* Build configuration list for PBXNativeTarget "NimculusUITests" */; buildPhases = (A11Y0000000000000000000A, A11Y00000000000000000004, A11Y0000000000000000000B); buildRules = (); dependencies = (); name = NimculusUITests; productName = NimculusUITests; productReference = A11Y00000000000000000003 /* NimculusUITests.xctest */; productType = "com.apple.product-type.bundle.ui-testing"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A11Y0000000000000000000C /* Project object */ = {isa = PBXProject; attributes = {LastUpgradeCheck = 1600;}; buildConfigurationList = A11Y0000000000000000000D /* Build configuration list for PBXProject "NimculusUITests" */; compatibilityVersion = "Xcode 15.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = A11Y00000000000000000005; productRefGroup = A11Y00000000000000000007 /* Products */; projectDirPath = ""; projectRoot = ""; targets = (A11Y00000000000000000008 /* NimculusUITests */); };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A11Y0000000000000000000A /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A11Y00000000000000000001 /* NimculusUITests.swift in Sources */, A11Y00000000000000000101 /* ZedParityTests.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+		A11Y0000000000000000000B /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A11Y0000000000000000000E /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; CODE_SIGNING_ALLOWED = NO; GENERATE_INFOPLIST_FILE = YES; MACOSX_DEPLOYMENT_TARGET = 14.0; PRODUCT_BUNDLE_IDENTIFIER = "com.asopitech.nimculus.uitests"; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = macosx; SWIFT_VERSION = 5.0; TEST_HOST = ""; }; name = Debug; };
+		A11Y0000000000000000000F /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; CODE_SIGNING_ALLOWED = NO; GENERATE_INFOPLIST_FILE = YES; MACOSX_DEPLOYMENT_TARGET = 14.0; PRODUCT_BUNDLE_IDENTIFIER = "com.asopitech.nimculus.uitests"; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Release; };
+		A11Y00000000000000000010 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_OBJC_ARC = YES; MACOSX_DEPLOYMENT_TARGET = 14.0; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Debug; };
+		A11Y00000000000000000011 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_OBJC_ARC = YES; MACOSX_DEPLOYMENT_TARGET = 14.0; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A11Y00000000000000000009 /* Build configuration list for PBXNativeTarget "NimculusUITests" */ = {isa = XCConfigurationList; buildConfigurations = (A11Y0000000000000000000E /* Debug */, A11Y0000000000000000000F /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A11Y0000000000000000000D /* Build configuration list for PBXProject "NimculusUITests" */ = {isa = XCConfigurationList; buildConfigurations = (A11Y00000000000000000010 /* Debug */, A11Y00000000000000000011 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = A11Y0000000000000000000C /* Project object */;
+}

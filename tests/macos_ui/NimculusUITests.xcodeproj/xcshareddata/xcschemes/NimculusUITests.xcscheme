@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme LastUpgradeVersion="1600" version="1.7">
+  <TestAction buildConfiguration="Debug" shouldUseLaunchSchemeArgsEnv="YES">
+    <Testables>
+      <TestableReference skipped="NO">
+        <BuildableReference
+          BuildableIdentifier="primary"
+          BlueprintIdentifier="A11Y00000000000000000008"
+          BuildableName="NimculusUITests.xctest"
+          BlueprintName="NimculusUITests"
+          ReferencedContainer="container:NimculusUITests.xcodeproj">
+        </BuildableReference>
+      </TestableReference>
+    </Testables>
+  </TestAction>
+  <LaunchAction buildConfiguration="Debug" />
+  <ProfileAction buildConfiguration="Release" shouldUseLaunchSchemeArgsEnv="YES" />
+  <AnalyzeAction buildConfiguration="Debug" />
+  <ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES" />
+</Scheme>
