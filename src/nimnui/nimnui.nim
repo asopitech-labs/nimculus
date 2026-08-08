@@ -14,6 +14,7 @@ import nimnui/text
 import nimnui/render
 import nimnui/ime
 import nimnui/commands
+import nimnui/accessibility
 
 export platform
 export mock_renderer
@@ -21,6 +22,7 @@ export geometry, ui_tree, layout, events, controls, text
 export render
 export ime
 export commands
+export accessibility
 
 type
   RendererKind* = enum

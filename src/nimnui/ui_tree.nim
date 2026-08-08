@@ -3,6 +3,11 @@ import nimnui/layout_types
 
 type
   NodeId* = distinct uint64
+
+  A11yRole* = enum
+    a11yNone, a11yWindow, a11yGroup, a11yToolbar, a11yButton, a11yTabGroup,
+    a11yTab, a11yStatusBar, a11yScrollArea, a11yRow, a11yTextInput, a11yTextRun
+
   NodeHandle* = object
     id*: NodeId
     generation*: uint32
@@ -24,6 +29,10 @@ type
     flexGrow*: float32
     preferredSize*, minSize*, maxSize*: Size
     layoutSpec*: LayoutSpec
+    a11yRole*: A11yRole
+    a11yIdentifier*, a11yTitle*, a11yValue*: string
+    a11yAction*: string
+    a11ySelected*, a11yExpanded*: bool
 
   UiTree* = object
     nodes*: seq[UiNode]
@@ -32,6 +41,12 @@ type
     nextGeneration*: uint32
 
 proc `==`*(a, b: NodeId): bool = uint64(a) == uint64(b)
+
+proc a11yNodeId*(node: UiNode): uint64 =
+  var value = uint64(node.id) xor (uint64(node.generation) * 0x9e3779b97f4a7c15'u64)
+  value = (value xor (value shr 30)) * 0xbf58476d1ce4e5b9'u64
+  value = (value xor (value shr 27)) * 0x94d049bb133111eb'u64
+  value xor (value shr 31)
 
 proc newUiTree*(): UiTree = UiTree(nextId: 1, nextGeneration: 1, focused: NodeId(0))
 
@@ -99,6 +114,22 @@ proc setLayoutSpec*(tree: var UiTree, id: NodeId, spec: LayoutSpec) =
     tree.nodes[index].minSize = normalized.minSize
     tree.nodes[index].maxSize = normalized.maxSize
     tree.markLayoutDirty(id)
+
+proc setA11yInfo*(tree: var UiTree, id: NodeId, role: A11yRole,
+                  identifier, title, value: string, action = "") =
+  let index = tree.nodeIndex(id)
+  if index >= 0:
+    tree.nodes[index].a11yRole = role
+    tree.nodes[index].a11yIdentifier = identifier
+    tree.nodes[index].a11yTitle = title
+    tree.nodes[index].a11yValue = value
+    tree.nodes[index].a11yAction = action
+
+proc setA11yState*(tree: var UiTree, id: NodeId, selected, expanded: bool) =
+  let index = tree.nodeIndex(id)
+  if index >= 0:
+    tree.nodes[index].a11ySelected = selected
+    tree.nodes[index].a11yExpanded = expanded
 
 proc hitTest*(tree: UiTree, point: Point): NodeId =
   ## Return the deepest/topmost node containing a point. A node is eligible

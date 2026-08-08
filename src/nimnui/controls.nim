@@ -5,7 +5,8 @@ import nimnui/render
 
 type
   ControlKind* = enum
-    label, button, scrollView, splitPane, tabBar, contextMenu, popup, tooltip
+    label, button, scrollView, splitPane, tabBar, toolbar, statusBar, row, editor,
+    contextMenu, popup, tooltip
 
   Control* = object
     node*: NodeId
@@ -245,3 +246,18 @@ proc makeControl*(tree: var UiTree, parent: NodeId, kind: ControlKind,
                              minSize: Size(width: px(0), height: px(0)),
                              maxSize: Size(width: px(100000), height: px(100000)))
   tree.setLayoutSpec(result.node, result.layout)
+
+proc setControlAccessibility*(tree: var UiTree, control: Control,
+                              identifier, title, value: string, action = "") =
+  let role = case control.kind
+    of label: a11yGroup
+    of button: a11yButton
+    of scrollView: a11yScrollArea
+    of splitPane: a11yGroup
+    of tabBar: a11yTabGroup
+    of toolbar: a11yToolbar
+    of statusBar: a11yStatusBar
+    of row: a11yRow
+    of editor: a11yTextInput
+    of contextMenu, popup, tooltip: a11yGroup
+  tree.setA11yInfo(control.node, role, identifier, title, value, action)
