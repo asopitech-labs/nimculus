@@ -1,5 +1,88 @@
 # Design Decisions
 
+## UI-102: Port Zed's async execution on Nim's own Future
+
+対応マイルストーンは ROADMAP.md の M20（性能・安定性強化）。完了条件は、
+(1) platform 層が Zed の `PlatformDispatcher` と同じ粒度の契約を持つ、
+(2) framework 層に `BackgroundExecutor` / `ForegroundExecutor` 相当が載る、
+(3) `newGitRepository` の `git rev-parse` がメインスレッドをブロックしない、
+(4) `tools/ui_test.sh parity` / `smoke` が非回帰である、の 4 点。
+
+### なぜこの設計判断を記録するか
+
+一度、調査せずに「Nim には Rust の `Future` が無いので、`Task<R>` は完了時に
+呼ばれるコールバックで表現する」と決めて実装指示を出した。**これは誤りだった。**
+`lib/pure/asyncfutures.nim` に `Future[T]` があり、`complete` / `fail` /
+`callback` / `read` を備え、`asyncdispatch` の `async` / `await` マクロも使える。
+実現手段を調べずに代替へ逃げた判断であり、取り消した。
+
+### 実測した実現可能性（2026-08-09）
+
+`--mm:arc --threads:on -d:release` で実際にコンパイルして確かめた。
+
+| 検証 | 結果 |
+| --- | --- |
+| フレームループから 1 tick ずつ回せるか（`poll(0)`） | **成立**。60Hz 相当のループで 3 フレーム後に `Future` が完了 |
+| `poll(0)` はフレームをブロックしないか | **最悪 36µs**。フレーム予算 16ms に対して無視できる |
+| 保留が無いときの `poll(0)` は例外を投げるか | **投げない**（`runOnce` は `timeout == 0` なら早期 return）。`hasPendingOperations()` で守る必要すらないが、明示しておく |
+| 背景スレッドの結果を `Future` へ渡せるか | **成立**。ワーカーが結果を置き、**Future を所有するスレッドが `complete` する**形で 4 フレーム後に完了 |
+
+### 層の対応
+
+| 層 | Zed | Nimculus |
+| --- | --- | --- |
+| platform | `crates/gpui/src/platform.rs:917` `PlatformDispatcher`（`is_main_thread` / `dispatch` / `dispatch_on_main_thread` / `dispatch_after`）。macOS 実装は `crates/gpui_macos/src/dispatcher.rs:30-70` で GCD 直結 | `src/nimnui/platform/contracts.h` / `contracts.nim` の C ABI と `macos_platform.m` の GCD 実装。優先度 High / Medium / Low をグローバルキューの優先度へ写す |
+| framework | `crates/gpui/src/executor.rs:14,22` `BackgroundExecutor` / `ForegroundExecutor`、`Task<R>` | NimNUI に同名の層を置き、**`Task<R>` は `Future[T]` そのもの**。`await` が使える |
+| app | 利用者 | `src/nimculus/git_service.nim` ほか |
+
+### スレッド境界の扱い（Zed との対応が非自明な唯一の点）
+
+Nim の `asyncdispatch` はグローバル dispatcher を `{.threadvar.}`（同 :354）で持つ。
+つまり **`Future[T]` は生成したスレッドに属する**。
+
+Zed も同じ区別を型で表現している:
+
+- `BackgroundExecutor::spawn`（executor.rs:89）は `Future + Send` と `R: Send` を要求
+- `ForegroundExecutor::spawn`（同 :314）は `Send` を要求せず `boxed_local()` を使う
+
+したがって「Future がスレッドに属する」ことは Nim 固有の制約ではなく、**Zed が
+Send 境界で表現しているものと同じ区別**である。Nim では型で強制されないので、
+規約として次を守る:
+
+- `Future[T]` の生成・`complete`・`read` は**所有スレッドのみ**
+- 背景の仕事は platform の `dispatch` でスレッドへ渡し、**結果だけ**を
+  `dispatch_on_main_thread` で戻して、所有スレッドが `complete` する
+- 検証 4 がこの形の実証にあたる
+
+### 却下案
+
+**(a) コールバック方式**（完了時にメインスレッドで呼ばれる proc を渡す）。
+`Future` が無いという誤った前提から出た案。`await` による逐次記述ができず、
+合成もキャンセルも自前になり、Zed の `Task<R>` に対応するものが消える。却下。
+
+**(b) `chronos` の依存追加**。既存依存は `graphemes` / `gitignore` のみで、
+DEVELOPMENT_GUIDELINES は依存追加を「標準ツールで検出できない問題に限定」する。
+標準 `asyncdispatch` で実現可能性が確認できた以上、理由がない。却下。
+
+**(c) `std/tasks` + `threadpool` のみ**。分離クロージャをスレッドへ送る手段としては
+有用で、platform の `dispatch` の実装候補ではある。ただし `Future` / `await` に
+相当するものが無く、framework 層の `Task<R>` を表現できない。**単独では却下**、
+platform 実装の内部手段としては可。
+
+### 文字単位・スレッド・UI ブロッキング
+
+この作業は文字を扱わない。UI スレッドは `poll(0)` を 1 フレームに 1 回だけ叩き、
+実測で最悪 36µs。背景の仕事は GCD のグローバルキューで行い、メインスレッドは
+結果の受け取りのみ。
+
+### テスト観点
+
+- unit: `Future` の完了がフレームループの tick で観測できること、保留が無いときの
+  tick が例外を投げないこと、背景スレッドの結果が所有スレッドで `complete` されること
+- integration: `newGitRepository` が呼び出し側をブロックせずに解決すること
+- ベンチマーク: `tools/ui_test.sh parity` の非回帰（現状 Nimculus と Zed は
+  移動量あたり同等）
+
 ## UI-100: Port Zed's text-layout layers without moving document state into platform
 
 対応マイルストーンは ROADMAP.md の M3（macOS テキスト描画・IME）と M20（性能・安定性強化）。
