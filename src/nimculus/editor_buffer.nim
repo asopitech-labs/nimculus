@@ -113,6 +113,36 @@ proc substring*(table: PieceTable, startByte, endByte: int): string =
     result.add(source.substr(piece.start + localStart, piece.start + localEnd - 1))
     cursor = pieceEnd
 
+proc rangeHash*(table: PieceTable, startByte, endByte: int): uint64 =
+  let length = table.contentLength
+  let start = max(0, min(startByte, length))
+  let finish = max(start, min(endByte, length))
+  var cursor = 0
+  result = 14695981039346656037'u64
+  for piece in table.pieces:
+    let pieceEnd = cursor + piece.length
+    if pieceEnd <= start:
+      cursor = pieceEnd
+      continue
+    if cursor >= finish: break
+    let localStart = max(0, start - cursor)
+    let localEnd = min(piece.length, finish - cursor)
+    let source = if piece.source == original: table.original else: table.additions
+    for index in localStart ..< localEnd:
+      result = (result xor uint64(ord(source[piece.start + index]))) *
+        1099511628211'u64
+    cursor = pieceEnd
+
+proc lineHash*(table: PieceTable, line: int): uint64 =
+  if table.lineStarts.len == 0: return 14695981039346656037'u64
+  let targetLine = max(0, min(line, table.lineStarts.high))
+  let start = table.lineStarts[targetLine]
+  let finish = if targetLine + 1 < table.lineStarts.len:
+    table.lineStarts[targetLine + 1] else: table.contentLength
+  let endByte = if finish > start and table.byteAt(finish - 1) == '\n':
+    finish - 1 else: finish
+  table.rangeHash(start, endByte)
+
 proc isUtf8Boundary(table: PieceTable, offset: int): bool =
   let length = table.contentLength
   if offset < 0 or offset > length: return false

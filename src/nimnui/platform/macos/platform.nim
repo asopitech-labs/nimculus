@@ -116,6 +116,8 @@ proc platformEditorAnnotationSize*(): uint32 {.importc: "nimculus_platform_edito
 proc platformGitHunkSpanSize*(): uint32 {.importc: "nimculus_platform_git_hunk_span_size", cdecl.}
 proc platformPaintCommandSize*(): uint32 {.importc: "nimculus_platform_paint_command_size", cdecl.}
 proc platformPaintRegionSize*(): uint32 {.importc: "nimculus_platform_paint_region_size", cdecl.}
+proc platformAccessibilityNodeSize*(): uint32
+    {.importc: "nimculus_platform_accessibility_node_size", cdecl.}
 
 proc platformSetInputCallback*(callback: InputCallback) {.importc: "nimculus_platform_set_input_callback", cdecl.}
 proc platformSetShortcutCallback*(callback: ShortcutCallback) {.importc: "nimculus_platform_set_shortcut_callback", cdecl.}
@@ -148,15 +150,9 @@ proc platformSecondaryEditorByteOffsetAtPoint*(x, y: cdouble): uint32 {.importc:
 proc platformEditorUtf16OffsetAtPoint*(x, y: cdouble): uint32 {.importc: "nimculus_platform_editor_utf16_offset_at_point", cdecl.}
 proc platformSetEditorScrollLine*(line: uint32) {.importc: "nimculus_platform_set_editor_scroll_line", cdecl.}
 proc platformSetEditorScrollYFraction*(pixels: cdouble) {.importc: "nimculus_platform_set_editor_scroll_y_fraction", cdecl.}
-proc platformSetEditorScrollDisplayRow*(row: uint32) {.importc: "nimculus_platform_set_editor_scroll_display_row", cdecl.}
 proc platformSetEditorScrollX*(offset: cdouble) {.importc: "nimculus_platform_set_editor_scroll_x", cdecl.}
 proc platformEditorScrollX*(): cdouble {.importc: "nimculus_platform_editor_scroll_x", cdecl.}
 proc platformEditorWidestVisibleLineWidth*(): cdouble {.importc: "nimculus_platform_editor_widest_visible_line_width", cdecl.}
-proc platformEditorDisplayRowsBeforeLine*(line: uint32): uint32 {.importc: "nimculus_platform_editor_display_rows_before_line", cdecl.}
-proc platformEditorDisplayRowCount*(): uint32 {.importc: "nimculus_platform_editor_display_row_count", cdecl.}
-proc platformEditorSourceLineForDisplayPixels*(pixels: cdouble): uint32 {.importc: "nimculus_platform_editor_source_line_for_display_pixels", cdecl.}
-proc platformEditorDisplayFractionForScrollPixels*(
-  pixels: cdouble): cdouble {.importc: "nimculus_platform_editor_display_fraction_for_scroll_pixels", cdecl.}
 proc platformSetEditorRect*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_editor_rect", cdecl.}
 proc platformSetTerminalPanelRect*(x, y, width, height: cdouble) {.importc: "nimculus_platform_set_terminal_panel_rect", cdecl.}
 proc platformSetSecondaryEditorRect*(visible: bool, x, y, width,
@@ -208,6 +204,16 @@ proc platformSetEditorSelection*(startByte, endByte: uint32) {.importc: "nimculu
 proc platformSetEditorSelections*(selections: ptr NativeEditorSelection,
     count: uint32) {.importc: "nimculus_platform_set_editor_selections", cdecl.}
 proc platformSetEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_text", cdecl.}
+proc platformSetEditorLayout*(secondary: bool, rows: ptr NativeEditorLayoutRow,
+    rowCount: uint32, glyphs: ptr NativeEditorLayoutGlyph,
+    glyphCount: uint32) {.importc: "nimculus_platform_set_editor_layout", cdecl.}
+proc platformSetEditorLayoutScroll*(secondary: bool, x, yFraction: cdouble)
+    {.importc: "nimculus_platform_set_editor_layout_scroll", cdecl.}
+proc platformSetAccessibilityTree*(nodes: ptr NativeAccessibilityNode,
+    nodeCount: uint32, children: ptr uint64, childCount: uint32)
+    {.importc: "nimculus_platform_set_accessibility_tree", cdecl.}
+proc platformGetEditorGlyphColor*(kind: uint32, color: ptr NativeEditorGlyphColor)
+    {.importc: "nimculus_platform_get_editor_glyph_color", cdecl.}
 proc platformSetSecondaryEditorText*(text: cstring,
     length: uint32) {.importc: "nimculus_platform_set_secondary_editor_text", cdecl.}
 proc platformSetEditorOutline*(text: cstring, length,

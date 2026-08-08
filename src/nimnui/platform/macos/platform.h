@@ -1,5 +1,26 @@
 #include "../contracts.h"
 
+void nimculus_platform_layout_line(const uint8_t *utf8, uint32_t length,
+                                   double font_size,
+                                   const NimculusPlatformFontRun *runs,
+                                   uint32_t run_count,
+                                   NimculusPlatformLineMetrics *metrics,
+                                   NimculusPlatformGlyph *glyphs,
+                                   uint32_t glyph_capacity);
+void nimculus_platform_set_editor_layout(bool secondary,
+                                         const NimculusEditorLayoutRow *rows,
+                                         uint32_t row_count,
+                                         const NimculusEditorLayoutGlyph *glyphs,
+                                         uint32_t glyph_count);
+void nimculus_platform_set_editor_layout_scroll(bool secondary, double x,
+                                                double y_fraction);
+void nimculus_platform_set_accessibility_tree(const NimculusAccessibilityNode *nodes,
+                                              uint32_t node_count,
+                                              const uint64_t *children,
+                                              uint32_t child_count);
+void nimculus_platform_get_editor_glyph_color(uint32_t kind,
+                                              NimculusEditorGlyphColor *color);
+
 bool nimculus_platform_run(void);
 bool nimculus_platform_validate_native(void);
 bool nimculus_platform_validate_appearance_callback(void);
@@ -82,6 +103,7 @@ uint32_t nimculus_platform_editor_annotation_size(void);
 uint32_t nimculus_platform_git_hunk_span_size(void);
 uint32_t nimculus_platform_paint_command_size(void);
 uint32_t nimculus_platform_paint_region_size(void);
+uint32_t nimculus_platform_accessibility_node_size(void);
 void nimculus_platform_set_input_callback(NimculusInputCallback callback);
 void nimculus_platform_set_shortcut_callback(NimculusShortcutCallback callback);
 void nimculus_platform_set_text_callback(NimculusTextCallback callback);

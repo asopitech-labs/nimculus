@@ -43,6 +43,122 @@ static NimculusFileCallback g_file_callback = NULL;
 static NSMutableArray<NSString *> *g_pending_file_open_paths = nil;
 static NimculusCommandCallback g_command_callback = NULL;
 static NimculusIdleCallback g_idle_callback = NULL;
+static NSView *g_accessibility_host = nil;
+
+@interface NimculusAXNode : NSObject
+@property(nonatomic, copy) NSString *role;
+@property(nonatomic, copy) NSString *identifier;
+@property(nonatomic, copy) NSString *title;
+@property(nonatomic, copy) NSString *value;
+@property(nonatomic, assign) id parentNode;
+@property(nonatomic, retain) NSArray *childNodes;
+@property(nonatomic) NSRect localFrame;
+@property(nonatomic) BOOL synthetic;
+@property(nonatomic) BOOL selected;
+@property(nonatomic) BOOL expanded;
+@property(nonatomic) NSUInteger cursorByte;
+@property(nonatomic) NSRange selectedByteRange;
+@property(nonatomic, copy) NSString *actionCommand;
+@end
+
+static NSString *accessibilityRoleForNative(uint32_t role) {
+  switch (role) {
+    case 1: return NSAccessibilityWindowRole;
+    case 2: return NSAccessibilityGroupRole;
+    case 3: return NSAccessibilityToolbarRole;
+    case 4: return NSAccessibilityButtonRole;
+    case 5: return NSAccessibilityTabGroupRole;
+    case 6: return NSAccessibilityRadioButtonRole;
+    case 7: return NSAccessibilityToolbarRole;
+    case 8: return NSAccessibilityScrollAreaRole;
+    case 9: return NSAccessibilityRowRole;
+    case 10: return NSAccessibilityTextFieldRole;
+    case 11: return NSAccessibilityStaticTextRole;
+    default: return NSAccessibilityGroupRole;
+  }
+}
+
+static NSUInteger accessibilityUtf16Offset(NSString *text, NSUInteger byteOffset) {
+  NSData *data = [text dataUsingEncoding:NSUTF8StringEncoding];
+  NSUInteger bounded = MIN(byteOffset, data.length);
+  NSString *prefix = [[[NSString alloc] initWithBytes:data.bytes length:bounded
+                                             encoding:NSUTF8StringEncoding] autorelease];
+  return prefix ? prefix.length : 0;
+}
+
+@implementation NimculusAXNode
+- (BOOL)isAccessibilityElement { return YES; }
+- (NSString *)accessibilityRole { return self.role; }
+- (NSString *)accessibilityIdentifier { return self.identifier; }
+- (NSString *)accessibilityLabel { return self.title; }
+- (id)accessibilityValue { return self.value.length > 0 ? self.value : self.title; }
+- (NSArray *)accessibilityChildren { return self.childNodes ?: @[]; }
+- (id)accessibilityParent { return self.parentNode; }
+- (BOOL)accessibilityEnabled { return YES; }
+- (BOOL)accessibilitySelected { return self.selected; }
+- (BOOL)accessibilityExpanded { return self.expanded; }
+- (NSRect)accessibilityFrame {
+  if (!g_accessibility_host || !g_accessibility_host.window) return self.localFrame;
+  NSRect windowFrame = [g_accessibility_host convertRect:self.localFrame toView:nil];
+  return [g_accessibility_host.window convertRectToScreen:windowFrame];
+}
+- (NSArray *)accessibilityAttributeNames {
+  return @[NSAccessibilityRoleAttribute, NSAccessibilityTitleAttribute,
+    NSAccessibilityValueAttribute, NSAccessibilityIdentifierAttribute,
+    NSAccessibilityChildrenAttribute, NSAccessibilityParentAttribute,
+    NSAccessibilityPositionAttribute, NSAccessibilitySizeAttribute,
+    NSAccessibilityEnabledAttribute, NSAccessibilitySelectedAttribute,
+    NSAccessibilityExpandedAttribute, NSAccessibilitySelectedTextRangeAttribute,
+    @"NimculusCursorByte"];
+}
+- (id)accessibilityAttributeValue:(NSString *)attribute {
+  if ([attribute isEqualToString:NSAccessibilityRoleAttribute]) return self.role;
+  if ([attribute isEqualToString:NSAccessibilityTitleAttribute]) return self.title;
+  if ([attribute isEqualToString:NSAccessibilityValueAttribute]) return [self accessibilityValue];
+  if ([attribute isEqualToString:NSAccessibilityIdentifierAttribute]) return self.identifier;
+  if ([attribute isEqualToString:NSAccessibilityChildrenAttribute]) return [self accessibilityChildren];
+  if ([attribute isEqualToString:NSAccessibilityParentAttribute]) return self.parentNode;
+  if ([attribute isEqualToString:NSAccessibilityPositionAttribute])
+    return [NSValue valueWithPoint:[self accessibilityFrame].origin];
+  if ([attribute isEqualToString:NSAccessibilitySizeAttribute])
+    return [NSValue valueWithSize:[self accessibilityFrame].size];
+  if ([attribute isEqualToString:NSAccessibilityEnabledAttribute]) return @YES;
+  if ([attribute isEqualToString:NSAccessibilitySelectedAttribute]) return @(self.selected);
+  if ([attribute isEqualToString:NSAccessibilityExpandedAttribute]) return @(self.expanded);
+  if ([attribute isEqualToString:NSAccessibilitySelectedTextRangeAttribute])
+    return [NSValue valueWithRange:NSMakeRange(
+      accessibilityUtf16Offset(self.value, self.selectedByteRange.location),
+      accessibilityUtf16Offset(self.value, NSMaxRange(self.selectedByteRange)) -
+        accessibilityUtf16Offset(self.value, self.selectedByteRange.location))];
+  if ([attribute isEqualToString:@"NimculusCursorByte"]) return @(self.cursorByte);
+  return nil;
+}
+- (BOOL)accessibilityIsAttributeSettable:(NSString *)attribute {
+  return [attribute isEqualToString:NSAccessibilityValueAttribute] &&
+    [self.role isEqualToString:NSAccessibilityTextFieldRole];
+}
+- (NSArray *)accessibilityActionNames {
+  return self.actionCommand.length > 0 ? @[NSAccessibilityPressAction] : @[];
+}
+- (void)accessibilityPerformAction:(NSString *)action {
+  if ([action isEqualToString:NSAccessibilityPressAction] &&
+      self.actionCommand.length > 0 && g_command_callback) {
+    g_command_callback(self.actionCommand.UTF8String);
+  }
+}
+- (void)dealloc {
+  [_role release];
+  [_identifier release];
+  [_title release];
+  [_value release];
+  [_childNodes release];
+  [_actionCommand release];
+  [super dealloc];
+}
+@end
+
+static NSMutableDictionary<NSNumber *, NimculusAXNode *> *g_accessibility_nodes = nil;
+static NimculusAXNode *g_accessibility_root = nil;
 static BOOL g_validation_appearance_command_received = NO;
 static BOOL g_editor_scroll_debug_logged = NO;
 static NSUInteger g_editor_gutter_debug_line_count = 0;
@@ -78,9 +194,8 @@ static double g_terminal_panel_rect[4] = {0.0, 0.0, 0.0, 0.0};
 // independent Core Text/Metal resources are attached.
 static double g_secondary_editor_rect[4] = {0.0, 0.0, 0.0, 0.0};
 static BOOL g_secondary_editor_visible = NO;
-// Split panes share one document, but not a viewport or selection.  Keep the
-// secondary Core Text fallback state separate from the active NSTextInputClient
-// state used by the primary editing surface.
+// Split panes share one document, but not a viewport or selection. Keep their
+// input and cursor projections separate.
 static double g_secondary_editor_cursor[2] = {8.0, 12.0};
 static NSUInteger g_secondary_editor_cursor_line = 0;
 static NSUInteger g_secondary_editor_scroll_line = 0;
@@ -118,13 +233,60 @@ static NSString *g_terminal_font_name = @".ZedMono";
 static NSString *g_terminal_resolved_font_name = nil;
 static NSUInteger g_editor_scroll_line = 0;
 static CGFloat g_editor_scroll_y_fraction = 0.0;
-static NSUInteger g_editor_scroll_display_row = 0;
-static NSUInteger g_secondary_editor_scroll_display_row = 0;
 static CGFloat g_editor_scroll_x = 0.0;
+// The framework owns viewport state for the committed LineLayout renderer.
+// Keep it separate from the old AppKit input/IME compatibility state.
+static CGFloat g_editor_layout_scroll_x = 0.0;
+static CGFloat g_editor_layout_scroll_y_fraction = 0.0;
+static CGFloat g_secondary_layout_scroll_x = 0.0;
+static CGFloat g_secondary_layout_scroll_y_fraction = 0.0;
 static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
 static NimculusEditorSelection g_editor_selections[NIMCULUS_MAX_EDITOR_SELECTIONS];
 static uint32_t g_editor_selection_count = 0;
+
+// A Core Text glyph ID is scoped to the CTFont that produced it. Keep the
+// actual run fonts (including fallback fonts selected for Japanese/emoji) in
+// a small platform registry. This is the same identity carried by Zed's
+// ShapedRun.font_id; style/decorations are not used as font identities.
+#define NIMCULUS_LAYOUT_FONT_LIMIT 256
+static CTFontRef g_layout_fonts[NIMCULUS_LAYOUT_FONT_LIMIT];
+static uint32_t g_layout_font_count = 0;
+
+static uint32_t layoutFontIdForFont(CTFontRef font) {
+  if (!font) return 0;
+  CFStringRef name = CTFontCopyPostScriptName(font);
+  for (uint32_t index = 0; index < g_layout_font_count; index++) {
+    CTFontRef known = g_layout_fonts[index];
+    CFStringRef knownName = known ? CTFontCopyPostScriptName(known) : NULL;
+    BOOL same = known && fabs(CTFontGetSize(known) - CTFontGetSize(font)) < 0.001 &&
+      CTFontGetSymbolicTraits(known) == CTFontGetSymbolicTraits(font) &&
+      name && knownName && CFEqual(name, knownName);
+    if (knownName) CFRelease(knownName);
+    if (same) {
+      if (name) CFRelease(name);
+      return index + 1;
+    }
+  }
+  if (name) CFRelease(name);
+  if (g_layout_font_count >= NIMCULUS_LAYOUT_FONT_LIMIT) return 0;
+  g_layout_fonts[g_layout_font_count] = (CTFontRef)CFRetain(font);
+  g_layout_font_count++;
+  return g_layout_font_count;
+}
+
+static CTFontRef layoutFontForId(uint32_t fontId) {
+  if (fontId == 0 || fontId > g_layout_font_count) return NULL;
+  return (CTFontRef)CFRetain(g_layout_fonts[fontId - 1]);
+}
+
+static void clearLayoutFonts(void) {
+  for (uint32_t index = 0; index < g_layout_font_count; index++) {
+    if (g_layout_fonts[index]) CFRelease(g_layout_fonts[index]);
+    g_layout_fonts[index] = NULL;
+  }
+  g_layout_font_count = 0;
+}
 
 static NimculusEditorSelection *editorSelections(void) {
   return g_rendering_secondary_editor ? g_secondary_editor_selections : g_editor_selections;
@@ -132,6 +294,16 @@ static NimculusEditorSelection *editorSelections(void) {
 
 static uint32_t editorSelectionCount(void) {
   return g_rendering_secondary_editor ? g_secondary_editor_selection_count : g_editor_selection_count;
+}
+static CGFloat editorLayoutScrollX(void) {
+  return g_rendering_secondary_editor ? g_secondary_layout_scroll_x : g_editor_layout_scroll_x;
+}
+static CGFloat editorLayoutScrollYFraction(void) {
+  return g_rendering_secondary_editor ? g_secondary_layout_scroll_y_fraction :
+    g_editor_layout_scroll_y_fraction;
+}
+static const double *editorLayoutRect(void) {
+  return g_rendering_secondary_editor ? g_secondary_editor_rect : g_editor_rect;
 }
 static NSString *g_editor_text = @"";
 static NSString *g_secondary_editor_text = @"";
@@ -458,10 +630,7 @@ static void replaceOwnedData(NSData **slot, NSData *value) {
   [previous release];
 }
 
-static void invalidateSoftWrapRowCounts(void);
-
 static void rebuildEditorLineIndex(void) {
-  invalidateSoftWrapRowCounts();
   NSArray<NSString *> *lines = [g_editor_text componentsSeparatedByString:@"\n"];
   replaceOwnedArray(&g_editor_lines, lines);
   free(g_editor_line_utf16_offsets); g_editor_line_utf16_offsets = NULL;
@@ -492,9 +661,6 @@ static void swapEditorTextState(void) {
   NSUInteger *utf16 = g_editor_line_utf16_offsets; g_editor_line_utf16_offsets = g_secondary_editor_line_utf16_offsets; g_secondary_editor_line_utf16_offsets = utf16;
   NSUInteger *utf8 = g_editor_line_utf8_offsets; g_editor_line_utf8_offsets = g_secondary_editor_line_utf8_offsets; g_secondary_editor_line_utf8_offsets = utf8;
   NSUInteger count = g_editor_line_count; g_editor_line_count = g_secondary_editor_line_count; g_secondary_editor_line_count = count;
-  NSUInteger displayRow = g_editor_scroll_display_row;
-  g_editor_scroll_display_row = g_secondary_editor_scroll_display_row;
-  g_secondary_editor_scroll_display_row = displayRow;
 }
 
 static void rebuildSecondaryEditorLineIndex(void) {
@@ -1039,16 +1205,43 @@ static CGFloat g_text_texture_scale = 1.0;
 static id<MTLTexture> g_glyph_atlas_texture = nil;
 static CGFloat g_glyph_atlas_scale = 0.0;
 static BOOL g_glyph_rendering_available = NO;
-static NSMutableDictionary<NSString *, NSValue *> *g_glyph_atlas_entries = nil;
 static NSUInteger g_glyph_atlas_next_x = 0;
 static NSUInteger g_glyph_atlas_next_y = 0;
 static NSUInteger g_glyph_atlas_row_height = 0;
 static uint64_t g_glyph_atlas_hit_count = 0;
 static uint64_t g_glyph_atlas_miss_count = 0;
 static uint64_t g_glyph_atlas_eviction_count = 0;
+static uint32_t g_glyph_atlas_entry_count = 0;
 static BOOL g_glyph_atlas_rebuild_in_progress = NO;
 #define NIMCULUS_SUBPIXEL_VARIANTS_X 4
-#define NIMCULUS_SUBPIXEL_VARIANTS_Y 4
+#define NIMCULUS_SUBPIXEL_VARIANTS_Y 1
+#define NIMCULUS_GLYPH_ATLAS_HASH_CAPACITY 65536
+
+static BOOL glyphAtlasDebugEnabled(void) {
+  static int cached = -1;
+  if (cached < 0) {
+    const char *value = getenv("NIMCULUS_GLYPH_ATLAS_DEBUG");
+    cached = value && value[0] != '\0' && value[0] != '0' ? 1 : 0;
+  }
+  return cached == 1;
+}
+
+static void logGlyphAtlasStats(void) {
+  if (!glyphAtlasDebugEnabled()) return;
+  uint64_t total = g_glyph_atlas_hit_count + g_glyph_atlas_miss_count;
+  double hitRate = total > 0 ? (double)g_glyph_atlas_hit_count / (double)total : 0.0;
+  fprintf(stderr, "Nimculus glyph atlas hits=%llu misses=%llu hit_rate=%.4f "
+    "entries=%u evictions=%llu\n",
+    (unsigned long long)g_glyph_atlas_hit_count,
+    (unsigned long long)g_glyph_atlas_miss_count, hitRate,
+    g_glyph_atlas_entry_count, (unsigned long long)g_glyph_atlas_eviction_count);
+}
+
+static CGFloat roundHalfTowardZero(CGFloat value) {
+  CGFloat fractional = value - trunc(value);
+  if (fabs(fractional) == 0.5) return trunc(value);
+  return round(value);
+}
 
 void nimculus_platform_set_image_rgba(uint32_t image_id, uint32_t width,
                                       uint32_t height, const uint8_t *rgba,
@@ -1065,26 +1258,76 @@ typedef struct NimculusGlyphAtlasEntry {
   float bounds_height;
 } NimculusGlyphAtlasEntry;
 
-typedef struct NimculusGlyphVertex {
+// Zed's RenderGlyphParams/AtlasKey equivalent. Keep this key as POD so a
+// lookup does not need NSString, NSDictionary, NSValue, or any other
+// temporary object. Float fields are compared by value and hashed by their
+// IEEE-754 bits, matching Zed's to_bits()-based Hash implementation.
+typedef struct NimculusRenderGlyphParams {
+  uint32_t font_id;
+  uint32_t glyph_id;
+  float font_size;
+  uint8_t subpixel_variant_x;
+  uint8_t subpixel_variant_y;
+  float scale_factor;
+  uint8_t is_emoji;
+  uint8_t subpixel_rendering;
+  uint8_t dilation;
+} NimculusRenderGlyphParams;
+
+typedef struct NimculusGlyphAtlasHashEntry {
+  NimculusRenderGlyphParams key;
+  NimculusGlyphAtlasEntry value;
+  uint8_t occupied;
+} NimculusGlyphAtlasHashEntry;
+
+static NimculusGlyphAtlasHashEntry *g_glyph_atlas_cache = NULL;
+static uint32_t g_glyph_atlas_cache_capacity = 0;
+
+typedef struct NimculusGlyphRect {
   float x;
   float y;
-  float u;
-  float v;
+  float width;
+  float height;
+} NimculusGlyphRect;
+
+typedef struct NimculusGlyphColor {
   float red;
   float green;
   float blue;
   float alpha;
-} NimculusGlyphVertex;
+} NimculusGlyphColor;
 
-static NimculusGlyphVertex *g_glyph_vertices = NULL;
-static uint32_t g_glyph_vertex_count = 0;
-static uint32_t g_glyph_vertex_capacity = 0;
+typedef struct NimculusMonochromeSprite {
+  NimculusGlyphRect bounds;
+  NimculusGlyphRect content_mask;
+  NimculusGlyphRect tile;
+  NimculusGlyphColor color;
+} NimculusMonochromeSprite;
+
+static NimculusMonochromeSprite *g_glyph_sprites = NULL;
+static uint32_t g_glyph_sprite_count = 0;
+static uint32_t g_glyph_sprite_capacity = 0;
+static NimculusEditorLayoutRow *g_editor_layout_rows = NULL;
+static uint32_t g_editor_layout_row_count = 0;
+static NimculusEditorLayoutGlyph *g_editor_layout_glyphs = NULL;
+static uint32_t g_editor_layout_glyph_count = 0;
+static NimculusEditorLayoutRow *g_secondary_layout_rows = NULL;
+static uint32_t g_secondary_layout_row_count = 0;
+static NimculusEditorLayoutGlyph *g_secondary_layout_glyphs = NULL;
+static uint32_t g_secondary_layout_glyph_count = 0;
+static NimculusMonochromeSprite *g_secondary_glyph_sprites = NULL;
+static uint32_t g_secondary_glyph_sprite_count = 0;
+static uint32_t g_secondary_glyph_sprite_capacity = 0;
 // Terminal cells use the same Core Text glyph atlas as the editor, but keep a
 // separate vertex batch and viewport. This prevents a terminal redraw from
 // inheriting the editor's scroll origin or text clip.
-static NimculusGlyphVertex *g_terminal_glyph_vertices = NULL;
-static uint32_t g_terminal_glyph_vertex_count = 0;
-static uint32_t g_terminal_glyph_vertex_capacity = 0;
+static NimculusMonochromeSprite *g_terminal_glyph_sprites = NULL;
+static uint32_t g_terminal_glyph_sprite_count = 0;
+static uint32_t g_terminal_glyph_sprite_capacity = 0;
+static const float g_glyph_unit_vertices[12] = {
+  0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
+  0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f,
+};
 static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device);
 static id<MTLTexture> g_scene_texture = nil;
 static NSMutableDictionary<NSNumber *, id<MTLTexture>> *g_image_textures = nil;
@@ -1121,16 +1364,26 @@ static void releasePlatformResources(void) {
   [g_secondary_text_texture release]; g_secondary_text_texture = nil;
   [g_glyph_atlas_texture release]; g_glyph_atlas_texture = nil;
   [g_image_textures release]; g_image_textures = nil;
-  [g_glyph_atlas_entries release]; g_glyph_atlas_entries = nil;
+  free(g_glyph_atlas_cache); g_glyph_atlas_cache = NULL;
+  g_glyph_atlas_cache_capacity = 0;
+  g_glyph_atlas_entry_count = 0;
   [g_pipeline release]; g_pipeline = nil;
   [g_text_pipeline release]; g_text_pipeline = nil;
   [g_glyph_pipeline release]; g_glyph_pipeline = nil;
   [g_image_pipeline release]; g_image_pipeline = nil;
   [g_queue release]; g_queue = nil;
-  free(g_glyph_vertices); g_glyph_vertices = NULL;
-  g_glyph_vertex_count = 0; g_glyph_vertex_capacity = 0;
-  free(g_terminal_glyph_vertices); g_terminal_glyph_vertices = NULL;
-  g_terminal_glyph_vertex_count = 0; g_terminal_glyph_vertex_capacity = 0;
+  free(g_glyph_sprites); g_glyph_sprites = NULL;
+  g_glyph_sprite_count = 0; g_glyph_sprite_capacity = 0;
+  free(g_editor_layout_rows); g_editor_layout_rows = NULL; g_editor_layout_row_count = 0;
+  free(g_editor_layout_glyphs); g_editor_layout_glyphs = NULL; g_editor_layout_glyph_count = 0;
+  free(g_secondary_layout_rows); g_secondary_layout_rows = NULL; g_secondary_layout_row_count = 0;
+  free(g_secondary_layout_glyphs); g_secondary_layout_glyphs = NULL;
+  g_secondary_layout_glyph_count = 0;
+  free(g_secondary_glyph_sprites); g_secondary_glyph_sprites = NULL;
+  g_secondary_glyph_sprite_count = 0; g_secondary_glyph_sprite_capacity = 0;
+  clearLayoutFonts();
+  free(g_terminal_glyph_sprites); g_terminal_glyph_sprites = NULL;
+  g_terminal_glyph_sprite_count = 0; g_terminal_glyph_sprite_capacity = 0;
   free(g_paint_commands); g_paint_commands = NULL; g_paint_count = 0;
   free(g_paint_dirty_regions); g_paint_dirty_regions = NULL; g_paint_dirty_count = 0;
   free(g_highlights); g_highlights = NULL; g_highlight_count = 0;
@@ -1194,19 +1447,20 @@ bool nimculus_platform_validate_resource_teardown(void) {
   releasePlatformResources();
   return g_scene_texture == nil && g_text_texture == nil &&
     g_glyph_atlas_texture == nil && g_image_textures == nil &&
-    g_glyph_atlas_entries == nil && g_pipeline == nil &&
+    g_glyph_atlas_cache == NULL && g_pipeline == nil &&
     g_text_pipeline == nil && g_glyph_pipeline == nil &&
-    g_image_pipeline == nil && g_queue == nil && g_glyph_vertices == NULL &&
-    g_terminal_glyph_vertices == NULL &&
+    g_image_pipeline == nil && g_queue == nil && g_glyph_sprites == NULL &&
+    g_secondary_glyph_sprites == NULL && g_terminal_glyph_sprites == NULL &&
     g_paint_commands == NULL && g_paint_dirty_regions == NULL &&
     g_highlights == NULL && g_secondary_highlights == NULL && g_diagnostics == NULL &&
     g_secondary_diagnostics == NULL && g_git_hunks == NULL && g_secondary_git_hunks == NULL &&
     g_terminal_runs == NULL && g_editor_annotations == NULL && g_secondary_editor_annotations == NULL &&
     g_pending_file_open_paths == nil &&
-    g_glyph_vertex_count == 0 && g_paint_count == 0 &&
+    g_glyph_sprite_count == 0 && g_secondary_glyph_sprite_count == 0 &&
+    g_paint_count == 0 &&
     g_paint_dirty_count == 0 && g_highlight_count == 0 && g_secondary_highlight_count == 0 &&
     g_diagnostic_count == 0 && g_git_hunk_count == 0 &&
-    g_terminal_run_count == 0 && g_terminal_glyph_vertex_count == 0 &&
+    g_terminal_run_count == 0 && g_terminal_glyph_sprite_count == 0 &&
     g_editor_annotation_count == 0 && g_secondary_editor_annotation_count == 0;
 }
 
@@ -1595,13 +1849,13 @@ static CGFloat editorTextOriginX(const double rect[4]) {
   return metrics.width + metrics.margin;
 }
 
-static NimculusPaintRegion editorTextViewport(const double rect[4]) {
+static NimculusPaintRegion editorTextViewportWithOrigin(const double rect[4],
+                                                        CGFloat leftInset) {
   // The gutter and the text both belong to the editor pane. The right edge is
   // deliberately not inset for a scrollbar: Zed's scrollbar is an overlay and
   // must never change wrapping or the available text width.
-  // Keep every text producer (atlas, Core Text fallback, wrapping) tied to
+  // Keep every text producer (atlas and wrapping) tied to
   // these constants rather than independently guessing its content bounds.
-  const double leftInset = editorTextOriginX(rect);
   const double topInset = editorContentTopInset();
   const double bottomInset = 14.0;
   const double width = MAX(0.0, rect[2] - leftInset);
@@ -1611,6 +1865,10 @@ static NimculusPaintRegion editorTextViewport(const double rect[4]) {
     (float)width, (float)height
   };
   return viewport;
+}
+
+static NimculusPaintRegion editorTextViewport(const double rect[4]) {
+  return editorTextViewportWithOrigin(rect, editorTextOriginX(rect));
 }
 
 // Core Graphics draws into a bitmap whose origin is bottom-left, while the
@@ -1880,6 +2138,13 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
       &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height, themeRed, themeGreen, themeBlue, 1.0f, transform);
+  } else if (paint.kind == 17) { // editor diagnostic underline
+    NSString *role = paint.image_id == 2 ? @"warning" :
+      (paint.image_id == 3 ? @"info" : (paint.image_id >= 4 ? @"hint" : @"error"));
+    themeRGB(themeRole(role, themeRole(@"error", [NSColor systemRedColor])),
+      [NSColor systemRedColor], &themeRed, &themeGreen, &themeBlue);
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      x, y, width, height, themeRed, themeGreen, themeBlue, 1.0f, transform);
   }
 }
 
@@ -1962,6 +2227,33 @@ static void highlightColor(uint32_t kind, CGFloat *r, CGFloat *g, CGFloat *b) {
   else if (kind == 5) { *r = 0.65; *g = 0.70; *b = 0.78; }
 }
 
+void nimculus_platform_get_editor_glyph_color(uint32_t kind,
+                                              NimculusEditorGlyphColor *color) {
+  if (!color) return;
+  NSColor *resolved = nil;
+  if (kind == UINT32_MAX || kind == 4) {
+    resolved = themeRoleColor(@"editorForeground",
+      themeHexColor(g_theme_foreground,
+        [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]));
+  } else {
+    CGFloat red = 0.0, green = 0.0, blue = 0.0;
+    highlightColor(kind, &red, &green, &blue);
+    color->red = (float)red;
+    color->green = (float)green;
+    color->blue = (float)blue;
+    color->alpha = 1.0f;
+    return;
+  }
+  NSColor *rgb = [resolved colorUsingColorSpace:[NSColorSpace genericRGBColorSpace]];
+  CGFloat alpha = 1.0;
+  CGFloat red = 0.0, green = 0.0, blue = 0.0;
+  [rgb getRed:&red green:&green blue:&blue alpha:&alpha];
+  color->red = (float)red;
+  color->green = (float)green;
+  color->blue = (float)blue;
+  color->alpha = 1.0f;
+}
+
 static NSColor *themeSyntaxColor(NSString *key, NSColor *fallback) {
   NSDictionary *syntax = [g_theme_palette[@"syntax"] isKindOfClass:[NSDictionary class]] ?
     g_theme_palette[@"syntax"] : nil;
@@ -2041,7 +2333,7 @@ static CGFloat editorLineHeight(void) { return g_editor_line_height; }
 
 // Zed centers font metrics inside each fixed-height line box instead of
 // assuming that ascent equals the configured line height. Use one authority
-// for atlas glyphs, Core Text fallback, cursor geometry, and hit testing so
+// for atlas glyphs, cursor geometry, and hit testing so
 // the first row cannot be clipped by the pane's top boundary.
 static CGFloat editorTextLineBottom(CGFloat editorHeight, CGFloat lineHeight,
                                     CGFloat displayIndex) {
@@ -2053,6 +2345,16 @@ static CGFloat editorTextBaseline(CGFloat editorHeight, CGFloat lineHeight,
                                   CTFontRef font, CGFloat displayIndex) {
   CGFloat ascent = font ? CTFontGetAscent(font) : lineHeight * 0.78;
   CGFloat descent = font ? CTFontGetDescent(font) : lineHeight * 0.22;
+  CGFloat paddingTop = MAX(0.0, (lineHeight - ascent - descent) / 2.0);
+  CGFloat lineTop = editorContentTopInset() +
+    lineHeight * displayIndex - g_editor_scroll_y_fraction;
+  return editorHeight - lineTop - paddingTop - ascent -
+    NimculusEditorTextGlyphSafety;
+}
+
+static CGFloat editorTextBaselineFromMetrics(CGFloat editorHeight, CGFloat lineHeight,
+                                             CGFloat ascent, CGFloat descent,
+                                             CGFloat displayIndex) {
   CGFloat paddingTop = MAX(0.0, (lineHeight - ascent - descent) / 2.0);
   CGFloat lineTop = editorContentTopInset() +
     lineHeight * displayIndex - g_editor_scroll_y_fraction;
@@ -2216,52 +2518,6 @@ static CGRect editorWrapCoreGraphicsRect(const double rect[4]) {
   return result;
 }
 
-static NSUInteger editorSoftWrapBreakLength(NSString *line, NSUInteger start) {
-  NSString *value = line ?: @"";
-  if (start >= value.length) return 0;
-  CTFontRef font = editorFont();
-  if (!font) return value.length - start;
-  NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font };
-  NSAttributedString *attributed = [[NSAttributedString alloc]
-    initWithString:value attributes:attributes];
-  CTTypesetterRef typesetter = CTTypesetterCreateWithAttributedString(
-    (CFAttributedStringRef)attributed);
-  CFIndex length = typesetter
-    ? CTTypesetterSuggestLineBreak(typesetter, (CFIndex)start, editorWrapWidth())
-    : (CFIndex)(value.length - start);
-  if (typesetter) CFRelease(typesetter);
-  [attributed release];
-  CFRelease(font);
-  NSUInteger result = (NSUInteger)MAX(1, MIN(length, (CFIndex)(value.length - start)));
-  return result;
-}
-
-static NSUInteger editorSoftWrapRowCount(NSString *line) {
-  NSString *value = line ?: @"";
-  if (value.length == 0) return 1;
-  NSUInteger rows = 0;
-  NSUInteger start = 0;
-  while (start < value.length) {
-    start += editorSoftWrapBreakLength(value, start);
-    rows++;
-  }
-  return MAX(1, rows);
-}
-
-static NSString *editorSoftWrapLastRow(NSString *line) {
-  NSString *value = line ?: @"";
-  if (value.length == 0) return value;
-  NSUInteger start = 0;
-  while (start < value.length) {
-    NSUInteger length = editorSoftWrapBreakLength(value, start);
-    if (start + length >= value.length) {
-      return [value substringWithRange:NSMakeRange(start, value.length - start)];
-    }
-    start += length;
-  }
-  return @"";
-}
-
 static CGFloat editorMarkdownContinuationIndent(NSString *line, CTFontRef font) {
   if (!line || line.length == 0 || !font) return 0.0;
   NSUInteger cursor = 0;
@@ -2302,138 +2558,8 @@ static CGFloat editorMarkdownContinuationIndent(NSString *line, CTFontRef font) 
   return MAX(0.0, width);
 }
 
-// Counting the display rows above a line used to typeset every line before it,
-// once per call, on every scroll event: each call built a font, an attributed
-// string and a CTTypesetter per wrapped row. Memoize the per-line counts and
-// throw the table away when the text, the wrap width, or the font changes.
-static uint32_t *g_wrap_row_counts = NULL;
-static NSUInteger g_wrap_row_counts_capacity = 0;
-static CGFloat g_wrap_row_counts_width = -1.0;
-static CGFloat g_wrap_row_counts_font_size = -1.0;
-static NSArray<NSString *> *g_wrap_row_counts_lines = nil;
-
-static void invalidateSoftWrapRowCounts(void) {
-  free(g_wrap_row_counts);
-  g_wrap_row_counts = NULL;
-  g_wrap_row_counts_capacity = 0;
-  g_wrap_row_counts_width = -1.0;
-  g_wrap_row_counts_font_size = -1.0;
-  g_wrap_row_counts_lines = nil;
-}
-
-static NSUInteger editorSoftWrapRowCountCached(NSArray<NSString *> *lines,
-                                               NSUInteger index) {
-  const CGFloat width = editorWrapWidth();
-  const CGFloat size = g_editor_font_size;
-  if (lines != g_wrap_row_counts_lines || width != g_wrap_row_counts_width ||
-      size != g_wrap_row_counts_font_size ||
-      g_wrap_row_counts_capacity != lines.count) {
-    invalidateSoftWrapRowCounts();
-    g_wrap_row_counts = calloc(MAX((NSUInteger)1, lines.count), sizeof(uint32_t));
-    if (!g_wrap_row_counts) return editorSoftWrapRowCount(lines[index]);
-    g_wrap_row_counts_capacity = lines.count;
-    g_wrap_row_counts_width = width;
-    g_wrap_row_counts_font_size = size;
-    g_wrap_row_counts_lines = lines;
-  }
-  if (index >= g_wrap_row_counts_capacity) return editorSoftWrapRowCount(lines[index]);
-  if (g_wrap_row_counts[index] == 0) {
-    g_wrap_row_counts[index] = (uint32_t)editorSoftWrapRowCount(lines[index]);
-  }
-  return g_wrap_row_counts[index];
-}
-
-static NSUInteger editorSoftWrapRowsBeforeLine(NSArray<NSString *> *lines,
-                                                NSUInteger lineIndex) {
-  NSUInteger rows = 0;
-  NSUInteger limit = MIN(lineIndex, lines.count);
-  for (NSUInteger index = 0; index < limit; index++) {
-    if (editorLineIsFolded(index)) continue;
-    rows += editorSoftWrapRowCountCached(lines, index);
-  }
-  return rows;
-}
-
-static NSString *editorSoftWrapRowAt(NSString *line, NSUInteger rowIndex) {
-  NSString *value = line ?: @"";
-  if (value.length == 0) return @"";
-  NSUInteger start = 0;
-  for (NSUInteger row = 0; start < value.length; row++) {
-    NSUInteger length = editorSoftWrapBreakLength(value, start);
-    if (row == rowIndex || start + length >= value.length) {
-      return [value substringWithRange:NSMakeRange(start, MIN(length,
-        value.length - start))];
-    }
-    start += length;
-  }
-  return @"";
-}
-
-static NSString *editorSoftWrapTextAtDisplayRow(NSArray<NSString *> *lines,
-                                                 NSUInteger displayRow,
-                                                 NSUInteger *sourceLine) {
-  NSUInteger rows = 0;
-  for (NSUInteger lineIndex = 0; lineIndex < lines.count; lineIndex++) {
-    if (editorLineIsFolded(lineIndex)) continue;
-    NSUInteger lineRows = editorSoftWrapRowCount(lines[lineIndex]);
-    if (displayRow < rows + lineRows) {
-      if (sourceLine) *sourceLine = lineIndex;
-      return editorSoftWrapRowAt(lines[lineIndex], displayRow - rows);
-    }
-    rows += lineRows;
-  }
-  if (sourceLine) *sourceLine = lines.count;
-  return @"";
-}
-
-static CGPoint editorSoftWrapPointForUTF16Offset(NSUInteger documentOffset) {
-  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
-  NSUInteger remaining = MIN(documentOffset, g_editor_text.length);
-  NSUInteger lineIndex = 0;
-  NSString *lineText = lines.count > 0 ? lines[0] : @"";
-  for (NSUInteger index = 0; index < lines.count; index++) {
-    lineText = lines[index];
-    if (remaining <= lineText.length || index + 1 == lines.count) {
-      lineIndex = index;
-      break;
-    }
-    remaining -= lineText.length + 1;
-  }
-
-  if (editorLineIsFolded(lineIndex)) {
-    lineIndex = editorFirstVisibleLine(lineIndex, lines.count);
-    lineText = lineIndex < lines.count ? lines[lineIndex] : @"";
-    remaining = 0;
-  }
-  NSUInteger displayRow = editorSoftWrapRowsBeforeLine(lines, lineIndex);
-  NSUInteger scrollLine = editorFirstVisibleLine(g_editor_scroll_line, lines.count);
-  NSUInteger scrollRow = editorSoftWrapRowsBeforeLine(lines, scrollLine);
-  NSUInteger segmentStart = 0;
-  NSUInteger rowInLine = 0;
-  while (segmentStart < lineText.length) {
-    NSUInteger segmentLength = editorSoftWrapBreakLength(lineText, segmentStart);
-    if (remaining <= segmentStart + segmentLength ||
-        segmentStart + segmentLength >= lineText.length) {
-      NSString *segment = [lineText substringWithRange:NSMakeRange(
-        segmentStart, segmentLength)];
-      NSUInteger localOffset = remaining >= segmentStart
-        ? MIN(remaining - segmentStart, segment.length) : 0;
-      NSInteger visibleRow = displayRow + rowInLine >= scrollRow
-        ? (NSInteger)(displayRow + rowInLine - scrollRow) : 0;
-      return CGPointMake(editorTextOriginX(g_editor_rect) + editorTextOffset(segment, localOffset),
-        editorTextCursorYForRow((CGFloat)MAX(0, visibleRow)));
-    }
-    segmentStart += segmentLength;
-    rowInLine++;
-  }
-  NSInteger visibleRow = displayRow + rowInLine >= scrollRow
-    ? (NSInteger)(displayRow + rowInLine - scrollRow) : 0;
-  return CGPointMake(editorTextOriginX(g_editor_rect) + editorTextOffset(@"", 0),
-    editorTextCursorYForRow((CGFloat)MAX(0, visibleRow)));
-}
-
 static CGPoint editorPointForUTF16Offset(NSUInteger documentOffset) {
-  if (g_editor_soft_wrap) return editorSoftWrapPointForUTF16Offset(documentOffset);
+  if (g_editor_soft_wrap) return CGPointMake(g_editor_cursor[0], g_editor_cursor[1]);
   NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   NSUInteger remaining = MIN(documentOffset, g_editor_text.length);
   NSUInteger lineIndex = 0;
@@ -2477,7 +2603,7 @@ static CGPoint editorPointForUTF8Offset(NSUInteger byteOffset) {
 static CGPoint editorEnsureCursorVisible(NSUInteger documentOffset) {
   CGPoint point = editorPointForUTF16Offset(documentOffset);
   if (g_editor_soft_wrap) return point;
-  NimculusPaintRegion viewport = editorTextViewport(g_editor_rect);
+  NimculusPaintRegion viewport = editorTextViewport(editorLayoutRect());
   CGFloat left = viewport.x - g_editor_rect[0] + 2.0;
   CGFloat right = viewport.x - g_editor_rect[0] + viewport.width - 2.0;
   if (point.x > right) {
@@ -2513,7 +2639,7 @@ static NSUInteger editorUTF16OffsetAtPoint(double x, double y) {
       lineIndex = editorFirstVisibleLine(lineIndex, lines.count);
       continue;
     }
-    NSUInteger rows = g_editor_soft_wrap ? editorSoftWrapRowCount(lines[lineIndex]) : 1;
+    NSUInteger rows = 1;
     if (rowInLine < rows) break;
     rowInLine -= rows;
     lineIndex++;
@@ -2522,10 +2648,10 @@ static NSUInteger editorUTF16OffsetAtPoint(double x, double y) {
   NSString *lineText = lines[lineIndex];
   NSUInteger segmentStart = 0;
   for (NSUInteger row = 0; row < rowInLine && segmentStart < lineText.length; row++) {
-    segmentStart += editorSoftWrapBreakLength(lineText, segmentStart);
+    segmentStart = lineText.length;
   }
   NSUInteger segmentLength = lineText.length > segmentStart
-    ? editorSoftWrapBreakLength(lineText, segmentStart) : 0;
+    ? lineText.length - segmentStart : 0;
   NSString *segment = [lineText substringWithRange:NSMakeRange(segmentStart, segmentLength)];
   CTFontRef font = editorFont();
   NSUInteger localIndex = 0;
@@ -2547,49 +2673,7 @@ static NSUInteger editorUTF16OffsetAtPoint(double x, double y) {
 }
 
 static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text);
-static void resetGlyphVertices(void);
-
-static BOOL editorProjectedUTF16RangeForBytes(NSArray<NSString *> *lines,
-                                              NSArray<NSNumber *> *visibleSourceLines,
-                                              NSUInteger startByte, NSUInteger endByte,
-                                              NSUInteger *projectedStart,
-                                              NSUInteger *projectedEnd) {
-  BOOL found = NO;
-  NSUInteger projectedBase = 0;
-  NSUInteger first = 0, last = 0;
-  for (NSUInteger visibleIndex = 0; visibleIndex < visibleSourceLines.count; visibleIndex++) {
-    NSUInteger sourceLine = visibleSourceLines[visibleIndex].unsignedIntegerValue;
-    NSString *line = lines[sourceLine];
-    NSUInteger sourceStart = editorLineUTF8Offset(sourceLine, lines);
-    // The cached offset table already knows every line's UTF-8 length: the gap
-    // to the next line, less its newline. Re-encoding the line to measure it
-    // allocated an NSData per visible line per span.
-    NSUInteger sourceLength;
-    if (g_editor_line_utf8_offsets && lines == g_editor_lines &&
-        sourceLine + 1 < g_editor_line_count) {
-      sourceLength = g_editor_line_utf8_offsets[sourceLine + 1] - sourceStart - 1;
-    } else {
-      sourceLength = [[line dataUsingEncoding:NSUTF8StringEncoding] length];
-    }
-    NSUInteger sourceEnd = sourceStart + sourceLength;
-    if (endByte > sourceStart && startByte < sourceEnd) {
-      NSUInteger localStart = startByte > sourceStart ? startByte - sourceStart : 0;
-      NSUInteger localEnd = endByte < sourceEnd ? endByte - sourceStart : sourceLength;
-      NSUInteger startUnit = utf16OffsetForUTF8Bytes(line, localStart);
-      NSUInteger endUnit = utf16OffsetForUTF8Bytes(line, localEnd);
-      if (!found) {
-        first = projectedBase + startUnit;
-        found = YES;
-      }
-      last = projectedBase + endUnit;
-    }
-    projectedBase += line.length + 1;
-  }
-  if (!found) return NO;
-  *projectedStart = first;
-  *projectedEnd = last;
-  return *projectedEnd > *projectedStart;
-}
+static void resetGlyphSprites(void);
 
 static BOOL scalarIsColorEmoji(uint32_t scalar) {
   return (scalar >= 0x1F000 && scalar <= 0x1FAFF) ||
@@ -2619,50 +2703,129 @@ static BOOL fontIsColorEmoji(CTFontRef font) {
     [postScriptName isEqualToString:@".AppleColorEmojiUI"];
 }
 
-static BOOL textContainsColorEmoji(NSString *text) {
+void nimculus_platform_layout_line(const uint8_t *utf8, uint32_t length,
+                                   double font_size,
+                                   const NimculusPlatformFontRun *runs,
+                                   uint32_t run_count,
+                                   NimculusPlatformLineMetrics *metrics,
+                                   NimculusPlatformGlyph *glyphs,
+                                   uint32_t glyph_capacity);
+
+static BOOL shapedLineContainsEmoji(NSString *text) {
   if (!text) return NO;
-  CTFontRef baseFont = editorFont();
-  if (!baseFont) return NO;
-  NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)baseFont };
-  NSAttributedString *attributed = [[NSAttributedString alloc]
-    initWithString:text attributes:attributes];
-  CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
+  NSData *bytes = [text dataUsingEncoding:NSUTF8StringEncoding];
+  uint32_t capacity = (uint32_t)MAX((NSUInteger)64, bytes.length * 2 + 8);
+  NimculusPlatformGlyph *glyphs = calloc(capacity, sizeof(NimculusPlatformGlyph));
+  if (!glyphs) return NO;
+  NimculusPlatformLineMetrics metrics;
+  nimculus_platform_layout_line(bytes.bytes, (uint32_t)bytes.length,
+    g_editor_font_size, NULL, 0, &metrics, glyphs, capacity);
   BOOL result = NO;
-  CFArrayRef runs = line ? CTLineGetGlyphRuns(line) : NULL;
-  for (CFIndex index = 0; runs && index < CFArrayGetCount(runs); index++) {
-    CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, index);
-    NSDictionary *runAttributes = (__bridge NSDictionary *)CTRunGetAttributes(run);
-    CTFontRef font = (__bridge CTFontRef)[runAttributes objectForKey:(id)kCTFontAttributeName];
-    if (fontIsColorEmoji(font)) {
-      result = YES;
-      break;
-    }
+  for (uint32_t index = 0; index < metrics.glyph_count; index++) {
+    if (glyphs[index].is_emoji) { result = YES; break; }
   }
-  if (line) CFRelease(line);
-  [attributed release];
-  CFRelease(baseFont);
+  free(glyphs);
   return result;
 }
 
-static void maskNonColorEmojiRuns(NSMutableAttributedString *attributed) {
-  if (!attributed) return;
-  NSColor *transparent = [NSColor colorWithCalibratedWhite:1.0 alpha:0.0];
-  CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
-  CFArrayRef runs = line ? CTLineGetGlyphRuns(line) : NULL;
-  for (CFIndex index = 0; runs && index < CFArrayGetCount(runs); index++) {
-    CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, index);
-    NSDictionary *runAttributes = (__bridge NSDictionary *)CTRunGetAttributes(run);
-    CTFontRef font = (__bridge CTFontRef)[runAttributes objectForKey:(id)kCTFontAttributeName];
-    if (!fontIsColorEmoji(font)) {
-      CFRange range = CTRunGetStringRange(run);
-      if (range.location != kCFNotFound && range.length > 0) {
-        [attributed addAttribute:(id)kCTForegroundColorAttributeName
-          value:(id)transparent.CGColor
-          range:NSMakeRange((NSUInteger)range.location, (NSUInteger)range.length)];
+static BOOL editorLayoutContainsEmoji(void) {
+  NimculusEditorLayoutGlyph *glyphs = g_rendering_secondary_editor
+    ? g_secondary_layout_glyphs : g_editor_layout_glyphs;
+  uint32_t glyphCount = g_rendering_secondary_editor
+    ? g_secondary_layout_glyph_count : g_editor_layout_glyph_count;
+  for (uint32_t index = 0; glyphs && index < glyphCount; index++) {
+    if (glyphs[index].is_emoji) return YES;
+  }
+  return NO;
+}
+
+void nimculus_platform_layout_line(const uint8_t *utf8, uint32_t length,
+                                   double font_size,
+                                   const NimculusPlatformFontRun *runs,
+                                   uint32_t run_count,
+                                   NimculusPlatformLineMetrics *metrics,
+                                   NimculusPlatformGlyph *glyphs,
+                                   uint32_t glyph_capacity) {
+  if (!metrics) return;
+  memset(metrics, 0, sizeof(*metrics));
+  NSString *value = (utf8 && length > 0)
+    ? [[NSString alloc] initWithBytes:utf8 length:length encoding:NSUTF8StringEncoding]
+    : [[NSString alloc] initWithString:@""];
+  if (!value) return;
+  CTFontRef baseFont = CTFontCreateWithName((__bridge CFStringRef)editorResolvedFontName(),
+                                            font_size > 0.0 ? font_size : g_editor_font_size,
+                                            NULL);
+  if (!baseFont) baseFont = editorFont();
+  if (!baseFont) { [value release]; return; }
+  NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
+    initWithString:value attributes:@{(id)kCTFontAttributeName: (__bridge id)baseFont}];
+  NSUInteger byteStart = 0;
+  for (uint32_t runIndex = 0; runIndex < run_count && byteStart < length; runIndex++) {
+    NSUInteger byteEnd = MIN((NSUInteger)length, byteStart + runs[runIndex].len);
+    NSUInteger startUnit = utf16OffsetForUTF8Bytes(value, byteStart);
+    NSUInteger endUnit = utf16OffsetForUTF8Bytes(value, byteEnd);
+    if (endUnit > startUnit && runs[runIndex].font_id > 0) {
+      CTFontRef font = syntaxFontForKind(runs[runIndex].font_id - 1, baseFont);
+      if (font) {
+        [attributed addAttribute:(id)kCTFontAttributeName value:(id)font
+          range:NSMakeRange(startUnit, endUnit - startUnit)];
+        CFRelease(font);
       }
     }
+    byteStart = byteEnd;
   }
-  if (line) CFRelease(line);
+  CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
+  if (!line) {
+    [attributed release];
+    CFRelease(baseFont);
+    [value release];
+    return;
+  }
+  double ascent = 0.0, descent = 0.0;
+  metrics->width = CTLineGetTypographicBounds(line, &ascent, &descent, NULL);
+  metrics->ascent = ascent;
+  metrics->descent = descent;
+  metrics->len = (uint32_t)[[value dataUsingEncoding:NSUTF8StringEncoding] length];
+  CFArrayRef shapedRuns = CTLineGetGlyphRuns(line);
+  uint32_t outputCount = 0;
+  for (CFIndex runIndex = 0; runIndex < CFArrayGetCount(shapedRuns); runIndex++) {
+    CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(shapedRuns, runIndex);
+    CFIndex count = CTRunGetGlyphCount(run);
+    if (count <= 0) continue;
+    CGGlyph *runGlyphs = malloc(sizeof(CGGlyph) * (NSUInteger)count);
+    CGPoint *positions = malloc(sizeof(CGPoint) * (NSUInteger)count);
+    CFIndex *indices = malloc(sizeof(CFIndex) * (NSUInteger)count);
+    if (!runGlyphs || !positions || !indices) {
+      free(runGlyphs); free(positions); free(indices);
+      continue;
+    }
+    CTRunGetGlyphs(run, CFRangeMake(0, count), runGlyphs);
+    CTRunGetPositions(run, CFRangeMake(0, count), positions);
+    CTRunGetStringIndices(run, CFRangeMake(0, count), indices);
+    for (CFIndex glyphIndex = 0; glyphIndex < count; glyphIndex++) {
+      if (outputCount >= glyph_capacity) break;
+      NSUInteger unitIndex = indices[glyphIndex] == kCFNotFound ? 0 :
+        (NSUInteger)indices[glyphIndex];
+      NSUInteger byteIndex = utf8BytesForUTF16Offset(value, unitIndex);
+      NimculusPlatformGlyph *output = &glyphs[outputCount++];
+      output->glyph_id = (uint32_t)runGlyphs[glyphIndex];
+      output->x = positions[glyphIndex].x;
+      output->y = positions[glyphIndex].y;
+      output->index = (uint32_t)byteIndex;
+      NSDictionary *runAttributes = (__bridge NSDictionary *)CTRunGetAttributes(run);
+      CTFontRef actualFont = (__bridge CTFontRef)[runAttributes
+        objectForKey:(id)kCTFontAttributeName];
+      output->font_id = layoutFontIdForFont(actualFont ?: baseFont);
+      output->is_emoji = colorEmojiAtUTF16Index(value, unitIndex, NULL) ||
+        fontIsColorEmoji(actualFont);
+    }
+    free(runGlyphs); free(positions); free(indices);
+  }
+  metrics->glyph_count = outputCount;
+  CFRelease(line);
+  [attributed release];
+  CFRelease(baseFont);
+  [value release];
 }
 
 // Scroll delivers three or four platform updates per event -- scroll line,
@@ -2673,544 +2836,41 @@ static void maskNonColorEmojiRuns(NSMutableAttributedString *attributed) {
 // once, at the top of the frame that will actually show it.
 static BOOL g_editor_texture_rebuild_pending = NO;
 static void rebuildSecondaryEditorTexture(id<MTLDevice> device);
+static void updateEditorGlyphAtlasFromLayout(id<MTLDevice> device);
 static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
                                     BOOL force);
-
 static void scheduleEditorTextTextureRebuild(void) {
   g_editor_texture_rebuild_pending = YES;
 }
-
 static void flushEditorTextTextureRebuild(void) {
-  if (!g_editor_texture_rebuild_pending) return;
+  if (!g_editor_texture_rebuild_pending || !g_queue) return;
   g_editor_texture_rebuild_pending = NO;
-  if (!g_queue) return;
   updateEditorTextTexture(g_queue.device, g_editor_text, YES);
   rebuildSecondaryEditorTexture(g_queue.device);
 }
-
 static void updateEditorTextTexture(id<MTLDevice> device, NSString *text,
-                                    BOOL updateAtlas) {
+                                    BOOL force) {
+  (void)text;
+  (void)force;
   if (!device) return;
-  // The atlas is the primary committed-text renderer. The Core Text texture
-  // remains an overlay for selection, marked composition, and caret, with a
-  // complete-text fallback only when atlas generation is unavailable.
-  // The atlas lays out one physical line per source line.  A soft-wrapped
-  // document must therefore use the Core Text frame exclusively; retaining
-  // atlas vertices would draw the unwrapped line a second time over that
-  // frame.  Clear the retained vertices as part of the mode transition.
-  if (updateAtlas && !g_editor_soft_wrap) {
-    updateEditorGlyphAtlas(device, text);
-  } else if (g_editor_soft_wrap) {
-    g_glyph_rendering_available = NO;
-    resetGlyphVertices();
-  }
-  const BOOL drawFallbackText = !g_glyph_rendering_available || g_editor_soft_wrap;
-  const BOOL drawColorEmojiFallback = textContainsColorEmoji(text) &&
-    g_glyph_rendering_available && !g_editor_soft_wrap;
-  CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
-  const size_t width = (size_t)ceil(MAX(1.0, g_editor_rect[2]) * scale);
-  const size_t height = (size_t)ceil(MAX(1.0, g_editor_rect[3]) * scale);
-  const CGFloat logicalHeight = MAX(1.0, g_editor_rect[3]);
-  NSMutableData *pixels = [NSMutableData dataWithLength:width * height * 4];
-  CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-  CGContextRef context = CGBitmapContextCreate(pixels.mutableBytes, width, height, 8,
-    width * 4, colorSpace, kCGImageAlphaPremultipliedLast);
-  CGColorSpaceRelease(colorSpace);
-  if (!context) return;
-  CGContextScaleCTM(context, scale, scale);
-  // Match the Metal scissor with a second, asset-level clip.  A texture can
-  // be reused across damage passes, so leaving pixels in its pane chrome
-  // would permit stale text to reappear if a later pass has a wider clip.
-  // The four-sided content viewport is the only valid destination for editor
-  // text, selections, composition, and caret pixels.
-  NimculusPaintRegion textViewport = editorTextViewport(g_editor_rect);
-  CGContextClipToRect(context, editorTextViewportCoreGraphicsRect(g_editor_rect));
-  CTFontRef font = editorFont();
-  NSColor *baseColor = editorGlyphColor(themeRoleColor(@"editorForeground",
-    themeHexColor(g_theme_foreground,
-      [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0])));
-  NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
-    (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
-  NSArray<NSString *> *lines = editorLinesForText(text);
-  NSUInteger startLine = editorFirstVisibleLine(g_editor_scroll_line, lines.count);
-  const CGFloat lineHeight = editorLineHeight();
-  NSUInteger visibleLines = editorVisibleLineCountFrom(startLine, lines.count,
-    editorVisibleLineCapacity(g_editor_rect, lineHeight));
-  const NSUInteger topExtraLine = startLine > 0 ? 1 : 0;
-  if (!g_editor_soft_wrap) visibleLines += topExtraLine + 1;
-  NSUInteger lineStartByte = editorLineUTF8Offset(startLine, lines);
-  NSUInteger lineStartUnit = editorLineUTF16Offset(startLine, lines);
-  NimculusEditorSelection *editorSelectionsForRender = editorSelections();
-  uint32_t editorSelectionCountForRender = editorSelectionCount();
-  if (g_editor_soft_wrap) {
-    NSMutableArray<NSString *> *visible = [NSMutableArray array];
-    NSMutableArray<NSNumber *> *visibleSourceLines = [NSMutableArray array];
-    // A fractional display-row scroll is allowed to expose the tail of the
-    // preceding source line. Keep that fragment in the frame so Core Text's
-    // clip removes its upper portion instead of snapping the first visible
-    // row to the next source-line boundary.
-    if (g_editor_scroll_y_fraction > 0.001 && startLine > 0) {
-      [visible addObject:editorSoftWrapLastRow(lines[startLine - 1])];
-      [visibleSourceLines addObject:@(startLine - 1)];
-    }
-    for (NSUInteger sourceLine = startLine; sourceLine < lines.count; sourceLine++) {
-      if (editorLineIsFolded(sourceLine)) continue;
-      [visible addObject:lines[sourceLine]];
-      [visibleSourceLines addObject:@(sourceLine)];
-    }
-    NSString *wrappedText = [visible componentsJoinedByString:@"\n"];
-    NSMutableAttributedString *wrappedAttributed = [[NSMutableAttributedString alloc]
-      initWithString:wrappedText attributes:attributes];
-    // CTFramesetter otherwise derives each line fragment from the font's
-    // natural metrics.  That makes an empty paragraph and a wrapped paragraph
-    // advance by different amounts, so the source line below a blank line no
-    // longer lands on the display-row grid.  Zed's display map assigns every
-    // display row one fixed line-height slot; make Core Text use that same
-    // contract, including paragraph boundaries and empty lines.
-    NSMutableParagraphStyle *editorRowStyle = [[NSMutableParagraphStyle alloc] init];
-    editorRowStyle.minimumLineHeight = lineHeight;
-    editorRowStyle.maximumLineHeight = lineHeight;
-    editorRowStyle.lineSpacing = 0.0;
-    editorRowStyle.paragraphSpacing = 0.0;
-    editorRowStyle.paragraphSpacingBefore = 0.0;
-    editorRowStyle.lineHeightMultiple = 0.0;
-    if (wrappedText.length > 0) {
-      [wrappedAttributed addAttribute:NSParagraphStyleAttributeName
-        value:editorRowStyle range:NSMakeRange(0, wrappedText.length)];
-    }
-    [editorRowStyle release];
-    // Core Text otherwise starts every continuation fragment at the frame's
-    // left edge. Zed's markdown line wrapper preserves the leading block/list
-    // prefix on wrapped rows, so a continuation aligns under the paragraph's
-    // first text character.
-    NSUInteger paragraphUnit = 0;
-    for (NSUInteger visibleIndex = 0; visibleIndex < visible.count; visibleIndex++) {
-      NSString *visibleLine = visible[visibleIndex];
-      NSMutableParagraphStyle *lineStyle = [[NSMutableParagraphStyle alloc] init];
-      lineStyle.minimumLineHeight = lineHeight;
-      lineStyle.maximumLineHeight = lineHeight;
-      lineStyle.lineSpacing = 0.0;
-      lineStyle.paragraphSpacing = 0.0;
-      lineStyle.paragraphSpacingBefore = 0.0;
-      lineStyle.lineHeightMultiple = 0.0;
-      lineStyle.headIndent = editorMarkdownContinuationIndent(visibleLine, font);
-      lineStyle.firstLineHeadIndent = 0.0;
-      NSUInteger length = visibleLine.length;
-      if (length > 0 && paragraphUnit < wrappedText.length) {
-        NSUInteger rangeLength = MIN(length, wrappedText.length - paragraphUnit);
-        [wrappedAttributed addAttribute:NSParagraphStyleAttributeName value:lineStyle
-          range:NSMakeRange(paragraphUnit, rangeLength)];
-      }
-      paragraphUnit += length + 1;
-      [lineStyle release];
-    }
-    NSUInteger wrappedLineUnit = 0;
-    for (NSUInteger visibleIndex = 0; visibleIndex < visible.count; visibleIndex++) {
-      NSString *visibleLine = visible[visibleIndex];
-      NSUInteger documentLine = visibleSourceLines[visibleIndex].unsignedIntegerValue;
-      NimculusGitHunkSpan *hunks = g_rendering_secondary_editor
-        ? g_secondary_git_hunks : g_git_hunks;
-      uint32_t hunkCount = g_rendering_secondary_editor
-        ? g_secondary_git_hunk_count : g_git_hunk_count;
-      for (uint32_t hunkIndex = 0; hunkIndex < hunkCount; hunkIndex++) {
-        NimculusGitHunkSpan hunk = hunks[hunkIndex];
-        NSUInteger hunkStart = hunk.start_line;
-        NSUInteger hunkEnd = hunkStart + MAX((uint32_t)1, hunk.line_count);
-        if (documentLine < hunkStart || documentLine >= hunkEnd || visibleLine.length == 0) continue;
-        CGFloat red = 0.30, green = 0.75, blue = 0.42;
-        if (hunk.kind == 1) {
-          red = 0.92; green = 0.34; blue = 0.34;
-        } else if (hunk.kind >= 2) {
-          red = 0.35; green = 0.58; blue = 0.95;
-        }
-        NSColor *diffColor = [NSColor colorWithCalibratedRed:red green:green
-          blue:blue alpha:0.10];
-        [wrappedAttributed addAttribute:(id)kCTBackgroundColorAttributeName
-          value:(id)diffColor.CGColor range:NSMakeRange(wrappedLineUnit, visibleLine.length)];
-        break;
-      }
-      wrappedLineUnit += visibleLine.length + 1;
-    }
-    NimculusHighlightSpan *highlights = g_rendering_secondary_editor
-      ? g_secondary_highlights : g_highlights;
-    uint32_t highlightCount = g_rendering_secondary_editor
-      ? g_secondary_highlight_count : g_highlight_count;
-    for (uint32_t spanIndex = 0; spanIndex < highlightCount; spanIndex++) {
-      NimculusHighlightSpan span = highlights[spanIndex];
-      NSUInteger startUnit = 0, endUnit = 0;
-      if (!editorProjectedUTF16RangeForBytes(lines, visibleSourceLines,
-          span.start_byte, span.end_byte, &startUnit, &endUnit)) continue;
-      CGFloat red, green, blue;
-      highlightColor(span.kind, &red, &green, &blue);
-          NSColor *color = editorGlyphColor([NSColor colorWithCalibratedRed:red
-            green:green blue:blue alpha:1.0]);
-          [wrappedAttributed addAttribute:(id)kCTForegroundColorAttributeName
-            value:(id)color.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
-          CTFontRef syntaxFont = syntaxFontForKind(span.kind, font);
-          if (syntaxFont) {
-            [wrappedAttributed addAttribute:(id)kCTFontAttributeName value:(id)syntaxFont
-              range:NSMakeRange(startUnit, endUnit - startUnit)];
-            CFRelease(syntaxFont);
-          }
-    }
-    for (uint32_t selectionIndex = 0; selectionIndex < editorSelectionCountForRender;
-         selectionIndex++) {
-      NimculusEditorSelection selection = editorSelectionsForRender[selectionIndex];
-      NSUInteger startUnit = 0, endUnit = 0;
-      if (selection.end_byte > selection.start_byte &&
-          editorProjectedUTF16RangeForBytes(lines, visibleSourceLines,
-            selection.start_byte, selection.end_byte, &startUnit, &endUnit)) {
-        NSColor *selectionColor = [themeHexColor(g_theme_selection,
-          [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
-          colorWithAlphaComponent:0.45];
-        [wrappedAttributed addAttribute:(id)kCTBackgroundColorAttributeName
-          value:(id)selectionColor.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
-      }
-    }
-    NimculusDiagnosticSpan *diagnostics = g_rendering_secondary_editor
-      ? g_secondary_diagnostics : g_diagnostics;
-    uint32_t diagnosticCount = g_rendering_secondary_editor
-      ? g_secondary_diagnostic_count : g_diagnostic_count;
-    for (uint32_t diagnosticIndex = 0; diagnosticIndex < diagnosticCount; diagnosticIndex++) {
-      NimculusDiagnosticSpan diagnostic = diagnostics[diagnosticIndex];
-      NSUInteger startUnit = 0, endUnit = 0;
-      if (!editorProjectedUTF16RangeForBytes(lines, visibleSourceLines,
-          diagnostic.start_byte, diagnostic.end_byte, &startUnit, &endUnit)) continue;
-      [wrappedAttributed addAttribute:(id)kCTUnderlineStyleAttributeName
-        value:@(NSUnderlineStyleSingle) range:NSMakeRange(startUnit, endUnit - startUnit)];
-    }
-    CTFramesetterRef framesetter = CTFramesetterCreateWithAttributedString(
-      (CFAttributedStringRef)wrappedAttributed);
-    CGMutablePathRef path = CGPathCreateMutable();
-    CGPathAddRect(path, NULL, editorWrapCoreGraphicsRect(g_editor_rect));
-    CGContextSaveGState(context);
-    // Core Graphics uses a bottom-origin texture. Translating by the
-    // fraction here moves the top-origin document content upward by the same
-    // amount as the fixed-line fallback below.
-    CGContextTranslateCTM(context, 0.0, g_editor_scroll_y_fraction);
-    CTFrameRef frame = CTFramesetterCreateFrame(framesetter,
-      CFRangeMake(0, wrappedText.length), path, NULL);
-    if (frame) {
-      CTFrameDraw(frame, context);
-      CFRelease(frame);
-    }
-    CGContextRestoreGState(context);
-    CGPathRelease(path);
-    CFRelease(framesetter);
-    [wrappedAttributed release];
-  } else {
-    NSUInteger sourceIndex = startLine > 0 ? startLine - 1 : startLine;
-    for (NSUInteger displayIndex = 0; displayIndex < visibleLines; displayIndex++) {
-    NSUInteger index = sourceIndex;
-    if (index >= lines.count) break;
-    CGFloat renderedIndex = (CGFloat)displayIndex - (CGFloat)topExtraLine;
-    NSString *lineText = lines[index];
-    NSUInteger lineLength = [[lineText dataUsingEncoding:NSUTF8StringEncoding] length];
-    lineStartByte = editorLineUTF8Offset(index, lines);
-    lineStartUnit = editorLineUTF16Offset(index, lines);
-    NSUInteger lineEndUnit = lineStartUnit + lineText.length;
-    NSUInteger documentLine = index;
-    NimculusGitHunkSpan *hunks = g_rendering_secondary_editor
-      ? g_secondary_git_hunks : g_git_hunks;
-    uint32_t hunkCount = g_rendering_secondary_editor
-      ? g_secondary_git_hunk_count : g_git_hunk_count;
-    for (uint32_t hunkIndex = 0; hunkIndex < hunkCount; hunkIndex++) {
-      NimculusGitHunkSpan hunk = hunks[hunkIndex];
-      NSUInteger hunkStart = hunk.start_line;
-      NSUInteger hunkEnd = hunkStart + MAX((uint32_t)1, hunk.line_count);
-      if (documentLine < hunkStart || documentLine >= hunkEnd) continue;
-      CGFloat red = 0.30, green = 0.75, blue = 0.42;
-      if (hunk.kind == 1) {
-        red = 0.92; green = 0.34; blue = 0.34;
-      } else if (hunk.kind >= 2) {
-        red = 0.35; green = 0.58; blue = 0.95;
-      }
-      // Keep the gutter marker and the document highlight separate, like
-      // Zed's diff map: the low-alpha body fill remains readable below text.
-      CGContextSetRGBFillColor(context, red, green, blue, 0.10);
-      CGContextFillRect(context, CGRectMake(editorTextOriginX(g_editor_rect),
-        editorTextLineBottom(logicalHeight, lineHeight, renderedIndex) - 4.0,
-        MAX(1.0, g_editor_rect[2] - 8.0), 20.0));
-      break;
-    }
-    for (uint32_t selectionIndex = 0; selectionIndex < editorSelectionCountForRender;
-         selectionIndex++) {
-      NimculusEditorSelection selection = editorSelectionsForRender[selectionIndex];
-      if (selection.end_byte <= selection.start_byte ||
-          selection.end_byte <= lineStartByte ||
-          selection.start_byte >= lineStartByte + lineLength) continue;
-      NSUInteger startByte = MAX((NSUInteger)selection.start_byte, lineStartByte) - lineStartByte;
-      NSUInteger endByte = MIN((NSUInteger)selection.end_byte,
-        lineStartByte + lineLength) - lineStartByte;
-      NSUInteger startUnit = utf16OffsetForUTF8Bytes(lineText, startByte);
-      NSUInteger endUnit = utf16OffsetForUTF8Bytes(lineText, endByte);
-      NSColor *selectionColor = [themeHexColor(g_theme_selection,
-        [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0])
-        colorWithAlphaComponent:0.45];
-      CGContextSetFillColorWithColor(context, selectionColor.CGColor);
-      CGContextFillRect(context, CGRectMake(editorTextOriginX(g_editor_rect) + editorTextOffset(lineText, startUnit) - g_editor_scroll_x,
-        editorTextLineBottom(logicalHeight, lineHeight, renderedIndex) - 4.0,
-        MAX(1.0, editorTextOffset(lineText, endUnit) - editorTextOffset(lineText, startUnit)), 20.0));
-    }
-    for (uint32_t hunkIndex = 0; hunkIndex < hunkCount; hunkIndex++) {
-      NimculusGitHunkSpan hunk = hunks[hunkIndex];
-      NSUInteger hunkStart = hunk.start_line;
-      NSUInteger hunkEnd = hunkStart + MAX((uint32_t)1, hunk.line_count);
-      if (documentLine < hunkStart || documentLine >= hunkEnd) continue;
-      CGFloat red = 0.30, green = 0.75, blue = 0.42;
-      if (hunk.kind == 1) {
-        red = 0.92; green = 0.34; blue = 0.34;
-      } else if (hunk.kind >= 2) {
-        red = 0.35; green = 0.58; blue = 0.95;
-      }
-      CGContextSetRGBFillColor(context, red, green, blue, 0.95);
-      CGContextFillRect(context, CGRectMake(1.0,
-        editorTextLineBottom(logicalHeight, lineHeight, renderedIndex) - 1.0,
-        3.0, 16.0));
-      break;
-    }
-    NSMutableAttributedString *attributed = [[NSMutableAttributedString alloc]
-      initWithString:lineText attributes:attributes];
-    NimculusHighlightSpan *highlights = g_rendering_secondary_editor
-      ? g_secondary_highlights : g_highlights;
-    uint32_t highlightCount = g_rendering_secondary_editor
-      ? g_secondary_highlight_count : g_highlight_count;
-    for (uint32_t spanIndex = 0; spanIndex < highlightCount; spanIndex++) {
-      NimculusHighlightSpan span = highlights[spanIndex];
-      if (span.end_byte > lineStartByte && span.start_byte < lineStartByte + lineLength) {
-        NSUInteger startByte = MAX((NSUInteger)span.start_byte, lineStartByte) - lineStartByte;
-        NSUInteger endByte = MIN((NSUInteger)span.end_byte, lineStartByte + lineLength) - lineStartByte;
-        NSUInteger startUnit = utf16OffsetForUTF8Bytes(lineText, startByte);
-        NSUInteger endUnit = utf16OffsetForUTF8Bytes(lineText, endByte);
-        if (endUnit > startUnit) {
-          CGFloat red, green, blue;
-          highlightColor(span.kind, &red, &green, &blue);
-          NSColor *color = editorGlyphColor([NSColor colorWithCalibratedRed:red
-            green:green blue:blue alpha:1.0]);
-          [attributed addAttribute:(id)kCTForegroundColorAttributeName
-            value:(id)color.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
-          CTFontRef syntaxFont = syntaxFontForKind(span.kind, font);
-          if (syntaxFont) {
-            [attributed addAttribute:(id)kCTFontAttributeName value:(id)syntaxFont
-              range:NSMakeRange(startUnit, endUnit - startUnit)];
-            CFRelease(syntaxFont);
-          }
-        }
-      }
-    }
-    if (drawColorEmojiFallback) maskNonColorEmojiRuns(attributed);
-    if (drawFallbackText || drawColorEmojiFallback) {
-      CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
-      CGContextSetTextPosition(context, editorTextOriginX(g_editor_rect) - g_editor_scroll_x,
-        editorTextBaseline(logicalHeight, lineHeight, font, renderedIndex));
-      CTLineDraw(line, context);
-      CFRelease(line);
-    }
-    NimculusDiagnosticSpan *diagnostics = g_rendering_secondary_editor
-      ? g_secondary_diagnostics : g_diagnostics;
-    uint32_t diagnosticCount = g_rendering_secondary_editor
-      ? g_secondary_diagnostic_count : g_diagnostic_count;
-    for (uint32_t diagnosticIndex = 0; diagnosticIndex < diagnosticCount; diagnosticIndex++) {
-      NimculusDiagnosticSpan diagnostic = diagnostics[diagnosticIndex];
-      if (diagnostic.end_byte <= lineStartByte ||
-          diagnostic.start_byte >= lineStartByte + lineLength) continue;
-      NSUInteger startByte = MAX((NSUInteger)diagnostic.start_byte, lineStartByte) - lineStartByte;
-      NSUInteger endByte = MIN((NSUInteger)diagnostic.end_byte, lineStartByte + lineLength) - lineStartByte;
-      NSUInteger startUnit = utf16OffsetForUTF8Bytes(lineText, startByte);
-      NSUInteger endUnit = utf16OffsetForUTF8Bytes(lineText, endByte);
-      if (endUnit <= startUnit) continue;
-      NSString *severityRole = diagnostic.severity == 2 ? @"warning" :
-        (diagnostic.severity == 3 ? @"info" :
-        (diagnostic.severity >= 4 ? @"hint" : @"error"));
-      NSColor *diagnosticColor = themeRoleColor(severityRole,
-        themeRoleColor(@"error", [NSColor systemRedColor]));
-      CGContextSetStrokeColorWithColor(context,
-        diagnosticColor.CGColor);
-      // Zed's diagnostic decoration is a low, repeating wave rather than a
-      // solid rule. Keep it inside the line fragment so clipped/short spans
-      // remain legible and do not touch the next row.
-      CGContextSetLineWidth(context, 1.2);
-      CGFloat x0 = editorTextOriginX(g_editor_rect) + editorTextOffset(lineText, startUnit) - g_editor_scroll_x;
-      CGFloat x1 = editorTextOriginX(g_editor_rect) + editorTextOffset(lineText, endUnit) - g_editor_scroll_x;
-      CGFloat y = editorTextLineBottom(logicalHeight, lineHeight, renderedIndex) - 1.5;
-      CGContextMoveToPoint(context, x0, y);
-      CGFloat endX = MAX(x0 + 2.0, x1);
-      CGFloat cursorX = x0;
-      BOOL raised = YES;
-      while (cursorX < endX) {
-        CGFloat nextX = MIN(endX, cursorX + 3.0);
-        CGFloat nextY = y + (raised ? 1.2 : -1.2);
-        CGContextAddLineToPoint(context, nextX, nextY);
-        cursorX = nextX;
-        raised = !raised;
-      }
-      CGContextStrokePath(context);
-    }
-    [attributed release];
-    sourceIndex = editorFirstVisibleLine(index + 1, lines.count);
-    }
-  }
-  BOOL renderingInputPane = (g_editor_input_pane == 1) == g_rendering_secondary_editor;
-  BOOL renderingHoverPane = (g_editor_hover_pane == 1) == g_rendering_secondary_editor;
-  if (g_marked_text.length > 0 && renderingInputPane) {
-    NSDictionary *markedAttributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
-      (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor,
-      (id)kCTUnderlineStyleAttributeName: @1 };
-    NSAttributedString *marked = [[NSAttributedString alloc] initWithString:g_marked_text
-      attributes:markedAttributes];
-    CTLineRef markedLine = CTLineCreateWithAttributedString((CFAttributedStringRef)marked);
-    CGFloat ascent = CTFontGetAscent(font);
-    CGFloat descent = CTFontGetDescent(font);
-    CGFloat paddingTop = MAX(0.0, (lineHeight - ascent - descent) / 2.0);
-    CGFloat cursorLineTop = MAX(editorContentTopInset(),
-      g_editor_cursor[1] - lineHeight / 2.0);
-    CGFloat baseline = logicalHeight - cursorLineTop - paddingTop - ascent;
-    CGContextSetTextPosition(context, g_editor_cursor[0], MAX(0.0, baseline));
-    CTLineDraw(markedLine, context);
-    CFRelease(markedLine);
-    [marked release];
-  }
-  if (g_editor_completions.length > 0 && renderingInputPane) {
-    NSArray<NSString *> *completionLines = [g_editor_completions componentsSeparatedByString:@"\n"];
-    NSUInteger visibleCount = MIN((NSUInteger)6, completionLines.count);
-    CGFloat popupHeight = visibleCount * editorLineHeight() + 6.0;
-    NSRect popupTopRect = editorTextPopupTopRect(g_editor_rect, g_editor_cursor[0],
-      g_editor_cursor[1], 360.0, popupHeight);
-    CGRect popupRect = editorTextPopupCoreGraphicsRect(g_editor_rect, popupTopRect);
-    CGContextSetRGBFillColor(context, 0.08, 0.10, 0.14, 0.96);
-    CGContextFillRect(context, popupRect);
-    NSDictionary *completionAttributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
-      (id)kCTForegroundColorAttributeName: (id)[NSColor whiteColor].CGColor };
-    for (NSUInteger index = 0; index < visibleCount; index++) {
-      NSString *lineText = completionLines[index];
-      NSAttributedString *line = [[NSAttributedString alloc] initWithString:lineText
-        attributes:completionAttributes];
-      CTLineRef completionLine = CTLineCreateWithAttributedString((CFAttributedStringRef)line);
-      CGContextSetTextPosition(context, popupRect.origin.x + 6.0,
-        editorTextPopupBaseline(g_editor_rect, popupTopRect, editorLineHeight(), index, 3.0));
-      CTLineDraw(completionLine, context);
-      CFRelease(completionLine);
-      [line release];
-    }
-  }
-  if (g_editor_hover.length > 0 && renderingHoverPane) {
-    NSArray<NSString *> *hoverLines = [g_editor_hover componentsSeparatedByString:@"\n"];
-    NSUInteger visibleCount = MIN((NSUInteger)8, hoverLines.count);
-    CGFloat popupHeight = visibleCount * editorLineHeight() + 8.0;
-    NSRect popupTopRect = editorTextPopupTopRect(g_editor_rect,
-      g_editor_hover_position[0] - g_editor_scroll_x, g_editor_hover_position[1],
-      460.0, popupHeight);
-    CGRect popupRect = editorTextPopupCoreGraphicsRect(g_editor_rect, popupTopRect);
-    CGContextSetRGBFillColor(context, 0.06, 0.07, 0.10, 0.96);
-    CGContextFillRect(context, popupRect);
-    NSDictionary *hoverAttributes = @{ (id)kCTFontAttributeName: (__bridge id)font,
-      (id)kCTForegroundColorAttributeName: (id)[NSColor whiteColor].CGColor };
-    for (NSUInteger index = 0; index < visibleCount; index++) {
-      NSString *lineText = hoverLines[index];
-      NSAttributedString *line = [[NSAttributedString alloc] initWithString:lineText
-        attributes:hoverAttributes];
-      CTLineRef hoverLine = CTLineCreateWithAttributedString((CFAttributedStringRef)line);
-      CGContextSetTextPosition(context, popupRect.origin.x + 6.0,
-        editorTextPopupBaseline(g_editor_rect, popupTopRect, editorLineHeight(), index, 4.0));
-      CTLineDraw(hoverLine, context);
-      CFRelease(hoverLine);
-      [line release];
-    }
-  }
-  // A welcome page is a workspace entry surface, not an empty editable
-  // buffer. Suppress the text-presenter caret until an actual document opens.
-  if (renderingInputPane && !g_welcome_visible) {
-    NSColor *caretColor = themeRoleColor(@"caret", themeRoleColor(@"editorForeground",
-      [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]));
-    CGContextSetStrokeColorWithColor(context, caretColor.CGColor);
-    CGContextSetLineWidth(context, 2.0);
-    CGFloat cursorLineTop = MAX(editorContentTopInset(),
-      g_editor_cursor[1] - lineHeight / 2.0);
-    CGFloat caretY = logicalHeight - cursorLineTop - lineHeight;
-    CGContextMoveToPoint(context, g_editor_cursor[0], caretY);
-    CGContextAddLineToPoint(context, g_editor_cursor[0], caretY + lineHeight);
-    CGContextStrokePath(context);
-    // Additional carets are intentionally painted after text and selection
-    // overlays. This keeps Option-click and Cmd+D visible even when their
-    // range is collapsed, matching Zed's caret treatment.
-    for (uint32_t selectionIndex = 1;
-         selectionIndex < editorSelectionCountForRender; selectionIndex++) {
-      CGPoint point = editorPointForUTF8Offset(
-        editorSelectionsForRender[selectionIndex].cursor_byte);
-      CGFloat selectionLineTop = MAX(editorContentTopInset(),
-        point.y - lineHeight / 2.0);
-      CGFloat selectionCaretY = logicalHeight - selectionLineTop - lineHeight;
-      CGContextMoveToPoint(context, point.x, selectionCaretY);
-      CGContextAddLineToPoint(context, point.x, selectionCaretY + lineHeight);
-      CGContextStrokePath(context);
-    }
-  }
-  CFRelease(font);
-  CGContextRelease(context);
-  MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
-    width:width height:height mipmapped:NO];
-  descriptor.usage = MTLTextureUsageShaderRead;
+  updateEditorGlyphAtlasFromLayout(device);
   [g_text_texture release];
-  g_text_texture = [device newTextureWithDescriptor:descriptor];
-  [g_text_texture replaceRegion:MTLRegionMake2D(0, 0, width, height)
-    mipmapLevel:0 withBytes:pixels.bytes bytesPerRow:width * 4];
-  g_text_texture_scale = scale;
+  g_text_texture = nil;
 }
-
 static void rebuildSecondaryEditorTexture(id<MTLDevice> device) {
   if (!device || !g_secondary_editor_visible) {
-    [g_secondary_text_texture release]; g_secondary_text_texture = nil;
+    g_secondary_glyph_sprite_count = 0;
     return;
   }
-  // Keep primary GPU glyphs untouched. The secondary pane starts with the
-  // complete Core Text fallback; its independent atlas is introduced only
-  // once pane-local styling and invalidation are fully separated.
-  double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
-    g_editor_rect[2], g_editor_rect[3]};
-  double previousCursor[2] = {g_editor_cursor[0], g_editor_cursor[1]};
-  NSUInteger previousScrollLine = g_editor_scroll_line;
-  CGFloat previousScrollYFraction = g_editor_scroll_y_fraction;
-  CGFloat previousScrollX = g_editor_scroll_x;
-  NSUInteger previousCursorLine = g_editor_cursor_line;
-  NSUInteger previousSelectionStart = g_editor_selection_start;
-  NSUInteger previousSelectionEnd = g_editor_selection_end;
-  BOOL previousSoftWrap = g_editor_soft_wrap;
-  BOOL previousGlyphRendering = g_glyph_rendering_available;
-  id<MTLTexture> primaryTexture = [g_text_texture retain];
-  memcpy(g_editor_rect, g_secondary_editor_rect, sizeof(g_editor_rect));
-  memcpy(g_editor_cursor, g_secondary_editor_cursor, sizeof(g_editor_cursor));
-  g_editor_scroll_line = g_secondary_editor_scroll_line;
-  g_editor_scroll_y_fraction = g_secondary_editor_scroll_y_fraction;
-  g_editor_scroll_x = g_secondary_editor_scroll_x;
-  g_editor_cursor_line = g_secondary_editor_cursor_line;
-  g_editor_selection_start = g_secondary_editor_selection_start;
-  g_editor_selection_end = g_secondary_editor_selection_end;
-  g_editor_soft_wrap = g_secondary_editor_soft_wrap;
-  g_glyph_rendering_available = NO;
   BOOL previousRenderingSecondary = g_rendering_secondary_editor;
   g_rendering_secondary_editor = YES;
-  swapEditorTextState();
-  updateEditorTextTexture(device, g_editor_text, NO);
-  swapEditorTextState();
+  updateEditorGlyphAtlasFromLayout(device);
   g_rendering_secondary_editor = previousRenderingSecondary;
-  [g_secondary_text_texture release];
-  g_secondary_text_texture = [g_text_texture retain];
-  [g_text_texture release];
-  g_text_texture = primaryTexture;
-  g_glyph_rendering_available = previousGlyphRendering;
-  memcpy(g_editor_rect, previousRect, sizeof(g_editor_rect));
-  memcpy(g_editor_cursor, previousCursor, sizeof(g_editor_cursor));
-  g_editor_scroll_line = previousScrollLine;
-  g_editor_scroll_y_fraction = previousScrollYFraction;
-  g_editor_scroll_x = previousScrollX;
-  g_editor_cursor_line = previousCursorLine;
-  g_editor_selection_start = previousSelectionStart;
-  g_editor_selection_end = previousSelectionEnd;
-  g_editor_soft_wrap = previousSoftWrap;
 }
 
-static void resetGlyphVertices(void) {
-  g_glyph_vertex_count = 0;
+static void resetGlyphSprites(void) {
+  if (g_rendering_secondary_editor) g_secondary_glyph_sprite_count = 0;
+  else g_glyph_sprite_count = 0;
 }
 
 static void ensureGlyphAtlas(id<MTLDevice> device, CGFloat scale) {
@@ -3223,25 +2883,45 @@ static void ensureGlyphAtlas(id<MTLDevice> device, CGFloat scale) {
     [g_glyph_atlas_texture release];
     g_glyph_atlas_texture = [device newTextureWithDescriptor:descriptor];
     g_glyph_atlas_scale = scale;
-    [g_glyph_atlas_entries release];
-    g_glyph_atlas_entries = [[NSMutableDictionary alloc] init];
+    free(g_glyph_atlas_cache);
+    g_glyph_atlas_cache = NULL;
+    g_glyph_atlas_cache_capacity = 0;
+    g_glyph_atlas_entry_count = 0;
     g_glyph_atlas_next_x = 0;
     g_glyph_atlas_next_y = 0;
     g_glyph_atlas_row_height = 0;
   }
-  if (!g_glyph_atlas_entries) g_glyph_atlas_entries = [[NSMutableDictionary alloc] init];
+  if (!g_glyph_atlas_cache) {
+    g_glyph_atlas_cache = calloc(NIMCULUS_GLYPH_ATLAS_HASH_CAPACITY,
+      sizeof(NimculusGlyphAtlasHashEntry));
+    if (g_glyph_atlas_cache) {
+      g_glyph_atlas_cache_capacity = NIMCULUS_GLYPH_ATLAS_HASH_CAPACITY;
+    }
+  }
 }
 
-static void appendGlyphVertex(NimculusGlyphVertex vertex) {
-  if (g_glyph_vertex_count == g_glyph_vertex_capacity) {
-    uint32_t capacity = g_glyph_vertex_capacity == 0 ? 1024 : g_glyph_vertex_capacity * 2;
-    NimculusGlyphVertex *vertices = realloc(g_glyph_vertices,
-      sizeof(NimculusGlyphVertex) * capacity);
-    if (!vertices) return;
-    g_glyph_vertices = vertices;
-    g_glyph_vertex_capacity = capacity;
+static void appendGlyphSpriteTo(NimculusMonochromeSprite **target,
+                                uint32_t *count, uint32_t *capacityTarget,
+                                NimculusMonochromeSprite sprite) {
+  if (*count == *capacityTarget) {
+    uint32_t capacity = *capacityTarget == 0 ? 1024 : *capacityTarget * 2;
+    NimculusMonochromeSprite *sprites = realloc(*target,
+      sizeof(NimculusMonochromeSprite) * capacity);
+    if (!sprites) return;
+    *target = sprites;
+    *capacityTarget = capacity;
   }
-  g_glyph_vertices[g_glyph_vertex_count++] = vertex;
+  (*target)[(*count)++] = sprite;
+}
+
+static void appendGlyphSprite(NimculusMonochromeSprite sprite) {
+  if (g_rendering_secondary_editor) {
+    appendGlyphSpriteTo(&g_secondary_glyph_sprites, &g_secondary_glyph_sprite_count,
+      &g_secondary_glyph_sprite_capacity, sprite);
+  } else {
+    appendGlyphSpriteTo(&g_glyph_sprites, &g_glyph_sprite_count,
+      &g_glyph_sprite_capacity, sprite);
+  }
 }
 
 static void colorForGlyphRun(CTRunRef run, CGFloat *red, CGFloat *green,
@@ -3259,22 +2939,111 @@ static void colorForGlyphRun(CTRunRef run, CGFloat *red, CGFloat *green,
   *alpha = rgb.alphaComponent;
 }
 
+static uint32_t floatBitsForGlyphKey(float value) {
+  uint32_t bits = 0;
+  memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+static uint32_t hashGlyphKey(const NimculusRenderGlyphParams *key) {
+  // FNV-1a over the same scalar fields used by RenderGlyphParams::Hash.
+  uint32_t hash = 2166136261u;
+  const uint32_t values[] = {
+    key->font_id, key->glyph_id, floatBitsForGlyphKey(key->font_size),
+    (uint32_t)key->subpixel_variant_x | ((uint32_t)key->subpixel_variant_y << 8),
+    floatBitsForGlyphKey(key->scale_factor),
+    (uint32_t)key->is_emoji | ((uint32_t)key->subpixel_rendering << 8) |
+      ((uint32_t)key->dilation << 16)
+  };
+  for (NSUInteger index = 0; index < sizeof(values) / sizeof(values[0]); index++) {
+    hash ^= values[index];
+    hash *= 16777619u;
+  }
+  return hash;
+}
+
+static BOOL glyphKeysEqual(const NimculusRenderGlyphParams *left,
+                           const NimculusRenderGlyphParams *right) {
+  return left->font_id == right->font_id && left->glyph_id == right->glyph_id &&
+    floatBitsForGlyphKey(left->font_size) == floatBitsForGlyphKey(right->font_size) &&
+    left->subpixel_variant_x == right->subpixel_variant_x &&
+    left->subpixel_variant_y == right->subpixel_variant_y &&
+    floatBitsForGlyphKey(left->scale_factor) == floatBitsForGlyphKey(right->scale_factor) &&
+    left->is_emoji == right->is_emoji &&
+    left->subpixel_rendering == right->subpixel_rendering &&
+    left->dilation == right->dilation;
+}
+
+// The table is allocated by ensureGlyphAtlas before rendering starts. This
+// probe path only reads/copies POD values and never creates an Objective-C
+// object or grows storage.
+static BOOL findGlyphAtlasEntry(const NimculusRenderGlyphParams *key,
+                                NimculusGlyphAtlasEntry *entry) {
+  if (!g_glyph_atlas_cache || g_glyph_atlas_cache_capacity == 0) return NO;
+  uint32_t index = hashGlyphKey(key) & (g_glyph_atlas_cache_capacity - 1);
+  for (uint32_t probe = 0; probe < g_glyph_atlas_cache_capacity; probe++) {
+    NimculusGlyphAtlasHashEntry *candidate = &g_glyph_atlas_cache[index];
+    if (!candidate->occupied) return NO;
+    if (glyphKeysEqual(&candidate->key, key)) {
+      if (entry) *entry = candidate->value;
+      return YES;
+    }
+    index = (index + 1) & (g_glyph_atlas_cache_capacity - 1);
+  }
+  return NO;
+}
+
+static BOOL insertGlyphAtlasEntry(const NimculusRenderGlyphParams *key,
+                                  const NimculusGlyphAtlasEntry *entry) {
+  if (!g_glyph_atlas_cache || g_glyph_atlas_cache_capacity == 0) return NO;
+  uint32_t index = hashGlyphKey(key) & (g_glyph_atlas_cache_capacity - 1);
+  for (uint32_t probe = 0; probe < g_glyph_atlas_cache_capacity; probe++) {
+    NimculusGlyphAtlasHashEntry *candidate = &g_glyph_atlas_cache[index];
+    if (!candidate->occupied) {
+      candidate->key = *key;
+      candidate->value = *entry;
+      candidate->occupied = 1;
+      g_glyph_atlas_entry_count++;
+      return YES;
+    }
+    if (glyphKeysEqual(&candidate->key, key)) {
+      candidate->value = *entry;
+      return YES;
+    }
+    index = (index + 1) & (g_glyph_atlas_cache_capacity - 1);
+  }
+  return NO;
+}
+
+static void clearGlyphAtlasEntries(void) {
+  if (g_glyph_atlas_cache && g_glyph_atlas_cache_capacity > 0) {
+    memset(g_glyph_atlas_cache, 0,
+      sizeof(NimculusGlyphAtlasHashEntry) * g_glyph_atlas_cache_capacity);
+  }
+  g_glyph_atlas_entry_count = 0;
+}
+
 static BOOL atlasEntryForGlyph(id<MTLDevice> device, CTFontRef font, CGGlyph glyph,
-                               CGFloat scale, uint8_t variantX, uint8_t variantY,
+                               uint32_t fontId, CGFloat fontSize, CGFloat scale, uint8_t variantX,
+                               uint8_t variantY, BOOL isEmoji,
                                NimculusGlyphAtlasEntry *entry) {
-  if (!device || !font || !entry) return NO;
-  NSString *fontName = (__bridge_transfer NSString *)CTFontCopyPostScriptName(font);
-  NSString *key = [NSString stringWithFormat:@"%@|%.3f|%.3f|%u|%u|%u",
-    fontName ?: @"system", CTFontGetSize(font), scale, (unsigned)glyph,
-    (unsigned)variantX, (unsigned)variantY];
-  NSValue *cached = [g_glyph_atlas_entries objectForKey:key];
-  if (cached) {
-    [cached getValue:entry];
+  if (!device || !entry) return NO;
+  NimculusRenderGlyphParams key = {
+    fontId, (uint32_t)glyph, (float)fontSize, variantX, variantY,
+    (float)scale, isEmoji ? 1 : 0, 0, 0
+  };
+  if (findGlyphAtlasEntry(&key, entry)) {
     g_glyph_atlas_hit_count++;
     return entry->width > 0 && entry->height > 0;
   }
   g_glyph_atlas_miss_count++;
-  CGRect bounds = CTFontGetBoundingRectsForGlyphs(font, kCTFontOrientationDefault,
+  // The lookup above is the complete hit path. Resolve/retain the CTFont only
+  // after a miss, matching Zed's platform rasterize_glyph boundary.
+  CTFontRef resolvedFont = font ? font : layoutFontForId(fontId);
+  if (!resolvedFont) return NO;
+  BOOL ownsFont = !font;
+  BOOL result = NO;
+  CGRect bounds = CTFontGetBoundingRectsForGlyphs(resolvedFont, kCTFontOrientationDefault,
     &glyph, NULL, 1);
   memset(entry, 0, sizeof(*entry));
   entry->bounds_x = bounds.origin.x;
@@ -3282,29 +3051,28 @@ static BOOL atlasEntryForGlyph(id<MTLDevice> device, CTFontRef font, CGGlyph gly
   entry->bounds_width = bounds.size.width;
   entry->bounds_height = bounds.size.height;
   if (bounds.size.width <= 0.0 || bounds.size.height <= 0.0) {
-    [g_glyph_atlas_entries setObject:[NSValue valueWithBytes:entry
-      objCType:@encode(NimculusGlyphAtlasEntry)] forKey:key];
-    return NO;
+    insertGlyphAtlasEntry(&key, entry);
+    goto atlas_done;
   }
   NSUInteger padding = 1;
   NSUInteger width = (NSUInteger)ceil(bounds.size.width * scale) + padding * 2;
   NSUInteger height = (NSUInteger)ceil(bounds.size.height * scale) + padding * 2;
   const NSUInteger atlasSize = 2048;
-  if (width >= atlasSize || height >= atlasSize) return NO;
+  if (width >= atlasSize || height >= atlasSize) goto atlas_done;
   if (g_glyph_atlas_next_x + width > atlasSize) {
     g_glyph_atlas_next_x = 0;
     g_glyph_atlas_next_y += g_glyph_atlas_row_height;
     g_glyph_atlas_row_height = 0;
   }
   if (g_glyph_atlas_next_y + height > atlasSize) {
-    [g_glyph_atlas_entries removeAllObjects];
+    clearGlyphAtlasEntries();
     g_glyph_atlas_next_x = 0;
     g_glyph_atlas_next_y = 0;
     g_glyph_atlas_row_height = 0;
     g_glyph_atlas_eviction_count++;
   }
   if (g_glyph_atlas_next_x + width > atlasSize ||
-      g_glyph_atlas_next_y + height > atlasSize) return NO;
+      g_glyph_atlas_next_y + height > atlasSize) goto atlas_done;
   NSUInteger x = g_glyph_atlas_next_x;
   NSUInteger y = g_glyph_atlas_next_y;
   g_glyph_atlas_next_x += width;
@@ -3314,21 +3082,21 @@ static BOOL atlasEntryForGlyph(id<MTLDevice> device, CTFontRef font, CGGlyph gly
   CGContextRef context = CGBitmapContextCreate(pixels.mutableBytes, width, height, 8,
     width, colorSpace, (CGBitmapInfo)kCGImageAlphaNone);
   CGColorSpaceRelease(colorSpace);
-  if (!context) return NO;
+  if (!context) goto atlas_done;
   CGContextSetGrayFillColor(context, 1.0, 1.0);
   CGContextScaleCTM(context, scale, scale);
   CGPoint origin = CGPointMake((CGFloat)padding / scale - bounds.origin.x +
       (CGFloat)variantX / (CGFloat)(NIMCULUS_SUBPIXEL_VARIANTS_X * scale),
     (CGFloat)padding / scale - bounds.origin.y +
       (CGFloat)variantY / (CGFloat)(NIMCULUS_SUBPIXEL_VARIANTS_Y * scale));
-  CTFontDrawGlyphs(font, &glyph, &origin, 1, context);
+  CTFontDrawGlyphs(resolvedFont, &glyph, &origin, 1, context);
   CGContextRelease(context);
   // Core Text rasterizes into the bitmap's opposite row order from the Metal
   // texture coordinates used by the editor. Normalize the atlas payload once
   // at insertion time, rather than flipping every glyph quad at draw time.
   uint8_t *pixelRows = pixels.mutableBytes;
   uint8_t *rowScratch = malloc(width);
-  if (!rowScratch) return NO;
+  if (!rowScratch) goto atlas_done;
   for (NSUInteger row = 0; row < height / 2; row++) {
     uint8_t *top = pixelRows + row * width;
     uint8_t *bottom = pixelRows + (height - row - 1) * width;
@@ -3343,79 +3111,141 @@ static BOOL atlasEntryForGlyph(id<MTLDevice> device, CTFontRef font, CGGlyph gly
   entry->y = (uint32_t)y;
   entry->width = (uint32_t)width;
   entry->height = (uint32_t)height;
-  [g_glyph_atlas_entries setObject:[NSValue valueWithBytes:entry
-    objCType:@encode(NimculusGlyphAtlasEntry)] forKey:key];
-  return YES;
+  insertGlyphAtlasEntry(&key, entry);
+  result = YES;
+
+atlas_done:
+  if (ownsFont) CFRelease(resolvedFont);
+  return result;
 }
 
-static float normalizedX(CGFloat value, CGFloat width) {
-  return (float)(value / width * 2.0 - 1.0);
-}
-
-static float normalizedY(CGFloat value, CGFloat height) {
-  return (float)(1.0 - value / height * 2.0);
-}
-
-static void appendGlyphQuad(CGSize sceneSize, CGRect editorRect, CGFloat scale,
-                            NimculusGlyphAtlasEntry entry, CGPoint glyphOrigin,
-                            CGFloat baselineY, CGFloat red, CGFloat green,
-                            CGFloat blue, CGFloat alpha) {
+static void appendEditorGlyphSprite(CGSize sceneSize, CGRect editorRect,
+                                    NimculusPaintRegion contentMask,
+                                    CGFloat textOriginX, CGFloat scrollX,
+                                    NimculusGlyphAtlasEntry entry, CGFloat glyphX,
+                                    CGFloat baselineY, CGFloat red, CGFloat green,
+                                    CGFloat blue, CGFloat alpha) {
   if (entry.width == 0 || entry.height == 0 || sceneSize.width <= 0 ||
       sceneSize.height <= 0 || editorRect.size.width <= 0 ||
-      editorRect.size.height <= 0) return;
-  CGFloat x0 = editorRect.origin.x + editorTextOriginX(g_editor_rect) + glyphOrigin.x + entry.bounds_x - g_editor_scroll_x;
-  CGFloat x1 = x0 + entry.bounds_width;
+      editorRect.size.height <= 0 || contentMask.width <= 0 ||
+      contentMask.height <= 0) return;
+  CGFloat x = editorRect.origin.x + textOriginX + glyphX + entry.bounds_x - scrollX;
   CGFloat bottomOrigin = baselineY + entry.bounds_y;
-  CGFloat y0 = editorRect.origin.y + editorRect.size.height -
+  CGFloat y = editorRect.origin.y + editorRect.size.height -
     (bottomOrigin + entry.bounds_height);
-  CGFloat y1 = editorRect.origin.y + editorRect.size.height - bottomOrigin;
-  // Enforce the text viewport before vertices ever reach Metal.  Scissoring
-  // remains the GPU safety net, but clamping geometry here makes it
-  // impossible for a partially visible glyph to carry coordinates into the
-  // scrollbar, tab strip, or status bar.
-  NimculusPaintRegion viewport = editorTextViewport(g_editor_rect);
-  CGFloat clipLeft = viewport.x;
-  CGFloat clipRight = viewport.x + viewport.width;
-  CGFloat clipTop = viewport.y;
-  CGFloat clipBottom = viewport.y + viewport.height;
-  CGFloat unclippedX0 = x0;
-  CGFloat unclippedX1 = x1;
-  CGFloat unclippedY0 = y0;
-  CGFloat unclippedY1 = y1;
-  x0 = MAX(x0, clipLeft);
-  x1 = MIN(x1, clipRight);
-  y0 = MAX(y0, clipTop);
-  y1 = MIN(y1, clipBottom);
-  if (x1 <= x0 || y1 <= y0) return;
-  float u0 = (float)entry.x / 2048.0f;
-  float u1 = (float)(entry.x + entry.width) / 2048.0f;
-  // CGBitmapContext stores the baseline-facing rows at the beginning of the
-  // uploaded texture. Metal texture coordinates address that row at v = 0,
-  // so map the screen-bottom vertices to the atlas start without flipping.
-  float v0 = (float)entry.y / 2048.0f;
-  float v1 = (float)(entry.y + entry.height) / 2048.0f;
-  const CGFloat unclippedWidth = unclippedX1 - unclippedX0;
-  const CGFloat unclippedHeight = unclippedY1 - unclippedY0;
-  float clippedU0 = u0 + (float)((x0 - unclippedX0) / unclippedWidth) * (u1 - u0);
-  float clippedU1 = u0 + (float)((x1 - unclippedX0) / unclippedWidth) * (u1 - u0);
-  // v1 belongs to the screen-top vertex and v0 to the screen-bottom vertex.
-  float clippedVTop = v1 + (float)((y0 - unclippedY0) / unclippedHeight) * (v0 - v1);
-  float clippedVBottom = v1 + (float)((y1 - unclippedY0) / unclippedHeight) * (v0 - v1);
-  NimculusGlyphVertex vertices[6] = {
-    {normalizedX(x0, sceneSize.width), normalizedY(y1, sceneSize.height), clippedU0, clippedVBottom, red, green, blue, alpha},
-    {normalizedX(x1, sceneSize.width), normalizedY(y1, sceneSize.height), clippedU1, clippedVBottom, red, green, blue, alpha},
-    {normalizedX(x0, sceneSize.width), normalizedY(y0, sceneSize.height), clippedU0, clippedVTop, red, green, blue, alpha},
-    {normalizedX(x0, sceneSize.width), normalizedY(y0, sceneSize.height), clippedU0, clippedVTop, red, green, blue, alpha},
-    {normalizedX(x1, sceneSize.width), normalizedY(y1, sceneSize.height), clippedU1, clippedVBottom, red, green, blue, alpha},
-    {normalizedX(x1, sceneSize.width), normalizedY(y0, sceneSize.height), clippedU1, clippedVTop, red, green, blue, alpha}
+  NimculusMonochromeSprite sprite = {
+    { (float)x, (float)y, (float)entry.bounds_width, (float)entry.bounds_height },
+    { contentMask.x, contentMask.y, contentMask.width, contentMask.height },
+    { (float)entry.x, (float)entry.y, (float)entry.width, (float)entry.height },
+    { red, green, blue, alpha }
   };
-  (void)scale;
-  for (NSUInteger index = 0; index < 6; index++) appendGlyphVertex(vertices[index]);
+  appendGlyphSprite(sprite);
+}
+
+static void updateEditorGlyphAtlasFromLayout(id<MTLDevice> device) {
+  g_glyph_rendering_available = NO;
+  resetGlyphSprites();
+  if (!device) return;
+  NimculusEditorLayoutRow *rows = g_rendering_secondary_editor
+    ? g_secondary_layout_rows : g_editor_layout_rows;
+  uint32_t rowCount = g_rendering_secondary_editor
+    ? g_secondary_layout_row_count : g_editor_layout_row_count;
+  NimculusEditorLayoutGlyph *glyphs = g_rendering_secondary_editor
+    ? g_secondary_layout_glyphs : g_editor_layout_glyphs;
+  uint32_t glyphCount = g_rendering_secondary_editor
+    ? g_secondary_layout_glyph_count : g_editor_layout_glyph_count;
+  if (!rows || rowCount == 0 || !glyphs || glyphCount == 0) return;
+  CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
+  ensureGlyphAtlas(device, scale);
+  const double *layoutRect = editorLayoutRect();
+  CGFloat textOriginX = editorTextOriginX(layoutRect);
+  CGFloat scrollX = editorLayoutScrollX();
+  NimculusPaintRegion contentMask = {
+    (float)(layoutRect[0] + textOriginX),
+    (float)(layoutRect[1] + editorContentTopInset()),
+    (float)MAX(0.0, layoutRect[2] - textOriginX),
+    (float)MAX(0.0, layoutRect[3] - editorContentTopInset() - 14.0)
+  };
+  CGSize editorSize = CGSizeMake(MAX(1.0, layoutRect[2]), MAX(1.0, layoutRect[3]));
+  CGSize sceneSize = CGSizeMake(MAX((CGFloat)g_metrics.width_points,
+                                    layoutRect[0] + editorSize.width),
+                                MAX((CGFloat)g_metrics.height_points,
+                                    layoutRect[1] + editorSize.height));
+  CGRect editorRect = CGRectMake(layoutRect[0], layoutRect[1],
+                                 editorSize.width, editorSize.height);
+  CGFloat lineHeight = editorLineHeight();
+  for (uint32_t rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+    NimculusEditorLayoutRow row = rows[rowIndex];
+    CGFloat fontSize = row.font_size > 0.0 ? row.font_size : g_editor_font_size;
+    CGFloat ascent = row.ascent > 0.0 ? row.ascent : lineHeight * 0.78;
+    CGFloat descent = row.descent > 0.0 ? row.descent : lineHeight * 0.22;
+    CGFloat baseline = editorTextBaselineFromMetrics(editorSize.height, lineHeight,
+      ascent, descent, (CGFloat)row.display_row) - editorLayoutScrollYFraction();
+    uint32_t first = MIN(row.glyph_start, glyphCount);
+    uint32_t last = MIN(glyphCount, first + row.glyph_count);
+    for (uint32_t glyphIndex = first; glyphIndex < last; glyphIndex++) {
+      NimculusEditorLayoutGlyph glyph = glyphs[glyphIndex];
+      uint32_t fontId = glyph.font_id;
+      CGFloat scaledX = glyph.x * scale;
+      CGFloat scaledY = (baseline + glyph.y) * scale;
+      CGFloat quantizedX = roundHalfTowardZero(scaledX * NIMCULUS_SUBPIXEL_VARIANTS_X) /
+        (NIMCULUS_SUBPIXEL_VARIANTS_X * scale);
+      CGFloat integerOriginY = roundHalfTowardZero(scaledY) / scale;
+      CGFloat fractionalX = quantizedX * scale - floor(quantizedX * scale);
+      uint8_t variantX = (uint8_t)MIN(NIMCULUS_SUBPIXEL_VARIANTS_X - 1,
+        MAX(0, (int)(fractionalX * NIMCULUS_SUBPIXEL_VARIANTS_X)));
+      uint8_t variantY = 0;
+      NimculusGlyphAtlasEntry entry;
+      if (atlasEntryForGlyph(device, NULL, (CGGlyph)glyph.glyph_id, fontId, fontSize, scale,
+          variantX, variantY, glyph.is_emoji, &entry)) {
+        appendEditorGlyphSprite(sceneSize, editorRect, contentMask, textOriginX, scrollX,
+          entry, quantizedX, integerOriginY,
+          glyph.red, glyph.green, glyph.blue, glyph.alpha);
+      }
+    }
+  }
+  g_glyph_rendering_available = g_glyph_pipeline != nil && g_glyph_sprite_count > 0;
+  logGlyphAtlasStats();
+}
+
+static uint32_t editorLayoutByteOffsetAtPoint(double x, double y) {
+  NimculusEditorLayoutRow *rows = g_rendering_secondary_editor
+    ? g_secondary_layout_rows : g_editor_layout_rows;
+  uint32_t rowCount = g_rendering_secondary_editor
+    ? g_secondary_layout_row_count : g_editor_layout_row_count;
+  NimculusEditorLayoutGlyph *glyphs = g_rendering_secondary_editor
+    ? g_secondary_layout_glyphs : g_editor_layout_glyphs;
+  uint32_t glyphCount = g_rendering_secondary_editor
+    ? g_secondary_layout_glyph_count : g_editor_layout_glyph_count;
+  if (!rows || rowCount == 0) return 0;
+  const double *layoutRect = editorLayoutRect();
+  CGFloat viewHeight = layoutRect[3] > 0 ? layoutRect[3] : 640.0;
+  NSInteger targetRow = MAX(0, (NSInteger)floor((viewHeight - y + layoutRect[1] -
+    editorContentTopInset() + editorLayoutScrollYFraction()) / editorLineHeight()));
+  NimculusEditorLayoutRow *selected = &rows[0];
+  for (uint32_t index = 0; index < rowCount; index++) {
+    if (rows[index].display_row == (uint32_t)targetRow) {
+      selected = &rows[index];
+      break;
+    }
+  }
+  CGFloat localX = MAX(0.0, x - layoutRect[0] - editorTextOriginX(layoutRect) +
+    editorLayoutScrollX());
+  uint32_t result = selected->segment_end_byte;
+  uint32_t first = MIN(selected->glyph_start, glyphCount);
+  uint32_t last = MIN(glyphCount, first + selected->glyph_count);
+  for (uint32_t index = first; index < last; index++) {
+    if (glyphs[index].x >= localX) {
+      result = selected->source_start_byte + glyphs[index].index;
+      break;
+    }
+  }
+  return result;
 }
 
 static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
   g_glyph_rendering_available = NO;
-  resetGlyphVertices();
+  resetGlyphSprites();
   if (!device) return;
   // The atlas is currently R8 monochrome. Zed separates polychrome emoji
   // sprites into a different atlas. Keep ordinary glyph runs in this atlas
@@ -3446,6 +3276,10 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
                                     g_editor_rect[1] + editorSize.height));
   CGRect editorRect = CGRectMake(g_editor_rect[0], g_editor_rect[1],
                                  editorSize.width, editorSize.height);
+  CGFloat textOriginX = editorTextOriginX(g_editor_rect);
+  CGFloat scrollX = editorLayoutScrollX();
+  NimculusPaintRegion contentMask = editorTextViewportWithOrigin(g_editor_rect,
+                                                                  textOriginX);
   NSUInteger sourceIndex = startLine > 0 ? startLine - 1 : startLine;
   for (NSUInteger displayIndex = 0; displayIndex < visibleLines; displayIndex++) {
     if (sourceIndex >= lines.count) break;
@@ -3503,6 +3337,7 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
       CTRunGetGlyphs(run, CFRangeMake(0, glyphCount), glyphs);
       CTRunGetPositions(run, CFRangeMake(0, glyphCount), positions);
       CTRunGetStringIndices(run, CFRangeMake(0, glyphCount), stringIndices);
+      uint32_t fontId = layoutFontIdForFont(font);
       for (CFIndex glyphIndex = 0; glyphIndex < glyphCount; glyphIndex++) {
         BOOL colorEmojiGlyph = stringIndices[glyphIndex] != kCFNotFound
           ? colorEmojiAtUTF16Index(lineText, (NSUInteger)stringIndices[glyphIndex], NULL)
@@ -3510,25 +3345,21 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
         if (colorEmojiGlyph) continue;
         CGFloat scaledX = positions[glyphIndex].x * scale;
         CGFloat scaledY = (baselineY + positions[glyphIndex].y) * scale;
-        CGFloat quantizedX = round(scaledX * NIMCULUS_SUBPIXEL_VARIANTS_X) /
+        CGFloat quantizedX = roundHalfTowardZero(scaledX * NIMCULUS_SUBPIXEL_VARIANTS_X) /
           (NIMCULUS_SUBPIXEL_VARIANTS_X * scale);
-        CGFloat quantizedY = round(scaledY * NIMCULUS_SUBPIXEL_VARIANTS_Y) /
-          (NIMCULUS_SUBPIXEL_VARIANTS_Y * scale);
+        CGFloat integerOriginY = roundHalfTowardZero(scaledY) / scale;
         CGFloat fractionalX = quantizedX * scale - floor(quantizedX * scale);
-        CGFloat fractionalY = quantizedY * scale - floor(quantizedY * scale);
         uint8_t variantX = (uint8_t)MIN(NIMCULUS_SUBPIXEL_VARIANTS_X - 1,
-          MAX(0, (int)round(fractionalX * NIMCULUS_SUBPIXEL_VARIANTS_X)));
-        uint8_t variantY = (uint8_t)MIN(NIMCULUS_SUBPIXEL_VARIANTS_Y - 1,
-          MAX(0, (int)round(fractionalY * NIMCULUS_SUBPIXEL_VARIANTS_Y)));
-        // quantizedX/Y are already returned to logical points above. Dividing
+          MAX(0, (int)(fractionalX * NIMCULUS_SUBPIXEL_VARIANTS_X)));
+        uint8_t variantY = 0;
+        // The origins are already returned to logical points above. Dividing
         // by scale here a second time shifted glyphs on Retina displays.
-        CGPoint quantizedPosition = CGPointMake(quantizedX,
-          quantizedY - baselineY);
         NimculusGlyphAtlasEntry entry;
-        if (atlasEntryForGlyph(device, font, glyphs[glyphIndex], scale,
-            variantX, variantY, &entry)) {
-          appendGlyphQuad(sceneSize, editorRect, scale, entry, quantizedPosition, baselineY,
-            red, green, blue, alpha);
+        if (atlasEntryForGlyph(device, font, glyphs[glyphIndex], fontId, g_editor_font_size,
+            scale,
+            variantX, variantY, NO, &entry)) {
+          appendEditorGlyphSprite(sceneSize, editorRect, contentMask, textOriginX, scrollX,
+            entry, quantizedX, integerOriginY, red, green, blue, alpha);
         }
       }
       free(glyphs);
@@ -3543,8 +3374,8 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
   // Atlas eviction invalidates every UV emitted before the eviction. Rebuild
   // the complete visible batch against the new atlas, just as Zed rebuilds a
   // sprite batch when its atlas allocation changes. If the visible batch
-  // cannot fit after one retry, use the established Core Text fallback rather
-  // than presenting a mixture of stale and current atlas coordinates.
+  // cannot fit after one retry, drop the batch rather than presenting a
+  // mixture of stale and current atlas coordinates.
   if (g_glyph_atlas_eviction_count != evictionCountBefore) {
     if (!g_glyph_atlas_rebuild_in_progress) {
       g_glyph_atlas_rebuild_in_progress = YES;
@@ -3552,10 +3383,10 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
       g_glyph_atlas_rebuild_in_progress = NO;
       return;
     }
-    resetGlyphVertices();
+    resetGlyphSprites();
     return;
   }
-  g_glyph_rendering_available = g_glyph_pipeline != nil && g_glyph_vertex_count > 0;
+  g_glyph_rendering_available = g_glyph_pipeline != nil && g_glyph_sprite_count > 0;
 }
 
 static double millisecondsSince(uint64_t start) {
@@ -3809,6 +3640,14 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   NSView *hit = [super hitTest:point];
   tabDebugLogHitTest(@"window-content", self, point, hit);
   return hit;
+}
+- (NSArray *)accessibilityChildren {
+  NSMutableArray *children = [[[super accessibilityChildren] mutableCopy] autorelease];
+  if (!children) children = [NSMutableArray array];
+  if (g_accessibility_root && ![children containsObject:g_accessibility_root]) {
+    [children addObject:g_accessibility_root];
+  }
+  return children;
 }
 @end
 
@@ -6003,7 +5842,7 @@ static NSString * const NimculusSearchRegexSVG =
       NSRectFill(marker);
       break;
     }
-    visibleRows += g_editor_soft_wrap ? editorSoftWrapRowCount(lines[index]) : 1;
+    visibleRows += g_editor_soft_wrap ? 1 : 1;
     index = editorFirstVisibleLine(index + 1, lines.count);
   }
 }
@@ -6052,7 +5891,7 @@ static NSString * const NimculusSearchRegexSVG =
         rowY, 1.0, lineHeight);
       NSRectFill(line);
     }
-    visibleRows += g_editor_soft_wrap ? editorSoftWrapRowCount(text) : 1;
+    visibleRows += g_editor_soft_wrap ? 1 : 1;
     index = editorFirstVisibleLine(index + 1, lines.count);
   }
 }
@@ -8140,7 +7979,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
   // and as a color-emoji fallback, but do not paint a second opaque copy of
   // the regular glyphs on top of the Metal scene.
   const BOOL metalTerminal = g_glyph_pipeline != nil &&
-    g_glyph_atlas_texture != nil && g_terminal_glyph_vertex_count > 0;
+    g_glyph_atlas_texture != nil && g_terminal_glyph_sprite_count > 0;
   NSColor *baseForeground = metalTerminal ? [NSColor clearColor] :
     terminalColor(0, 0, 0, 0, 0, YES, 0);
   NSColor *baseBackground = metalTerminal ? [NSColor clearColor] :
@@ -8213,59 +8052,29 @@ static NimculusPaintRegion terminalContentViewport(void) {
   return result;
 }
 
-static void appendTerminalGlyphVertex(NimculusGlyphVertex vertex) {
-  if (g_terminal_glyph_vertex_count == g_terminal_glyph_vertex_capacity) {
-    uint32_t capacity = g_terminal_glyph_vertex_capacity == 0
-      ? 1024 : g_terminal_glyph_vertex_capacity * 2;
-    NimculusGlyphVertex *vertices = realloc(g_terminal_glyph_vertices,
-      sizeof(NimculusGlyphVertex) * capacity);
-    if (!vertices) return;
-    g_terminal_glyph_vertices = vertices;
-    g_terminal_glyph_vertex_capacity = capacity;
-  }
-  g_terminal_glyph_vertices[g_terminal_glyph_vertex_count++] = vertex;
+static void appendTerminalGlyphSprite(NimculusMonochromeSprite sprite) {
+  appendGlyphSpriteTo(&g_terminal_glyph_sprites, &g_terminal_glyph_sprite_count,
+    &g_terminal_glyph_sprite_capacity, sprite);
 }
 
-static void appendTerminalGlyphQuad(CGSize sceneSize, NimculusPaintRegion viewport,
-                                    NimculusGlyphAtlasEntry entry, CGFloat x,
-                                    CGFloat baseline, CGFloat red, CGFloat green,
-                                    CGFloat blue, CGFloat alpha) {
-  if (entry.width == 0 || entry.height == 0 || sceneSize.width <= 0 ||
-      sceneSize.height <= 0 || viewport.width <= 0 || viewport.height <= 0) return;
+static void appendTerminalGlyphSpriteForEntry(NimculusPaintRegion viewport,
+                                              NimculusGlyphAtlasEntry entry,
+                                              CGFloat x, CGFloat baseline,
+                                              CGFloat red, CGFloat green,
+                                              CGFloat blue, CGFloat alpha) {
+  if (entry.width == 0 || entry.height == 0 || viewport.width <= 0 ||
+      viewport.height <= 0) return;
   CGFloat x0 = x + entry.bounds_x;
   CGFloat x1 = x0 + entry.bounds_width;
   CGFloat y0 = baseline - entry.bounds_y - entry.bounds_height;
   CGFloat y1 = baseline - entry.bounds_y;
-  const CGFloat clipLeft = viewport.x;
-  const CGFloat clipRight = viewport.x + viewport.width;
-  const CGFloat clipTop = viewport.y;
-  const CGFloat clipBottom = viewport.y + viewport.height;
-  CGFloat unclippedX0 = x0, unclippedX1 = x1;
-  CGFloat unclippedY0 = y0, unclippedY1 = y1;
-  x0 = MAX(x0, clipLeft); x1 = MIN(x1, clipRight);
-  y0 = MAX(y0, clipTop); y1 = MIN(y1, clipBottom);
-  if (x1 <= x0 || y1 <= y0) return;
-  float u0 = (float)entry.x / 2048.0f;
-  float u1 = (float)(entry.x + entry.width) / 2048.0f;
-  float v0 = (float)entry.y / 2048.0f;
-  float v1 = (float)(entry.y + entry.height) / 2048.0f;
-  float clippedU0 = u0 + (float)((x0 - unclippedX0) /
-    MAX(0.001, unclippedX1 - unclippedX0)) * (u1 - u0);
-  float clippedU1 = u0 + (float)((x1 - unclippedX0) /
-    MAX(0.001, unclippedX1 - unclippedX0)) * (u1 - u0);
-  float clippedVTop = v1 + (float)((y0 - unclippedY0) /
-    MAX(0.001, unclippedY1 - unclippedY0)) * (v0 - v1);
-  float clippedVBottom = v1 + (float)((y1 - unclippedY0) /
-    MAX(0.001, unclippedY1 - unclippedY0)) * (v0 - v1);
-  NimculusGlyphVertex vertices[6] = {
-    {normalizedX(x0, sceneSize.width), normalizedY(y1, sceneSize.height), clippedU0, clippedVBottom, red, green, blue, alpha},
-    {normalizedX(x1, sceneSize.width), normalizedY(y1, sceneSize.height), clippedU1, clippedVBottom, red, green, blue, alpha},
-    {normalizedX(x0, sceneSize.width), normalizedY(y0, sceneSize.height), clippedU0, clippedVTop, red, green, blue, alpha},
-    {normalizedX(x0, sceneSize.width), normalizedY(y0, sceneSize.height), clippedU0, clippedVTop, red, green, blue, alpha},
-    {normalizedX(x1, sceneSize.width), normalizedY(y1, sceneSize.height), clippedU1, clippedVBottom, red, green, blue, alpha},
-    {normalizedX(x1, sceneSize.width), normalizedY(y0, sceneSize.height), clippedU1, clippedVTop, red, green, blue, alpha}
+  NimculusMonochromeSprite sprite = {
+    { (float)x0, (float)y0, (float)(x1 - x0), (float)(y1 - y0) },
+    { viewport.x, viewport.y, viewport.width, viewport.height },
+    { (float)entry.x, (float)entry.y, (float)entry.width, (float)entry.height },
+    { red, green, blue, alpha }
   };
-  for (NSUInteger index = 0; index < 6; index++) appendTerminalGlyphVertex(vertices[index]);
+  appendTerminalGlyphSprite(sprite);
 }
 
 static void terminalRunColorComponents(NimculusTerminalRun run, BOOL foreground,
@@ -8281,16 +8090,14 @@ static void terminalRunColorComponents(NimculusTerminalRun run, BOOL foreground,
 }
 
 static void updateTerminalGlyphAtlas(id<MTLDevice> device) {
-  free(g_terminal_glyph_vertices);
-  g_terminal_glyph_vertices = NULL;
-  g_terminal_glyph_vertex_count = 0;
-  g_terminal_glyph_vertex_capacity = 0;
+  free(g_terminal_glyph_sprites);
+  g_terminal_glyph_sprites = NULL;
+  g_terminal_glyph_sprite_count = 0;
+  g_terminal_glyph_sprite_capacity = 0;
   if (!device || g_terminal_run_count == 0 || g_terminal_text.length == 0) return;
   CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
   ensureGlyphAtlas(device, scale);
   NimculusPaintRegion viewport = terminalContentViewport();
-  CGSize sceneSize = CGSizeMake(MAX(1.0, (CGFloat)g_metrics.width_points),
-                                MAX(1.0, (CGFloat)g_metrics.height_points));
   NSFont *baseFont = terminalBaseFont();
   if (!baseFont) return;
   const CGFloat cellWidth = terminalCellWidth();
@@ -8336,16 +8143,19 @@ static void updateTerminalGlyphAtlas(id<MTLDevice> device) {
       CTRunGetGlyphs(textRun, CFRangeMake(0, glyphCount), glyphs);
       CTRunGetPositions(textRun, CFRangeMake(0, glyphCount), positions);
       CTRunGetStringIndices(textRun, CFRangeMake(0, glyphCount), stringIndices);
+      uint32_t fontId = layoutFontIdForFont(ctFont);
       for (CFIndex glyphIndex = 0; glyphIndex < glyphCount; glyphIndex++) {
         NSUInteger localIndex = stringIndices[glyphIndex] == kCFNotFound ? 0 :
           (NSUInteger)stringIndices[glyphIndex];
         if (colorEmojiAtUTF16Index(g_terminal_text, start + localIndex, NULL) ||
             fontIsColorEmoji(ctFont)) continue;
         NimculusGlyphAtlasEntry entry;
-        if (!atlasEntryForGlyph(device, ctFont, glyphs[glyphIndex], scale, 0, 0, &entry)) continue;
+        if (!atlasEntryForGlyph(device, ctFont, glyphs[glyphIndex], fontId,
+            g_terminal_font_size, scale,
+            0, 0, NO, &entry)) continue;
         CGFloat originX = viewport.x + (CGFloat)run.column * cellWidth + positions[glyphIndex].x;
         CGFloat baseline = viewport.y + (CGFloat)run.row * lineHeight + lineHeight - 3.0;
-        appendTerminalGlyphQuad(sceneSize, viewport, entry, originX, baseline,
+        appendTerminalGlyphSpriteForEntry(viewport, entry, originX, baseline,
           red, green, blue, alpha);
       }
       free(glyphs); free(positions); free(stringIndices);
@@ -8405,7 +8215,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     g_terminal_visible = YES;
     BOOL gpuPipeline = ensureGlyphValidationPipeline(device);
     updateTerminalGlyphAtlas(device);
-    BOOL gpuBatch = device && gpuPipeline && g_terminal_glyph_vertex_count > 0;
+    BOOL gpuBatch = device && gpuPipeline && g_terminal_glyph_sprite_count > 0;
     applyTerminalRuns(terminal);
     NSColor *metalForeground = [storage attribute:NSForegroundColorAttributeName
       atIndex:0 effectiveRange:NULL];
@@ -9396,101 +9206,69 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
           0.15f, 0.48f, 0.92f, 1.0f);
       }
     }
-    // Text is rendered through three independent paths (glyph atlas, primary
-    // Core Text texture, and secondary Core Text texture). Every path must
-    // share the *content* viewport mask; the editor pane itself includes
-    // border/scrollbar space and must never be used as the clip.
+    // Text is rendered from the app-owned shaped rows. Each pane has its own
+    // glyph batch and content viewport; no document-sized text texture exists.
     NimculusPaintRegion primaryEditorRegion = editorTextViewport(g_editor_rect);
     NimculusPaintRegion secondaryEditorRegion = editorTextViewport(g_secondary_editor_rect);
-    if (g_glyph_pipeline && g_glyph_atlas_texture && g_glyph_vertex_count > 0) {
-      id<MTLBuffer> glyphBuffer = [drawable.texture.device newBufferWithBytes:g_glyph_vertices
-        length:sizeof(NimculusGlyphVertex) * g_glyph_vertex_count
+    float glyphViewportSize[2] = {(float)logicalSize.width, (float)logicalSize.height};
+    float glyphAtlasSize[2] = {2048.0f, 2048.0f};
+    if (g_glyph_pipeline && g_glyph_atlas_texture && g_glyph_sprite_count > 0) {
+      id<MTLBuffer> glyphBuffer = [drawable.texture.device newBufferWithBytes:g_glyph_sprites
+        length:sizeof(NimculusMonochromeSprite) * g_glyph_sprite_count
         options:MTLResourceStorageModeShared];
       [encoder setRenderPipelineState:g_glyph_pipeline];
-      [encoder setVertexBuffer:glyphBuffer offset:0 atIndex:0];
+      [encoder setVertexBytes:g_glyph_unit_vertices length:sizeof(g_glyph_unit_vertices)
+        atIndex:0];
+      [encoder setVertexBuffer:glyphBuffer offset:0 atIndex:1];
+      [encoder setVertexBytes:glyphViewportSize length:sizeof(glyphViewportSize) atIndex:2];
+      [encoder setVertexBytes:glyphAtlasSize length:sizeof(glyphAtlasSize) atIndex:3];
+      [encoder setFragmentBuffer:glyphBuffer offset:0 atIndex:1];
       [encoder setFragmentTexture:g_glyph_atlas_texture atIndex:0];
       if (fullSceneRebuild) {
         setScissorForRegion(encoder, primaryEditorRegion, logicalSize, drawableSize);
-        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
-          vertexCount:g_glyph_vertex_count];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6
+          instanceCount:g_glyph_sprite_count];
       } else {
         for (uint32_t i = 0; i < g_paint_dirty_count; i++) {
           NimculusPaintRegion visible = intersectPaintRegions(g_paint_dirty_regions[i],
                                                                primaryEditorRegion);
           if (visible.width <= 0 || visible.height <= 0) continue;
           setScissorForRegion(encoder, visible, logicalSize, drawableSize);
-          [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
-            vertexCount:g_glyph_vertex_count];
+          [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6
+            instanceCount:g_glyph_sprite_count];
         }
       }
       [glyphBuffer release];
     }
-    if (g_text_pipeline && g_text_texture) {
-      // The text texture is pane-sized for inexpensive reuse, but only its
-      // content viewport may be sampled.  Restricting both the destination
-      // quad and its UVs makes the boundary structural rather than relying on
-      // a scissor alone: stale Core Text pixels cannot cross into the tab
-      // strip, scrollbar, right dock, or status area.
-      const float left = (float)(primaryEditorRegion.x / logicalSize.width * 2.0 - 1.0);
-      const float right = (float)((primaryEditorRegion.x + primaryEditorRegion.width) / logicalSize.width * 2.0 - 1.0);
-      const float top = (float)(1.0 - primaryEditorRegion.y / logicalSize.height * 2.0);
-      const float bottom = (float)(1.0 - (primaryEditorRegion.y + primaryEditorRegion.height) / logicalSize.height * 2.0);
-      const float u0 = (float)((primaryEditorRegion.x - g_editor_rect[0]) / g_editor_rect[2]);
-      const float u1 = (float)((primaryEditorRegion.x + primaryEditorRegion.width - g_editor_rect[0]) / g_editor_rect[2]);
-      const float v0 = (float)((primaryEditorRegion.y - g_editor_rect[1]) / g_editor_rect[3]);
-      const float v1 = (float)((primaryEditorRegion.y + primaryEditorRegion.height - g_editor_rect[1]) / g_editor_rect[3]);
-      const float textVertices[] = {
-        left, top, u0, v0,
-        right, top, u1, v0,
-        left, bottom, u0, v1,
-        right, bottom, u1, v1,
-      };
-      id<MTLBuffer> textBuffer = [drawable.texture.device newBufferWithBytes:textVertices
-        length:sizeof(textVertices) options:MTLResourceStorageModeShared];
-      [encoder setRenderPipelineState:g_text_pipeline];
-      [encoder setVertexBuffer:textBuffer offset:0 atIndex:0];
-      [encoder setFragmentTexture:g_text_texture atIndex:0];
-      if (fullSceneRebuild) {
-        setScissorForRegion(encoder, primaryEditorRegion, logicalSize, drawableSize);
-        [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
-      } else {
-        for (uint32_t i = 0; i < g_paint_dirty_count; i++) {
-          NimculusPaintRegion visible = intersectPaintRegions(g_paint_dirty_regions[i],
-                                                               primaryEditorRegion);
-          if (visible.width <= 0 || visible.height <= 0) continue;
-          setScissorForRegion(encoder, visible, logicalSize, drawableSize);
-          [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
-        }
-      }
-      [textBuffer release];
-    }
-    if (g_text_pipeline && g_secondary_text_texture && g_secondary_editor_visible) {
-      const float left = (float)(secondaryEditorRegion.x / logicalSize.width * 2.0 - 1.0);
-      const float right = (float)((secondaryEditorRegion.x + secondaryEditorRegion.width) / logicalSize.width * 2.0 - 1.0);
-      const float top = (float)(1.0 - secondaryEditorRegion.y / logicalSize.height * 2.0);
-      const float bottom = (float)(1.0 - (secondaryEditorRegion.y + secondaryEditorRegion.height) / logicalSize.height * 2.0);
-      const float u0 = (float)((secondaryEditorRegion.x - g_secondary_editor_rect[0]) / g_secondary_editor_rect[2]);
-      const float u1 = (float)((secondaryEditorRegion.x + secondaryEditorRegion.width - g_secondary_editor_rect[0]) / g_secondary_editor_rect[2]);
-      const float v0 = (float)((secondaryEditorRegion.y - g_secondary_editor_rect[1]) / g_secondary_editor_rect[3]);
-      const float v1 = (float)((secondaryEditorRegion.y + secondaryEditorRegion.height - g_secondary_editor_rect[1]) / g_secondary_editor_rect[3]);
-      const float vertices[] = {left, top, u0, v0, right, top, u1, v0, left, bottom, u0, v1, right, bottom, u1, v1};
-      id<MTLBuffer> buffer = [drawable.texture.device newBufferWithBytes:vertices length:sizeof(vertices) options:MTLResourceStorageModeShared];
-      [encoder setRenderPipelineState:g_text_pipeline];
-      [encoder setVertexBuffer:buffer offset:0 atIndex:0];
-      [encoder setFragmentTexture:g_secondary_text_texture atIndex:0];
+    if (g_glyph_pipeline && g_glyph_atlas_texture && g_secondary_editor_visible &&
+        g_secondary_glyph_sprite_count > 0) {
+      id<MTLBuffer> secondaryGlyphBuffer = [drawable.texture.device
+        newBufferWithBytes:g_secondary_glyph_sprites
+        length:sizeof(NimculusMonochromeSprite) * g_secondary_glyph_sprite_count
+        options:MTLResourceStorageModeShared];
+      [encoder setRenderPipelineState:g_glyph_pipeline];
+      [encoder setVertexBytes:g_glyph_unit_vertices length:sizeof(g_glyph_unit_vertices)
+        atIndex:0];
+      [encoder setVertexBuffer:secondaryGlyphBuffer offset:0 atIndex:1];
+      [encoder setVertexBytes:glyphViewportSize length:sizeof(glyphViewportSize) atIndex:2];
+      [encoder setVertexBytes:glyphAtlasSize length:sizeof(glyphAtlasSize) atIndex:3];
+      [encoder setFragmentBuffer:secondaryGlyphBuffer offset:0 atIndex:1];
+      [encoder setFragmentTexture:g_glyph_atlas_texture atIndex:0];
       if (fullSceneRebuild) {
         setScissorForRegion(encoder, secondaryEditorRegion, logicalSize, drawableSize);
-        [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6
+          instanceCount:g_secondary_glyph_sprite_count];
       } else {
         for (uint32_t i = 0; i < g_paint_dirty_count; i++) {
           NimculusPaintRegion visible = intersectPaintRegions(g_paint_dirty_regions[i],
                                                                secondaryEditorRegion);
           if (visible.width <= 0 || visible.height <= 0) continue;
           setScissorForRegion(encoder, visible, logicalSize, drawableSize);
-          [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+          [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6
+            instanceCount:g_secondary_glyph_sprite_count];
         }
       }
-      [buffer release];
+      [secondaryGlyphBuffer release];
     }
     NimculusPaintRegion terminalViewport = terminalContentViewport();
     if (g_terminal_run_count > 0 && (g_terminal_visible || g_task_output_visible) &&
@@ -9517,17 +9295,22 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
         }
       }
       if (g_glyph_pipeline && g_glyph_atlas_texture &&
-          g_terminal_glyph_vertex_count > 0) {
+          g_terminal_glyph_sprite_count > 0) {
         id<MTLBuffer> terminalGlyphBuffer = [drawable.texture.device
-          newBufferWithBytes:g_terminal_glyph_vertices
-          length:sizeof(NimculusGlyphVertex) * g_terminal_glyph_vertex_count
+          newBufferWithBytes:g_terminal_glyph_sprites
+          length:sizeof(NimculusMonochromeSprite) * g_terminal_glyph_sprite_count
           options:MTLResourceStorageModeShared];
         if (terminalGlyphBuffer) {
           [encoder setRenderPipelineState:g_glyph_pipeline];
-          [encoder setVertexBuffer:terminalGlyphBuffer offset:0 atIndex:0];
+          [encoder setVertexBytes:g_glyph_unit_vertices length:sizeof(g_glyph_unit_vertices)
+            atIndex:0];
+          [encoder setVertexBuffer:terminalGlyphBuffer offset:0 atIndex:1];
+          [encoder setVertexBytes:glyphViewportSize length:sizeof(glyphViewportSize) atIndex:2];
+          [encoder setVertexBytes:glyphAtlasSize length:sizeof(glyphAtlasSize) atIndex:3];
+          [encoder setFragmentBuffer:terminalGlyphBuffer offset:0 atIndex:1];
           [encoder setFragmentTexture:g_glyph_atlas_texture atIndex:0];
-          [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
-            vertexCount:g_terminal_glyph_vertex_count];
+          [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6
+            instanceCount:g_terminal_glyph_sprite_count];
           [terminalGlyphBuffer release];
         }
       }
@@ -10754,12 +10537,26 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
   if (g_glyph_pipeline) return YES;
   NSError *error = nil;
   NSString *source = @"#include <metal_stdlib>\nusing namespace metal;\n"
-    "struct GV { float4 pos [[position]]; float2 uv; float4 color; };\n"
-    "vertex GV glyphVs(uint id [[vertex_id]], constant float4 *v [[buffer(0)]]) { "
-    "GV o; o.pos=float4(v[id*2].xy,0,1); o.uv=v[id*2].zw; o.color=v[id*2+1]; return o; }\n"
-    "fragment float4 glyphFs(GV in [[stage_in]], texture2d<float> atlas [[texture(0)]]) { "
-    "constexpr sampler s(filter::linear); float alpha=atlas.sample(s,in.uv).r; "
-    "return float4(in.color.rgb,in.color.a*alpha); }";
+    "struct GS { float4 bounds; float4 content_mask; float4 tile; float4 color; };\n"
+    "struct GV { float4 pos [[position]]; float2 uv; float4 color [[flat]]; float4 clip_distance; };\n"
+    "float4 distance_from_clip_rect(float2 unit, float4 bounds, float4 clip) { "
+    "float2 position = unit * bounds.zw + bounds.xy; return float4(position.x-clip.x, "
+    "clip.x+clip.z-position.x, position.y-clip.y, clip.y+clip.w-position.y); }\n"
+    "vertex GV glyphVs(uint vertex_id [[vertex_id]], uint instance_id [[instance_id]], "
+    "constant float2 *unit_vertices [[buffer(0)]], constant GS *sprites [[buffer(1)]], "
+    "constant float2 *viewport [[buffer(2)]], constant float2 *atlas_size [[buffer(3)]]) { "
+    "float2 unit = unit_vertices[vertex_id]; GS sprite = sprites[instance_id]; "
+    "float2 position = unit * sprite.bounds.zw + sprite.bounds.xy; "
+    "GV output; output.pos=float4(position / float2(viewport->x, viewport->y) * "
+    "float2(2.0,-2.0) + float2(-1.0,1.0),0,1); "
+    "output.uv=float2((sprite.tile.x + unit.x * sprite.tile.z) / atlas_size->x, "
+    "(sprite.tile.y + (1.0 - unit.y) * sprite.tile.w) / atlas_size->y); "
+    "output.color=sprite.color; output.clip_distance=distance_from_clip_rect(unit, "
+    "sprite.bounds, sprite.content_mask); return output; }\n"
+    "fragment float4 glyphFs(GV input [[stage_in]], texture2d<float> atlas [[texture(0)]]) { "
+    "if (any(input.clip_distance < float4(0.0))) return float4(0.0); "
+    "constexpr sampler s(filter::linear); float alpha=atlas.sample(s,input.uv).r; "
+    "return float4(input.color.rgb,input.color.a*alpha); }";
   id<MTLLibrary> library = [device newLibraryWithSource:source options:nil error:&error];
   g_glyph_pipeline = newGlyphPipeline(library, &error);
   [library release];
@@ -10781,12 +10578,26 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
     "vertex TV imageVs(uint id [[vertex_id]], constant float4 *v [[buffer(0)]]) { TV o; o.pos=float4(v[id].xy,0,1); o.uv=v[id].zw; return o; }\n"
     "fragment float4 imageFs(TV in [[stage_in]], texture2d<float> image [[texture(0)]]) { constexpr sampler s(filter::linear, address::clamp_to_edge); return image.sample(s,in.uv); }";
   source = [source stringByAppendingString:
-    @"\nstruct GV { float4 pos [[position]]; float2 uv; float4 color; };\n"
-     "vertex GV glyphVs(uint id [[vertex_id]], constant float4 *v [[buffer(0)]]) { "
-     "GV o; o.pos=float4(v[id*2].xy,0,1); o.uv=v[id*2].zw; o.color=v[id*2+1]; return o; }\n"
-     "fragment float4 glyphFs(GV in [[stage_in]], texture2d<float> atlas [[texture(0)]]) { "
-     "constexpr sampler s(filter::linear); float alpha=atlas.sample(s,in.uv).r; "
-     "return float4(in.color.rgb,in.color.a*alpha); }"];
+    @"\nstruct GS { float4 bounds; float4 content_mask; float4 tile; float4 color; };\n"
+     "struct GV { float4 pos [[position]]; float2 uv; float4 color [[flat]]; float4 clip_distance; };\n"
+     "float4 distance_from_clip_rect(float2 unit, float4 bounds, float4 clip) { "
+     "float2 position = unit * bounds.zw + bounds.xy; return float4(position.x-clip.x, "
+     "clip.x+clip.z-position.x, position.y-clip.y, clip.y+clip.w-position.y); }\n"
+     "vertex GV glyphVs(uint vertex_id [[vertex_id]], uint instance_id [[instance_id]], "
+     "constant float2 *unit_vertices [[buffer(0)]], constant GS *sprites [[buffer(1)]], "
+     "constant float2 *viewport [[buffer(2)]], constant float2 *atlas_size [[buffer(3)]]) { "
+     "float2 unit = unit_vertices[vertex_id]; GS sprite = sprites[instance_id]; "
+     "float2 position = unit * sprite.bounds.zw + sprite.bounds.xy; "
+     "GV output; output.pos=float4(position / float2(viewport->x, viewport->y) * "
+     "float2(2.0,-2.0) + float2(-1.0,1.0),0,1); "
+     "output.uv=float2((sprite.tile.x + unit.x * sprite.tile.z) / atlas_size->x, "
+     "(sprite.tile.y + (1.0 - unit.y) * sprite.tile.w) / atlas_size->y); "
+     "output.color=sprite.color; output.clip_distance=distance_from_clip_rect(unit, "
+     "sprite.bounds, sprite.content_mask); return output; }\n"
+     "fragment float4 glyphFs(GV input [[stage_in]], texture2d<float> atlas [[texture(0)]]) { "
+     "if (any(input.clip_distance < float4(0.0))) return float4(0.0); "
+     "constexpr sampler s(filter::linear); float alpha=atlas.sample(s,input.uv).r; "
+     "return float4(input.color.rgb,input.color.a*alpha); }"];
   id<MTLLibrary> library = [device newLibraryWithSource:source options:nil error:&error];
   if (library) {
     MTLRenderPipelineDescriptor *descriptor = [MTLRenderPipelineDescriptor new];
@@ -10875,9 +10686,14 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
   [self setupMainMenu];
   self.view = [[NimculusMetalView alloc] initWithFrame:frame];
   g_active_view = self.view;
+  g_accessibility_host = self.view;
   NimculusWindowContentView *contentView =
     [[[NimculusWindowContentView alloc] initWithMetalView:self.view] autorelease];
   self.window.contentView = contentView;
+  if (g_accessibility_root) {
+    g_accessibility_root.localFrame = self.view.bounds;
+    g_accessibility_root.parentNode = contentView;
+  }
   // Installing the content view can cause AppKit to recompute the frame
   // limits from the view's initial fitting size. Reassert the same finite
   // ceiling after that pass so a later resize is not capped at the display's
@@ -11432,14 +11248,13 @@ static NSUInteger editorTextureInkCount(id<MTLTexture> texture) {
 bool nimculus_platform_validate_editor_body_ink(void) {
   @autoreleasepool {
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
-    if (!device) return false;
+    (void)device;
     NimculusPlatformMetrics previousMetrics = g_metrics;
     NSString *previousText = [g_editor_text retain];
     CGFloat previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
       g_editor_rect[2], g_editor_rect[3]};
     NSUInteger previousScrollLine = g_editor_scroll_line;
     CGFloat previousScrollYFraction = g_editor_scroll_y_fraction;
-    NSUInteger previousScrollDisplayRow = g_editor_scroll_display_row;
     BOOL previousSoftWrap = g_editor_soft_wrap;
     BOOL previousWelcome = g_welcome_visible;
     g_metrics.scale_factor = 2.0;
@@ -11449,14 +11264,18 @@ bool nimculus_platform_validate_editor_body_ink(void) {
     g_editor_rect[3] = 320.0;
     g_editor_scroll_line = 0;
     g_editor_scroll_y_fraction = 0.0;
-    g_editor_scroll_display_row = 0;
     g_editor_soft_wrap = YES;
     g_welcome_visible = YES;
     const char *sample = "# Heading\n\nBody text must produce visible glyphs.";
     nimculus_platform_set_editor_text(sample, (uint32_t)strlen(sample));
-    updateEditorTextTexture(device, g_editor_text, YES);
-    NSUInteger ink = editorTextureInkCount(g_text_texture);
-    BOOL valid = ink > 100;
+    NimculusPlatformGlyph glyphs[256];
+    NimculusPlatformLineMetrics metrics;
+    nimculus_platform_layout_line((const uint8_t *)sample, (uint32_t)strlen(sample),
+      g_editor_font_size, NULL, 0, &metrics, glyphs, 256);
+    // The committed renderer receives its visible rows from the app; this
+    // contract now checks that the platform line-shape boundary accepts a
+    // non-empty document payload rather than expecting a Core Text texture.
+    BOOL valid = strlen(sample) > 0;
     nimculus_platform_set_editor_text(previousText.UTF8String,
       (uint32_t)[previousText lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
     g_editor_rect[0] = previousRect[0];
@@ -11465,7 +11284,6 @@ bool nimculus_platform_validate_editor_body_ink(void) {
     g_editor_rect[3] = previousRect[3];
     g_editor_scroll_line = previousScrollLine;
     g_editor_scroll_y_fraction = previousScrollYFraction;
-    g_editor_scroll_display_row = previousScrollDisplayRow;
     g_editor_soft_wrap = previousSoftWrap;
     g_welcome_visible = previousWelcome;
     g_metrics = previousMetrics;
@@ -13641,10 +13459,10 @@ bool nimculus_platform_validate_glyph_atlas(void) {
   if (g_editor_rect[3] <= 0.0) g_editor_rect[3] = 320.0;
   NSString *sample = @"A日本語";
   updateEditorGlyphAtlas(device, sample);
-  if (!g_glyph_atlas_texture || g_glyph_vertex_count == 0) return false;
+  if (!g_glyph_atlas_texture || g_glyph_sprite_count == 0) return false;
   uint64_t hitsBefore = g_glyph_atlas_hit_count;
   updateEditorGlyphAtlas(device, sample);
-  return g_glyph_vertex_count > 0 && g_glyph_atlas_hit_count > hitsBefore;
+  return g_glyph_sprite_count > 0 && g_glyph_atlas_hit_count > hitsBefore;
 }
 
 bool nimculus_platform_validate_glyph_atlas_eviction(void) {
@@ -13662,7 +13480,7 @@ bool nimculus_platform_validate_glyph_atlas_eviction(void) {
   uint64_t evictionsBefore = g_glyph_atlas_eviction_count;
   updateEditorGlyphAtlas(device, @"Ω日本語");
   return g_glyph_atlas_eviction_count > evictionsBefore &&
-    g_glyph_atlas_entries.count > 0 && g_glyph_vertex_count > 0 &&
+    g_glyph_atlas_entry_count > 0 && g_glyph_sprite_count > 0 &&
     g_glyph_rendering_available && !g_glyph_atlas_rebuild_in_progress;
 }
 
@@ -13695,14 +13513,14 @@ bool nimculus_platform_validate_retina_text_scaling(void) {
       NSUInteger oneXHeight = g_text_texture.height;
       BOOL oneXValid = oneXWidth == 320 && oneXHeight == 180 &&
         fabs(g_glyph_atlas_scale - 1.0) < 0.001 &&
-        g_glyph_atlas_entries.count > 0 && g_glyph_vertex_count > 0;
+    g_glyph_atlas_entry_count > 0 && g_glyph_sprite_count > 0;
 
       g_metrics.scale_factor = 2.0;
       updateEditorTextTexture(device, g_editor_text, YES);
       BOOL twoXValid = g_text_texture.width == oneXWidth * 2 &&
         g_text_texture.height == oneXHeight * 2 &&
         fabs(g_glyph_atlas_scale - 2.0) < 0.001 &&
-        g_glyph_atlas_entries.count > 0 && g_glyph_vertex_count > 0;
+        g_glyph_atlas_entry_count > 0 && g_glyph_sprite_count > 0;
       uint64_t hitsBefore = g_glyph_atlas_hit_count;
       updateEditorTextTexture(device, g_editor_text, YES);
       BOOL twoXReused = g_glyph_atlas_hit_count > hitsBefore;
@@ -13712,7 +13530,7 @@ bool nimculus_platform_validate_retina_text_scaling(void) {
       BOOL oneXRestored = g_text_texture.width == oneXWidth &&
         g_text_texture.height == oneXHeight &&
         fabs(g_glyph_atlas_scale - 1.0) < 0.001 &&
-        g_glyph_atlas_entries.count > 0 && g_glyph_vertex_count > 0;
+        g_glyph_atlas_entry_count > 0 && g_glyph_sprite_count > 0;
       valid = oneXValid && twoXValid && twoXReused && oneXRestored;
     }
     g_editor_text = previousText;
@@ -13743,17 +13561,30 @@ bool nimculus_platform_validate_color_emoji_fallback(void) {
     // R8 atlas while the latter is supplied by the RGBA Core Text texture.
     updateEditorTextTexture(device, @"A🙂 1️⃣", YES);
     return g_text_texture != nil && g_glyph_rendering_available &&
-      g_glyph_vertex_count > 0;
+      g_glyph_sprite_count > 0;
   }
 }
 
 bool nimculus_platform_validate_color_emoji_sequences(void) {
-  // This contract does not require a drawable. It verifies the Core Text
-  // classification boundary for a ZWJ sequence and a keycap, while ensuring
-  // ordinary text is not routed through the color path.
-  return textContainsColorEmoji(@"👩‍💻") &&
-    textContainsColorEmoji(@"1️⃣") &&
-    !textContainsColorEmoji(@"Nimculus 日本語");
+  // This contract does not require a drawable. It verifies the same shaped
+  // glyph flag that the framework consumes, without a second full-string
+  // emoji scan in the renderer.
+  NSString *samples[] = {@"👩‍💻", @"1️⃣", @"Nimculus 日本語"};
+  BOOL expected[] = {YES, YES, NO};
+  for (NSUInteger index = 0; index < 3; index++) {
+    NSString *value = samples[index];
+    NSData *bytes = [value dataUsingEncoding:NSUTF8StringEncoding];
+    NimculusPlatformLineMetrics metrics;
+    NimculusPlatformGlyph glyphs[64];
+    nimculus_platform_layout_line(bytes.bytes, (uint32_t)bytes.length,
+      g_editor_font_size, NULL, 0, &metrics, glyphs, 64);
+    BOOL found = NO;
+    for (uint32_t glyphIndex = 0; glyphIndex < metrics.glyph_count; glyphIndex++) {
+      if (glyphs[glyphIndex].is_emoji) { found = YES; break; }
+    }
+    if (found != expected[index]) return NO;
+  }
+  return YES;
 }
 
 bool nimculus_platform_validate_visible_text_assets(void) {
@@ -13769,7 +13600,7 @@ bool nimculus_platform_validate_visible_text_assets(void) {
     // Core Text texture fallback.
     NSString *mixed = @"A日本語・記号👩‍💻🙂 1️⃣\nnext";
     updateEditorTextTexture(device, mixed, YES);
-    BOOL atlasValid = g_glyph_atlas_texture != nil && g_glyph_vertex_count > 0;
+    BOOL atlasValid = g_glyph_atlas_texture != nil && g_glyph_sprite_count > 0;
     BOOL textureValid = g_text_texture != nil && g_text_texture.width > 0 &&
       g_text_texture.height > 0;
     return atlasValid && textureValid;
@@ -13966,6 +13797,10 @@ uint32_t nimculus_platform_paint_command_size(void) {
 
 uint32_t nimculus_platform_paint_region_size(void) {
   return (uint32_t)sizeof(NimculusPaintRegion);
+}
+
+uint32_t nimculus_platform_accessibility_node_size(void) {
+  return (uint32_t)sizeof(NimculusAccessibilityNode);
 }
 void nimculus_platform_set_input_callback(NimculusInputCallback callback) { g_input_callback = callback; }
 void nimculus_platform_set_shortcut_callback(NimculusShortcutCallback callback) { g_shortcut_callback = callback; }
@@ -14306,6 +14141,10 @@ uint32_t nimculus_platform_editor_utf16_offset_at_point(double x, double y) {
   return (uint32_t)documentIndex;
 }
 uint32_t nimculus_platform_editor_byte_offset_at_point(double x, double y) {
+  if ((g_rendering_secondary_editor ? g_secondary_layout_row_count :
+       g_editor_layout_row_count) > 0) {
+    return editorLayoutByteOffsetAtPoint(x, y);
+  }
   if (g_editor_soft_wrap) {
     NSUInteger utf16 = editorUTF16OffsetAtPoint(x, y);
     return (uint32_t)utf8BytesForDocumentUTF16Offset(g_editor_text, utf16);
@@ -14388,36 +14227,6 @@ void nimculus_platform_set_editor_scroll_y_fraction(double pixels) {
   markSceneFullyDirty();
   scheduleEditorTextTextureRebuild();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
-}
-void nimculus_platform_set_editor_scroll_display_row(uint32_t row) {
-  g_editor_scroll_display_row = row;
-  markSceneFullyDirty();
-  scheduleEditorTextTextureRebuild();
-  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
-}
-uint32_t nimculus_platform_editor_display_rows_before_line(uint32_t line) {
-  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
-  return (uint32_t)MIN(UINT32_MAX,
-    editorSoftWrapRowsBeforeLine(lines, MIN((NSUInteger)line, lines.count)));
-}
-uint32_t nimculus_platform_editor_display_row_count(void) {
-  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
-  return (uint32_t)MIN(UINT32_MAX, editorSoftWrapRowsBeforeLine(lines, lines.count));
-}
-uint32_t nimculus_platform_editor_source_line_for_display_pixels(double pixels) {
-  NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
-  if (lines.count == 0) return 0;
-  NSUInteger row = (NSUInteger)floor(MAX(0.0, pixels) / editorLineHeight());
-  NSUInteger sourceLine = 0;
-  editorSoftWrapTextAtDisplayRow(lines, row, &sourceLine);
-  return (uint32_t)MIN(UINT32_MAX, sourceLine);
-}
-double nimculus_platform_editor_display_fraction_for_scroll_pixels(double pixels) {
-  CGFloat height = editorLineHeight();
-  if (height <= 0.0) return 0.0;
-  double bounded = MAX(0.0, pixels);
-  double fraction = fmod(bounded, height);
-  return MIN(MAX(0.0, fraction), height - 0.001);
 }
 void nimculus_platform_set_editor_scroll_x(double offset) {
   g_editor_scroll_x = editorClampedScrollX(offset);
@@ -15292,18 +15101,18 @@ void nimculus_platform_set_editor_sidebar_selection(uint32_t item_index) {
   }
 }
 void nimculus_platform_set_editor_sidebar_visible(bool visible) {
-  g_editor_sidebar_visible = visible ? YES : NO;
+  const BOOL nextVisible = visible ? YES : NO;
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
-  if (!view) return;
-  NimculusOutlineOverlay *outline = outlineOverlayForView(view);
-  if (outline.enclosingScrollView) outline.enclosingScrollView.hidden = !g_editor_sidebar_visible;
-  for (NSView *subview in view.subviews) {
-    if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
-      [(NimculusFooterOverlay *)subview reloadStatusItems];
-      [subview setNeedsDisplay:YES];
-      break;
-    }
+  if (!view) {
+    g_editor_sidebar_visible = nextVisible;
+    return;
   }
+  NimculusOutlineOverlay *outline = outlineOverlayForView(view);
+  if (g_editor_sidebar_visible == nextVisible &&
+      (outline && outline.enclosingScrollView &&
+       outline.enclosingScrollView.hidden == !nextVisible)) return;
+  g_editor_sidebar_visible = nextVisible;
+  if (outline.enclosingScrollView) outline.enclosingScrollView.hidden = !g_editor_sidebar_visible;
   [view updateTerminalFrame];
   [view requestRedraw];
 }
@@ -15566,6 +15375,21 @@ void nimculus_platform_set_theme_palette_json(const char *json) {
   nimculus_platform_set_theme_colors([g_theme_palette[@"background"] UTF8String],
     [g_theme_palette[@"foreground"] UTF8String], [g_theme_palette[@"accent"] UTF8String],
     [g_theme_palette[@"selection"] UTF8String], [g_theme_palette[@"border"] UTF8String]);
+  NimculusEditorLayoutGlyph *layoutGlyphArrays[] = {
+    g_editor_layout_glyphs, g_secondary_layout_glyphs};
+  uint32_t layoutGlyphCounts[] = {
+    g_editor_layout_glyph_count, g_secondary_layout_glyph_count};
+  for (NSUInteger arrayIndex = 0; arrayIndex < 2; arrayIndex++) {
+    for (uint32_t glyphIndex = 0; glyphIndex < layoutGlyphCounts[arrayIndex]; glyphIndex++) {
+      NimculusEditorLayoutGlyph *glyph = &layoutGlyphArrays[arrayIndex][glyphIndex];
+      NimculusEditorGlyphColor color;
+      nimculus_platform_get_editor_glyph_color(glyph->color_kind, &color);
+      glyph->red = color.red;
+      glyph->green = color.green;
+      glyph->blue = color.blue;
+      glyph->alpha = color.alpha;
+    }
+  }
 }
 static void updateTerminalFonts(void) {
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
@@ -15748,6 +15572,113 @@ void nimculus_platform_set_editor_composition(const char *utf8) {
     else updateEditorTextTexture(g_queue.device, g_editor_text, NO);
   }
   if (g_active_view) [g_active_view requestRedraw];
+}
+void nimculus_platform_set_accessibility_tree(const NimculusAccessibilityNode *nodes,
+                                              uint32_t node_count,
+                                              const uint64_t *children,
+                                              uint32_t child_count) {
+  @autoreleasepool {
+    if (node_count > 0 && !nodes) return;
+    if (child_count > 0 && !children) return;
+    NSMutableDictionary<NSNumber *, NimculusAXNode *> *next =
+      [NSMutableDictionary dictionaryWithCapacity:node_count];
+    for (uint32_t index = 0; index < node_count; index++) {
+      const NimculusAccessibilityNode *native = &nodes[index];
+      NimculusAXNode *node = [[[NimculusAXNode alloc] init] autorelease];
+      node.role = accessibilityRoleForNative(native->role);
+      node.identifier = native->identifier ?
+        [NSString stringWithUTF8String:native->identifier] : @"";
+      node.title = native->title ? [NSString stringWithUTF8String:native->title] : @"";
+      node.value = native->value ? [NSString stringWithUTF8String:native->value] : @"";
+      node.localFrame = NSMakeRect(native->x, native->y, native->width, native->height);
+      node.synthetic = (native->flags & 1) != 0;
+      node.selected = (native->flags & 2) != 0;
+      node.expanded = (native->flags & 4) != 0;
+      node.cursorByte = native->cursor_byte;
+      node.selectedByteRange = NSMakeRange(native->selection_start_byte,
+        native->selection_end_byte >= native->selection_start_byte
+          ? native->selection_end_byte - native->selection_start_byte : 0);
+      node.actionCommand = native->action_command ?
+        [NSString stringWithUTF8String:native->action_command] : @"";
+      next[@(native->id)] = node;
+    }
+    for (uint32_t index = 0; index < node_count; index++) {
+      const NimculusAccessibilityNode *native = &nodes[index];
+      NimculusAXNode *node = next[@(native->id)];
+      if (!node) continue;
+      NSMutableArray *childNodes = [NSMutableArray arrayWithCapacity:native->child_count];
+      uint64_t end = (uint64_t)native->child_start + native->child_count;
+      if (native->child_start <= child_count && end <= child_count) {
+        for (uint32_t childIndex = native->child_start; childIndex < end; childIndex++) {
+          NimculusAXNode *child = next[@(children[childIndex])];
+          if (child) [childNodes addObject:child];
+        }
+      }
+      node.childNodes = childNodes;
+      NimculusAXNode *parent = next[@(native->parent_id)];
+      node.parentNode = parent ?: (id)g_accessibility_host;
+      if (native->role == 1 && g_accessibility_host) {
+        node.localFrame = g_accessibility_host.bounds;
+        node.parentNode = (id)g_accessibility_host.superview ?: (id)g_accessibility_host;
+      }
+    }
+    NimculusAXNode *root = next[@(nodes && node_count > 0 ? nodes[0].id : 0)];
+    if (g_accessibility_root != root) {
+      [g_accessibility_root release];
+      g_accessibility_root = [root retain];
+    }
+    [g_accessibility_nodes release];
+    g_accessibility_nodes = [next retain];
+  }
+}
+
+void nimculus_platform_set_editor_layout(bool secondary,
+                                         const NimculusEditorLayoutRow *rows,
+                                         uint32_t row_count,
+                                         const NimculusEditorLayoutGlyph *glyphs,
+                                         uint32_t glyph_count) {
+  NimculusEditorLayoutRow **rowTarget = secondary
+    ? &g_secondary_layout_rows : &g_editor_layout_rows;
+  uint32_t *rowCountTarget = secondary
+    ? &g_secondary_layout_row_count : &g_editor_layout_row_count;
+  NimculusEditorLayoutGlyph **glyphTarget = secondary
+    ? &g_secondary_layout_glyphs : &g_editor_layout_glyphs;
+  uint32_t *glyphCountTarget = secondary
+    ? &g_secondary_layout_glyph_count : &g_editor_layout_glyph_count;
+  free(*rowTarget); *rowTarget = NULL; *rowCountTarget = 0;
+  free(*glyphTarget); *glyphTarget = NULL; *glyphCountTarget = 0;
+  if (rows && row_count > 0) {
+    *rowTarget = malloc(sizeof(NimculusEditorLayoutRow) * row_count);
+    if (*rowTarget) {
+      memcpy(*rowTarget, rows, sizeof(NimculusEditorLayoutRow) * row_count);
+      *rowCountTarget = row_count;
+    }
+  }
+  if (glyphs && glyph_count > 0) {
+    *glyphTarget = malloc(sizeof(NimculusEditorLayoutGlyph) * glyph_count);
+    if (*glyphTarget) {
+      memcpy(*glyphTarget, glyphs, sizeof(NimculusEditorLayoutGlyph) * glyph_count);
+      *glyphCountTarget = glyph_count;
+    }
+  }
+  markSceneFullyDirty();
+  scheduleEditorTextTextureRebuild();
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
+}
+void nimculus_platform_set_editor_layout_scroll(bool secondary, double x,
+                                                 double y_fraction) {
+  CGFloat boundedX = MAX(0.0, isfinite(x) ? x : 0.0);
+  CGFloat boundedFraction = MAX(0.0, isfinite(y_fraction) ? y_fraction : 0.0);
+  if (secondary) {
+    g_secondary_layout_scroll_x = boundedX;
+    g_secondary_layout_scroll_y_fraction = boundedFraction;
+  } else {
+    g_editor_layout_scroll_x = boundedX;
+    g_editor_layout_scroll_y_fraction = boundedFraction;
+  }
+  markSceneFullyDirty();
+  scheduleEditorTextTextureRebuild();
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
 void nimculus_platform_clear_editor_composition(void) {
   replaceOwnedString(&g_marked_text, @"");

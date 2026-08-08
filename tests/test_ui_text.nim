@@ -1,9 +1,69 @@
 import std/unittest
 import std/unicode
 import nimnui/nimnui
+import nimnui/text
 import nimculus/editor_view
 
+proc testShaper(text: string, fontSize: Pixels,
+                runs: openArray[FontRun]): LineLayout =
+  result.fontSize = fontSize
+  result.len = text.len
+  result.ascent = px(12)
+  result.descent = px(3)
+  var runeCount = 0
+  for _ in text.runes: inc runeCount
+  result.width = px(float32(runeCount * 8))
+  var shaped = ShapedRun(fontId: if runs.len > 0: runs[0].fontId else: 0)
+  var x = 0'f32
+  var index = 0
+  for rune in text.runes:
+    shaped.glyphs.add(ShapedGlyph(id: uint32(rune.int),
+      position: Point(x: px(x), y: px(0)), index: index,
+      isEmoji: rune.int > 0xFFFF))
+    x += 8
+    index += ($rune).len
+  result.runs = @[shaped]
+
 suite "M2 UI foundation":
+  test "line layout cache transfers the previous frame without rebuilding":
+    let cache = newTestLineLayoutCache(testShaper)
+    let runs = @[FontRun(len: 7, fontId: 0)]
+    let first = cache.layoutLine("one two", px(15), runs)
+    check cache.layoutLine("one two", px(15), runs) == first
+    cache.finishFrame()
+    check cache.layoutLine("one two", px(15), runs) == first
+
+  test "hashed line cache materializes text only on a miss":
+    let cache = newTestLineLayoutCache(testShaper)
+    let runs = @[FontRun(len: 7, fontId: 0)]
+    var materializations = 0
+    let hash = textHash("one two")
+    let first = cache.layoutLineByHash(hash, 7, px(15), runs,
+      proc(): string =
+      inc materializations
+      "one two")
+    let second = cache.layoutLineByHash(hash, 7, px(15), runs,
+      proc(): string =
+      inc materializations
+      "one two")
+    check first == second
+    check materializations == 1
+
+  test "wrap boundaries use shaped glyphs and prefer word candidates":
+    let cache = newTestLineLayoutCache(testShaper)
+    let runs = @[FontRun(len: 7, fontId: 0)]
+    let wrapped = cache.layoutWrappedLine("one two", px(15), runs, 35)
+    check wrapped.wrapBoundaries.len == 1
+    check wrapped.wrapBoundaries[0].glyphIx == 4
+
+  test "emoji state comes from shaped glyphs":
+    let cache = newTestLineLayoutCache(testShaper)
+    let runs = @[FontRun(len: 5, fontId: 0)]
+    let layout = cache.layoutLine("A🙂", px(15), runs)
+    check layout.runs[0].glyphs.len == 2
+    check not layout.runs[0].glyphs[0].isEmoji
+    check layout.runs[0].glyphs[1].isEmoji
+
   test "macOS modifier flags map to shortcut modifiers":
     let flags = (1'u32 shl 17) or (1'u32 shl 18) or
       (1'u32 shl 19) or (1'u32 shl 20)
@@ -563,14 +623,20 @@ suite "M3 text foundation":
     paint.paintOverlay(overlay)
     check paint.commands.len >= 3
 
-  test "precise scroll accumulates sub-line trackpad deltas":
+  test "scroll deltas match Zed pixel and line conversion":
     var remainder = 0'f32
     let lineHeight = editorLineHeight()
+    check abs(scrollPixelDelta(17.7'f32, true, lineHeight) + 17.7'f32) < 0.001'f32
+    check abs(scrollPixelDelta(2'f32, false, lineHeight) +
+      2'f32 * lineHeight) < 0.001'f32
     check scrollLineDelta(remainder, lineHeight / 2'f32, true) == 0
     check remainder < 0'f32
     check scrollLineDelta(remainder, lineHeight / 2'f32, true) == -1
     check scrollLineDelta(remainder, -lineHeight, true) == 1
     check remainder == 0'f32
+    check scrollLineDelta(remainder, -1'f32, false, lineHeight) == 1
+    check remainder == 0'f32
+    check abs(scrollPixelDelta(2'f32, true, lineHeight, 4'f32) + 8'f32) < 0.001'f32
 
   test "editor scroll position preserves sub-line pixels and legacy lines":
     var view = newEditorView()
@@ -584,8 +650,7 @@ suite "M3 text foundation":
     check view.scrollLine == 3
     check abs(view.scrollYFraction - lineHeight / 2'f32) < 0.001'f32
     check abs(view.scrollYPixels - (lineHeight * 3'f32 + lineHeight / 2'f32)) < 0.001'f32
-    var remainder = 0'f32
-    check abs(scrollPixelDelta(remainder, 4'f32, true) + 4'f32) < 0.001'f32
+    check abs(scrollPixelDelta(4'f32, true) + 4'f32) < 0.001'f32
 
   test "legacy row changes retain the fractional viewport phase":
     var view = newEditorView()

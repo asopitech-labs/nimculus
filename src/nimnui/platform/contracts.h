@@ -57,6 +57,61 @@ typedef struct NimculusDiagnosticSpan {
   uint32_t end_byte;
   uint32_t severity;
 } NimculusDiagnosticSpan;
+
+// PlatformTextSystem: one-line shape/raster contract. The framework owns
+// rows, wrapping, cache keys, and decorations; the platform only resolves a
+// font and returns the shaped glyph stream for one line.
+typedef struct NimculusPlatformFontRun {
+  uint32_t len;
+  uint32_t font_id;
+} NimculusPlatformFontRun;
+typedef struct NimculusPlatformGlyph {
+  uint32_t glyph_id;
+  double x;
+  double y;
+  uint32_t index;
+  uint32_t font_id;
+  bool is_emoji;
+} NimculusPlatformGlyph;
+typedef struct NimculusPlatformLineMetrics {
+  double width;
+  double ascent;
+  double descent;
+  uint32_t len;
+  uint32_t glyph_count;
+} NimculusPlatformLineMetrics;
+
+typedef struct NimculusEditorLayoutGlyph {
+  uint32_t glyph_id;
+  float x;
+  float y;
+  uint32_t index;
+  uint32_t font_id;
+  uint32_t color_kind;
+  bool is_emoji;
+  float red;
+  float green;
+  float blue;
+  float alpha;
+} NimculusEditorLayoutGlyph;
+typedef struct NimculusEditorGlyphColor {
+  float red;
+  float green;
+  float blue;
+  float alpha;
+} NimculusEditorGlyphColor;
+typedef struct NimculusEditorLayoutRow {
+  uint32_t source_line;
+  uint32_t display_row;
+  uint32_t source_start_byte;
+  uint32_t segment_start_byte;
+  uint32_t segment_end_byte;
+  uint32_t glyph_start;
+  uint32_t glyph_count;
+  float font_size;
+  float ascent;
+  float descent;
+} NimculusEditorLayoutRow;
 typedef struct NimculusEditorSelection {
   uint32_t start_byte;
   uint32_t end_byte;
@@ -108,6 +163,28 @@ typedef struct NimculusPaintRegion {
   float width;
   float height;
 } NimculusPaintRegion;
+
+typedef struct NimculusAccessibilityNode {
+  uint64_t id;
+  uint64_t parent_id;
+  uint32_t role;
+  uint32_t child_start;
+  uint32_t child_count;
+  float x;
+  float y;
+  float width;
+  float height;
+  uint32_t text_start_byte;
+  uint32_t text_end_byte;
+  uint32_t cursor_byte;
+  uint32_t selection_start_byte;
+  uint32_t selection_end_byte;
+  uint32_t flags;
+  const char *identifier;
+  const char *title;
+  const char *value;
+  const char *action_command;
+} NimculusAccessibilityNode;
 
 typedef void (*NimculusInputCallback)(const NimculusInputEvent *event);
 typedef bool (*NimculusShortcutCallback)(const NimculusInputEvent *event);

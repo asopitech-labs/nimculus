@@ -43,6 +43,7 @@ suite "macOS platform contract":
     check uint32(sizeof(NativeGitHunkSpan)) == platformGitHunkSpanSize()
     check uint32(sizeof(NativePaintCommand)) == platformPaintCommandSize()
     check uint32(sizeof(NativePaintRegion)) == platformPaintRegionSize()
+    check uint32(sizeof(NativeAccessibilityNode)) == platformAccessibilityNodeSize()
 
   test "input counter is monotonic":
     let before = platformInputCount()

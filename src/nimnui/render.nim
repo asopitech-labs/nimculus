@@ -9,7 +9,7 @@ type
     workspaceBackground, workspacePanel, workspaceSeparator, editorActiveLine, editorBackground,
     ## Zed rules the vertical scrollbar's inner edge in its own lighter role
     ## (`scrollbar.track.border`), distinct from the workspace `border`.
-    scrollbarTrack
+    scrollbarTrack, editorDiagnostic
 
   PaintCommand* = object
     kind*: PaintKind
@@ -132,3 +132,6 @@ proc drawEditorBackground*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: editorBackground, bounds: bounds, clip: bounds))
 proc drawScrollbarTrack*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: scrollbarTrack, bounds: bounds, clip: bounds))
+proc drawEditorDiagnostic*(paint: var PaintList, bounds: Rect, severity: int) =
+  paint.add(PaintCommand(kind: editorDiagnostic, bounds: bounds, clip: bounds,
+    imageId: uint32(max(0, severity))))

@@ -19,6 +19,19 @@ type
     startByte*, endByte*, kind*: uint32
   NativeDiagnosticSpan* {.bycopy.} = object
     startByte*, endByte*, severity*: uint32
+  NativeEditorLayoutGlyph* {.bycopy.} = object
+    glyphId*: uint32
+    x*, y*: cfloat
+    index*, fontId*, colorKind*: uint32
+    isEmoji*: bool
+    red*, green*, blue*, alpha*: cfloat
+  NativeEditorGlyphColor* {.bycopy.} = object
+    red*, green*, blue*, alpha*: cfloat
+  NativeEditorLayoutRow* {.bycopy.} = object
+    sourceLine*, displayRow*, sourceStartByte*: uint32
+    segmentStartByte*, segmentEndByte*: uint32
+    glyphStart*, glyphCount*: uint32
+    fontSize*, ascent*, descent*: cfloat
   NativeEditorSelection* {.bycopy.} = object
     startByte*, endByte*, cursorByte*: uint32
   NativeGitHunkSpan* {.bycopy.} = object
@@ -35,6 +48,13 @@ type
     imageId*: uint32
   NativePaintRegion* {.bycopy.} = object
     x*, y*, width*, height*: cfloat
+  NativeAccessibilityNode* {.bycopy.} = object
+    id*, parentId*: uint64
+    role*, childStart*, childCount*: uint32
+    x*, y*, width*, height*: cfloat
+    textStartByte*, textEndByte*, cursorByte*: uint32
+    selectionStartByte*, selectionEndByte*, flags*: uint32
+    identifier*, title*, value*, actionCommand*: cstring
   NativeEditorAnnotation* {.bycopy.} = object
     line*, character*, kind*: uint32
     text*: cstring

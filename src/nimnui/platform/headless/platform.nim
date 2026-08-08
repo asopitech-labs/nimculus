@@ -31,6 +31,7 @@ proc platformEditorAnnotationSize*(): uint32 = uint32(sizeof(NativeEditorAnnotat
 proc platformGitHunkSpanSize*(): uint32 = uint32(sizeof(NativeGitHunkSpan))
 proc platformPaintCommandSize*(): uint32 = uint32(sizeof(NativePaintCommand))
 proc platformPaintRegionSize*(): uint32 = uint32(sizeof(NativePaintRegion))
+proc platformAccessibilityNodeSize*(): uint32 = uint32(sizeof(NativeAccessibilityNode))
 
 when not defined(windows):
   proc platformSetInputCallback*(callback: InputCallback) =
@@ -91,6 +92,12 @@ when not defined(windows):
   proc platformSetEditorSelection*(startByte, endByte: uint32) = discard (startByte, endByte)
 when not defined(windows):
   proc platformSetEditorText*(text: cstring, length: uint32) = discard (text, length)
+proc platformSetEditorLayout*(secondary: bool, rows: ptr NativeEditorLayoutRow,
+      rowCount: uint32, glyphs: ptr NativeEditorLayoutGlyph,
+      glyphCount: uint32) = discard (secondary, rows, rowCount, glyphs, glyphCount)
+proc platformSetAccessibilityTree*(nodes: ptr NativeAccessibilityNode,
+    nodeCount: uint32, children: ptr uint64, childCount: uint32) = discard (
+      nodes, nodeCount, children, childCount)
 proc platformSetEditorOutline*(text: cstring, length, symbolCount: uint32) = discard (text, length, symbolCount)
 when not defined(windows):
   proc platformSetTerminalVisible*(visible: bool) = discard visible
