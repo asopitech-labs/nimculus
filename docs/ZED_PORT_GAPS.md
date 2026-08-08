@@ -48,11 +48,11 @@ Zed 側にあるモジュールで、Nimculus 側に対応物が見当たらな�
 | `gestures.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `TouchEvent` からジェスチャを認識する語彙を framework に持つ。こちらの `gesture` という語はコメント中の用法のみで、ピンチ・回転・スワイプの認識が無い。macOS のトラックパッド操作に関わる |
 | `asset_cache.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は非同期に解決したアセットをキャッシュする。こちらにアセットの概念自体が無い（アイコンは AppKit の SF Symbols / NSImage 直結） |
 | `arena.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `window.rs:273` で `ELEMENT_ARENA: RefCell<Arena>`（1MB）をフレームごとの要素確保に使う。こちらは Nim の GC 任せ。スクロールのプロファイルに malloc/free が出ていたので、実測で効く可能性がある |
-| `executor.rs` / `platform_scheduler.rs` / `queue.rs` | 見当たらない | **未確認**。非同期実行基盤 |
-| `inspector.rs` | 見当たらない（`macos_platform.m` の言及は別物） | **未確認**。UI デバッグ用インスペクタ |
-| `style.rs` / `styled.rs` / `color.rs` / `colors.rs` | `src/nimculus/settings.nim` のテーマ表 | **未確認** |
-| `element.rs` / `view.rs` / `interactive.rs` | `src/nimnui/ui_tree.nim` / `controls.nim` / `events.nim` | **未確認** |
-| `profiler.rs` | 見当たらない | **未確認** |
+| `executor.rs` / `platform_scheduler.rs` / `queue.rs` | `src/nimculus/poll_scheduler.nim`（アイドル間隔の調整のみ） | **方式が違う（2026-08-09 確認）**。Zed は `BackgroundExecutor` / `ForegroundExecutor` に future を `spawn` し、優先度も指定できる（executor.rs:14,22,89,101,314）。こちらに非同期実行基盤は無く、LSP は `poll()`（lsp.nim:811）をイベントループから叩き、プロセス終了は `waitForExit` で同期的に待つ。`git rev-parse` を同期で待って UI をブロックしていた過去の不具合（handoff §5）はこの構造に由来する |
+| `inspector.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `InspectorElementId` で要素を一意に指し、デバッグビルドで UI を調査できる。開発用途なので優先度は低いが、Accessibility Tree が入った今は identifier が既にあるので土台はある |
+| `style.rs` / `styled.rs` / `color.rs` / `colors.rs` | `src/nimculus/settings.nim`（`ThemeColors`、settings.nim:315,629） | **部分移植（2026-08-09 確認）**。色の役割表は移植済みで実描画値まで合わせてある。一方 `style.rs` のレイアウト部分（`Style`）は `taffy.rs` の行を参照。`styled.rs` に相当する「要素にスタイルを積む API」は無く、コントロールごとに個別実装 |
+| `element.rs` / `view.rs` / `interactive.rs` | `src/nimnui/ui_tree.nim` / `controls.nim` / `events.nim` | **部分移植（2026-08-09 確認）**。要素ツリー・コントロール記述子・capture/target/bubble のイベント段階は移植済み。`a11y_role` / `write_a11y_info`（element.rs:112,120）も移植した。未確認は `view.rs` の状態保持モデルと `interactive.rs` のドラッグ&ドロップ・ツールチップ経路 |
+| `profiler.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は spawn 時刻を集計する自前プロファイラを持つ。こちらは `sample`(1) と `tools/ui_test.sh profile` で外から測っている。今回の作業ではそれで足りたので優先度は低い |
 
 ## gpui_macos（platform）
 
@@ -62,14 +62,42 @@ Zed 側にあるモジュールで、Nimculus 側に対応物が見当たらな�
 | `metal_atlas.rs` | `macos_platform.m` のグリフアトラス | 部分移植（キーは `RenderGlyphParams` 相当へ移植済み） |
 | `text_system.rs` | `macos_platform.m` の 1 行シェープ契約 | 移植済み |
 | `window.rs`（a11y adapter を含む） | `macos_platform.m` | a11y 部分は**移植漏れ確定** |
-| `display_link.rs` | `macos_platform.m`（DisplayLink 経路あり） | **未確認** |
-| `open_type.rs` | 見当たらない | **未確認**。フォントフィーチャ |
-| `pasteboard.rs` | `macos_platform.m`（クリップボード契約あり） | **未確認** |
-| `screen_capture.rs` | 見当たらない | **未確認** |
-| `dispatcher.rs` | 見当たらない | **未確認** |
-| `keyboard.rs` / `events.rs` | `macos_platform.m` | **未確認** |
-| `window_appearance.rs` | `macos_platform.m` のテーマ経路 | **未確認** |
-| `display.rs` | `macos_platform.m` | **未確認** |
+| `display_link.rs` | `macos_platform.m:8243` `displayLinkDidFire:` / `:8250` `requestRedraw` | **移植済み（2026-08-09 確認）**。DisplayLink が唯一のフレーム所有者で、入力は dirty を立てるだけ。`preferredFrameRateRange` を画面の `maximumFramesPerSecond` に合わせる（60–120）。Zed が `CVDisplayLink` を使うのに対しこちらは `CADisplayLink`（macOS 14+ の後継 API） |
+| `open_type.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は OpenType フィーチャ（合字・字形代替など）を指定できる。`kCTFontFeature` 系の指定がこちらに無く、`buffer_font_features` 相当の設定も無い |
+| `pasteboard.rs` | `macos_platform.m:15970-15990` | **部分移植（2026-08-09 確認）**。`NSPasteboardTypeString` を UTF-8 データとして読み書きする点は Zed に合わせてある（コメントに明記）。Zed が扱う `NSPasteboardTypePNG`（画像）と `NSFilenamesPboardType`（ファイル）は未対応 |
+| `screen_capture.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は画面共有のためにアプリ内で ScreenCaptureKit を扱う。こちらは 0 箇所。UI テストのキャプチャは `tools/window_capture.swift`（外部ツール）で行っており別物 |
+| `dispatcher.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `dispatch`（優先度つき）と `dispatch_after` を platform に持ち、`executor.rs` の土台になる。framework 側の `executor.rs` の行と同根の欠落 |
+| `keyboard.rs` / `events.rs` | `macos_platform.m` の `logInput` / `receiveNativeInput` | **部分移植（2026-08-09 確認）**。ホイールの `ScrollDelta`（precise/lines の分岐）は今回 Zed の式に合わせた。キーボードのレイアウト変更追従（`keyboard.rs`）は未確認 |
+| `window_appearance.rs` | `macos_platform.m:15461` `effectiveAppearance` | **移植済み（2026-08-09 確認）**。`NSAppearanceNameAqua` / `NSAppearanceNameDarkAqua` を照合してテーマに反映する。Zed は Vibrant 系も見るが、こちらは Vibrant を使っていない |
+| `display.rs` | `macos_platform.m:8275,10737,11000`（`NSScreen`） | **部分移植（2026-08-09 確認）**。画面のリフレッシュレートとスクリーン数の参照はある。Zed の `PlatformDisplay`（ID・境界の抽象）に相当する型は無く、複数モニタをまたぐウィンドウ配置の扱いは未確認 |
+
+## 棚卸しの結果（2026-08-09、全 22 行を確認）
+
+| 状態 | 件数 | 内訳 |
+| --- | --- | --- |
+| 移植済み | 5 | `line_layout.rs`、`text_system.rs`(platform)、`display_link.rs`、`window_appearance.rs`、`a11y`（今回） |
+| 部分移植 | 9 | `taffy/style`、`tab_stop`、`key_dispatch`、`scene`、`metal_renderer`、`metal_atlas`、`element/view/interactive`、`pasteboard`、`display` |
+| 方式が違う | 2 | `svg_renderer`（AppKit 直結）、`executor`/`scheduler`/`queue`（非同期基盤が無い） |
+| 移植漏れ | 8 | `bounds_tree`、`path_builder`、`gestures`、`asset_cache`、`arena`、`inspector`、`profiler`、`open_type`、`screen_capture`、`dispatcher` |
+
+### 実測で効きそうな順
+
+1. **`arena.rs`** — スクロールのプロファイルに malloc/free が出ていた。フレームごとの
+   要素確保を Zed と同じアリーナにすれば減る可能性がある。**次に着手する候補**
+2. **`executor.rs` + `dispatcher.rs`** — 非同期実行基盤が無いため、LSP は
+   `poll()` をイベントループから叩き、外部プロセスは `waitForExit` で同期的に待つ。
+   `git rev-parse` の同期待ちで UI がブロックしていた不具合（handoff §5）と同根。
+   **構造的な欠落としては最大**
+3. **`bounds_tree.rs`** — `hitTest` が全ノード線形走査。ノード数が増えると効く
+4. **`taffy/style` の絶対配置・margin・overflow** — 新しい UI を作るときに要る
+
+### 機能として欠けている順
+
+1. **`gestures.rs`** — トラックパッドのピンチ・回転・スワイプ。macOS では体感に直結
+2. **`path_builder.rs`** — 任意ベクタパス。アイコンや装飾の表現力
+3. **`open_type.rs`** — 合字・字形代替。`buffer_font_features` 相当の設定も無い
+4. **`pasteboard`** の画像・ファイル貼り付け
+5. **`asset_cache.rs`**、**`svg_renderer.rs`** — アセットの概念自体が無い
 
 ## 進め方
 
