@@ -24,18 +24,26 @@ type
     totalRows*: int
     widestWidth*: float32
 
-proc lineTextBounds(buffer: PieceTable, line: int): tuple[start, length: int] =
+proc inlineBlameStartX*(lineEnd, emWidth, spaceWidth: float32; padding, minColumn: int;
+                        scrollX = 0'f32): float32 =
+  ## Both candidates are measured before scrolling; apply the viewport offset
+  ## once at the final text-rendering boundary.
+  let paddedLineEnd = lineEnd + float32(max(0, padding)) * max(0'f32, emWidth)
+  let minStart = float32(max(0, minColumn)) * max(0'f32, spaceWidth)
+  max(paddedLineEnd, minStart) - max(0'f32, scrollX)
+
+proc lineTextBounds(buffer: PieceTable; line: int): tuple[start, length: int] =
   if buffer.lineStarts.len == 0: return
   let sourceLine = max(0, min(line, buffer.lineStarts.high))
   result.start = buffer.lineStarts[sourceLine]
   result.length = max(0, buffer.lineEndByteOffset(sourceLine) - result.start)
 
-proc lineText(buffer: PieceTable, line: int): string =
+proc lineText(buffer: PieceTable; line: int): string =
   let bounds = buffer.lineTextBounds(line)
   buffer.substring(bounds.start, bounds.start + bounds.length)
 
-proc fontRunsForLine(lineStart, textLength: int,
-                     decorations: openArray[TextDecoration],
+proc fontRunsForLine(lineStart, textLength: int;
+                     decorations: openArray[TextDecoration];
                      decorationIndex: var int): seq[FontRun] =
   ## This is the app-side equivalent of Zed's `LineWithInvisibles::from_chunks`:
   ## consume the already ordered, non-overlapping highlight chunks once and
@@ -49,7 +57,7 @@ proc fontRunsForLine(lineStart, textLength: int,
       decorations[decorationIndex].endByte <= lineStart:
     inc decorationIndex
 
-  template appendRun(runLength: int, runFontId: uint32) =
+  template appendRun(runLength: int; runFontId: uint32) =
     if runLength <= 0: return
     if result.len > 0 and result[^1].fontId == runFontId:
       result[^1].len += runLength
@@ -75,25 +83,25 @@ proc fontRunsForLine(lineStart, textLength: int,
   decorationIndex = scanIndex
   if cursor < textLength: appendRun(textLength - cursor, 0)
 
-proc decorationKindAt*(byteOffset: int, decorations: openArray[TextDecoration]): int =
+proc decorationKindAt*(byteOffset: int; decorations: openArray[TextDecoration]): int =
   for decoration in decorations:
     if byteOffset >= decoration.startByte and byteOffset < decoration.endByte:
       return decoration.kind
   -1
 
-proc glyphByteAt(layout: LineLayout, runIx, glyphIx: int): int =
+proc glyphByteAt(layout: LineLayout; runIx, glyphIx: int): int =
   if runIx < 0 or runIx >= layout.runs.len: return layout.len
   if glyphIx < 0 or glyphIx >= layout.runs[runIx].glyphs.len: return layout.len
   layout.runs[runIx].glyphs[glyphIx].index
 
-proc xAt(layout: LineLayout, byteOffset: int): float32 =
+proc xAt(layout: LineLayout; byteOffset: int): float32 =
   for run in layout.runs:
     for glyph in run.glyphs:
       if glyph.index >= byteOffset: return float32(glyph.position.x)
   float32(layout.width)
 
-proc addWrappedRows(result: var EditorTextLayout, sourceLine, displayBase,
-                    sourceStart, textLength: int, wrapped: ref WrappedLineLayout,
+proc addWrappedRows(result: var EditorTextLayout; sourceLine, displayBase,
+                    sourceStart, textLength: int; wrapped: ref WrappedLineLayout;
                     decorations: openArray[TextDecoration]) =
   var starts = @[0]
   for boundary in wrapped.wrapBoundaries:
@@ -121,10 +129,10 @@ proc addWrappedRows(result: var EditorTextLayout, sourceLine, displayBase,
             float32(positioned.position.x) + 1'f32)
     result.rows.add(row)
 
-proc buildVisibleEditorLayout*(buffer: PieceTable, firstLine, visibleRows: int,
-                               wrap: bool, wrapWidth: float32, fontSize: Pixels,
-                               cache: LineLayoutCache,
-                               decorations: openArray[TextDecoration],
+proc buildVisibleEditorLayout*(buffer: PieceTable; firstLine, visibleRows: int;
+                               wrap: bool; wrapWidth: float32; fontSize: Pixels;
+                               cache: LineLayoutCache;
+                               decorations: openArray[TextDecoration];
                                folds: openArray[FoldRange]): EditorTextLayout =
   ## Zed's `layout_lines(rows)`/`LineWithInvisibles::from_chunks` boundary:
   ## consume only the requested display-row window and keep each decoration
@@ -161,10 +169,10 @@ proc buildVisibleEditorLayout*(buffer: PieceTable, firstLine, visibleRows: int,
     inc sourceLine
   result
 
-proc displayRowsBeforeLine*(buffer: PieceTable, lineLimit: int, wrap: bool,
-                            wrapWidth: float32, fontSize: Pixels,
-                            cache: LineLayoutCache,
-                            decorations: openArray[TextDecoration],
+proc displayRowsBeforeLine*(buffer: PieceTable; lineLimit: int; wrap: bool;
+                            wrapWidth: float32; fontSize: Pixels;
+                            cache: LineLayoutCache;
+                            decorations: openArray[TextDecoration];
                             folds: openArray[FoldRange]): int =
   ## The display-row answer is produced by the same WrappedLineLayout cache
   ## used by painting. There is no platform-side row-count path.
@@ -187,17 +195,17 @@ proc displayRowsBeforeLine*(buffer: PieceTable, lineLimit: int, wrap: bool,
       wrapWidth, proc(): string = lineText(buffer, sourceLine), wrap)
     result += wrappedRowCount(layout[])
 
-proc displayRowCount*(buffer: PieceTable, wrap: bool, wrapWidth: float32,
-                      fontSize: Pixels, cache: LineLayoutCache,
-                      decorations: openArray[TextDecoration],
+proc displayRowCount*(buffer: PieceTable; wrap: bool; wrapWidth: float32;
+                      fontSize: Pixels; cache: LineLayoutCache;
+                      decorations: openArray[TextDecoration];
                       folds: openArray[FoldRange]): int =
   displayRowsBeforeLine(buffer, buffer.lineStarts.len, wrap, wrapWidth, fontSize,
     cache, decorations, folds)
 
-proc sourceLineForDisplayRow*(buffer: PieceTable, displayRow: int, wrap: bool,
-                             wrapWidth: float32, fontSize: Pixels,
-                             cache: LineLayoutCache,
-                             decorations: openArray[TextDecoration],
+proc sourceLineForDisplayRow*(buffer: PieceTable; displayRow: int; wrap: bool;
+                             wrapWidth: float32; fontSize: Pixels;
+                             cache: LineLayoutCache;
+                             decorations: openArray[TextDecoration];
                              folds: openArray[FoldRange]): int =
   var row = max(0, displayRow)
   var decorationIndex = 0

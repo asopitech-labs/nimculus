@@ -154,6 +154,7 @@ proc platformShowEditorTabContext*(paneIndex, tabIndex: uint32, isPinned,
 proc platformRevealPath*(path: cstring) {.importc: "nimculus_platform_reveal_path", cdecl.}
 proc platformSetCommandCallback*(callback: CommandCallback) {.importc: "nimculus_platform_set_command_callback", cdecl.}
 proc platformSetIdleCallback*(callback: IdleCallback) {.importc: "nimculus_platform_set_idle_callback", cdecl.}
+proc platformSetIdleForBlame*(requested: bool) {.importc: "nimculus_platform_set_idle_for_blame", cdecl.}
 proc platformSetFrameCallback*(callback: FrameCallback) {.importc: "nimculus_platform_set_frame_callback", cdecl.}
 proc platformSetEditorCursor*(x, y: cdouble) {.importc: "nimculus_platform_set_editor_cursor", cdecl.}
 proc platformSetEditorCursorByte*(byteOffset, line: uint32) {.importc: "nimculus_platform_set_editor_cursor_byte", cdecl.}
@@ -238,6 +239,9 @@ proc platformSetEditorLayout*(secondary: bool, rows: ptr NativeEditorLayoutRow,
     glyphCount: uint32) {.importc: "nimculus_platform_set_editor_layout", cdecl.}
 proc platformSetEditorLayoutScroll*(secondary: bool, x, yFraction: cdouble)
     {.importc: "nimculus_platform_set_editor_layout_scroll", cdecl.}
+proc platformSetEditorInlineBlame*(secondary, visible: bool, sourceLine: uint32,
+    text: cstring, padding, minColumn: int) {.importc: "nimculus_platform_set_editor_inline_blame",
+    cdecl.}
 proc platformSetAccessibilityTree*(nodes: ptr NativeAccessibilityNode,
     nodeCount: uint32, children: ptr uint64, childCount: uint32)
     {.importc: "nimculus_platform_set_accessibility_tree", cdecl.}

@@ -4,6 +4,7 @@ import std/strutils
 import std/unittest
 import std/tables
 import std/sequtils
+import std/options
 import nimculus/settings
 import nimculus/status_bar
 import nimculus/time_format
@@ -469,11 +470,21 @@ suite "M12 settings foundation":
     check defaults.gitInlineBlameEnabled()
     check defaults.gitInlineBlameLocation() == "inline"
     check not defaults.gitInlineBlameShowCommitSummary()
+    check defaults.gitInlineBlameDelayMs() == DefaultGitInlineBlameDelayMs
+    check defaults.gitInlineBlameDelay().isNone
+    check defaults.gitInlineBlamePadding() == DefaultGitInlineBlamePadding
+    check defaults.gitInlineBlameMinColumn() == DefaultGitInlineBlameMinColumn
     let schema = settingsSchema()["properties"]["git"]["properties"]["inlineBlame"]["properties"]
     check schema["enabled"]["default"].getBool
     check schema["location"]["enum"].getElems.mapIt(it.getStr) == @["inline", "status_bar"]
     check schema["location"]["default"].getStr == "inline"
     check not schema["showCommitSummary"]["default"].getBool
+    check schema["delayMs"]["default"].getInt == DefaultGitInlineBlameDelayMs
+    check schema["padding"]["default"].getInt == DefaultGitInlineBlamePadding
+    check schema["minColumn"]["default"].getInt == DefaultGitInlineBlameMinColumn
+    let configuredDiagnostics = validateSettings(parseJson(
+      "{\"git\":{\"inlineBlame\":{\"delayMs\":-1,\"padding\":\"7\",\"minColumn\":1.5}}}"))
+    check configuredDiagnostics.len == 3
     let diagnostics = validateSettings(parseJson(
       "{\"git\":{\"inlineBlame\":{\"enabled\":1,\"location\":\"footer\",\"showCommitSummary\":\"yes\"}}}"))
     check diagnostics.len == 3
@@ -483,6 +494,12 @@ suite "M12 settings foundation":
     let root = getTempDir() / "nimculus-git-blame-status-settings"
     createDir(root)
     let path = root / "settings.json"
+    writeFile(path, "{\"git\":{\"inlineBlame\":{\"delayMs\":120,\"padding\":9,\"minColumn\":24}}}")
+    let configuredStore = newSettingsStore(path, "", "")
+    check configuredStore.gitInlineBlameDelayMs() == 120
+    check configuredStore.gitInlineBlameDelay().get.inMilliseconds == 120
+    check configuredStore.gitInlineBlamePadding() == 9
+    check configuredStore.gitInlineBlameMinColumn() == 24
     writeFile(path, "{\"git\":{\"inlineBlame\":{\"location\":\"status_bar\"}}}")
     let statusStore = newSettingsStore(path, "", "")
     let statusItems = statusBarFooter(statusStore, "1:1", "UTF-8", "LF", "Nim", "main.nim",

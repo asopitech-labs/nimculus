@@ -41,6 +41,9 @@ fi
 if [ "$MODE" = selection ]; then
   TEST_ARGS+=(-only-testing:"$SCHEME/ZedParityTests/testCaptureMultiLineSelection")
 fi
+if [ "$MODE" = blame ]; then
+  TEST_ARGS+=(-only-testing:"$SCHEME/ZedParityTests/testCaptureInlineBlame")
+fi
 
 # `profile` samples both editors while the same scroll test drives them, so the
 # two profiles are directly comparable. The remaining gap against Zed has been

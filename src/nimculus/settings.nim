@@ -1,9 +1,11 @@
 import std/json
 import std/hashes
 import std/os
+import std/options
 import std/strutils
 import std/tables
 import std/algorithm
+import std/times
 
 type
   SettingsDiagnostic* = object
@@ -110,6 +112,9 @@ const DefaultSearchButton* = true
 const DefaultGitInlineBlameEnabled* = true
 const DefaultGitInlineBlameLocation* = "inline"
 const DefaultGitInlineBlameShowCommitSummary* = false
+const DefaultGitInlineBlameDelayMs* = 0
+const DefaultGitInlineBlamePadding* = 7
+const DefaultGitInlineBlameMinColumn* = 0
 
 const
   DefaultProjectPanelDock* = "right"
@@ -216,6 +221,12 @@ proc validateSettings*(root: JsonNode): seq[SettingsDiagnostic] =
     let value = nodeAt(root, key)
     if value != nil and value.kind != JBool:
       result.add(SettingsDiagnostic(path: key, message: "must be a boolean"))
+  for key in ["git.inlineBlame.delayMs", "git.inlineBlame.padding", "git.inlineBlame.minColumn"]:
+    let value = nodeAt(root, key)
+    if value != nil and value.kind != JInt:
+      result.add(SettingsDiagnostic(path: key, message: "must be an integer"))
+    elif value != nil and value.getInt < 0:
+      result.add(SettingsDiagnostic(path: key, message: "must be non-negative"))
   let inlineBlameLocation = nodeAt(root, "git.inlineBlame.location")
   if inlineBlameLocation != nil and (inlineBlameLocation.kind != JString or
       inlineBlameLocation.getStr notin ["inline", "status_bar"]):
@@ -345,7 +356,10 @@ proc settingsSchema*(): JsonNode =
         "enabled": {"type": "boolean", "default": true},
         "location": {"type": "string", "enum": ["inline", "status_bar"],
           "default": "inline"},
-        "showCommitSummary": {"type": "boolean", "default": false}
+        "showCommitSummary": {"type": "boolean", "default": false},
+        "delayMs": {"type": "integer", "minimum": 0, "default": 0},
+        "padding": {"type": "integer", "minimum": 0, "default": 7},
+        "minColumn": {"type": "integer", "minimum": 0, "default": 0}
       }}
     }},
     "theme": {"type": "string"},
@@ -781,6 +795,23 @@ proc gitInlineBlameShowCommitSummary*(store: SettingsStore): bool =
   if store == nil: DefaultGitInlineBlameShowCommitSummary
   else: store.boolSetting("git.inlineBlame.showCommitSummary",
     DefaultGitInlineBlameShowCommitSummary)
+
+proc gitInlineBlameDelayMs*(store: SettingsStore): int =
+  if store == nil: DefaultGitInlineBlameDelayMs
+  else: max(0, store.intSetting("git.inlineBlame.delayMs", DefaultGitInlineBlameDelayMs))
+
+proc gitInlineBlameDelay*(store: SettingsStore): Option[Duration] =
+  let delayMs = store.gitInlineBlameDelayMs()
+  if delayMs == 0: none(Duration)
+  else: some(initDuration(milliseconds = delayMs))
+
+proc gitInlineBlamePadding*(store: SettingsStore): int =
+  if store == nil: DefaultGitInlineBlamePadding
+  else: max(0, store.intSetting("git.inlineBlame.padding", DefaultGitInlineBlamePadding))
+
+proc gitInlineBlameMinColumn*(store: SettingsStore): int =
+  if store == nil: DefaultGitInlineBlameMinColumn
+  else: max(0, store.intSetting("git.inlineBlame.minColumn", DefaultGitInlineBlameMinColumn))
 
 proc editorFontFeatures*(store: SettingsStore): seq[EditorFontFeature] =
   let node = nodeAt(store.values, "editor.fontFeatures")

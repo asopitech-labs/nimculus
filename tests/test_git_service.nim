@@ -25,6 +25,13 @@ proc m9TempDir(label: string): string =
     $int(epochTime() * 1_000_000))
 
 suite "M9 Git service":
+  test "Git blame cache remembers an unavailable repository by document version":
+    var cache: GitBlameCache
+    cache.beginUnavailable("/tmp/DEVELOPMENT_GUIDELINES.md", 4)
+    check cache.unavailableMatches("/tmp/DEVELOPMENT_GUIDELINES.md", 4)
+    check not cache.unavailableMatches("/tmp/DEVELOPMENT_GUIDELINES.md", 5)
+    check not cache.unavailableMatches("/tmp/other.md", 4)
+
   test "Git blame cache is keyed by document version, not cursor line":
     var cache: GitBlameCache
     cache.begin("/repo", "/repo/main.nim", 7)

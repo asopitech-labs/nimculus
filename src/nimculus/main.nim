@@ -828,6 +828,10 @@ when defined(macosx):
 proc applySettingsTheme() =
   when defined(macosx) or defined(windows):
     if appSettings == nil: return
+    # Native font features/fallbacks own the font identity used by the cached
+    # shaped glyphs. Drop those IDs before applying a new native font setup so
+    # a later layout publish cannot reuse IDs from the previous registry.
+    editorLineLayoutCache = nil
     let configuredFeatures = appSettings.editorFontFeatures()
     var nativeFeatures = newSeq[NativeEditorFontFeature](configuredFeatures.len)
     var featureTags = newSeq[string](configuredFeatures.len)
@@ -1010,6 +1014,15 @@ when defined(macosx):
   var editorGitBlameEntry = GitBlameLine()
   var editorGitBlameLoaded = false
   var editorGitBlameLineEmpty = false
+  var editorGitBlameSuppressed = false
+  var editorGitBlameSuppressedPath = ""
+  var editorGitBlameSuppressedVersion = 0'u64
+  var editorGitBlameSuppressedSettingsGeneration = 0'u64
+  var editorGitBlameUnavailableSettingsGeneration = 0'u64
+  var editorGitBlameSettingsGeneration = 0'u64
+  var editorGitBlameInlineShown = false
+  var editorGitBlameDelayGeneration = 0'u64
+  var editorGitBlameConfiguredDelayMs = -1
   var editorGitRepository: GitRepository
   var editorGitPath = ""
   var editorSecondaryGitPath = ""
@@ -1349,6 +1362,12 @@ when defined(macosx):
         let location = activeWorkspace.splitWorkspacePath(document[].path)
         if hasCachedGitRepository(location.root):
           return cachedGitRepository(location.root)
+        # A document is already open, so preserve the established direct-path
+        # resolution boundary while the workspace probe is still pending.
+        # This also keeps Git features usable when the background completion
+        # is delayed by a cold executor or a freshly-created worktree.
+        let directRepository = repositoryForPath(document[].path)
+        if directRepository != nil: return directRepository
         if backgroundExecutor != nil and
             (pendingGitRepository == nil or pendingGitRepositoryRoot != location.root):
           pendingGitRepositoryRoot = location.root
@@ -4218,6 +4237,7 @@ proc reloadWorkspaceSettings(root: string) =
     # the previous and new files happen to have the same timestamp.
     appSettings.workspaceStamp = -1
     discard appSettings.reload()
+    when defined(macosx): inc editorGitBlameSettingsGeneration
     editorWorkspaceUi.applyPanelDockSettings(appSettings)
     editorWorkspaceUi.saveWorkspaceUi(editorSession)
     applySettingsKeymap()
@@ -4913,6 +4933,8 @@ proc moveActiveEditorCursor(offset: int, selecting = false) =
   editorSession.moveActivePaneCursor(editorViewState, offset, selecting)
 
 when defined(macosx):
+  proc syncNativeEditorStatus(document: ptr FileDocument)
+
   proc cancelNativeGitBlame() =
     if editorGitBlameJob != nil and not editorGitBlameJob.done:
       editorGitBlameJob.cancel()
@@ -4920,30 +4942,72 @@ when defined(macosx):
 
   proc resetNativeGitBlame() =
     cancelNativeGitBlame()
+    platformSetIdleForBlame(false)
+    inc editorGitBlameDelayGeneration
     editorGitBlameCache.reset()
     editorGitBlameLine = -1
     editorGitBlameEntry = GitBlameLine()
     editorGitBlameLoaded = false
     editorGitBlameLineEmpty = false
+    editorGitBlameInlineShown = false
+    editorGitBlameConfiguredDelayMs = -1
+    editorGitBlameSuppressed = false
 
-  proc scheduleNativeGitBlame(document: ptr FileDocument) =
-    let enabled = appSettings != nil and appSettings.gitInlineBlameEnabled()
-    let statusLocation = appSettings != nil and
-      appSettings.gitInlineBlameLocation() == "status_bar"
-    if not enabled or not statusLocation or document == nil or document[].path.len == 0:
-      resetNativeGitBlame()
+  proc suppressNativeGitBlame(documentPath: string; documentVersion: uint64) =
+    if editorGitBlameSuppressed and editorGitBlameSuppressedPath == documentPath and
+        editorGitBlameSuppressedVersion == documentVersion and
+        editorGitBlameSuppressedSettingsGeneration == editorGitBlameSettingsGeneration:
       return
+    resetNativeGitBlame()
+    editorGitBlameSuppressed = true
+    editorGitBlameSuppressedPath = documentPath
+    editorGitBlameSuppressedVersion = documentVersion
+    editorGitBlameSuppressedSettingsGeneration = editorGitBlameSettingsGeneration
+
+  proc scheduleNativeGitBlame(document: ptr FileDocument): bool =
+    let documentPath = if document == nil: "" else: document[].path
+    let documentVersion = if document == nil: 0'u64 else: document[].buffer.version
+    if editorGitBlameCache.unavailableMatches(documentPath, documentVersion) and
+        editorGitBlameUnavailableSettingsGeneration == editorGitBlameSettingsGeneration:
+      return false
+    if editorGitBlameSuppressed and editorGitBlameSuppressedPath == documentPath and
+        editorGitBlameSuppressedVersion == documentVersion and
+        editorGitBlameSuppressedSettingsGeneration == editorGitBlameSettingsGeneration:
+      return false
+    let enabled = appSettings != nil and appSettings.gitInlineBlameEnabled()
+    let location = if appSettings == nil: "" else: appSettings.gitInlineBlameLocation()
+    if not enabled or location notin ["inline", "status_bar"] or document == nil or
+        document[].path.len == 0:
+      let changed = not editorGitBlameSuppressed or
+        editorGitBlameSuppressedPath != documentPath or
+        editorGitBlameSuppressedVersion != documentVersion
+      suppressNativeGitBlame(documentPath, documentVersion)
+      return changed
+    editorGitBlameSuppressed = false
     let repository = gitRepositoryForDocument(document)
     let relative = gitRelativePathForDocument(document, repository)
     if repository == nil or relative.len == 0:
-      resetNativeGitBlame()
-      return
+      cancelNativeGitBlame()
+      platformSetIdleForBlame(false)
+      inc editorGitBlameDelayGeneration
+      editorGitBlameCache.beginUnavailable(documentPath, documentVersion)
+      editorGitBlameUnavailableSettingsGeneration = editorGitBlameSettingsGeneration
+      editorGitBlameLine = -1
+      editorGitBlameEntry = GitBlameLine()
+      editorGitBlameLoaded = true
+      editorGitBlameLineEmpty = false
+      editorGitBlameInlineShown = false
+      editorGitBlameConfiguredDelayMs = -1
+      return true
     let line = max(0, document[].buffer.lineColumn(activeEditorCursor()).line)
     let lineEmpty = document[].buffer.lineIsEmpty(line)
     let repositoryRoot = repository.root
-    let documentVersion = document[].buffer.version
     let sameDocument = editorGitBlameCache.matches(repositoryRoot, document[].path,
       documentVersion)
+    let previousLine = editorGitBlameLine
+    let delayMs = if appSettings == nil: DefaultGitInlineBlameDelayMs
+      else: appSettings.gitInlineBlameDelayMs()
+    let delayChanged = delayMs != editorGitBlameConfiguredDelayMs
     if sameDocument:
       editorGitBlameLine = line
       editorGitBlameLineEmpty = lineEmpty
@@ -4957,9 +5021,24 @@ when defined(macosx):
       editorGitBlameLineEmpty = lineEmpty
       editorGitBlameEntry = GitBlameLine()
       editorGitBlameLoaded = false
+    if not sameDocument or previousLine != line or delayChanged:
+      editorGitBlameConfiguredDelayMs = delayMs
+      inc editorGitBlameDelayGeneration
+      if delayMs > 0:
+        editorGitBlameInlineShown = false
+        let generation = editorGitBlameDelayGeneration
+        platformDispatcher.delayed(uint64(delayMs) * 1_000_000'u64, proc() {.gcsafe.} =
+          if generation == editorGitBlameDelayGeneration:
+            editorGitBlameInlineShown = true)
+      else:
+        editorGitBlameInlineShown = true
+    platformSetIdleForBlame(not editorGitBlameCache.loaded or editorGitBlameJob != nil or
+      (delayMs > 0 and not editorGitBlameInlineShown))
     if not editorGitBlameCache.shouldStart(repositoryRoot, document[].path, documentVersion,
-        lineEmpty, editorGitBlameJob != nil): return
+        lineEmpty, editorGitBlameJob != nil): return true
     editorGitBlameJob = repository.startGitJob(["blame", "--line-porcelain", "--", relative])
+    platformSetIdleForBlame(true)
+    true
 
   proc pollNativeGitBlame() =
     if editorGitBlameJob == nil or not editorGitBlameJob.poll(): return
@@ -4979,7 +5058,7 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
   when defined(macosx):
     let blameDocument = if editorSession.split and editorSession.splitActivePane == 1:
       secondaryPaneDocument() else: document
-    scheduleNativeGitBlame(blameDocument)
+    let blameNeedsPublish = scheduleNativeGitBlame(blameDocument)
     let message = editorViewState.statusMessage.strip
     let status = if message.len > 0: message else: "Ready"
     if status != lastNativeEditorStatus:
@@ -5008,13 +5087,31 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
       else: appSettings.boolSetting("search.button", DefaultSearchButton))
     # FileDocument has no encoding/BOM detector yet; keep the Zed decision
     # boundary explicit and pass the current UTF-8/no-BOM state.
-    let blameVisible = editorGitBlameLoaded and editorGitBlameEntry.hash.len > 0
+    let blameVisible = blameNeedsPublish and editorGitBlameLoaded and
+      editorGitBlameEntry.hash.len > 0
     let blameText = if blameVisible:
       gitBlameStatusText(editorGitBlameEntry.author, editorGitBlameEntry.authorTime,
         editorGitBlameEntry.summary,
         appSettings != nil and appSettings.gitInlineBlameShowCommitSummary(),
         getTime().toUnix, editorGitBlameEntry.authorTimeValid)
       else: ""
+    if blameNeedsPublish:
+      let editorFocused = editorWorkspaceUi.focusedRegion == regionCenter and
+        not editorTerminalFocused
+      let inlineVisible = appSettings != nil and appSettings.gitInlineBlameEnabled() and
+        appSettings.gitInlineBlameLocation() == "inline" and editorGitBlameInlineShown and
+        editorFocused and editorGitBlameLoaded and not editorGitBlameLineEmpty and
+        editorGitBlameEntry.hash.len > 0 and blameText.len > 0
+      let inlinePadding = if appSettings == nil: DefaultGitInlineBlamePadding
+        else: appSettings.gitInlineBlamePadding()
+      let inlineMinColumn = if appSettings == nil: DefaultGitInlineBlameMinColumn
+        else: appSettings.gitInlineBlameMinColumn()
+      platformSetEditorInlineBlame(false, inlineVisible and
+        (not editorSession.split or editorSession.splitActivePane == 0),
+        uint32(max(0, editorGitBlameLine)), blameText.cstring, inlinePadding, inlineMinColumn)
+      platformSetEditorInlineBlame(true, inlineVisible and editorSession.split and
+        editorSession.splitActivePane == 1, uint32(max(0, editorGitBlameLine)),
+        blameText.cstring, inlinePadding, inlineMinColumn)
     let footer = statusBarFooter(appSettings, cursor, "UTF-8", lineEnding, language, activeFile,
       isUtf8 = true, hasBom = false,
       gitBlameHash = if blameVisible: editorGitBlameEntry.hash else: "",
@@ -5752,10 +5849,12 @@ when defined(macosx):
     if finishColdStartBenchmark(): return
     if pollSoakBenchmark(): return
     if appSettings != nil and appSettings.reload():
+      inc editorGitBlameSettingsGeneration
       editorWorkspaceUi.applyPanelDockSettings(appSettings)
       editorWorkspaceUi.saveWorkspaceUi(editorSession)
       applySettingsKeymap()
       applySettingsTheme()
+      if activeDocument() != nil: refreshEditorSyntax()
       editorViewState.statusMessage = "Settings reloaded"
     pollNativeGitHunks()
     pollNativeSecondaryGitHunks()
@@ -7309,6 +7408,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       writeFile(settingsFilePath, pretty(root) & "\n")
       when defined(macosx) or defined(windows):
         if appSettings != nil and appSettings.reload():
+          when defined(macosx): inc editorGitBlameSettingsGeneration
           editorWorkspaceUi.applyPanelDockSettings(appSettings)
           editorWorkspaceUi.saveWorkspaceUi(editorSession)
       applySettingsKeymap()

@@ -44,6 +44,7 @@ static NimculusFileCallback g_file_callback = NULL;
 static NSMutableArray<NSString *> *g_pending_file_open_paths = nil;
 static NimculusCommandCallback g_command_callback = NULL;
 static NimculusIdleCallback g_idle_callback = NULL;
+static BOOL g_idle_for_blame_requested = NO;
 static NimculusFrameCallback g_frame_callback = NULL;
 static NSView *g_accessibility_host = nil;
 
@@ -288,6 +289,23 @@ static CGFloat g_editor_layout_scroll_x = 0.0;
 static CGFloat g_editor_layout_scroll_y_fraction = 0.0;
 static CGFloat g_secondary_layout_scroll_x = 0.0;
 static CGFloat g_secondary_layout_scroll_y_fraction = 0.0;
+static BOOL g_editor_inline_blame_visible = NO;
+static NSUInteger g_editor_inline_blame_line = 0;
+static NSString *g_editor_inline_blame_text = @"";
+static int32_t g_editor_inline_blame_padding = 7;
+static int32_t g_editor_inline_blame_min_column = 0;
+static CGFloat g_editor_inline_blame_line_width = 0.0;
+static CGFloat g_editor_inline_blame_em_width = 0.0;
+static CGFloat g_editor_inline_blame_space_width = 0.0;
+static BOOL g_secondary_inline_blame_visible = NO;
+static NSUInteger g_secondary_inline_blame_line = 0;
+static NSString *g_secondary_inline_blame_text = @"";
+static int32_t g_secondary_inline_blame_padding = 7;
+static int32_t g_secondary_inline_blame_min_column = 0;
+static CGFloat g_secondary_inline_blame_line_width = 0.0;
+static CGFloat g_secondary_inline_blame_em_width = 0.0;
+static CGFloat g_secondary_inline_blame_space_width = 0.0;
+static CGFloat editorInlineBlameLineWidth(BOOL secondary, NSUInteger lineIndex);
 static NSUInteger g_editor_selection_start = 0;
 static NSUInteger g_editor_selection_end = 0;
 static NimculusEditorSelection g_editor_selections[NIMCULUS_MAX_EDITOR_SELECTIONS];
@@ -324,7 +342,7 @@ static uint32_t layoutFontIdForFont(CTFontRef font) {
 }
 
 static CTFontRef layoutFontForId(uint32_t fontId) {
-  if (fontId == 0 || fontId > g_layout_font_count) return NULL;
+  if (fontId == 0 || fontId > g_layout_font_count || !g_layout_fonts[fontId - 1]) return NULL;
   return (CTFontRef)CFRetain(g_layout_fonts[fontId - 1]);
 }
 
@@ -1531,6 +1549,8 @@ static void releasePlatformResources(void) {
   [g_terminal_font_name release]; g_terminal_font_name = nil;
   [g_terminal_resolved_font_name release]; g_terminal_resolved_font_name = nil;
   [g_editor_git_branch release]; g_editor_git_branch = nil;
+  [g_editor_inline_blame_text release]; g_editor_inline_blame_text = nil;
+  [g_secondary_inline_blame_text release]; g_secondary_inline_blame_text = nil;
   [g_editor_text release]; g_editor_text = nil;
   [g_secondary_editor_text release]; g_secondary_editor_text = nil;
   [g_editor_lines release]; g_editor_lines = nil;
@@ -2147,7 +2167,7 @@ static CGFloat editorGlyphTypographicWidth(CTFontRef font, UniChar character) {
   if (!font) return 0.0;
   CGGlyph glyph = 0;
   if (!CTFontGetGlyphsForCharacters(font, &character, &glyph, 1)) return 0.0;
-  CGRect bounds = CTFontGetBoundingRectsForGlyphs(font, kCTFontOrientationDefault,
+  CGRect bounds = CTFontGetBoundingRectsForGlyphs(font, kCTFontOrientationHorizontal,
     &glyph, NULL, 1);
   return MAX(0.0, bounds.size.width);
 }
@@ -2718,7 +2738,7 @@ static NSColor *editorGlyphColor(NSColor *color) {
 // Building the face from its name is not free, and the wrap and metrics paths
 // ask for it thousands of times per scroll. Keep one and hand out retained
 // references so every existing CFRelease stays balanced.
-static void setEditorFontFeatures(const NimculusEditorFontFeature *features,
+static BOOL setEditorFontFeatures(const NimculusEditorFontFeature *features,
                                   uint32_t count) {
   NSMutableArray<NSString *> *tags = [NSMutableArray arrayWithCapacity:count];
   NSMutableArray<NSNumber *> *values = [NSMutableArray arrayWithCapacity:count];
@@ -2729,21 +2749,30 @@ static void setEditorFontFeatures(const NimculusEditorFontFeature *features,
     [tags addObject:string];
     [values addObject:@(features[index].enabled ? 1 : 0)];
   }
+  BOOL changed = !g_editor_font_feature_tags ||
+    ![g_editor_font_feature_tags isEqualToArray:tags] ||
+    !g_editor_font_feature_values ||
+    ![g_editor_font_feature_values isEqualToArray:values];
+  if (!changed) return NO;
   [g_editor_font_feature_tags release];
   [g_editor_font_feature_values release];
   g_editor_font_feature_tags = [tags copy];
   g_editor_font_feature_values = [values copy];
+  return YES;
 }
 
-static void setEditorFontFallbacks(const char *const *fallbacks, uint32_t count) {
+static BOOL setEditorFontFallbacks(const char *const *fallbacks, uint32_t count) {
   NSMutableArray<NSString *> *names = [NSMutableArray arrayWithCapacity:count];
   for (uint32_t index = 0; index < count; index++) {
     const char *fallback = fallbacks[index];
     NSString *name = fallback ? [NSString stringWithUTF8String:fallback] : nil;
     if (name.length > 0) [names addObject:name];
   }
+  BOOL changed = !g_editor_font_fallbacks || ![g_editor_font_fallbacks isEqualToArray:names];
+  if (!changed) return NO;
   [g_editor_font_fallbacks release];
   g_editor_font_fallbacks = [names copy];
+  return YES;
 }
 
 static CFMutableArrayRef generateFeatureArray(void) {
@@ -4540,6 +4569,13 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   BOOL _secondary;
 }
 @property(nonatomic) BOOL secondary;
+@end
+
+@interface NimculusEditorInlineBlameOverlay : NSView {
+  BOOL _secondary;
+}
+@property(nonatomic) BOOL secondary;
+- (void)reloadPresentation;
 @end
 
 static NSUInteger editorSidebarLineForItem(NSUInteger item);
@@ -8551,6 +8587,23 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
 }
 @end
 
+static CGFloat editorInlineBlameLineWidth(BOOL secondary, NSUInteger lineIndex) {
+  NSArray<NSString *> *lines = secondary ? g_secondary_editor_lines : g_editor_lines;
+  if (!lines || lineIndex >= lines.count) return 0.0;
+  NSString *lineText = lines[lineIndex] ?: @"";
+  CTFontRef font = editorFont();
+  if (!font) return 0.0;
+  NSDictionary *attributes = @{(id)kCTFontAttributeName: (__bridge id)font};
+  NSAttributedString *attributed = [[NSAttributedString alloc]
+    initWithString:lineText attributes:attributes];
+  CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
+  CGFloat width = line ? (CGFloat)CTLineGetTypographicBounds(line, NULL, NULL, NULL) : 0.0;
+  if (line) CFRelease(line);
+  [attributed release];
+  CFRelease(font);
+  return MAX(0.0, width);
+}
+
 @implementation NimculusEditorAnnotationOverlay
 @synthesize secondary = _secondary;
 - (BOOL)isFlipped { return YES; }
@@ -8619,6 +8672,117 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
     g_editor_scroll_x = previousScrollX;
     g_editor_soft_wrap = previousSoftWrap;
   }
+}
+@end
+
+@implementation NimculusEditorInlineBlameOverlay
+- (BOOL)isFlipped { return YES; }
+- (instancetype)initWithFrame:(NSRect)frame {
+  self = [super initWithFrame:frame];
+  if (self) {
+    self.wantsLayer = NO;
+    self.autoresizingMask = NSViewNotSizable;
+    self.clipsToBounds = YES;
+  }
+  return self;
+}
+- (NSView *)hitTest:(NSPoint)point { (void)point; return nil; }
+- (void)reloadPresentation {
+  BOOL visible = _secondary ? g_secondary_inline_blame_visible : g_editor_inline_blame_visible;
+  NSString *text = _secondary ? g_secondary_inline_blame_text : g_editor_inline_blame_text;
+  NSUInteger line = _secondary ? g_secondary_inline_blame_line : g_editor_inline_blame_line;
+  int32_t padding = _secondary ? g_secondary_inline_blame_padding : g_editor_inline_blame_padding;
+  int32_t minColumn = _secondary ? g_secondary_inline_blame_min_column : g_editor_inline_blame_min_column;
+  const double *rect = _secondary ? g_secondary_editor_rect : g_editor_rect;
+  NSUInteger scrollLine = _secondary ? g_secondary_editor_scroll_line : g_editor_scroll_line;
+  CGFloat scrollX = _secondary ? g_secondary_layout_scroll_x : g_editor_layout_scroll_x;
+  CGFloat scrollY = _secondary ? g_secondary_layout_scroll_y_fraction :
+    g_editor_layout_scroll_y_fraction;
+  NSInteger displayRow = (NSInteger)line - (NSInteger)scrollLine;
+  BOOL aboveViewport = line < scrollLine && scrollLine - line > 1;
+  self.hidden = !visible || text.length == 0 || aboveViewport ||
+    displayRow * editorLineHeight() > rect[3] - editorContentTopInset();
+  if (self.hidden) return;
+
+  NSFont *font = [NSFont fontWithName:editorResolvedFontName() size:g_editor_font_size];
+  if (!font) font = [NSFont monospacedSystemFontOfSize:g_editor_font_size
+    weight:NSFontWeightRegular];
+  NSColor *hint = themeRoleColor(@"hint",
+    themeHexColor(g_theme_foreground, [NSColor secondaryLabelColor]));
+  NSString *symbol = @"arrow.triangle.branch";
+  NSImage *image = [NSImage imageWithSystemSymbolName:symbol
+    accessibilityDescription:@"Git blame"];
+  if (image) image.template = YES;
+  CGFloat emWidth = _secondary ? g_secondary_inline_blame_em_width :
+    g_editor_inline_blame_em_width;
+  if (emWidth <= 0.0) {
+    CTFontRef emFont = editorFont();
+    emWidth = editorGlyphTypographicWidth(emFont, 'm');
+    if (emFont) CFRelease(emFont);
+  }
+  CGFloat lineEnd = _secondary ? g_secondary_inline_blame_line_width :
+    g_editor_inline_blame_line_width;
+  if (lineEnd <= 0.0) lineEnd = editorInlineBlameLineWidth(_secondary, line);
+  CGFloat spaceWidth = _secondary ? g_secondary_inline_blame_space_width :
+    g_editor_inline_blame_space_width;
+  if (spaceWidth <= 0.0) {
+    CTFontRef spaceFont = editorFont();
+    spaceWidth = editorGlyphAdvance(spaceFont, ' ');
+    if (spaceFont) CFRelease(spaceFont);
+  }
+  CGFloat padded = lineEnd + MAX(0, padding) * MAX(0.0, emWidth);
+  CGFloat minimum = MAX(0, minColumn) * MAX(0.0, spaceWidth);
+  CGFloat x = rect[0] + editorTextOriginX(rect) + MAX(padded, minimum) - scrollX;
+  CGFloat y = rect[1] + editorContentTopInset() +
+    editorLineHeight() * (CGFloat)displayRow - scrollY;
+  CGFloat iconSize = MIN(14.0, MAX(10.0, editorLineHeight() - 8.0));
+  CGFloat gap = 8.0;
+  CGFloat textWidth = [text sizeWithAttributes:@{NSFontAttributeName: font}].width + 2.0;
+  // Keep this native element limited to its own paint area. A full-editor
+  // overlay can cover the Metal glyph batch when padding is zero, even though
+  // the blame content itself starts at the end of the line. This mirrors
+  // Zed's independent blame element: the editor text remains underneath and
+  // is never part of the blame element's backing area.
+  if (self.superview) {
+    NSRect logicalFrame = NSMakeRect(x, y, iconSize + gap + textWidth,
+      editorLineHeight());
+    self.frame = appKitFrameForLogicalTopRect(self.superview, logicalFrame);
+  }
+  NSImageView *iconView = nil;
+  NSTextField *label = nil;
+  for (NSView *subview in self.subviews) {
+    if ([subview isKindOfClass:[NSImageView class]]) iconView = (NSImageView *)subview;
+    else if ([subview isKindOfClass:[NSTextField class]]) label = (NSTextField *)subview;
+  }
+  if (!iconView) {
+    iconView = [[[NSImageView alloc] initWithFrame:NSZeroRect] autorelease];
+    iconView.imageScaling = NSImageScaleProportionallyUpOrDown;
+    iconView.image = image;
+    iconView.contentTintColor = hint;
+    iconView.imageFrameStyle = NSImageFrameNone;
+    [self addSubview:iconView];
+  } else {
+    iconView.image = image;
+    iconView.contentTintColor = hint;
+  }
+  if (!label) {
+    label = [[[NSTextField alloc] initWithFrame:NSZeroRect] autorelease];
+    label.editable = NO;
+    label.selectable = NO;
+    label.bezeled = NO;
+    label.drawsBackground = NO;
+    label.usesSingleLineMode = YES;
+    label.lineBreakMode = NSLineBreakByClipping;
+    [self addSubview:label];
+  }
+  label.font = font;
+  label.textColor = hint;
+  label.stringValue = text;
+  iconView.frame = NSMakeRect(0.0, (editorLineHeight() - iconSize) / 2.0,
+    iconSize, iconSize);
+  label.frame = NSMakeRect(iconSize + gap, 0.0,
+    MAX(1.0, textWidth), editorLineHeight());
+  [self setNeedsDisplay:YES];
 }
 @end
 
@@ -9239,9 +9403,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 - (void)displayLinkDidFire:(CADisplayLink *)displayLink {
   (void)displayLink;
   if (g_frame_callback) g_frame_callback();
-  if (!self.redrawDirty) return;
-  self.redrawDirty = NO;
-  [self drawFrame];
+  if (self.redrawDirty) {
+    self.redrawDirty = NO;
+    [self drawFrame];
+  }
+  if (g_idle_callback && g_idle_for_blame_requested) g_idle_callback();
 }
 
 - (void)requestRedraw {
@@ -9522,6 +9688,18 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     secondaryAnnotations.hidden = YES;
     [self addSubview:secondaryAnnotations];
     [secondaryAnnotations release];
+    NimculusEditorInlineBlameOverlay *inlineBlame =
+      [[NimculusEditorInlineBlameOverlay alloc] initWithFrame:self.bounds];
+    inlineBlame.secondary = NO;
+    inlineBlame.hidden = YES;
+    [self addSubview:inlineBlame];
+    [inlineBlame release];
+    NimculusEditorInlineBlameOverlay *secondaryInlineBlame =
+      [[NimculusEditorInlineBlameOverlay alloc] initWithFrame:self.bounds];
+    secondaryInlineBlame.secondary = YES;
+    secondaryInlineBlame.hidden = YES;
+    [self addSubview:secondaryInlineBlame];
+    [secondaryInlineBlame release];
     NimculusDocumentSearchOverlay *documentSearch =
       [[NimculusDocumentSearchOverlay alloc] initWithFrame:NSZeroRect];
     documentSearch.hidden = YES;
@@ -9646,6 +9824,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   NimculusTaskOutputOverlay *taskOutput = nil;
   NimculusEditorAnnotationOverlay *annotations = nil;
   NimculusEditorAnnotationOverlay *secondaryAnnotations = nil;
+  NimculusEditorInlineBlameOverlay *inlineBlame = nil;
+  NimculusEditorInlineBlameOverlay *secondaryInlineBlame = nil;
   NimculusDocumentSearchOverlay *documentSearch = nil;
   NimculusCommandPaletteOverlay *commandPalette = nil;
   NimculusGitCommitOverlay *gitCommitEditor = nil;
@@ -9675,6 +9855,11 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       if (((NimculusEditorAnnotationOverlay *)subview).secondary)
         secondaryAnnotations = (NimculusEditorAnnotationOverlay *)subview;
       else annotations = (NimculusEditorAnnotationOverlay *)subview;
+    }
+    if ([subview isKindOfClass:[NimculusEditorInlineBlameOverlay class]]) {
+      if (((NimculusEditorInlineBlameOverlay *)subview).secondary)
+        secondaryInlineBlame = (NimculusEditorInlineBlameOverlay *)subview;
+      else inlineBlame = (NimculusEditorInlineBlameOverlay *)subview;
     }
     if ([subview isKindOfClass:[NimculusDocumentSearchOverlay class]]) documentSearch = (NimculusDocumentSearchOverlay *)subview;
     if ([subview isKindOfClass:[NimculusCommandPaletteOverlay class]]) commandPalette = (NimculusCommandPaletteOverlay *)subview;
@@ -9939,6 +10124,22 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     secondaryAnnotations.hidden = !g_secondary_editor_visible ||
       g_secondary_editor_annotation_count == 0;
     [secondaryAnnotations setNeedsDisplay:YES];
+  }
+  if (inlineBlame) {
+    if (g_editor_inline_blame_visible || g_editor_inline_blame_text.length > 0) {
+      inlineBlame.frame = self.bounds;
+      [inlineBlame reloadPresentation];
+    } else {
+      inlineBlame.hidden = YES;
+    }
+  }
+  if (secondaryInlineBlame) {
+    if (g_secondary_inline_blame_visible || g_secondary_inline_blame_text.length > 0) {
+      secondaryInlineBlame.frame = self.bounds;
+      [secondaryInlineBlame reloadPresentation];
+    } else {
+      secondaryInlineBlame.hidden = YES;
+    }
   }
   if (documentSearch && !documentSearch.hidden) {
     const BOOL quickOpen = documentSearch.mode == 4 || documentSearch.mode == 5;
@@ -15201,6 +15402,7 @@ void nimculus_platform_show_git_commit_sheet(void) {
 }
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback) { g_command_callback = callback; }
 void nimculus_platform_set_idle_callback(NimculusIdleCallback callback) { g_idle_callback = callback; }
+void nimculus_platform_set_idle_for_blame(bool requested) { g_idle_for_blame_requested = requested ? YES : NO; }
 void nimculus_platform_set_frame_callback(NimculusFrameCallback callback) { g_frame_callback = callback; }
 void nimculus_platform_set_editor_cursor(double x, double y) {
   g_editor_cursor[0] = x;
@@ -15246,6 +15448,12 @@ void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t lin
 void nimculus_platform_set_editor_font_size(double size) {
   g_editor_font_size = MIN(96.0, MAX(6.0, size > 0.0 ? size : 14.0));
   g_editor_line_height = MAX(12.0, round(g_editor_font_size * 1.618));
+  g_editor_inline_blame_line_width = 0.0;
+  g_editor_inline_blame_em_width = 0.0;
+  g_editor_inline_blame_space_width = 0.0;
+  g_secondary_inline_blame_line_width = 0.0;
+  g_secondary_inline_blame_em_width = 0.0;
+  g_secondary_inline_blame_space_width = 0.0;
   scheduleEditorTextTextureRebuild();
   markSceneFullyDirty();
   if (g_active_view) {
@@ -15261,6 +15469,12 @@ void nimculus_platform_set_editor_font_name(const char *name) {
   [g_editor_resolved_font_name release];
   g_editor_resolved_font_name = nil;
   (void)editorResolvedFontName();
+  g_editor_inline_blame_line_width = 0.0;
+  g_editor_inline_blame_em_width = 0.0;
+  g_editor_inline_blame_space_width = 0.0;
+  g_secondary_inline_blame_line_width = 0.0;
+  g_secondary_inline_blame_em_width = 0.0;
+  g_secondary_inline_blame_space_width = 0.0;
   scheduleEditorTextTextureRebuild();
   markSceneFullyDirty();
   if (g_active_view) {
@@ -15273,8 +15487,14 @@ void nimculus_platform_set_editor_font_name(const char *name) {
 
 void nimculus_platform_set_editor_font_features(const NimculusEditorFontFeature *features,
                                                 uint32_t count) {
-  setEditorFontFeatures(features, count);
-  clearLayoutFonts();
+  BOOL changed = setEditorFontFeatures(features, count);
+  if (changed) clearLayoutFonts();
+  g_editor_inline_blame_line_width = 0.0;
+  g_editor_inline_blame_em_width = 0.0;
+  g_editor_inline_blame_space_width = 0.0;
+  g_secondary_inline_blame_line_width = 0.0;
+  g_secondary_inline_blame_em_width = 0.0;
+  g_secondary_inline_blame_space_width = 0.0;
   scheduleEditorTextTextureRebuild();
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
@@ -15282,8 +15502,14 @@ void nimculus_platform_set_editor_font_features(const NimculusEditorFontFeature 
 
 void nimculus_platform_set_editor_font_fallbacks(const char *const *fallbacks,
                                                  uint32_t count) {
-  setEditorFontFallbacks(fallbacks, count);
-  clearLayoutFonts();
+  BOOL changed = setEditorFontFallbacks(fallbacks, count);
+  if (changed) clearLayoutFonts();
+  g_editor_inline_blame_line_width = 0.0;
+  g_editor_inline_blame_em_width = 0.0;
+  g_editor_inline_blame_space_width = 0.0;
+  g_secondary_inline_blame_line_width = 0.0;
+  g_secondary_inline_blame_em_width = 0.0;
+  g_secondary_inline_blame_space_width = 0.0;
   scheduleEditorTextTextureRebuild();
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
@@ -16208,6 +16434,8 @@ void nimculus_platform_set_editor_text(const char *utf8, uint32_t length) {
   if (editorPayloadUnchanged(g_editor_text, utf8, length)) return;
   replaceOwnedUTF8String(&g_editor_text, utf8, length, @"");
   rebuildEditorLineIndex();
+  g_editor_inline_blame_line_width = 0.0;
+  g_editor_inline_blame_space_width = 0.0;
   if (g_active_view) {
     for (NSView *subview in ((NimculusMetalView *)g_active_view).subviews) {
       if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) [subview setNeedsDisplay:YES];
@@ -16255,6 +16483,8 @@ bool nimculus_platform_validate_editor_gutter_geometry(void) {
 void nimculus_platform_set_secondary_editor_text(const char *utf8, uint32_t length) {
   replaceOwnedUTF8String(&g_secondary_editor_text, utf8, length, @"");
   rebuildSecondaryEditorLineIndex();
+  g_secondary_inline_blame_line_width = 0.0;
+  g_secondary_inline_blame_space_width = 0.0;
   if (g_queue) rebuildSecondaryEditorTexture(g_queue.device);
   markSceneFullyDirty();
   if (g_active_view) [g_active_view requestRedraw];
@@ -17030,9 +17260,70 @@ void nimculus_platform_set_editor_layout_scroll(bool secondary, double x,
     g_editor_layout_scroll_x = boundedX;
     g_editor_layout_scroll_y_fraction = boundedFraction;
   }
+  if (g_active_view) {
+    for (NSView *subview in ((NimculusMetalView *)g_active_view).subviews) {
+      if ([subview isKindOfClass:[NimculusEditorInlineBlameOverlay class]])
+        [(NimculusEditorInlineBlameOverlay *)subview reloadPresentation];
+    }
+  }
   markSceneFullyDirty();
   scheduleEditorTextTextureRebuild();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
+}
+void nimculus_platform_set_editor_inline_blame(bool secondary, bool visible,
+                                               uint32_t source_line, const char *text,
+                                               int32_t padding, int32_t min_column) {
+  BOOL nextVisible = visible ? YES : NO;
+  NSString *nextText = text ? [NSString stringWithUTF8String:text] : @"";
+  if (!nextText) nextText = @"";
+  BOOL *visibleTarget = secondary ? &g_secondary_inline_blame_visible :
+    &g_editor_inline_blame_visible;
+  NSUInteger *lineTarget = secondary ? &g_secondary_inline_blame_line :
+    &g_editor_inline_blame_line;
+  NSString **textTarget = secondary ? &g_secondary_inline_blame_text :
+    &g_editor_inline_blame_text;
+  int32_t *paddingTarget = secondary ? &g_secondary_inline_blame_padding :
+    &g_editor_inline_blame_padding;
+  int32_t *minColumnTarget = secondary ? &g_secondary_inline_blame_min_column :
+    &g_editor_inline_blame_min_column;
+  CGFloat *lineWidthTarget = secondary ? &g_secondary_inline_blame_line_width :
+    &g_editor_inline_blame_line_width;
+  CGFloat *emWidthTarget = secondary ? &g_secondary_inline_blame_em_width :
+    &g_editor_inline_blame_em_width;
+  CGFloat *spaceWidthTarget = secondary ? &g_secondary_inline_blame_space_width :
+    &g_editor_inline_blame_space_width;
+  BOOL needsMetrics = nextVisible && nextText.length > 0 &&
+    (*lineWidthTarget <= 0.0 || *emWidthTarget <= 0.0 || *spaceWidthTarget <= 0.0);
+  BOOL changed = *visibleTarget != nextVisible || *lineTarget != source_line ||
+    *paddingTarget != MAX(0, padding) || *minColumnTarget != MAX(0, min_column) ||
+    ![*textTarget isEqualToString:nextText] || needsMetrics;
+  if (!changed) return;
+  *visibleTarget = nextVisible;
+  *lineTarget = source_line;
+  *paddingTarget = MAX(0, padding);
+  *minColumnTarget = MAX(0, min_column);
+  replaceOwnedString(textTarget, nextText);
+  *lineWidthTarget = editorInlineBlameLineWidth(secondary, source_line);
+  CTFontRef emFont = editorFont();
+  *emWidthTarget = editorGlyphTypographicWidth(emFont, 'm');
+  *spaceWidthTarget = editorGlyphAdvance(emFont, ' ');
+  if (emFont) CFRelease(emFont);
+  // The blame element is native AppKit content, while the document body is
+  // retained in the Metal scene. A blame-only update must invalidate that
+  // scene as well; otherwise the overlay can become visible over an
+  // unpainted/old glyph batch during a settings or workspace transition.
+  markSceneFullyDirty();
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (view) {
+    for (NSView *subview in view.subviews) {
+      if ([subview isKindOfClass:[NimculusEditorInlineBlameOverlay class]] &&
+          ((NimculusEditorInlineBlameOverlay *)subview).secondary == secondary) {
+        [(NimculusEditorInlineBlameOverlay *)subview reloadPresentation];
+        break;
+      }
+    }
+    [view requestRedraw];
+  }
 }
 void nimculus_platform_clear_editor_composition(void) {
   replaceOwnedString(&g_marked_text, @"");

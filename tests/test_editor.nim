@@ -13,6 +13,7 @@ import nimculus/editor_app
 import nimculus/search
 import nimculus/editor_view
 import nimculus/editor_scroll
+import nimculus/editor_text_layout
 import nimnui/geometry
 import nimculus/session
 import nimculus/atomic_io
@@ -21,6 +22,14 @@ import nimculus/poll_scheduler
 import nimnui/render
 
 suite "session persistence scheduling":
+  test "inline blame padding uses typographic em width":
+    let typographicMWidth = 5'f32
+    let mAdvance = 9'f32
+    check inlineBlameStartX(40'f32, typographicMWidth, mAdvance, 7, 0) == 75'f32
+    check inlineBlameStartX(40'f32, typographicMWidth, 18'f32, 7, 0) == 75'f32
+    check inlineBlameStartX(40'f32, typographicMWidth, mAdvance, 0, 8) == 72'f32
+    check inlineBlameStartX(40'f32, typographicMWidth, mAdvance, 7, 0, 16'f32) == 59'f32
+
   test "new editor views default to Zed no-wrap":
     check not newEditorView().softWrap
 

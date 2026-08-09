@@ -24,11 +24,23 @@ proc begin*(cache: var GitBlameCache; repositoryRoot, documentPath: string;
   cache.loaded = false
   cache.entries.setLen(0)
 
+proc beginUnavailable*(cache: var GitBlameCache; documentPath: string;
+                       documentVersion: uint64) =
+  ## Remember that this document cannot produce blame without resolving it
+  ## again on every status sync. An empty repository root is reserved for this
+  ## negative result; real Git repositories always have a resolved root.
+  cache.begin("", documentPath, documentVersion)
+  cache.loaded = true
+
 proc matches*(cache: GitBlameCache; repositoryRoot, documentPath: string;
               documentVersion: uint64): bool =
   cache.valid and cache.key.repositoryRoot == repositoryRoot and
     cache.key.documentPath == documentPath and
     cache.key.documentVersion == documentVersion
+
+proc unavailableMatches*(cache: GitBlameCache; documentPath: string;
+                          documentVersion: uint64): bool =
+  cache.matches("", documentPath, documentVersion) and cache.loaded
 
 proc shouldStart*(cache: GitBlameCache; repositoryRoot, documentPath: string;
                   documentVersion: uint64; lineEmpty, jobRunning: bool): bool =

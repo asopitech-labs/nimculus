@@ -14,6 +14,9 @@ void nimculus_platform_set_editor_layout(bool secondary,
                                          uint32_t glyph_count);
 void nimculus_platform_set_editor_layout_scroll(bool secondary, double x,
                                                 double y_fraction);
+void nimculus_platform_set_editor_inline_blame(bool secondary, bool visible,
+                                               uint32_t source_line, const char *text,
+                                               int32_t padding, int32_t min_column);
 void nimculus_platform_set_accessibility_tree(const NimculusAccessibilityNode *nodes,
                                               uint32_t node_count,
                                               const uint64_t *children,
@@ -123,6 +126,7 @@ void nimculus_platform_show_git_status_context(uint32_t item_index,
 void nimculus_platform_show_git_history_context(uint32_t item_index);
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback);
 void nimculus_platform_set_idle_callback(NimculusIdleCallback callback);
+void nimculus_platform_set_idle_for_blame(bool requested);
 void nimculus_platform_set_editor_cursor(double x, double y);
 void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t line);
 void nimculus_platform_set_editor_font_size(double size);

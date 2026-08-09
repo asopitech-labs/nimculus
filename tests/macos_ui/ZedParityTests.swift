@@ -25,6 +25,17 @@ final class ZedParityTests: XCTestCase {
   /// whether the colour path draws them.
   private static let emojiDocument = "/Users/admin/nimculus/tests/macos_ui/emoji_sample.md"
 
+  /// Created inside the guest so both editors see the same repository and file.
+  private static let inlineBlameRepository = "/Users/admin/inline-blame-repo"
+  private static let inlineBlameDocument =
+    "/Users/admin/inline-blame-repo/inline_blame.txt"
+
+  /// Nimculus persists this in the guest's per-user Application Support
+  /// directory.  Reset it between XCTest cases because app relaunches reuse
+  /// the same guest user and `restoreSession()` reads it on every startup.
+  private static let nimculusSessionDirectory =
+    "/Users/admin/Library/Application Support/Nimculus"
+
   /// Scroll events per measured run, matching tools/scroll_cost.sh.
   private static let scrollCount = 40
 
@@ -37,12 +48,73 @@ final class ZedParityTests: XCTestCase {
     continueAfterFailure = false
     try FileManager.default.createDirectory(
       at: Self.outDir, withIntermediateDirectories: true)
+    resetNimculusSession()
+    removeInlineBlameRepositories()
   }
 
   // MARK: - helpers
 
   private func write(_ data: Data, _ name: String) {
     try? data.write(to: Self.outDir.appendingPathComponent(name))
+  }
+
+  private func resetNimculusSession() {
+    let app = XCUIApplication(bundleIdentifier: "com.asopitech.nimculus")
+    if app.state != .notRunning {
+      app.terminate()
+      _ = app.wait(for: .notRunning, timeout: 10)
+    }
+    for name in ["session.json", "active.recovery"] {
+      try? FileManager.default.removeItem(
+        atPath: Self.nimculusSessionDirectory + "/" + name)
+    }
+  }
+
+  private func removeInlineBlameRepositories() {
+    let fileManager = FileManager.default
+    let parent = (Self.inlineBlameRepository as NSString).deletingLastPathComponent
+    let prefix = (Self.inlineBlameRepository as NSString).lastPathComponent + "-padding-"
+    let generated = (try? fileManager.contentsOfDirectory(atPath: parent)) ?? []
+    let names = generated.filter { $0.hasPrefix(prefix) }
+      .map { (parent as NSString).appendingPathComponent($0) }
+    for path in [Self.inlineBlameRepository] + names {
+      try? fileManager.removeItem(atPath: path)
+    }
+  }
+
+  private func prepareInlineBlameRepository(
+    repositoryPath: String? = nil) throws {
+    let repository = URL(fileURLWithPath: repositoryPath ?? Self.inlineBlameRepository)
+    let fileURL = repository.appendingPathComponent("inline_blame.txt")
+    try FileManager.default.createDirectory(
+      at: repository, withIntermediateDirectories: true)
+    try Data("first line\nsecond line\nthird line\n".utf8).write(to: fileURL)
+
+    let commands = [
+      ["init", "-q", repository.path],
+      ["-C", repository.path, "config", "user.name", "Nimculus UI Test"],
+      ["-C", repository.path, "config", "user.email", "ui-test@nimculus.local"],
+      ["-C", repository.path, "add", fileURL.path],
+      ["-C", repository.path, "commit", "-q", "-m", "Initial inline blame sample"]
+    ]
+    for arguments in commands {
+      let process = Process()
+      process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+      process.arguments = arguments
+      try process.run()
+      process.waitUntilExit()
+      XCTAssertEqual(process.terminationStatus, 0, "git command failed: git \(arguments.joined(separator: " "))")
+    }
+  }
+
+  private func setInlineBlamePadding(_ padding: Int,
+                                     repositoryPath: String? = nil) throws {
+    let settingsDirectory = URL(fileURLWithPath: repositoryPath ?? Self.inlineBlameRepository)
+      .appendingPathComponent(".nimculus")
+    try FileManager.default.createDirectory(
+      at: settingsDirectory, withIntermediateDirectories: true)
+    let settings = "{\"git\":{\"inlineBlame\":{\"padding\":\(padding)}}}\n"
+    try Data(settings.utf8).write(to: settingsDirectory.appendingPathComponent("settings.json"))
   }
 
   /// Total CPU milliseconds consumed by every process with this name.
@@ -198,6 +270,81 @@ final class ZedParityTests: XCTestCase {
     }
   }
 
+  private func captureNimculusInlineBlame(
+    padding: Int, repositoryPath: String? = nil) throws {
+    let repository = repositoryPath ??
+      "\(Self.inlineBlameRepository)-padding-\(padding)"
+    let document = "\(repository)/inline_blame.txt"
+    if repositoryPath == nil {
+      try prepareInlineBlameRepository(repositoryPath: repository)
+    }
+    try setInlineBlamePadding(padding, repositoryPath: repository)
+    let app = XCUIApplication(bundleIdentifier: "com.asopitech.nimculus")
+    defer {
+      app.terminate()
+      sleep(2)
+    }
+    app.launchArguments = [repository, document]
+    app.launchEnvironment = [
+      "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"
+    ]
+    app.launch()
+    XCTAssertTrue(app.wait(for: .runningForeground, timeout: 60))
+    sleep(6)
+
+    let window = self.window(of: app)
+    XCTAssertTrue(
+      Self.showsDocument(window, document: document),
+      "nimculus padding=\(padding) is not showing the comparison document")
+    window.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.18)).click()
+    sleep(10)
+    let screenshot = window.screenshot().pngRepresentation
+    let name = padding == 7 ? "nimculus-inline-blame.png" :
+      "nimculus-inline-blame-padding-\(padding).png"
+    write(screenshot, name)
+    XCTAssertTrue(
+      Self.showsInlineBlame(screenshot),
+      "nimculus padding=\(padding) did not render inline blame")
+    XCTAssertTrue(
+      Self.showsInlineBlameBody(screenshot),
+      "nimculus padding=\(padding) did not render the first line")
+  }
+
+  /// Capture inline blame from the same committed file in both editors.
+  /// The repository is created in the guest because the source archive does
+  /// not contain the host worktree's .git directory.
+  func testCaptureInlineBlame() throws {
+    defer {
+      resetNimculusSession()
+      XCUIApplication(bundleIdentifier: "dev.zed.Zed").terminate()
+      removeInlineBlameRepositories()
+    }
+    try prepareInlineBlameRepository()
+    // Keep the parity capture at Zed's default padding, then restart
+    // Nimculus at padding zero in this same XCTest.
+    try setInlineBlamePadding(7)
+    let zed = XCUIApplication(bundleIdentifier: "dev.zed.Zed")
+    zed.launchArguments = [Self.inlineBlameRepository, Self.inlineBlameDocument]
+    zed.launch()
+    XCTAssertTrue(zed.wait(for: .runningForeground, timeout: 60))
+    sleep(6)
+    let zedWindow = self.window(of: zed)
+    XCTAssertTrue(Self.showsDocument(zedWindow, document: Self.inlineBlameDocument))
+    zedWindow.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.18)).click()
+    sleep(10)
+    let zedScreenshot = zedWindow.screenshot().pngRepresentation
+    XCTAssertTrue(Self.showsInlineBlame(zedScreenshot), "zed did not render inline blame")
+    XCTAssertTrue(Self.showsInlineBlameBody(zedScreenshot), "zed did not render the first line")
+    write(zedScreenshot, "zed-inline-blame.png")
+    zed.terminate()
+    sleep(2)
+
+    try captureNimculusInlineBlame(
+      padding: 7, repositoryPath: Self.inlineBlameRepository)
+    try captureNimculusInlineBlame(
+      padding: 0, repositoryPath: Self.inlineBlameRepository)
+  }
+
   // MARK: - profiling
 
   /// A scroll burst long enough that a `sample` window is guaranteed to land
@@ -275,8 +422,9 @@ final class ZedParityTests: XCTestCase {
   /// titles its window "Nimculus" and names the document in the tab and the
   /// breadcrumb, so matching on the title alone rejected a window that was in
   /// fact correct. Accept any descendant that carries the name.
-  private static func showsDocument(_ window: XCUIElement) -> Bool {
-    let name = (Self.document as NSString).lastPathComponent
+  private static func showsDocument(_ window: XCUIElement, document: String? = nil) -> Bool {
+    let document = document ?? Self.document
+    let name = (document as NSString).lastPathComponent
     if window.title.contains(name) { return true }
     let stem = (name as NSString).deletingPathExtension
     let predicate = NSPredicate(
@@ -284,6 +432,57 @@ final class ZedParityTests: XCTestCase {
       stem, stem, stem)
     return window.descendants(matching: .any).matching(predicate).firstMatch
       .waitForExistence(timeout: 10)
+  }
+
+  /// Inline blame is drawn by the editor surface, which does not expose its
+  /// text or icon through the XCUITest accessibility tree. The One Light hint
+  /// colour is stable for this comparison, so use the first-line paint as the
+  /// pre-capture assertion instead.
+  private static func showsInlineBlame(_ data: Data) -> Bool {
+    guard let image = NSBitmapImageRep(data: data),
+          image.pixelsWide > 0, image.pixelsHigh > 0 else { return false }
+
+    let hint = NSColor(calibratedRed: 0x72 / 255.0,
+                       green: 0x74 / 255.0,
+                       blue: 0xa7 / 255.0,
+                       alpha: 1.0)
+    var pixel = [Int](repeating: 0, count: max(3, image.samplesPerPixel))
+    let minX = min(300, image.pixelsWide)
+    let maxX = image.pixelsWide
+    let minY = min(image.pixelsHigh, 160)
+    let maxY = min(image.pixelsHigh, 300)
+    for y in minY..<maxY {
+      for x in minX..<maxX {
+        image.getPixel(&pixel, atX: x, y: y)
+        let red = CGFloat(pixel[0]) / 255.0
+        let green = CGFloat(pixel[1]) / 255.0
+        let blue = CGFloat(pixel[2]) / 255.0
+        if abs(red - hint.redComponent) + abs(green - hint.greenComponent) +
+            abs(blue - hint.blueComponent) < 0.08 { return true }
+      }
+    }
+    return false
+  }
+
+  private static func showsInlineBlameBody(_ data: Data) -> Bool {
+    guard let image = NSBitmapImageRep(data: data),
+          image.pixelsWide > 0, image.pixelsHigh > 0 else { return false }
+
+    var pixel = [Int](repeating: 0, count: max(3, image.samplesPerPixel))
+    let minX = min(120, image.pixelsWide)
+    let maxX = min(370, image.pixelsWide)
+    let minY = min(200, image.pixelsHigh)
+    let maxY = min(265, image.pixelsHigh)
+    var darkPixels = 0
+    for y in minY..<maxY {
+      for x in minX..<maxX {
+        image.getPixel(&pixel, atX: x, y: y)
+        let luminance = 0.299 * Double(pixel[0]) +
+          0.587 * Double(pixel[1]) + 0.114 * Double(pixel[2])
+        if luminance < 120.0 { darkPixels += 1 }
+      }
+    }
+    return darkPixels >= 20
   }
 
   /// Capture the mixed-script sample in both editors. Colour emoji were being
