@@ -1,5 +1,74 @@
 # Design Decisions
 
+## UI-113: ステータスバーの項目は Zed の既定表示条件に従う
+
+対応マイルストーンは UI パリティ。完了条件は、既定設定でステータスバーの
+項目構成が Zed と一致し、キャプチャで確認できること。
+
+### 実測で見つかった差（2026-08-09、テスト VM）
+
+同じ文書を開いた状態で両者のステータスバーを撮った:
+
+| | 右側の内容 |
+| --- | --- |
+| **Zed** | `2:1` `Markdown` + ドックのトグルアイコン群 |
+| **Nimculus** | `1:1` `Markdown` **`LF`** **`UTF-8`** |
+
+**Nimculus は `LF` と `UTF-8` を常に表示している。Zed は出していない。**
+
+帯比較で `>32`（明らかに違う画素）がステータスバーだけ 21.04% と突出していた
+（他の帯は 5〜7%）のは、これが主因。
+
+### Zed の既定設定
+
+`references/zed/assets/settings/default.json:1824-1831`:
+
+```json
+"show_active_file": false,
+"active_language_button": true,
+"cursor_position_button": true,
+"line_endings_button": false,          // 既定で非表示
+"active_encoding_button": "non_utf8",  // UTF-8 以外のときだけ表示
+```
+
+`line_ending_indicator.rs:35` が `if !StatusBarSettings::get_global(cx).line_endings_button
+{ return div(); }` で早期に空を返す。
+
+**行末表記は既定で出さない。エンコーディングは UTF-8 以外のときだけ出す。**
+
+### 右側のアイコン群
+
+Zed の右端にあるアイコンは `crates/workspace/src/workspace.rs:1758-1759` の
+`right_dock_buttons` / `bottom_dock_buttons` — **ドックのトグル**である。
+Nimculus は左側にパネルトグルを置いている（UI-097 で「ターミナルのトグルを
+ステータスバーのドックコントロールとまとめる」と決めた箇所）。
+
+**この配置差は今回の対象外。** UI-097 で意図して決めた配置であり、
+Zed の右ドック・下ドックという構成自体が Nimculus に無い。
+
+### やること
+
+`LF` / `UTF-8` の表示条件を Zed の既定に合わせる:
+
+1. 行末表記（`LF` / `CRLF`）は**既定で非表示**にする
+2. エンコーディングは **UTF-8 以外のときだけ**表示する
+3. 設定として `statusBar.lineEndingsButton`（既定 false）と
+   `statusBar.activeEncodingButton`（既定 `"non_utf8"`）を持たせる。
+   キー名は既存の名前空間に合わせる（UI-106 と同じ方針）
+
+### 却下案
+
+**(a) 単に消す。** Zed は設定で表示できる。設定ごと移植するのが正しい。却下。
+
+**(b) Zed のキー名（`line_endings_button`）をそのまま使う。**
+このリポジトリの設定は `editor.fontSize` 形式。既存に合わせる（UI-106 の却下案 a と同じ）。却下。
+
+### テスト観点
+
+- unit: 既定で行末表記が出ないこと、UTF-8 の文書でエンコーディングが出ないこと、
+  UTF-8 以外なら出ること、設定で有効化すると出ること
+- キャプチャ: ステータスバーの `>32` が下がること（現状 21.04%）
+
 ## UI-112: 焼き込まれた色補正 `#fafafa` → `#fcfcfc` は、AppKit と Metal の色管理差の症状
 
 対応マイルストーンは UI パリティ。**調査記録であり、実装指示は出さない。**
