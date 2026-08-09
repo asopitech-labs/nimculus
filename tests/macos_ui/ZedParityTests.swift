@@ -174,6 +174,20 @@ final class ZedParityTests: XCTestCase {
     return window
   }
 
+  /// Put the editor focus and cursor at a position independent of window size.
+  ///
+  /// A normalized click maps to a different document row when the two editor
+  /// windows differ in height. The fixed point offset below is only inside the
+  /// editor body and establishes focus; Cmd+Up determines the final cursor
+  /// position in both editors.
+  private func moveCursorToDocumentStart(in window: XCUIElement) {
+    let editorPoint = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+      .withOffset(CGVector(dx: 250, dy: 150))
+    editorPoint.click()
+    window.typeKey(XCUIKeyboardKey.upArrow.rawValue, modifierFlags: .command)
+    sleep(1)
+  }
+
   /// Scroll, and return the per-event CPU cost plus a calibration pair.
   ///
   /// The two editors move very different distances for the same synthetic
@@ -266,6 +280,7 @@ final class ZedParityTests: XCTestCase {
       XCTAssertTrue(
         Self.showsDocument(window),
         "\(label) is not showing \(Self.document); the capture would not be a comparison")
+      moveCursorToDocumentStart(in: window)
       write(window.screenshot().pngRepresentation, "\(label)-window.png")
     }
   }
@@ -296,7 +311,7 @@ final class ZedParityTests: XCTestCase {
     XCTAssertTrue(
       Self.showsDocument(window, document: document),
       "nimculus padding=\(padding) is not showing the comparison document")
-    window.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.18)).click()
+    moveCursorToDocumentStart(in: window)
     sleep(10)
     let screenshot = window.screenshot().pngRepresentation
     let name = padding == 7 ? "nimculus-inline-blame.png" :
@@ -330,7 +345,7 @@ final class ZedParityTests: XCTestCase {
     sleep(6)
     let zedWindow = self.window(of: zed)
     XCTAssertTrue(Self.showsDocument(zedWindow, document: Self.inlineBlameDocument))
-    zedWindow.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.18)).click()
+    moveCursorToDocumentStart(in: zedWindow)
     sleep(10)
     let zedScreenshot = zedWindow.screenshot().pngRepresentation
     XCTAssertTrue(Self.showsInlineBlame(zedScreenshot), "zed did not render inline blame")
@@ -405,10 +420,9 @@ final class ZedParityTests: XCTestCase {
         Self.showsDocument(window),
         "\(label) is not showing \(Self.document); the capture would not be a comparison")
 
-      // Click into the body, then extend the selection down several lines so
-      // the region spans lines of differing width.
-      window.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.25)).click()
-      sleep(1)
+      // Start at the first line, then extend the selection down several lines
+      // so the region spans lines of differing width.
+      moveCursorToDocumentStart(in: window)
       for _ in 0..<6 {
         window.typeKey(XCUIKeyboardKey.downArrow.rawValue, modifierFlags: .shift)
       }
@@ -496,6 +510,7 @@ final class ZedParityTests: XCTestCase {
       XCTAssertTrue(app.wait(for: .runningForeground, timeout: 60))
       sleep(6)
       let window = self.window(of: app)
+      moveCursorToDocumentStart(in: window)
       write(window.screenshot().pngRepresentation, "\(label)-emoji.png")
     }
   }
