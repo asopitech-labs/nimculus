@@ -166,10 +166,18 @@ statusbar  94.03% / >32 3.66%   (761-791pt)
     "could not create image from display" になったら、まず
     `ps -Ao comm= | grep claude-code` で動いている版とディスク上の版を比べる。
     直し方は Claude の完全終了と再起動（設定の再トグルでは直らない）。
-10. **テーマ JSON の色をそのまま実装に写した** → Zed の描画は sRGB 変換後の値になる。
+10. **テーマ JSON の色をそのまま実装に写した** → 観測値と食い違う。**ただしこの項目の
+    読み方には後日訂正がある（下記）**。
     `border` は JSON `#c9c9ca` に対し実描画 `#cfd1d2`、`border.variant` は `#dfdfe0`
     に対し `#dfe0e1`、`editor.background` は `#fafafa` に対し `#fcfcfc`。
     `settings.nim` のテーマ表には**実描画値**を入れる（他の役割は既にそうなっていた）。
+
+    **訂正（2026-08-09）**: 「Zed の実描画は `#fcfcfc`」は誤り。テスト VM 内で
+    測ると **Zed はテーマ JSON どおり `#fafafa` を塗っている**。`#fcfcfc` は
+    参照ディスプレイでの**観測値**であって、Zed が塗る値ではない。
+    この誤読が `macos_platform.m:894` の `#fafafa` → `#fcfcfc` という
+    ディスプレイ依存の補正を実装へ持ち込んだ。詳細と直し方は
+    `DESIGN_DECISIONS.md` の UI-112。
 11. **帯の切り出し位置を自分の実装に合わせていた** → `bitdiff.sh` の旧帯定義は
     Nimculus 側の座標だったので、ジオメトリを直すとラベルと中身がずれ、
     「breadcrumb が悪化した」ように見えた。帯は**Zed の実測境界**で定義する。

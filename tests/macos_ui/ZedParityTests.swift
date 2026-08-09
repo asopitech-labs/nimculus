@@ -178,17 +178,24 @@ final class ZedParityTests: XCTestCase {
   }
 
   /// Window-only images of both editors, for the pixel comparison.
+  ///
+  /// Both must be showing the same document. Activating Zed without opening one
+  /// caught it on its onboarding screen and the pair compared an editor against
+  /// a welcome page - the same mistake the selection capture made, in a second
+  /// test, so the guard lives in one place now.
   func testCaptureBothWindows() {
-    let zed = XCUIApplication(bundleIdentifier: "dev.zed.Zed")
-    zed.activate()
-    sleep(3)
-    write(window(of: zed).screenshot().pngRepresentation, "zed-window.png")
-
-    let nimculus = XCUIApplication(bundleIdentifier: "com.asopitech.nimculus")
-    nimculus.launchArguments = [Self.document]
-    nimculus.launch()
-    sleep(5)
-    write(window(of: nimculus).screenshot().pngRepresentation, "nimculus-window.png")
+    for (id, label) in [("dev.zed.Zed", "zed"), ("com.asopitech.nimculus", "nimculus")] {
+      let app = XCUIApplication(bundleIdentifier: id)
+      app.launchArguments = [Self.document]
+      app.launch()
+      XCTAssertTrue(app.wait(for: .runningForeground, timeout: 60))
+      sleep(6)
+      let window = self.window(of: app)
+      XCTAssertTrue(
+        Self.showsDocument(window),
+        "\(label) is not showing \(Self.document); the capture would not be a comparison")
+      write(window.screenshot().pngRepresentation, "\(label)-window.png")
+    }
   }
 
   // MARK: - profiling

@@ -1,5 +1,82 @@
 # Design Decisions
 
+## UI-112: 焼き込まれた色補正 `#fafafa` → `#fcfcfc` は、AppKit と Metal の色管理差の症状
+
+対応マイルストーンは UI パリティ。**調査記録であり、実装指示は出さない。**
+
+### 見つかったもの
+
+`src/nimnui/platform/macos/macos_platform.m:894` `editorPaintToken()`:
+
+```objc
+// The One Light token is #fafafa, while Zed's captured painted surface is
+// #fcfcfc on the reference display. Apply that display-space correction at
+// the final opaque Metal fill, rather than changing the theme definition or
+// letting an AppKit overlay tint the gutter independently.
+if ([token caseInsensitiveCompare:@"#fafafa"] == NSOrderedSame) return @"#fcfcfc";
+```
+
+**Zed に存在しない処理である。** Zed はテーマ値をそのまま描き、色管理を OS に任せる。
+
+### 実測（2026-08-09、テスト VM 内）
+
+両エディタで同じ文書を開いてウィンドウを撮り、無地部分の最頻色を採った:
+
+| 帯 | Nimculus | Zed | 差 |
+| --- | --- | --- | --- |
+| エディタ本文 | `#FCFCFC` | **`#FAFAFA`** | 2 |
+| タイトルバー | (220,221,222) | (220,220,221) | 1 |
+| ステータスバー | (219,220,221) | (219,219,220) | 1 |
+
+**VM 内の Zed はテーマ JSON（`one.json:477` の `#fafafaff`）どおりに描いている。**
+`UI_PARITY_HANDOFF.md` §4 の罠 10 は「Zed の実描画は `#fcfcfc`」と記録しているが、
+それは**参照ディスプレイでの観測値**であって、Zed が塗る値ではない。
+
+帯ごとの比較は overall identical 0.11% / diff<=2 65.68%。
+**ほぼ全面に ±1〜2 のずれ**があり、色差が支配的である。
+
+### なぜこの補正が入ったか
+
+コメントが理由を述べている — 「テーマ定義を変えるのでも、AppKit オーバーレイに
+ガターを別々に着色させるのでもなく」。
+
+**ガターは AppKit のオーバーレイ**（`NimculusLineNumberOverlay`）で、
+**エディタ本文は Metal** が塗る。AppKit の色は OS の色管理を通り、Metal の出力は
+通らない。同じ 16 進値が 2 つの経路で違う画素になるので、参照ディスプレイで
+両者を揃えるために Metal 側の値を寄せた、というのがこの補正である。
+
+**Zed には描画経路が 1 つしかないので、この問題が起きない。**
+→ **UI-111（AppKit chrome）の下流。**
+
+### 影響
+
+補正はディスプレイ依存の定数なので、**別の色空間の環境では逆に外す**。
+テスト VM がその実例で、Zed が `#FAFAFA` を塗るところに `#FCFCFC` を塗っている。
+
+### 直し方（どれも単独では成立しない）
+
+1. **Metal の出力を色管理する。** `CAMetalLayer` の色空間を明示し、AppKit と
+   同じ空間に揃える。Zed は色空間を設定していない（`metal_renderer.rs:157` は
+   `set_pixel_format(BGRA8Unorm)` と `set_opaque` のみ）ので、**Zed に無い設定を
+   足すことになる**。ただし Zed は経路が 1 つなので設定不要というだけで、
+   2 経路あるこちらでは揃える必要がある
+2. **ガターを Metal へ移す。** UI-111 の着手順序の 2 番目に該当する。
+   経路が 1 つになれば補正は不要になる
+3. **現状維持。** 参照ディスプレイでは一致しており、実害は
+   「別の色空間の環境で 2 ずれる」こと
+
+### 判断
+
+**現時点では直さない。記録する。**
+
+理由: 補正を外すと参照ディスプレイでの一致が崩れる。正しい直し方（1 または 2）は
+どちらも UI-111 に関わり、UI-111 は着手しないと判断済み。
+
+**ただし `UI_PARITY_HANDOFF.md` §4 の罠 10 の記述は訂正する。**
+「Zed の実描画は `#fcfcfc`」は誤りで、正しくは「参照ディスプレイでの観測値が
+`#fcfcfc`。Zed が塗るのはテーマ値 `#fafafa`」。この誤読が補正を実装へ
+持ち込む根拠になっている。
+
 ## UI-111: 最大の構造差 — chrome を AppKit で描いていること
 
 対応マイルストーンは ROADMAP.md 全体に関わる。
