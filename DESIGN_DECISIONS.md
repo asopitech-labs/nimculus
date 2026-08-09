@@ -1,5 +1,69 @@
 # Design Decisions
 
+## UI-115: 診断サマリーを Zed の判定と一致させる
+
+UI-114 の 1 番目。**大部分は移植済みだった。** 差分だけを扱う。
+
+### 移植できている
+
+`macos_platform.m:7786-7831` は Zed の `diagnostics/src/items.rs:36-58` と
+同じ形をしている:
+
+| | Zed | Nimculus |
+| --- | --- | --- |
+| 問題なし | `IconName::Check` | `checkmark` |
+| エラー | `XCircle`（`Color::Error`）+ 件数 | `xmark.circle`（`error`）+ 件数 |
+| 警告 | `Warning`（`Color::Warning`）+ 件数 | `exclamationmark.triangle`（`warning`）+ 件数 |
+
+### 差分
+
+**(1) info と hint を出している。** Zed の `match` は
+`(self.summary.error_count, self.summary.warning_count)` の 2 つだけを見る。
+info と hint はステータスバーに出さない。Nimculus は 4 種類とも出す。
+
+**(2) チェックの条件が違う。** Zed はエラー 0・警告 0 ならチェックを出す
+（info や hint があっても）。Nimculus は 4 種類すべて 0 のときだけ。
+info だけある文書で、Zed はチェック、Nimculus はⓘを出す。
+
+**(3) ボタンの粒度が違う。** Zed は `ButtonLike::new("diagnostic-indicator")` の
+**1 つ**の中にアイコンと件数を並べる（`items.rs:114-116`）。
+Nimculus は重要度ごとに別ボタンを作る。押下対象の数が違う。
+
+**(4) ラベルの文言が違う。**
+
+| | |
+| --- | --- |
+| Zed | `Project diagnostics: 3 errors, 1 warning` / `Project diagnostics: no problems` |
+| Nimculus | `Diagnostics: 3 errors · 1 warnings` |
+
+Zed は `items.rs:96-109` で単複を分ける（`if errors == 1 { "" } else { "s" }`）。
+区切りは `, `。Nimculus は ` · ` で、単複を分けない（`1 warnings` になる）。
+
+**(5) 現在の診断メッセージを出していない。** Zed は `items.rs:61-88` で
+`current_diagnostic` があればインジケータの右にメッセージのボタンを出す。
+本文は改行の手前まで（`split_once('\n')`）。押すと次の診断へ移動し、
+ツールチップは診断ビューが開いていなければ `Expand Diagnostics`、
+開いていれば `Next Diagnostic`。Nimculus にこれが無い。
+
+**(6) 警告のみのときの押下時挙動。** Zed は `items.rs:122-126` で
+エラー 0・警告あり のときに `IncludeWarnings` を立ててから診断ビューを開く。
+警告だけの状態で開いて何も出ない、を防ぐため。
+
+**(7) 設定で消せない。** Zed は `ProjectSettings.diagnostics.button`（`items.rs:32`）。
+
+### やること
+
+(1)(2)(4) を Zed に合わせる。(3) は押下対象の同一性の問題なので合わせる。
+(5)(6)(7) は診断ビューと設定に依存するので、依存の有無を確認してから。
+
+### 却下案
+
+**info と hint は残す（情報量が多いほうが良い）。** UI-113 の却下案 (c) と同じ。
+有用性は移植の判断基準ではない。却下。
+
+**単複の分岐は日本語 UI に不要。** ラベルは英語で書かれており、
+アクセシビリティラベルとして読み上げられる。`1 warnings` は誤り。却下。
+
 ## UI-114: ステータスバー左側の 7 項目（未着手）
 
 UI-113 で右側を Zed に合わせた。左側は未移植であり、ここに調査結果だけ残す。
