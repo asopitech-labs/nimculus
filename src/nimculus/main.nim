@@ -4930,7 +4930,7 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
     # boundary explicit and pass the current UTF-8/no-BOM state.
     let footer = statusBarFooter(appSettings, cursor, "UTF-8", lineEnding, language, activeFile,
       isUtf8 = true, hasBom = false)
-    platformSetEditorFooter(footer.join("\t").cstring)
+    platformSetEditorFooter(serializeStatusBarFooter(footer).cstring)
 
 when defined(macosx):
   proc syncEditorScrollViewport(secondary: bool) =

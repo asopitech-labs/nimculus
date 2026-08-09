@@ -205,6 +205,9 @@ suite "macOS platform contract":
   test "native status overlay skips unchanged AppKit values":
     check platformValidateStatusUpdateDeduplication()
 
+  test "native footer preserves item order and kind-specific actions":
+    check platformValidateEditorFooterItems()
+
   test "native retained scene rebuilds fully for a new target":
     check platformValidateDamageRebuild()
 

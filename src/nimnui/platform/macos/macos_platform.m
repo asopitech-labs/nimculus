@@ -374,9 +374,8 @@ static NSString *g_editor_status = @"Ready";
 // Tab-separated, user-facing status items. The footer presenter keeps cursor,
 // indentation, encoding, line ending, language, LSP state, and active file
 // available as separate native controls while matching Zed's status-bar
-// grouping. The indentation field remains in the payload for compatibility;
-// Zed's visible status-bar order does not render it.
-static NSString *g_editor_footer = @"1:1\tSpaces: 2\tUTF-8\tLF\tPlain Text\tLSP: なし\t";
+// grouping. Nim owns which typed items are present and their display order.
+static NSString *g_editor_footer = @"";
 static NSString *g_editor_context = @"";
 static NSString *g_editor_git_branch = @"";
 static NSArray<NSString *> *g_editor_tab_titles = nil;
@@ -7543,11 +7542,6 @@ typedef NS_ENUM(NSInteger, NimculusFooterAction) {
   NimculusFooterActionAgent = 12
 };
 
-static NSString *footerItem(NSArray<NSString *> *items, NSUInteger index, NSString *fallback) {
-  if (index < items.count && items[index].length > 0) return items[index];
-  return fallback;
-}
-
 static void clearFooterCluster(NSStackView *cluster) {
   if (!cluster) return;
   NSArray<NSView *> *previous = [cluster.arrangedSubviews copy];
@@ -7836,26 +7830,74 @@ static NSView *newFooterDivider(void) {
     }
   }
 
-  NSString *cursor = footerItem(items, 0, @"1:1");
-  NSString *encoding = footerItem(items, 2, @"UTF-8");
-  NSString *lineEnding = footerItem(items, 3, @"LF");
-  NSString *language = footerItem(items, 4, @"Plain Text");
-  NSArray<NSArray<NSString *> *> *rightEntries = @[
-    @[cursor, [NSString stringWithFormat:@"Cursor position: %@", cursor], @"4"],
-    @[language, [NSString stringWithFormat:@"Language: %@", language], @"5"],
-    @[lineEnding, [NSString stringWithFormat:@"Line ending: %@", lineEnding], @"7"],
-    @[encoding, [NSString stringWithFormat:@"Encoding: %@", encoding], @"6"]
-  ];
-  for (NSArray<NSString *> *entry in rightEntries) {
-    NimculusFooterStatusButton *button = newFooterButton(self, entry[0], entry[1],
-      (NimculusFooterAction)entry[2].integerValue);
+  for (NSString *item in items) {
+    if (item.length == 0) continue;
+    NSRange separator = [item rangeOfString:@"="];
+    if (separator.location == NSNotFound || separator.location == 0 ||
+        separator.location + 1 >= item.length) continue;
+    NSString *kind = [item substringToIndex:separator.location];
+    NSString *value = [item substringFromIndex:separator.location + 1];
+    NimculusFooterAction action = NimculusFooterActionDisplayOnly;
+    NSString *label = value;
+    if ([kind isEqualToString:@"cursor"]) {
+      action = NimculusFooterActionCursor;
+      label = [NSString stringWithFormat:@"Cursor position: %@", value];
+    } else if ([kind isEqualToString:@"language"]) {
+      action = NimculusFooterActionLanguage;
+      label = [NSString stringWithFormat:@"Language: %@", value];
+    } else if ([kind isEqualToString:@"encoding"]) {
+      action = NimculusFooterActionEncoding;
+      label = [NSString stringWithFormat:@"Encoding: %@", value];
+    } else if ([kind isEqualToString:@"line-ending"]) {
+      action = NimculusFooterActionLineEnding;
+      label = [NSString stringWithFormat:@"Line ending: %@", value];
+    } else if ([kind isEqualToString:@"active-file"]) {
+      label = [NSString stringWithFormat:@"Active file: %@", value];
+    }
+    NimculusFooterStatusButton *button = newFooterButton(self, value, label, action);
     styleFooterStatusButton(button, NO);
     [right addArrangedSubview:button];
   }
-  // The right cluster is reserved for the four plain-text buffer status
-  // selectors, matching Zed's footer.
   [self setNeedsLayout:YES];
 }
+
+bool nimculus_platform_validate_editor_footer_items(void) {
+  @autoreleasepool {
+    NSString *previous = [g_editor_footer retain];
+    nimculus_platform_set_editor_footer("language=Markdown\tencoding=UTF-8\tline-ending=LF");
+    NimculusFooterOverlay *footer = [[NimculusFooterOverlay alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 30.0)];
+    [footer reloadStatusItems];
+    NSStackView *right = nil;
+    NSUInteger stackIndex = 0;
+    for (NSView *subview in footer.subviews) {
+      if (![subview isKindOfClass:[NSStackView class]]) continue;
+      if (stackIndex == 1) right = (NSStackView *)subview;
+      stackIndex++;
+    }
+    NSArray<NSView *> *items = right.arrangedSubviews;
+    BOOL valid = items.count == 3;
+    if (valid) {
+      NSButton *language = (NSButton *)items[0];
+      NSButton *encoding = (NSButton *)items[1];
+      NSButton *lineEnding = (NSButton *)items[2];
+      valid = [language.title isEqualToString:@"Markdown"] &&
+        [language.accessibilityLabel isEqualToString:@"Language: Markdown"] &&
+        language.tag == NimculusFooterActionLanguage &&
+        [encoding.title isEqualToString:@"UTF-8"] &&
+        [encoding.accessibilityLabel isEqualToString:@"Encoding: UTF-8"] &&
+        encoding.tag == NimculusFooterActionEncoding &&
+        [lineEnding.title isEqualToString:@"LF"] &&
+        [lineEnding.accessibilityLabel isEqualToString:@"Line ending: LF"] &&
+        lineEnding.tag == NimculusFooterActionLineEnding;
+    }
+    [footer release];
+    nimculus_platform_set_editor_footer(previous.UTF8String);
+    [previous release];
+    return valid;
+  }
+}
+
 static CGFloat footerClusterWidth(NSStackView *cluster) {
   if (!cluster) return 0.0;
   CGFloat width = 0.0;
@@ -15555,8 +15597,7 @@ void nimculus_platform_set_editor_status(const char *utf8) {
   }
 }
 void nimculus_platform_set_editor_footer(const char *utf8) {
-  const char *value = (utf8 && strlen(utf8) > 0) ? utf8 :
-    "1:1\tSpaces: 2\tUTF-8\tLF\tPlain Text\tLSP: なし\t";
+  const char *value = (utf8 && strlen(utf8) > 0) ? utf8 : "";
   if (g_editor_footer && strcmp(g_editor_footer.UTF8String, value) == 0) return;
   replaceOwnedString(&g_editor_footer, [NSString stringWithUTF8String:value]);
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;

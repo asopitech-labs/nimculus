@@ -34,6 +34,7 @@ bool nimculus_platform_validate_editor_body_ink(void);
 bool nimculus_platform_validate_editor_annotation_viewport(void);
 bool nimculus_platform_validate_secondary_annotation_isolation(void);
 bool nimculus_platform_validate_status_update_deduplication(void);
+bool nimculus_platform_validate_editor_footer_items(void);
 bool nimculus_platform_validate_damage_rebuild(void);
 bool nimculus_platform_validate_scroll_clip_pixels(void);
 bool nimculus_platform_validate_main_menu(void);

@@ -315,7 +315,11 @@ suite "M12 settings foundation":
   test "status bar defaults match Zed's two right-side items":
     let store = newSettingsStore("", "", "")
     check statusBarFooter(store, "1:1", "UTF-8", "LF", "Markdown", "main.md") ==
-      @["1:1", "Markdown"]
+      @[StatusBarFooterItem(kind: "cursor", text: "1:1"),
+        StatusBarFooterItem(kind: "language", text: "Markdown")]
+    check serializeStatusBarFooter(statusBarFooter(store, "1:1", "UTF-8", "LF", "Markdown",
+        "main.md")) ==
+      "cursor=1:1\tlanguage=Markdown"
 
   test "status bar line ending setting shows LF and CRLF":
     let root = getTempDir() / "nimculus-status-bar-line-endings"
@@ -324,9 +328,13 @@ suite "M12 settings foundation":
     writeFile(path, "{\"statusBar\":{\"lineEndingsButton\":true}}")
     let store = newSettingsStore(path, "", "")
     check statusBarFooter(store, "1:1", "UTF-8", "LF", "Markdown", "main.md") ==
-      @["1:1", "LF", "Markdown"]
+      @[StatusBarFooterItem(kind: "cursor", text: "1:1"),
+        StatusBarFooterItem(kind: "line-ending", text: "LF"),
+        StatusBarFooterItem(kind: "language", text: "Markdown")]
     check statusBarFooter(store, "1:1", "UTF-8", "CRLF", "Markdown", "main.md") ==
-      @["1:1", "CRLF", "Markdown"]
+      @[StatusBarFooterItem(kind: "cursor", text: "1:1"),
+        StatusBarFooterItem(kind: "line-ending", text: "CRLF"),
+        StatusBarFooterItem(kind: "language", text: "Markdown")]
     removeFile(path)
     removeDir(root)
 
@@ -337,17 +345,23 @@ suite "M12 settings foundation":
     writeFile(path, "{\"statusBar\":{\"activeEncodingButton\":\"enabled\"}}")
     let alwaysStore = newSettingsStore(path, "", "")
     check statusBarFooter(alwaysStore, "1:1", "UTF-8", "LF", "Markdown", "main.md") ==
-      @["1:1", "UTF-8", "Markdown"]
+      @[StatusBarFooterItem(kind: "cursor", text: "1:1"),
+        StatusBarFooterItem(kind: "encoding", text: "UTF-8"),
+        StatusBarFooterItem(kind: "language", text: "Markdown")]
     writeFile(path, "{\"statusBar\":{\"activeEncodingButton\":\"non_utf8\"}}")
     let nonUtf8Store = newSettingsStore(path, "", "")
     check statusBarFooter(nonUtf8Store, "1:1", "UTF-8", "LF", "Markdown", "main.md") ==
-      @["1:1", "Markdown"]
+      @[StatusBarFooterItem(kind: "cursor", text: "1:1"),
+        StatusBarFooterItem(kind: "language", text: "Markdown")]
     check statusBarFooter(nonUtf8Store, "1:1", "Windows-1252", "LF", "Markdown", "main.md",
-      isUtf8 = false) == @["1:1", "Windows-1252", "Markdown"]
+      isUtf8 = false) == @[StatusBarFooterItem(kind: "cursor", text: "1:1"),
+        StatusBarFooterItem(kind: "encoding", text: "Windows-1252"),
+        StatusBarFooterItem(kind: "language", text: "Markdown")]
     writeFile(path, "{\"statusBar\":{\"activeEncodingButton\":\"disabled\"}}")
     let disabledStore = newSettingsStore(path, "", "")
     check statusBarFooter(disabledStore, "1:1", "Windows-1252", "LF", "Markdown", "main.md",
-      isUtf8 = false) == @["1:1", "Markdown"]
+      isUtf8 = false) == @[StatusBarFooterItem(kind: "cursor", text: "1:1"),
+        StatusBarFooterItem(kind: "language", text: "Markdown")]
     removeFile(path)
     removeDir(root)
 
@@ -358,7 +372,10 @@ suite "M12 settings foundation":
     writeFile(path, "{\"statusBar\":{\"showActiveFile\":true}}")
     let store = newSettingsStore(path, "", "")
     check statusBarFooter(store, "1:1", "UTF-8", "LF", "Markdown", "main.md",
-      hasBom = true) == @["1:1", "UTF-8 (BOM)", "Markdown", "main.md"]
+      hasBom = true) == @[StatusBarFooterItem(kind: "cursor", text: "1:1"),
+        StatusBarFooterItem(kind: "encoding", text: "UTF-8 (BOM)"),
+        StatusBarFooterItem(kind: "language", text: "Markdown"),
+        StatusBarFooterItem(kind: "active-file", text: "main.md")]
     check statusBarEncodingShouldShow("non_utf8", true, true)
     check statusBarEncodingText("UTF-8", true) == "UTF-8 (BOM)"
     removeFile(path)
