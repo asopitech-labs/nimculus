@@ -300,6 +300,7 @@ when defined(macosx):
       let last = buffer.lineColumn(endByte)
       let firstLine = max(0, first.line)
       let lastLine = max(firstLine, last.line)
+      var selectionRows: seq[Rect]
       for lineIndex in firstLine .. lastLine:
         if lineIndex < view.scrollLine - 1: continue
         let row = lineIndex - view.scrollLine
@@ -310,8 +311,12 @@ when defined(macosx):
           float32(startColumn) * cellWidth - view.scrollX
         let width = max(cellWidth, float32(endColumn - startColumn) * cellWidth)
         let y = float32(bounds.origin.y) + float32(row) * lineHeight - view.scrollYFraction
-        paint.drawSelection(Rect(origin: Point(x: px(x), y: px(y)),
+        selectionRows.add(Rect(origin: Point(x: px(x), y: px(y)),
           size: Size(width: px(width), height: px(lineHeight))))
+      if selectionRows.len > 0:
+        # Zed's EditorSettings::rounded_selection defaults to true and uses
+        # 0.15 * line_height for the selection corner radius.
+        paint.drawRoundedSelection(selectionRows, px(0.15'f32 * lineHeight))
     for diagnostic in diagnostics:
       if diagnostic.endByte <= diagnostic.startByte: continue
       let first = buffer.lineColumn(diagnostic.startByte)
@@ -581,7 +586,13 @@ proc setupDemoUi() =
     drawCurrentEditorScrollbars(paint, primaryEditor, secondaryEditor,
       document[].buffer.lineStarts.len, document)
   var nativeCommands = newSeq[NativePaintCommand](paint.commands.len)
+  var nativeSelectionRows: seq[NativePaintSelectionRow]
   for index, command in paint.commands:
+    let rowStart = uint32(nativeSelectionRows.len)
+    for row in command.selectionRows:
+      nativeSelectionRows.add(NativePaintSelectionRow(
+        x: cfloat(float32(row.origin.x)), y: cfloat(float32(row.origin.y)),
+        width: cfloat(float32(row.size.width)), height: cfloat(float32(row.size.height))))
     nativeCommands[index] = NativePaintCommand(
       kind: uint32(ord(command.kind)),
       x: cfloat(float32(command.bounds.origin.x)),
@@ -603,11 +614,16 @@ proc setupDemoUi() =
       transformD: cfloat(command.transform.d),
       transformTx: cfloat(command.transform.tx),
       transformTy: cfloat(command.transform.ty),
-      imageId: command.imageId)
+      imageId: command.imageId, selectionRowStart: rowStart,
+      selectionRowCount: uint32(command.selectionRows.len))
   if nativeCommands.len > 0:
     platformSetPaintCommands(addr nativeCommands[0], uint32(nativeCommands.len))
   else:
     platformSetPaintCommands(nil, 0)
+  if nativeSelectionRows.len > 0:
+    platformSetPaintSelectionRows(addr nativeSelectionRows[0], uint32(nativeSelectionRows.len))
+  else:
+    platformSetPaintSelectionRows(nil, 0)
   var nativeDirty = newSeq[NativePaintRegion](paint.dirty.len)
   for index, dirty in paint.dirty:
     nativeDirty[index] = NativePaintRegion(

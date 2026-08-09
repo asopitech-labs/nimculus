@@ -9,7 +9,13 @@ type
     workspaceBackground, workspacePanel, workspaceSeparator, editorActiveLine, editorBackground,
     ## Zed rules the vertical scrollbar's inner edge in its own lighter role
     ## (`scrollbar.track.border`), distinct from the workspace `border`.
-    scrollbarTrack, editorDiagnostic
+    scrollbarTrack, editorDiagnostic, roundedSelection
+
+  ## The two possible width changes at a row join are kept as data rather
+  ## than exposed as path operations. The Metal backend consumes the row
+  ## rectangles and emits the concrete Zed-shaped selection directly.
+  RoundedSelectionJoin* = enum
+    selectionJoinEqual, selectionJoinInset, selectionJoinOutset
 
   PaintCommand* = object
     kind*: PaintKind
@@ -20,6 +26,10 @@ type
     radius*: Pixels
     transform*: Transform2D
     imageId*: uint32
+    ## Only populated for roundedSelection. Keeping the rows on the paint
+    ## command lets the retained command stay one concrete shape instead of
+    ## becoming one rounded rectangle per line.
+    selectionRows*: seq[Rect]
 
   PaintList* = object
     commands*: seq[PaintCommand]
@@ -118,6 +128,29 @@ proc drawCaret*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kin
     bounds: bounds, clip: bounds))
 proc drawSelection*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: selection,
     bounds: bounds, clip: bounds))
+proc roundedSelectionBounds*(rows: openArray[Rect]): Rect =
+  if rows.len == 0: return
+  result = rows[0]
+  for index in 1 ..< rows.len:
+    result = unionRect(result, rows[index])
+
+proc roundedSelectionCurveWidth*(left, right, radius: Pixels): Pixels =
+  ## This is Zed's `curve_width`: a corner cannot consume more than half of
+  ## the horizontal span of the row, nor more than the configured radius.
+  let span = max(0'f32, float32(right) - float32(left))
+  px(min(span / 2'f32, max(0'f32, float32(radius))))
+
+proc roundedSelectionJoin*(upper, lower: Rect): RoundedSelectionJoin =
+  let upperRight = float32(upper.origin.x + upper.size.width)
+  let lowerRight = float32(lower.origin.x + lower.size.width)
+  if upperRight == lowerRight: selectionJoinEqual
+  elif lowerRight < upperRight: selectionJoinInset
+  else: selectionJoinOutset
+
+proc drawRoundedSelection*(paint: var PaintList, rows: openArray[Rect], radius: Pixels) =
+  if rows.len == 0: return
+  paint.add(PaintCommand(kind: roundedSelection, bounds: roundedSelectionBounds(rows),
+    clip: roundedSelectionBounds(rows), radius: radius, selectionRows: @rows))
 proc drawScrollbar*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: scrollbar,
     bounds: bounds, clip: bounds))
 proc drawWorkspaceBackground*(paint: var PaintList, bounds: Rect) =

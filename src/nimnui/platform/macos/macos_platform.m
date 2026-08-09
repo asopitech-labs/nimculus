@@ -263,6 +263,8 @@ static BOOL editorTextureOwnsPrimaryDecorations(void) {
 }
 static NimculusPaintCommand *g_paint_commands = NULL;
 static uint32_t g_paint_count = 0;
+static NimculusPaintSelectionRow *g_paint_selection_rows = NULL;
+static uint32_t g_paint_selection_row_count = 0;
 static NimculusPaintRegion *g_paint_dirty_regions = NULL;
 static uint32_t g_paint_dirty_count = 0;
 static double g_editor_cursor[2] = {8.0, 12.0};
@@ -1431,6 +1433,8 @@ static void releasePlatformResources(void) {
   free(g_terminal_glyph_sprites); g_terminal_glyph_sprites = NULL;
   g_terminal_glyph_sprite_count = 0; g_terminal_glyph_sprite_capacity = 0;
   free(g_paint_commands); g_paint_commands = NULL; g_paint_count = 0;
+  free(g_paint_selection_rows); g_paint_selection_rows = NULL;
+  g_paint_selection_row_count = 0;
   free(g_paint_dirty_regions); g_paint_dirty_regions = NULL; g_paint_dirty_count = 0;
   free(g_highlights); g_highlights = NULL; g_highlight_count = 0;
   free(g_secondary_highlights); g_secondary_highlights = NULL; g_secondary_highlight_count = 0;
@@ -1680,6 +1684,283 @@ static void drawRoundedRectangle(id<MTLRenderCommandEncoder> encoder,
                                  float blue, float alpha) {
   drawRoundedRectangleWithTransform(encoder, device, logicalSize, x, y, width, height,
     radius, red, green, blue, alpha, identityAffine());
+}
+
+typedef struct NimculusSelectionPoint {
+  double x;
+  double y;
+} NimculusSelectionPoint;
+
+static void appendSelectionPoint(NimculusSelectionPoint *points, size_t capacity,
+                                 size_t *count, double x, double y) {
+  if (!points || !count || *count >= capacity) return;
+  if (*count > 0 && fabs(points[*count - 1].x - x) < 0.0001 &&
+      fabs(points[*count - 1].y - y) < 0.0001) return;
+  points[*count] = (NimculusSelectionPoint){x, y};
+  (*count)++;
+}
+
+static void appendSelectionLine(NimculusSelectionPoint *points, size_t capacity,
+                                size_t *count, double x, double y) {
+  appendSelectionPoint(points, capacity, count, x, y);
+}
+
+static void appendSelectionQuadratic(NimculusSelectionPoint *points, size_t capacity,
+                                     size_t *count, CGPoint control, CGPoint end) {
+  if (!points || !count || *count == 0) return;
+  const NimculusSelectionPoint start = points[*count - 1];
+  const int curveSegments = 6;
+  for (int step = 1; step <= curveSegments; step++) {
+    double t = (double)step / (double)curveSegments;
+    double oneMinusT = 1.0 - t;
+    double x = oneMinusT * oneMinusT * start.x +
+      2.0 * oneMinusT * t * control.x + t * t * end.x;
+    double y = oneMinusT * oneMinusT * start.y +
+      2.0 * oneMinusT * t * control.y + t * t * end.y;
+    appendSelectionPoint(points, capacity, count, x, y);
+  }
+}
+
+static double selectionCurveWidth(double left, double right, double radius) {
+  return MIN(MAX(0.0, (right - left) / 2.0), MAX(0.0, radius));
+}
+
+// Build exactly the concrete boundary used by Zed's EditorElement::paint_lines:
+// a top/right walk, rounded joins where adjacent row widths differ, then the
+// bottom/left walk. This is deliberately local to rounded selection painting;
+// it is not a reusable path or tessellation API.
+static size_t buildRoundedSelectionBoundary(const NimculusPaintSelectionRow *rows,
+                                            uint32_t rowCount, double radius,
+                                            NimculusSelectionPoint *points,
+                                            size_t capacity) {
+  if (!rows || rowCount == 0 || !points || capacity == 0) return 0;
+  const NimculusPaintSelectionRow first = rows[0];
+  const NimculusPaintSelectionRow last = rows[rowCount - 1];
+  const double firstRight = first.x + first.width;
+  const double firstBottom = first.y + first.height;
+  const double curveHeight = MAX(0.0, radius);
+  const double topCurveWidth = selectionCurveWidth(first.x, firstRight, radius);
+  size_t count = 0;
+  appendSelectionLine(points, capacity, &count,
+    firstRight - topCurveWidth, first.y);
+  if (radius > 0.0) {
+    appendSelectionQuadratic(points, capacity, &count,
+      CGPointMake(firstRight, first.y),
+      CGPointMake(firstRight, first.y + curveHeight));
+  } else {
+    appendSelectionLine(points, capacity, &count, firstRight, first.y);
+  }
+
+  for (uint32_t index = 0; index < rowCount; index++) {
+    const NimculusPaintSelectionRow line = rows[index];
+    const double bottomRightX = line.x + line.width;
+    const double bottomRightY = line.y + line.height;
+    if (index + 1 < rowCount) {
+      const NimculusPaintSelectionRow next = rows[index + 1];
+      const double nextRightX = next.x + next.width;
+      if (nextRightX == bottomRightX) {
+        appendSelectionLine(points, capacity, &count, bottomRightX, bottomRightY);
+      } else if (nextRightX < bottomRightX) {
+        const double width = selectionCurveWidth(nextRightX, bottomRightX, radius);
+        appendSelectionLine(points, capacity, &count,
+          bottomRightX, bottomRightY - curveHeight);
+        if (radius > 0.0) {
+          appendSelectionQuadratic(points, capacity, &count,
+            CGPointMake(bottomRightX, bottomRightY),
+            CGPointMake(bottomRightX - width, bottomRightY));
+        } else {
+          appendSelectionLine(points, capacity, &count,
+            bottomRightX - width, bottomRightY);
+        }
+        appendSelectionLine(points, capacity, &count,
+          nextRightX + width, bottomRightY);
+        if (radius > 0.0) {
+          appendSelectionQuadratic(points, capacity, &count,
+            CGPointMake(nextRightX, bottomRightY),
+            CGPointMake(nextRightX, bottomRightY + curveHeight));
+        } else {
+          appendSelectionLine(points, capacity, &count,
+            nextRightX, bottomRightY + curveHeight);
+        }
+      } else {
+        const double width = selectionCurveWidth(bottomRightX, nextRightX, radius);
+        appendSelectionLine(points, capacity, &count,
+          bottomRightX, bottomRightY - curveHeight);
+        if (radius > 0.0) {
+          appendSelectionQuadratic(points, capacity, &count,
+            CGPointMake(bottomRightX, bottomRightY),
+            CGPointMake(bottomRightX + width, bottomRightY));
+        } else {
+          appendSelectionLine(points, capacity, &count,
+            bottomRightX + width, bottomRightY);
+        }
+        appendSelectionLine(points, capacity, &count,
+          nextRightX - width, bottomRightY);
+        if (radius > 0.0) {
+          appendSelectionQuadratic(points, capacity, &count,
+            CGPointMake(nextRightX, bottomRightY),
+            CGPointMake(nextRightX, bottomRightY + curveHeight));
+        } else {
+          appendSelectionLine(points, capacity, &count,
+            nextRightX, bottomRightY + curveHeight);
+        }
+      }
+    } else {
+      const double width = selectionCurveWidth(line.x, bottomRightX, radius);
+      appendSelectionLine(points, capacity, &count,
+        bottomRightX, bottomRightY - curveHeight);
+      if (radius > 0.0) {
+        appendSelectionQuadratic(points, capacity, &count,
+          CGPointMake(bottomRightX, bottomRightY),
+          CGPointMake(bottomRightX - width, bottomRightY));
+      } else {
+        appendSelectionLine(points, capacity, &count,
+          bottomRightX - width, bottomRightY);
+      }
+      appendSelectionLine(points, capacity, &count,
+        line.x + width, bottomRightY);
+      if (radius > 0.0) {
+        appendSelectionQuadratic(points, capacity, &count,
+          CGPointMake(line.x, bottomRightY),
+          CGPointMake(line.x, bottomRightY - curveHeight));
+      } else {
+        appendSelectionLine(points, capacity, &count,
+          line.x, bottomRightY - curveHeight);
+      }
+    }
+  }
+
+  if (first.x > last.x) {
+    const double width = selectionCurveWidth(last.x, first.x, radius);
+    appendSelectionLine(points, capacity, &count, last.x, firstBottom + curveHeight);
+    if (radius > 0.0) {
+      appendSelectionQuadratic(points, capacity, &count,
+        CGPointMake(last.x, firstBottom),
+        CGPointMake(last.x + width, firstBottom));
+    } else {
+      appendSelectionLine(points, capacity, &count, last.x + width, firstBottom);
+    }
+    appendSelectionLine(points, capacity, &count, first.x - width, firstBottom);
+    if (radius > 0.0) {
+      appendSelectionQuadratic(points, capacity, &count,
+        CGPointMake(first.x, firstBottom),
+        CGPointMake(first.x, firstBottom - curveHeight));
+    } else {
+      appendSelectionLine(points, capacity, &count, first.x, firstBottom - curveHeight);
+    }
+  }
+  appendSelectionLine(points, capacity, &count, first.x, first.y + curveHeight);
+  if (radius > 0.0) {
+    appendSelectionQuadratic(points, capacity, &count,
+      CGPointMake(first.x, first.y), CGPointMake(first.x + topCurveWidth, first.y));
+  } else {
+    appendSelectionLine(points, capacity, &count, first.x + topCurveWidth, first.y);
+  }
+  appendSelectionLine(points, capacity, &count, firstRight - topCurveWidth, first.y);
+  return count;
+}
+
+static int compareSelectionY(const void *left, const void *right) {
+  const double a = *(const double *)left;
+  const double b = *(const double *)right;
+  return a < b ? -1 : (a > b ? 1 : 0);
+}
+
+static int compareSelectionX(const void *left, const void *right) {
+  const double a = *(const double *)left;
+  const double b = *(const double *)right;
+  return a < b ? -1 : (a > b ? 1 : 0);
+}
+
+static size_t selectionIntersectionsAtY(const NimculusSelectionPoint *points,
+                                        size_t count, double y, double *intersections,
+                                        size_t capacity) {
+  size_t intersectionCount = 0;
+  for (size_t index = 0; index < count; index++) {
+    const NimculusSelectionPoint first = points[index];
+    const NimculusSelectionPoint second = points[(index + 1) % count];
+    if (first.y == second.y) continue;
+    double lower = MIN(first.y, second.y);
+    double upper = MAX(first.y, second.y);
+    if (y < lower || y >= upper) continue;
+    double t = (y - first.y) / (second.y - first.y);
+    if (intersectionCount < capacity) intersections[intersectionCount++] =
+      first.x + t * (second.x - first.x);
+  }
+  qsort(intersections, intersectionCount, sizeof(double), compareSelectionX);
+  return intersectionCount;
+}
+
+static void drawRoundedSelectionWithTransform(id<MTLRenderCommandEncoder> encoder,
+                                              id<MTLDevice> device, CGSize logicalSize,
+                                              const NimculusPaintSelectionRow *rows,
+                                              uint32_t rowCount, double radius,
+                                              float red, float green, float blue,
+                                              float alpha, NimculusAffine transform) {
+  if (!rows || rowCount == 0 || logicalSize.width <= 0 || logicalSize.height <= 0) return;
+  size_t capacity = (size_t)rowCount * 32 + 32;
+  NimculusSelectionPoint *boundary = malloc(sizeof(NimculusSelectionPoint) * capacity);
+  if (!boundary) return;
+  size_t boundaryCount = buildRoundedSelectionBoundary(rows, rowCount, radius,
+    boundary, capacity);
+  if (boundaryCount < 3) { free(boundary); return; }
+  double *ys = malloc(sizeof(double) * boundaryCount);
+  double *intersectionsTop = malloc(sizeof(double) * boundaryCount);
+  double *intersectionsBottom = malloc(sizeof(double) * boundaryCount);
+  if (!ys || !intersectionsTop || !intersectionsBottom) {
+    free(ys); free(intersectionsTop); free(intersectionsBottom); free(boundary); return;
+  }
+  for (size_t index = 0; index < boundaryCount; index++) ys[index] = boundary[index].y;
+  qsort(ys, boundaryCount, sizeof(double), compareSelectionY);
+  size_t uniqueYCount = 0;
+  for (size_t index = 0; index < boundaryCount; index++) {
+    if (uniqueYCount == 0 || fabs(ys[index] - ys[uniqueYCount - 1]) > 0.0001)
+      ys[uniqueYCount++] = ys[index];
+  }
+
+  // Each strip is a concrete fill of the already-built selection boundary.
+  // Splitting at every boundary y handles the concave inner joins without a
+  // general polygon/path engine and preserves the rounded transition on both
+  // sides of a width change.
+  for (size_t band = 0; band + 1 < uniqueYCount; band++) {
+    double top = ys[band];
+    double bottom = ys[band + 1];
+    if (bottom - top <= 0.0001) continue;
+    double sampleTop = top + MIN(0.00005, (bottom - top) / 4.0);
+    double sampleBottom = bottom - MIN(0.00005, (bottom - top) / 4.0);
+    size_t topCount = selectionIntersectionsAtY(boundary, boundaryCount, sampleTop,
+      intersectionsTop, boundaryCount);
+    size_t bottomCount = selectionIntersectionsAtY(boundary, boundaryCount, sampleBottom,
+      intersectionsBottom, boundaryCount);
+    size_t pairCount = MIN(topCount, bottomCount) / 2;
+    for (size_t pair = 0; pair < pairCount; pair++) {
+      double leftTop = intersectionsTop[pair * 2];
+      double rightTop = intersectionsTop[pair * 2 + 1];
+      double leftBottom = intersectionsBottom[pair * 2];
+      double rightBottom = intersectionsBottom[pair * 2 + 1];
+      float vertices[32];
+      writeLogicalVertex(&vertices[0], applyAffine(transform, leftTop, top), logicalSize,
+        red, green, blue, alpha);
+      writeLogicalVertex(&vertices[8], applyAffine(transform, rightTop, top), logicalSize,
+        red, green, blue, alpha);
+      writeLogicalVertex(&vertices[16], applyAffine(transform, leftBottom, bottom), logicalSize,
+        red, green, blue, alpha);
+      writeLogicalVertex(&vertices[24], applyAffine(transform, rightBottom, bottom), logicalSize,
+        red, green, blue, alpha);
+      id<MTLBuffer> buffer = [device newBufferWithBytes:vertices length:sizeof(vertices)
+        options:MTLResourceStorageModeShared];
+      if (!buffer) continue;
+      [encoder setVertexBuffer:buffer offset:0 atIndex:0];
+      NimculusDrawUniforms uniforms = {1.0f};
+      id<MTLBuffer> uniformBuffer = [device newBufferWithBytes:&uniforms
+        length:sizeof(uniforms) options:MTLResourceStorageModeShared];
+      [encoder setVertexBuffer:uniformBuffer offset:0 atIndex:1];
+      [encoder drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
+      [uniformBuffer release];
+      [buffer release];
+    }
+  }
+  free(ys); free(intersectionsTop); free(intersectionsBottom); free(boundary);
 }
 
 static void setScissorForRegion(id<MTLRenderCommandEncoder> encoder,
@@ -2191,6 +2472,17 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
       [NSColor systemRedColor], &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height, themeRed, themeGreen, themeBlue, 1.0f, transform);
+  } else if (paint.kind == 18) { // Zed-shaped rounded multi-line selection
+    themeRGB(g_theme_selection,
+      [NSColor colorWithCalibratedRed:0.20 green:0.40 blue:0.75 alpha:1.0],
+      &themeRed, &themeGreen, &themeBlue);
+    if (paint.selection_row_start < g_paint_selection_row_count &&
+        paint.selection_row_count > 0 &&
+        paint.selection_row_count <= g_paint_selection_row_count - paint.selection_row_start) {
+      drawRoundedSelectionWithTransform(encoder, device, logicalSize,
+        &g_paint_selection_rows[paint.selection_row_start], paint.selection_row_count,
+        paint.radius, themeRed, themeGreen, themeBlue, 0.45f, transform);
+    }
   }
 }
 
@@ -15982,6 +16274,21 @@ void nimculus_platform_set_paint_commands(const NimculusPaintCommand *commands, 
     if (g_paint_commands) {
       memcpy(g_paint_commands, commands, sizeof(NimculusPaintCommand) * count);
       g_paint_count = count;
+    }
+  }
+  g_scene_dirty = YES;
+}
+void nimculus_platform_set_paint_selection_rows(const NimculusPaintSelectionRow *rows,
+                                                uint32_t count) {
+  free(g_paint_selection_rows);
+  g_paint_selection_rows = NULL;
+  g_paint_selection_row_count = 0;
+  if (rows && count > 0) {
+    g_paint_selection_rows = malloc(sizeof(NimculusPaintSelectionRow) * count);
+    if (g_paint_selection_rows) {
+      memcpy(g_paint_selection_rows, rows,
+        sizeof(NimculusPaintSelectionRow) * count);
+      g_paint_selection_row_count = count;
     }
   }
   g_scene_dirty = YES;

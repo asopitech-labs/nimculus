@@ -596,6 +596,43 @@ suite "M3 text foundation":
         height: px(4))))
     check paint.commands.len == 1
 
+  test "rounded selection keeps one outer shape for a row sequence":
+    var paint: PaintList
+    paint.invalidate(Rect(size: Size(width: px(120), height: px(100))))
+    let rows = @[
+      Rect(origin: Point(x: px(20), y: px(10)),
+        size: Size(width: px(36), height: px(10))),
+      Rect(origin: Point(x: px(8), y: px(20)),
+        size: Size(width: px(64), height: px(10))),
+      Rect(origin: Point(x: px(8), y: px(30)),
+        size: Size(width: px(28), height: px(10)))]
+    paint.drawRoundedSelection(rows, px(2))
+    check paint.commands.len == 1
+    check paint.commands[0].kind == roundedSelection
+    check paint.commands[0].selectionRows == rows
+    check paint.commands[0].sourceBounds == Rect(origin: Point(x: px(8), y: px(10)),
+      size: Size(width: px(64), height: px(30)))
+
+  test "rounded selection rounds an inner corner at a width change":
+    let upper = Rect(origin: Point(x: px(16), y: px(0)),
+      size: Size(width: px(64), height: px(10)))
+    let lower = Rect(origin: Point(x: px(4), y: px(10)),
+      size: Size(width: px(40), height: px(10)))
+    check roundedSelectionJoin(upper, lower) == selectionJoinInset
+    check roundedSelectionCurveWidth(px(44), px(80), px(8)) == px(8)
+    check roundedSelectionCurveWidth(px(44), px(48), px(8)) == px(2)
+
+  test "single-row rounded selection retains the existing selection bounds":
+    var paint: PaintList
+    paint.invalidate(Rect(size: Size(width: px(100), height: px(40))))
+    let row = Rect(origin: Point(x: px(12), y: px(8)),
+      size: Size(width: px(48), height: px(12)))
+    paint.drawRoundedSelection(@[row], px(1.8))
+    check paint.commands.len == 1
+    check paint.commands[0].selectionRows.len == 1
+    check paint.commands[0].selectionRows[0] == row
+    check paint.commands[0].sourceBounds == row
+
   test "paint damage merges overlapping regions":
     var paint: PaintList
     paint.invalidate(Rect(origin: Point(x: px(0), y: px(0)),

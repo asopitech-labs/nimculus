@@ -48,6 +48,11 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformGetTerminalCellMetrics*(cellWidth, lineHeight: ptr cdouble) {.importc: "nimculus_platform_get_terminal_cell_metrics", cdecl.}
   proc platformSetPaintCommands*(commands: ptr NativePaintCommand,
       count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}
+  ## Rounded selection rows are consumed by the macOS Metal backend. Keep the
+  ## shared paint publication call a no-op on Windows until that backend has
+  ## an equivalent shape primitive.
+  proc platformSetPaintSelectionRows*(rows: ptr NativePaintSelectionRow,
+      count: uint32) = discard (rows, count)
   proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
       length: uint32) {.importc: "nimculus_platform_set_image_rgba", cdecl.}
   proc platformSetEditorText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_editor_text", cdecl.}
@@ -138,6 +143,8 @@ else:
     if lineHeight != nil: lineHeight[] = 14.0
   proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) = discard (
     commands, count)
+  proc platformSetPaintSelectionRows*(rows: ptr NativePaintSelectionRow, count: uint32) = discard (
+    rows, count)
   proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
       length: uint32) = discard (imageId, width, height, rgba, length)
   proc platformSetEditorText*(text: cstring, length: uint32) = discard (text, length)

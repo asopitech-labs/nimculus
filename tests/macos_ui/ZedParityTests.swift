@@ -226,4 +226,51 @@ final class ZedParityTests: XCTestCase {
     sleep(3)
     longScroll(app: app)
   }
+
+  /// Capture a multi-line selection in both editors, for the rounded-selection
+  /// comparison. Zed rounds the outline of the whole region, so the corners
+  /// where consecutive lines differ in width are what to look at.
+  func testCaptureMultiLineSelection() {
+    for (id, label) in [("dev.zed.Zed", "zed"), ("com.asopitech.nimculus", "nimculus")] {
+      let app = XCUIApplication(bundleIdentifier: id)
+      // Both editors must be showing the same document. Activating Zed without
+      // opening one caught it on its onboarding screen, and the capture pair
+      // was not a comparison at all.
+      app.launchArguments = [Self.document]
+      app.launch()
+      XCTAssertTrue(app.wait(for: .runningForeground, timeout: 60))
+      sleep(6)
+
+      let window = self.window(of: app)
+      XCTAssertTrue(
+        Self.showsDocument(window),
+        "\(label) is not showing \(Self.document); the capture would not be a comparison")
+
+      // Click into the body, then extend the selection down several lines so
+      // the region spans lines of differing width.
+      window.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.25)).click()
+      sleep(1)
+      for _ in 0..<6 {
+        window.typeKey(XCUIKeyboardKey.downArrow.rawValue, modifierFlags: .shift)
+      }
+      sleep(2)
+      write(window.screenshot().pngRepresentation, "\(label)-selection.png")
+    }
+  }
+
+  /// True when the window is showing the document rather than a welcome or
+  /// onboarding screen. Zed puts the file name in the window title; Nimculus
+  /// titles its window "Nimculus" and names the document in the tab and the
+  /// breadcrumb, so matching on the title alone rejected a window that was in
+  /// fact correct. Accept any descendant that carries the name.
+  private static func showsDocument(_ window: XCUIElement) -> Bool {
+    let name = (Self.document as NSString).lastPathComponent
+    if window.title.contains(name) { return true }
+    let stem = (name as NSString).deletingPathExtension
+    let predicate = NSPredicate(
+      format: "label CONTAINS %@ OR title CONTAINS %@ OR value CONTAINS %@",
+      stem, stem, stem)
+    return window.descendants(matching: .any).matching(predicate).firstMatch
+      .waitForExistence(timeout: 10)
+  }
 }

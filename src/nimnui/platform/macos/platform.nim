@@ -294,6 +294,8 @@ proc platformSetSecondaryEditorGitHunks*(spans: ptr NativeGitHunkSpan,
 proc platformSetRecentFiles*(paths: ptr cstring, count: uint32) {.importc: "nimculus_platform_set_recent_files", cdecl.}
 proc platformSetPaintCommands*(commands: ptr NativePaintCommand,
     count: uint32) {.importc: "nimculus_platform_set_paint_commands", cdecl.}
+proc platformSetPaintSelectionRows*(rows: ptr NativePaintSelectionRow,
+    count: uint32) {.importc: "nimculus_platform_set_paint_selection_rows", cdecl.}
 proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
     length: uint32) {.importc: "nimculus_platform_set_image_rgba", cdecl.}
 proc platformSetPaintDirtyRegions*(regions: ptr NativePaintRegion,

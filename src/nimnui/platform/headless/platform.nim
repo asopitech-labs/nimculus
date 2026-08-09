@@ -147,6 +147,8 @@ proc platformSetRecentFiles*(paths: ptr cstring, count: uint32) = discard (paths
 when not defined(windows):
   proc platformSetPaintCommands*(commands: ptr NativePaintCommand, count: uint32) = discard (
     commands, count)
+proc platformSetPaintSelectionRows*(rows: ptr NativePaintSelectionRow, count: uint32) = discard (
+  rows, count)
 when not defined(windows):
   proc platformSetImageRgba*(imageId, width, height: uint32, rgba: pointer,
       length: uint32) = discard (imageId, width, height, rgba, length)

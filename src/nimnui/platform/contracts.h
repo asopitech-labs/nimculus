@@ -162,7 +162,16 @@ typedef struct NimculusPaintCommand {
   float transform_tx;
   float transform_ty;
   uint32_t image_id;
+  uint32_t selection_row_start;
+  uint32_t selection_row_count;
 } NimculusPaintCommand;
+
+typedef struct NimculusPaintSelectionRow {
+  float x;
+  float y;
+  float width;
+  float height;
+} NimculusPaintSelectionRow;
 
 typedef struct NimculusPaintRegion {
   float x;

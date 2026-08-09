@@ -70,6 +70,9 @@ type
     sourceX*, sourceY*, sourceWidth*, sourceHeight*: cfloat
     transformA*, transformB*, transformC*, transformD*, transformTx*, transformTy*: cfloat
     imageId*: uint32
+    selectionRowStart*, selectionRowCount*: uint32
+  NativePaintSelectionRow* {.bycopy.} = object
+    x*, y*, width*, height*: cfloat
   NativePaintRegion* {.bycopy.} = object
     x*, y*, width*, height*: cfloat
   NativeAccessibilityNode* {.bycopy.} = object
