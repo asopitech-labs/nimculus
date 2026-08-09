@@ -1,5 +1,76 @@
 # Design Decisions
 
+## UI-106: Font features and fallbacks as CTFont attributes
+
+対応マイルストーンは ROADMAP.md の M3（macOS テキスト描画と IME）／M12（設定）。
+完了条件は、`buffer_font_features` / `buffer_font_fallbacks` に相当する設定が
+CTFont の属性として反映され、unit テストで検証されていること。
+
+### Zed の構造
+
+`references/zed/crates/gpui_macos/src/open_type.rs:34`
+`apply_features_and_fallbacks(font, features, fallbacks)` が CTFont に 2 つの
+属性を設定する:
+
+| 属性 | 設定キー | Zed の既定 |
+| --- | --- | --- |
+| `kCTFontFeatureSettingsAttribute` | `buffer_font_features` | `{}`（`"calt": false` は例としてコメントアウト） |
+| `kCTFontCascadeListAttribute` | `buffer_font_fallbacks` | `null`（プラットフォーム既定とマージされる） |
+
+呼び出しは `crates/gpui_macos/src/text_system.rs:293`。
+
+### 現状の Nimculus
+
+`macos_platform.m:2664` の `editorFont` が
+`CTFontCreateWithName(name, size, NULL)` で**属性なし**にフォントを作る。
+どちらの設定も存在しない（`settings.nim:224` の `editor` は fontSize /
+fontFamily / tabSize / insertSpaces のみ）。
+
+### 優先度の位置づけ
+
+**既定状態では画面に出ない。** Zed の既定が features `{}` / fallbacks `null` なので、
+素の Zed と素の Nimculus で描画は変わらない。UI パリティには影響せず、
+効くのはユーザが設定を書いたときだけ。角丸選択（既定で差が見えた）とは
+性質が違う。
+
+それでも実装するのは、**コストが小さく既存経路に載る**ため。CTFont の生成箇所は
+`editorFont` に集約されており、設定は `editor.*` に足すだけで済む。
+
+### 採用案
+
+1. 設定に `editor.fontFeatures`（オブジェクト、キーは 4 文字のフィーチャタグ、
+   値は真偽）と `editor.fontFallbacks`（文字列配列）を足す。
+   **Zed のキー名（`buffer_font_features` / `buffer_font_fallbacks`）ではなく
+   既存の `editor.*` 名前空間に合わせる** — このリポジトリの設定は
+   `editor.fontSize` / `editor.fontFamily` という形で既に Zed とキー名が違う。
+   ここだけ Zed のキー名にすると一貫性が壊れる。
+2. platform 契約に渡し、`editorFont` で `CTFontDescriptorCreateWithAttributes` を
+   使って `kCTFontFeatureSettingsAttribute` と `kCTFontCascadeListAttribute` を
+   設定する。Zed の `open_type.rs` の属性の組み立て方に合わせる。
+3. **フォントキャッシュのキーに features と fallbacks を含める。**
+   現状 `editorFont` は名前とサイズだけでキャッシュしており、設定変更が
+   反映されなくなる。
+
+### 却下案
+
+**(a) Zed のキー名をそのまま使う。** `buffer_font_features` を足すと、
+`editor.fontSize` などと名前空間が混在する。既存の設定と揃えるほうが一貫する。却下。
+
+**(b) 既定では画面に出ないので実装しない。** 実装コストが小さく既存経路に
+載るので、見送る理由が弱い。ただし優先度は低いものとして扱い、
+これより先に `key_dispatch` の `KeyContext` を片付ける。**今回は実装する。**
+
+### 文字単位・スレッド・UI ブロッキング
+
+フィーチャタグは 4 文字の ASCII。フォント生成はフレーム内で完結し、
+キャッシュがあるので設定変更時のみ再構築される。
+
+### テスト観点
+
+- unit: 設定のパースと platform 契約への受け渡し、フォントキャッシュのキーに
+  features / fallbacks が含まれること（設定を変えると再構築されること）
+- 既定（features 空・fallbacks 空）で従来と同じフォントが得られること（回帰）
+
 ## UI-105: Rounded selection first, as a shaped primitive rather than a path engine
 
 対応マイルストーンは ROADMAP.md の M5（macOS 最小実用エディタ）／UI パリティ。
