@@ -64,7 +64,7 @@ Zed 側にあるモジュールで、Nimculus 側に対応物が見当たらな�
 | `text_system.rs` | `macos_platform.m` の 1 行シェープ契約 | 移植済み |
 | `window.rs`（a11y adapter を含む） | `macos_platform.m` | a11y 部分は**移植漏れ確定** |
 | `display_link.rs` | `macos_platform.m:8243` `displayLinkDidFire:` / `:8250` `requestRedraw` | **移植済み（2026-08-09 確認）**。DisplayLink が唯一のフレーム所有者で、入力は dirty を立てるだけ。`preferredFrameRateRange` を画面の `maximumFramesPerSecond` に合わせる（60–120）。Zed が `CVDisplayLink` を使うのに対しこちらは `CADisplayLink`（macOS 14+ の後継 API） |
-| `open_type.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は OpenType フィーチャ（合字・字形代替など）を指定できる。`kCTFontFeature` 系の指定がこちらに無く、`buffer_font_features` 相当の設定も無い |
+| `open_type.rs` | 無し | **移植漏れ。ただし既定状態では画面に出ない（2026-08-09 調査）**。`apply_features_and_fallbacks`（open_type.rs:34）が `kCTFontFeatureSettingsAttribute`（`buffer_font_features`）と `kCTFontCascadeListAttribute`（`buffer_font_fallbacks`）を CTFont に設定する。**Zed の既定は features が `{}`、fallbacks が `null`** なので、素の Zed と素の Nimculus で見た目は変わらない。こちらは `CTFontCreateWithName(name, size, NULL)` で属性なし。<br>効くのはユーザが設定を書いたときだけ。**UI パリティには影響しない**ので優先度は低い |
 | `pasteboard.rs` | `macos_platform.m:15970-15990` | **部分移植（2026-08-09 確認）**。`NSPasteboardTypeString` を UTF-8 データとして読み書きする点は Zed に合わせてある（コメントに明記）。Zed が扱う `NSPasteboardTypePNG`（画像）と `NSFilenamesPboardType`（ファイル）は未対応 |
 | `screen_capture.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は画面共有のためにアプリ内で ScreenCaptureKit を扱う。こちらは 0 箇所。UI テストのキャプチャは `tools/window_capture.swift`（外部ツール）で行っており別物 |
 | `dispatcher.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `dispatch`（優先度つき）と `dispatch_after` を platform に持ち、`executor.rs` の土台になる。framework 側の `executor.rs` の行と同根の欠落 |
@@ -104,7 +104,8 @@ Zed 側にあるモジュールで、Nimculus 側に対応物が見当たらな�
    `gestures.rs` はタッチ用で macOS では Zed も使っていない。体感に効くのは
    トラックパッドの軸ロックのほうで、こちらは実際に移植漏れ
 2. **`path_builder.rs`** — 任意ベクタパス。アイコンや装飾の表現力
-3. **`open_type.rs`** — 合字・字形代替。`buffer_font_features` 相当の設定も無い
+3. **`open_type.rs`** — 合字・字形代替。ただし **Zed の既定は空**なので UI パリティには
+   影響しない（2026-08-09 調査）。設定を書いたユーザにだけ効く
 4. **`pasteboard`** の画像・ファイル貼り付け
 5. **`asset_cache.rs`**、**`svg_renderer.rs`** — アセットの概念自体が無い
 
