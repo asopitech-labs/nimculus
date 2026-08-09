@@ -576,6 +576,47 @@ suite "M2 UI foundation":
     discard tree.focus(first)
     check tree.focusNext() == second
 
+  test "focus traversal follows tab index instead of declaration order":
+    var tree = newUiTree()
+    let firstDeclared = tree.addNode(focusable = true, tabIndex = 20)
+    let secondDeclared = tree.addNode(focusable = true, tabIndex = 10)
+    let thirdDeclared = tree.addNode(focusable = true, tabIndex = 30)
+    check tree.focusNext() == secondDeclared
+    check tree.focusNext() == firstDeclared
+    check tree.focusNext() == thirdDeclared
+
+  test "focus traversal uses nested group paths in lexicographic order":
+    var tree = newUiTree()
+    let root = tree.addNode(tabIndex = 100)
+    let lateGroup = tree.addNode(root, tabIndex = 20)
+    let lateChild = tree.addNode(lateGroup, focusable = true, tabIndex = 0)
+    let earlyGroup = tree.addNode(root, tabIndex = 10)
+    let earlyChild = tree.addNode(earlyGroup, focusable = true, tabIndex = 0)
+    let rootChild = tree.addNode(root, focusable = true, tabIndex = 30)
+    check tree.focusNext() == earlyChild
+    check tree.focusNext() == lateChild
+    check tree.focusNext() == rootChild
+
+  test "focus traversal skips nodes outside the tab stop":
+    var tree = newUiTree()
+    let first = tree.addNode(focusable = true, tabIndex = 0)
+    let skipped = tree.addNode(focusable = true, tabIndex = 1, tabStop = false)
+    let last = tree.addNode(focusable = true, tabIndex = 2)
+    check tree.focusNext() == first
+    check tree.focusNext() == last
+    check tree.focused == last
+    check skipped != tree.focused
+
+  test "focusPrev follows the reverse tab order":
+    var tree = newUiTree()
+    let first = tree.addNode(focusable = true, tabIndex = 0)
+    let second = tree.addNode(focusable = true, tabIndex = 10)
+    let third = tree.addNode(focusable = true, tabIndex = 20)
+    discard tree.focus(third)
+    check tree.focusPrev() == second
+    check tree.focusPrev() == first
+    check tree.focusPrev() == third
+
   test "event dispatch follows capture target bubble":
     var tree = newUiTree()
     let root = tree.addNode()

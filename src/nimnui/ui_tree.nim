@@ -28,6 +28,8 @@ type
     layoutDirty*: bool
     paintDirty*: bool
     focusable*: bool
+    tabIndex*: int
+    tabStop*: bool
     generation*: uint32
     focusedState*, hoveredState*, activeState*, disabledState*: bool
     flexGrow*: float32
@@ -60,13 +62,15 @@ proc nodeIndex*(tree: UiTree, id: NodeId): int =
     if node.id == id: return index
   -1
 
-proc addNode*(tree: var UiTree, parent: NodeId = NodeId(0), focusable = false): NodeId =
+proc addNode*(tree: var UiTree, parent: NodeId = NodeId(0), focusable = false,
+              tabIndex = 0, tabStop = true): NodeId =
   let id = NodeId(tree.nextId)
   inc tree.nextId
   let generation = tree.nextGeneration
   inc tree.nextGeneration
   tree.nodes.add(UiNode(id: id, parent: parent, state: normal,
                         layoutDirty: true, paintDirty: true, focusable: focusable,
+                        tabIndex: tabIndex, tabStop: tabStop,
                         generation: generation,
                         maxSize: Size(width: px(100000), height: px(100000)),
                         layoutSpec: defaultLayoutSpec()))

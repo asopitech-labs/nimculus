@@ -1,5 +1,6 @@
 import nimnui/ui_tree
 import nimnui/context
+import std/algorithm
 import std/strutils
 
 type
@@ -158,13 +159,70 @@ proc shortcutFromKeyBinding*(binding: string): Shortcut =
     else: key = value
   result.keyCode = macOSKeyCode(key)
 
-proc focusNext*(tree: var UiTree): NodeId =
-  var focusables: seq[NodeId]
-  for node in tree.nodes:
-    if node.focusable and not tree.isDisabledPath(node.id): focusables.add(node.id)
-  if focusables.len == 0: return NodeId(0)
-  var current = 0
-  for index, id in focusables:
-    if id == tree.focused: current = (index + 1) mod focusables.len
-  discard tree.focus(focusables[current])
-  focusables[current]
+type
+  TabStopEntry = object
+    id: NodeId
+    path: seq[int]
+    insertionIndex: int
+    tabStop: bool
+
+proc tabPath(tree: UiTree, id: NodeId): seq[int] =
+  ## The parent chain is NimNUI's equivalent of Zed's current_path. The
+  ## node's own tabIndex is the leaf component of the path.
+  var current = id
+  while current != NodeId(0):
+    let index = tree.nodeIndex(current)
+    if index < 0: break
+    result.add(tree.nodes[index].tabIndex)
+    current = tree.nodes[index].parent
+  result.reverse()
+
+proc compareTabPaths(left, right: seq[int]): int =
+  let commonLength = min(left.len, right.len)
+  for index in 0 ..< commonLength:
+    result = cmp(left[index], right[index])
+    if result != 0: return
+  result = cmp(left.len, right.len)
+
+proc tabStopOrder(tree: UiTree): seq[TabStopEntry] =
+  ## Sort by the (group, tab index) path, then by declaration order for
+  ## equal paths, matching TabStopNode's path/insertion ordering in Zed.
+  for index, node in tree.nodes:
+    if node.focusable and not tree.isDisabledPath(node.id):
+      result.add(TabStopEntry(id: node.id, path: tree.tabPath(node.id),
+                              insertionIndex: index, tabStop: node.tabStop))
+  result.sort(proc(left, right: TabStopEntry): int =
+    let pathOrder = compareTabPaths(left.path, right.path)
+    if pathOrder != 0: pathOrder else: cmp(left.insertionIndex, right.insertionIndex))
+
+proc focusByTabOrder(tree: var UiTree, forward: bool): NodeId =
+  let entries = tree.tabStopOrder()
+  if entries.len == 0: return NodeId(0)
+
+  var current = -1
+  for index, entry in entries:
+    if entry.id == tree.focused:
+      current = index
+      break
+
+  let start = if current < 0:
+    if forward: 0 else: entries.high
+  elif forward:
+    (current + 1) mod entries.len
+  else:
+    (current + entries.len - 1) mod entries.len
+
+  var index = start
+  for _ in 0 ..< entries.len:
+    if entries[index].tabStop:
+      discard tree.focus(entries[index].id)
+      return entries[index].id
+    if forward:
+      index = (index + 1) mod entries.len
+    else:
+      index = (index + entries.len - 1) mod entries.len
+  NodeId(0)
+
+proc focusNext*(tree: var UiTree): NodeId = tree.focusByTabOrder(true)
+
+proc focusPrev*(tree: var UiTree): NodeId = tree.focusByTabOrder(false)
