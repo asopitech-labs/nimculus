@@ -1,6 +1,7 @@
 import std/[os, strutils, unittest]
 import nimnui/platform/macos/platform
 import nimculus/editor_scroll
+import nimculus/settings
 import nimnui/geometry
 
 proc nativeGuiValidationRequired(): bool =
@@ -44,6 +45,30 @@ suite "macOS platform contract":
     check uint32(sizeof(NativePaintCommand)) == platformPaintCommandSize()
     check uint32(sizeof(NativePaintRegion)) == platformPaintRegionSize()
     check uint32(sizeof(NativeAccessibilityNode)) == platformAccessibilityNodeSize()
+
+  test "editor font features and fallbacks use Core Text attributes and rebuild the cache":
+    check platformValidateEditorFontConfiguration()
+
+  test "settings values can be handed to the editor font platform contract":
+    let root = getTempDir() / "nimculus-font-platform-handoff"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{"editor":{"fontFeatures":{"calt":false},"fontFallbacks":["Hiragino Sans"]}}""")
+    let store = newSettingsStore(path, "", "")
+    let parsedFeatures = store.editorFontFeatures()
+    var tag = parsedFeatures[0].tag
+    var nativeFeature = NativeEditorFontFeature(tag: tag.cstring,
+      enabled: parsedFeatures[0].enabled)
+    let parsedFallbacks = store.editorFontFallbacks()
+    var fallback = parsedFallbacks[0]
+    var nativeFallback: cstring = fallback.cstring
+    platformSetEditorFontFeatures(addr nativeFeature, 1)
+    platformSetEditorFontFallbacks(addr nativeFallback, 1)
+    check platformValidateEditorFontConfiguration()
+    platformSetEditorFontFeatures(nil, 0)
+    platformSetEditorFontFallbacks(nil, 0)
+    removeFile(path)
+    removeDir(root)
 
   test "input counter is monotonic":
     let before = platformInputCount()

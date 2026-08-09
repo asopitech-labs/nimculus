@@ -15,6 +15,10 @@ type
     command*: string
     whenClause*: string
 
+  EditorFontFeature* = object
+    tag*: string
+    enabled*: bool
+
   TerminalPalette* = object
     ## Zed's terminal roles plus the normal, bright, and dim ANSI tables.
     ## The arrays use the terminal's canonical indexes 0..15.
@@ -163,6 +167,12 @@ proc jsonBoolAt*(root: JsonNode, path: string, fallback: bool): bool =
   if node != nil and node.kind == JBool: return node.getBool
   fallback
 
+proc validFeatureTag(tag: string): bool =
+  if tag.len != 4: return false
+  for character in tag:
+    if ord(character) > 127: return false
+  true
+
 proc validateSettings*(root: JsonNode): seq[SettingsDiagnostic] =
   if root == nil or root.kind != JObject:
     result.add(SettingsDiagnostic(path: "", message: "settings root must be an object"))
@@ -189,6 +199,28 @@ proc validateSettings*(root: JsonNode): seq[SettingsDiagnostic] =
   let insertSpaces = nodeAt(root, "editor.insertSpaces")
   if insertSpaces != nil and insertSpaces.kind != JBool:
     result.add(SettingsDiagnostic(path: "editor.insertSpaces", message: "must be a boolean"))
+  let fontFeatures = nodeAt(root, "editor.fontFeatures")
+  if fontFeatures != nil:
+    if fontFeatures.kind != JObject:
+      result.add(SettingsDiagnostic(path: "editor.fontFeatures", message: "must be an object"))
+    else:
+      for tag, value in fontFeatures:
+        if not validFeatureTag(tag):
+          result.add(SettingsDiagnostic(path: "editor.fontFeatures." & tag,
+            message: "feature tags must be four ASCII characters"))
+        elif value.kind != JBool:
+          result.add(SettingsDiagnostic(path: "editor.fontFeatures." & tag,
+            message: "must be a boolean"))
+  let fontFallbacks = nodeAt(root, "editor.fontFallbacks")
+  if fontFallbacks != nil:
+    if fontFallbacks.kind != JArray:
+      result.add(SettingsDiagnostic(path: "editor.fontFallbacks", message: "must be an array"))
+    else:
+      for index in 0 ..< fontFallbacks.len:
+        let fallback = fontFallbacks[index]
+        if fallback.kind != JString or fallback.getStr.len == 0:
+          result.add(SettingsDiagnostic(path: "editor.fontFallbacks[" & $index & "]",
+            message: "must be a non-empty string"))
   for key in ["theme", "iconTheme", "editor.fontFamily", "terminal.shell", "terminal.fontFamily"]:
     let value = jsonStringAt(root, key, "")
     if value.len == 0:
@@ -224,6 +256,8 @@ proc settingsSchema*(): JsonNode =
       "editor": {"type": "object", "properties": {
         "fontSize": {"type": "integer", "minimum": 6, "maximum": 96},
         "fontFamily": {"type": "string"},
+        "fontFeatures": {"type": "object", "additionalProperties": {"type": "boolean"}},
+        "fontFallbacks": {"type": "array", "items": {"type": "string"}},
         "tabSize": {"type": "integer", "minimum": 1, "maximum": 16},
         "insertSpaces": {"type": "boolean"}
     }},
@@ -612,6 +646,21 @@ proc terminalScrollMultiplier*(store: SettingsStore): float32 =
 
 proc boolSetting*(store: SettingsStore, path: string, fallback: bool): bool =
   jsonBoolAt(store.values, path, fallback)
+
+proc editorFontFeatures*(store: SettingsStore): seq[EditorFontFeature] =
+  let node = nodeAt(store.values, "editor.fontFeatures")
+  if node == nil or node.kind != JObject: return
+  for tag, value in node:
+    if validFeatureTag(tag) and value.kind == JBool:
+      result.add(EditorFontFeature(tag: tag, enabled: value.getBool))
+  result.sort(proc(left, right: EditorFontFeature): int = cmp(left.tag, right.tag))
+
+proc editorFontFallbacks*(store: SettingsStore): seq[string] =
+  let node = nodeAt(store.values, "editor.fontFallbacks")
+  if node == nil or node.kind != JArray: return
+  for fallback in node:
+    if fallback.kind == JString and fallback.getStr.len > 0:
+      result.add(fallback.getStr)
 
 proc diagnostics*(store: SettingsStore): seq[SettingsDiagnostic] =
   if store != nil: result = store.settings.diagnostics

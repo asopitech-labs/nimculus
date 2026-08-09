@@ -72,6 +72,9 @@ when defined(windows) and not defined(nimculusPortableOnly):
       count: uint32) {.importc: "nimculus_platform_set_editor_highlights", cdecl.}
   proc platformSetEditorFontSize*(size: cdouble) {.importc: "nimculus_platform_set_editor_font_size", cdecl.}
   proc platformSetEditorFontName*(name: cstring) {.importc: "nimculus_platform_set_editor_font_name", cdecl.}
+  proc platformSetEditorFontFeatures*(features: ptr NativeEditorFontFeature,
+      count: uint32) = discard (features, count)
+  proc platformSetEditorFontFallbacks*(fallbacks: ptr cstring, count: uint32) = discard (fallbacks, count)
   proc platformEditorLineHeight*(): cdouble {.importc: "nimculus_platform_editor_line_height", cdecl.}
   proc platformSetEditorCursorByte*(byteOffset, line: uint32) {.importc: "nimculus_platform_set_editor_cursor_byte", cdecl.}
   proc platformSetEditorScrollLine*(line: uint32) {.importc: "nimculus_platform_set_editor_scroll_line", cdecl.}
@@ -173,6 +176,9 @@ else:
   proc platformSetEditorCursor*(x, y: cdouble) = discard (x, y)
   proc platformSetEditorFontSize*(size: cdouble) = discard size
   proc platformSetEditorFontName*(name: cstring) = discard name
+  proc platformSetEditorFontFeatures*(features: ptr NativeEditorFontFeature,
+      count: uint32) = discard (features, count)
+  proc platformSetEditorFontFallbacks*(fallbacks: ptr cstring, count: uint32) = discard (fallbacks, count)
   proc platformSetTerminalFontSize*(size: cdouble) = discard size
   proc platformSetTerminalFontName*(name: cstring) = discard name
   proc platformEditorLineHeight*(): cdouble = 15.0 * 1.618

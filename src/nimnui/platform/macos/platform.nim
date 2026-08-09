@@ -153,6 +153,11 @@ proc platformSetEditorCursor*(x, y: cdouble) {.importc: "nimculus_platform_set_e
 proc platformSetEditorCursorByte*(byteOffset, line: uint32) {.importc: "nimculus_platform_set_editor_cursor_byte", cdecl.}
 proc platformSetEditorFontSize*(size: cdouble) {.importc: "nimculus_platform_set_editor_font_size", cdecl.}
 proc platformSetEditorFontName*(name: cstring) {.importc: "nimculus_platform_set_editor_font_name", cdecl.}
+proc platformSetEditorFontFeatures*(features: ptr NativeEditorFontFeature,
+    count: uint32) {.importc: "nimculus_platform_set_editor_font_features", cdecl.}
+proc platformSetEditorFontFallbacks*(fallbacks: ptr cstring,
+    count: uint32) {.importc: "nimculus_platform_set_editor_font_fallbacks", cdecl.}
+proc platformValidateEditorFontConfiguration*(): bool {.importc: "nimculus_platform_validate_editor_font_configuration", cdecl.}
 proc platformEditorLineHeight*(): cdouble {.importc: "nimculus_platform_editor_line_height", cdecl.}
 proc platformEditorGutterWidth*(): cdouble {.importc: "nimculus_platform_editor_gutter_width", cdecl.}
 proc platformEditorTextOriginX*(): cdouble {.importc: "nimculus_platform_editor_text_origin_x", cdecl.}

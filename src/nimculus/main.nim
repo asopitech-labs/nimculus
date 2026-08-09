@@ -809,6 +809,25 @@ when defined(macosx):
 proc applySettingsTheme() =
   when defined(macosx) or defined(windows):
     if appSettings == nil: return
+    let configuredFeatures = appSettings.editorFontFeatures()
+    var nativeFeatures = newSeq[NativeEditorFontFeature](configuredFeatures.len)
+    var featureTags = newSeq[string](configuredFeatures.len)
+    for index, feature in configuredFeatures:
+      featureTags[index] = feature.tag
+      nativeFeatures[index] = NativeEditorFontFeature(tag: featureTags[index].cstring,
+        enabled: feature.enabled)
+    let configuredFallbacks = appSettings.editorFontFallbacks()
+    var nativeFallbacks = newSeq[cstring](configuredFallbacks.len)
+    for index, fallback in configuredFallbacks:
+      nativeFallbacks[index] = fallback.cstring
+    if nativeFeatures.len > 0:
+      platformSetEditorFontFeatures(addr nativeFeatures[0], uint32(nativeFeatures.len))
+    else:
+      platformSetEditorFontFeatures(nil, 0)
+    if nativeFallbacks.len > 0:
+      platformSetEditorFontFallbacks(addr nativeFallbacks[0], uint32(nativeFallbacks.len))
+    else:
+      platformSetEditorFontFallbacks(nil, 0)
     when defined(windows):
       platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize", 15)))
       platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily", ".ZedMono").cstring)

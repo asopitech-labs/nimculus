@@ -66,6 +66,9 @@ when not defined(windows):
 when not defined(windows):
   proc platformSetEditorFontSize*(size: cdouble) = discard size
   proc platformSetEditorFontName*(name: cstring) = discard name
+  proc platformSetEditorFontFeatures*(features: ptr NativeEditorFontFeature,
+      count: uint32) = discard (features, count)
+  proc platformSetEditorFontFallbacks*(fallbacks: ptr cstring, count: uint32) = discard (fallbacks, count)
   proc platformEditorLineHeight*(): cdouble = 15.0 * 1.618
 when not defined(windows):
   proc platformInvalidateImeCoordinates*() = discard

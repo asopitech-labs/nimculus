@@ -39,6 +39,10 @@ type
     frameCount*: uint64
     lastInputLatencyMs*: cdouble
 
+  NativeEditorFontFeature* {.bycopy.} = object
+    tag*: cstring
+    enabled*: bool
+
   NativeHighlightSpan* {.bycopy.} = object
     startByte*, endByte*, kind*: uint32
   NativeDiagnosticSpan* {.bycopy.} = object

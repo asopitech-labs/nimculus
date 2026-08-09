@@ -7,6 +7,39 @@ import nimculus/settings
 import nimnui/commands
 
 suite "M12 settings foundation":
+  test "editor font features and fallbacks parse in stable platform order":
+    let root = getTempDir() / "nimculus-font-settings"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{"editor":{"fontFeatures":{"liga":false,"calt":true},"fontFallbacks":["Hiragino Sans","Apple Symbols"]}}""")
+    let store = newSettingsStore(path, "", "")
+    let features = store.editorFontFeatures()
+    check features.len == 2
+    check features[0].tag == "calt"
+    check features[0].enabled
+    check features[1].tag == "liga"
+    check not features[1].enabled
+    check store.editorFontFallbacks() == @[
+      "Hiragino Sans", "Apple Symbols"]
+    check store.diagnostics().len == 0
+    let schema = settingsSchema()
+    check schema["properties"]["editor"]["properties"]["fontFeatures"]["type"].getStr == "object"
+    check schema["properties"]["editor"]["properties"]["fontFallbacks"]["type"].getStr == "array"
+    removeFile(path)
+    removeDir(root)
+
+  test "invalid editor font feature and fallback values are diagnosed":
+    let root = getTempDir() / "nimculus-invalid-font-settings"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{"editor":{"fontFeatures":{"liga":1,"tooLong":true,"éééé":false},"fontFallbacks":["",3]}}""")
+    let store = newSettingsStore(path, "", "")
+    check store.editorFontFeatures().len == 0
+    check store.editorFontFallbacks().len == 0
+    check store.diagnostics().len == 5
+    removeFile(path)
+    removeDir(root)
+
   test "merges global, workspace, and language settings recursively":
     let root = getTempDir() / "nimculus-settings-test"
     createDir(root)

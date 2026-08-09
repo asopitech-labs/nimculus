@@ -1399,6 +1399,16 @@ static NimculusGitHunkSpan *g_git_hunks = NULL;
 static uint32_t g_git_hunk_count = 0;
 static NimculusGitHunkSpan *g_secondary_git_hunks = NULL;
 static uint32_t g_secondary_git_hunk_count = 0;
+static CTFontRef g_editor_font_cache = NULL;
+static CGFloat g_editor_font_cache_size = 0.0;
+static NSString *g_editor_font_cache_name = nil;
+static NSArray<NSString *> *g_editor_font_feature_tags = nil;
+static NSArray<NSNumber *> *g_editor_font_feature_values = nil;
+static NSArray<NSString *> *g_editor_font_fallbacks = nil;
+static NSArray<NSString *> *g_editor_font_cache_feature_tags = nil;
+static NSArray<NSNumber *> *g_editor_font_cache_feature_values = nil;
+static NSArray<NSString *> *g_editor_font_cache_fallbacks = nil;
+static uint64_t g_editor_font_cache_generation = 0;
 
 static void releasePlatformResources(void) {
   // As with Zed's renderer drop path, release GPU objects before AppKit tears
@@ -1457,6 +1467,14 @@ static void releasePlatformResources(void) {
   g_workspace_context_is_directory = NO;
   [g_pending_file_open_paths release]; g_pending_file_open_paths = nil;
   [g_clipboard_utf8_data release]; g_clipboard_utf8_data = nil;
+  if (g_editor_font_cache) { CFRelease(g_editor_font_cache); g_editor_font_cache = NULL; }
+  [g_editor_font_cache_name release]; g_editor_font_cache_name = nil;
+  [g_editor_font_feature_tags release]; g_editor_font_feature_tags = nil;
+  [g_editor_font_feature_values release]; g_editor_font_feature_values = nil;
+  [g_editor_font_fallbacks release]; g_editor_font_fallbacks = nil;
+  [g_editor_font_cache_feature_tags release]; g_editor_font_cache_feature_tags = nil;
+  [g_editor_font_cache_feature_values release]; g_editor_font_cache_feature_values = nil;
+  [g_editor_font_cache_fallbacks release]; g_editor_font_cache_fallbacks = nil;
   [g_editor_font_name release]; g_editor_font_name = nil;
   [g_editor_resolved_font_name release]; g_editor_resolved_font_name = nil;
   [g_terminal_font_name release]; g_terminal_font_name = nil;
@@ -2642,28 +2660,167 @@ static NSColor *editorGlyphColor(NSColor *color) {
 // Building the face from its name is not free, and the wrap and metrics paths
 // ask for it thousands of times per scroll. Keep one and hand out retained
 // references so every existing CFRelease stays balanced.
-static CTFontRef g_editor_font_cache = NULL;
-static CGFloat g_editor_font_cache_size = 0.0;
-static NSString *g_editor_font_cache_name = nil;
+static void setEditorFontFeatures(const NimculusEditorFontFeature *features,
+                                  uint32_t count) {
+  NSMutableArray<NSString *> *tags = [NSMutableArray arrayWithCapacity:count];
+  NSMutableArray<NSNumber *> *values = [NSMutableArray arrayWithCapacity:count];
+  for (uint32_t index = 0; index < count; index++) {
+    const char *tag = features[index].tag;
+    NSString *string = tag ? [NSString stringWithUTF8String:tag] : nil;
+    if (!string || string.length != 4) continue;
+    [tags addObject:string];
+    [values addObject:@(features[index].enabled ? 1 : 0)];
+  }
+  [g_editor_font_feature_tags release];
+  [g_editor_font_feature_values release];
+  g_editor_font_feature_tags = [tags copy];
+  g_editor_font_feature_values = [values copy];
+}
+
+static void setEditorFontFallbacks(const char *const *fallbacks, uint32_t count) {
+  NSMutableArray<NSString *> *names = [NSMutableArray arrayWithCapacity:count];
+  for (uint32_t index = 0; index < count; index++) {
+    const char *fallback = fallbacks[index];
+    NSString *name = fallback ? [NSString stringWithUTF8String:fallback] : nil;
+    if (name.length > 0) [names addObject:name];
+  }
+  [g_editor_font_fallbacks release];
+  g_editor_font_fallbacks = [names copy];
+}
+
+static CFMutableArrayRef generateFeatureArray(void) {
+  CFMutableArrayRef featureArray = CFArrayCreateMutable(kCFAllocatorDefault, 0,
+    &kCFTypeArrayCallBacks);
+  NSArray<NSString *> *tags = g_editor_font_feature_tags ?: @[];
+  NSArray<NSNumber *> *values = g_editor_font_feature_values ?: @[];
+  for (NSUInteger index = 0; index < MIN(tags.count, values.count); index++) {
+    CFStringRef tag = CFStringCreateWithCString(kCFAllocatorDefault,
+      tags[index].UTF8String, kCFStringEncodingUTF8);
+    int32_t value = values[index].intValue;
+    CFNumberRef number = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &value);
+    const void *keys[] = {kCTFontOpenTypeFeatureTag, kCTFontOpenTypeFeatureValue};
+    const void *dictValues[] = {tag, number};
+    CFDictionaryRef dict = CFDictionaryCreate(kCFAllocatorDefault, keys, dictValues, 2,
+      &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFArrayAppendValue(featureArray, dict);
+    CFRelease(dict);
+    CFRelease(tag);
+    CFRelease(number);
+  }
+  return featureArray;
+}
+
+static void appendSystemFallbacks(CFMutableArrayRef fallbackArray, CTFontRef font) {
+  CFArrayRef languages = CFLocaleCopyPreferredLanguages();
+  if (!languages) return;
+  CFArrayRef defaults = CTFontCopyDefaultCascadeListForLanguages(font, languages);
+  if (defaults) {
+    for (CFIndex index = 0; index < CFArrayGetCount(defaults); index++) {
+      CTFontDescriptorRef descriptor = (CTFontDescriptorRef)CFArrayGetValueAtIndex(defaults, index);
+      if (!descriptor) continue;
+      CFTypeRef url = CTFontDescriptorCopyAttribute(descriptor, kCTFontURLAttribute);
+      if (url) {
+        CFArrayAppendValue(fallbackArray, descriptor);
+        CFRelease(url);
+      }
+    }
+    CFRelease(defaults);
+  }
+  CFRelease(languages);
+}
+
+static CFMutableArrayRef generateFallbackArray(CTFontRef font) {
+  CFMutableArrayRef fallbackArray = CFArrayCreateMutable(kCFAllocatorDefault, 0,
+    &kCFTypeArrayCallBacks);
+  CFDictionaryRef allTraits = CTFontCopyTraits(font);
+  CGFloat weight = 0.0;
+  if (allTraits) {
+    CFNumberRef weightNumber = (CFNumberRef)CFDictionaryGetValue(allTraits, kCTFontWeightTrait);
+    if (weightNumber) CFNumberGetValue(weightNumber, kCFNumberCGFloatType, &weight);
+  }
+  CTFontSymbolicTraits symbolicTraits = CTFontGetSymbolicTraits(font);
+  if (allTraits) CFRelease(allTraits);
+  NSArray<NSString *> *fallbacks = g_editor_font_fallbacks ?: @[];
+  for (NSString *name in fallbacks) {
+    CGFloat slant = (symbolicTraits & kCTFontTraitItalic) != 0 ? 1.0 : 0.0;
+    CFNumberRef weightValue = CFNumberCreate(kCFAllocatorDefault, kCFNumberCGFloatType, &weight);
+    CFNumberRef slantValue = CFNumberCreate(kCFAllocatorDefault, kCFNumberCGFloatType, &slant);
+    const void *traitKeys[] = {kCTFontWeightTrait, kCTFontSlantTrait};
+    const void *traitValues[] = {weightValue, slantValue};
+    CFDictionaryRef traits = CFDictionaryCreate(kCFAllocatorDefault, traitKeys, traitValues, 2,
+      &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CFStringRef family = (CFStringRef)name;
+    const void *attributeKeys[] = {kCTFontFamilyNameAttribute, kCTFontTraitsAttribute};
+    const void *attributeValues[] = {family, traits};
+    CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, attributeKeys,
+      attributeValues, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CTFontDescriptorRef descriptor = CTFontDescriptorCreateWithAttributes(attributes);
+    CFArrayAppendValue(fallbackArray, descriptor);
+    CFRelease(descriptor);
+    CFRelease(attributes);
+    CFRelease(traits);
+    CFRelease(weightValue);
+    CFRelease(slantValue);
+  }
+  appendSystemFallbacks(fallbackArray, font);
+  return fallbackArray;
+}
 
 static CTFontRef editorFont(void) {
   CGFloat size = isfinite(g_editor_font_size) && g_editor_font_size > 0.0
     ? g_editor_font_size : 15.0;
   NSString *name = editorResolvedFontName();
+  NSArray<NSString *> *features = g_editor_font_feature_tags ?: @[];
+  NSArray<NSNumber *> *featureValues = g_editor_font_feature_values ?: @[];
+  NSArray<NSString *> *fallbacks = g_editor_font_fallbacks ?: @[];
   if (g_editor_font_cache && g_editor_font_cache_size == size &&
-      [g_editor_font_cache_name isEqualToString:name]) {
+      [g_editor_font_cache_name isEqualToString:name] &&
+      [g_editor_font_cache_feature_tags isEqualToArray:features] &&
+      [g_editor_font_cache_feature_values isEqualToArray:featureValues] &&
+      [g_editor_font_cache_fallbacks isEqualToArray:fallbacks]) {
     return (CTFontRef)CFRetain(g_editor_font_cache);
   }
   if (g_editor_font_cache) { CFRelease(g_editor_font_cache); g_editor_font_cache = NULL; }
   [g_editor_font_cache_name release];
+  [g_editor_font_cache_feature_tags release];
+  [g_editor_font_cache_feature_values release];
+  [g_editor_font_cache_fallbacks release];
   g_editor_font_cache_name = [name copy];
+  g_editor_font_cache_feature_tags = [features copy];
+  g_editor_font_cache_feature_values = [featureValues copy];
+  g_editor_font_cache_fallbacks = [fallbacks copy];
   g_editor_font_cache_size = size;
   // editorResolvedFontName has already rejected .ZedMono and any unavailable
   // or proportional family, so this Core Text request is always for a real
   // fixed-pitch face and is performed without substitution warnings.
-  CTFontRef font = CTFontCreateWithName((__bridge CFStringRef)name, size, NULL);
-  if (!font) font = CTFontCreateUIFontForLanguage(kCTFontUserFixedPitchFontType, size, NULL);
+  CTFontRef baseFont = CTFontCreateWithName((__bridge CFStringRef)name, size, NULL);
+  if (!baseFont) baseFont = CTFontCreateUIFontForLanguage(kCTFontUserFixedPitchFontType, size, NULL);
+  CTFontRef font = NULL;
+  if (baseFont) {
+    CFMutableArrayRef featureArray = generateFeatureArray();
+    const void *keys[2] = {kCTFontFeatureSettingsAttribute, NULL};
+    const void *values[2] = {featureArray, NULL};
+    CFIndex keyCount = 1;
+    CFMutableArrayRef fallbackArray = NULL;
+    if (fallbacks.count > 0) {
+      fallbackArray = generateFallbackArray(baseFont);
+      keys[keyCount] = kCTFontCascadeListAttribute;
+      values[keyCount] = fallbackArray;
+      keyCount++;
+    }
+    CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, keyCount,
+      &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    CTFontDescriptorRef descriptor = CTFontDescriptorCreateWithAttributes(attributes);
+    font = CTFontCreateCopyWithAttributes(baseFont, 0.0, NULL, descriptor);
+    if (!font) font = (CTFontRef)CFRetain(baseFont);
+    CFRelease(descriptor);
+    CFRelease(attributes);
+    CFRelease(featureArray);
+    if (fallbackArray) CFRelease(fallbackArray);
+    CFRelease(baseFont);
+  }
   g_editor_font_cache = font ? (CTFontRef)CFRetain(font) : NULL;
+  g_editor_font_cache_generation++;
   return font;
 }
 
@@ -14420,6 +14577,115 @@ void nimculus_platform_set_editor_font_name(const char *name) {
     }
   }
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
+}
+
+void nimculus_platform_set_editor_font_features(const NimculusEditorFontFeature *features,
+                                                uint32_t count) {
+  setEditorFontFeatures(features, count);
+  clearLayoutFonts();
+  scheduleEditorTextTextureRebuild();
+  markSceneFullyDirty();
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
+}
+
+void nimculus_platform_set_editor_font_fallbacks(const char *const *fallbacks,
+                                                 uint32_t count) {
+  setEditorFontFallbacks(fallbacks, count);
+  clearLayoutFonts();
+  scheduleEditorTextTextureRebuild();
+  markSceneFullyDirty();
+  if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
+}
+
+static BOOL editorFontsEquivalent(CTFontRef left, CTFontRef right) {
+  if (!left || !right || fabs(CTFontGetSize(left) - CTFontGetSize(right)) > 0.001 ||
+      CTFontGetSymbolicTraits(left) != CTFontGetSymbolicTraits(right)) return NO;
+  CFStringRef leftName = CTFontCopyPostScriptName(left);
+  CFStringRef rightName = CTFontCopyPostScriptName(right);
+  BOOL equal = leftName && rightName && CFEqual(leftName, rightName);
+  if (leftName) CFRelease(leftName);
+  if (rightName) CFRelease(rightName);
+  return equal;
+}
+
+bool nimculus_platform_validate_editor_font_configuration(void) {
+  @autoreleasepool {
+    NSArray<NSString *> *previousTags = [g_editor_font_feature_tags retain];
+    NSArray<NSNumber *> *previousValues = [g_editor_font_feature_values retain];
+    NSArray<NSString *> *previousFallbacks = [g_editor_font_fallbacks retain];
+    setEditorFontFeatures(NULL, 0);
+    setEditorFontFallbacks(NULL, 0);
+    CGFloat size = isfinite(g_editor_font_size) && g_editor_font_size > 0.0
+      ? g_editor_font_size : 15.0;
+    CTFontRef legacy = CTFontCreateWithName((__bridge CFStringRef)editorResolvedFontName(),
+      size, NULL);
+    CTFontRef defaultFont = editorFont();
+    BOOL defaultSame = editorFontsEquivalent(legacy, defaultFont);
+    uint64_t defaultGeneration = g_editor_font_cache_generation;
+    if (legacy) CFRelease(legacy);
+    if (defaultFont) CFRelease(defaultFont);
+
+    NimculusEditorFontFeature feature = {.tag = "calt", .enabled = false};
+    const char *fallback = "Hiragino Sans";
+    setEditorFontFeatures(&feature, 1);
+    setEditorFontFallbacks(&fallback, 1);
+    CTFontRef configuredFont = editorFont();
+    BOOL cacheRebuilt = g_editor_font_cache_generation > defaultGeneration;
+    BOOL hasAttributes = NO;
+    if (configuredFont) {
+      CFMutableArrayRef featureArray = generateFeatureArray();
+      CFMutableArrayRef fallbackArray = generateFallbackArray(configuredFont);
+      const void *keys[] = {kCTFontFeatureSettingsAttribute, kCTFontCascadeListAttribute};
+      const void *values[] = {featureArray, fallbackArray};
+      CFDictionaryRef attributes = CFDictionaryCreate(kCFAllocatorDefault, keys, values, 2,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+      CTFontDescriptorRef descriptor = CTFontDescriptorCreateWithAttributes(attributes);
+      CFArrayRef descriptorFeatures = (CFArrayRef)CTFontDescriptorCopyAttribute(descriptor,
+        kCTFontFeatureSettingsAttribute);
+      CFArrayRef descriptorFallbacks = (CFArrayRef)CTFontDescriptorCopyAttribute(descriptor,
+        kCTFontCascadeListAttribute);
+      hasAttributes = descriptorFeatures && CFArrayGetCount(descriptorFeatures) == 1 &&
+        descriptorFallbacks && CFArrayGetCount(descriptorFallbacks) > 0;
+      if (hasAttributes) {
+        CFDictionaryRef featureDictionary = (CFDictionaryRef)CFArrayGetValueAtIndex(
+          descriptorFeatures, 0);
+        CFStringRef featureTag = featureDictionary
+          ? (CFStringRef)CFDictionaryGetValue(featureDictionary, kCTFontOpenTypeFeatureTag) : NULL;
+        CFNumberRef featureValue = featureDictionary
+          ? (CFNumberRef)CFDictionaryGetValue(featureDictionary, kCTFontOpenTypeFeatureValue) : NULL;
+        int32_t value = -1;
+        if (featureValue) CFNumberGetValue(featureValue, kCFNumberSInt32Type, &value);
+        CTFontDescriptorRef fallbackDescriptor = (CTFontDescriptorRef)CFArrayGetValueAtIndex(
+          descriptorFallbacks, 0);
+        CFStringRef fallbackFamily = fallbackDescriptor
+          ? (CFStringRef)CTFontDescriptorCopyAttribute(fallbackDescriptor,
+              kCTFontFamilyNameAttribute) : NULL;
+        CFStringRef expectedTag = CFSTR("calt");
+        CFStringRef expectedFamily = CFSTR("Hiragino Sans");
+        hasAttributes = featureTag && CFEqual(featureTag, expectedTag) && value == 0 &&
+          fallbackFamily && CFEqual(fallbackFamily, expectedFamily);
+        if (fallbackFamily) CFRelease(fallbackFamily);
+      }
+      if (descriptorFeatures) CFRelease(descriptorFeatures);
+      if (descriptorFallbacks) CFRelease(descriptorFallbacks);
+      CFRelease(descriptor);
+      CFRelease(attributes);
+      CFRelease(featureArray);
+      CFRelease(fallbackArray);
+      CFRelease(configuredFont);
+    }
+
+    [g_editor_font_feature_tags release];
+    [g_editor_font_feature_values release];
+    [g_editor_font_fallbacks release];
+    g_editor_font_feature_tags = [previousTags retain];
+    g_editor_font_feature_values = [previousValues retain];
+    g_editor_font_fallbacks = [previousFallbacks retain];
+    [previousTags release];
+    [previousValues release];
+    [previousFallbacks release];
+    return defaultSame && cacheRebuilt && hasAttributes;
+  }
 }
 double nimculus_platform_editor_line_height(void) { return editorLineHeight(); }
 double nimculus_platform_editor_gutter_width(void) { return editorGutterWidth(); }

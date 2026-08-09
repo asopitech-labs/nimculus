@@ -88,6 +88,11 @@ typedef struct NimculusPlatformLineMetrics {
   uint32_t glyph_count;
 } NimculusPlatformLineMetrics;
 
+typedef struct NimculusEditorFontFeature {
+  const char *tag;
+  bool enabled;
+} NimculusEditorFontFeature;
+
 typedef struct NimculusEditorLayoutGlyph {
   uint32_t glyph_id;
   float x;
