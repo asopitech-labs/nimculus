@@ -1,5 +1,39 @@
 # Design Decisions
 
+## UI-116: 検索ボタンの文言と設定
+
+UI-114 の 2 番目。**これも大部分は移植済みだった。**
+
+Zed: `references/zed/crates/search/src/search_status_button.rs:22-55`
+Nimculus: `macos_platform.m:7769-7773`
+
+### 一致している
+
+アイコン（`IconName::MagnifyingGlass` / `magnifyingglass`）、
+アイコンのみの表示、押下で検索を開く。
+
+### 差分
+
+**(1) 文言が逆。** Zed は `aria_label("Project Search")`、ツールチップも
+`"Project Search"`。Nimculus は `"Search Project"`。
+`newFooterButton` (:7620-7621) は同じ文字列を `toolTip` と
+`accessibilityLabel` の両方に入れるので、1 か所直せば両方直る。
+
+**(2) 設定で消せない。** Zed は `EditorSettings::get_global(cx).search.button`
+（`search_status_button.rs:25`、既定 `assets/settings/default.json:736-738` で true）。
+
+### 位置について
+
+Zed の左クラスタは search が先頭（`zed.rs:635`）。Nimculus は
+ターミナルトグル → 区切り → Agent → search の順。この配置は UI-097 で決めたもので、
+Zed の左ドック・下ドックという構成自体が Nimculus に無い。**UI-114 の範囲**として
+分けてあり、本項では扱わない。
+
+### 却下案
+
+**`Search Project` のほうが動詞＋目的語で自然。** 読み上げ文言は Zed の移植対象。
+自然さは判断基準ではない（UI-113 の却下案 c、UI-115 の却下案と同じ）。却下。
+
 ## UI-115: 診断サマリーを Zed の判定と一致させる
 
 UI-114 の 1 番目。**大部分は移植済みだった。** 差分だけを扱う。
