@@ -766,6 +766,9 @@ suite "M5 editor services":
     session.workspaceBottomDockOpen = true
     session.workspaceBottomDockSize = 284'f32
     session.workspaceBottomPanel = 4
+    session.workspaceRightDockOpen = true
+    session.workspaceRightDockSize = 296'f32
+    session.workspaceRightPanel = 0
     let sessionPath = getTempDir() / "nimculus-m5-session.json"
     session.saveSession(sessionPath)
     for candidate in walkFiles(sessionPath & ".tmp." & $getCurrentProcessId() & ".*"):
@@ -792,6 +795,9 @@ suite "M5 editor services":
     check restored.workspaceBottomDockOpen
     check restored.workspaceBottomDockSize == 284'f32
     check restored.workspaceBottomPanel == 4
+    check restored.workspaceRightDockOpen
+    check restored.workspaceRightDockSize == 296'f32
+    check restored.workspaceRightPanel == 0
     restored.tabs[0].document.writeRecovery(recoveryPath)
     for candidate in walkFiles(recoveryPath & ".tmp." & $getCurrentProcessId() & ".*"):
       check not fileExists(candidate)

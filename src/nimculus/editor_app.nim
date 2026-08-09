@@ -66,9 +66,9 @@ type
     ## Persisted workspace composition. The actual Dock/Panes remain in
     ## workspace_ui; these scalar fields keep session serialization free of
     ## platform and renderer types.
-    workspaceLeftDockOpen*, workspaceBottomDockOpen*: bool
-    workspaceLeftDockSize*, workspaceBottomDockSize*: float32
-    workspaceLeftPanel*, workspaceBottomPanel*: int
+    workspaceLeftDockOpen*, workspaceBottomDockOpen*, workspaceRightDockOpen*: bool
+    workspaceLeftDockSize*, workspaceBottomDockSize*, workspaceRightDockSize*: float32
+    workspaceLeftPanel*, workspaceBottomPanel*, workspaceRightPanel*: int
 
 proc fileStamp(path: string): tuple[identity: string, size: int64, modified: Time] =
   let info = getFileInfo(path)

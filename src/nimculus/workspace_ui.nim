@@ -21,6 +21,9 @@ type
   DockSide* = enum
     dockLeft, dockBottom, dockRight
 
+  DockAxis* = enum
+    dockHorizontal, dockVertical
+
   PaneAxis* = enum
     paneHorizontal, paneVertical
 
@@ -136,6 +139,16 @@ proc defaultPanelDockSide(panel: PanelKind): DockSide =
   of panelTerminal, panelDebugger, panelTasks: dockBottom
   of panelAgent, panelSearch: dockLeft
 
+proc axis*(side: DockSide): DockAxis =
+  case side
+  of dockLeft, dockRight: dockHorizontal
+  of dockBottom: dockVertical
+
+proc defaultDockSize(side: DockSide): float32 =
+  case side
+  of dockLeft, dockRight: DefaultLeftDockWidth
+  of dockBottom: DefaultBottomDockHeight
+
 proc dockRegion(side: DockSide): WorkspaceRegion =
   case side
   of dockLeft: regionLeftDock
@@ -214,56 +227,107 @@ proc initWorkspaceUi*(session: EditorSession, settings: SettingsStore = nil): Wo
       result.rightDock.isOpen = session.workspaceBottomDockOpen
       result.rightDock.size = size
       result.rightDock.activePanel = panel
+  if session.workspaceRightDockSize > 0:
+    let panel = panelFromOrdinal(session.workspaceRightPanel, panelFiles)
+    let side = result.panelDockSide(panel)
+    let size = max(DefaultDockMinimumSize, session.workspaceRightDockSize)
+    case side
+    of dockLeft:
+      result.leftDock.isOpen = session.workspaceRightDockOpen
+      result.leftDock.size = size
+      result.leftDock.activePanel = panel
+    of dockBottom:
+      result.bottomDock.isOpen = session.workspaceRightDockOpen
+      result.bottomDock.size = size
+      result.bottomDock.activePanel = panel
+    of dockRight:
+      result.rightDock.isOpen = session.workspaceRightDockOpen
+      result.rightDock.size = size
+      result.rightDock.activePanel = panel
 
 proc panelDockSide*(state: WorkspaceUiState, panel: PanelKind): DockSide =
   state.panelDockSides[panel]
 
+proc replacementPanel(state: WorkspaceUiState, side: DockSide,
+                      removed: PanelKind): PanelKind =
+  for panel in PanelKind:
+    if panel != removed and state.panelDockSide(panel) == side:
+      return panel
+  removed
+
 proc applyPanelDockSettings*(state: var WorkspaceUiState, settings: SettingsStore) =
-  ## Apply panel positions at a workspace-start boundary. This deliberately
-  ## does not observe later SettingsStore changes; live dock handoff is UI-118
-  ## step 5.
+  ## Reconcile settings-owned panel positions with the current dock ownership.
+  ## Keep the visible panel and its dock size across a handoff when the dock
+  ## axis is unchanged, matching Zed's DockPosition::axis semantics.
   let oldSides = state.panelDockSides
   let oldLeft = state.leftDock
   let oldBottom = state.bottomDock
   let oldRight = state.rightDock
   for panel in PanelKind:
     state.panelDockSides[panel] = panelDockSide(panel, settings)
-  var movingPanels: seq[tuple[panel: PanelKind, source: DockSide, target: DockSide]]
-  for side in DockSide:
-    var oldDock: DockState
-    case side
-    of dockLeft: oldDock = oldLeft
-    of dockBottom: oldDock = oldBottom
-    of dockRight: oldDock = oldRight
-    if not oldDock.isOpen: continue
-    if oldSides[oldDock.activePanel] == side and
-        state.panelDockSides[oldDock.activePanel] != side:
-      movingPanels.add((oldDock.activePanel, side,
-        state.panelDockSides[oldDock.activePanel]))
-  for moving in movingPanels:
-    case moving.source
-    of dockLeft: state.leftDock.isOpen = false
-    of dockBottom: state.bottomDock.isOpen = false
-    of dockRight: state.rightDock.isOpen = false
-  for moving in movingPanels:
-    case moving.target
-    of dockLeft:
-      state.leftDock.activePanel = moving.panel
-      state.leftDock.isOpen = true
-    of dockBottom:
-      state.bottomDock.activePanel = moving.panel
-      state.bottomDock.isOpen = true
-    of dockRight:
-      state.rightDock.activePanel = moving.panel
-      state.rightDock.isOpen = true
+
+  for panel in PanelKind:
+    let source = oldSides[panel]
+    let target = state.panelDockSide(panel)
+    if source == target: continue
+
+    let sourceDock = case source
+      of dockLeft: oldLeft
+      of dockBottom: oldBottom
+      of dockRight: oldRight
+    let wasVisible = sourceDock.isOpen and sourceDock.activePanel == panel
+    let size = if source.axis == target.axis: sourceDock.size
+      else: defaultDockSize(target)
+
+    case target
+    of dockLeft: state.leftDock.size = size
+    of dockBottom: state.bottomDock.size = size
+    of dockRight: state.rightDock.size = size
+
+    if wasVisible:
+      case target
+      of dockLeft:
+        state.leftDock.isOpen = true
+        state.leftDock.activePanel = panel
+      of dockBottom:
+        state.bottomDock.isOpen = true
+        state.bottomDock.activePanel = panel
+      of dockRight:
+        state.rightDock.isOpen = true
+        state.rightDock.activePanel = panel
+      if state.focusedRegion == dockRegion(source):
+        state.focusedRegion = dockRegion(target)
+
+    # Removing the active panel must leave the source dock with another
+    # panel, or closed if it has no remaining owner. A closed source still
+    # needs its stale activePanel replaced for the next explicit open.
+    let sourceActive = case source
+      of dockLeft: state.leftDock.activePanel
+      of dockBottom: state.bottomDock.activePanel
+      of dockRight: state.rightDock.activePanel
+    if sourceActive == panel:
+      let replacement = state.replacementPanel(source, panel)
+      if replacement == panel:
+        case source
+        of dockLeft: state.leftDock.isOpen = false
+        of dockBottom: state.bottomDock.isOpen = false
+        of dockRight: state.rightDock.isOpen = false
+      else:
+        case source
+        of dockLeft: state.leftDock.activePanel = replacement
+        of dockBottom: state.bottomDock.activePanel = replacement
+        of dockRight: state.rightDock.activePanel = replacement
 
 proc saveWorkspaceUi*(state: WorkspaceUiState, session: var EditorSession) =
   session.workspaceLeftDockOpen = state.leftDock.isOpen
   session.workspaceBottomDockOpen = state.bottomDock.isOpen
+  session.workspaceRightDockOpen = state.rightDock.isOpen
   session.workspaceLeftDockSize = state.leftDock.size
   session.workspaceBottomDockSize = state.bottomDock.size
+  session.workspaceRightDockSize = state.rightDock.size
   session.workspaceLeftPanel = ord(state.leftDock.activePanel)
   session.workspaceBottomPanel = ord(state.bottomDock.activePanel)
+  session.workspaceRightPanel = ord(state.rightDock.activePanel)
 
 proc dock*(state: WorkspaceUiState, side: DockSide): DockState =
   case side

@@ -1,6 +1,7 @@
 import std/unittest
 import std/os
 import nimnui/geometry
+import nimculus/editor_app
 import nimculus/settings
 import nimculus/workspace_ui
 
@@ -77,6 +78,107 @@ suite "workspace UI state":
     check state.panelDockSide(panelAgent) == dockLeft
     removeFile(path)
     removeDir(root)
+
+  test "dock axes distinguish horizontal edges from the bottom dock":
+    check dockLeft.axis == dockHorizontal
+    check dockRight.axis == dockHorizontal
+    check dockBottom.axis == dockVertical
+
+  test "moving a visible panel left to right preserves width and visibility":
+    let root = getTempDir() / "nimculus-live-panel-dock-horizontal"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{"agent":{"dock":"right"}}""")
+    let settings = newSettingsStore(path, "", "")
+    var state = initWorkspaceUi()
+    state.openPanel(panelAgent)
+    state.leftDock.size = 312'f32
+    state.applyPanelDockSettings(settings)
+    check state.panelDockSide(panelAgent) == dockRight
+    check state.rightDock.isOpen
+    check state.rightDock.activePanel == panelAgent
+    check state.rightDock.size == 312'f32
+    check state.leftDock.isOpen
+    check state.leftDock.activePanel == panelSearch
+    removeFile(path)
+    removeDir(root)
+
+  test "moving a closed panel does not open its target dock":
+    let root = getTempDir() / "nimculus-live-panel-dock-closed"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{"agent":{"dock":"right"}}""")
+    let settings = newSettingsStore(path, "", "")
+    var state = initWorkspaceUi()
+    state.rightDock.isOpen = false
+    state.applyPanelDockSettings(settings)
+    check state.panelDockSide(panelAgent) == dockRight
+    check not state.rightDock.isOpen
+    check state.rightDock.activePanel == panelFiles
+    check not state.leftDock.isOpen
+    check state.leftDock.activePanel == panelSearch
+    removeFile(path)
+    removeDir(root)
+
+  test "moving a visible panel left to bottom uses the target default size":
+    let root = getTempDir() / "nimculus-live-panel-dock-axis"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{"terminal":{"dock":"bottom"}}""")
+    let settings = newSettingsStore(path, "", "")
+    var state = initWorkspaceUi()
+    state.panelDockSides[panelTerminal] = dockLeft
+    state.leftDock.isOpen = true
+    state.leftDock.activePanel = panelTerminal
+    state.leftDock.size = 333'f32
+    state.applyPanelDockSettings(settings)
+    check state.panelDockSide(panelTerminal) == dockBottom
+    check state.bottomDock.isOpen
+    check state.bottomDock.activePanel == panelTerminal
+    check state.bottomDock.size == DefaultBottomDockHeight
+    check state.leftDock.isOpen
+    check state.leftDock.activePanel == panelSearch
+    removeFile(path)
+    removeDir(root)
+
+  test "invalid panel dock settings keep the current ownership":
+    let root = getTempDir() / "nimculus-live-panel-dock-invalid"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{"projectPanel":{"dock":"diagonal"}}""")
+    let settings = newSettingsStore(path, "", "")
+    var state = initWorkspaceUi()
+    state.rightDock.size = 321'f32
+    state.applyPanelDockSettings(settings)
+    check state.panelDockSide(panelFiles) == dockRight
+    check state.rightDock.isOpen
+    check state.rightDock.activePanel == panelFiles
+    check state.rightDock.size == 321'f32
+    removeFile(path)
+    removeDir(root)
+
+  test "session persistence records all three dock states":
+    var state = initWorkspaceUi()
+    state.leftDock.isOpen = true
+    state.leftDock.size = 271'f32
+    state.leftDock.activePanel = panelAgent
+    state.bottomDock.isOpen = true
+    state.bottomDock.size = 299'f32
+    state.bottomDock.activePanel = panelTerminal
+    state.rightDock.isOpen = false
+    state.rightDock.size = 347'f32
+    state.rightDock.activePanel = panelGit
+    var session: EditorSession
+    state.saveWorkspaceUi(session)
+    check session.workspaceLeftDockOpen
+    check session.workspaceLeftDockSize == 271'f32
+    check session.workspaceLeftPanel == ord(panelAgent)
+    check session.workspaceBottomDockOpen
+    check session.workspaceBottomDockSize == 299'f32
+    check session.workspaceBottomPanel == ord(panelTerminal)
+    check not session.workspaceRightDockOpen
+    check session.workspaceRightDockSize == 347'f32
+    check session.workspaceRightPanel == ord(panelGit)
 
   test "panel dock side mask keeps left, bottom, and right distinct":
     let state = initWorkspaceUi()

@@ -4211,6 +4211,8 @@ proc reloadWorkspaceSettings(root: string) =
     # the previous and new files happen to have the same timestamp.
     appSettings.workspaceStamp = -1
     discard appSettings.reload()
+    editorWorkspaceUi.applyPanelDockSettings(appSettings)
+    editorWorkspaceUi.saveWorkspaceUi(editorSession)
     applySettingsKeymap()
     applySettingsTheme()
 
@@ -5668,6 +5670,8 @@ when defined(macosx):
     if finishColdStartBenchmark(): return
     if pollSoakBenchmark(): return
     if appSettings != nil and appSettings.reload():
+      editorWorkspaceUi.applyPanelDockSettings(appSettings)
+      editorWorkspaceUi.saveWorkspaceUi(editorSession)
       applySettingsKeymap()
       applySettingsTheme()
       editorViewState.statusMessage = "Settings reloaded"
@@ -5862,6 +5866,8 @@ when defined(windows):
     if finishColdStartBenchmark(): return
     if pollSoakBenchmark(): return
     if appSettings != nil and appSettings.reload():
+      editorWorkspaceUi.applyPanelDockSettings(appSettings)
+      editorWorkspaceUi.saveWorkspaceUi(editorSession)
       applySettingsTheme()
       editorViewState.statusMessage = "Settings reloaded"
     pollWindowsTerminal()
@@ -7219,7 +7225,9 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     try:
       writeFile(settingsFilePath, pretty(root) & "\n")
       when defined(macosx) or defined(windows):
-        if appSettings != nil: discard appSettings.reload()
+        if appSettings != nil and appSettings.reload():
+          editorWorkspaceUi.applyPanelDockSettings(appSettings)
+          editorWorkspaceUi.saveWorkspaceUi(editorSession)
       applySettingsKeymap()
       applySettingsTheme()
       editorViewState.statusMessage = "Settings applied"

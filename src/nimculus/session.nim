@@ -94,10 +94,13 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
                 "workspaceRoots": workspaceRoots,
                 "workspaceLeftDockOpen": session.workspaceLeftDockOpen,
                 "workspaceBottomDockOpen": session.workspaceBottomDockOpen,
+                "workspaceRightDockOpen": session.workspaceRightDockOpen,
                 "workspaceLeftDockSize": session.workspaceLeftDockSize,
                 "workspaceBottomDockSize": session.workspaceBottomDockSize,
+                "workspaceRightDockSize": session.workspaceRightDockSize,
                 "workspaceLeftPanel": session.workspaceLeftPanel,
-                "workspaceBottomPanel": session.workspaceBottomPanel}
+                "workspaceBottomPanel": session.workspaceBottomPanel,
+                "workspaceRightPanel": session.workspaceRightPanel}
   var tabs = newJArray()
   var savedActive = -1
   var savedSecondary = -1
@@ -184,10 +187,13 @@ proc loadSession*(path: string): EditorSession =
   result.splitSecondaryTab = jsonInt(root, "splitSecondaryTab", result.activeTab)
   result.workspaceLeftDockOpen = jsonBool(root, "workspaceLeftDockOpen", true)
   result.workspaceBottomDockOpen = jsonBool(root, "workspaceBottomDockOpen", false)
+  result.workspaceRightDockOpen = jsonBool(root, "workspaceRightDockOpen", false)
   result.workspaceLeftDockSize = max(0'f32, jsonFloat(root, "workspaceLeftDockSize", 0'f32))
   result.workspaceBottomDockSize = max(0'f32, jsonFloat(root, "workspaceBottomDockSize", 0'f32))
+  result.workspaceRightDockSize = max(0'f32, jsonFloat(root, "workspaceRightDockSize", 0'f32))
   result.workspaceLeftPanel = max(0, jsonInt(root, "workspaceLeftPanel", 0))
   result.workspaceBottomPanel = max(0, jsonInt(root, "workspaceBottomPanel", 3))
+  result.workspaceRightPanel = max(0, jsonInt(root, "workspaceRightPanel", 0))
   if root.hasKey("recentFiles") and root["recentFiles"].kind == JArray:
     for item in root["recentFiles"].getElems:
       if item.kind == JString:

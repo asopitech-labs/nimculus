@@ -167,7 +167,12 @@ cx.observe_global_in::<SettingsStore>(window, move |this, window, cx| {
 
 - パネルを別のドックへ動かせない（`panelBelongsTo` が固定）
 - 右ドックに 2 枚目を置けない（`dockOnRight` は 1 枚の描画位置フラグ）
-- 位置の永続化がドック単位なので、パネルが動くと保存先が変わる
+- ~~位置の永続化がドック単位なので、パネルが動くと保存先が変わる~~
+  **訂正（2026-08-09）: これは問題ではない。** Zed も同じくドック単位で持つ
+  （`persistence/model.rs:152-156` の `DockStructure { left, right, bottom }`、
+  `persistence.rs:630-633` の `left_dock_visible` / `right_dock_active_panel`）。
+  **パネルの位置は設定に、ドックの状態（開閉・選択中・サイズ）はドックに**、
+  という分担が Zed の形。所有が動いても保存先が壊れるわけではない
 - 設定でユーザが位置を選べない
 
 ### 移植の順序（依存の順）
