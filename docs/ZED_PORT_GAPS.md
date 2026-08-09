@@ -109,6 +109,12 @@ Zed 側にあるモジュールで、Nimculus 側に対応物が見当たらな�
 4. **`pasteboard`** の画像・ファイル貼り付け
 5. **`asset_cache.rs`**、**`svg_renderer.rs`** — アセットの概念自体が無い
 
+## 実測で見つかった回帰（2026-08-09）
+
+| 項目 | 内容 |
+| --- | --- |
+| **カラー絵文字が描かれない** | `macos_platform.m:3840` の `if (colorEmojiGlyph) continue;`。テキストのインスタンス描画への移植で、以前あった Core Text RGBA テクスチャ経路を外したまま代替を入れていない。ROADMAP の M3 完了条件「日本語、英語、記号、絵文字をGPU上で混在表示できる」に反する。→ **DESIGN_DECISIONS UI-110** で `PolychromeSprite` の最初の利用者として直す |
+
 ## 進め方
 
 - **「未確認」を「無い」と読まない。** 対応物が別名で存在する場合がある

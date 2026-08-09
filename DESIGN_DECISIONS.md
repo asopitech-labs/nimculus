@@ -1,5 +1,91 @@
 # Design Decisions
 
+## UI-110: PolychromeSprite を入れて、まずカラー絵文字を描く
+
+対応マイルストーンは ROADMAP.md の M3（macOS テキスト描画と IME）。
+完了条件は、カラー絵文字が本文に描かれること、キャプチャで確認できること。
+
+### Zed の構造
+
+`crates/gpui/src/scene.rs:715` `PolychromeSprite`:
+
+```rust
+pub struct PolychromeSprite {
+    pub order: DrawOrder, pub pad: u32,
+    pub grayscale: PaddedBool32, pub opacity: f32,
+    pub bounds: Bounds<ScaledPixels>,
+    pub content_mask: ContentMask<ScaledPixels>,
+    pub corner_radii: Corners<ScaledPixels>,
+    pub tile: AtlasTile,
+}
+```
+
+描画は `crates/gpui_macos/src/metal_renderer.rs:1396` `draw_polychrome_sprites`、
+シェーダは `shaders.metal:688` `polychrome_sprite_vertex` / `:711` の fragment。
+`MonochromeSprite`（グリフ）と同じインスタンス描画で、**テクスチャがカラー**である点が違う。
+
+アトラスの振り分けは `crates/gpui/src/platform.rs:1163` `texture_kind()`:
+
+| キー | テクスチャ種別 |
+| --- | --- |
+| `AtlasKey::Glyph` で `is_emoji` | **`Polychrome`** |
+| `AtlasKey::Glyph` で `subpixel_rendering` | `Subpixel` |
+| `AtlasKey::Glyph`（通常） | `Monochrome` |
+| `AtlasKey::Svg` | `Monochrome` |
+| `AtlasKey::Image` | `Polychrome` |
+
+**カラー絵文字は画像と同じ Polychrome アトラスに入る。**
+
+### 現状の Nimculus
+
+グリフアトラスは `MTLPixelFormatR8Unorm`（単色）1 枚だけ
+（`macos_platform.m:3375`, `:11019`）。そして
+**`macos_platform.m:3840` の `if (colorEmojiGlyph) continue;` で
+カラー絵文字が描画から落ちている。**
+
+これはテキスト移植の際に「新経路が emoji glyph をスキップしている」として
+自己申告されていた残件で、`ZED_PORT_GAPS.md` には記録されていなかった。
+
+ROADMAP の M3 完了条件には「日本語、英語、記号、絵文字をGPU上で混在表示できる」
+とあり、以前は Core Text の RGBA テクスチャ経路で満たしていた。その経路を
+インスタンス描画への移植で外したまま、代替を入れていない。**回帰である。**
+
+### 移植する範囲
+
+1. **カラーのアトラステクスチャを持つ**（`MTLPixelFormatBGRA8Unorm`）。
+   既存の単色アトラス（R8）と 2 枚立てにする。Zed の `AtlasTextureKind` と同じ区別。
+2. **`PolychromeSprite` 相当**を足す。既存の `NimculusMonochromeSprite` の隣。
+   フィールドは Zed の `PolychromeSprite` に合わせる（`grayscale` / `opacity` /
+   `corner_radii` / `tile`）。
+3. **振り分け**を `texture_kind()` と同じ形にする。`is_emoji` なら Polychrome へ。
+4. `macos_platform.m:3840` の `continue` を外し、カラー絵文字を Polychrome 経路へ流す。
+5. シェーダを足す。`shaders.metal:688,711` の polychrome 版に対応するもの。
+   既存のグリフシェーダ（単色 + 頂点色）とは別に、**テクスチャの色をそのまま使う**。
+
+### 却下案
+
+**(a) Core Text の RGBA テクスチャ経路を復活させる。** 移植前の実装がこれだったが、
+テキスト移植で消したもの。文書全体を CPU でラスタライズする方式に戻ることになる。却下。
+
+**(b) 絵文字を単色で描く。** 見た目が違う。却下。
+
+**(c) `PolychromeSprite` を汎用の画像描画として先に作り、絵文字は後。**
+利用者のいない基盤を先に作ることになる。絵文字は**既に回帰している**ので、
+それを最初の利用者にするのが最小縦切り。却下。
+
+### 文字単位・スレッド・UI ブロッキング
+
+絵文字は複数コードポイント（ZWJ 連結・キーキャップ）を含む。既存の
+`colorEmojiAtUTF16Index`（`macos_platform.m:3178`）が UTF-16 位置で判定しており、
+そこは変えない。ラスタライズはミス時のみ、フレーム内で完結する。
+
+### テスト観点
+
+- unit: `is_emoji` のグリフが Polychrome アトラスへ振り分けられること
+- キャプチャ: **絵文字を含む文書を表示し、色付きで描かれていること**。
+  現状は描かれていないので、キャプチャの差で確認できる
+- 通常のグリフが従来どおり単色アトラスで描かれること（回帰）
+
 ## UI-109: Zed の Primitive は「形」で、Nimculus の PaintKind は「意味」で分かれている
 
 対応マイルストーンは ROADMAP.md の M2（NimNUI 基礎 UI システム）／M20。
