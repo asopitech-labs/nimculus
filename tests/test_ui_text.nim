@@ -115,6 +115,82 @@ suite "M2 UI foundation":
     check registry.dispatchShortcut(shortcut)
     check invoked == "second"
 
+  test "context stack resolves the same key from the focused dispatch path":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let editor = tree.addNode(root, focusable = true)
+    let terminal = tree.addNode(root, focusable = true)
+    tree.setContext(root, keyContext("Workspace"))
+    tree.setContext(editor, keyContext("Editor"))
+    tree.setContext(terminal, keyContext("Terminal"))
+    var registry: CommandRegistry
+    let shortcut = Shortcut(keyCode: 7)
+    registry.register(Command(name: "workspace", shortcut: shortcut,
+      whenClause: "Workspace"))
+    registry.register(Command(name: "editor", shortcut: shortcut,
+      whenClause: "Editor"))
+    registry.register(Command(name: "terminal", shortcut: shortcut,
+      whenClause: "Terminal"))
+    var resolved: Command
+    check tree.focus(editor)
+    check registry.tryResolve(shortcut, tree.contextStack(), resolved)
+    check resolved.name == "editor"
+    check tree.focus(terminal)
+    check registry.tryResolve(shortcut, tree.contextStack(), resolved)
+    check resolved.name == "terminal"
+
+  test "all Zed key context predicate kinds evaluate":
+    let contexts = @[
+      keyContext(contextIdentifier("Workspace")),
+      keyContext(contextIdentifier("Editor"), contextValue("mode", "full"))]
+    let cases = [
+      ("Editor", predicateIdentifier),
+      ("mode == full", predicateEqual),
+      ("mode != insert", predicateNotEqual),
+      ("Editor && mode == full", predicateAnd),
+      ("Terminal || Editor", predicateOr),
+      ("!Terminal", predicateNot),
+      ("Workspace > Editor", predicateDescendant)]
+    for item in cases:
+      let predicate = parseKeyBindingContextPredicate(item[0])
+      check predicate != nil
+      check predicate.kind == item[1]
+      check predicate.depthOf(contexts) >= 0
+    check parseKeyBindingContextPredicate("Missing").depthOf(contexts) < 0
+    check parseKeyBindingContextPredicate("mode == insert").depthOf(contexts) < 0
+    check not parseKeyBindingContextPredicate("mode != full").eval(contexts)
+    check parseKeyBindingContextPredicate("Editor && mode == insert").depthOf(contexts) < 0
+    check parseKeyBindingContextPredicate("Terminal || Missing").depthOf(contexts) < 0
+    check parseKeyBindingContextPredicate("!Editor").depthOf(contexts) < 0
+    check parseKeyBindingContextPredicate("Editor > Workspace").depthOf(contexts) < 0
+    check parseKeyBindingContextPredicate("Workspace > Editor").depthOf(contexts) == 2
+    check parseKeyBindingContextPredicate("!(Editor)").depthOf(contexts) < 0
+
+  test "a mismatched contextual binding falls back to the outer binding":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let editor = tree.addNode(root, focusable = true)
+    tree.setContext(root, keyContext("Workspace"))
+    tree.setContext(editor, keyContext("Editor"))
+    var registry: CommandRegistry
+    let shortcut = Shortcut(keyCode: 8)
+    registry.register(Command(name: "outer", shortcut: shortcut,
+      whenClause: "Workspace"))
+    registry.register(Command(name: "inner", shortcut: shortcut,
+      whenClause: "Terminal"))
+    var resolved: Command
+    check tree.focus(editor)
+    check registry.tryResolve(shortcut, tree.contextStack(), resolved)
+    check resolved.name == "outer"
+
+  test "bindings without when retain unconditional resolution":
+    var registry: CommandRegistry
+    let shortcut = Shortcut(keyCode: 9)
+    registry.register(Command(name: "legacy", shortcut: shortcut))
+    var resolved: Command
+    check registry.tryResolve(shortcut, @[keyContext("Editor")], resolved)
+    check resolved.name == "legacy"
+
   test "settings keymap recognizes standard macOS keys":
     check shortcutFromKeyBinding("cmd+left").keyCode == 123
     check shortcutFromKeyBinding("option+right").keyCode == 124

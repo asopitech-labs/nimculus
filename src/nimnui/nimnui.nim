@@ -7,6 +7,7 @@ else:
 import nimnui/mock_renderer
 import nimnui/geometry
 import nimnui/ui_tree
+import nimnui/context
 import nimnui/layout
 import nimnui/events
 import nimnui/controls
@@ -19,7 +20,7 @@ import nimnui/executor
 
 export platform
 export mock_renderer
-export geometry, ui_tree, layout, events, controls, text
+export geometry, ui_tree, context, layout, events, controls, text
 export render
 export ime
 export commands

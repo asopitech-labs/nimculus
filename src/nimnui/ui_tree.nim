@@ -1,5 +1,6 @@
 import nimnui/geometry
 import nimnui/layout_types
+import nimnui/context
 
 type
   NodeId* = distinct uint64
@@ -36,6 +37,7 @@ type
     a11yIdentifier*, a11yTitle*, a11yValue*: string
     a11yAction*: string
     a11ySelected*, a11yExpanded*: bool
+    context*: KeyContext
 
   UiTree* = object
     nodes*: seq[UiNode]
@@ -265,3 +267,23 @@ proc focus*(tree: var UiTree, id: NodeId): bool =
   tree.nodes[index].focusedState = true
   tree.updateVisualState(index)
   true
+
+proc setContext*(tree: var UiTree, id: NodeId, context: KeyContext) =
+  let index = tree.nodeIndex(id)
+  if index >= 0: tree.nodes[index].context = context
+
+proc contextStack*(tree: UiTree): seq[KeyContext] =
+  ## Collect the focused node's dispatch path, then expose it in Zed's
+  ## root-to-focused order so Descendant predicates see parent before child.
+  var path: seq[NodeId]
+  var current = tree.focused
+  while current != NodeId(0):
+    let index = tree.nodeIndex(current)
+    if index < 0: break
+    path.add(current)
+    current = tree.nodes[index].parent
+  if path.len > 0:
+    for index in countdown(path.high, 0):
+      let nodeIndex = tree.nodeIndex(path[index])
+      if nodeIndex >= 0 and tree.nodes[nodeIndex].context.entries.len > 0:
+        result.add(tree.nodes[nodeIndex].context)

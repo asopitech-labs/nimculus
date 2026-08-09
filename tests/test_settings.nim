@@ -96,11 +96,12 @@ suite "M12 settings foundation":
     let root = getTempDir() / "nimculus-settings-validation"
     createDir(root)
     let path = root / "settings.json"
-    writeFile(path, """{"editor":{"fontSize":"large"},"scroll_sensitivity":"fast","keymap":[{"key":"cmd+s","command":"save"}],"themeColors":{"background":"#000000"}}""")
+    writeFile(path, """{"editor":{"fontSize":"large"},"scroll_sensitivity":"fast","keymap":[{"key":"cmd+s","command":"save","when":"Editor && mode == full"}],"themeColors":{"background":"#000000"}}""")
     let store = newSettingsStore(path, "", "")
     check store.diagnostics.len == 2
     check store.keyBindings().len == 1
     check store.keyBindings()[0].command == "save"
+    check store.keyBindings()[0].whenClause == "Editor && mode == full"
     check store.theme().background == "#000000"
     let shortcut = shortcutFromKeyBinding("cmd+shift+p")
     check shortcut.keyCode == 35

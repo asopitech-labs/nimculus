@@ -354,13 +354,24 @@ proc setupDemoUi() =
   let button = makeControl(demoTree, toolbarControl.node, ControlKind.button, "Save",
       focusable = true)
   let split = makeControl(demoTree, root, ControlKind.splitPane, "Editor split")
-  let scroll = makeControl(demoTree, root, ControlKind.editor, "Editor")
+  let scroll = makeControl(demoTree, root, ControlKind.editor, "Editor",
+      focusable = true)
   let tabs = makeControl(demoTree, root, ControlKind.tabBar, "Tabs")
   let activeTab = makeControl(demoTree, tabs.node, ControlKind.button, "Active tab")
   let sidebar = makeControl(demoTree, root, ControlKind.scrollView, "Projects")
   let projectRow = makeControl(demoTree, sidebar.node, ControlKind.row, "Project row")
   let statusBar = makeControl(demoTree, root, ControlKind.statusBar, "Status bar")
   let statusItem = makeControl(demoTree, statusBar.node, ControlKind.button, "Cursor")
+  demoTree.setContext(root, keyContext("Workspace"))
+  demoTree.setContext(toolbarControl.node, keyContext("Toolbar"))
+  demoTree.setContext(button.node, keyContext("Button"))
+  demoTree.setContext(scroll.node, keyContext("Editor"))
+  demoTree.setContext(tabs.node, keyContext("TabBar"))
+  demoTree.setContext(activeTab.node, keyContext("Tab"))
+  demoTree.setContext(sidebar.node, keyContext("Sidebar"))
+  demoTree.setContext(projectRow.node, keyContext("Project"))
+  demoTree.setContext(statusBar.node, keyContext("StatusBar"))
+  demoTree.setContext(statusItem.node, keyContext("StatusItem"))
   setControlAccessibility(demoTree, toolbarControl, "toolbar", "Toolbar", "")
   setControlAccessibility(demoTree, button, "toolbar.save", "Save", "", "save")
   setControlAccessibility(demoTree, split, "", "Editor split", "")
@@ -661,7 +672,7 @@ proc dispatchNativeShortcut(event: ptr NimculusInputEvent): bool {.cdecl.} =
       modifiers = (modifiers or (1'u32 shl 20)) and not (1'u32 shl 18)
   shortcutRegistry.dispatchShortcut(Shortcut(
     keyCode: event.keyCode,
-    modifiers: macOSModifiers(modifiers)))
+    modifiers: macOSModifiers(modifiers)), demoTree.contextStack())
 
 proc nativeShortcutAction(name: string): proc() {.closure.} =
   result = proc() = receiveNativeCommand(name.cstring)
@@ -802,6 +813,7 @@ proc applySettingsKeymap() =
       for index in 0 ..< shortcutRegistry.commands.len:
         if shortcutRegistry.commands[index].name == binding.command:
           shortcutRegistry.commands[index].shortcut = shortcut
+          shortcutRegistry.commands[index].whenClause = binding.whenClause
 
 when defined(macosx):
   proc resizeNativeTerminals()
