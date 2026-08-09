@@ -1,5 +1,125 @@
 # Design Decisions
 
+## UI-120: git blame をステータスバーに出す（UI-114 の 3）
+
+### Zed の実装（`crates/git_ui/src/blame_ui.rs`）
+
+**表示条件**（`:70-73`）:
+
+```rust
+let inline_blame = ProjectSettings::get_global(cx).git.inline_blame;
+if !inline_blame.enabled || inline_blame.location != InlineBlameLocation::StatusBar {
+    return div();
+}
+```
+
+`InlineBlameLocation` は `Inline`（既定）と `StatusBar` の 2 値
+（`settings_content/src/project.rs:633-639`）。
+**既定は `Inline` なので、ステータスバーには出ない。**
+
+**文言**（`:26-40`）:
+
+```rust
+match blame_entry.summary.as_ref() {
+    Some(summary) if summary_enabled =>
+        format!("{author}, {relative_timestamp} - {summary}"),
+    _ => format!("{author}, {relative_timestamp}"),
+}
+```
+
+`show_commit_summary` の既定は false（`default.json:1682`）なので、
+既定の文言は `著者, 相対時刻`。
+
+**見た目**（`:77-83`）: `FileGit` アイコン（`Color::Hint`）＋テキストのボタン。
+押すと `OpenGitBlameCommit`。
+
+**更新の契機**（`:50-66`）: アクティブなエディタの
+`active_git_blame_entry(cx)`（＝カーソル行の blame）を読み、
+前回と違えば `cx.notify()`。
+
+**定数**: `GIT_BLAME_MAX_AUTHOR_CHARS_DISPLAYED = 20`（`:22`）
+
+### `inline_blame` の設定（`default.json:1671-1685`）
+
+| キー | 既定 |
+| --- | --- |
+| `enabled` | true |
+| `delay_ms` | 0 |
+| `location` | `"inline"` |
+| `padding` | 7 |
+| `show_commit_summary` | false |
+| `min_column` | 0 |
+
+### Nimculus の現状
+
+`git_service.nim:553` に `blame*()`（`git blame --line-porcelain`）がある。
+**データ源は揃っている。**
+
+ただし**行内 blame は無い**。`main.nim:2553` の `renderNativeGitBlame` は
+blame の全行を**出力パネルに一覧表示**する。コメントは
+「Zed renders inline blame when space permits. The native output panel is
+Nimculus' current compact equivalent」と書いているが、
+Zed の行内 blame は**カーソル行 1 行を行末に出す**もので、別物。
+
+（UI-114 に「Nimculus は行内 blame を持っている」と書いたのは不正確。
+持っているのはパネル表示。）
+
+### 範囲を切る
+
+本項は**ステータスバー表示だけ**を扱う。行内 blame（`location: "inline"`、
+`padding`、`min_column`、`delay_ms`）は別項。
+
+理由: 行内 blame はエディタ本文の描画に入り込む。
+`padding` は em 幅単位で行末からの距離を決め、`min_column` は
+最小の桁位置を決める。**本文のレイアウトに触るので、
+スクロール性能とキャプチャの両方に影響する。**
+ステータスバー項目はそこに触れない。
+
+### やること
+
+1. 設定 `git.inlineBlame.enabled` / `.location` / `.showCommitSummary` を足す。
+   既定は Zed と同じ（true / `"inline"` / false）
+2. カーソル行の blame を取る経路（`blame*()` の結果から行で引く）
+3. `location == "status_bar"` かつ `enabled` のときだけ
+   フッタ左に項目を出す。それ以外は出さない（＝既定では出ない）
+4. 文言は `著者, 相対時刻`、`showCommitSummary` が true なら
+   ` - 要約` を足す
+5. 著者名は 20 文字で切る
+6. アイコンは git のファイル（`Color::Hint` 相当）
+7. 押したら blame のコミットを開く
+
+`delay_ms` / `padding` / `min_column` はステータスバー表示に関係しないので
+本項では足さない。行内 blame の項で足す。
+
+### 相対時刻の書式
+
+Zed は `time_format::format_localized_timestamp` の `Relative` を使う
+（`blame_ui.rs:525-539`）。パース失敗時は `"Error parsing date"`。
+**この書式の実装を読んでから移植すること。** 独自の「N 日前」を書かない。
+
+### 却下案
+
+**(a) 既定でステータスバーに出す。** Zed の既定は `inline`。
+「せっかく作ったのに見えない」は移植の判断基準ではない
+（UI-113 の却下案 c と同じ）。却下。
+
+**(b) 行内 blame も一緒に移植する。** 本文レイアウトに触るので、
+スクロール性能の回帰とキャプチャの差が同時に出る。切り分けられない。却下。
+
+**(c) 出力パネルの一覧表示（`renderNativeGitBlame`）を置き換える。**
+Zed にも `git blame` の一覧を出す経路はある（`blame_ui.rs:250` 付近）。
+別物を消す理由が無い。却下。
+
+### テスト観点
+
+- 既定設定で項目が出ない
+- `location` を `"status_bar"` にすると出る
+- `enabled` が false なら `location` によらず出ない
+- 文言が `著者, 相対時刻`、`showCommitSummary` で ` - 要約` が付く
+- 著者名が 20 文字を超えたら切られる
+- **契約テスト**（AppKit のビュー階層を見る。UI-115 / UI-116 / UI-117 と同じ形）
+- キャプチャ: 既定では画面が変わらないこと（全画素一致）
+
 ## UI-119: 設定が変わったときのパネルの引き取り直し（UI-118 の 5）
 
 ### Zed の意味論（`dock.rs:589-655`）
