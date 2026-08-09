@@ -40,7 +40,7 @@ Zed 側にあるモジュールで、Nimculus 側に対応物が見当たらな�
 | `text_system/line_layout.rs` | `src/nimnui/text.nim` | 移植済み（`LineLayout` / `LineLayoutCache` / `computeWrapBoundaries`） |
 | `scene.rs` | `src/nimnui/render.nim`（`PaintList`）、`macos_platform.m`（`NimculusMonochromeSprite`） | **部分移植**。グリフの `MonochromeSprite` は入れたが、`PolychromeSprite` / `Quad` / `Shadow` / `Path` など他のプリミティブは未確認 |
 | `taffy.rs` + `style.rs` | `src/nimnui/layout.nim` / `layout_types.nim` | **部分移植（2026-08-09 確認）**。`LayoutSpec` は direction / size / min / max / padding / gap / flexGrow / alignment。Zed の `Style`（style.rs:182-309）にある **`position` + `inset`（絶対配置）・`margin`・`overflow`・`align_items` と `justify_content` の分離・grid・`flex_shrink` / `flex_basis`・`display`** が無い。Zed は Taffy に委譲、こちらは自前の Row/Column/Stack |
-| `bounds_tree.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `scene.rs:43` で `primitive_bounds: BoundsTree<ScaledPixels>` として使い、プリミティブの重なり順を R-tree で解決する。こちらは `ui_tree.nim:134` の `hitTest` が全ノードを逆順に線形走査するのみで、描画側に相当物が無い |
+| `bounds_tree.rs` | 無し（現時点では不要） | **`scene.rs` のバッチ化とセット（2026-08-09 調査）**。用途はヒットテストではなく**描画順序の割り当て**。`insert`（bounds_tree.rs:120）は「交差する既存プリミティブの最大 order + 1」を返し、`finish()`（scene.rs:150）が種別ごとに order で並べ替える。Zed は Shadows / Quads / Paths / Underlines / Sprites を**種別ごとにバッチ描画**する（`batches()` scene.rs:172）ので順序が崩れる。交差しないものを同じ order にまとめて 1 バッチに畳むための R-tree。<br>**Nimculus は種別バッチ化をしていない**（`drawPaintCommand` が PaintList を投入順に描き、グリフのインスタンスバッチは常に最後）ので、復元すべき順序が無い。`scene.rs` のプリミティブ体系を移植した時点で必要になる。棚卸し当初の「ヒットテスト／再描画範囲」は**誤り** |
 | `tab_stop.rs` | `commands.nim:133` `focusNext` | **部分移植（2026-08-09 確認）**。Zed は `TabStopMap`（SumTree）で `tab_index` 順に巡回し、`window.rs:349` の `tab_stop` フラグで参加を制御する。こちらは毎回 `focusables` を線形に組み直し、**tab index による順序指定が無い**（宣言順のみ） |
 | `key_dispatch.rs` / `keymap/` | `src/nimnui/commands.nim` | **部分移植（2026-08-09 確認）**。Zed は `DispatchTree` が `context_stack: Vec<KeyContext>`（key_dispatch.rs:73,127）を持ち、フォーカス位置に応じて同じキーを別アクションへ振り分ける。こちらは `CommandRegistry` が `Shortcut` → `Command` の**単一の平坦な表**で、コンテキストの概念が無い |
 | `path_builder.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `Primitive::Path`（scene.rs:111,893）を描画プリミティブとして持ち、lyon でパスを組む。`render.nim` の `PaintKind` は rectangle / border / roundedRectangle / text / image / clip / transform / shadow / caret / selection / scrollbar 等で、**任意パスが無い** |
@@ -92,7 +92,10 @@ Zed 側にあるモジュールで、Nimculus 側に対応物が見当たらな�
    `poll()` をイベントループから叩き、外部プロセスは `waitForExit` で同期的に待つ。
    `git rev-parse` の同期待ちで UI がブロックしていた不具合（handoff §5）と同根。
    **構造的な欠落としては最大**
-3. **`bounds_tree.rs`** — `hitTest` が全ノード線形走査。ノード数が増えると効く
+3. ~~**`bounds_tree.rs`**~~ — **順序を入れ替え（2026-08-09）**。調査の結果、用途は
+   ヒットテストではなく種別バッチ描画の順序割り当てで、`scene.rs` のプリミティブ
+   体系を移植して初めて必要になる。単独では入れる意味がない（`arena` が即時モードと
+   セットだったのと同じ構造）。→ 先に `scene.rs` を移植する
 4. **`taffy/style` の絶対配置・margin・overflow** — 新しい UI を作るときに要る
 
 ### 機能として欠けている順
