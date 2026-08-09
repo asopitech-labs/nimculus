@@ -1,5 +1,84 @@
 # Design Decisions
 
+## UI-105: Rounded selection first, as a shaped primitive rather than a path engine
+
+対応マイルストーンは ROADMAP.md の M5（macOS 最小実用エディタ）／UI パリティ。
+完了条件は、選択範囲が Zed の既定（`rounded_selection: true`）と同じ見え方に
+なり、`tools/bitdiff.sh` 相当のキャプチャ比較で選択帯の差が縮むこと。
+
+### 何が足りないか
+
+Zed は選択範囲を `PathBuilder`（`crates/gpui/src/path_builder.rs:25`）で組み、
+`Primitive::Path`（`scene.rs:111,893`）として描く。角丸は
+`editor/src/element.rs:10519` の `PathBuilder::fill()` と `curve_to`。
+`rounded_selection` は `editor_settings.rs:24`、`assets/settings/default.json:310`
+で **既定 `true`**。素の Zed の選択範囲は角丸である。
+
+Nimculus は `PaintKind.selection`（render.nim:6）で矩形を描く。
+
+**行ごとの角丸矩形では再現できない。** Zed は「連続する行がなす領域の外周」を
+1 本のパスとして丸めるので、行の幅が変わる箇所の**内側の角**も丸まる。
+
+### 依存の調査（2026-08-09）
+
+Zed は lyon（Rust の 2D パス三角形分割ライブラリ）に委譲している。
+Nim の等価物を `nimble search` で探した:
+
+- `tessellation` / `triangulate` / `lyon` — **該当なし**
+- `bezier` — ベジエ曲線のツールのみ。三角形分割は無い
+- `pixie` — フル機能の 2D グラフィックスライブラリ（paths / stroke / fill /
+  svg / font）。**ただし CPU ラスタライザ**で、Metal の頂点を作るものではない
+
+**Metal でパスを塗るための三角形分割器は Nim に無い。**
+
+### 採用案: 選択範囲に限定した形状プリミティブ
+
+汎用のパスエンジンを作らず、**`PaintKind` に「角丸の複数行選択」を足す**。
+入力は行ごとの矩形の並びで、外周の角を丸めた形状を描く。
+
+理由:
+
+1. **今この形が必要な唯一の用途が選択範囲**である。Zed の他 2 用途（破線 divider、
+   circular progress）に対応する UI が Nimculus に無い
+2. `nimculus-ui-design` の「抽象 API を先に広げない」に従う
+3. 三角形分割器が無いので、汎用パスは分割器の自作から始まる。**使う当てのない
+   基盤を先に作ることになる**
+
+実装は Metal 側で角丸を扱えばよい。既に `roundedRectangle` の描画があり
+（render.nim:5、macos_platform.m）、角の丸めは同じ手法で足せる。
+外周の内側の角（行幅が変わる箇所）の扱いを Zed の `curve_to` と合わせること。
+
+### 却下案
+
+**(a) `PathBuilder` + `Primitive::Path` を汎用に移植する。** 三角形分割器が
+Nim に無く、自作するか `pixie` を CPU ラスタライザとして挟むことになる。
+前者は使う当てのない基盤、後者は GPU 経路から外れる。**用途が増えた時点で
+再検討する。** 今は却下。
+
+**(b) `pixie` を依存に追加する。** CPU ラスタライザなので、グリフをアトラス化して
+GPU で描いている現在の経路と噛み合わない。SVG アイコンのラスタライズ
+（`svg_renderer.rs` の行）で再検討の余地はあるが、選択範囲には不要。今は却下。
+
+**(c) 行ごとの角丸矩形で近似する。** 内側の角が丸まらず、Zed と見た目が違う。
+UI パリティが目的なので却下。
+
+### `scene.rs` のプリミティブ体系との関係
+
+`bounds_tree.rs` の調査で「`scene.rs` のプリミティブ体系を先に移植すべき」と
+結論した。本項目はその一部（`Primitive::Path`）に見えるが、**汎用パスではなく
+選択範囲という具体的な形状**として入れる。汎用化は用途が 2 つ目になったときに
+行う。
+
+### 文字単位・スレッド・UI ブロッキング
+
+文字を扱わない。描画はフレーム内で完結する。
+
+### テスト観点
+
+- unit: 行ごとの矩形列から外周形状が正しく組まれること（行幅が変わる箇所の
+  内側の角を含む）
+- キャプチャ: 複数行選択のスクリーンショットを Zed と比較し、角の丸みが一致すること
+
 ## UI-104: Port Zed's ongoing-scroll axis lock, not its touch gestures
 
 対応マイルストーンは ROADMAP.md の M3（macOS テキスト描画と IME）／M20。
