@@ -34,6 +34,7 @@ proc platformValidateEditorTextPopupBounds*(): bool {.importc: "nimculus_platfor
 proc platformValidateSecondaryAnnotationIsolation*(): bool {.importc: "nimculus_platform_validate_secondary_annotation_isolation", cdecl.}
 proc platformValidateStatusUpdateDeduplication*(): bool {.importc: "nimculus_platform_validate_status_update_deduplication", cdecl.}
 proc platformValidateEditorFooterItems*(): bool {.importc: "nimculus_platform_validate_editor_footer_items", cdecl.}
+proc platformValidateEditorDiagnosticsSummary*(): bool {.importc: "nimculus_platform_validate_editor_diagnostics_summary", cdecl.}
 proc platformValidateDamageRebuild*(): bool {.importc: "nimculus_platform_validate_damage_rebuild", cdecl.}
 proc platformValidateScrollClipPixels*(): bool {.importc: "nimculus_platform_validate_scroll_clip_pixels", cdecl.}
 proc platformValidateSceneTextureReplacement*(): bool {.importc: "nimculus_platform_validate_scene_texture_replacement", cdecl.}
@@ -212,6 +213,7 @@ proc platformSetEditorContext*(text: cstring) {.importc: "nimculus_platform_set_
 proc platformSetEditorGitBranch*(text: cstring) {.importc: "nimculus_platform_set_editor_git_branch", cdecl.}
 proc platformSetEditorStatus*(text: cstring) {.importc: "nimculus_platform_set_editor_status", cdecl.}
 proc platformSetEditorFooter*(text: cstring) {.importc: "nimculus_platform_set_editor_footer", cdecl.}
+proc platformSetDiagnosticsButton*(visible: bool) {.importc: "nimculus_platform_set_diagnostics_button", cdecl.}
 proc platformSetWelcomeVisible*(visible: bool) {.importc: "nimculus_platform_set_welcome_visible", cdecl.}
 proc platformSetCloseDecision*(allow: bool) {.importc: "nimculus_platform_set_close_decision", cdecl.}
 proc platformRequestCloseTab*() {.importc: "nimculus_platform_request_close_tab", cdecl.}

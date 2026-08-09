@@ -1418,6 +1418,7 @@ static NimculusHighlightSpan *g_secondary_highlights = NULL;
 static uint32_t g_secondary_highlight_count = 0;
 static NimculusDiagnosticSpan *g_diagnostics = NULL;
 static uint32_t g_diagnostic_count = 0;
+static BOOL g_diagnostics_button = YES;
 // Diagnostics carry document byte offsets just like syntax spans. A split
 // pane must therefore never reuse the primary document's diagnostic ranges.
 static NimculusDiagnosticSpan *g_secondary_diagnostics = NULL;
@@ -7600,7 +7601,8 @@ static void styleFooterStatusButton(NimculusFooterStatusButton *button, BOOL ima
     NSMakeSize(CGFLOAT_MAX, CGFLOAT_MAX)
     options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
     context:nil];
-  CGFloat width = ceil(titleRect.size.width + NimculusSpace2 * 2.0);
+  CGFloat width = button.footerPreferredWidth > 0.0 ? button.footerPreferredWidth :
+    ceil(titleRect.size.width + NimculusSpace2 * 2.0);
   if (!imageOnly && button.image && button.imagePosition == NSImageLeft) {
     width += button.image.size.width + NimculusSpace1;
   }
@@ -7624,6 +7626,71 @@ static NimculusFooterStatusButton *newFooterButton(NimculusFooterOverlay *owner,
   button.translatesAutoresizingMaskIntoConstraints = NO;
   [button.widthAnchor constraintGreaterThanOrEqualToConstant:NimculusControlHit].active = YES;
   [button.heightAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
+  return button;
+}
+
+static void addDiagnosticPart(NSStackView *content, NSString *symbol, NSString *fallback,
+                              uint32_t count, NSColor *color, CGFloat *width) {
+  NSView *icon = nil;
+  if (@available(macOS 11.0, *)) {
+    NSImageView *imageView = [[[NSImageView alloc] initWithFrame:NSZeroRect] autorelease];
+    imageView.image = [NSImage imageWithSystemSymbolName:symbol
+      accessibilityDescription:nil];
+    imageView.imageScaling = NSImageScaleProportionallyDown;
+    imageView.contentTintColor = color;
+    imageView.translatesAutoresizingMaskIntoConstraints = NO;
+    [imageView.widthAnchor constraintEqualToConstant:14.0].active = YES;
+    [imageView.heightAnchor constraintEqualToConstant:14.0].active = YES;
+    icon = imageView;
+  } else {
+    NSTextField *fallbackLabel = [NSTextField labelWithString:fallback];
+    fallbackLabel.textColor = color;
+    fallbackLabel.font = editorUiFontWithWeight(NSFontWeightMedium);
+    icon = fallbackLabel;
+  }
+  [content addArrangedSubview:icon];
+
+  NSString *countText = [NSString stringWithFormat:@"%u", count];
+  NSDictionary *attributes = @{
+    NSForegroundColorAttributeName: color,
+    NSFontAttributeName: editorUiFontWithWeight(NSFontWeightMedium)
+  };
+  NSTextField *countLabel = [NSTextField labelWithString:countText];
+  countLabel.attributedStringValue = [[[NSAttributedString alloc]
+    initWithString:countText attributes:attributes] autorelease];
+  [content addArrangedSubview:countLabel];
+  *width += 14.0 + NimculusSpace1 +
+    [countText sizeWithAttributes:attributes].width;
+}
+
+static NimculusFooterStatusButton *newDiagnosticButton(NimculusFooterOverlay *owner,
+                                                         NSString *label,
+                                                         uint32_t errorCount,
+                                                         uint32_t warningCount) {
+  NimculusFooterStatusButton *button = newFooterButton(owner, @"", label,
+    NimculusFooterActionDiagnostics);
+  NSStackView *content = [[[NSStackView alloc] initWithFrame:NSZeroRect] autorelease];
+  content.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+  content.alignment = NSLayoutAttributeCenterY;
+  content.spacing = NimculusSpace1;
+  content.translatesAutoresizingMaskIntoConstraints = NO;
+  CGFloat width = NimculusSpace2 * 2.0;
+  if (errorCount > 0) {
+    addDiagnosticPart(content, @"xmark.circle", @"✕", errorCount,
+      themeRoleColor(@"error", [NSColor systemRedColor]), &width);
+  }
+  if (warningCount > 0) {
+    addDiagnosticPart(content, @"exclamationmark.triangle", @"⚠", warningCount,
+      themeRoleColor(@"warning", [NSColor systemOrangeColor]), &width);
+  }
+  [button addSubview:content];
+  [content.centerYAnchor constraintEqualToAnchor:button.centerYAnchor].active = YES;
+  [content.leadingAnchor constraintEqualToAnchor:button.leadingAnchor
+    constant:NimculusSpace2].active = YES;
+  [content.trailingAnchor constraintEqualToAnchor:button.trailingAnchor
+    constant:-NimculusSpace2].active = YES;
+  button.footerPreferredWidth = MAX(NimculusControlHit, ceil(width));
+  styleFooterStatusButton(button, YES);
   return button;
 }
 
@@ -7724,13 +7791,9 @@ static NSView *newFooterDivider(void) {
 
   uint32_t errorCount = 0;
   uint32_t warningCount = 0;
-  uint32_t infoCount = 0;
-  uint32_t hintCount = 0;
   for (uint32_t index = 0; index < g_diagnostic_count; index++) {
     if (g_diagnostics[index].severity == 1) errorCount++;
     else if (g_diagnostics[index].severity == 2) warningCount++;
-    else if (g_diagnostics[index].severity == 3) infoCount++;
-    else if (g_diagnostics[index].severity >= 4) hintCount++;
   }
   NSArray<NSString *> *items = [g_editor_footer componentsSeparatedByString:@"\t"];
 
@@ -7772,18 +7835,21 @@ static NSView *newFooterDivider(void) {
   styleFooterStatusButton(search, YES);
   [left addArrangedSubview:search];
 
-  NSString *diagnosticTitle = @"";
-  NSString *diagnosticLabel = @"Diagnostics: no problems";
-  if (errorCount > 0 || warningCount > 0 || infoCount > 0 || hintCount > 0) {
+  NSString *diagnosticLabel = @"Project diagnostics: no problems";
+  if (errorCount > 0 || warningCount > 0) {
     NSMutableArray<NSString *> *summary = [NSMutableArray array];
-    if (errorCount > 0) [summary addObject:[NSString stringWithFormat:@"%u errors", errorCount]];
-    if (warningCount > 0) [summary addObject:[NSString stringWithFormat:@"%u warnings", warningCount]];
-    if (infoCount > 0) [summary addObject:[NSString stringWithFormat:@"%u info", infoCount]];
-    if (hintCount > 0) [summary addObject:[NSString stringWithFormat:@"%u hints", hintCount]];
-    diagnosticTitle = [summary componentsJoinedByString:@" · "];
-    diagnosticLabel = [NSString stringWithFormat:@"Diagnostics: %@", diagnosticTitle];
+    if (errorCount > 0) {
+      [summary addObject:[NSString stringWithFormat:@"%u error%@", errorCount,
+        errorCount == 1 ? @"" : @"s"]];
+    }
+    if (warningCount > 0) {
+      [summary addObject:[NSString stringWithFormat:@"%u warning%@", warningCount,
+        warningCount == 1 ? @"" : @"s"]];
+    }
+    diagnosticLabel = [NSString stringWithFormat:@"Project diagnostics: %@",
+      [summary componentsJoinedByString:@", "]];
   }
-  if (errorCount == 0 && warningCount == 0 && infoCount == 0 && hintCount == 0) {
+  if (g_diagnostics_button && errorCount == 0 && warningCount == 0) {
     NimculusFooterStatusButton *diagnostics = newFooterButton(self, @"", diagnosticLabel,
       NimculusFooterActionDiagnostics);
     setFooterSymbol(diagnostics, @"checkmark", @"✓");
@@ -7791,43 +7857,9 @@ static NSView *newFooterDivider(void) {
     diagnostics.contentTintColor = themeRoleColor(@"textMuted",
       themeRoleColor(@"fgMuted", [NSColor secondaryLabelColor]));
     [left addArrangedSubview:diagnostics];
-  } else {
-    if (errorCount > 0) {
-      NimculusFooterStatusButton *errors = newFooterButton(self,
-        [NSString stringWithFormat:@"%u", errorCount],
-        diagnosticLabel, NimculusFooterActionDiagnostics);
-      setFooterSymbol(errors, @"xmark.circle", @"✕");
-      styleFooterStatusButton(errors, NO);
-      errors.contentTintColor = themeRoleColor(@"error", [NSColor systemRedColor]);
-      [left addArrangedSubview:errors];
-    }
-    if (warningCount > 0) {
-      NimculusFooterStatusButton *warnings = newFooterButton(self,
-        [NSString stringWithFormat:@"%u", warningCount],
-        diagnosticLabel, NimculusFooterActionDiagnostics);
-      setFooterSymbol(warnings, @"exclamationmark.triangle", @"⚠");
-      styleFooterStatusButton(warnings, NO);
-      warnings.contentTintColor = themeRoleColor(@"warning", [NSColor systemOrangeColor]);
-      [left addArrangedSubview:warnings];
-    }
-    if (infoCount > 0) {
-      NimculusFooterStatusButton *info = newFooterButton(self,
-        [NSString stringWithFormat:@"%u", infoCount], diagnosticLabel,
-        NimculusFooterActionDiagnostics);
-      setFooterSymbol(info, @"info.circle", @"ⓘ");
-      styleFooterStatusButton(info, NO);
-      info.contentTintColor = themeRoleColor(@"info", [NSColor systemBlueColor]);
-      [left addArrangedSubview:info];
-    }
-    if (hintCount > 0) {
-      NimculusFooterStatusButton *hints = newFooterButton(self,
-        [NSString stringWithFormat:@"%u", hintCount], diagnosticLabel,
-        NimculusFooterActionDiagnostics);
-      setFooterSymbol(hints, @"lightbulb", @"✦");
-      styleFooterStatusButton(hints, NO);
-      hints.contentTintColor = themeRoleColor(@"hint", [NSColor secondaryLabelColor]);
-      [left addArrangedSubview:hints];
-    }
+  } else if (g_diagnostics_button) {
+    [left addArrangedSubview:newDiagnosticButton(self, diagnosticLabel,
+      errorCount, warningCount)];
   }
 
   for (NSString *item in items) {
@@ -7894,6 +7926,93 @@ bool nimculus_platform_validate_editor_footer_items(void) {
     [footer release];
     nimculus_platform_set_editor_footer(previous.UTF8String);
     [previous release];
+    return valid;
+  }
+}
+
+static NSButton *diagnosticsButtonInFooter(NSStackView *left) {
+  for (NSView *view in left.arrangedSubviews) {
+    if ([view isKindOfClass:[NSButton class]] &&
+        [((NSButton *)view).accessibilityLabel hasPrefix:@"Project diagnostics:"]) {
+      return (NSButton *)view;
+    }
+  }
+  return nil;
+}
+
+bool nimculus_platform_validate_editor_diagnostics_summary(void) {
+  @autoreleasepool {
+    const BOOL previousButtonSetting = g_diagnostics_button;
+    const uint32_t previousCount = g_diagnostic_count;
+    NimculusDiagnosticSpan *previous = NULL;
+    if (previousCount > 0 && g_diagnostics) {
+      previous = malloc(sizeof(NimculusDiagnosticSpan) * previousCount);
+      if (previous) memcpy(previous, g_diagnostics,
+        sizeof(NimculusDiagnosticSpan) * previousCount);
+    }
+    NimculusFooterOverlay *footer = [[NimculusFooterOverlay alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 30.0)];
+    BOOL valid = YES;
+
+    NimculusDiagnosticSpan infoOnly[] = {{.severity = 3}};
+    nimculus_platform_set_diagnostics_button(true);
+    nimculus_platform_set_editor_diagnostics(infoOnly, 1);
+    [footer reloadStatusItems];
+    NSStackView *left = nil;
+    for (NSView *view in footer.subviews) {
+      if ([view isKindOfClass:[NSStackView class]]) {
+        left = (NSStackView *)view;
+        break;
+      }
+    }
+    NSButton *diagnostics = diagnosticsButtonInFooter(left);
+    valid = diagnostics != nil &&
+      [diagnostics.accessibilityLabel isEqualToString:@"Project diagnostics: no problems"] &&
+      diagnostics.tag == NimculusFooterActionDiagnostics;
+
+    NimculusDiagnosticSpan errorsAndWarning[] = {
+      {.severity = 1}, {.severity = 1}, {.severity = 2}, {.severity = 3}, {.severity = 4}
+    };
+    nimculus_platform_set_editor_diagnostics(errorsAndWarning, 5);
+    [footer reloadStatusItems];
+    diagnostics = diagnosticsButtonInFooter(left);
+    NSStackView *content = nil;
+    if (diagnostics) {
+      for (NSView *view in diagnostics.subviews) {
+        if ([view isKindOfClass:[NSStackView class]]) {
+          content = (NSStackView *)view;
+          break;
+        }
+      }
+    }
+    valid = valid && diagnostics != nil && content != nil &&
+      content.arrangedSubviews.count == 4 &&
+      [diagnostics.accessibilityLabel isEqualToString:
+        @"Project diagnostics: 2 errors, 1 warning"] &&
+      diagnostics.tag == NimculusFooterActionDiagnostics;
+
+    NimculusDiagnosticSpan oneError[] = {{.severity = 1}};
+    nimculus_platform_set_editor_diagnostics(oneError, 1);
+    [footer reloadStatusItems];
+    diagnostics = diagnosticsButtonInFooter(left);
+    valid = valid && diagnostics != nil &&
+      [diagnostics.accessibilityLabel isEqualToString:@"Project diagnostics: 1 error"];
+
+    nimculus_platform_set_editor_diagnostics(NULL, 0);
+    [footer reloadStatusItems];
+    diagnostics = diagnosticsButtonInFooter(left);
+    valid = valid && diagnostics != nil &&
+      [diagnostics.accessibilityLabel isEqualToString:@"Project diagnostics: no problems"];
+
+    nimculus_platform_set_editor_diagnostics(errorsAndWarning, 5);
+    nimculus_platform_set_diagnostics_button(false);
+    [footer reloadStatusItems];
+    valid = valid && diagnosticsButtonInFooter(left) == nil;
+
+    [footer release];
+    nimculus_platform_set_diagnostics_button(previousButtonSetting);
+    nimculus_platform_set_editor_diagnostics(previous, previousCount);
+    free(previous);
     return valid;
   }
 }
@@ -13466,7 +13585,7 @@ bool nimculus_platform_validate_panel_buttons(void) {
       }
     }
     NSArray<NSString *> *labels = @[@"Toggle Panel Dock", @"Toggle Terminal", @"Agent",
-      @"Search Project", @"Diagnostics: no problems"];
+      @"Search Project", @"Project diagnostics: no problems"];
     BOOL presentation = YES;
     for (NSString *label in labels) {
       NSButton *button = buttons[label];
@@ -13494,7 +13613,7 @@ bool nimculus_platform_validate_panel_buttons(void) {
     BOOL agent = strcmp(g_validation_command, "commandPalette:agent start") == 0;
     [(NimculusFooterStatusButton *)buttons[@"Search Project"] performClick:nil];
     BOOL search = strcmp(g_validation_command, "commandPalette:workspace search") == 0;
-    [(NimculusFooterStatusButton *)buttons[@"Diagnostics: no problems"] performClick:nil];
+    [(NimculusFooterStatusButton *)buttons[@"Project diagnostics: no problems"] performClick:nil];
     BOOL diagnostics = strcmp(g_validation_command, "commandPalette:show problems") == 0;
     [terminalButton performClick:nil];
     BOOL terminal = strcmp(g_validation_command, "commandPalette:toggle terminal") == 0;
@@ -15600,6 +15719,20 @@ void nimculus_platform_set_editor_footer(const char *utf8) {
   const char *value = (utf8 && strlen(utf8) > 0) ? utf8 : "";
   if (g_editor_footer && strcmp(g_editor_footer.UTF8String, value) == 0) return;
   replaceOwnedString(&g_editor_footer, [NSString stringWithUTF8String:value]);
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
+      [(NimculusFooterOverlay *)subview reloadStatusItems];
+      [subview setNeedsDisplay:YES];
+      break;
+    }
+  }
+}
+void nimculus_platform_set_diagnostics_button(bool visible) {
+  const BOOL next = visible ? YES : NO;
+  if (g_diagnostics_button == next) return;
+  g_diagnostics_button = next;
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
   for (NSView *subview in view.subviews) {

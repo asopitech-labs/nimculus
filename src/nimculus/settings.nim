@@ -105,6 +105,7 @@ type
     iconThemeRegistry*: Table[string, IconThemeDefinition]
 
 const DefaultSoftWrapMode* = "none"
+const DefaultDiagnosticsButton* = true
 
 proc softWrapEnabledForPath*(path, configuredMode: string): bool =
   ## Zed's global default is `none`, but Markdown has a language-scoped
@@ -200,7 +201,8 @@ proc validateSettings*(root: JsonNode): seq[SettingsDiagnostic] =
   if insertSpaces != nil and insertSpaces.kind != JBool:
     result.add(SettingsDiagnostic(path: "editor.insertSpaces", message: "must be a boolean"))
   for key in ["statusBar.showActiveFile", "statusBar.activeLanguageButton",
-      "statusBar.cursorPositionButton", "statusBar.lineEndingsButton"]:
+      "statusBar.cursorPositionButton", "statusBar.lineEndingsButton",
+      "diagnostics.button"]:
     let value = nodeAt(root, key)
     if value != nil and value.kind != JBool:
       result.add(SettingsDiagnostic(path: key, message: "must be a boolean"))
@@ -281,6 +283,9 @@ proc settingsSchema*(): JsonNode =
       "lineEndingsButton": {"type": "boolean", "default": false},
       "activeEncodingButton": {"type": "string",
         "enum": ["enabled", "non_utf8", "disabled"], "default": "non_utf8"}
+    }},
+    "diagnostics": {"type": "object", "properties": {
+      "button": {"type": "boolean", "default": true}
     }},
     "theme": {"type": "string"},
     "soft_wrap": {"type": "string", "enum": ["none", "editor_width", "bounded"]},

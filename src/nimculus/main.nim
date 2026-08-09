@@ -4926,6 +4926,8 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
           editorSession.displayTitle(editorSession.activeTab)
       else:
         editorSession.displayTitle(editorSession.activeTab)
+    platformSetDiagnosticsButton(if appSettings == nil: DefaultDiagnosticsButton
+      else: appSettings.boolSetting("diagnostics.button", DefaultDiagnosticsButton))
     # FileDocument has no encoding/BOM detector yet; keep the Zed decision
     # boundary explicit and pass the current UTF-8/no-BOM state.
     let footer = statusBarFooter(appSettings, cursor, "UTF-8", lineEnding, language, activeFile,
