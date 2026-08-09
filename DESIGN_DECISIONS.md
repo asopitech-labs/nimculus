@@ -1,5 +1,86 @@
 # Design Decisions
 
+## UI-108: Tab-order focus traversal, and the fact that Tab is not bound to it
+
+対応マイルストーンは ROADMAP.md の M2（NimNUI 基礎 UI システム）／M12。
+完了条件は、フォーカス巡回が宣言順ではなく tab index 順になること、
+`tab_stop` に参加しない要素が飛ばされること、unit テストで検証されていること。
+
+### Zed の構造
+
+`crates/gpui/src/tab_stop.rs:11` `TabStopMap`。要素は
+`window.rs:348,387` の `tab_index: isize` と `tab_stop: bool` を持つ。
+
+- `insert`（tab_stop.rs:78）は `current_path` に `tab_index` を積んだ**経路**を鍵にして
+  `order`（SumTree）へ入れる
+- `begin_group`（:92）で入れ子のグループを開き、経路が深くなる
+- `next` / `prev`（:111, :148）は経路の順序で次を探し、`tab_stop` が false の
+  要素は飛ばして `next_inner` を辿る
+
+つまり**順序は宣言順ではなく、(グループ, tab_index) の経路の辞書順**である。
+
+### 現状の Nimculus
+
+`src/nimnui/commands.nim:161` `focusNext`:
+
+```nim
+var focusables: seq[NodeId]
+for node in tree.nodes:
+  if node.focusable and not tree.isDisabledPath(node.id): focusables.add(node.id)
+```
+
+- 毎回 `focusables` を線形に組み直す
+- **順序は `tree.nodes` の宣言順のみ**。tab index が無い
+- `tab_stop` に相当する「フォーカス可能だが Tab では飛ばす」の区別が無い
+  （`focusable` の 1 値だけ）
+- `focusPrev` が無い（Shift+Tab に相当するものが無い）
+
+### 着手前に確認したこと: Tab キーは束縛されていない
+
+`grep -rn "focusNext" src/ tests/` の結果、**呼び出しは unit テストの 3 箇所のみ**。
+アプリのキー経路から呼ばれていない。`commands.nim:107` に `"tab": 48` の
+キーコード変換はあるが、束縛が無い。
+
+Zed 側では `assets/keymaps/default-macos.json` で `"tab"` は
+`menu::SelectNext` / `editor::Tab` / `buffer_search::FocusEditor` などに
+**コンテキストごとに別のコマンド**として束縛されている。汎用の
+「次のフォーカスへ」ではない。
+
+### 採用案
+
+**(1) `TabStopMap` 相当を移植し、(2) Tab の束縛は今回入れない。**
+
+理由: Zed の Tab は文脈依存のコマンド（エディタでは字下げ、メニューでは次項目）で、
+**汎用のフォーカス巡回に直接束縛されてはいない**。束縛を決めるには、
+どのコンテキストで何をするかという設計が別途要る。UI-107 で `when` が
+効くようになったので、その土台の上で改めて決める。
+
+今回は巡回の仕組みだけを Zed の形にする:
+
+- `UiNode` に `tabIndex: int` と `tabStop: bool` を足す
+- 経路（グループ + tab index）で順序を決める
+- `focusNext` / `focusPrev` を経路順で実装し、`tabStop` が false の要素を飛ばす
+
+### 却下案
+
+**(a) Tab キーを `focusNext` に束縛する。** Zed はそうしていない。エディタで
+Tab を押したら字下げが入るべきで、フォーカスが飛ぶのは誤り。却下。
+
+**(b) `focusable` を流用して `tab_stop` を作らない。** Zed は 2 つの値を分けている
+（クリックでフォーカスできるが Tab では飛ばす要素がある）。却下。
+
+### 文字単位・スレッド・UI ブロッキング
+
+文字を扱わない。巡回はキー入力時のみ。
+
+### テスト観点
+
+- unit: tab index 順に巡回すること（宣言順と異なる並びで検証）
+- グループの入れ子で経路の辞書順になること
+- `tabStop` が false の要素が飛ばされること
+- `focusPrev` が逆順に辿ること
+- **既存の `focusNext` のテスト 3 件が通ること（回帰）**
+
 ## UI-107: Context-dependent key dispatch, and the `when` clause already being parsed
 
 対応マイルストーンは ROADMAP.md の M12（設定・テーマ・キーバインド）。
