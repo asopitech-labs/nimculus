@@ -49,11 +49,11 @@ Zed 側にあるモジュールで、Nimculus 側に対応物が見当たらな�
 | `asset_cache.rs` | 無し | **`svg_renderer` と同じ下流（2026-08-09 調査）**。キャッシュする対象（SVG / 画像）が Metal のシーンに載っていないので、キャッシュだけ入れても仕事が無い。`arena` / `bounds_tree` / `pasteboard` と同じ構造 |
 | `arena.rs` | 無し | **単独では移植できない（2026-08-09 調査）**。Zed の `draw()` は `ArenaClearNeeded` を返し、次の draw の前に `clear()` される（window.rs:2679, :337）。`AnyElement::new` は要素を作るたびにアリーナから確保する（element.rs:596）。つまり**アリーナは即時モードの帰結**で、毎フレーム作り直される要素の置き場である。Nimculus は `UiTree` を保持し続ける保持モードなので、アリーナに入れるものが無い。→ 下の「要素モデル」の行を参照 |
 | `executor.rs` / `platform_scheduler.rs` / `queue.rs` | `src/nimculus/poll_scheduler.nim`（アイドル間隔の調整のみ） | **方式が違う（2026-08-09 確認）**。Zed は `BackgroundExecutor` / `ForegroundExecutor` に future を `spawn` し、優先度も指定できる（executor.rs:14,22,89,101,314）。こちらに非同期実行基盤は無く、LSP は `poll()`（lsp.nim:811）をイベントループから叩き、プロセス終了は `waitForExit` で同期的に待つ。`git rev-parse` を同期で待って UI をブロックしていた過去の不具合（handoff §5）はこの構造に由来する |
-| `inspector.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `InspectorElementId` で要素を一意に指し、デバッグビルドで UI を調査できる。開発用途なので優先度は低いが、Accessibility Tree が入った今は identifier が既にあるので土台はある |
+| `inspector.rs` | 無し（移植しない） | **開発ビルド専用（2026-08-09 調査）**。`#[cfg(any(feature = "inspector", debug_assertions))]` で囲まれており、リリースビルドには入らない。`Inspector`（:60）は要素を拾って状態を表示する開発ツール。**製品の挙動に影響しない**。Nimculus は Accessibility Tree が入ったので、要素の調査は Accessibility Inspector と XCUITest で足りる（docs/MACOS_UI_TEST_GUIDELINES.md §8）。移植の利得が無い |
 | `style.rs` / `styled.rs` / `color.rs` / `colors.rs` | `src/nimculus/settings.nim`（`ThemeColors`、settings.nim:315,629） | **部分移植（2026-08-09 確認）**。色の役割表は移植済みで実描画値まで合わせてある。一方 `style.rs` のレイアウト部分（`Style`）は `taffy.rs` の行を参照。`styled.rs` に相当する「要素にスタイルを積む API」は無く、コントロールごとに個別実装 |
 | **要素モデル（即時 vs 保持）** | `src/nimnui/ui_tree.nim` | **問い自体が成立しない（2026-08-09 再調査）**。`UiTree` は**描画に使われていない**。`demoTree` から `PaintList` を作る経路が無く（`grep` で 0 件）、用途は Accessibility ツリーの構築（main.nim:276）と、AppKit ビューの矩形を追認すること（`:464-466` で `bounds` を代入）だけ。ノードは 10 個で実 UI の影。<br>chrome が AppKit である限り、要素ツリーが描画の源にならないので即時／保持の選択が意味を持たない。→ **UI-111（AppKit chrome）の下流** |
 | `element.rs` / `interactive.rs`（要素モデル以外） | `src/nimnui/controls.nim` / `events.nim` | **部分移植（2026-08-09 確認）**。コントロール記述子と capture/target/bubble のイベント段階、`a11y_role` / `write_a11y_info`（element.rs:112,120）は移植済み。未確認は `interactive.rs` のドラッグ&ドロップとツールチップ経路 |
-| `profiler.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は spawn 時刻を集計する自前プロファイラを持つ。こちらは `sample`(1) と `tools/ui_test.sh profile` で外から測っている。今回の作業ではそれで足りたので優先度は低い |
+| `profiler.rs` | 無し（移植しない） | **executor のタスク計測（2026-08-09 調査）**。`get_all_timings` / `take_all_stats` は `ThreadTaskTimings` を集計するもので、**Zed 自身の非同期タスクの統計**。汎用プロファイラではない。Nimculus の executor は今回入ったばかりで、統計を取る対象となるタスクがまだ `newGitRepository` の 1 件のみ。**利用者が増えてから判断する**。UI の性能計測は `sample`(1) と `tools/ui_test.sh profile` で足りている |
 
 ## gpui_macos（platform）
 
@@ -66,54 +66,64 @@ Zed 側にあるモジュールで、Nimculus 側に対応物が見当たらな�
 | `display_link.rs` | `macos_platform.m:8243` `displayLinkDidFire:` / `:8250` `requestRedraw` | **移植済み（2026-08-09 確認）**。DisplayLink が唯一のフレーム所有者で、入力は dirty を立てるだけ。`preferredFrameRateRange` を画面の `maximumFramesPerSecond` に合わせる（60–120）。Zed が `CVDisplayLink` を使うのに対しこちらは `CADisplayLink`（macOS 14+ の後継 API） |
 | `open_type.rs` | 無し | **移植漏れ。ただし既定状態では画面に出ない（2026-08-09 調査）**。`apply_features_and_fallbacks`（open_type.rs:34）が `kCTFontFeatureSettingsAttribute`（`buffer_font_features`）と `kCTFontCascadeListAttribute`（`buffer_font_fallbacks`）を CTFont に設定する。**Zed の既定は features が `{}`、fallbacks が `null`** なので、素の Zed と素の Nimculus で見た目は変わらない。こちらは `CTFontCreateWithName(name, size, NULL)` で属性なし。<br>効くのはユーザが設定を書いたときだけ。**UI パリティには影響しない**ので優先度は低い |
 | `pasteboard.rs` | `macos_platform.m:16605-16627` | **部分移植（2026-08-09 調査）**。`NSPasteboardTypeString` を UTF-8 データとして読み書きする点は Zed に合わせてある（コメントに明記）。<br>未対応は `NSPasteboardTypePNG`（画像）と `NSFilenamesPboardType`（ファイル）。`read`（pasteboard.rs:50）は **filenames → string → image** の順に見る。<br>ただし `ExternalPaths` の主用途は**クリップボードではなくドラッグ&ドロップ**（`workspace/src/pane.rs:4484` の `on_drag_move::<ExternalPaths>`）。こちらは `registerForDraggedTypes` が 0 件で**ファイルドロップ自体が無い**。画像貼り付けも、表示できる先（画像を描くプリミティブ）が無い。<br>→ **単独では移植できない。** ドロップは受け口（`draggingEntered` / `performDragOperation`）から、画像は `scene.rs` の `PolychromeSprite` から先に要る |
-| `screen_capture.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は画面共有のためにアプリ内で ScreenCaptureKit を扱う。こちらは 0 箇所。UI テストのキャプチャは `tools/window_capture.swift`（外部ツール）で行っており別物 |
+| `screen_capture.rs` | 無し（移植しない） | **画面共有機能の一部（2026-08-09 調査）**。利用者は `collab_ui/src/collab_panel.rs` と `title_bar/src/collab.rs` — Zed の**共同編集（collab）機能**で自分の画面を相手に送るためのもの。Nimculus に collab 機能そのものが無く、ROADMAP にも無い。**機能が存在しないものの部品**なので移植対象外。UI テストのキャプチャは `tools/window_capture.swift` と `XCUIScreenshot` で別途足りている |
 | `dispatcher.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `dispatch`（優先度つき）と `dispatch_after` を platform に持ち、`executor.rs` の土台になる。framework 側の `executor.rs` の行と同根の欠落 |
 | `keyboard.rs` / `events.rs` | `macos_platform.m` の `logInput` / `receiveNativeInput` | **部分移植（2026-08-09 確認）**。ホイールの `ScrollDelta`（precise/lines の分岐）は今回 Zed の式に合わせた。キーボードのレイアウト変更追従（`keyboard.rs`）は未確認 |
 | `window_appearance.rs` | `macos_platform.m:15461` `effectiveAppearance` | **移植済み（2026-08-09 確認）**。`NSAppearanceNameAqua` / `NSAppearanceNameDarkAqua` を照合してテーマに反映する。Zed は Vibrant 系も見るが、こちらは Vibrant を使っていない |
 | `display.rs` | `macos_platform.m:8275,10737,11000`（`NSScreen`） | **部分移植（2026-08-09 確認）**。画面のリフレッシュレートとスクリーン数の参照はある。Zed の `PlatformDisplay`（ID・境界の抽象）に相当する型は無く、複数モニタをまたぐウィンドウ配置の扱いは未確認 |
 
-## 棚卸しの結果（2026-08-09、全 22 行を確認）
+## 棚卸しの結論（2026-08-09、全 22 行を処理）
 
-| 状態 | 件数 | 内訳 |
-| --- | --- | --- |
-| 移植済み | 5 | `line_layout.rs`、`text_system.rs`(platform)、`display_link.rs`、`window_appearance.rs`、`a11y`（今回） |
-| 部分移植 | 9 | `taffy/style`、`tab_stop`、`key_dispatch`、`scene`、`metal_renderer`、`metal_atlas`、`element/view/interactive`、`pasteboard`、`display` |
-| 方式が違う | 2 | `svg_renderer`（AppKit 直結）、`executor`/`scheduler`/`queue`（非同期基盤が無い） |
-| 移植漏れ | 8 | `bounds_tree`、`path_builder`、`gestures`、`asset_cache`、`arena`、`inspector`、`profiler`、`open_type`、`screen_capture`、`dispatcher` |
+### 移植した（9 件）
 
-### 実測で効きそうな順
-
-1. ~~**`arena.rs`**~~ — **取り下げ（2026-08-09）**。着手して分かったこと: (1) アリーナは
-   即時モードの帰結なので、保持モードのこちらには入れるものが無い。(2) 根拠にした
-   malloc/free は、ホイール経路から UI ツリー再構築を外した時点で**消えていた**
-   （再測定で Nim 側の確保・コピーは最大 17 サンプル、突出なし）。
-   プロファイルを取り直さずに前回の観察を根拠にしたのが誤りだった
-2. **`executor.rs` + `dispatcher.rs`** — 非同期実行基盤が無いため、LSP は
-   `poll()` をイベントループから叩き、外部プロセスは `waitForExit` で同期的に待つ。
-   `git rev-parse` の同期待ちで UI がブロックしていた不具合（handoff §5）と同根。
-   **構造的な欠落としては最大**
-3. ~~**`bounds_tree.rs`**~~ — **順序を入れ替え（2026-08-09）**。調査の結果、用途は
-   ヒットテストではなく種別バッチ描画の順序割り当てで、`scene.rs` のプリミティブ
-   体系を移植して初めて必要になる。単独では入れる意味がない（`arena` が即時モードと
-   セットだったのと同じ構造）。→ 先に `scene.rs` を移植する
-4. **`taffy/style` の絶対配置・margin・overflow** — 新しい UI を作るときに要る
-
-### 機能として欠けている順
-
-1. ~~**`gestures.rs`**~~ → **`TouchPhase` + 軸ロック（UI-104）に差し替え（2026-08-09）**。
-   `gestures.rs` はタッチ用で macOS では Zed も使っていない。体感に効くのは
-   トラックパッドの軸ロックのほうで、こちらは実際に移植漏れ
-2. **`path_builder.rs`** — 任意ベクタパス。アイコンや装飾の表現力
-3. **`open_type.rs`** — 合字・字形代替。ただし **Zed の既定は空**なので UI パリティには
-   影響しない（2026-08-09 調査）。設定を書いたユーザにだけ効く
-4. **`pasteboard`** の画像・ファイル貼り付け
-5. **`asset_cache.rs`**、**`svg_renderer.rs`** — アセットの概念自体が無い
-
-## 実測で見つかった回帰（2026-08-09）
-
-| 項目 | 内容 |
+| 項目 | 記録 |
 | --- | --- |
-| **カラー絵文字が描かれない** | `macos_platform.m:3840` の `if (colorEmojiGlyph) continue;`。テキストのインスタンス描画への移植で、以前あった Core Text RGBA テクスチャ経路を外したまま代替を入れていない。ROADMAP の M3 完了条件「日本語、英語、記号、絵文字をGPU上で混在表示できる」に反する。→ **DESIGN_DECISIONS UI-110** で `PolychromeSprite` の最初の利用者として直す |
+| `executor` + `dispatcher` | UI-102。`Task[T]` は Nim の `Future[T]` |
+| `taffy` / `style` の 4 項目 | UI-103。絶対配置・margin・overflow・軸分離 |
+| `TouchPhase` + 軸ロック | UI-104。`gestures.rs` ではなくこちらが本命だった |
+| 角丸選択 | UI-105。`path_builder` の実用途 |
+| `open_type` | UI-106。features / fallbacks を CTFont 属性へ |
+| `key_dispatch` の `KeyContext` | UI-107。`when` が設定にあるのに効いていなかった |
+| `tab_stop` | UI-108。tab index 順の巡回 |
+| `PolychromeSprite` | UI-110。**カラー絵文字の回帰修正** |
+| emoji 判定のフォント識別化 | Zed に無い文字コード判定を削除 |
+
+### 移植しない（6 件、理由つき）
+
+| 項目 | 理由 |
+| --- | --- |
+| `gestures.rs` | タッチ用。macOS 実装は `NullPlatformGestures`（Zed も使っていない） |
+| `scene.rs` の全面置換 | 分類の軸が違い（形 vs 意味）、見た目も性能も一致済み。動機が無い（UI-109） |
+| 要素モデル（即時 vs 保持） | `UiTree` が描画に使われていないので問いが成立しない |
+| `inspector.rs` | 開発ビルド専用。Accessibility Inspector と XCUITest で足りる |
+| `profiler.rs` | executor のタスク統計。対象タスクが 1 件のみ。利用者が増えてから |
+| `screen_capture.rs` | collab（共同編集）機能の部品。その機能自体が無い |
+
+### UI-111（AppKit chrome）の下流（6 件）
+
+`arena` / `bounds_tree` / `pasteboard` の画像・ファイル / `svg_renderer` /
+`asset_cache` / `scene` プリミティブ体系。
+
+**棚卸しで「独立した欠落」と数えたが、実は 1 つの構造差に集約された。**
+Zed の AppKit ビューは信号機ボタン 3 つのみで、他は全て Metal。Nimculus は
+42 のビュークラスで chrome を描く。詳細と着手順序は DESIGN_DECISIONS UI-111。
+
+### 受容した差分
+
+フォントのフォールバック（`UI_PARITY_HANDOFF.md` §5.1）。Menlo に無いグリフは
+AppleColorEmoji へフォールバックするため、Zed が Lilex で白黒描画する文字
+（`❌` U+274C など）が色付きになる。判定ロジックは Zed と一致している。
+
+### この棚卸し自体の限界
+
+- **grep で並べた項目は依存関係を持たない。** 6 件が「他の項目の下流」だったが、
+  個別に調べるまで従属が見えなかった
+- **「Zed に無いものを持っている」側は見つけられない。**
+  `textContainsColorEmoji`、`fontRunsForLine` の sort/unique、
+  文字コードでの絵文字判定は、いずれも**実測とキャプチャ比較**で見つかった
+- **回帰は載らない。** カラー絵文字が描かれなくなっていた件は、
+  codex が自己申告していたのに棚卸しへ記録されず、`PolychromeSprite` の
+  設計調査中に再発見した
 
 ## 進め方
 
