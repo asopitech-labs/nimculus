@@ -26,6 +26,7 @@
 #   UI_TEST_BASE   golden image name          (default: ui-test-base)
 #   UI_TEST_KEEP   1 = keep the VM on exit    (default: unset, VM is deleted)
 #   UI_TEST_OUT    artifact directory         (default: build/ui-test/<run>)
+#   UI_TEST_NO_MINIMIZE  1 = do not minimize the Tart window (default: unset)
 set -uo pipefail
 cd "$(dirname "$0")/.."
 REPO="$PWD"
@@ -62,6 +63,34 @@ cleanup() {
 }
 trap cleanup EXIT
 
+minimize_tart_window() {
+  [ "${UI_TEST_NO_MINIMIZE:-}" = 1 ] && return 0
+
+  local attempt=1
+  local result
+  while [ "$attempt" -le 30 ]; do
+    if result=$(osascript -e 'tell application "System Events"
+      set tartProcesses to every process whose name contains "Tart"
+      if (count of tartProcesses) is 0 then return "not-found"
+      repeat with tartProcess in tartProcesses
+        if (count of windows of tartProcess) > 0 then
+          tell tartProcess to set value of attribute "AXMinimized" of every window to true
+          return "minimized"
+        end if
+      end repeat
+      return "not-found"
+    end tell' 2>/dev/null); then
+      [ "$result" = minimized ] && return 0
+    else
+      echo "warning: could not access System Events to minimize the Tart window; continuing" >&2
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+  return 0
+}
+
 echo "== clone $BASE -> $RUN"
 tart clone "$BASE" "$RUN" || exit 1
 
@@ -72,6 +101,11 @@ echo "== boot"
 # screenshots (see docs/MACOS_UI_TEST_GUIDELINES.md §0).
 tart run "$RUN" >"$OUT/vm.log" 2>&1 &
 VM_PID=$!
+MINIMIZE_PID=""
+if [ "${UI_TEST_NO_MINIMIZE:-}" != 1 ]; then
+  minimize_tart_window &
+  MINIMIZE_PID=$!
+fi
 
 # The guest agent answers once the login session is up. Poll rather than
 # sleeping a fixed amount: a cold boot is much slower than a warm one.
@@ -81,6 +115,9 @@ for _ in $(seq 1 60); do
   if tart exec "$RUN" true >/dev/null 2>&1; then ready=yes; break; fi
   sleep 5
 done
+if [ -n "$MINIMIZE_PID" ]; then
+  wait "$MINIMIZE_PID" 2>/dev/null || true
+fi
 [ -n "$ready" ] || { echo "guest agent did not come up; see $OUT/vm.log" >&2; exit 1; }
 
 # The source is copied into the guest rather than shared read-write over
