@@ -1,5 +1,79 @@
 # Design Decisions
 
+## UI-107: Context-dependent key dispatch, and the `when` clause already being parsed
+
+対応マイルストーンは ROADMAP.md の M12（設定・テーマ・キーバインド）。
+完了条件は、同じキーがフォーカス位置に応じて別のコマンドへ解決されること、
+`keymap` の `when` が実際に効くこと、unit テストで検証されていること。
+
+### Zed の構造
+
+`crates/gpui/src/keymap/context.rs:10` `KeyContext(Vec<ContextEntry>)`。
+`new_with_defaults` は `os` などの既定エントリを入れる。
+
+`crates/gpui/src/key_dispatch.rs:73,127` の `DispatchTree` が
+`context_stack: Vec<KeyContext>` を持ち、`:448` `bindings_for_input` が
+**フォーカスからルートまでの dispatch path のノードのコンテキストを集めて**
+スタックを作り、`:483` `dispatch_key` がそれで束縛を絞る。
+
+キーマップ側の指定は `assets/keymaps/default-macos.json` にあり、
+実際に使われている:
+
+```json
+{ "context": "menu" }
+{ "context": "Editor" }
+{ "context": "Editor && mode == full" }
+{ "context": "Editor && multibuffer" }
+{ "context": "Editor && mode == full && edit_prediction" }
+```
+
+`&&` と `==` を含む式である。
+
+### 現状の Nimculus
+
+**設定は受け付けているが、捨てている。**
+
+- `settings.nim:305` のスキーマに `"when": {"type": "string"}` がある
+- `settings.nim:676` が `whenClause` として読み取る
+- しかし `whenClause` の参照は**この 2 箇所だけ**（`grep -rn "whenClause"`）
+- `nimnui/commands.nim:12` の `Command` は `name` / `shortcut` / `action` のみ
+- `resolve` / `tryResolve`（同 :39, :45）は keyCode と modifiers だけで照合する
+
+つまり `when` を書いても効かない。**設定として露出しているのに動作しないのは、
+移植漏れの中でも質が悪い**（利用者は効くと思って書く）。
+
+### 移植する範囲
+
+1. `Command` に context 条件を持たせる（`when` の式）。
+2. **コンテキストのスタック**を持つ。Zed の `DispatchTree` はフォーカスから
+   ルートまでのノードのコンテキストを集める。こちらは `UiTree` に
+   フォーカスと親子関係があるので、同じ形にできる。
+3. `resolve` / `tryResolve` を、キー一致に加えて**コンテキスト式の評価**で
+   絞るようにする。
+4. 式の構文は Zed に合わせる: 識別子、`&&`、`==`（`"Editor && mode == full"`）。
+   `||` と `!` が Zed の実装にあるかを `keymap/context.rs` で確認し、
+   **あるものだけ**実装する（無いものを足さない）。
+
+### 却下案
+
+**(a) `when` を単純な文字列一致にする。** `"Editor && mode == full"` のような
+式が Zed の既定キーマップに実在するので、一致では表現できない。却下。
+
+**(b) `when` をスキーマから外す。** 設定として既に露出しており、外すと
+後方互換が壊れる。効かせるほうが正しい。却下。
+
+### 文字単位・スレッド・UI ブロッキング
+
+文字を扱わない。キー入力ごとに式を評価するので、**評価はキー 1 回あたり
+数個の比較に収まること**。Zed も同じ経路で毎キー評価している。
+
+### テスト観点
+
+- unit: 同じキーが、フォーカス位置の違いで別のコマンドに解決されること
+- `&&` と `==` を含む式が正しく評価されること
+- コンテキストが一致しないときは束縛が無視され、より外側の束縛が使われること
+- **`when` を持たない既存の束縛が従来どおり効くこと（回帰）**
+
 ## UI-106: Font features and fallbacks as CTFont attributes
 
 対応マイルストーンは ROADMAP.md の M3（macOS テキスト描画と IME）／M12（設定）。
