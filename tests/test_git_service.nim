@@ -60,7 +60,7 @@ suite "M9 Git service":
     discard git(root, "config", "user.name", "Nimculus Test")
     discard git(root, "config", "user.email", "test@nimculus.invalid")
     writeFile(root / "main.nim", "one\n")
-    let repository = newGitRepository(root)
+    let repository = newGitRepositorySync(root)
     check repository != nil
     let nested = root / "nested"
     createDir(nested)
@@ -97,7 +97,7 @@ suite "M9 Git service":
       removeDir(ordinary)
     discard git(root, "init", "-q")
     let repository = firstRepositoryForPaths([ordinary, root])
-    let directRepository = newGitRepository(root)
+    let directRepository = newGitRepositorySync(root)
     check repository != nil
     check directRepository != nil
     # Git resolves macOS's /var -> /private/var temporary-directory alias.
@@ -111,7 +111,7 @@ suite "M9 Git service":
     discard git(root, "config", "user.name", "Nimculus Test")
     discard git(root, "config", "user.email", "test@nimculus.invalid")
     writeFile(root / "history.nim", "first\n")
-    let repository = newGitRepository(root)
+    let repository = newGitRepositorySync(root)
     check repository.stage(["history.nim"]).exitCode == 0
     check repository.commit("first commit").exitCode == 0
     writeFile(root / "history.nim", "second\n")
@@ -145,7 +145,7 @@ suite "M9 Git service":
     discard git(root, "config", "user.name", "Nimculus Test")
     discard git(root, "config", "user.email", "test@nimculus.invalid")
     writeFile(root / "branches.nim", "base\n")
-    let repository = newGitRepository(root)
+    let repository = newGitRepositorySync(root)
     check repository.stage(["branches.nim"]).exitCode == 0
     check repository.commit("initial").exitCode == 0
     discard git(root, "branch", "feature")
@@ -164,7 +164,7 @@ suite "M9 Git service":
     createDir(root)
     defer: removeDir(root)
     discard git(root, "init", "-q")
-    let repository = newGitRepository(root)
+    let repository = newGitRepositorySync(root)
     let job = repository.startGitJob(["status", "--porcelain"])
     job.cancel()
     check job.done
@@ -176,7 +176,7 @@ suite "M9 Git service":
     createDir(root)
     defer: removeDir(root)
     discard git(root, "init", "-q")
-    let repository = newGitRepository(root)
+    let repository = newGitRepositorySync(root)
     let job = repository.startGitJob(["hash-object", "--stdin"])
     sleep(10)
     job.cancel()
@@ -216,7 +216,7 @@ suite "M9 Git service":
         if fileExists(fakeGit): removeFile(fakeGit)
         if dirExists(root): removeDir(root)
       let started = epochTime()
-      check newGitRepository(root) == nil
+      check newGitRepositorySync(root) == nil
       check epochTime() - started < 4.0
 
     test "drains verbose Git output before process exit":
@@ -255,7 +255,7 @@ suite "M9 Git service":
     lines[1] = "changed-two"
     lines[10] = "changed-eleven"
     writeFile(root / "main.txt", lines.join("\n") & "\n")
-    let repository = newGitRepository(root)
+    let repository = newGitRepositorySync(root)
     let hunks = repository.diffHunks("main.txt")
     check hunks.len == 2
     check repository.stageHunk("main.txt", 0).exitCode == 0

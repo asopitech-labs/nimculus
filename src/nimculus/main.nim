@@ -40,6 +40,15 @@ import nimculus/settings
 when defined(windows):
   import nimculus/windows_terminal
 
+var platformDispatcher: PlatformDispatcher
+var backgroundExecutor: BackgroundExecutor
+var pendingGitRepository: Future[GitRepository]
+var pendingGitRepositoryRoot = ""
+
+proc receiveNativeFrame() {.cdecl.} =
+  ## One non-blocking async tick per live display frame.
+  pollAsyncDispatchTick()
+
 when defined(windows):
   var windowsTaskJob: TaskJob
   var windowsTaskCommand = ""
@@ -1278,7 +1287,13 @@ when defined(macosx):
     if activeWorkspace != nil:
       try:
         let location = activeWorkspace.splitWorkspacePath(document[].path)
-        return newGitRepository(location.root)
+        if hasCachedGitRepository(location.root):
+          return cachedGitRepository(location.root)
+        if backgroundExecutor != nil and
+            (pendingGitRepository == nil or pendingGitRepositoryRoot != location.root):
+          pendingGitRepositoryRoot = location.root
+          pendingGitRepository = newGitRepository(location.root, backgroundExecutor)
+        return nil
       except CatchableError:
         discard
     repositoryForPath(document[].path)
@@ -5613,6 +5628,11 @@ when defined(macosx):
     pollNativeSecondaryGitHunks()
     pollNativeGitBranch()
     pollNativeGitStatus()
+    if pendingGitRepository != nil and pendingGitRepository.finished:
+      pendingGitRepository = nil
+      pendingGitRepositoryRoot = ""
+      refreshWorkspacePreview()
+      setupDemoUi()
     pollNativeGitAction()
     pollNativeTask()
     pollNativeUpdate()
@@ -9392,6 +9412,8 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   discard demoTree.dispatch(uiEvent)
 
 when isMainModule:
+  platformDispatcher = newPlatformDispatcher()
+  backgroundExecutor = newBackgroundExecutor(platformDispatcher)
   when defined(macosx):
     setupPersistencePaths()
     platformInstallCrashHandler(crashReportPath.cstring)
@@ -9456,6 +9478,7 @@ when isMainModule:
     platformSetFileCallback(receiveNativeFile)
     platformSetCommandCallback(receiveNativeCommand)
     platformSetIdleCallback(receiveNativeIdle)
+    platformSetFrameCallback(receiveNativeFrame)
     # Match Finder/Open With handling for direct terminal launches. This runs
     # only after the native callbacks are installed, so Japanese paths and
     # workspace directories follow the same open boundary as Apple Events.
@@ -9494,6 +9517,7 @@ when isMainModule:
     platformSetFileCallback(receiveNativeFile)
     platformSetCommandCallback(receiveNativeCommand)
     platformSetIdleCallback(receiveNativeIdle)
+    platformSetFrameCallback(receiveNativeFrame)
     if activeDocument() != nil:
       syncEditorCursor()
       refreshEditorSyntax()

@@ -27,6 +27,7 @@ task lint, "Run Nim's static checks":
   exec "nim check --mm:arc --nimcache:.nimcache/lint --path:src src/nimculus/main.nim"
 
 task test, "Run unit and integration tests":
+  exec "nim c --mm:arc --threads:on --nimcache:.nimcache/test_executor -r --path:src tests/test_executor.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/test_platform_headless -r --path:src tests/test_platform_headless.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/test_macos_file_panels -r --path:src tests/test_macos_file_panels.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/test_macos_modal_sheets -r --path:src tests/test_macos_modal_sheets.nim"

@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <dispatch/dispatch.h>
 #include "platform.h"
 
 static uint64_t g_input_count = 0;
@@ -43,7 +44,52 @@ static NimculusFileCallback g_file_callback = NULL;
 static NSMutableArray<NSString *> *g_pending_file_open_paths = nil;
 static NimculusCommandCallback g_command_callback = NULL;
 static NimculusIdleCallback g_idle_callback = NULL;
+static NimculusFrameCallback g_frame_callback = NULL;
 static NSView *g_accessibility_host = nil;
+
+bool nimculus_platform_is_main_thread(void) {
+  return [NSThread isMainThread];
+}
+
+static dispatch_queue_t nimculus_global_queue(NimculusPlatformPriority priority) {
+  long queue_priority = DISPATCH_QUEUE_PRIORITY_DEFAULT;
+  switch (priority) {
+    case NIMCULUS_PLATFORM_PRIORITY_HIGH:
+      queue_priority = DISPATCH_QUEUE_PRIORITY_HIGH;
+      break;
+    case NIMCULUS_PLATFORM_PRIORITY_LOW:
+      queue_priority = DISPATCH_QUEUE_PRIORITY_LOW;
+      break;
+    case NIMCULUS_PLATFORM_PRIORITY_MEDIUM:
+    default:
+      queue_priority = DISPATCH_QUEUE_PRIORITY_DEFAULT;
+      break;
+  }
+  return dispatch_get_global_queue(queue_priority, 0);
+}
+
+void nimculus_platform_dispatch(NimculusPlatformRunnable runnable, void *context,
+                                NimculusPlatformPriority priority) {
+  if (!runnable) return;
+  dispatch_async_f(nimculus_global_queue(priority), context, runnable);
+}
+
+void nimculus_platform_dispatch_on_main_thread(NimculusPlatformRunnable runnable,
+                                               void *context,
+                                               NimculusPlatformPriority priority) {
+  (void)priority;
+  if (!runnable) return;
+  dispatch_async_f(dispatch_get_main_queue(), context, runnable);
+}
+
+void nimculus_platform_dispatch_after(uint64_t nanoseconds,
+                                      NimculusPlatformRunnable runnable,
+                                      void *context) {
+  if (!runnable) return;
+  dispatch_after_f(dispatch_time(DISPATCH_TIME_NOW, (int64_t)nanoseconds),
+                   nimculus_global_queue(NIMCULUS_PLATFORM_PRIORITY_HIGH),
+                   context, runnable);
+}
 
 @interface NimculusAXNode : NSObject
 @property(nonatomic, copy) NSString *role;
@@ -8242,6 +8288,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 
 - (void)displayLinkDidFire:(CADisplayLink *)displayLink {
   (void)displayLink;
+  if (g_frame_callback) g_frame_callback();
   if (!self.redrawDirty) return;
   self.redrawDirty = NO;
   [self drawFrame];
@@ -13997,6 +14044,7 @@ void nimculus_platform_show_git_commit_sheet(void) {
 }
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback) { g_command_callback = callback; }
 void nimculus_platform_set_idle_callback(NimculusIdleCallback callback) { g_idle_callback = callback; }
+void nimculus_platform_set_frame_callback(NimculusFrameCallback callback) { g_frame_callback = callback; }
 void nimculus_platform_set_editor_cursor(double x, double y) {
   g_editor_cursor[0] = x;
   g_editor_cursor[1] = y;

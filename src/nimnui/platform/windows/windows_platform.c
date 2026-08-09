@@ -28,6 +28,7 @@ static NimculusInputCallback g_input_callback = NULL;
 static NimculusShortcutCallback g_shortcut_callback = NULL;
 static NimculusTextCallback g_text_callback = NULL;
 static NimculusIdleCallback g_idle_callback = NULL;
+static NimculusFrameCallback g_frame_callback = NULL;
 static NimculusCommandCallback g_command_callback = NULL;
 typedef void (*NimculusFontCallback)(const char *name);
 static NimculusFileCallback g_file_callback = NULL;
@@ -3558,6 +3559,7 @@ static LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LP
       return 0;
     }
     case WM_TIMER:
+      if (g_frame_callback) g_frame_callback();
       if (g_idle_callback) g_idle_callback();
       return 0;
     case WM_KEYDOWN:
@@ -4467,6 +4469,9 @@ void nimculus_platform_set_text_callback(NimculusTextCallback callback) {
 
 void nimculus_platform_set_idle_callback(NimculusIdleCallback callback) {
   g_idle_callback = callback;
+}
+void nimculus_platform_set_frame_callback(NimculusFrameCallback callback) {
+  g_frame_callback = callback;
 }
 
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback) {

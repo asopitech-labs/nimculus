@@ -3,7 +3,21 @@ when defined(macosx):
   {.passL: "-framework Cocoa -framework Metal -framework QuartzCore".}
 
 import nimnui/platform/contracts
+import nimnui/platform/dispatcher
 export contracts
+
+proc nativePlatformIsMainThread(): bool {.importc: "nimculus_platform_is_main_thread", cdecl, gcsafe.}
+proc nativePlatformDispatch(runnable: NativeRunnable, context: pointer,
+    priority: PlatformPriority) {.importc: "nimculus_platform_dispatch", cdecl, gcsafe.}
+proc nativePlatformDispatchOnMain(runnable: NativeRunnable, context: pointer,
+    priority: PlatformPriority) {.importc: "nimculus_platform_dispatch_on_main_thread", cdecl, gcsafe.}
+proc nativePlatformDispatchAfter(durationNanoseconds: uint64,
+    runnable: NativeRunnable, context: pointer) {.importc: "nimculus_platform_dispatch_after",
+        cdecl, gcsafe.}
+
+proc newPlatformDispatcher*(): PlatformDispatcher =
+  newNativePlatformDispatcher(nativePlatformIsMainThread, nativePlatformDispatch,
+    nativePlatformDispatchOnMain, nativePlatformDispatchAfter)
 
 proc platformRun*(): bool {.importc: "nimculus_platform_run", cdecl.}
 proc platformValidateNative*(): bool {.importc: "nimculus_platform_validate_native", cdecl.}
@@ -134,6 +148,7 @@ proc platformShowEditorTabContext*(paneIndex, tabIndex: uint32, isPinned,
 proc platformRevealPath*(path: cstring) {.importc: "nimculus_platform_reveal_path", cdecl.}
 proc platformSetCommandCallback*(callback: CommandCallback) {.importc: "nimculus_platform_set_command_callback", cdecl.}
 proc platformSetIdleCallback*(callback: IdleCallback) {.importc: "nimculus_platform_set_idle_callback", cdecl.}
+proc platformSetFrameCallback*(callback: FrameCallback) {.importc: "nimculus_platform_set_frame_callback", cdecl.}
 proc platformSetEditorCursor*(x, y: cdouble) {.importc: "nimculus_platform_set_editor_cursor", cdecl.}
 proc platformSetEditorCursorByte*(byteOffset, line: uint32) {.importc: "nimculus_platform_set_editor_cursor_byte", cdecl.}
 proc platformSetEditorFontSize*(size: cdouble) {.importc: "nimculus_platform_set_editor_font_size", cdecl.}

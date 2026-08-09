@@ -36,6 +36,7 @@ when defined(windows) and not defined(nimculusPortableOnly):
   proc platformSetCommandCallback*(callback: CommandCallback) {.importc: "nimculus_platform_set_command_callback", cdecl.}
   proc platformShowCommandPalette*() {.importc: "nimculus_platform_show_command_palette", cdecl.}
   proc platformSetIdleCallback*(callback: IdleCallback) {.importc: "nimculus_platform_set_idle_callback", cdecl.}
+  proc platformSetFrameCallback*(callback: FrameCallback) {.importc: "nimculus_platform_set_frame_callback", cdecl.}
   proc platformSetTerminalVisible*(visible: bool) {.importc: "nimculus_platform_set_terminal_visible", cdecl.}
   proc platformSetTaskOutputVisible*(visible: bool) {.importc: "nimculus_platform_set_task_output_visible", cdecl.}
   proc platformSetTerminalText*(text: cstring, length: uint32) {.importc: "nimculus_platform_set_terminal_text", cdecl.}

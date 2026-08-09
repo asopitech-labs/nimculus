@@ -15,6 +15,7 @@ import nimnui/render
 import nimnui/ime
 import nimnui/commands
 import nimnui/accessibility
+import nimnui/executor
 
 export platform
 export mock_renderer
@@ -23,6 +24,7 @@ export render
 export ime
 export commands
 export accessibility
+export executor
 
 type
   RendererKind* = enum

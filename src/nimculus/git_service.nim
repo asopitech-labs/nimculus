@@ -4,6 +4,10 @@ import std/osproc
 import std/streams
 import std/strutils
 import std/times
+import std/asyncdispatch
+import std/asyncfutures
+import nimnui/executor
+import nimnui/platform/contracts
 when defined(posix):
   import std/posix
 
@@ -84,7 +88,7 @@ proc appendBoundedGitOutput*(current, chunk: string;
   if start >= combined.len: return ("", true)
   (combined[start .. ^1], true)
 
-proc readAvailable(job: GitJob): string =
+proc readAvailable(job: GitJob): string {.gcsafe.} =
   if job == nil or job.process == nil or job.output == nil: return
   when defined(posix):
     let stream = cast[GitFileStream](job.output)
@@ -106,50 +110,54 @@ proc readAvailable(job: GitJob): string =
   else:
     if job.process.hasData(): result = job.output.readStr(8192)
 
-proc absorbOutput(job: GitJob) =
+proc absorbOutput(job: GitJob) {.gcsafe.} =
   let chunk = job.readAvailable()
   if chunk.len == 0: return
   let bounded = appendBoundedGitOutput(job.result.output, chunk)
   job.result.output = bounded.output
   job.result.outputTruncated = job.result.outputTruncated or bounded.truncated
 
-proc cancel*(job: GitJob)
-proc poll*(job: GitJob): bool
+proc cancel*(job: GitJob) {.gcsafe.}
+proc poll*(job: GitJob): bool {.gcsafe.}
 proc startGitJobInput*(repository: GitRepository; args: openArray[string];
                        input: string): GitJob
 
 proc gitProcessOptions(): set[ProcessOption] =
   {poUsePath, poStdErrToStdOut}
 
-proc newGitJob(process: Process): GitJob =
+proc newGitJob(process: Process): GitJob {.gcsafe.} =
   result = GitJob(process: process, output: process.peekableOutputStream())
 
-var gitRepositoryCache: Table[string, GitRepository]
+var gitRepositoryCache: ptr Table[string, GitRepository]
+gitRepositoryCache = cast[ptr Table[string, GitRepository]](
+  allocShared0(sizeof(Table[string, GitRepository])))
 
 proc clearGitRepositoryCache*() =
   ## Call this when the worktree layout can have changed under us -- a clone,
   ## a `git init`, a workspace switch. Resolution is otherwise stable for the
   ## life of a path.
-  gitRepositoryCache.clear()
+  gitRepositoryCache[].clear()
 
-proc newGitRepository*(root: string): GitRepository =
+proc hasCachedGitRepository*(root: string): bool =
+  gitRepositoryCache[].hasKey(root)
+
+proc cachedGitRepository*(root: string): GitRepository =
+  if gitRepositoryCache[].hasKey(root): result = gitRepositoryCache[][root]
+
+proc resolveGitRepositorySync(root: string): GitRepository =
   ## Resolution spawns `git rev-parse --show-toplevel` and blocks the caller
   ## until it answers. That is fine once per document; it is not fine per input
   ## event, which is what the editor's per-event resync was doing -- a profile
   ## of a scroll burst found the main thread parked in nanosleep inside this
-  ## probe. The answer only depends on the path, so remember it, including the
-  ## negative answer for a path that is not in a worktree.
-  if gitRepositoryCache.hasKey(root): return gitRepositoryCache[root]
+  ## probe.
   let absolute = absolutePath(root)
   if not dirExists(absolute):
-    gitRepositoryCache[root] = nil
     return nil
   var probe: Process
   try:
     probe = startProcess("git", "", @["-C", absolute, "rev-parse", "--show-toplevel"],
       options = gitProcessOptions())
   except CatchableError:
-    gitRepositoryCache[root] = nil
     return nil
   let job = newGitJob(probe)
   let startedAt = epochTime()
@@ -160,15 +168,46 @@ proc newGitRepository*(root: string): GitRepository =
       return nil
     sleep(1)
   if job.result.exitCode != 0 or job.result.outputTruncated:
-    gitRepositoryCache[root] = nil
     return nil
   let resolved = job.result.output.strip()
   if resolved.len == 0:
-    gitRepositoryCache[root] = nil
     return nil
   result = try: GitRepository(root: absolutePath(resolved))
     except CatchableError: nil
-  gitRepositoryCache[root] = result
+
+proc newGitRepository*(root: string; executor: BackgroundExecutor): Future[GitRepository] =
+  ## Resolve Git off the caller's thread. The returned Future is owned by the
+  ## caller; the worker never touches it and only returns a GitRepository value
+  ## through BackgroundExecutor's main-thread completion path.
+  ## a profile of a scroll burst found the main thread parked in nanosleep
+  ## inside this probe, so the uncached probe must stay on the background path.
+  if gitRepositoryCache[].hasKey(root):
+    result = newFuture[GitRepository]("newGitRepository.cached")
+    result.complete(gitRepositoryCache[][root])
+    return
+  if executor == nil:
+    result = newFuture[GitRepository]("newGitRepository.invalid-executor")
+    result.complete(nil)
+    return
+  let future = newFuture[GitRepository]("newGitRepository")
+  let probe = executor.spawn(proc(): GitRepository {.gcsafe.} =
+    resolveGitRepositorySync(root))
+  probe.addCallback(proc(probe: Future[GitRepository]) =
+    if probe.failed:
+      future.fail(probe.readError)
+      return
+    let repository = probe.read
+    gitRepositoryCache[][root] = repository
+    future.complete(repository)
+  )
+  future
+
+proc newGitRepositorySync*(root: string): GitRepository =
+  ## Compatibility path for callers that already run outside the UI loop.
+  ## New UI code must use newGitRepository(root, BackgroundExecutor).
+  if gitRepositoryCache[].hasKey(root): return gitRepositoryCache[][root]
+  result = resolveGitRepositorySync(root)
+  gitRepositoryCache[][root] = result
 
 proc repositoryForPath*(path: string): GitRepository =
   ## Resolve a repository from the document's own location. This remains
@@ -177,7 +216,7 @@ proc repositoryForPath*(path: string): GitRepository =
   if path.len == 0: return nil
   let absolute = absolutePath(path)
   let probe = if dirExists(absolute): absolute else: splitFile(absolute).dir
-  newGitRepository(probe)
+  newGitRepositorySync(probe)
 
 proc firstRepositoryForPaths*(paths: openArray[string]): GitRepository =
   ## A workspace can be useful before it has an open file. Resolve its Git
@@ -230,7 +269,7 @@ proc startGitJobInput*(repository: GitRepository; args: openArray[string];
   except CatchableError:
     result.cancel()
 
-proc cancel*(job: GitJob) =
+proc cancel*(job: GitJob) {.gcsafe.} =
   if job == nil or job.done: return
   job.cancelled = true
   if job.process != nil and job.process.running:
@@ -248,7 +287,7 @@ proc cancel*(job: GitJob) =
   if job.result.output.len == 0: job.result.output = "cancelled"
   job.done = true
 
-proc poll*(job: GitJob): bool =
+proc poll*(job: GitJob): bool {.gcsafe.} =
   if job == nil: return true
   if job.done: return true
   # Drain while the child is still running. Waiting for its exit before

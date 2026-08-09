@@ -193,5 +193,26 @@ typedef void (*NimculusSelectionCallback)(uint32_t start_byte, uint32_t end_byte
 typedef void (*NimculusFileCallback)(const char *path, bool saving);
 typedef void (*NimculusCommandCallback)(const char *command);
 typedef void (*NimculusIdleCallback)(void);
+typedef void (*NimculusFrameCallback)(void);
+
+typedef enum NimculusPlatformPriority {
+  NIMCULUS_PLATFORM_PRIORITY_HIGH = 0,
+  NIMCULUS_PLATFORM_PRIORITY_MEDIUM = 1,
+  NIMCULUS_PLATFORM_PRIORITY_LOW = 2
+} NimculusPlatformPriority;
+
+typedef void (*NimculusPlatformRunnable)(void *context);
+
+// PlatformDispatcher's C ABI. The platform only chooses where a runnable is
+// executed; UI policy and Future ownership stay in the framework layer.
+bool nimculus_platform_is_main_thread(void);
+void nimculus_platform_dispatch(NimculusPlatformRunnable runnable, void *context,
+                                NimculusPlatformPriority priority);
+void nimculus_platform_dispatch_on_main_thread(NimculusPlatformRunnable runnable,
+                                               void *context,
+                                               NimculusPlatformPriority priority);
+void nimculus_platform_dispatch_after(uint64_t nanoseconds,
+                                      NimculusPlatformRunnable runnable,
+                                      void *context);
 
 #endif

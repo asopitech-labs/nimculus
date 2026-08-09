@@ -6,8 +6,14 @@
 ## boundary rather than leaking one OS into the core).
 
 import nimnui/platform/contracts
+import nimnui/platform/dispatcher
 
 export contracts
+
+proc newPlatformDispatcher*(): PlatformDispatcher = newPortablePlatformDispatcher()
+when not defined(windows) or defined(nimculusPortableOnly):
+  proc platformSetFrameCallback*(callback: FrameCallback) =
+    if callback != nil: discard
 
 when not defined(windows):
   proc platformRun*(): bool = false

@@ -5,6 +5,23 @@
 ## platform implementation, not in this module.
 
 type
+  PlatformPriority* = enum
+    platformHigh
+    platformMedium
+    platformLow
+
+  ## C ABI runnable/context signature used by native backends.
+  PlatformRunnable* = proc(context: pointer) {.cdecl, gcsafe.}
+  Runnable* = proc() {.gcsafe.}
+
+  PlatformDispatcher* = ref object
+    ## Framework-facing equivalent of Zed's PlatformDispatcher. The object
+    ## contains only scheduling operations; UI decisions do not belong here.
+    mainThread*: proc(): bool {.gcsafe.}
+    background*: proc(runnable: Runnable, priority: PlatformPriority) {.gcsafe.}
+    mainQueue*: proc(runnable: Runnable, priority: PlatformPriority) {.gcsafe.}
+    delayed*: proc(durationNanoseconds: uint64, runnable: Runnable) {.gcsafe.}
+
   PlatformMetrics* {.bycopy.} = object
     scaleFactor*: cdouble
     widthPoints*: uint32
@@ -76,3 +93,19 @@ type
   FileCallback* = proc(path: cstring, saving: bool) {.cdecl.}
   CommandCallback* = proc(command: cstring) {.cdecl.}
   IdleCallback* = proc() {.cdecl.}
+  FrameCallback* = proc() {.cdecl.}
+
+proc isMainThread*(dispatcher: PlatformDispatcher): bool =
+  dispatcher.mainThread()
+
+proc dispatch*(dispatcher: PlatformDispatcher, runnable: Runnable,
+               priority = platformMedium) =
+  dispatcher.background(runnable, priority)
+
+proc dispatchOnMainThread*(dispatcher: PlatformDispatcher, runnable: Runnable,
+                           priority = platformMedium) =
+  dispatcher.mainQueue(runnable, priority)
+
+proc dispatchAfter*(dispatcher: PlatformDispatcher, durationNanoseconds: uint64,
+                    runnable: Runnable) =
+  dispatcher.delayed(durationNanoseconds, runnable)
