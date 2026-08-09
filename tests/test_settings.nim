@@ -292,7 +292,7 @@ suite "M12 settings foundation":
     check light.editor == "#fafafa"
     check light.editorForeground == "#242529"
     check light.gutter == light.editor
-    check light.editorActiveLine == "#ececedbf"
+    check light.editorActiveLine == "#ebebecbf"
     check dark.editor == "#282c33"
     check dark.editorForeground == "#acb2be"
     check dark.gutter == dark.editor
