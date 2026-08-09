@@ -1,5 +1,92 @@
 # Design Decisions
 
+## UI-109: Zed の Primitive は「形」で、Nimculus の PaintKind は「意味」で分かれている
+
+対応マイルストーンは ROADMAP.md の M2（NimNUI 基礎 UI システム）／M20。
+**この項目は着手の可否を判断するための調査記録であり、実装はまだ始めない。**
+
+### Zed の構造
+
+`crates/gpui/src/scene.rs:222` `Primitive` は 8 種:
+
+| 種別 | 定義 | 主なフィールド |
+| --- | --- | --- |
+| `Quad` | :501 | `background` / `border_color` / `corner_radii` / `border_widths` / `border_style` |
+| `Underline` | :521 | `color` / `thickness` / `wavy` |
+| `Shadow` | :540 | `blur_radius` / `corner_radii` / `element_bounds` / `inset` |
+| `MonochromeSprite` | :677 | `color` / `tile` / `transformation`（**移植済み** = グリフ） |
+| `SubpixelSprite` | — | サブピクセル描画のグリフ |
+| `PolychromeSprite` | :715 | `grayscale` / `opacity` / `corner_radii` / `tile`（カラー画像） |
+| `PaintSurface` | :734 | 動画などの外部サーフェス |
+| `Path` | :755 | 三角形分割済みの頂点列 |
+
+**分類の軸は「形」**である。どれも `order` と `content_mask` を持ち、
+種別ごとにバッチ描画される（`batches()` :172）。
+
+### 現状の Nimculus
+
+`src/nimnui/render.nim:4` の `PaintKind` は 19 種:
+
+```
+rectangle, border, roundedRectangle, text, image, clip, transform,
+shadow, caret, selection, scrollbar,
+workspaceBackground, workspacePanel, workspaceSeparator,
+editorActiveLine, editorBackground, scrollbarTrack, editorDiagnostic,
+roundedSelection
+```
+
+**分類の軸が違う。** `workspaceBackground` / `editorActiveLine` /
+`scrollbarTrack` / `editorDiagnostic` は**用途**で分かれており、形としては
+どれも矩形である。コメントにも「Metal バックエンドが固定色ではなく
+アクティブなテーマを使えるように、意味づけされた paint kind を持つ」とある。
+
+Metal 側の分岐は 18 箇所（`grep -c "paint.kind =="`）。
+
+### これは移植漏れか
+
+**単純な移植漏れではない。** Zed は色を `Quad.background` に値として持たせ、
+テーマの解決を呼び出し側で行う。Nimculus は種別に意味を持たせ、
+テーマの解決を Metal 側で行う。**どちらも動いており、見た目は既に一致している**
+（UI パリティの実測で確認済み）。
+
+移植の利得は次の 2 点に限られる:
+
+1. **種別バッチ描画が可能になる**（現状は投入順に 1 つずつ描画）。
+   ただし現在スクロールは Zed と同等の性能が出ており、
+   プロファイル上 `drawPaintCommand` は上位に出ない。**実測上の動機が無い**
+2. **`PolychromeSprite` が入ると画像が描ける**。これは `pasteboard` の画像貼り付けと
+   `asset_cache` / `svg_renderer` の前提になる（UI-109 時点で 3 項目が待っている）
+
+### 判断
+
+**(2) だけを目的に、`PolychromeSprite` 相当を足す。** 形の体系への全面的な
+置き換えはしない。
+
+理由:
+
+- 全面置換は 19 種の `PaintKind` と 18 箇所の Metal 分岐を作り替える大工事で、
+  **見た目も性能も現状で Zed と一致している**ところに手を入れることになる
+- 実測上の動機（性能）が無い。`bounds_tree` が必要になるのは種別バッチ化を
+  したときで、それ自体が目的化している
+- 一方 `PolychromeSprite` は**3 項目が待っている**具体的な前提であり、
+  既存の `MonochromeSprite`（グリフ）の隣に足すだけで済む
+
+### 却下案
+
+**(a) `Primitive` の 8 種すべてに置き換える。** 上記のとおり動機が無く、
+リスクだけが大きい。`nimculus-ui-design` の「最小縦切り」にも反する。却下。
+
+**(b) 何もしない。** `pasteboard` の画像・`asset_cache` / `svg_renderer` が
+永久に着手できない。却下。
+
+**(c) `bounds_tree` を先に入れる。** バッチ化しない限り仕事が無い
+（ZED_PORT_GAPS.md に記録済み）。却下。
+
+### 次にやること
+
+`PolychromeSprite` 相当（カラー画像のアトラス描画）を移植する。それが入った後、
+`asset_cache` → `svg_renderer` → `pasteboard` の画像、の順に解ける。
+
 ## UI-108: Tab-order focus traversal, and the fact that Tab is not bound to it
 
 対応マイルストーンは ROADMAP.md の M2（NimNUI 基礎 UI システム）／M12。
