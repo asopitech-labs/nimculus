@@ -1,5 +1,86 @@
 # Design Decisions
 
+## UI-103: Extend the layout spec toward Zed's Style, without adopting a layout engine
+
+対応マイルストーンは ROADMAP.md の M2（NimNUI 基礎 UI システム）。完了条件は、
+Zed が `Style` で表現していて Nimculus に無い項目のうち、**実際に使う UI がある
+もの**を `LayoutSpec` に足し、`nimble test` で検証されていること。
+
+### Zed の構造
+
+`crates/gpui/src/taffy.rs:65` の `request_layout(style, rem_size, scale_factor,
+children)` は `Style` の値と子 ID を受け取るだけで、要素の生存期間に触れない。
+`style.to_taffy()`（同 :445）は `Style` を Taffy のスタイルへ写す純粋な変換で、
+レイアウト計算そのものは Taffy（外部クレート）が行う。
+
+**したがってこの項目は要素モデル（即時 vs 保持）に依存しない。**
+`arena.rs` と `bounds_tree.rs` は依存したので着手を見送ったが、これは独立して進む。
+
+### 差分
+
+`src/nimnui/layout_types.nim` の `LayoutSpec` は direction / size / minSize /
+maxSize / padding / gap / flexGrow / alignment / scrollOffset / viewport。
+`src/nimnui/layout.nim`（115 行）が Row / Column / Stack を自前で計算する。
+
+Zed の `Style`（style.rs:182-309）にあって無いもの:
+
+| 項目 | 用途 | 実際に要るか |
+| --- | --- | --- |
+| `position` + `inset` | 絶対配置 | **要る**。ポップアップ・ツールチップ・オーバーレイ。現状は Stack と viewport で代用している |
+| `margin` | 外側の余白 | **要る**。`padding`（内側）だけでは表現できない配置がある |
+| `overflow` | クリップとスクロールバー領域 | **要る**。現状は `viewport` で代用 |
+| `align_items` / `justify_content` の分離 | 主軸と交差軸の別指定 | **要る**。現状は `alignment` 1 つ |
+| `display` / grid / `aspect_ratio` / `flex_shrink` / `flex_basis` | — | **今は要らない**。grid を使う UI が無い |
+
+### 依存追加の調査（2026-08-09）
+
+Zed は Taffy に丸投げしている。Nim に等価物があるかを `nimble search` で調べた:
+
+- `flex` — **該当パッケージ無し**
+- `layout` — `cssgrid`（CSS Grid 専用、Flexbox ではない）、`buju`（layout.h ベースの
+  簡易エンジン）、`karkas`（Karax 用のヘルパー、無関係）
+
+**Nim に Taffy 相当の Flexbox 実装は存在しない。**
+
+### 採用案
+
+**既存の `layout.nim` を拡張する。** 上表の「要る」4 項目を `LayoutSpec` に足し、
+`layoutNodeRecursive` で処理する。Zed の `Style` のフィールド名・意味論に合わせる
+（`position` / `inset` / `margin` / `overflow` / `alignItems` / `justifyContent`）。
+
+これは「Zed と違う形」ではない。**Zed が Taffy に委譲している計算を自前で持つ**
+という点は既にそうなっており、変わるのは表現できる項目の範囲だけである。
+Zed 側の意味論（Flexbox の主軸・交差軸、`position: absolute` は親の content box
+基準、`overflow: hidden` はクリップ）に合わせること。
+
+### 却下案
+
+**(a) `buju` を依存に追加する。** layout.h ベースの簡易エンジンで、Flexbox の
+`justify_content` / `align_items` の完全な意味論を持たない。既存の `layout.nim` が
+既に同等以上を実装しており、置き換える利得が無い。`DEVELOPMENT_GUIDELINES` の
+「依存追加は標準ツールで検出できない問題に限定」にも合わない。却下。
+
+**(b) `cssgrid` を依存に追加する。** CSS Grid 専用で Flexbox ではない。
+Zed も grid は `Display::Grid` として持つが、Nimculus に grid を使う UI が無い。
+grid が必要になった時点で再検討する。今は却下。
+
+**(c) Taffy 相当を新規に自作する（完全な Flexbox エンジン）。** `display` / grid /
+`aspect_ratio` / `flex_shrink` / `flex_basis` まで含む完全実装は、使う UI が無い
+まま作ることになる。`nimculus-ui-design` の「抽象 API を先に広げない」に反する。
+必要な項目を必要になった時点で足す方針を採る。却下。
+
+### 文字単位・スレッド・UI ブロッキング
+
+この作業は文字を扱わない。レイアウトはメインスレッドのフレーム内で完結し、
+非同期化しない（Zed も同じ）。
+
+### テスト観点
+
+- unit: 絶対配置が親の content box 基準になること、`margin` が兄弟間の間隔に
+  加算されること、`overflow: hidden` が子をクリップすること、
+  `justifyContent` と `alignItems` が主軸・交差軸へ独立に効くこと
+- 既存の Row / Column / Stack の挙動が変わらないこと（回帰）
+
 ## UI-102: Port Zed's async execution on Nim's own Future
 
 対応マイルストーンは ROADMAP.md の M20（性能・安定性強化）。完了条件は、
