@@ -10,7 +10,8 @@ import nimculus/settings
 
 type
   WorkspaceRegion* = enum
-    regionNone, regionLeftDock, regionCenter, regionBottomDock, regionStatus
+    regionNone, regionLeftDock, regionCenter, regionBottomDock, regionRightDock,
+    regionStatus
 
   PanelKind* = enum
     # Keep new values at the end: panel ordinals are persisted in sessions.
@@ -61,7 +62,7 @@ type
     focused*: bool
 
   WorkspaceLayout* = object
-    leftDock*, center*, bottomDock*, status*: Rect
+    leftDock*, center*, bottomDock*, rightDock*, status*: Rect
 
   PaneLayoutEntry* = object
     id*: PaneId
@@ -76,7 +77,8 @@ type
     dividers*: seq[PaneDivider]
 
   WorkspaceUiState* = object
-    leftDock*, bottomDock*: DockState
+    leftDock*, bottomDock*, rightDock*: DockState
+    panelDockSides*: array[PanelKind, DockSide]
     panelLists*: array[PanelKind, PanelListState]
     center*: PaneTree
     focusedRegion*: WorkspaceRegion
@@ -89,12 +91,6 @@ proc `==`*(a, b: PaneId): bool {.borrow.}
 
 const
   DefaultLeftDockWidth* = 240'f32
-  ## Zed's right-presented Project Panel spends its declared width on a 1pt
-  ## `border` rule plus its own surface: measured at 1389pt wide, the rule sits
-  ## at x=1149pt and the #ececed panel runs 1150-1389pt, which is 240pt in
-  ## total. Keep this presentation allowance separate from the persisted 240pt
-  ## dock size so the shared workspace model remains honest.
-  RightDockPresentationAllowance* = 1'f32
   DefaultBottomDockHeight* = 260'f32
   ## Zed's logical separator/status surface is presented by AppKit in the
   ## 16pt band above the native 30pt footer. Leave only its two-point Metal
@@ -125,51 +121,141 @@ proc dockPresentationWidth*(logicalWidth, minimumPresenterWidth: float32): float
   else:
     width
 
-proc projectDockPresentationWidth*(logicalWidth, minimumPresenterWidth: float32,
-                                  dockOnRight = false): float32 =
-  ## The native right-side presenter consumes an edge allowance in addition
-  ## to its logical dock width. Left-presented docks remain one-to-one.
-  let adjustedWidth = if dockOnRight:
-      max(0'f32, logicalWidth - RightDockPresentationAllowance)
-    else: logicalWidth
-  dockPresentationWidth(adjustedWidth, minimumPresenterWidth)
+proc projectDockPresentationWidth*(logicalWidth, minimumPresenterWidth: float32): float32 =
+  ## The Project Panel is now owned by its real dock. Its native presenter
+  ## therefore uses the dock width directly on either horizontal edge.
+  dockPresentationWidth(logicalWidth, minimumPresenterWidth)
 
 proc newPane(id: int, tabIndices: seq[int] = @[], activeTabIndex = -1): PaneTree =
   PaneTree(kind: paneLeaf, pane: PaneState(id: PaneId(id), tabIndices: tabIndices,
     activeTabIndex: activeTabIndex))
 
-proc initWorkspaceUi*(tabCount = 0, activeTab = -1): WorkspaceUiState =
+proc defaultPanelDockSide(panel: PanelKind): DockSide =
+  case panel
+  of panelFiles, panelGit, panelOutline: dockRight
+  of panelTerminal, panelDebugger, panelTasks: dockBottom
+  of panelAgent, panelSearch: dockLeft
+
+proc dockRegion(side: DockSide): WorkspaceRegion =
+  case side
+  of dockLeft: regionLeftDock
+  of dockBottom: regionBottomDock
+  of dockRight: regionRightDock
+
+proc panelDockSide*(panel: PanelKind, settings: SettingsStore): DockSide
+proc panelPositionIsValid*(panel: PanelKind, side: DockSide): bool
+proc panelDockSide*(state: WorkspaceUiState, panel: PanelKind): DockSide
+proc dock*(state: WorkspaceUiState, side: DockSide): DockState
+proc openPanel*(state: var WorkspaceUiState, panel: PanelKind)
+
+proc initWorkspaceUi*(tabCount = 0, activeTab = -1,
+                      settings: SettingsStore = nil): WorkspaceUiState =
   var tabs: seq[int]
   for index in 0 ..< tabCount: tabs.add(index)
-  result.leftDock = DockState(side: dockLeft, isOpen: true, activePanel: panelFiles,
+  for panel in PanelKind:
+    result.panelDockSides[panel] = if settings == nil:
+      defaultPanelDockSide(panel) else: panelDockSide(panel, settings)
+  result.leftDock = DockState(side: dockLeft, isOpen: false, activePanel: panelAgent,
     size: DefaultLeftDockWidth, minimumSize: DefaultDockMinimumSize)
   result.bottomDock = DockState(side: dockBottom, isOpen: false,
     activePanel: panelTerminal, size: DefaultBottomDockHeight,
     minimumSize: DefaultDockMinimumSize)
+  result.rightDock = DockState(side: dockRight, isOpen: false, activePanel: panelFiles,
+    size: DefaultLeftDockWidth, minimumSize: DefaultDockMinimumSize)
   result.center = newPane(1, tabs, activeTab)
   for panel in PanelKind:
     result.panelLists[panel].selectedIndex = -1
   result.focusedRegion = regionCenter
   result.focusedPane = PaneId(1)
   result.nextPaneId = 2
+  result.openPanel(panelFiles)
+  result.focusedRegion = regionCenter
 
 proc panelFromOrdinal(value: int, fallback: PanelKind): PanelKind =
   if value >= ord(low(PanelKind)) and value <= ord(high(PanelKind)):
     PanelKind(value) else: fallback
 
-proc initWorkspaceUi*(session: EditorSession): WorkspaceUiState =
-  result = initWorkspaceUi(session.tabs.len, session.activeTab)
+proc initWorkspaceUi*(session: EditorSession, settings: SettingsStore = nil): WorkspaceUiState =
+  result = initWorkspaceUi(session.tabs.len, session.activeTab, settings)
   # A zero size identifies sessions written before workspace composition was
   # persisted. Keep their default Files dock instead of treating `false` as a
   # deliberate close.
   if session.workspaceLeftDockSize > 0:
-    result.leftDock.isOpen = session.workspaceLeftDockOpen
-    result.leftDock.size = max(result.leftDock.minimumSize, session.workspaceLeftDockSize)
-    result.leftDock.activePanel = panelFromOrdinal(session.workspaceLeftPanel, panelFiles)
+    let panel = panelFromOrdinal(session.workspaceLeftPanel, panelFiles)
+    let side = result.panelDockSide(panel)
+    let size = max(DefaultDockMinimumSize, session.workspaceLeftDockSize)
+    case side
+    of dockLeft:
+      result.leftDock.isOpen = session.workspaceLeftDockOpen
+      result.leftDock.size = size
+      result.leftDock.activePanel = panel
+    of dockBottom:
+      result.bottomDock.isOpen = session.workspaceLeftDockOpen
+      result.bottomDock.size = size
+      result.bottomDock.activePanel = panel
+    of dockRight:
+      result.rightDock.isOpen = session.workspaceLeftDockOpen
+      result.rightDock.size = size
+      result.rightDock.activePanel = panel
   if session.workspaceBottomDockSize > 0:
-    result.bottomDock.isOpen = session.workspaceBottomDockOpen
-    result.bottomDock.size = max(result.bottomDock.minimumSize, session.workspaceBottomDockSize)
-    result.bottomDock.activePanel = panelFromOrdinal(session.workspaceBottomPanel, panelTerminal)
+    let panel = panelFromOrdinal(session.workspaceBottomPanel, panelTerminal)
+    let side = result.panelDockSide(panel)
+    let size = max(DefaultDockMinimumSize, session.workspaceBottomDockSize)
+    case side
+    of dockLeft:
+      result.leftDock.isOpen = session.workspaceBottomDockOpen
+      result.leftDock.size = size
+      result.leftDock.activePanel = panel
+    of dockBottom:
+      result.bottomDock.isOpen = session.workspaceBottomDockOpen
+      result.bottomDock.size = size
+      result.bottomDock.activePanel = panel
+    of dockRight:
+      result.rightDock.isOpen = session.workspaceBottomDockOpen
+      result.rightDock.size = size
+      result.rightDock.activePanel = panel
+
+proc panelDockSide*(state: WorkspaceUiState, panel: PanelKind): DockSide =
+  state.panelDockSides[panel]
+
+proc applyPanelDockSettings*(state: var WorkspaceUiState, settings: SettingsStore) =
+  ## Apply panel positions at a workspace-start boundary. This deliberately
+  ## does not observe later SettingsStore changes; live dock handoff is UI-118
+  ## step 5.
+  let oldSides = state.panelDockSides
+  let oldLeft = state.leftDock
+  let oldBottom = state.bottomDock
+  let oldRight = state.rightDock
+  for panel in PanelKind:
+    state.panelDockSides[panel] = panelDockSide(panel, settings)
+  var movingPanels: seq[tuple[panel: PanelKind, source: DockSide, target: DockSide]]
+  for side in DockSide:
+    var oldDock: DockState
+    case side
+    of dockLeft: oldDock = oldLeft
+    of dockBottom: oldDock = oldBottom
+    of dockRight: oldDock = oldRight
+    if not oldDock.isOpen: continue
+    if oldSides[oldDock.activePanel] == side and
+        state.panelDockSides[oldDock.activePanel] != side:
+      movingPanels.add((oldDock.activePanel, side,
+        state.panelDockSides[oldDock.activePanel]))
+  for moving in movingPanels:
+    case moving.source
+    of dockLeft: state.leftDock.isOpen = false
+    of dockBottom: state.bottomDock.isOpen = false
+    of dockRight: state.rightDock.isOpen = false
+  for moving in movingPanels:
+    case moving.target
+    of dockLeft:
+      state.leftDock.activePanel = moving.panel
+      state.leftDock.isOpen = true
+    of dockBottom:
+      state.bottomDock.activePanel = moving.panel
+      state.bottomDock.isOpen = true
+    of dockRight:
+      state.rightDock.activePanel = moving.panel
+      state.rightDock.isOpen = true
 
 proc saveWorkspaceUi*(state: WorkspaceUiState, session: var EditorSession) =
   session.workspaceLeftDockOpen = state.leftDock.isOpen
@@ -183,14 +269,23 @@ proc dock*(state: WorkspaceUiState, side: DockSide): DockState =
   case side
   of dockLeft: state.leftDock
   of dockBottom: state.bottomDock
-  of dockRight: raise newException(ValueError, "right dock has no panels yet")
+  of dockRight: state.rightDock
 
-proc panelBelongsTo*(panel: PanelKind, side: DockSide): bool =
+proc panelIsActive*(state: WorkspaceUiState, panel: PanelKind): bool =
+  let side = state.panelDockSide(panel)
+  let current = state.dock(side)
+  current.isOpen and current.activePanel == panel
+
+proc toggleDock*(state: var WorkspaceUiState, side: DockSide) =
+  let wasOpen = state.dock(side).isOpen
   case side
-  of dockLeft: panel in {panelFiles, panelGit, panelOutline, panelSearch, panelDebugger,
-    panelAgent}
-  of dockBottom: panel in {panelTerminal, panelTasks}
-  of dockRight: false
+  of dockLeft: state.leftDock.isOpen = not wasOpen
+  of dockBottom: state.bottomDock.isOpen = not wasOpen
+  of dockRight: state.rightDock.isOpen = not wasOpen
+  state.focusedRegion = if wasOpen: regionCenter else: dockRegion(side)
+
+proc panelBelongsTo*(state: WorkspaceUiState, panel: PanelKind, side: DockSide): bool =
+  state.panelDockSide(panel) == side
 
 proc panelDockSettingKey*(panel: PanelKind): string =
   ## Settings names mirror Zed's panel-scoped keys while following Nimculus's
@@ -215,15 +310,16 @@ proc dockSideFromSetting(value: string, fallback: DockSide): DockSide =
 proc panelDockSide*(panel: PanelKind, settings: SettingsStore): DockSide =
   ## Read the panel's configured position without applying it to workspace
   ## ownership yet. Applying this result is the follow-up ownership migration.
-  case panel
-  of panelFiles: dockSideFromSetting(settings.projectPanelDock(), dockRight)
-  of panelGit: dockSideFromSetting(settings.gitPanelDock(), dockRight)
-  of panelOutline: dockSideFromSetting(settings.outlinePanelDock(), dockRight)
-  of panelTerminal: dockSideFromSetting(settings.terminalDock(), dockBottom)
-  of panelDebugger: dockSideFromSetting(settings.debuggerDock(), dockBottom)
-  of panelAgent: dockSideFromSetting(settings.agentDock(), dockLeft)
-  of panelTasks: dockBottom
-  of panelSearch: dockLeft
+  let configured = case panel
+    of panelFiles: dockSideFromSetting(settings.projectPanelDock(), dockRight)
+    of panelGit: dockSideFromSetting(settings.gitPanelDock(), dockRight)
+    of panelOutline: dockSideFromSetting(settings.outlinePanelDock(), dockRight)
+    of panelTerminal: dockSideFromSetting(settings.terminalDock(), dockBottom)
+    of panelDebugger: dockSideFromSetting(settings.debuggerDock(), dockBottom)
+    of panelAgent: dockSideFromSetting(settings.agentDock(), dockLeft)
+    of panelTasks: dockBottom
+    of panelSearch: dockLeft
+  if panelPositionIsValid(panel, configured): configured else: defaultPanelDockSide(panel)
 
 proc panelPositionIsValid*(panel: PanelKind, side: DockSide): bool =
   ## Match Zed's panel-specific position predicates. Tasks and Search have no
@@ -238,31 +334,37 @@ proc panelPositionIsValid*(panel: PanelKind, side: DockSide): bool =
   of panelSearch: side == dockLeft
 
 proc panelDockSideMask*(state: WorkspaceUiState): uint32 =
-  ## AppKit receives the workspace's complete panel placement as one mapping.
-  ## Each set bit identifies a panel owned by the left dock; unset known bits
-  ## therefore identify panels owned by the bottom dock.
+  ## AppKit receives two bits per panel: 1 = left, 2 = bottom, 3 = right.
+  ## AppKit uses the complete mapping to put left panels in its left cluster;
+  ## bottom and right panels intentionally share the right cluster.
   for panel in PanelKind:
-    if panelBelongsTo(panel, dockLeft):
-      result = result or (1'u32 shl uint32(ord(panel)))
+    let sideCode = uint32(ord(state.panelDockSide(panel))) + 1'u32
+    result = result or (sideCode shl uint32(ord(panel) * 2))
 
 proc openPanel*(state: var WorkspaceUiState, panel: PanelKind) =
-  let side = if panelBelongsTo(panel, dockLeft): dockLeft else: dockBottom
-  if side == dockLeft:
+  let side = state.panelDockSide(panel)
+  case side
+  of dockLeft:
     state.leftDock.activePanel = panel
     state.leftDock.isOpen = true
-  else:
+  of dockBottom:
     state.bottomDock.activePanel = panel
     state.bottomDock.isOpen = true
-  state.focusedRegion = if side == dockLeft: regionLeftDock else: regionBottomDock
+  of dockRight:
+    state.rightDock.activePanel = panel
+    state.rightDock.isOpen = true
+  state.focusedRegion = dockRegion(side)
 
 proc togglePanel*(state: var WorkspaceUiState, panel: PanelKind) =
-  let side = if panelBelongsTo(panel, dockLeft): dockLeft else: dockBottom
+  let side = state.panelDockSide(panel)
   let isOpen = state.dock(side).isOpen
   let activePanel = state.dock(side).activePanel
   if isOpen and activePanel == panel:
-    if side == dockLeft: state.leftDock.isOpen = false
-    else: state.bottomDock.isOpen = false
-    if state.focusedRegion == (if side == dockLeft: regionLeftDock else: regionBottomDock):
+    case side
+    of dockLeft: state.leftDock.isOpen = false
+    of dockBottom: state.bottomDock.isOpen = false
+    of dockRight: state.rightDock.isOpen = false
+    if state.focusedRegion == dockRegion(side):
       state.focusedRegion = regionCenter
   else:
     state.openPanel(panel)
@@ -272,8 +374,8 @@ proc togglePanelFocus*(state: var WorkspaceUiState, panel: PanelKind): bool =
   ## it is not focused; otherwise return keyboard focus to the editor without
   ## hiding the panel. Keeping visibility separate from focus avoids layout
   ## churn on a keyboard-only round trip.
-  let side = if panelBelongsTo(panel, dockLeft): dockLeft else: dockBottom
-  let panelRegion = if side == dockLeft: regionLeftDock else: regionBottomDock
+  let side = state.panelDockSide(panel)
+  let panelRegion = dockRegion(side)
   let isActive = state.dock(side).isOpen and state.dock(side).activePanel == panel
   if isActive and state.focusedRegion == panelRegion:
     state.focusedRegion = regionCenter
@@ -310,14 +412,20 @@ proc selectPanelItem*(state: var WorkspaceUiState, panel: PanelKind,
   list[].selectedIndex = index
   list[].selectedKey = list[].itemKeys[index]
   list[].focused = true
-  if panelBelongsTo(panel, dockLeft):
+  let side = state.panelDockSide(panel)
+  case side
+  of dockLeft:
     state.leftDock.activePanel = panel
     state.leftDock.isOpen = true
     state.focusedRegion = regionLeftDock
-  else:
+  of dockBottom:
     state.bottomDock.activePanel = panel
     state.bottomDock.isOpen = true
     state.focusedRegion = regionBottomDock
+  of dockRight:
+    state.rightDock.activePanel = panel
+    state.rightDock.isOpen = true
+    state.focusedRegion = regionRightDock
   true
 
 proc movePanelSelection*(state: var WorkspaceUiState, panel: PanelKind,
@@ -341,45 +449,32 @@ proc focusCenter*(state: var WorkspaceUiState) =
 
 proc beginDockResize*(state: var WorkspaceUiState, side: DockSide) =
   case side
-  of dockLeft, dockBottom:
+  of dockLeft, dockBottom, dockRight:
     state.resizingDock = side
     state.isResizingDock = true
-  of dockRight:
-    raise newException(ValueError, "right dock has no panels yet")
 
 proc endDockResize*(state: var WorkspaceUiState) =
   state.isResizingDock = false
 
 proc dockResizeDivider*(state: WorkspaceUiState, side: DockSide,
-                        available: float32, dockOnRight = false): float32 =
-  ## Return the visible divider coordinate on its resize axis. Workspace state
-  ## stores the Project dock logically on the left; macOS may present it on
-  ## the right, as Zed does, without changing that cross-platform ownership.
-  let size = if side == dockLeft and dockOnRight:
-      max(0'f32, state.dock(side).size - RightDockPresentationAllowance)
-    else: state.dock(side).size
+                        available: float32): float32 =
+  ## Return the visible divider coordinate on its resize axis. Left and right
+  ## docks use their actual edge, while bottom uses its top edge.
+  let size = state.dock(side).size
   case side
   of dockLeft:
-    if dockOnRight: max(0'f32, available - size) else: size
-  of dockBottom:
+    size
+  of dockBottom, dockRight:
     max(0'f32, available - size)
-  of dockRight:
-    raise newException(ValueError, "right dock has no panels yet")
 
 proc dockResizeRequest*(side: DockSide, pointer, available: float32,
-                        dockOnRight = false): float32 =
-  ## Convert a visible pointer coordinate to the logical dock size. This is
-  ## the inverse of `dockResizeDivider`, so right-side Project docks resize
-  ## from their left edge rather than accidentally using a left-side width.
+                        ): float32 =
+  ## Convert a visible pointer coordinate to the logical dock size.
   case side
   of dockLeft:
-    if dockOnRight:
-      max(0'f32, available - pointer) + RightDockPresentationAllowance
-    else: max(0'f32, pointer)
-  of dockBottom:
+    max(0'f32, pointer)
+  of dockBottom, dockRight:
     max(0'f32, available - pointer)
-  of dockRight:
-    raise newException(ValueError, "right dock has no panels yet")
 
 proc resetDockSize*(state: var WorkspaceUiState, side: DockSide) =
   ## Match Zed's resize-handle double-click behavior without exposing a
@@ -387,20 +482,21 @@ proc resetDockSize*(state: var WorkspaceUiState, side: DockSide) =
   case side
   of dockLeft: state.leftDock.size = DefaultLeftDockWidth
   of dockBottom: state.bottomDock.size = DefaultBottomDockHeight
-  of dockRight: raise newException(ValueError, "right dock has no panels yet")
+  of dockRight: state.rightDock.size = DefaultLeftDockWidth
 
 proc resizeDock*(state: var WorkspaceUiState, side: DockSide, requested: float32,
                  available: float32) =
   case side
-  of dockLeft, dockBottom:
+  of dockLeft, dockBottom, dockRight:
     let current = state.dock(side)
-    let centerMinimum = if side == dockLeft: MinimumCenterWidth else: MinimumCenterHeight
+    let centerMinimum = if side in {dockLeft, dockRight}:
+      MinimumCenterWidth else: MinimumCenterHeight
     let upperBound = max(current.minimumSize, available - centerMinimum)
     let size = min(upperBound, max(current.minimumSize, requested))
-    if side == dockLeft: state.leftDock.size = size
-    else: state.bottomDock.size = size
-  of dockRight:
-    raise newException(ValueError, "right dock has no panels yet")
+    case side
+    of dockLeft: state.leftDock.size = size
+    of dockBottom: state.bottomDock.size = size
+    of dockRight: state.rightDock.size = size
 
 proc layout*(state: WorkspaceUiState, viewport: Size): WorkspaceLayout =
   let width = max(0'f32, float32(viewport.width))
@@ -409,16 +505,20 @@ proc layout*(state: WorkspaceUiState, viewport: Size): WorkspaceLayout =
   let usableHeight = max(0'f32, height - statusHeight)
   let leftWidth = if state.leftDock.isOpen:
       min(max(0'f32, width - MinimumCenterWidth), state.leftDock.size) else: 0'f32
+  let rightWidth = if state.rightDock.isOpen:
+      min(max(0'f32, width - leftWidth - MinimumCenterWidth), state.rightDock.size) else: 0'f32
   let bottomHeight = if state.bottomDock.isOpen:
       min(max(0'f32, usableHeight - MinimumCenterHeight), state.bottomDock.size) else: 0'f32
   result.leftDock = Rect(origin: Point(x: px(0), y: px(0)),
     size: Size(width: px(leftWidth), height: px(max(0'f32, usableHeight - bottomHeight))))
   result.center = Rect(origin: Point(x: px(leftWidth), y: px(0)),
-    size: Size(width: px(max(0'f32, width - leftWidth)),
+    size: Size(width: px(max(0'f32, width - leftWidth - rightWidth)),
       height: px(max(0'f32, usableHeight - bottomHeight))))
   result.bottomDock = Rect(origin: Point(x: px(leftWidth),
       y: px(max(0'f32, usableHeight - bottomHeight))),
-    size: Size(width: px(max(0'f32, width - leftWidth)), height: px(bottomHeight)))
+    size: Size(width: px(max(0'f32, width - leftWidth - rightWidth)), height: px(bottomHeight)))
+  result.rightDock = Rect(origin: Point(x: px(max(0'f32, width - rightWidth)), y: px(0)),
+    size: Size(width: px(rightWidth), height: px(max(0'f32, usableHeight - bottomHeight))))
   result.status = Rect(origin: Point(x: px(0), y: px(usableHeight)),
     size: Size(width: px(width), height: px(statusHeight)))
 
@@ -427,31 +527,32 @@ proc regionAt*(layout: WorkspaceLayout, point: Point): WorkspaceRegion =
   elif float32(layout.leftDock.size.width) > 0 and layout.leftDock.contains(point): regionLeftDock
   elif float32(layout.bottomDock.size.height) > 0 and layout.bottomDock.contains(
       point): regionBottomDock
+  elif float32(layout.rightDock.size.width) > 0 and layout.rightDock.contains(
+      point): regionRightDock
   elif layout.center.contains(point): regionCenter
   else: regionNone
 
 proc presentedRegionAt*(layout: WorkspaceLayout, viewport: Size, point: Point,
-                        dockOnRight: bool, presentedDockWidth: float32): WorkspaceRegion =
-  ## Layout owns logical dock identity, while a platform may project that dock
-  ## to the opposite edge or retire it below its native presentation minimum.
-  ## Hit-testing must use that same projected geometry; otherwise an invisible
-  ## dock can still steal focus or begin a resize drag.
+                        presentedDockWidth: float32): WorkspaceRegion =
+  ## Hit-testing follows the actual three-dock geometry. The right presenter
+  ## may retire below its native minimum, so use its presented width here.
   if layout.status.contains(point): return regionStatus
   let width = max(0'f32, float32(viewport.width))
-  let dockWidth = max(0'f32, min(width, presentedDockWidth))
-  let dockHeight = max(0'f32, float32(layout.leftDock.size.height))
-  let dockX = if dockOnRight: width - dockWidth else: 0'f32
-  let contentX = if dockOnRight: 0'f32 else: dockWidth
-  let contentWidth = max(0'f32, width - dockWidth)
+  let leftWidth = max(0'f32, float32(layout.leftDock.size.width))
+  let rightWidth = max(0'f32, min(width - leftWidth, presentedDockWidth))
+  let dockHeight = max(0'f32, float32(layout.rightDock.size.height))
+  let contentX = leftWidth
+  let contentWidth = max(0'f32, width - leftWidth - rightWidth)
   let bottomHeight = max(0'f32, float32(layout.bottomDock.size.height))
   if bottomHeight > 0'f32:
     let bottom = Rect(origin: Point(x: px(contentX), y: layout.bottomDock.origin.y),
       size: Size(width: px(contentWidth), height: layout.bottomDock.size.height))
     if bottom.contains(point): return regionBottomDock
-  if dockWidth > 0'f32:
-    let dock = Rect(origin: Point(x: px(dockX), y: layout.leftDock.origin.y),
-      size: Size(width: px(dockWidth), height: px(dockHeight)))
-    if dock.contains(point): return regionLeftDock
+  if leftWidth > 0'f32 and layout.leftDock.contains(point): return regionLeftDock
+  if rightWidth > 0'f32:
+    let dock = Rect(origin: Point(x: px(width - rightWidth), y: layout.rightDock.origin.y),
+      size: Size(width: px(rightWidth), height: px(dockHeight)))
+    if dock.contains(point): return regionRightDock
   let center = Rect(origin: Point(x: px(contentX), y: layout.center.origin.y),
     size: Size(width: px(contentWidth), height: layout.center.size.height))
   if center.contains(point): regionCenter else: regionNone
@@ -691,8 +792,10 @@ proc closeRootSplit*(state: var WorkspaceUiState): bool =
   true
 
 proc validate*(state: WorkspaceUiState): bool =
-  if state.leftDock.minimumSize <= 0 or state.bottomDock.minimumSize <= 0: return false
-  if not panelBelongsTo(state.leftDock.activePanel, dockLeft): return false
-  if not panelBelongsTo(state.bottomDock.activePanel, dockBottom): return false
+  if state.leftDock.minimumSize <= 0 or state.bottomDock.minimumSize <= 0 or
+      state.rightDock.minimumSize <= 0: return false
+  if not state.panelBelongsTo(state.leftDock.activePanel, dockLeft): return false
+  if not state.panelBelongsTo(state.bottomDock.activePanel, dockBottom): return false
+  if not state.panelBelongsTo(state.rightDock.activePanel, dockRight): return false
   if state.center.isNil: return false
   true

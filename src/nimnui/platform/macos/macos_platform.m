@@ -511,9 +511,14 @@ static BOOL g_terminal_visible = NO;
 // that model until the first workspace render supplies the complete mask.
 enum {
   NimculusPanelKindTerminal = 3,
-  NimculusPanelKindAgent = 7
+  NimculusPanelKindAgent = 7,
+  NimculusDockSideLeft = 1,
+  NimculusDockSideBottom = 2,
+  NimculusDockSideRight = 3
 };
-static uint32_t g_footer_panel_left_mask = (1u << NimculusPanelKindAgent);
+static uint32_t g_footer_panel_dock_side_mask =
+  (NimculusDockSideLeft << (NimculusPanelKindAgent * 2)) |
+  (NimculusDockSideBottom << (NimculusPanelKindTerminal * 2));
 static NSArray<NSString *> *g_terminal_session_titles = nil;
 static NSUInteger g_terminal_active_session = 0;
 static NSString *g_task_output_text = @"";
@@ -7838,7 +7843,8 @@ static NSView *newFooterDivider(void) {
   BOOL hasLeftPanelButtons = NO;
   BOOL hasRightPanelButtons = NO;
   for (NSUInteger index = 0; index < 2; index++) {
-    panelOnLeft[index] = (g_footer_panel_left_mask & (1u << panelKinds[index])) != 0;
+    const uint32_t sideCode = (g_footer_panel_dock_side_mask >> (panelKinds[index] * 2)) & 3u;
+    panelOnLeft[index] = sideCode == NimculusDockSideLeft;
     if (panelOnLeft[index]) hasLeftPanelButtons = YES;
     else hasRightPanelButtons = YES;
   }
@@ -7922,8 +7928,9 @@ static NSView *newFooterDivider(void) {
 bool nimculus_platform_validate_editor_footer_items(void) {
   @autoreleasepool {
     NSString *previous = [g_editor_footer retain];
-    const uint32_t previousMask = g_footer_panel_left_mask;
-    nimculus_platform_set_footer_panel_dock_sides(1u << NimculusPanelKindAgent);
+    const uint32_t previousMask = g_footer_panel_dock_side_mask;
+    nimculus_platform_set_footer_panel_dock_sides(
+      NimculusDockSideLeft << (NimculusPanelKindAgent * 2));
     nimculus_platform_set_editor_footer("cursor=1:1\tlanguage=Markdown\tencoding=UTF-8\tline-ending=LF");
     NimculusFooterOverlay *footer = [[NimculusFooterOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 30.0)];
@@ -8109,11 +8116,12 @@ bool nimculus_platform_validate_editor_panel_footer(void) {
   @autoreleasepool {
     const BOOL previousSearchSetting = g_search_button;
     const BOOL previousDiagnosticsSetting = g_diagnostics_button;
-    const uint32_t previousMask = g_footer_panel_left_mask;
+    const uint32_t previousMask = g_footer_panel_dock_side_mask;
     NSString *savedFooter = [g_editor_footer retain];
     g_search_button = YES;
     g_diagnostics_button = NO;
-    nimculus_platform_set_footer_panel_dock_sides(1u << NimculusPanelKindAgent);
+    nimculus_platform_set_footer_panel_dock_sides(
+      NimculusDockSideLeft << (NimculusPanelKindAgent * 2));
     nimculus_platform_set_editor_footer("cursor=1:1\tlanguage=Markdown");
     NimculusFooterOverlay *footer = [[NimculusFooterOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 30.0)];
@@ -15917,9 +15925,9 @@ void nimculus_platform_set_search_button(bool visible) {
     }
   }
 }
-void nimculus_platform_set_footer_panel_dock_sides(uint32_t left_panel_mask) {
-  if (g_footer_panel_left_mask == left_panel_mask) return;
-  g_footer_panel_left_mask = left_panel_mask;
+void nimculus_platform_set_footer_panel_dock_sides(uint32_t panel_dock_side_mask) {
+  if (g_footer_panel_dock_side_mask == panel_dock_side_mask) return;
+  g_footer_panel_dock_side_mask = panel_dock_side_mask;
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
   for (NSView *subview in view.subviews) {

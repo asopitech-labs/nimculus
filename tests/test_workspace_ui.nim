@@ -39,16 +39,14 @@ suite "workspace UI state":
     check panelPositionIsValid(panelTasks, dockBottom)
     check panelPositionIsValid(panelSearch, dockLeft)
 
-    let state = initWorkspaceUi()
+    let state = initWorkspaceUi(settings = settings)
     check state.leftDock.side == dockLeft
     check state.bottomDock.side == dockBottom
-    check panelBelongsTo(panelFiles, dockLeft)
-    check not panelBelongsTo(panelFiles, dockRight)
-    check panelBelongsTo(panelTerminal, dockBottom)
-    for panel in PanelKind:
-      check not panelBelongsTo(panel, dockRight)
-    expect ValueError:
-      discard state.dock(dockRight)
+    check state.rightDock.side == dockRight
+    check state.panelBelongsTo(panelFiles, dockRight)
+    check state.panelBelongsTo(panelTerminal, dockBottom)
+    check state.panelBelongsTo(panelAgent, dockLeft)
+    check state.dock(dockRight).side == dockRight
 
   test "unknown panel dock settings use each panel's default side":
     let root = getTempDir() / "nimculus-unknown-panel-dock-settings"
@@ -61,11 +59,37 @@ suite "workspace UI state":
     removeFile(path)
     removeDir(root)
 
-  test "initial workspace gives files a persistent left dock":
-    let state = initWorkspaceUi(tabCount = 3, activeTab = 1)
-    check state.validate()
+  test "startup settings move panel ownership between the three docks":
+    let root = getTempDir() / "nimculus-panel-dock-settings"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{"projectPanel":{"dock":"left"},"terminal":{"dock":"right"}}""")
+    let settings = newSettingsStore(path, "", "")
+    var state = initWorkspaceUi(settings = newSettingsStore("", "", ""))
+    state.openPanel(panelTerminal)
+    state.applyPanelDockSettings(settings)
+    check state.panelDockSide(panelFiles) == dockLeft
+    check state.panelDockSide(panelTerminal) == dockRight
     check state.leftDock.isOpen
     check state.leftDock.activePanel == panelFiles
+    check state.rightDock.isOpen
+    check state.rightDock.activePanel == panelTerminal
+    check state.panelDockSide(panelAgent) == dockLeft
+    removeFile(path)
+    removeDir(root)
+
+  test "panel dock side mask keeps left, bottom, and right distinct":
+    let state = initWorkspaceUi()
+    let mask = state.panelDockSideMask()
+    check (mask shr (ord(panelAgent) * 2) and 3'u32) == 1'u32
+    check (mask shr (ord(panelTerminal) * 2) and 3'u32) == 2'u32
+    check (mask shr (ord(panelFiles) * 2) and 3'u32) == 3'u32
+
+  test "initial workspace gives files a persistent right dock":
+    let state = initWorkspaceUi(tabCount = 3, activeTab = 1)
+    check state.validate()
+    check state.rightDock.isOpen
+    check state.rightDock.activePanel == panelFiles
     check state.center.firstPane().tabIndices == @[0, 1, 2]
     check state.center.firstPane().activeTabIndex == 1
 
@@ -76,18 +100,18 @@ suite "workspace UI state":
     check state.bottomDock.activePanel == panelTerminal
     state.togglePanel(panelTerminal)
     check not state.bottomDock.isOpen
-    check state.leftDock.isOpen
+    check state.rightDock.isOpen
 
   test "panel focus toggle returns to the editor without hiding the panel":
     var state = initWorkspaceUi()
     state.focusCenter()
     check state.togglePanelFocus(panelGit)
-    check state.leftDock.isOpen
-    check state.leftDock.activePanel == panelGit
-    check state.focusedRegion == regionLeftDock
+    check state.rightDock.isOpen
+    check state.rightDock.activePanel == panelGit
+    check state.focusedRegion == regionRightDock
     check not state.togglePanelFocus(panelGit)
-    check state.leftDock.isOpen
-    check state.leftDock.activePanel == panelGit
+    check state.rightDock.isOpen
+    check state.rightDock.activePanel == panelGit
     check state.focusedRegion == regionCenter
 
   test "panel lists preserve selection by stable key across refreshes":
@@ -111,8 +135,8 @@ suite "workspace UI state":
     check state.panelSelectedIndex(panelGit) == 0
     check state.selectPanelBoundary(panelGit, last = true)
     check state.panelSelectedIndex(panelGit) == 2
-    check state.leftDock.activePanel == panelGit
-    check state.focusedRegion == regionLeftDock
+    check state.rightDock.activePanel == panelGit
+    check state.focusedRegion == regionRightDock
 
   test "closing a shared tab preserves independent pane selections":
     var state = initWorkspaceUi(tabCount = 3, activeTab = 0)
@@ -128,40 +152,41 @@ suite "workspace UI state":
     state.resizeDock(dockLeft, 900, 800)
     let layout = state.layout(Size(width: px(800), height: px(600)))
     check float32(layout.center.size.width) >= MinimumCenterWidth
-    check layout.regionAt(Point(x: px(10), y: px(10))) == regionLeftDock
+    check layout.regionAt(Point(x: px(799), y: px(10))) == regionRightDock
     check layout.regionAt(Point(x: px(500), y: px(599))) == regionStatus
 
-  test "left dock geometry has no activity rail between panel and editor":
+  test "right dock geometry has no activity rail between panel and editor":
     var state = initWorkspaceUi()
     let viewport = Size(width: px(960), height: px(640))
     let layout = state.layout(viewport)
-    check float32(layout.leftDock.size.width) == DefaultLeftDockWidth
-    check float32(layout.center.origin.x) == DefaultLeftDockWidth
+    check float32(layout.rightDock.size.width) == DefaultLeftDockWidth
+    check float32(layout.center.origin.x) == 0'f32
     check layout.presentedRegionAt(viewport, Point(x: px(239), y: px(120)),
-      dockOnRight = false, presentedDockWidth = DefaultLeftDockWidth) == regionLeftDock
+      presentedDockWidth = DefaultLeftDockWidth) == regionCenter
     check layout.presentedRegionAt(viewport, Point(x: px(240), y: px(120)),
-      dockOnRight = false, presentedDockWidth = DefaultLeftDockWidth) == regionCenter
-    check state.dockResizeDivider(dockLeft, 960, dockOnRight = false) ==
-      DefaultLeftDockWidth
-    state.resizeDock(dockLeft, dockResizeRequest(dockLeft, 300, 960), 960)
-    check state.leftDock.size == 300
+      presentedDockWidth = DefaultLeftDockWidth) == regionCenter
+    check layout.presentedRegionAt(viewport, Point(x: px(959), y: px(120)),
+      presentedDockWidth = DefaultLeftDockWidth) == regionRightDock
+    check state.dockResizeDivider(dockRight, 960) == 720
+    state.resizeDock(dockRight, dockResizeRequest(dockRight, 660, 960), 960)
+    check state.rightDock.size == 300
 
-  test "right-presented project dock maps its divider and drag to logical width":
+  test "left and right dock resize coordinates use their real edges":
     var state = initWorkspaceUi()
-    check state.dockResizeDivider(dockLeft, 1200, dockOnRight = true) == 961
-    check dockResizeRequest(dockLeft, 840, 1200, dockOnRight = true) == 361
-    state.resizeDock(dockLeft,
-      dockResizeRequest(dockLeft, 840, 1200, dockOnRight = true), 1200)
-    check state.leftDock.size == 361
-    check state.dockResizeDivider(dockLeft, 1200, dockOnRight = true) == 840
-    state.resetDockSize(dockLeft)
-    check state.leftDock.size == DefaultLeftDockWidth
+    check state.dockResizeDivider(dockRight, 1200) == 960
+    check dockResizeRequest(dockRight, 840, 1200) == 360
+    state.resizeDock(dockRight, dockResizeRequest(dockRight, 840, 1200), 1200)
+    check state.rightDock.size == 360
+    check state.dockResizeDivider(dockRight, 1200) == 840
+    state.resetDockSize(dockRight)
+    check state.rightDock.size == DefaultLeftDockWidth
+    state.leftDock.isOpen = true
+    check state.dockResizeDivider(dockLeft, 1200) == DefaultLeftDockWidth
+    check dockResizeRequest(dockLeft, 300, 1200) == 300
 
-  test "right project dock presentation subtracts its measured allowance":
+  test "right project dock presentation uses its measured width":
     check projectDockPresentationWidth(DefaultLeftDockWidth, 128'f32,
-      dockOnRight = true) == 239'f32
-    check projectDockPresentationWidth(DefaultLeftDockWidth, 128'f32,
-      dockOnRight = false) == DefaultLeftDockWidth
+      ) == DefaultLeftDockWidth
 
   test "a native dock presentation yields its space when it cannot fit":
     check dockPresentationWidth(160'f32, 178'f32) == 0'f32
@@ -173,19 +198,19 @@ suite "workspace UI state":
     let viewport = Size(width: px(520), height: px(600))
     var state = initWorkspaceUi()
     let narrowed = state.layout(viewport)
-    let narrowedDock = dockPresentationWidth(float32(narrowed.leftDock.size.width), 178'f32)
+    let narrowedDock = dockPresentationWidth(float32(narrowed.rightDock.size.width), 178'f32)
     check narrowedDock == 0'f32
     check narrowed.presentedRegionAt(viewport, Point(x: px(500), y: px(120)),
-      dockOnRight = true, presentedDockWidth = narrowedDock) == regionCenter
+      presentedDockWidth = narrowedDock) == regionCenter
 
     let widenedViewport = Size(width: px(640), height: px(600))
     let widened = state.layout(widenedViewport)
-    let widenedDock = dockPresentationWidth(float32(widened.leftDock.size.width), 178'f32)
+    let widenedDock = dockPresentationWidth(float32(widened.rightDock.size.width), 178'f32)
     check widenedDock == 240'f32
     check widened.presentedRegionAt(widenedViewport, Point(x: px(500), y: px(120)),
-      dockOnRight = true, presentedDockWidth = widenedDock) == regionLeftDock
+      presentedDockWidth = widenedDock) == regionRightDock
     check widened.presentedRegionAt(widenedViewport, Point(x: px(100), y: px(120)),
-      dockOnRight = true, presentedDockWidth = widenedDock) == regionCenter
+      presentedDockWidth = widenedDock) == regionCenter
 
   test "bottom dock takes space from the center instead of overlaying it":
     var state = initWorkspaceUi()

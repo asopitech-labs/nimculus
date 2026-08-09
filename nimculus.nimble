@@ -35,6 +35,7 @@ task test, "Run unit and integration tests":
   exec "nim c --mm:arc --nimcache:.nimcache/test_platform_contract -r --path:src tests/test_platform_contract.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/test_accessibility -r --path:src tests/test_accessibility.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/test_ui_text -r --path:src tests/test_ui_text.nim"
+  exec "nim c --mm:arc --nimcache:.nimcache/test_workspace_ui -r --path:src tests/test_workspace_ui.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/test_editor -r --path:src tests/test_editor.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/test_editor_fuzz -r --path:src tests/test_editor_fuzz.nim"
   exec "nim c --mm:arc --nimcache:.nimcache/test_workspace -r --path:src tests/test_workspace.nim"

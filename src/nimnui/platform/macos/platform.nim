@@ -217,7 +217,7 @@ proc platformSetEditorStatus*(text: cstring) {.importc: "nimculus_platform_set_e
 proc platformSetEditorFooter*(text: cstring) {.importc: "nimculus_platform_set_editor_footer", cdecl.}
 proc platformSetDiagnosticsButton*(visible: bool) {.importc: "nimculus_platform_set_diagnostics_button", cdecl.}
 proc platformSetSearchButton*(visible: bool) {.importc: "nimculus_platform_set_search_button", cdecl.}
-proc platformSetFooterPanelDockSides*(leftPanelMask: uint32) {.importc: "nimculus_platform_set_footer_panel_dock_sides", cdecl.}
+proc platformSetFooterPanelDockSides*(panelDockSideMask: uint32) {.importc: "nimculus_platform_set_footer_panel_dock_sides", cdecl.}
 proc platformSetWelcomeVisible*(visible: bool) {.importc: "nimculus_platform_set_welcome_visible", cdecl.}
 proc platformSetCloseDecision*(allow: bool) {.importc: "nimculus_platform_set_close_decision", cdecl.}
 proc platformRequestCloseTab*() {.importc: "nimculus_platform_request_close_tab", cdecl.}

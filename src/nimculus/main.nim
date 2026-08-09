@@ -157,10 +157,6 @@ var activePointerNode = NodeId(0)
 var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 var demoSecondaryEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
 var demoBottomDockBounds = Rect(size: Size(width: px(0), height: px(0)))
-  # Match Zed's default macOS workspace: the Files panel is the outermost
-  # workspace surface on the right. Panel navigation lives in the status bar,
-  # while the logical left dock state is projected to the native right sidebar.
-const MacProjectDockOnRight = true
 when defined(macosx) or defined(windows):
   var appSettings: SettingsStore
   var editorLspSemanticTokens: seq[LspSemanticToken]
@@ -402,22 +398,29 @@ proc setupDemoUi() =
   let bounds = demoTree.node(button.node).bounds
   let workspaceLayout = editorWorkspaceUi.layout(
     Size(width: px(viewportWidth), height: px(viewportHeight)))
-  let logicalDockWidth = float32(workspaceLayout.leftDock.size.width)
+  let leftDockWidth = float32(workspaceLayout.leftDock.size.width)
+  let logicalRightDockWidth = float32(workspaceLayout.rightDock.size.width)
   # If the logical dock has already yielded its space to the editor, retire
   # the dock as one visual unit rather than leaving an empty Metal gutter
   # beside a hidden native sidebar. Its open/panel state remains in
   # WorkspaceUiState and returns automatically when the window is widened.
   const MacNativeSidebarMinimumDockWidth = 128'f32
-  let nativePresenterMinimum = if MacProjectDockOnRight:
-    MacNativeSidebarMinimumDockWidth else: 0'f32
-  let leftDockWidth = projectDockPresentationWidth(logicalDockWidth,
-    nativePresenterMinimum, dockOnRight = MacProjectDockOnRight)
-  let sidebarCanPresent = not MacProjectDockOnRight or leftDockWidth > 0'f32
+  let rightDockWidth = projectDockPresentationWidth(logicalRightDockWidth,
+    MacNativeSidebarMinimumDockWidth)
+  let sidebarOnRight = editorWorkspaceUi.rightDock.isOpen or
+    not editorWorkspaceUi.leftDock.isOpen
+  let sidebarWidth = if sidebarOnRight: rightDockWidth else: leftDockWidth
+  let sidebarCanPresent = sidebarWidth > 0'f32
   let bottomDockHeight = float32(workspaceLayout.bottomDock.size.height)
-  # Keep the platform projection aligned with WorkspaceUiState: the logical
-  # left dock is also the visible macOS left dock.
-  let contentX = if MacProjectDockOnRight: 0'f32 else: leftDockWidth
-  let contentWidth = max(0'f32, viewportWidth - leftDockWidth)
+  # Keep the platform projection aligned with WorkspaceUiState: the project
+  # dock is a real right dock, while a left dock consumes space at the left.
+  let contentX = leftDockWidth
+  # The divider is painted over the editor's edge column. Keeping that shared
+  # column in the Metal content preserves the established 1px boundary while
+  # the dock itself owns the full 240pt width.
+  let rightDividerColumn = if rightDockWidth > 0'f32: 1'f32 else: 0'f32
+  let contentWidth = max(0'f32, viewportWidth - leftDockWidth - rightDockWidth +
+    rightDividerColumn)
   demoBottomDockBounds = Rect(origin: Point(x: px(contentX),
       y: workspaceLayout.bottomDock.origin.y),
     size: Size(width: px(contentWidth), height: workspaceLayout.bottomDock.size.height))
@@ -468,8 +471,10 @@ proc setupDemoUi() =
   demoTree.node(scroll.node).bounds = editor
   demoTree.node(tabs.node).bounds = Rect(size: Size(width: px(viewportWidth), height: px(32)))
   demoTree.node(activeTab.node).bounds = demoTree.node(tabs.node).bounds
-  demoTree.node(sidebar.node).bounds = workspaceLayout.leftDock
-  demoTree.node(projectRow.node).bounds = workspaceLayout.leftDock
+  demoTree.node(sidebar.node).bounds = if sidebarOnRight:
+    workspaceLayout.rightDock else: workspaceLayout.leftDock
+  demoTree.node(projectRow.node).bounds = if sidebarOnRight:
+    workspaceLayout.rightDock else: workspaceLayout.leftDock
   demoTree.node(statusBar.node).bounds = demoBottomDockBounds
   demoTree.node(statusItem.node).bounds = demoBottomDockBounds
   # Install the current pane geometry before measuring native visible lines or
@@ -503,24 +508,23 @@ proc setupDemoUi() =
   # from WorkspaceUiState rather than drawing a disconnected demo card.
   paint.drawWorkspaceBackground(viewport)
   if leftDockWidth > 0:
-    let dockX = if MacProjectDockOnRight: viewportWidth - leftDockWidth else: 0'f32
+    let dockX = 0'f32
     let dockHeight = max(0'f32, viewportHeight - DefaultStatusHeight - bottomDockHeight)
     paint.drawWorkspacePanel(Rect(origin: Point(x: px(dockX), y: px(0)),
       size: Size(width: px(leftDockWidth), height: px(dockHeight))))
-    # Zed rules the dock's outer edge, not its first column: the border sits at
-    # x=1149pt with the panel surface starting at 1150pt. For a right-side dock
-    # the editor surface covers that column, so the rule is re-emitted above the
-    # editor background further down instead of here.
-    if not MacProjectDockOnRight:
-      paint.drawWorkspaceSeparator(Rect(origin: Point(x: px(leftDockWidth - 1),
-        y: px(0)), size: Size(width: px(1), height: px(dockHeight))))
+    paint.drawWorkspaceSeparator(Rect(origin: Point(x: px(leftDockWidth - 1'f32),
+      y: px(0)), size: Size(width: px(1), height: px(dockHeight))))
+  if rightDockWidth > 0:
+    let dockHeight = max(0'f32, viewportHeight - DefaultStatusHeight - bottomDockHeight)
+    paint.drawWorkspacePanel(Rect(origin: Point(x: px(viewportWidth - rightDockWidth), y: px(0)),
+      size: Size(width: px(rightDockWidth), height: px(dockHeight))))
   if bottomDockHeight > 0:
     paint.drawWorkspacePanel(Rect(origin: Point(x: px(contentX),
       y: px(viewportHeight - DefaultStatusHeight - bottomDockHeight)),
       size: Size(width: px(contentWidth), height: px(bottomDockHeight))))
     paint.drawWorkspaceSeparator(Rect(origin: Point(x: px(contentX),
       y: px(viewportHeight - DefaultStatusHeight - bottomDockHeight)),
-      size: Size(width: px(max(0'f32, viewportWidth - leftDockWidth)), height: px(1))))
+      size: Size(width: px(contentWidth), height: px(1))))
   paint.drawWorkspacePanel(workspaceLayout.status)
   if hasDocument:
     # The breadcrumb shares the editor surface with the text presenter. Keep
@@ -539,11 +543,11 @@ proc setupDemoUi() =
       if secondaryDocument != nil:
         drawEditorDecorationPaint(paint, secondaryEditor, editorSession.secondaryView,
           secondaryDocument[].buffer, secondaryEditorRenderDiagnostics, secondary = true)
-    if leftDockWidth > 0 and MacProjectDockOnRight:
+    if rightDockWidth > 0:
       # The editor surface reaches the dock's border column, so this rule has
       # to be laid over it rather than under it. Zed paints it at x=1149pt of a
       # 1389pt window, immediately left of the panel's #ececed.
-      let dockRuleX = viewportWidth - leftDockWidth - 1'f32
+      let dockRuleX = viewportWidth - rightDockWidth
       let dockRuleHeight = max(0'f32, viewportHeight - DefaultStatusHeight -
         bottomDockHeight)
       paint.drawWorkspaceSeparator(Rect(origin: Point(x: px(dockRuleX), y: px(0)),
@@ -648,8 +652,8 @@ proc setupDemoUi() =
   else:
     platformSetPaintDirtyRegions(nil, 0)
   when defined(macosx):
-    platformSetEditorSidebarVisible(editorWorkspaceUi.leftDock.isOpen and sidebarCanPresent)
-    platformSetEditorSidebarOnRight(MacProjectDockOnRight)
+    platformSetEditorSidebarVisible(sidebarCanPresent)
+    platformSetEditorSidebarOnRight(sidebarOnRight)
     platformSetFooterPanelDockSides(editorWorkspaceUi.panelDockSideMask())
     platformSetTerminalPanelRect(float64(float32(demoBottomDockBounds.origin.x)),
       float64(float32(demoBottomDockBounds.origin.y)),
@@ -4177,12 +4181,11 @@ proc restoreSession() =
   # before constructing the workspace too, so the next persistence write
   # cannot reintroduce an empty dock from stale session metadata.
   editorSession.workspaceBottomDockOpen = false
-  editorWorkspaceUi = initWorkspaceUi(editorSession)
+  editorWorkspaceUi = initWorkspaceUi(editorSession, appSettings)
   # Project navigation is the primary Zed-like startup surface. Restoring an
   # old Outline selection leaves an empty, low-value pane beside the editor
   # and obscures the files users need to act on first.
-  editorWorkspaceUi.leftDock.isOpen = true
-  editorWorkspaceUi.leftDock.activePanel = panelFiles
+  editorWorkspaceUi.openPanel(panelFiles)
   # A terminal or task cannot survive process relaunch. Restoring only this
   # dock's geometry while its native presenter is absent leaves an inert blank
   # region over the editor, so always reopen it through an explicit action.
@@ -4234,6 +4237,7 @@ proc openActiveWorkspace(path: string) =
     workspaceExpandedDirectories = activeWorkspace.rootPaths
     workspaceRevealPath = ""
     reloadWorkspaceSettings(activeWorkspace.root)
+    editorWorkspaceUi.applyPanelDockSettings(appSettings)
     activeWorkspace.startWatching()
     workspaceSearchQuery = ""
     workspaceSearchScope = ""
@@ -4244,8 +4248,7 @@ proc openActiveWorkspace(path: string) =
     when defined(macosx):
       # A folder chosen from the welcome surface should immediately become a
       # visible project, but keyboard focus remains in the center editor.
-      editorWorkspaceUi.leftDock.activePanel = panelFiles
-      editorWorkspaceUi.leftDock.isOpen = true
+      editorWorkspaceUi.openPanel(panelFiles)
       editorWorkspaceUi.focusedRegion = regionCenter
       setupDemoUi()
 
@@ -4359,10 +4362,9 @@ proc refreshWorkspacePreview() =
       # File watcher and workspace mutations refresh this cache in the
       # background. They must not steal the active Git/Outline panel just
       # because Files happens to be the data source being updated. Present
-      # the rebuilt tree only while Files is the selected left-dock surface;
+      # the rebuilt tree only while Files is the selected dock surface;
       # opening a workspace already selects Files before calling this path.
-      if editorWorkspaceUi.leftDock.isOpen and
-          editorWorkspaceUi.leftDock.activePanel == panelFiles:
+      if editorWorkspaceUi.panelIsActive(panelFiles):
         editorSidebarMode = sidebarFiles
         platformSetEditorSidebar(text.cstring, uint32(text.len),
           uint32(workspacePreviewEntries.len), uint32(sidebarFiles))
@@ -4617,7 +4619,6 @@ proc renderWorkspaceSearch() =
       # Keep the active editor (and any split) visible while presenting the
       # streaming result list in its own dock, following Zed's Search panel.
       editorWorkspaceUi.openPanel(panelSearch)
-      editorWorkspaceUi.leftDock.isOpen = true
       editorSidebarMode = sidebarWorkspaceSearch
       editorWorkspaceUi.replacePanelItems(panelSearch,
         workspaceSearchResults[0 ..< visibleCount].mapIt(
@@ -4660,7 +4661,6 @@ proc renderQuickOpen() =
       # Files list so click, keyboard selection, and Enter retain their normal
       # workspace semantics while the edited document remains visible.
       editorWorkspaceUi.openPanel(panelFiles)
-      editorWorkspaceUi.leftDock.isOpen = true
       editorSidebarMode = sidebarFiles
       editorWorkspaceUi.replacePanelItems(panelFiles,
         workspacePreviewEntries[0 ..< visibleCount].mapIt(it.path))
@@ -6694,7 +6694,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     if editorSession.split:
       editorSession.closeSplit()
       if not editorWorkspaceUi.closeRootSplit():
-        editorWorkspaceUi = initWorkspaceUi(editorSession)
+        editorWorkspaceUi = initWorkspaceUi(editorSession, appSettings)
       demoSplitEnabled = false
       editorPointerPane = 0
       editorPointerDragging = false
@@ -7280,7 +7280,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     editorViewState.statusMessage = "Git commit requires a message"
   elif name == "resetWorkspaceSidebarWidth":
     when defined(macosx):
-      editorWorkspaceUi.resetDockSize(dockLeft)
+      editorWorkspaceUi.resetDockSize(editorWorkspaceUi.panelDockSide(panelFiles))
       setupDemoUi()
       persistSession()
   elif name == "extensionPermissions:allow":
@@ -7862,11 +7862,10 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         # The footer owns one dock toggle, while the dock's active panel and
         # the existing View/Agent/Debug/Search affordances retain panel
         # selection. Do not reset the selected panel when the dock is hidden.
-        editorWorkspaceUi.leftDock.isOpen = not editorWorkspaceUi.leftDock.isOpen
-        editorWorkspaceUi.focusedRegion = if editorWorkspaceUi.leftDock.isOpen:
-          regionLeftDock else: regionCenter
+        editorWorkspaceUi.toggleDock(editorWorkspaceUi.panelDockSide(panelFiles))
         setupDemoUi()
-        if editorWorkspaceUi.leftDock.isOpen: platformFocusEditorSidebar()
+        if editorWorkspaceUi.dock(editorWorkspaceUi.panelDockSide(panelFiles)).isOpen:
+          platformFocusEditorSidebar()
         else: platformFocusEditor()
         persistSession()
     of "__reveal_active_file__":
@@ -7952,8 +7951,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx): toggleNativeFold(true, all = true)
     of "__toggle_git__":
       when defined(macosx):
-        let wasActive = editorWorkspaceUi.leftDock.isOpen and
-          editorWorkspaceUi.leftDock.activePanel == panelGit
+        let wasActive = editorWorkspaceUi.panelIsActive(panelGit)
         if wasActive:
           let didFocusPanel = editorWorkspaceUi.togglePanelFocus(panelGit)
           setupDemoUi()
@@ -9099,19 +9097,21 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     let viewportHeight = if metrics.heightPoints > 0: float32(metrics.heightPoints) else: 640'f32
     let workspaceViewport = Size(width: px(viewportWidth), height: px(viewportHeight))
     let workspaceLayout = editorWorkspaceUi.layout(workspaceViewport)
-    let logicalDockWidth = float32(workspaceLayout.leftDock.size.width)
-    let presentedDockWidth = projectDockPresentationWidth(logicalDockWidth,
-      if MacProjectDockOnRight: 128'f32 else: 0'f32,
-      dockOnRight = MacProjectDockOnRight)
+    let logicalRightDockWidth = float32(workspaceLayout.rightDock.size.width)
+    let presentedDockWidth = projectDockPresentationWidth(logicalRightDockWidth, 128'f32)
     let leftDividerX = editorWorkspaceUi.dockResizeDivider(dockLeft,
-      viewportWidth, dockOnRight = MacProjectDockOnRight)
+      viewportWidth)
+    let rightDividerX = editorWorkspaceUi.dockResizeDivider(dockRight,
+      viewportWidth)
     let bottomDividerY = float32(workspaceLayout.bottomDock.origin.y)
     if editorWorkspaceUi.isResizingDock:
       if kind == pointerMove:
         if editorWorkspaceUi.resizingDock == dockLeft:
           editorWorkspaceUi.resizeDock(dockLeft, dockResizeRequest(dockLeft,
-            float32(event.x), viewportWidth,
-            dockOnRight = MacProjectDockOnRight), viewportWidth)
+            float32(event.x), viewportWidth), viewportWidth)
+        elif editorWorkspaceUi.resizingDock == dockRight:
+          editorWorkspaceUi.resizeDock(dockRight, dockResizeRequest(dockRight,
+            float32(event.x), viewportWidth), viewportWidth)
         else:
           editorWorkspaceUi.resizeDock(dockBottom,
             viewportHeight - uiY - DefaultStatusHeight, viewportHeight)
@@ -9121,10 +9121,14 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
         editorWorkspaceUi.endDockResize()
         persistSession()
         return
-    if kind == pointerDown and presentedDockWidth > 0'f32 and
-        editorWorkspaceUi.leftDock.isOpen and
+    if kind == pointerDown and editorWorkspaceUi.leftDock.isOpen and
         abs(float32(event.x) - leftDividerX) <= 4'f32:
       editorWorkspaceUi.beginDockResize(dockLeft)
+      return
+    if kind == pointerDown and presentedDockWidth > 0'f32 and
+        editorWorkspaceUi.rightDock.isOpen and
+        abs(float32(event.x) - rightDividerX) <= 4'f32:
+      editorWorkspaceUi.beginDockResize(dockRight)
       return
     if kind == pointerDown and editorWorkspaceUi.bottomDock.isOpen and
         abs(uiY - bottomDividerY) <= 4'f32:
@@ -9132,12 +9136,12 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       return
     if kind == pointerDown:
       case workspaceLayout.presentedRegionAt(workspaceViewport, point,
-          dockOnRight = MacProjectDockOnRight,
           presentedDockWidth = presentedDockWidth)
       of regionLeftDock: editorWorkspaceUi.focusedRegion = regionLeftDock
       of regionBottomDock: editorWorkspaceUi.focusedRegion = regionBottomDock
+      of regionRightDock: editorWorkspaceUi.focusedRegion = regionRightDock
       of regionCenter: editorWorkspaceUi.focusCenter()
-      else: discard
+      of regionNone, regionStatus: discard
   let hit = demoTree.hitTest(point)
   let target = if kind in {keyDown, keyUp, modifiersChanged, command}:
     if demoTree.focused != NodeId(0): demoTree.focused else: hit
@@ -9495,6 +9499,7 @@ when isMainModule:
     # identical to subsequent root changes.
     appSettings = newSettingsStore(settingsFilePath,
       if restoredRoot.len > 0: restoredRoot / ".nimculus" / "settings.json" else: "")
+    editorWorkspaceUi.applyPanelDockSettings(appSettings)
     let extensionRoots = if restoredRoot.len > 0:
       @[getHomeDir() / ".nimculus" / "extensions", restoredRoot / ".nimculus" / "extensions"]
       else: @[getHomeDir() / ".nimculus" / "extensions"]
@@ -9507,8 +9512,7 @@ when isMainModule:
       # Treating it as a project would enumerate the entire machine. Keep the
       # Files dock instead, with its explicit Open Folder action: this is the
       # useful Zed-like entry point for an empty launch.
-      editorWorkspaceUi.leftDock.isOpen = true
-      editorWorkspaceUi.leftDock.activePanel = panelFiles
+      editorWorkspaceUi.openPanel(panelFiles)
       editorWorkspaceUi.focusedRegion = regionCenter
       editorSidebarMode = sidebarFiles
       setupDemoUi()
