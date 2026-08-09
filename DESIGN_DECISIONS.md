@@ -107,6 +107,42 @@ UI-097 は「端末のトグルをパネルのトグルと左端で隣接させ�
 4. 右ドックのモデル化は別項。3 の時点でファイルのドックをどちらとして扱うかを
    決める必要があるので、そこで判断する
 
+### 4 番目（右ドック）の中身 — 差はモデルそのもの
+
+`workspace_ui.nim:292-294` のコメントが差を明言している:
+
+```
+## Workspace state stores the Project dock logically on the left; macOS may
+## present it on the right, as Zed does, without changing that cross-platform
+## ownership.
+```
+
+**Nimculus は「論理的な左ドック」＋「右に描くフラグ」でできている**
+（`dockOnRight`、`RightDockPresentationAllowance`）。
+
+Zed は違う。**パネル自身が位置を持つ**（`dock.rs:39-41`）:
+
+```rust
+fn position(&self, window: &Window, cx: &App) -> DockPosition;
+fn position_is_valid(&self, position: DockPosition) -> bool;
+fn set_position(&mut self, position: DockPosition, window, cx);
+```
+
+ドックは Left / Right / Bottom の 3 つあり（`workspace.rs:1744-1746`）、
+パネルは設定（`"dock": "right"` 等）で位置を選び、右クリックメニューから
+移動できる（`dock.rs:1265-1288` の `POSITIONS` ループ）。
+`position_is_valid` で置けない位置を弾く。
+
+つまり Nimculus に足りないのは右ドックという「箱」ではなく、
+**パネルが位置を持ち、位置を変えられるという構造**。
+`dockOnRight` は 1 枚のパネルを右に描くためのフラグで、
+2 枚目のパネルを右に置くことも、パネルを左へ戻すこともできない。
+
+これを直さずにトグルの側だけ規則化すると、
+「所属ドックから側を決める」の所属が常に `dockLeft` / `dockBottom` の
+2 値しか返さないので、**規則の形をした個別対応**になる。
+着手順 3 でその制約に当たる。
+
 ### 却下案
 
 **(a) 端末だけ右に移し、規則は入れない。** 見た目は合うが、
