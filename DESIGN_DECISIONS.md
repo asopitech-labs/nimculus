@@ -1,5 +1,114 @@
 # Design Decisions
 
+## UI-118: パネルが自分の位置を持つ構造（UI-117 の 4 番目）
+
+**調査記録。実装指示はまだ出さない。** 影響範囲が広く、着手順の判断が要る。
+
+### Zed の構造
+
+**(1) パネルが位置を返す。** `dock.rs:39-41` の `Panel` トレイト:
+
+```rust
+fn position(&self, window: &Window, cx: &App) -> DockPosition;
+fn position_is_valid(&self, position: DockPosition) -> bool;
+fn set_position(&mut self, position: DockPosition, window, cx);
+```
+
+**(2) 位置は設定から読む。** `project_panel.rs:7568-7573`:
+
+```rust
+fn position(&self, _: &Window, cx: &App) -> DockPosition {
+    match ProjectPanelSettings::get_global(cx).dock {
+        DockSide::Left => DockPosition::Left,
+        DockSide::Right => DockPosition::Right,
+    }
+}
+```
+
+**(3) 置ける位置はパネルごとに違う。**
+project_panel は Left と Right のみ（`:7575-7577`）。
+terminal は 3 つとも可（`terminal_panel.rs:1534-1536` が `true` を返す）。
+
+**(4) 位置を変えると設定ファイルへ書き戻す。** `project_panel.rs:7579-7587` /
+`terminal_panel.rs:1538-1551` が `settings::update_settings_file` を呼ぶ。
+
+**(5) 設定が変わるとドックがパネルを引き取り直す。** `dock.rs:589-611`:
+
+```rust
+cx.observe_global_in::<SettingsStore>(window, move |this, window, cx| {
+    let new_position = panel.read(cx).position(window, cx);
+    if new_position == this.position { return; }
+    let new_dock = match new_position {
+        DockPosition::Left => &workspace.left_dock,
+        DockPosition::Bottom => &workspace.bottom_dock,
+        DockPosition::Right => &workspace.right_dock,
+    };
+    ...
+})
+```
+
+**パネルは自分が今どのドックにいるかを知らない。設定を見て、ドックの側が
+引き取る。** 右クリックメニュー（`dock.rs:1265-1288`）はこの設定を書くだけ。
+
+### Nimculus の現状
+
+| | |
+| --- | --- |
+| ドック | `leftDock` と `bottomDock` の 2 つ（`workspace_ui.nim:78`）|
+| 所属 | `panelBelongsTo`（`:184-187`）に**ハードコード** |
+| 右への表示 | `dockOnRight` フラグ（15 か所）。論理は左、描画は右 |
+| 永続化 | `workspaceLeftDockOpen` / `workspaceLeftPanel` / `workspaceBottom*`（`editor_app.nim:69-71`）— **ドックごと**であってパネルごとではない |
+| 設定 | パネルの位置に関する設定キーが**無い** |
+
+`workspace_ui.nim` 内で `leftDock` / `bottomDock` / `dockLeft` / `dockBottom` を
+直接名指ししている箇所が **65 か所**ある。
+
+### 何が表現できないか
+
+- パネルを別のドックへ動かせない（`panelBelongsTo` が固定）
+- 右ドックに 2 枚目を置けない（`dockOnRight` は 1 枚の描画位置フラグ）
+- 位置の永続化がドック単位なので、パネルが動くと保存先が変わる
+- 設定でユーザが位置を選べない
+
+### 移植の順序（依存の順）
+
+1. **`DockSide` に `dockRight` を足す。** 65 か所の `case` が漏れなく
+   コンパイルエラーになるので、対応漏れは型で捕まる
+2. **パネルごとの位置を設定へ移す。** `projectPanel.dock` /
+   `terminal.dock` など。既定は Zed と同じ（project_panel=right,
+   terminal=bottom, agent=left）
+3. **`panelBelongsTo` を設定引きに変える。** 固定の集合から、
+   設定を読む関数へ。`positionIsValid` 相当をパネルごとに持たせる
+4. **`dockOnRight` を消す。** 論理位置が右になるので、
+   「左に持って右に描く」補正（`RightDockPresentationAllowance`）が不要になる。
+   **ここが一番の作業量**で、15 か所＋レイアウト計算に触る
+5. **設定変更でドックが引き取り直す経路。** Zed の `dock.rs:589-611` 相当
+6. **右クリックメニューから位置を変える。** UI-111（AppKit chrome）に触れるので
+   最後
+
+### 1〜4 で UI-117 の 3 番目が解ける
+
+トグルの側が設定から決まるようになり、`panelBelongsTo` が 3 値を返す。
+現在の「規則の形をした個別対応」が本物の規則になる。
+
+### 却下案
+
+**(a) `dockOnRight` をもう 1 つ増やして端末にも付ける。**
+フラグを増やす形は Zed の構造ではない。パネルが増えるたびにフラグが増える。却下。
+
+**(b) 5 と 6 を先にやる。** 位置が動かせないうちは引き取り直す先が無い。
+依存の順が逆。却下。
+
+**(c) 全部まとめて 1 回で移植する。** 65 か所＋レイアウト計算＋設定＋永続化。
+1 と 2 は型とテストで守れるが、4 はキャプチャでしか確認できない。
+**分けて、それぞれ実測してから次へ進む。** 却下。
+
+### 実測すべきもの
+
+4 の後は必ずキャプチャを撮る。ドックの幅、区切りの位置、
+エディタ本文の開始 x はすべて `dockOnRight` の補正に依存している
+（`UI_PARITY_HANDOFF.md` §3 の「ドック境界 1150pt」）。
+
 ## UI-117: ステータスバーの左右の振り分けは、ドックの位置で決まる
 
 UI-114 の調査中、左右の帯を撮って見つけた差。**UI-097 の配置判断を訂正する。**
