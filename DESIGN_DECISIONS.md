@@ -524,13 +524,81 @@ UI-113 で右側を Zed に合わせた。左側は未移植であり、ここ�
 
 UI-097 で決めた構成（パネルトグル群）。Zed の 7 項目はどれも未移植。
 
-### 着手順（依存が浅い順）
+### 着手順（依存が浅い順）— **2026-08-09 に実測で洗い直した**
 
-1. diagnostic summary（LSP 診断は既にあり、アイコン化のみ）
-2. search button（検索 UI は既にある）
-3. activity indicator（LSP のダウンロード進捗など、表示するものが先に要る）
-4. lsp button（ポップオーバーメニューを伴う。UI-111 の AppKit chrome に触れる）
-5. git blame / merge conflict（どちらも未実装機能が前提）
+| # | 項目 | 状態 |
+| --- | --- | --- |
+| 1 | diagnostic summary | **完了**（UI-115）。大部分は移植済みで、差は 7 点だった |
+| 2 | search button | **完了**（UI-116）。差は文言の語順と設定の欠落だけだった |
+| 3 | git blame status | **着手可能。前提は揃っている** |
+| 4 | merge conflict indicator | **着手可能だが、既定で出ない**（下記）|
+| 5 | activity indicator | 前提が無い。機能の移植になる |
+| 6 | lsp button | UI-111 の下流 |
+
+**当初「どちらも未実装機能が前提」と書いた git blame / merge conflict は誤り。**
+`git_service.nim:553` に `blame*()`（`git blame --line-porcelain`）、
+`:557` に `conflictPaths*()` があり、データ源は既にある。
+
+### 3. git blame status
+
+Zed: `crates/git_ui/src/blame_ui.rs:68-93`
+
+```rust
+let inline_blame = ProjectSettings::get_global(cx).git.inline_blame;
+if !inline_blame.enabled || inline_blame.location != InlineBlameLocation::StatusBar {
+    return div();
+}
+```
+
+**既定では出ない。** `assets/settings/default.json:1671-1677` が
+`"enabled": true, "location": "inline"` なので、ステータスバーではなく
+行内に描かれる。`location` を `"status_bar"` にしたときだけこの項目が出る。
+
+出るときは `FileGit` アイコン（`Color::Hint`）＋ blame テキストのボタンで、
+押すと `OpenGitBlameCommit`。
+
+**Nimculus は行内 blame を持っている**（`main.nim:2554` のコメントが
+「Zed renders inline blame when space permits」）。
+つまり移植すべきは `location` 設定と、`"status_bar"` のときの表示。
+
+### 4. merge conflict indicator
+
+Zed: `crates/git_ui/src/conflict_view.rs:606-628`
+
+```rust
+if !agent_settings.enabled(cx)
+    || !agent_settings.show_merge_conflict_indicator
+    || self.conflicted_paths.is_empty()
+    || self.dismissed
+{ return Empty.into_any_element(); }
+```
+
+文言は `Resolve Merge Conflict{s} with Agent`、
+ツールチップは `Found N conflicts across the codebase`。
+
+**これは Agent 機能への導線であって、競合の表示ではない。**
+`agent_settings.enabled` が前提。押すと Agent に競合解決をさせる。
+Nimculus の Agent はコマンド dispatch（`commandPalette:agent start`）なので、
+「競合を Agent に解決させる」動作そのものが無い。
+
+**単複の分岐がある**（`file_count == 1` で `""` / `"s"`）。UI-115 と同じ。
+
+### 5. activity indicator（前提が無い）
+
+`activity_indicator.rs:337-540` の入力源:
+
+| 源 | Nimculus |
+| --- | --- |
+| direnv のエラー | 無し |
+| LSP の `$/progress` | **無し**（`$/progress` の処理が無い）|
+| DAP セッションの起動待ち | 無し |
+| 長時間の git ジョブ（`GIT_OPERATION_DELAY` 超過）| ジョブの追跡が無い |
+| 長時間の fs ジョブ | 無し |
+| LSP バイナリの取得状況（Downloading / CheckingForUpdate / Failed / Health）| 無し |
+
+**UI の移植ではなく機能の移植。** 別項として分ける。
+
+
 
 ドックのトグル配置は Zed の左ドック・右ドック・下ドックという構成自体が
 Nimculus に無く、UI-111 の下流。
