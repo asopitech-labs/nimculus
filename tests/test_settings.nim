@@ -61,6 +61,51 @@ suite "M12 settings foundation":
     removeFile(workspacePath)
     removeDir(root)
 
+  test "panel dock settings match Zed defaults and read configured positions":
+    let store = newSettingsStore("", "", "")
+    check store.projectPanelDock() == DefaultProjectPanelDock
+    check store.outlinePanelDock() == DefaultOutlinePanelDock
+    check store.gitPanelDock() == DefaultGitPanelDock
+    check store.agentDock() == DefaultAgentDock
+    check store.terminalDock() == DefaultTerminalDock
+    check store.debuggerDock() == DefaultDebuggerDock
+
+    let root = getTempDir() / "nimculus-panel-dock-settings"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{
+      "projectPanel":{"dock":"left"},
+      "outlinePanel":{"dock":"bottom"},
+      "gitPanel":{"dock":"left"},
+      "agent":{"dock":"right"},
+      "terminal":{"dock":"left"},
+      "debugger":{"dock":"right"}
+    }""")
+    let configured = newSettingsStore(path, "", "")
+    check configured.projectPanelDock() == "left"
+    check configured.outlinePanelDock() == "bottom"
+    check configured.gitPanelDock() == "left"
+    check configured.agentDock() == "right"
+    check configured.terminalDock() == "left"
+    check configured.debuggerDock() == "right"
+    removeFile(path)
+    removeDir(root)
+
+  test "panel dock settings validate their allowed positions":
+    let root = getTempDir() / "nimculus-invalid-panel-dock-settings"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{
+      "projectPanel":{"dock":"diagonal"},
+      "terminal":{"dock":"diagonal"}
+    }""")
+    let store = newSettingsStore(path, "", "")
+    check store.projectPanelDock() == DefaultProjectPanelDock
+    check store.terminalDock() == DefaultTerminalDock
+    check store.diagnostics().len == 2
+    removeFile(path)
+    removeDir(root)
+
   test "Markdown keeps Zed's language-scoped editor-width wrapping":
     check softWrapEnabledForPath("DEVELOPMENT_GUIDELINES.md", "none")
     check not softWrapEnabledForPath("main.nim", "none")
@@ -89,6 +134,15 @@ suite "M12 settings foundation":
     check schema["properties"]["editor"]["properties"]["fontFamily"]["type"].getStr == "string"
     check schema["properties"]["terminal"]["properties"]["fontSize"]["maximum"].getInt == 48
     check schema["properties"]["terminal"]["properties"]["fontFamily"]["type"].getStr == "string"
+    for panel in ["projectPanel", "outlinePanel", "gitPanel", "agent", "terminal", "debugger"]:
+      check schema["properties"][panel]["properties"]["dock"]["enum"].getElems.mapIt(
+        it.getStr) == @["left", "bottom", "right"]
+    check schema["properties"]["projectPanel"]["properties"]["dock"]["default"].getStr == "right"
+    check schema["properties"]["outlinePanel"]["properties"]["dock"]["default"].getStr == "right"
+    check schema["properties"]["gitPanel"]["properties"]["dock"]["default"].getStr == "right"
+    check schema["properties"]["agent"]["properties"]["dock"]["default"].getStr == "left"
+    check schema["properties"]["terminal"]["properties"]["dock"]["default"].getStr == "bottom"
+    check schema["properties"]["debugger"]["properties"]["dock"]["default"].getStr == "bottom"
     check schema["properties"]["scroll_sensitivity"]["default"].getFloat == 1.0
     check schema["properties"]["fast_scroll_sensitivity"]["default"].getFloat == 4.0
     check schema["properties"]["terminal"]["properties"]["scroll_multiplier"]["default"].getFloat == 1.0

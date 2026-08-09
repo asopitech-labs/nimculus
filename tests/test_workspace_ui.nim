@@ -1,8 +1,66 @@
 import std/unittest
+import std/os
 import nimnui/geometry
+import nimculus/settings
 import nimculus/workspace_ui
 
 suite "workspace UI state":
+  test "dock side and panel position APIs are exhaustive without moving panels":
+    let settings = newSettingsStore("", "", "")
+    check dockLeft != dockRight
+    check dockBottom != dockRight
+    check panelDockSettingKey(panelFiles) == "projectPanel.dock"
+    check panelDockSettingKey(panelGit) == "gitPanel.dock"
+    check panelDockSettingKey(panelOutline) == "outlinePanel.dock"
+    check panelDockSettingKey(panelTerminal) == "terminal.dock"
+    check panelDockSettingKey(panelDebugger) == "debugger.dock"
+    check panelDockSettingKey(panelAgent) == "agent.dock"
+    check panelDockSettingKey(panelTasks) == ""
+    check panelDockSettingKey(panelSearch) == ""
+    check panelDockSide(panelFiles, settings) == dockRight
+    check panelDockSide(panelOutline, settings) == dockRight
+    check panelDockSide(panelGit, settings) == dockRight
+    check panelDockSide(panelAgent, settings) == dockLeft
+    check panelDockSide(panelTerminal, settings) == dockBottom
+    check panelDockSide(panelDebugger, settings) == dockBottom
+    check panelDockSide(panelTasks, settings) == dockBottom
+    check panelDockSide(panelSearch, settings) == dockLeft
+    check panelPositionIsValid(panelFiles, dockLeft)
+    check panelPositionIsValid(panelFiles, dockRight)
+    check not panelPositionIsValid(panelFiles, dockBottom)
+    for panel in [panelGit, panelOutline, panelAgent]:
+      check panelPositionIsValid(panel, dockLeft)
+      check not panelPositionIsValid(panel, dockBottom)
+      check panelPositionIsValid(panel, dockRight)
+    for panel in [panelTerminal, panelDebugger]:
+      check panelPositionIsValid(panel, dockLeft)
+      check panelPositionIsValid(panel, dockBottom)
+      check panelPositionIsValid(panel, dockRight)
+    check panelPositionIsValid(panelTasks, dockBottom)
+    check panelPositionIsValid(panelSearch, dockLeft)
+
+    let state = initWorkspaceUi()
+    check state.leftDock.side == dockLeft
+    check state.bottomDock.side == dockBottom
+    check panelBelongsTo(panelFiles, dockLeft)
+    check not panelBelongsTo(panelFiles, dockRight)
+    check panelBelongsTo(panelTerminal, dockBottom)
+    for panel in PanelKind:
+      check not panelBelongsTo(panel, dockRight)
+    expect ValueError:
+      discard state.dock(dockRight)
+
+  test "unknown panel dock settings use each panel's default side":
+    let root = getTempDir() / "nimculus-unknown-panel-dock-settings"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{"agent":{"dock":"diagonal"}}""")
+    let settings = newSettingsStore(path, "", "")
+    check panelDockSide(panelAgent, settings) == dockLeft
+    check settings.diagnostics().len == 1
+    removeFile(path)
+    removeDir(root)
+
   test "initial workspace gives files a persistent left dock":
     let state = initWorkspaceUi(tabCount = 3, activeTab = 1)
     check state.validate()
@@ -71,7 +129,7 @@ suite "workspace UI state":
     let layout = state.layout(Size(width: px(800), height: px(600)))
     check float32(layout.center.size.width) >= MinimumCenterWidth
     check layout.regionAt(Point(x: px(10), y: px(10))) == regionLeftDock
-    check layout.regionAt(Point(x: px(500), y: px(590))) == regionStatus
+    check layout.regionAt(Point(x: px(500), y: px(599))) == regionStatus
 
   test "left dock geometry has no activity rail between panel and editor":
     var state = initWorkspaceUi()
@@ -90,11 +148,11 @@ suite "workspace UI state":
 
   test "right-presented project dock maps its divider and drag to logical width":
     var state = initWorkspaceUi()
-    check state.dockResizeDivider(dockLeft, 1200, dockOnRight = true) == 977
-    check dockResizeRequest(dockLeft, 840, 1200, dockOnRight = true) == 377
+    check state.dockResizeDivider(dockLeft, 1200, dockOnRight = true) == 961
+    check dockResizeRequest(dockLeft, 840, 1200, dockOnRight = true) == 361
     state.resizeDock(dockLeft,
       dockResizeRequest(dockLeft, 840, 1200, dockOnRight = true), 1200)
-    check state.leftDock.size == 377
+    check state.leftDock.size == 361
     check state.dockResizeDivider(dockLeft, 1200, dockOnRight = true) == 840
     state.resetDockSize(dockLeft)
     check state.leftDock.size == DefaultLeftDockWidth

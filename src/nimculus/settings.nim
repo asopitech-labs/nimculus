@@ -108,6 +108,14 @@ const DefaultSoftWrapMode* = "none"
 const DefaultDiagnosticsButton* = true
 const DefaultSearchButton* = true
 
+const
+  DefaultProjectPanelDock* = "right"
+  DefaultOutlinePanelDock* = "right"
+  DefaultGitPanelDock* = "right"
+  DefaultAgentDock* = "left"
+  DefaultTerminalDock* = "bottom"
+  DefaultDebuggerDock* = "bottom"
+
 proc softWrapEnabledForPath*(path, configuredMode: string): bool =
   ## Zed's global default is `none`, but Markdown has a language-scoped
   ## `editor_width` default. Preserve that distinction at the settings edge.
@@ -201,6 +209,23 @@ proc validateSettings*(root: JsonNode): seq[SettingsDiagnostic] =
   let insertSpaces = nodeAt(root, "editor.insertSpaces")
   if insertSpaces != nil and insertSpaces.kind != JBool:
     result.add(SettingsDiagnostic(path: "editor.insertSpaces", message: "must be a boolean"))
+  for setting in [
+      (path: "projectPanel.dock", allowed: @[
+        "left", "bottom", "right"]),
+      (path: "outlinePanel.dock", allowed: @[
+        "left", "bottom", "right"]),
+      (path: "gitPanel.dock", allowed: @[
+        "left", "bottom", "right"]),
+      (path: "agent.dock", allowed: @[
+        "left", "bottom", "right"]),
+      (path: "terminal.dock", allowed: @[
+        "left", "bottom", "right"]),
+      (path: "debugger.dock", allowed: @[
+        "left", "bottom", "right"])]:
+    let value = nodeAt(root, setting.path)
+    if value != nil and (value.kind != JString or value.getStr notin setting.allowed):
+      result.add(SettingsDiagnostic(path: setting.path,
+        message: "must be one of: " & setting.allowed.join(", ")))
   for key in ["statusBar.showActiveFile", "statusBar.activeLanguageButton",
       "statusBar.cursorPositionButton", "statusBar.lineEndingsButton",
       "diagnostics.button", "search.button"]:
@@ -277,6 +302,18 @@ proc settingsSchema*(): JsonNode =
         "tabSize": {"type": "integer", "minimum": 1, "maximum": 16},
         "insertSpaces": {"type": "boolean"}
     }},
+    "projectPanel": {"type": "object", "properties": {
+      "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "right"}
+    }},
+    "outlinePanel": {"type": "object", "properties": {
+      "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "right"}
+    }},
+    "gitPanel": {"type": "object", "properties": {
+      "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "right"}
+    }},
+    "agent": {"type": "object", "properties": {
+      "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "left"}
+    }},
     "statusBar": {"type": "object", "properties": {
       "showActiveFile": {"type": "boolean", "default": false},
       "activeLanguageButton": {"type": "boolean", "default": true},
@@ -327,7 +364,11 @@ proc settingsSchema*(): JsonNode =
     "terminal": {"type": "object", "properties": {
       "shell": {"type": "string"}, "fontFamily": {"type": "string"},
       "fontSize": {"type": "integer", "minimum": 6, "maximum": 48},
+      "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "bottom"},
       "scroll_multiplier": {"type": "number", "default": 1.0}
+    }},
+    "debugger": {"type": "object", "properties": {
+      "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "bottom"}
     }},
     "lsp": {"type": "object", "properties": {"command": {"type": "string"}}},
     "keymap": {"type": "array", "items": {"type": "object",
@@ -645,6 +686,35 @@ proc values*(store: SettingsStore): JsonNode =
 
 proc stringSetting*(store: SettingsStore, path: string; fallback = ""): string =
   jsonStringAt(store.values, path, fallback)
+
+proc normalizedDockSetting(store: SettingsStore, path, fallback: string,
+                           allowed: openArray[string]): string =
+  let value = store.stringSetting(path, fallback)
+  if value in allowed: value else: fallback
+
+proc projectPanelDock*(store: SettingsStore): string =
+  store.normalizedDockSetting("projectPanel.dock", DefaultProjectPanelDock,
+    ["left", "bottom", "right"])
+
+proc outlinePanelDock*(store: SettingsStore): string =
+  store.normalizedDockSetting("outlinePanel.dock", DefaultOutlinePanelDock,
+    ["left", "bottom", "right"])
+
+proc gitPanelDock*(store: SettingsStore): string =
+  store.normalizedDockSetting("gitPanel.dock", DefaultGitPanelDock,
+    ["left", "bottom", "right"])
+
+proc agentDock*(store: SettingsStore): string =
+  store.normalizedDockSetting("agent.dock", DefaultAgentDock,
+    ["left", "bottom", "right"])
+
+proc terminalDock*(store: SettingsStore): string =
+  store.normalizedDockSetting("terminal.dock", DefaultTerminalDock,
+    ["left", "bottom", "right"])
+
+proc debuggerDock*(store: SettingsStore): string =
+  store.normalizedDockSetting("debugger.dock", DefaultDebuggerDock,
+    ["left", "bottom", "right"])
 
 proc softWrapMode*(store: SettingsStore): string =
   ## Zed's factory default is the explicit string "none". Keep the setting

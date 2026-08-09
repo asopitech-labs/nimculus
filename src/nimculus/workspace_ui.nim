@@ -6,6 +6,7 @@
 
 import nimnui/geometry
 import nimculus/editor_app
+import nimculus/settings
 
 type
   WorkspaceRegion* = enum
@@ -17,7 +18,7 @@ type
     panelDebugger, panelAgent
 
   DockSide* = enum
-    dockLeft, dockBottom
+    dockLeft, dockBottom, dockRight
 
   PaneAxis* = enum
     paneHorizontal, paneVertical
@@ -179,13 +180,62 @@ proc saveWorkspaceUi*(state: WorkspaceUiState, session: var EditorSession) =
   session.workspaceBottomPanel = ord(state.bottomDock.activePanel)
 
 proc dock*(state: WorkspaceUiState, side: DockSide): DockState =
-  if side == dockLeft: state.leftDock else: state.bottomDock
+  case side
+  of dockLeft: state.leftDock
+  of dockBottom: state.bottomDock
+  of dockRight: raise newException(ValueError, "right dock has no panels yet")
 
 proc panelBelongsTo*(panel: PanelKind, side: DockSide): bool =
   case side
   of dockLeft: panel in {panelFiles, panelGit, panelOutline, panelSearch, panelDebugger,
     panelAgent}
   of dockBottom: panel in {panelTerminal, panelTasks}
+  of dockRight: false
+
+proc panelDockSettingKey*(panel: PanelKind): string =
+  ## Settings names mirror Zed's panel-scoped keys while following Nimculus's
+  ## camelCase path convention. Tasks and Search have no corresponding Zed
+  ## panel setting yet and retain their legacy dock until a setting is added.
+  case panel
+  of panelFiles: "projectPanel.dock"
+  of panelGit: "gitPanel.dock"
+  of panelOutline: "outlinePanel.dock"
+  of panelTerminal: "terminal.dock"
+  of panelDebugger: "debugger.dock"
+  of panelAgent: "agent.dock"
+  of panelTasks, panelSearch: ""
+
+proc dockSideFromSetting(value: string, fallback: DockSide): DockSide =
+  case value
+  of "left": dockLeft
+  of "bottom": dockBottom
+  of "right": dockRight
+  else: fallback
+
+proc panelDockSide*(panel: PanelKind, settings: SettingsStore): DockSide =
+  ## Read the panel's configured position without applying it to workspace
+  ## ownership yet. Applying this result is the follow-up ownership migration.
+  case panel
+  of panelFiles: dockSideFromSetting(settings.projectPanelDock(), dockRight)
+  of panelGit: dockSideFromSetting(settings.gitPanelDock(), dockRight)
+  of panelOutline: dockSideFromSetting(settings.outlinePanelDock(), dockRight)
+  of panelTerminal: dockSideFromSetting(settings.terminalDock(), dockBottom)
+  of panelDebugger: dockSideFromSetting(settings.debuggerDock(), dockBottom)
+  of panelAgent: dockSideFromSetting(settings.agentDock(), dockLeft)
+  of panelTasks: dockBottom
+  of panelSearch: dockLeft
+
+proc panelPositionIsValid*(panel: PanelKind, side: DockSide): bool =
+  ## Match Zed's panel-specific position predicates. Tasks and Search have no
+  ## corresponding Zed panel and retain their current side until they receive
+  ## panel-scoped settings.
+  case panel
+  of panelFiles: side in {dockLeft, dockRight}
+  of panelGit, panelOutline: side in {dockLeft, dockRight}
+  of panelAgent: side != dockBottom
+  of panelTerminal, panelDebugger: true
+  of panelTasks: side == dockBottom
+  of panelSearch: side == dockLeft
 
 proc panelDockSideMask*(state: WorkspaceUiState): uint32 =
   ## AppKit receives the workspace's complete panel placement as one mapping.
@@ -290,8 +340,12 @@ proc focusCenter*(state: var WorkspaceUiState) =
   state.focusedRegion = regionCenter
 
 proc beginDockResize*(state: var WorkspaceUiState, side: DockSide) =
-  state.resizingDock = side
-  state.isResizingDock = true
+  case side
+  of dockLeft, dockBottom:
+    state.resizingDock = side
+    state.isResizingDock = true
+  of dockRight:
+    raise newException(ValueError, "right dock has no panels yet")
 
 proc endDockResize*(state: var WorkspaceUiState) =
   state.isResizingDock = false
@@ -309,6 +363,8 @@ proc dockResizeDivider*(state: WorkspaceUiState, side: DockSide,
     if dockOnRight: max(0'f32, available - size) else: size
   of dockBottom:
     max(0'f32, available - size)
+  of dockRight:
+    raise newException(ValueError, "right dock has no panels yet")
 
 proc dockResizeRequest*(side: DockSide, pointer, available: float32,
                         dockOnRight = false): float32 =
@@ -322,6 +378,8 @@ proc dockResizeRequest*(side: DockSide, pointer, available: float32,
     else: max(0'f32, pointer)
   of dockBottom:
     max(0'f32, available - pointer)
+  of dockRight:
+    raise newException(ValueError, "right dock has no panels yet")
 
 proc resetDockSize*(state: var WorkspaceUiState, side: DockSide) =
   ## Match Zed's resize-handle double-click behavior without exposing a
@@ -329,15 +387,20 @@ proc resetDockSize*(state: var WorkspaceUiState, side: DockSide) =
   case side
   of dockLeft: state.leftDock.size = DefaultLeftDockWidth
   of dockBottom: state.bottomDock.size = DefaultBottomDockHeight
+  of dockRight: raise newException(ValueError, "right dock has no panels yet")
 
 proc resizeDock*(state: var WorkspaceUiState, side: DockSide, requested: float32,
                  available: float32) =
-  let current = state.dock(side)
-  let centerMinimum = if side == dockLeft: MinimumCenterWidth else: MinimumCenterHeight
-  let upperBound = max(current.minimumSize, available - centerMinimum)
-  let size = min(upperBound, max(current.minimumSize, requested))
-  if side == dockLeft: state.leftDock.size = size
-  else: state.bottomDock.size = size
+  case side
+  of dockLeft, dockBottom:
+    let current = state.dock(side)
+    let centerMinimum = if side == dockLeft: MinimumCenterWidth else: MinimumCenterHeight
+    let upperBound = max(current.minimumSize, available - centerMinimum)
+    let size = min(upperBound, max(current.minimumSize, requested))
+    if side == dockLeft: state.leftDock.size = size
+    else: state.bottomDock.size = size
+  of dockRight:
+    raise newException(ValueError, "right dock has no panels yet")
 
 proc layout*(state: WorkspaceUiState, viewport: Size): WorkspaceLayout =
   let width = max(0'f32, float32(viewport.width))
