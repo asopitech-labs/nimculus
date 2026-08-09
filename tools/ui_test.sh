@@ -26,7 +26,10 @@
 #   UI_TEST_BASE   golden image name          (default: ui-test-base)
 #   UI_TEST_KEEP   1 = keep the VM on exit    (default: unset, VM is deleted)
 #   UI_TEST_OUT    artifact directory         (default: build/ui-test/<run>)
-#   UI_TEST_NO_MINIMIZE  1 = do not minimize the Tart window (default: unset)
+#   UI_TEST_NO_HIDE  1 = do not hide the Tart process    (default: unset)
+#
+# Tart does not expose its window through Accessibility. Setting AXMinimized
+# on every window can therefore succeed for an empty collection and do nothing.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 REPO="$PWD"
@@ -63,31 +66,22 @@ cleanup() {
 }
 trap cleanup EXIT
 
-minimize_tart_window() {
-  [ "${UI_TEST_NO_MINIMIZE:-}" = 1 ] && return 0
+hide_tart_process() {
+  [ "${UI_TEST_NO_HIDE:-}" = 1 ] && return 0
 
   local attempt=1
-  local result
+  local visible
   while [ "$attempt" -le 30 ]; do
-    if result=$(osascript -e 'tell application "System Events"
-      set tartProcesses to every process whose name contains "Tart"
-      if (count of tartProcesses) is 0 then return "not-found"
-      repeat with tartProcess in tartProcesses
-        if (count of windows of tartProcess) > 0 then
-          tell tartProcess to set value of attribute "AXMinimized" of every window to true
-          return "minimized"
-        end if
-      end repeat
-      return "not-found"
-    end tell' 2>/dev/null); then
-      [ "$result" = minimized ] && return 0
-    else
-      echo "warning: could not access System Events to minimize the Tart window; continuing" >&2
+    if osascript -e 'tell application "System Events" to set visible of (first process whose name is "Tart") to false' >/dev/null 2>&1 &&
+      visible=$(osascript -e 'tell application "System Events" to get visible of (first process whose name is "Tart")' 2>/dev/null) &&
+      [ "$visible" = false ]; then
       return 0
     fi
     attempt=$((attempt + 1))
     sleep 1
   done
+
+  echo "warning: could not verify that the Tart process was hidden; continuing" >&2
   return 0
 }
 
@@ -101,10 +95,10 @@ echo "== boot"
 # screenshots (see docs/MACOS_UI_TEST_GUIDELINES.md §0).
 tart run "$RUN" >"$OUT/vm.log" 2>&1 &
 VM_PID=$!
-MINIMIZE_PID=""
-if [ "${UI_TEST_NO_MINIMIZE:-}" != 1 ]; then
-  minimize_tart_window &
-  MINIMIZE_PID=$!
+HIDE_PID=""
+if [ "${UI_TEST_NO_HIDE:-}" != 1 ]; then
+  hide_tart_process &
+  HIDE_PID=$!
 fi
 
 # The guest agent answers once the login session is up. Poll rather than
@@ -115,8 +109,8 @@ for _ in $(seq 1 60); do
   if tart exec "$RUN" true >/dev/null 2>&1; then ready=yes; break; fi
   sleep 5
 done
-if [ -n "$MINIMIZE_PID" ]; then
-  wait "$MINIMIZE_PID" 2>/dev/null || true
+if [ -n "$HIDE_PID" ]; then
+  wait "$HIDE_PID" 2>/dev/null || true
 fi
 [ -n "$ready" ] || { echo "guest agent did not come up; see $OUT/vm.log" >&2; exit 1; }
 
