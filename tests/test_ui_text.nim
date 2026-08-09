@@ -1,5 +1,6 @@
 import std/unittest
 import std/unicode
+import std/options
 import nimnui/nimnui
 import nimnui/text
 import nimculus/editor_view
@@ -219,6 +220,96 @@ suite "M2 UI foundation":
       size: Size(width: px(278), height: px(176)))
     check tree.node(first).bounds == expected
     check tree.node(second).bounds == expected
+
+  test "absolute children use the parent's content box for inset":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let popup = tree.addNode(root)
+    tree.setLayoutSpec(popup, LayoutSpec(position: absolute,
+      inset: LengthEdges(left: pxLength(px(3)), top: pxLength(px(4))),
+      size: Size(width: px(20), height: px(10))))
+    tree.layoutNode(root, Rect(origin: Point(x: px(10), y: px(20)),
+      size: Size(width: px(100), height: px(80))),
+      LayoutSpec(direction: stack,
+        padding: EdgeInsets(top: px(5), right: px(7), bottom: px(9), left: px(11))))
+    check tree.node(popup).bounds == Rect(origin: Point(x: px(24), y: px(29)),
+      size: Size(width: px(20), height: px(10)))
+
+  test "absolute children do not consume row allocation":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let popup = tree.addNode(root)
+    let flowChild = tree.addNode(root)
+    tree.setLayoutSpec(popup, LayoutSpec(position: absolute,
+      inset: LengthEdges(left: pxLength(px(10))),
+      size: Size(width: px(15), height: px(10))))
+    tree.setLayoutSpec(flowChild, LayoutSpec(direction: stack,
+      size: Size(width: px(20), height: px(10))))
+    tree.layoutNode(root, Rect(size: Size(width: px(100), height: px(20))),
+      LayoutSpec(direction: row))
+    check tree.node(flowChild).bounds.origin.x == px(0)
+    check tree.node(popup).bounds.origin.x == px(10)
+
+  test "margin is outside the child and adds to sibling spacing":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let first = tree.addNode(root)
+    let second = tree.addNode(root)
+    tree.setLayoutSpec(first, LayoutSpec(direction: stack,
+      size: Size(width: px(20), height: px(10)),
+      margin: EdgeInsets(left: px(2), right: px(3))))
+    tree.setLayoutSpec(second, LayoutSpec(direction: stack,
+      size: Size(width: px(20), height: px(10)),
+      margin: EdgeInsets(left: px(4), right: px(5))))
+    tree.layoutNode(root, Rect(size: Size(width: px(100), height: px(20))),
+      LayoutSpec(direction: row, gap: px(1)))
+    check tree.node(first).bounds.origin.x == px(2)
+    check tree.node(first).bounds.size.width == px(20)
+    check tree.node(second).bounds.origin.x == px(30)
+
+  test "hidden overflow clips an overflowing absolute child":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let child = tree.addNode(root)
+    tree.setLayoutSpec(child, LayoutSpec(position: absolute,
+      inset: LengthEdges(left: pxLength(px(30)), top: pxLength(px(30))),
+      size: Size(width: px(30), height: px(30))))
+    tree.layoutNode(root, Rect(size: Size(width: px(40), height: px(40))),
+      LayoutSpec(direction: stack, overflow: overflowPoint(hidden)))
+    check tree.node(child).bounds == Rect(origin: Point(x: px(30), y: px(30)),
+      size: Size(width: px(10), height: px(10)))
+    check tree.node(root).clipChildren
+    check tree.node(root).clipBounds == Rect(size: Size(width: px(40), height: px(40)))
+
+  test "justify content and align items control independent axes":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let first = tree.addNode(root)
+    let second = tree.addNode(root)
+    let childSpec = LayoutSpec(direction: stack,
+      size: Size(width: px(20), height: px(10)))
+    tree.setLayoutSpec(first, childSpec)
+    tree.setLayoutSpec(second, childSpec)
+    tree.layoutNode(root, Rect(size: Size(width: px(100), height: px(40))),
+      LayoutSpec(direction: row, gap: px(0),
+        alignItems: some(alignEnd), justifyContent: some(justifyCenter)))
+    check tree.node(first).bounds.origin == Point(x: px(30), y: px(30))
+    check tree.node(second).bounds.origin == Point(x: px(50), y: px(30))
+
+  test "legacy row column and stack defaults retain their placement":
+    var tree = newUiTree()
+    let columnNode = tree.addNode()
+    let first = tree.addNode(columnNode)
+    let second = tree.addNode(columnNode)
+    tree.setLayoutSpec(first, LayoutSpec(direction: stack,
+      size: Size(width: px(10), height: px(8))))
+    tree.setLayoutSpec(second, LayoutSpec(direction: stack,
+      size: Size(width: px(10), height: px(8))))
+    tree.layoutNode(columnNode, Rect(size: Size(width: px(40), height: px(30))),
+      LayoutSpec(direction: column, gap: px(2)))
+    check tree.node(first).bounds.origin == Point(x: px(0), y: px(0))
+    check tree.node(second).bounds.origin == Point(x: px(0), y: px(10))
+    check tree.node(first).bounds.size == Size(width: px(10), height: px(8))
 
   test "layout recursively applies each descendant's layout spec":
     var tree = newUiTree()

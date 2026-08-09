@@ -20,6 +20,9 @@ type
     parent*: NodeId
     children*: seq[NodeId]
     bounds*: Rect
+    clipBounds*: Rect
+    clipChildren*: bool
+    clipX*, clipY*: bool
     state*: UiState
     layoutDirty*: bool
     paintDirty*: bool
@@ -133,19 +136,37 @@ proc setA11yState*(tree: var UiTree, id: NodeId, selected, expanded: bool) =
 
 proc hitTest*(tree: UiTree, point: Point): NodeId =
   ## Return the deepest/topmost node containing a point. A node is eligible
-  ## only while every ancestor contains the point, matching viewport clipping
-  ## for both painting and pointer routing.
+  ## only while every clipping ancestor contains the point. `overflow: visible`
+  ## therefore allows an absolute child to receive input outside its parent,
+  ## while `overflow: hidden` matches the painting clip.
   for index in countdown(tree.nodes.high, 0):
     if tree.nodes[index].disabledState: continue
     if not tree.nodes[index].bounds.contains(point): continue
     var current = tree.nodes[index].parent
+    var descendant = tree.nodes[index].id
     var visible = true
     while current != NodeId(0):
       let ancestorIndex = tree.nodeIndex(current)
-      if ancestorIndex < 0 or tree.nodes[ancestorIndex].disabledState or
-          not tree.nodes[ancestorIndex].bounds.contains(point):
+      if ancestorIndex < 0 or tree.nodes[ancestorIndex].disabledState:
         visible = false
         break
+      let ancestor = tree.nodes[ancestorIndex]
+      let descendantIndex = tree.nodeIndex(descendant)
+      let descendantIsAbsolute = descendantIndex >= 0 and
+        tree.nodes[descendantIndex].layoutSpec.position == absolute
+      let useLegacyBounds = not ancestor.clipChildren and not descendantIsAbsolute
+      if ((useLegacyBounds and not ancestor.bounds.contains(point)) or
+          (ancestor.clipChildren and ((ancestor.clipX and
+          (float32(point.x) < float32(ancestor.clipBounds.origin.x) or
+           float32(point.x) >= float32(ancestor.clipBounds.origin.x +
+               ancestor.clipBounds.size.width))) or
+           (ancestor.clipY and
+          (float32(point.y) < float32(ancestor.clipBounds.origin.y) or
+           float32(point.y) >= float32(ancestor.clipBounds.origin.y +
+               ancestor.clipBounds.size.height)))))):
+        visible = false
+        break
+      descendant = current
       current = tree.nodes[ancestorIndex].parent
     if visible: return tree.nodes[index].id
   NodeId(0)
