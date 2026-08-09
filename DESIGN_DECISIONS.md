@@ -1,5 +1,126 @@
 # Design Decisions
 
+## UI-121: 行内 blame（カーソル行の行末に出す）
+
+UI-120 でステータスバー表示だけを移植し、行内は本項に分けた。
+**本文のレイアウトに触る**ので、スクロール計測とキャプチャの両方が同時に動く。
+
+### 表示条件（`crates/editor/src/git.rs:1966-1973`）
+
+```rust
+ProjectSettings::get_global(cx).git.inline_blame.location == InlineBlameLocation::Inline
+    && self.show_git_blame_inline
+    && (self.focus_handle.is_focused(window) || self.inline_blame_popover.is_some())
+    && !self.newest_selection_head_on_empty_line(cx)
+    && self.has_blame_entries(cx)
+```
+
+**5 条件ある。** UI-120 の 3 条件に加えて:
+
+- `location == Inline`（既定はこちら）
+- `show_git_blame_inline` — 遅延タイマーが立てるフラグ
+- **エディタにフォーカスがあること**（またはポップオーバーが出ていること）
+
+### 遅延（`git.rs:1975-1980`、`project_settings.rs:583-589`）
+
+```rust
+if let Some(delay) = ProjectSettings::get_global(cx).git.inline_blame_delay() {
+    self.show_git_blame_inline = false;
+    self.show_git_blame_inline_delay_task = Some(cx.spawn_in(window, ...));
+}
+```
+
+`delay_ms` が 0 なら `None` を返し、**遅延なしで即時表示**。
+0 より大きければその時間だけ待ってから `show_git_blame_inline` を立てる。
+既定は 0（`default.json:1675`）。
+**カーソルが動くたびにタイマーが再開する**（`default.json:1673-1674` のコメント）。
+
+### 位置の決定（`element.rs:2030-2081`）
+
+```rust
+let padding = inline_blame.padding as f32 * em_width;   // em 幅単位
+
+let line_end = crease_trailer.map_or(
+    content_origin.x + line_layout.width - scroll_pixel_position.x,
+    |t| t.bounds.right());
+
+let padded_line_end = line_end + padding;
+
+let min_column_in_pixels = column_pixels(&style, inline_blame.min_column, window);
+let min_start = content_origin.x + min_column_in_pixels - scroll_pixel_position.x;
+
+start_x = max(padded_line_end, min_start);
+start_y = content_origin.y + line_height * (display_row - scroll_position.y);
+```
+
+**x は「行末＋padding」と「min_column の桁位置」の大きいほう。**
+`padding` は em 幅の倍数（既定 7）、`min_column` は桁数（既定 0）。
+
+補正が 1 つある（`element.rs:2032-2044`）:
+
+```rust
+const INLINE_ACCEPT_SUGGESTION_EM_WIDTHS: f32 = 14.;
+if 編集予測が TabAccept 表示中 { padding += INLINE_ACCEPT_SUGGESTION_EM_WIDTHS }
+```
+
+Tab で受け入れる編集予測が出ているときは 14em ぶん右へ逃がす。
+**Nimculus に編集予測が無いので、この分岐は移植対象外**（該当機能が無い）。
+
+### 見た目（`blame_ui.rs:244-264`）
+
+```rust
+h_flex().id("inline-blame")
+    .font(style.font())                     // 本文と同じ書体
+    .text_color(cx.theme().status().hint)   // hint 色
+    .line_height(style.line_height)         // 本文と同じ行高
+    .child(Icon::new(IconName::FileGit).color(Color::Hint))
+    .child(text)
+    .gap_2()
+```
+
+文言は `format_blame_text` — UI-120 で移植済みのものと**同じ関数**。
+
+### Nimculus 側の前提（UI-120 で揃った）
+
+- `git_blame.nim` のキャッシュ（リポジトリ・パス・`buffer.version` をキー、行で索引）
+- `time_format.nim` の相対時刻
+- `status_bar.nim` の文言生成（著者 20 文字切り、`showCommitSummary`）
+
+**足りないのは描画だけ。**
+
+### 何が危ないか
+
+行末に要素を足すので、以下が同時に動きうる:
+
+- `updateEditorTextTexture` の内容（可視行の描画）
+- 横スクロールの範囲（行が長くなる）
+- スクロール性能（行ごとに追加の組版が入る）
+
+`UI_PARITY_HANDOFF.md` §3 の「テキスト列は x 92–1134pt」「行ピッチ 24pt」は
+本文の描画に依存している。
+
+### 判定
+
+**既定で出る機能なので、全画素一致は使えない。**
+UI-113〜UI-120 で使ってきた判定がここでは効かない。代わりに:
+
+1. **blame を持たない文書**（git 管理外）でキャプチャが全画素一致すること。
+   描画経路を足しても、出ないときは何も変わらないはず
+2. **スクロール計測**が現状の帯（15.6〜17.7 ms/100px）から出ないこと
+3. blame が出る状態のキャプチャは Zed と**目視で並べて**比較する。
+   位置（行末＋7em）、色（hint）、アイコンを確認する
+
+### 却下案
+
+**(a) 既定を `status_bar` にして全画素一致を使えるようにする。**
+Zed の既定は `inline`。判定のしやすさは移植の判断基準ではない。却下。
+
+**(b) 遅延（`delay_ms`）を省く。** 既定が 0 なので見た目は同じだが、
+設定した利用者の挙動が変わる。却下。
+
+**(c) `min_column` を省く。** 既定が 0 なので `max()` は常に
+`padded_line_end` を選ぶ。しかし設定した利用者には効かない。却下。
+
 ## UI-120: git blame をステータスバーに出す（UI-114 の 3）
 
 ### Zed の実装（`crates/git_ui/src/blame_ui.rs`）
