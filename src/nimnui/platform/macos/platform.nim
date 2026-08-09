@@ -36,6 +36,7 @@ proc platformValidateStatusUpdateDeduplication*(): bool {.importc: "nimculus_pla
 proc platformValidateEditorFooterItems*(): bool {.importc: "nimculus_platform_validate_editor_footer_items", cdecl.}
 proc platformValidateEditorDiagnosticsSummary*(): bool {.importc: "nimculus_platform_validate_editor_diagnostics_summary", cdecl.}
 proc platformValidateEditorSearchButton*(): bool {.importc: "nimculus_platform_validate_editor_search_button", cdecl.}
+proc platformValidateEditorPanelFooter*(): bool {.importc: "nimculus_platform_validate_editor_panel_footer", cdecl.}
 proc platformValidateDamageRebuild*(): bool {.importc: "nimculus_platform_validate_damage_rebuild", cdecl.}
 proc platformValidateScrollClipPixels*(): bool {.importc: "nimculus_platform_validate_scroll_clip_pixels", cdecl.}
 proc platformValidateSceneTextureReplacement*(): bool {.importc: "nimculus_platform_validate_scene_texture_replacement", cdecl.}
@@ -216,6 +217,7 @@ proc platformSetEditorStatus*(text: cstring) {.importc: "nimculus_platform_set_e
 proc platformSetEditorFooter*(text: cstring) {.importc: "nimculus_platform_set_editor_footer", cdecl.}
 proc platformSetDiagnosticsButton*(visible: bool) {.importc: "nimculus_platform_set_diagnostics_button", cdecl.}
 proc platformSetSearchButton*(visible: bool) {.importc: "nimculus_platform_set_search_button", cdecl.}
+proc platformSetFooterPanelDockSides*(leftPanelMask: uint32) {.importc: "nimculus_platform_set_footer_panel_dock_sides", cdecl.}
 proc platformSetWelcomeVisible*(visible: bool) {.importc: "nimculus_platform_set_welcome_visible", cdecl.}
 proc platformSetCloseDecision*(allow: bool) {.importc: "nimculus_platform_set_close_decision", cdecl.}
 proc platformRequestCloseTab*() {.importc: "nimculus_platform_request_close_tab", cdecl.}

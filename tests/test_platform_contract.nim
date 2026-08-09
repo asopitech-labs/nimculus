@@ -214,6 +214,9 @@ suite "macOS platform contract":
   test "native project search button matches Zed's label and setting visibility":
     check platformValidateEditorSearchButton()
 
+  test "native panel footer follows dock ownership and divider boundaries":
+    check platformValidateEditorPanelFooter()
+
   test "native retained scene rebuilds fully for a new target":
     check platformValidateDamageRebuild()
 

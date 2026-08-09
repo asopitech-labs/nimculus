@@ -507,6 +507,13 @@ static NimculusTerminalRun *g_terminal_runs = NULL;
 static uint32_t g_terminal_run_count = 0;
 static NSMutableArray<NSString *> *g_terminal_hyperlinks = nil;
 static BOOL g_terminal_visible = NO;
+// PanelKind ordinals are owned by workspace_ui.nim. The initial value mirrors
+// that model until the first workspace render supplies the complete mask.
+enum {
+  NimculusPanelKindTerminal = 3,
+  NimculusPanelKindAgent = 7
+};
+static uint32_t g_footer_panel_left_mask = (1u << NimculusPanelKindAgent);
 static NSArray<NSString *> *g_terminal_session_titles = nil;
 static NSUInteger g_terminal_active_session = 0;
 static NSString *g_task_output_text = @"";
@@ -7730,6 +7737,7 @@ static const char *footerPanelCommand(NimculusFooterAction action) {
 static NSView *newFooterDivider(void) {
   NSView *divider = [[[NSView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 1.0, 12.0)]
     autorelease];
+  divider.accessibilityIdentifier = @"NimculusFooterDivider";
   divider.wantsLayer = YES;
   divider.layer.backgroundColor = [themeRoleColor(@"border",
     [NSColor colorWithCalibratedWhite:0.5 alpha:1.0]) colorWithAlphaComponent:0.55].CGColor;
@@ -7810,9 +7818,10 @@ static NSView *newFooterDivider(void) {
   }
   [left addArrangedSubview:dock];
 
-  // Terminal is a bottom-dock toggle, not a buffer-status decoration. Keep
-  // it contiguous with the workspace dock toggle at the far-left edge so the
-  // divider separates panel controls from the diagnostic/file/Git readouts.
+  // UI-117: derive each panel button's cluster from its dock ownership. A
+  // left-dock group is followed by its boundary divider; a bottom/right-dock
+  // group is appended after the right-side status items, with its boundary
+  // divider immediately before the toggle group.
   NimculusFooterStatusButton *terminalButton = newPanelButton(self, @"Toggle Terminal",
     @"terminal", NimculusFooterActionPanelTerminal);
   styleSidebarIconButton(terminalButton,
@@ -7821,12 +7830,22 @@ static NSView *newFooterDivider(void) {
     terminalButton.contentTintColor = themeRoleColor(@"textMuted",
       themeRoleColor(@"fgMuted", [NSColor secondaryLabelColor]));
   }
-  [left addArrangedSubview:terminalButton];
-  [left addArrangedSubview:newFooterDivider()];
-
   NimculusFooterStatusButton *agent = newPanelButton(self, @"Agent", @"sparkles",
     NimculusFooterActionAgent);
-  [left addArrangedSubview:agent];
+  NimculusFooterStatusButton *panelButtons[] = {agent, terminalButton};
+  const uint32_t panelKinds[] = {NimculusPanelKindAgent, NimculusPanelKindTerminal};
+  BOOL panelOnLeft[] = {NO, NO};
+  BOOL hasLeftPanelButtons = NO;
+  BOOL hasRightPanelButtons = NO;
+  for (NSUInteger index = 0; index < 2; index++) {
+    panelOnLeft[index] = (g_footer_panel_left_mask & (1u << panelKinds[index])) != 0;
+    if (panelOnLeft[index]) hasLeftPanelButtons = YES;
+    else hasRightPanelButtons = YES;
+  }
+  for (NSUInteger index = 0; index < 2; index++) {
+    if (panelOnLeft[index]) [left addArrangedSubview:panelButtons[index]];
+  }
+  if (hasLeftPanelButtons) [left addArrangedSubview:newFooterDivider()];
 
   // Keep exactly one project-search affordance in the footer. Search's own
   // panel header still exposes New Search and Cancel Search.
@@ -7893,13 +7912,19 @@ static NSView *newFooterDivider(void) {
     styleFooterStatusButton(button, NO);
     [right addArrangedSubview:button];
   }
+  if (hasRightPanelButtons) [right addArrangedSubview:newFooterDivider()];
+  for (NSUInteger index = 0; index < 2; index++) {
+    if (!panelOnLeft[index]) [right addArrangedSubview:panelButtons[index]];
+  }
   [self setNeedsLayout:YES];
 }
 
 bool nimculus_platform_validate_editor_footer_items(void) {
   @autoreleasepool {
     NSString *previous = [g_editor_footer retain];
-    nimculus_platform_set_editor_footer("language=Markdown\tencoding=UTF-8\tline-ending=LF");
+    const uint32_t previousMask = g_footer_panel_left_mask;
+    nimculus_platform_set_footer_panel_dock_sides(1u << NimculusPanelKindAgent);
+    nimculus_platform_set_editor_footer("cursor=1:1\tlanguage=Markdown\tencoding=UTF-8\tline-ending=LF");
     NimculusFooterOverlay *footer = [[NimculusFooterOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 30.0)];
     [footer reloadStatusItems];
@@ -7911,12 +7936,19 @@ bool nimculus_platform_validate_editor_footer_items(void) {
       stackIndex++;
     }
     NSArray<NSView *> *items = right.arrangedSubviews;
-    BOOL valid = items.count == 3;
+    BOOL valid = items.count == 6 &&
+      [items[4].accessibilityIdentifier isEqualToString:@"NimculusFooterDivider"] &&
+      [items[5] isKindOfClass:[NSButton class]] &&
+      [((NSButton *)items[5]).accessibilityLabel isEqualToString:@"Toggle Terminal"];
     if (valid) {
-      NSButton *language = (NSButton *)items[0];
-      NSButton *encoding = (NSButton *)items[1];
-      NSButton *lineEnding = (NSButton *)items[2];
-      valid = [language.title isEqualToString:@"Markdown"] &&
+      NSButton *cursor = (NSButton *)items[0];
+      NSButton *language = (NSButton *)items[1];
+      NSButton *encoding = (NSButton *)items[2];
+      NSButton *lineEnding = (NSButton *)items[3];
+      valid = [cursor.title isEqualToString:@"1:1"] &&
+        [cursor.accessibilityLabel isEqualToString:@"Cursor position: 1:1"] &&
+        cursor.tag == NimculusFooterActionCursor &&
+        [language.title isEqualToString:@"Markdown"] &&
         [language.accessibilityLabel isEqualToString:@"Language: Markdown"] &&
         language.tag == NimculusFooterActionLanguage &&
         [encoding.title isEqualToString:@"UTF-8"] &&
@@ -7928,6 +7960,7 @@ bool nimculus_platform_validate_editor_footer_items(void) {
     }
     [footer release];
     nimculus_platform_set_editor_footer(previous.UTF8String);
+    nimculus_platform_set_footer_panel_dock_sides(previousMask);
     [previous release];
     return valid;
   }
@@ -8058,7 +8091,9 @@ bool nimculus_platform_validate_editor_search_button(void) {
       if ([label isEqualToString:@"Agent"]) agentIndex = index;
       if ([label isEqualToString:@"Project Search"]) searchIndex = index;
     }
-    valid = valid && agentIndex != NSNotFound && searchIndex == agentIndex + 1;
+    valid = valid && agentIndex != NSNotFound && searchIndex == agentIndex + 2 &&
+      [left.arrangedSubviews[agentIndex + 1].accessibilityIdentifier
+        isEqualToString:@"NimculusFooterDivider"];
 
     g_search_button = NO;
     [footer reloadStatusItems];
@@ -8066,6 +8101,68 @@ bool nimculus_platform_validate_editor_search_button(void) {
 
     [footer release];
     g_search_button = previousSetting;
+    return valid;
+  }
+}
+
+bool nimculus_platform_validate_editor_panel_footer(void) {
+  @autoreleasepool {
+    const BOOL previousSearchSetting = g_search_button;
+    const BOOL previousDiagnosticsSetting = g_diagnostics_button;
+    const uint32_t previousMask = g_footer_panel_left_mask;
+    NSString *savedFooter = [g_editor_footer retain];
+    g_search_button = YES;
+    g_diagnostics_button = NO;
+    nimculus_platform_set_footer_panel_dock_sides(1u << NimculusPanelKindAgent);
+    nimculus_platform_set_editor_footer("cursor=1:1\tlanguage=Markdown");
+    NimculusFooterOverlay *footer = [[NimculusFooterOverlay alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 30.0)];
+    [footer reloadStatusItems];
+    NSStackView *left = nil;
+    NSStackView *right = nil;
+    for (NSView *view in footer.subviews) {
+      if (![view isKindOfClass:[NSStackView class]]) continue;
+      if (!left) left = (NSStackView *)view;
+      else right = (NSStackView *)view;
+    }
+    NSUInteger dockIndex = NSNotFound;
+    NSUInteger agentIndex = NSNotFound;
+    NSUInteger searchIndex = NSNotFound;
+    NSUInteger leftDividerIndex = NSNotFound;
+    NSUInteger terminalIndex = NSNotFound;
+    NSUInteger rightDividerIndex = NSNotFound;
+    NSUInteger rightLanguageIndex = NSNotFound;
+    NSUInteger rightCursorIndex = NSNotFound;
+    for (NSUInteger index = 0; index < left.arrangedSubviews.count; index++) {
+      NSView *view = left.arrangedSubviews[index];
+      if ([view.accessibilityIdentifier isEqualToString:@"NimculusFooterDivider"])
+        leftDividerIndex = index;
+      if (![view isKindOfClass:[NSButton class]]) continue;
+      NSString *label = ((NSButton *)view).accessibilityLabel;
+      if ([label isEqualToString:@"Toggle Panel Dock"]) dockIndex = index;
+      if ([label isEqualToString:@"Agent"]) agentIndex = index;
+      if ([label isEqualToString:@"Project Search"]) searchIndex = index;
+    }
+    for (NSUInteger index = 0; index < right.arrangedSubviews.count; index++) {
+      NSView *view = right.arrangedSubviews[index];
+      if ([view.accessibilityIdentifier isEqualToString:@"NimculusFooterDivider"])
+        rightDividerIndex = index;
+      if (![view isKindOfClass:[NSButton class]]) continue;
+      NSString *label = ((NSButton *)view).accessibilityLabel;
+      if ([label isEqualToString:@"Cursor position: 1:1"]) rightCursorIndex = index;
+      if ([label isEqualToString:@"Language: Markdown"]) rightLanguageIndex = index;
+      if ([label isEqualToString:@"Toggle Terminal"]) terminalIndex = index;
+    }
+    BOOL valid = left != nil && right != nil && dockIndex == 0 && agentIndex == 1 &&
+      leftDividerIndex == 2 && searchIndex == 3 && rightCursorIndex == 0 &&
+      rightLanguageIndex == 1 && rightDividerIndex == 2 && terminalIndex == 3 &&
+      left.arrangedSubviews.count == 4 && right.arrangedSubviews.count == 4;
+    [footer release];
+    nimculus_platform_set_editor_footer(savedFooter.UTF8String);
+    [savedFooter release];
+    nimculus_platform_set_footer_panel_dock_sides(previousMask);
+    g_search_button = previousSearchSetting;
+    g_diagnostics_button = previousDiagnosticsSetting;
     return valid;
   }
 }
@@ -13677,11 +13774,21 @@ bool nimculus_platform_validate_panel_buttons(void) {
         else right = (NSStackView *)cluster;
       }
     }
-    BOOL rightTextOnly = right != nil && right.arrangedSubviews.count == 4;
+    BOOL rightTextOnly = right != nil;
+    BOOL rightHasTerminal = NO;
+    BOOL rightHasDivider = NO;
     for (NSView *view in right.arrangedSubviews) {
-      rightTextOnly = rightTextOnly && [view isKindOfClass:[NSButton class]] &&
-        ((NSButton *)view).image == nil;
+      if ([view.accessibilityIdentifier isEqualToString:@"NimculusFooterDivider"]) {
+        rightHasDivider = YES;
+      } else if ([view isKindOfClass:[NSButton class]] &&
+                 [((NSButton *)view).accessibilityLabel isEqualToString:@"Toggle Terminal"]) {
+        rightHasTerminal = YES;
+      } else {
+        rightTextOnly = rightTextOnly && [view isKindOfClass:[NSButton class]] &&
+          ((NSButton *)view).image == nil;
+      }
     }
+    rightTextOnly = rightTextOnly && rightHasTerminal && rightHasDivider;
     [footer release];
     g_editor_sidebar_mode = previousMode;
     g_editor_sidebar_visible = previousSidebarVisible;
@@ -15800,6 +15907,19 @@ void nimculus_platform_set_search_button(bool visible) {
   const BOOL next = visible ? YES : NO;
   if (g_search_button == next) return;
   g_search_button = next;
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
+      [(NimculusFooterOverlay *)subview reloadStatusItems];
+      [subview setNeedsDisplay:YES];
+      break;
+    }
+  }
+}
+void nimculus_platform_set_footer_panel_dock_sides(uint32_t left_panel_mask) {
+  if (g_footer_panel_left_mask == left_panel_mask) return;
+  g_footer_panel_left_mask = left_panel_mask;
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
   for (NSView *subview in view.subviews) {

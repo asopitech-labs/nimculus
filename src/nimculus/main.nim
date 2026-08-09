@@ -650,6 +650,7 @@ proc setupDemoUi() =
   when defined(macosx):
     platformSetEditorSidebarVisible(editorWorkspaceUi.leftDock.isOpen and sidebarCanPresent)
     platformSetEditorSidebarOnRight(MacProjectDockOnRight)
+    platformSetFooterPanelDockSides(editorWorkspaceUi.panelDockSideMask())
     platformSetTerminalPanelRect(float64(float32(demoBottomDockBounds.origin.x)),
       float64(float32(demoBottomDockBounds.origin.y)),
       float64(float32(demoBottomDockBounds.size.width)),

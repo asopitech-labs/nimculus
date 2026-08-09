@@ -14,7 +14,7 @@ type
   PanelKind* = enum
     # Keep new values at the end: panel ordinals are persisted in sessions.
     panelFiles, panelGit, panelOutline, panelTerminal, panelTasks, panelSearch,
-    panelDebugger
+    panelDebugger, panelAgent
 
   DockSide* = enum
     dockLeft, dockBottom
@@ -183,8 +183,17 @@ proc dock*(state: WorkspaceUiState, side: DockSide): DockState =
 
 proc panelBelongsTo*(panel: PanelKind, side: DockSide): bool =
   case side
-  of dockLeft: panel in {panelFiles, panelGit, panelOutline, panelSearch, panelDebugger}
+  of dockLeft: panel in {panelFiles, panelGit, panelOutline, panelSearch, panelDebugger,
+    panelAgent}
   of dockBottom: panel in {panelTerminal, panelTasks}
+
+proc panelDockSideMask*(state: WorkspaceUiState): uint32 =
+  ## AppKit receives the workspace's complete panel placement as one mapping.
+  ## Each set bit identifies a panel owned by the left dock; unset known bits
+  ## therefore identify panels owned by the bottom dock.
+  for panel in PanelKind:
+    if panelBelongsTo(panel, dockLeft):
+      result = result or (1'u32 shl uint32(ord(panel)))
 
 proc openPanel*(state: var WorkspaceUiState, panel: PanelKind) =
   let side = if panelBelongsTo(panel, dockLeft): dockLeft else: dockBottom
