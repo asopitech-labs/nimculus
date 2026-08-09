@@ -211,6 +211,9 @@ suite "macOS platform contract":
   test "native diagnostics summary matches Zed's counts, labels, and visibility":
     check platformValidateEditorDiagnosticsSummary()
 
+  test "native project search button matches Zed's label and setting visibility":
+    check platformValidateEditorSearchButton()
+
   test "native retained scene rebuilds fully for a new target":
     check platformValidateDamageRebuild()
 

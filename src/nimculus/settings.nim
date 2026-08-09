@@ -106,6 +106,7 @@ type
 
 const DefaultSoftWrapMode* = "none"
 const DefaultDiagnosticsButton* = true
+const DefaultSearchButton* = true
 
 proc softWrapEnabledForPath*(path, configuredMode: string): bool =
   ## Zed's global default is `none`, but Markdown has a language-scoped
@@ -202,7 +203,7 @@ proc validateSettings*(root: JsonNode): seq[SettingsDiagnostic] =
     result.add(SettingsDiagnostic(path: "editor.insertSpaces", message: "must be a boolean"))
   for key in ["statusBar.showActiveFile", "statusBar.activeLanguageButton",
       "statusBar.cursorPositionButton", "statusBar.lineEndingsButton",
-      "diagnostics.button"]:
+      "diagnostics.button", "search.button"]:
     let value = nodeAt(root, key)
     if value != nil and value.kind != JBool:
       result.add(SettingsDiagnostic(path: key, message: "must be a boolean"))
@@ -285,6 +286,9 @@ proc settingsSchema*(): JsonNode =
         "enum": ["enabled", "non_utf8", "disabled"], "default": "non_utf8"}
     }},
     "diagnostics": {"type": "object", "properties": {
+      "button": {"type": "boolean", "default": true}
+    }},
+    "search": {"type": "object", "properties": {
       "button": {"type": "boolean", "default": true}
     }},
     "theme": {"type": "string"},

@@ -1419,6 +1419,7 @@ static uint32_t g_secondary_highlight_count = 0;
 static NimculusDiagnosticSpan *g_diagnostics = NULL;
 static uint32_t g_diagnostic_count = 0;
 static BOOL g_diagnostics_button = YES;
+static BOOL g_search_button = YES;
 // Diagnostics carry document byte offsets just like syntax spans. A split
 // pane must therefore never reuse the primary document's diagnostic ranges.
 static NimculusDiagnosticSpan *g_secondary_diagnostics = NULL;
@@ -7829,11 +7830,13 @@ static NSView *newFooterDivider(void) {
 
   // Keep exactly one project-search affordance in the footer. Search's own
   // panel header still exposes New Search and Cancel Search.
-  NimculusFooterStatusButton *search = newFooterButton(self, @"", @"Search Project",
-    NimculusFooterActionWorkspaceSearch);
-  setFooterSymbol(search, @"magnifyingglass", @"⌕");
-  styleFooterStatusButton(search, YES);
-  [left addArrangedSubview:search];
+  if (g_search_button) {
+    NimculusFooterStatusButton *search = newFooterButton(self, @"", @"Project Search",
+      NimculusFooterActionWorkspaceSearch);
+    setFooterSymbol(search, @"magnifyingglass", @"⌕");
+    styleFooterStatusButton(search, YES);
+    [left addArrangedSubview:search];
+  }
 
   NSString *diagnosticLabel = @"Project diagnostics: no problems";
   if (errorCount > 0 || warningCount > 0) {
@@ -8013,6 +8016,56 @@ bool nimculus_platform_validate_editor_diagnostics_summary(void) {
     nimculus_platform_set_diagnostics_button(previousButtonSetting);
     nimculus_platform_set_editor_diagnostics(previous, previousCount);
     free(previous);
+    return valid;
+  }
+}
+
+static NSButton *searchButtonInFooter(NSStackView *left) {
+  for (NSView *view in left.arrangedSubviews) {
+    if ([view isKindOfClass:[NSButton class]] &&
+        [((NSButton *)view).accessibilityLabel isEqualToString:@"Project Search"]) {
+      return (NSButton *)view;
+    }
+  }
+  return nil;
+}
+
+bool nimculus_platform_validate_editor_search_button(void) {
+  @autoreleasepool {
+    const BOOL previousSetting = g_search_button;
+    NimculusFooterOverlay *footer = [[NimculusFooterOverlay alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 30.0)];
+    NSStackView *left = nil;
+    for (NSView *view in footer.subviews) {
+      if ([view isKindOfClass:[NSStackView class]]) {
+        left = (NSStackView *)view;
+        break;
+      }
+    }
+    g_search_button = YES;
+    [footer reloadStatusItems];
+    NSButton *search = searchButtonInFooter(left);
+    BOOL valid = search != nil &&
+      [search.accessibilityLabel isEqualToString:@"Project Search"] &&
+      [search.toolTip isEqualToString:@"Project Search"] &&
+      search.tag == NimculusFooterActionWorkspaceSearch;
+    NSUInteger agentIndex = NSNotFound;
+    NSUInteger searchIndex = NSNotFound;
+    for (NSUInteger index = 0; index < left.arrangedSubviews.count; index++) {
+      NSView *view = left.arrangedSubviews[index];
+      if (![view isKindOfClass:[NSButton class]]) continue;
+      NSString *label = ((NSButton *)view).accessibilityLabel;
+      if ([label isEqualToString:@"Agent"]) agentIndex = index;
+      if ([label isEqualToString:@"Project Search"]) searchIndex = index;
+    }
+    valid = valid && agentIndex != NSNotFound && searchIndex == agentIndex + 1;
+
+    g_search_button = NO;
+    [footer reloadStatusItems];
+    valid = valid && searchButtonInFooter(left) == nil;
+
+    [footer release];
+    g_search_button = previousSetting;
     return valid;
   }
 }
@@ -13585,7 +13638,7 @@ bool nimculus_platform_validate_panel_buttons(void) {
       }
     }
     NSArray<NSString *> *labels = @[@"Toggle Panel Dock", @"Toggle Terminal", @"Agent",
-      @"Search Project", @"Project diagnostics: no problems"];
+      @"Project Search", @"Project diagnostics: no problems"];
     BOOL presentation = YES;
     for (NSString *label in labels) {
       NSButton *button = buttons[label];
@@ -13604,14 +13657,14 @@ bool nimculus_platform_validate_panel_buttons(void) {
     BOOL leftClusterActions = dock != nil && terminalButton != nil &&
       terminalButton.toolTip.length > 0 &&
       [terminalButton.toolTip isEqualToString:@"Toggle Terminal"];
-    BOOL noDuplicateSearch = buttons[@"Search"] == nil && buttons[@"Search Project"] != nil;
+    BOOL noDuplicateSearch = buttons[@"Search"] == nil && buttons[@"Project Search"] != nil;
     BOOL active = dock && [(NimculusChromeButton *)dock chromeActive];
     [(NimculusFooterStatusButton *)dock performClick:nil];
     BOOL dockToggle = strcmp(g_validation_command,
       "commandPalette:toggle workspace dock") == 0;
     [(NimculusFooterStatusButton *)buttons[@"Agent"] performClick:nil];
     BOOL agent = strcmp(g_validation_command, "commandPalette:agent start") == 0;
-    [(NimculusFooterStatusButton *)buttons[@"Search Project"] performClick:nil];
+    [(NimculusFooterStatusButton *)buttons[@"Project Search"] performClick:nil];
     BOOL search = strcmp(g_validation_command, "commandPalette:workspace search") == 0;
     [(NimculusFooterStatusButton *)buttons[@"Project diagnostics: no problems"] performClick:nil];
     BOOL diagnostics = strcmp(g_validation_command, "commandPalette:show problems") == 0;
@@ -15733,6 +15786,20 @@ void nimculus_platform_set_diagnostics_button(bool visible) {
   const BOOL next = visible ? YES : NO;
   if (g_diagnostics_button == next) return;
   g_diagnostics_button = next;
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
+      [(NimculusFooterOverlay *)subview reloadStatusItems];
+      [subview setNeedsDisplay:YES];
+      break;
+    }
+  }
+}
+void nimculus_platform_set_search_button(bool visible) {
+  const BOOL next = visible ? YES : NO;
+  if (g_search_button == next) return;
+  g_search_button = next;
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
   for (NSView *subview in view.subviews) {

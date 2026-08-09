@@ -89,6 +89,7 @@ proc platformSetSecondaryEditorFolds*(ranges: ptr NativeFoldRange, count: uint32
 proc platformSetEditorTabs*(titles: cstring, length, activeIndex: uint32) = discard (titles, length, activeIndex)
 proc platformSetEditorStatus*(text: cstring) = discard text
 proc platformSetDiagnosticsButton*(visible: bool) = discard visible
+proc platformSetSearchButton*(visible: bool) = discard visible
 proc platformSetWelcomeVisible*(visible: bool) = discard visible
 when not defined(windows):
   proc platformSetCloseDecision*(allow: bool) = discard allow

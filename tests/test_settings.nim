@@ -390,3 +390,20 @@ suite "M12 settings foundation":
       "{\"statusBar\":{\"activeEncodingButton\":\"unknown\"}}"))
     check diagnostics.len == 1
     check diagnostics[0].path == "statusBar.activeEncodingButton"
+
+  test "search button defaults to visible and follows its setting":
+    let root = getTempDir() / "nimculus-search-button-settings"
+    createDir(root)
+    let path = root / "settings.json"
+    let defaults = newSettingsStore(path, "", "")
+    check defaults.boolSetting("search.button", DefaultSearchButton)
+    writeFile(path, "{\"search\":{\"button\":false}}")
+    let hidden = newSettingsStore(path, "", "")
+    check not hidden.boolSetting("search.button", DefaultSearchButton)
+    check settingsSchema()["properties"]["search"]["properties"]["button"][
+      "default"].getBool
+    let diagnostics = validateSettings(parseJson("{\"search\":{\"button\":1}}"))
+    check diagnostics.len == 1
+    check diagnostics[0].path == "search.button"
+    removeFile(path)
+    removeDir(root)
