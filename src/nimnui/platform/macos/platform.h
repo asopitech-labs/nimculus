@@ -26,6 +26,7 @@ void nimculus_platform_get_editor_glyph_color(uint32_t kind,
 
 bool nimculus_platform_run(void);
 bool nimculus_platform_validate_native(void);
+bool nimculus_platform_validate_titlebar_height(void);
 bool nimculus_platform_validate_appearance_callback(void);
 bool nimculus_platform_validate_window_lifecycle(void);
 bool nimculus_platform_validate_window_delegate(void);

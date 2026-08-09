@@ -550,11 +550,11 @@ proc registerBuiltinThemes*(store: SettingsStore) =
       "emphasis.strong": {"color": "#bf956a", "fontWeight": 700}})
   var light = ThemeColors(
     background: "#dcdcdd", foreground: "#242529", accent: "#5c78e2", selection: "#7d82e8",
-    border: "#cfd1d2", surface: "#ececed", elevated: "#ececed", panel: "#ececed",
+    border: "#c9c9ca", surface: "#ececed", elevated: "#ececed", panel: "#ececed",
     element: "#ececed",
     elementHover: "#dfdfe0", elementActive: "#cacaca", elementSelected: "#cacaca",
     textMuted: "#58585a", textPlaceholder: "#7e8086", textDisabled: "#7e8086",
-    textAccent: "#5c78e2", borderVariant: "#dfe0e1", borderFocused: "#7d82e8",
+    textAccent: "#5c78e2", borderVariant: "#dfdfe0", borderFocused: "#7d82e8",
     borderSelected: "#cbcdf6", titleBar: "#dcddde", titleBarInactive: "#ececed",
     toolbar: "#fcfcfc", tabBar: "#ececed", tabActive: "#fcfcfc", tabInactive: "#ececed",
     statusBar: "#dcddde", editor: "#fcfcfc", editorForeground: "#242529", gutter: "#fcfcfc",

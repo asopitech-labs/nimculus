@@ -435,15 +435,16 @@ static const CGFloat NimculusSpace1 = 4.0;
 static const CGFloat NimculusSpace2 = 8.0;
 static const CGFloat NimculusSpace3 = 12.0;
 static const CGFloat NimculusRowHeight = 28.0;
+static const CGFloat NimculusDefaultRemSize = 16.0;
+static const CGFloat NimculusDefaultEditorFontSize = 15.0;
+static const CGFloat NimculusChromeBorderHeight = 1.0;
 // Measured from Zed's own window pixels (One Light, 1389x791): the title bar
 // paints 34pt of chrome plus a 1pt `border` rule, the tab strip 31pt plus the
 // same rule, and the toolbar 6 + 32 + 6pt plus a 1pt `border.variant` rule.
 // That is what puts Zed's first editor row at y=112pt; deriving the toolbar
 // from its own text height instead left our first row 17.5pt too high.
-static const CGFloat NimculusTitlebarHeight = 35.0;
 static const CGFloat NimculusTabBarHeight = 32.0;
 static const CGFloat NimculusBreadcrumbHeight = 45.0;
-static const CGFloat NimculusChromeBorderHeight = 1.0;
 static const CGFloat NimculusDefaultWindowWidth = 1389.0;
 static const CGFloat NimculusDefaultWindowHeight = 791.0;
 // AppKit accepts finite window limits reliably. CGFLOAT_MAX looks equivalent
@@ -467,6 +468,23 @@ static const CGFloat NimculusToolbarIconPointSize = 11.0;
 static const CGFloat NimculusToolbarSlotPitch = 23.0;
 static const CGFloat NimculusToolbarSlotRightInset = 20.0;
 static const NSUInteger NimculusToolbarSlotCount = 5;
+
+// Nimculus has no window-scoped rem unit. The editor font is its existing
+// user-adjustable font scale, so normalize its default 15pt value to Zed's
+// default 16pt rem and let the titlebar follow the same scale.
+static CGFloat nimculusRemSize(void) {
+  CGFloat editorFontSize = isfinite(g_editor_font_size) && g_editor_font_size > 0.0
+    ? g_editor_font_size : NimculusDefaultEditorFontSize;
+  return NimculusDefaultRemSize * editorFontSize / NimculusDefaultEditorFontSize;
+}
+static CGFloat nimculusTitlebarHeightForRem(CGFloat remSize) {
+  CGFloat resolvedRem = isfinite(remSize) && remSize > 0.0
+    ? remSize : NimculusDefaultRemSize;
+  return MAX(1.75 * resolvedRem, 34.0) + NimculusChromeBorderHeight;
+}
+static CGFloat nimculusTitlebarHeight(void) {
+  return nimculusTitlebarHeightForRem(nimculusRemSize());
+}
 
 // getenv on a per-frame path is not free; cache it like the input log gate.
 static BOOL rectDebugEnabled(void) {
@@ -2526,9 +2544,8 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height, themeRed, themeGreen, themeBlue, 0.96f, transform);
   } else if (paint.kind == 13) { // workspace separator
-    // Zed rules workspace edges with `border` at full strength -- measured
-    // #cfd1d2 where the dock meets the editor. `border.variant` at 90% came
-    // out as #e2e3e4, visibly lighter than the rule it stands in for.
+    // Zed rules workspace edges with `border` at full strength; the matching
+    // One Light capture measures the dock/editor rule as #c9c9ca.
     themeRGB(themeRole(@"border", g_theme_border),
       [NSColor colorWithCalibratedRed:0.20 green:0.23 blue:0.29 alpha:1.0],
       &themeRed, &themeGreen, &themeBlue);
@@ -4197,7 +4214,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   [background setFill];
   NSRectFill(self.bounds);
 
-  // Zed paints this rule at full strength: measured #cfd1d2 against the
+  // Zed paints this rule at full strength: measured #c9c9ca against the
   // #dcddde title bar. A 28% wash produced #f0f0f0, lighter than either.
   NSColor *border = themeRoleColor(@"border", themeHexColor(g_theme_foreground,
     [NSColor colorWithCalibratedWhite:0.85 alpha:1.0]));
@@ -4282,7 +4299,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 }
 - (void)layout {
   [super layout];
-  const CGFloat titlebarHeight = NimculusTitlebarHeight;
+  const CGFloat titlebarHeight = nimculusTitlebarHeight();
   CGFloat contentHeight = MAX(1.0, self.bounds.size.height - titlebarHeight);
   self.metalView.frame = NSMakeRect(0.0, 0.0, self.bounds.size.width, contentHeight);
   self.metalView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
@@ -8477,8 +8494,8 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
   (void)dirtyRect;
   [themeHexColor(editorPaintToken(), [NSColor colorWithCalibratedWhite:0.98 alpha:1.0]) setFill];
   NSRectFill(self.bounds);
-  // Zed closes the toolbar with a 1pt `border.variant` rule (measured
-  // #dfe0e1) along its bottom edge.
+  // Zed closes the toolbar with a 1pt `border.variant` rule measured as
+  // #dfdfe0 along its bottom edge.
   [themeRoleColor(@"borderVariant", themeHexColor(g_theme_border,
     [NSColor separatorColor])) setFill];
   NSRectFill(NSMakeRect(0.0, MAX(0.0, self.bounds.size.height -
@@ -15460,6 +15477,11 @@ void nimculus_platform_set_editor_font_size(double size) {
     for (NSView *subview in ((NimculusMetalView *)g_active_view).subviews) {
       if ([subview isKindOfClass:[NimculusLineNumberOverlay class]]) [subview setNeedsDisplay:YES];
     }
+    NSView *root = [(NimculusMetalView *)g_active_view superview];
+    if ([root isKindOfClass:[NimculusWindowContentView class]]) {
+      [root setNeedsLayout:YES];
+      [root layoutSubtreeIfNeeded];
+    }
   }
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
 }
@@ -15604,6 +15626,17 @@ bool nimculus_platform_validate_editor_font_configuration(void) {
     [previousFallbacks release];
     return defaultSame && cacheRebuilt && hasAttributes;
   }
+}
+bool nimculus_platform_validate_titlebar_height(void) {
+  CGFloat previousFontSize = g_editor_font_size;
+  g_editor_font_size = NimculusDefaultEditorFontSize;
+  CGFloat defaultRem = nimculusRemSize();
+  CGFloat defaultHeight = nimculusTitlebarHeight();
+  g_editor_font_size = 24.0;
+  CGFloat largerHeight = nimculusTitlebarHeight();
+  g_editor_font_size = previousFontSize;
+  return fabs(defaultRem - NimculusDefaultRemSize) < 0.001 &&
+    fabs(defaultHeight - 35.0) < 0.001 && largerHeight > defaultHeight;
 }
 double nimculus_platform_editor_line_height(void) { return editorLineHeight(); }
 double nimculus_platform_editor_gutter_width(void) { return editorGutterWidth(); }

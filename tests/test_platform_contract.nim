@@ -49,6 +49,9 @@ suite "macOS platform contract":
   test "editor font features and fallbacks use Core Text attributes and rebuild the cache":
     check platformValidateEditorFontConfiguration()
 
+  test "titlebar height follows the rem formula when the editor font changes":
+    check platformValidateTitlebarHeight()
+
   test "settings values can be handed to the editor font platform contract":
     let root = getTempDir() / "nimculus-font-platform-handoff"
     createDir(root)
