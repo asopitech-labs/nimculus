@@ -107,6 +107,9 @@ type
 const DefaultSoftWrapMode* = "none"
 const DefaultDiagnosticsButton* = true
 const DefaultSearchButton* = true
+const DefaultGitInlineBlameEnabled* = true
+const DefaultGitInlineBlameLocation* = "inline"
+const DefaultGitInlineBlameShowCommitSummary* = false
 
 const
   DefaultProjectPanelDock* = "right"
@@ -209,6 +212,15 @@ proc validateSettings*(root: JsonNode): seq[SettingsDiagnostic] =
   let insertSpaces = nodeAt(root, "editor.insertSpaces")
   if insertSpaces != nil and insertSpaces.kind != JBool:
     result.add(SettingsDiagnostic(path: "editor.insertSpaces", message: "must be a boolean"))
+  for key in ["git.inlineBlame.enabled", "git.inlineBlame.showCommitSummary"]:
+    let value = nodeAt(root, key)
+    if value != nil and value.kind != JBool:
+      result.add(SettingsDiagnostic(path: key, message: "must be a boolean"))
+  let inlineBlameLocation = nodeAt(root, "git.inlineBlame.location")
+  if inlineBlameLocation != nil and (inlineBlameLocation.kind != JString or
+      inlineBlameLocation.getStr notin ["inline", "status_bar"]):
+    result.add(SettingsDiagnostic(path: "git.inlineBlame.location",
+      message: "must be one of: inline, status_bar"))
   for setting in [
       (path: "projectPanel.dock", allowed: @[
         "left", "bottom", "right"]),
@@ -327,6 +339,14 @@ proc settingsSchema*(): JsonNode =
     }},
     "search": {"type": "object", "properties": {
       "button": {"type": "boolean", "default": true}
+    }},
+    "git": {"type": "object", "properties": {
+      "inlineBlame": {"type": "object", "properties": {
+        "enabled": {"type": "boolean", "default": true},
+        "location": {"type": "string", "enum": ["inline", "status_bar"],
+          "default": "inline"},
+        "showCommitSummary": {"type": "boolean", "default": false}
+      }}
     }},
     "theme": {"type": "string"},
     "soft_wrap": {"type": "string", "enum": ["none", "editor_width", "bounded"]},
@@ -746,6 +766,21 @@ proc terminalScrollMultiplier*(store: SettingsStore): float32 =
 
 proc boolSetting*(store: SettingsStore, path: string, fallback: bool): bool =
   jsonBoolAt(store.values, path, fallback)
+
+proc gitInlineBlameEnabled*(store: SettingsStore): bool =
+  if store == nil: DefaultGitInlineBlameEnabled
+  else: store.boolSetting("git.inlineBlame.enabled", DefaultGitInlineBlameEnabled)
+
+proc gitInlineBlameLocation*(store: SettingsStore): string =
+  if store == nil: DefaultGitInlineBlameLocation
+  else:
+    let location = store.stringSetting("git.inlineBlame.location", DefaultGitInlineBlameLocation)
+    if location in ["inline", "status_bar"]: location else: DefaultGitInlineBlameLocation
+
+proc gitInlineBlameShowCommitSummary*(store: SettingsStore): bool =
+  if store == nil: DefaultGitInlineBlameShowCommitSummary
+  else: store.boolSetting("git.inlineBlame.showCommitSummary",
+    DefaultGitInlineBlameShowCommitSummary)
 
 proc editorFontFeatures*(store: SettingsStore): seq[EditorFontFeature] =
   let node = nodeAt(store.values, "editor.fontFeatures")

@@ -1,4 +1,6 @@
 import nimculus/settings
+import nimculus/time_format
+import std/unicode
 
 type
   StatusBarFooterItem* = object
@@ -11,6 +13,7 @@ const
   DefaultStatusBarCursorPositionButton* = true
   DefaultStatusBarLineEndingsButton* = false
   DefaultStatusBarActiveEncodingButton* = "non_utf8"
+  GitBlameMaxAuthorCharsDisplayed* = 20
 
 proc statusBarEncodingShouldShow*(displayOption: string; isUtf8, hasBom: bool): bool =
   ## Mirrors Zed's EncodingDisplayOptions::should_show.
@@ -25,7 +28,8 @@ proc statusBarEncodingText*(encoding: string; hasBom: bool): string =
   if hasBom: result.add(" (BOM)")
 
 proc statusBarFooter*(settings: SettingsStore; cursor, encoding, lineEnding,
-    language, activeFile: string; isUtf8 = true; hasBom = false): seq[StatusBarFooterItem] =
+    language, activeFile: string; isUtf8 = true; hasBom = false;
+    gitBlameHash = ""; gitBlameText = ""): seq[StatusBarFooterItem] =
   let showActiveFile = if settings == nil: DefaultStatusBarShowActiveFile
     else: settings.boolSetting("statusBar.showActiveFile", DefaultStatusBarShowActiveFile)
   let showLanguage = if settings == nil: DefaultStatusBarActiveLanguageButton
@@ -50,6 +54,10 @@ proc statusBarFooter*(settings: SettingsStore; cursor, encoding, lineEnding,
     result.add(StatusBarFooterItem(kind: "language", text: language))
   if showActiveFile and activeFile.len > 0:
     result.add(StatusBarFooterItem(kind: "active-file", text: activeFile))
+  let showGitBlame = settings != nil and settings.gitInlineBlameEnabled() and
+    settings.gitInlineBlameLocation() == "status_bar"
+  if showGitBlame and gitBlameHash.len > 0 and gitBlameText.len > 0:
+    result.add(StatusBarFooterItem(kind: "git-blame:" & gitBlameHash, text: gitBlameText))
 
 proc serializeStatusBarFooter*(items: openArray[StatusBarFooterItem]): string =
   ## The native footer receives each item's kind with its text.  The first
@@ -59,3 +67,18 @@ proc serializeStatusBarFooter*(items: openArray[StatusBarFooterItem]): string =
     result.add(item.kind)
     result.add('=')
     result.add(item.text)
+
+proc truncateGitBlameAuthor*(author: string): string =
+  var count = 0
+  for rune in author.runes:
+    if count == GitBlameMaxAuthorCharsDisplayed: break
+    result.add(rune.toUTF8)
+    inc count
+
+proc gitBlameStatusText*(author: string; authorTime: int64; summary: string;
+                         showSummary: bool; now: int64; timestampValid = true): string =
+  let relative = if timestampValid: formatRelativeTime(authorTime, now)
+    else: "Error parsing date"
+  result = truncateGitBlameAuthor(author) & ", " & relative
+  if showSummary and summary.len > 0:
+    result.add(" - " & summary)

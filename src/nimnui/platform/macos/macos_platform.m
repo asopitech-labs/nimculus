@@ -7553,7 +7553,8 @@ typedef NS_ENUM(NSInteger, NimculusFooterAction) {
   NimculusFooterActionIndentation = 8,
   NimculusFooterActionPanelTerminal = 10,
   NimculusFooterActionDockToggle = 11,
-  NimculusFooterActionAgent = 12
+  NimculusFooterActionAgent = 12,
+  NimculusFooterActionGitBlame = 13
 };
 
 static void clearFooterCluster(NSStackView *cluster) {
@@ -7899,7 +7900,20 @@ static NSView *newFooterDivider(void) {
     NSString *value = [item substringFromIndex:separator.location + 1];
     NimculusFooterAction action = NimculusFooterActionDisplayOnly;
     NSString *label = value;
-    if ([kind isEqualToString:@"cursor"]) {
+    if ([kind hasPrefix:@"git-blame:"]) {
+      NSString *hash = [kind substringFromIndex:[@"git-blame:" length]];
+      if (hash.length == 0) continue;
+      action = NimculusFooterActionGitBlame;
+      label = [NSString stringWithFormat:@"Git blame: %@", value];
+      NimculusFooterStatusButton *button = newFooterButton(self, value, label, action);
+      button.accessibilityIdentifier = [NSString stringWithFormat:@"gitBlameContext:open:%@", hash];
+      setFooterSymbol(button, @"doc.text", @"▤");
+      styleFooterStatusButton(button, NO);
+      button.contentTintColor = themeRoleColor(@"hint",
+        themeRoleColor(@"textMuted", [NSColor secondaryLabelColor]));
+      [left addArrangedSubview:button];
+      continue;
+    } else if ([kind isEqualToString:@"cursor"]) {
       action = NimculusFooterActionCursor;
       label = [NSString stringWithFormat:@"Cursor position: %@", value];
     } else if ([kind isEqualToString:@"language"]) {
@@ -7965,6 +7979,46 @@ bool nimculus_platform_validate_editor_footer_items(void) {
         [lineEnding.accessibilityLabel isEqualToString:@"Line ending: LF"] &&
         lineEnding.tag == NimculusFooterActionLineEnding;
     }
+    [footer release];
+    nimculus_platform_set_editor_footer(previous.UTF8String);
+    nimculus_platform_set_footer_panel_dock_sides(previousMask);
+    [previous release];
+    return valid;
+  }
+}
+
+bool nimculus_platform_validate_editor_git_blame(void) {
+  @autoreleasepool {
+    NSString *previous = [g_editor_footer retain];
+    const uint32_t previousMask = g_footer_panel_dock_side_mask;
+    nimculus_platform_set_footer_panel_dock_sides(0);
+    nimculus_platform_set_editor_footer(
+      "git-blame:0123456789abcdef0123456789abcdef01234567=Ada Lovelace, 2 hours ago - Initial commit");
+    NimculusFooterOverlay *footer = [[NimculusFooterOverlay alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 900.0, 30.0)];
+    [footer reloadStatusItems];
+    NSStackView *left = nil;
+    for (NSView *view in footer.subviews) {
+      if ([view isKindOfClass:[NSStackView class]]) {
+        left = (NSStackView *)view;
+        break;
+      }
+    }
+    NSButton *blame = nil;
+    for (NSView *view in left.arrangedSubviews) {
+      if ([view isKindOfClass:[NSButton class]] &&
+          ((NSButton *)view).tag == NimculusFooterActionGitBlame) {
+        blame = (NSButton *)view;
+        break;
+      }
+    }
+    BOOL valid = blame != nil &&
+      [blame.title isEqualToString:@"Ada Lovelace, 2 hours ago - Initial commit"] &&
+      [blame.accessibilityLabel isEqualToString:
+        @"Git blame: Ada Lovelace, 2 hours ago - Initial commit"] &&
+      blame.image != nil &&
+      [blame.accessibilityIdentifier isEqualToString:
+        @"gitBlameContext:open:0123456789abcdef0123456789abcdef01234567"];
     [footer release];
     nimculus_platform_set_editor_footer(previous.UTF8String);
     nimculus_platform_set_footer_panel_dock_sides(previousMask);
@@ -8267,6 +8321,11 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
       break;
     case NimculusFooterActionDiagnostics:
       g_command_callback("commandPalette:show problems");
+      break;
+    case NimculusFooterActionGitBlame:
+      if ([sender.accessibilityIdentifier isKindOfClass:[NSString class]]) {
+        g_command_callback([sender.accessibilityIdentifier UTF8String]);
+      }
       break;
     case NimculusFooterActionGit:
       g_command_callback("commandPalette:git status");

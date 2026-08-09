@@ -8,6 +8,8 @@ import std/unittest
 when defined(posix):
   import std/envvars
 import nimculus/git_service
+import nimculus/git_blame
+import nimculus/editor_buffer
 
 proc git(repo: string, args: varargs[string]): string =
   var command = "git -C " & quoteShell(repo)
@@ -23,6 +25,40 @@ proc m9TempDir(label: string): string =
     $int(epochTime() * 1_000_000))
 
 suite "M9 Git service":
+  test "Git blame cache is keyed by document version, not cursor line":
+    var cache: GitBlameCache
+    cache.begin("/repo", "/repo/main.nim", 7)
+    cache.finish(@[
+      GitBlameLine(hash: "aaa", author: "First"),
+      GitBlameLine(hash: "bbb", author: "Second")])
+    let buffer = initPieceTable("first\nsecond\n")
+    check cache.matches("/repo", "/repo/main.nim", 7)
+    check not cache.shouldStart("/repo", "/repo/main.nim", 7, false, false)
+    check cache.entryAt(0).hash == "aaa"
+    check cache.entryAt(1).hash == "bbb"
+    check cache.shouldShow(buffer, 0)
+    check cache.shouldShow(buffer, 1)
+    check cache.matches("/repo", "/repo/main.nim", 7)
+    check not cache.matches("/repo", "/repo/main.nim", 8)
+    check cache.shouldStart("/repo", "/repo/main.nim", 8, false, false)
+    var edited = initPieceTable("first\nsecond\n")
+    let beforeEdit = edited.version
+    edited.edit(Edit(startByte: 0, endByte: 5, text: "changed"))
+    check edited.version != beforeEdit
+    check not cache.matches("/repo", "/repo/main.nim", edited.version)
+
+  test "Git blame cache hides empty lines and empty results":
+    let buffer = initPieceTable("first\n\nthird\n")
+    var cache: GitBlameCache
+    cache.begin("/repo", "/repo/main.nim", 1)
+    cache.finish(@[
+      GitBlameLine(hash: "aaa"), GitBlameLine(hash: "bbb"), GitBlameLine(hash: "ccc")])
+    check cache.shouldShow(buffer, 0)
+    check not cache.shouldShow(buffer, 1)
+    check cache.shouldShow(buffer, 2)
+    cache.finish(@[])
+    check not cache.shouldShow(buffer, 0)
+
   test "bounds Git output at UTF-8 and line boundaries":
     let bounded = appendBoundedGitOutput("old\n", "日本語の長い出力\nnew\n", limit = 16)
     check bounded.truncated
@@ -80,6 +116,8 @@ suite "M9 Git service":
     let blame = repository.blame("main.nim")
     check blame.len == 2
     check blame[1].text == "two"
+    check blame[1].authorTime > 0
+    check blame[1].authorTimeValid
     check repository.checkout("HEAD", ["main.nim"]).exitCode == 0
     check readFile(root / "main.nim") == "one\n"
     discard git(root, "mv", "main.nim", "renamed.nim")

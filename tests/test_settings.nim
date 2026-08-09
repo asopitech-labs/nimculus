@@ -6,7 +6,9 @@ import std/tables
 import std/sequtils
 import nimculus/settings
 import nimculus/status_bar
+import nimculus/time_format
 import nimnui/commands
+import std/times
 
 suite "M12 settings foundation":
   test "editor font features and fallbacks parse in stable platform order":
@@ -461,3 +463,69 @@ suite "M12 settings foundation":
     check diagnostics[0].path == "search.button"
     removeFile(path)
     removeDir(root)
+
+  test "git blame status bar settings match Zed defaults and validation":
+    let defaults = newSettingsStore("", "", "")
+    check defaults.gitInlineBlameEnabled()
+    check defaults.gitInlineBlameLocation() == "inline"
+    check not defaults.gitInlineBlameShowCommitSummary()
+    let schema = settingsSchema()["properties"]["git"]["properties"]["inlineBlame"]["properties"]
+    check schema["enabled"]["default"].getBool
+    check schema["location"]["enum"].getElems.mapIt(it.getStr) == @["inline", "status_bar"]
+    check schema["location"]["default"].getStr == "inline"
+    check not schema["showCommitSummary"]["default"].getBool
+    let diagnostics = validateSettings(parseJson(
+      "{\"git\":{\"inlineBlame\":{\"enabled\":1,\"location\":\"footer\",\"showCommitSummary\":\"yes\"}}}"))
+    check diagnostics.len == 3
+    check diagnostics.anyIt(it.path == "git.inlineBlame.location")
+    check diagnostics.anyIt(it.path == "git.inlineBlame.enabled")
+    check diagnostics.anyIt(it.path == "git.inlineBlame.showCommitSummary")
+    let root = getTempDir() / "nimculus-git-blame-status-settings"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, "{\"git\":{\"inlineBlame\":{\"location\":\"status_bar\"}}}")
+    let statusStore = newSettingsStore(path, "", "")
+    let statusItems = statusBarFooter(statusStore, "1:1", "UTF-8", "LF", "Nim", "main.nim",
+      gitBlameHash = "abc", gitBlameText = "Alice, Today")
+    check statusItems.anyIt(it.kind == "git-blame:abc" and it.text == "Alice, Today")
+    writeFile(path, "{\"git\":{\"inlineBlame\":{\"enabled\":false,\"location\":\"status_bar\"}}}")
+    let disabledStore = newSettingsStore(path, "", "")
+    check statusBarFooter(disabledStore, "1:1", "UTF-8", "LF", "Nim", "main.nim",
+      gitBlameHash = "abc", gitBlameText = "Alice, Today").allIt(
+        it.kind != "git-blame:abc")
+    removeFile(path)
+    removeDir(root)
+
+  proc testUnixDate(year, month, day: int): int64 =
+    dateTime(year, Month(month), day, 12, 0, 0, 0, utc()).toTime.toUnix
+
+  test "relative blame time covers every Zed branch and boundary":
+    let now = testUnixDate(2026, 1, 31)
+    check formatRelativeTime(now, now) == "Just now"
+    check formatRelativeTime(now - 60, now) == "1 minute ago"
+    check formatRelativeTime(now - 2 * 60, now) == "2 minutes ago"
+    check formatRelativeTime(now - 59 * 60, now) == "59 minutes ago"
+    check formatRelativeTime(now - 60 * 60, now) == "1 hour ago"
+    check formatRelativeTime(now - 2 * 60 * 60, now) == "2 hours ago"
+    check formatRelativeTime(now - 23 * 60 * 60, now) == "23 hours ago"
+    check formatRelativeDate(now, now) == "Today"
+    check formatRelativeTime(testUnixDate(2026, 1, 30), now) == "Yesterday"
+    check formatRelativeTime(testUnixDate(2026, 1, 29), now) == "2 days ago"
+    check formatRelativeTime(testUnixDate(2026, 1, 25), now) == "6 days ago"
+    check formatRelativeTime(testUnixDate(2026, 1, 24), now) == "1 week ago"
+    check formatRelativeTime(testUnixDate(2026, 1, 17), now) == "2 weeks ago"
+    check formatRelativeTime(testUnixDate(2026, 1, 3), now) == "4 weeks ago"
+    check formatRelativeTime(testUnixDate(2026, 1, 2), now) == "1 month ago"
+    check formatRelativeTime(testUnixDate(2025, 12, 31), now) == "1 month ago"
+    check formatRelativeTime(testUnixDate(2025, 11, 30), now) == "2 months ago"
+    check formatRelativeTime(testUnixDate(2025, 2, 28), now) == "11 months ago"
+    check formatRelativeTime(testUnixDate(2025, 1, 31), now) == "1 year ago"
+    check formatRelativeTime(testUnixDate(2024, 3, 31), now) == "1 year, 10 months ago"
+    check formatRelativeTime(testUnixDate(2021, 2, 28), now) == "4 years, 11 months ago"
+    check formatRelativeTime(testUnixDate(2021, 1, 31), now) == "5 years ago"
+    check gitBlameStatusText("abcdefghijklmnopqrstu", now - 60, "Summary", false, now) ==
+      "abcdefghijklmnopqrst, 1 minute ago"
+    check gitBlameStatusText("Alice", now - 60, "Summary", true, now) ==
+      "Alice, 1 minute ago - Summary"
+    check gitBlameStatusText("Alice", 0, "Summary", false, now, false) ==
+      "Alice, Error parsing date"

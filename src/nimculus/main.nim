@@ -32,6 +32,7 @@ import nimculus/extension_catalog
 import nimculus/wasm_runtime
 import nimculus/editor_diagnostics
 import nimculus/git_service
+import nimculus/git_blame
 import nimculus/git_gutter
 import nimculus/task_service
 import nimculus/update_service
@@ -1003,6 +1004,12 @@ when defined(macosx):
   var editorGitActionPath = ""
   var editorGitActionSource = ""
   var editorGitActionLine = -1
+  var editorGitBlameJob: GitJob
+  var editorGitBlameCache: GitBlameCache
+  var editorGitBlameLine = -1
+  var editorGitBlameEntry = GitBlameLine()
+  var editorGitBlameLoaded = false
+  var editorGitBlameLineEmpty = false
   var editorGitRepository: GitRepository
   var editorGitPath = ""
   var editorSecondaryGitPath = ""
@@ -4905,8 +4912,74 @@ proc activeEditorSelection(): tuple[startByte, endByte: int] =
 proc moveActiveEditorCursor(offset: int, selecting = false) =
   editorSession.moveActivePaneCursor(editorViewState, offset, selecting)
 
+when defined(macosx):
+  proc cancelNativeGitBlame() =
+    if editorGitBlameJob != nil and not editorGitBlameJob.done:
+      editorGitBlameJob.cancel()
+    editorGitBlameJob = nil
+
+  proc resetNativeGitBlame() =
+    cancelNativeGitBlame()
+    editorGitBlameCache.reset()
+    editorGitBlameLine = -1
+    editorGitBlameEntry = GitBlameLine()
+    editorGitBlameLoaded = false
+    editorGitBlameLineEmpty = false
+
+  proc scheduleNativeGitBlame(document: ptr FileDocument) =
+    let enabled = appSettings != nil and appSettings.gitInlineBlameEnabled()
+    let statusLocation = appSettings != nil and
+      appSettings.gitInlineBlameLocation() == "status_bar"
+    if not enabled or not statusLocation or document == nil or document[].path.len == 0:
+      resetNativeGitBlame()
+      return
+    let repository = gitRepositoryForDocument(document)
+    let relative = gitRelativePathForDocument(document, repository)
+    if repository == nil or relative.len == 0:
+      resetNativeGitBlame()
+      return
+    let line = max(0, document[].buffer.lineColumn(activeEditorCursor()).line)
+    let lineEmpty = document[].buffer.lineIsEmpty(line)
+    let repositoryRoot = repository.root
+    let documentVersion = document[].buffer.version
+    let sameDocument = editorGitBlameCache.matches(repositoryRoot, document[].path,
+      documentVersion)
+    if sameDocument:
+      editorGitBlameLine = line
+      editorGitBlameLineEmpty = lineEmpty
+      editorGitBlameLoaded = editorGitBlameCache.loaded
+      editorGitBlameEntry = if editorGitBlameCache.shouldShow(document[].buffer, line):
+        editorGitBlameCache.entryAt(line) else: GitBlameLine()
+    else:
+      cancelNativeGitBlame()
+      editorGitBlameCache.begin(repositoryRoot, document[].path, documentVersion)
+      editorGitBlameLine = line
+      editorGitBlameLineEmpty = lineEmpty
+      editorGitBlameEntry = GitBlameLine()
+      editorGitBlameLoaded = false
+    if not editorGitBlameCache.shouldStart(repositoryRoot, document[].path, documentVersion,
+        lineEmpty, editorGitBlameJob != nil): return
+    editorGitBlameJob = repository.startGitJob(["blame", "--line-porcelain", "--", relative])
+
+  proc pollNativeGitBlame() =
+    if editorGitBlameJob == nil or not editorGitBlameJob.poll(): return
+    let job = editorGitBlameJob
+    editorGitBlameJob = nil
+    if job.cancelled or job.result.exitCode != 0:
+      editorGitBlameCache.finish(@[])
+      editorGitBlameLoaded = true
+      editorGitBlameEntry = GitBlameLine()
+      return
+    editorGitBlameCache.finish(parseBlame(job.result.output))
+    editorGitBlameLoaded = true
+    editorGitBlameEntry = if editorGitBlameLineEmpty:
+      GitBlameLine() else: editorGitBlameCache.entryAt(editorGitBlameLine)
+
 proc syncNativeEditorStatus(document: ptr FileDocument) =
   when defined(macosx):
+    let blameDocument = if editorSession.split and editorSession.splitActivePane == 1:
+      secondaryPaneDocument() else: document
+    scheduleNativeGitBlame(blameDocument)
     let message = editorViewState.statusMessage.strip
     let status = if message.len > 0: message else: "Ready"
     if status != lastNativeEditorStatus:
@@ -4935,8 +5008,17 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
       else: appSettings.boolSetting("search.button", DefaultSearchButton))
     # FileDocument has no encoding/BOM detector yet; keep the Zed decision
     # boundary explicit and pass the current UTF-8/no-BOM state.
+    let blameVisible = editorGitBlameLoaded and editorGitBlameEntry.hash.len > 0
+    let blameText = if blameVisible:
+      gitBlameStatusText(editorGitBlameEntry.author, editorGitBlameEntry.authorTime,
+        editorGitBlameEntry.summary,
+        appSettings != nil and appSettings.gitInlineBlameShowCommitSummary(),
+        getTime().toUnix, editorGitBlameEntry.authorTimeValid)
+      else: ""
     let footer = statusBarFooter(appSettings, cursor, "UTF-8", lineEnding, language, activeFile,
-      isUtf8 = true, hasBom = false)
+      isUtf8 = true, hasBom = false,
+      gitBlameHash = if blameVisible: editorGitBlameEntry.hash else: "",
+      gitBlameText = blameText)
     platformSetEditorFooter(serializeStatusBarFooter(footer).cstring)
 
 when defined(macosx):
@@ -5679,6 +5761,7 @@ when defined(macosx):
     pollNativeSecondaryGitHunks()
     pollNativeGitBranch()
     pollNativeGitStatus()
+    pollNativeGitBlame()
     if pendingGitRepository != nil and pendingGitRepository.finished:
       pendingGitRepository = nil
       pendingGitRepositoryRoot = ""
@@ -8521,6 +8604,22 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
             editorViewState.statusMessage = "Git branch copied: " & branch
         except ValueError:
           editorViewState.statusMessage = "Invalid Git branch action"
+  elif name.startsWith("gitBlameContext:"):
+    when defined(macosx):
+      let parts = name.split(':')
+      if parts.len != 3 or parts[1] != "open":
+        editorViewState.statusMessage = "Invalid Git blame action"
+      else:
+        let revision = parts[2]
+        if revision.len != 40 or not revision.allCharsInSet({'0'..'9', 'a'..'f', 'A'..'F'}):
+          editorViewState.statusMessage = "Invalid Git blame revision"
+        else:
+          let repository = gitRepositoryForDocument(activeDocument())
+          if repository == nil:
+            editorViewState.statusMessage = "Git repository not found"
+          else:
+            startNativeGitAction(repository, "show", "", [
+              "show", "--format=fuller", "--stat", "--patch", "--no-ext-diff", revision])
   elif name.startsWith("gitStatusContext:"):
     when defined(macosx):
       let parts = name.split(':')

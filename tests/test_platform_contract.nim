@@ -208,6 +208,9 @@ suite "macOS platform contract":
   test "native footer preserves item order and kind-specific actions":
     check platformValidateEditorFooterItems()
 
+  test "native Git blame footer uses a hint-colored file button":
+    check platformValidateEditorGitBlame()
+
   test "native diagnostics summary matches Zed's counts, labels, and visibility":
     check platformValidateEditorDiagnosticsSummary()
 

@@ -34,6 +34,7 @@ proc platformValidateEditorTextPopupBounds*(): bool {.importc: "nimculus_platfor
 proc platformValidateSecondaryAnnotationIsolation*(): bool {.importc: "nimculus_platform_validate_secondary_annotation_isolation", cdecl.}
 proc platformValidateStatusUpdateDeduplication*(): bool {.importc: "nimculus_platform_validate_status_update_deduplication", cdecl.}
 proc platformValidateEditorFooterItems*(): bool {.importc: "nimculus_platform_validate_editor_footer_items", cdecl.}
+proc platformValidateEditorGitBlame*(): bool {.importc: "nimculus_platform_validate_editor_git_blame", cdecl.}
 proc platformValidateEditorDiagnosticsSummary*(): bool {.importc: "nimculus_platform_validate_editor_diagnostics_summary", cdecl.}
 proc platformValidateEditorSearchButton*(): bool {.importc: "nimculus_platform_validate_editor_search_button", cdecl.}
 proc platformValidateEditorPanelFooter*(): bool {.importc: "nimculus_platform_validate_editor_panel_footer", cdecl.}

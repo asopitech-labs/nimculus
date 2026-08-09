@@ -44,6 +44,8 @@ type
   GitBlameLine* = object
     hash*: string
     author*: string
+    authorTime*: int64
+    authorTimeValid*: bool
     summary*: string
     line*: int
     text*: string
@@ -543,6 +545,12 @@ proc parseBlame*(output: string): seq[GitBlameLine] =
       haveHeader = true
     elif haveHeader and line.startsWith("author "):
       current.author = line[7 .. ^1]
+    elif haveHeader and line.startsWith("author-time "):
+      try:
+        current.authorTime = parseInt(line[12 .. ^1])
+        current.authorTimeValid = true
+      except ValueError:
+        current.authorTime = 0
     elif haveHeader and line.startsWith("summary "):
       current.summary = line[8 .. ^1]
     elif haveHeader and line.startsWith("\t"):
