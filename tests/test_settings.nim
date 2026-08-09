@@ -3,7 +3,9 @@ import std/json
 import std/strutils
 import std/unittest
 import std/tables
+import std/sequtils
 import nimculus/settings
+import nimculus/status_bar
 import nimnui/commands
 
 suite "M12 settings foundation":
@@ -309,3 +311,65 @@ suite "M12 settings foundation":
     check serialized["terminalPalette"]["normal"][15].getStr == "#ffffff"
     check serialized["terminalPalette"]["bright"][13].getStr == "#a00095"
     check serialized["terminalPalette"]["dim"][4].getStr == "#2140ab"
+
+  test "status bar defaults match Zed's two right-side items":
+    let store = newSettingsStore("", "", "")
+    check statusBarFooter(store, "1:1", "UTF-8", "LF", "Markdown", "main.md") ==
+      @["1:1", "Markdown"]
+
+  test "status bar line ending setting shows LF and CRLF":
+    let root = getTempDir() / "nimculus-status-bar-line-endings"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, "{\"statusBar\":{\"lineEndingsButton\":true}}")
+    let store = newSettingsStore(path, "", "")
+    check statusBarFooter(store, "1:1", "UTF-8", "LF", "Markdown", "main.md") ==
+      @["1:1", "LF", "Markdown"]
+    check statusBarFooter(store, "1:1", "UTF-8", "CRLF", "Markdown", "main.md") ==
+      @["1:1", "CRLF", "Markdown"]
+    removeFile(path)
+    removeDir(root)
+
+  test "status bar encoding modes follow Zed's should_show":
+    let root = getTempDir() / "nimculus-status-bar-encoding"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, "{\"statusBar\":{\"activeEncodingButton\":\"enabled\"}}")
+    let alwaysStore = newSettingsStore(path, "", "")
+    check statusBarFooter(alwaysStore, "1:1", "UTF-8", "LF", "Markdown", "main.md") ==
+      @["1:1", "UTF-8", "Markdown"]
+    writeFile(path, "{\"statusBar\":{\"activeEncodingButton\":\"non_utf8\"}}")
+    let nonUtf8Store = newSettingsStore(path, "", "")
+    check statusBarFooter(nonUtf8Store, "1:1", "UTF-8", "LF", "Markdown", "main.md") ==
+      @["1:1", "Markdown"]
+    check statusBarFooter(nonUtf8Store, "1:1", "Windows-1252", "LF", "Markdown", "main.md",
+      isUtf8 = false) == @["1:1", "Windows-1252", "Markdown"]
+    writeFile(path, "{\"statusBar\":{\"activeEncodingButton\":\"disabled\"}}")
+    let disabledStore = newSettingsStore(path, "", "")
+    check statusBarFooter(disabledStore, "1:1", "Windows-1252", "LF", "Markdown", "main.md",
+      isUtf8 = false) == @["1:1", "Markdown"]
+    removeFile(path)
+    removeDir(root)
+
+  test "status bar encoding appends BOM and active file follows its setting":
+    let root = getTempDir() / "nimculus-status-bar-file"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, "{\"statusBar\":{\"showActiveFile\":true}}")
+    let store = newSettingsStore(path, "", "")
+    check statusBarFooter(store, "1:1", "UTF-8", "LF", "Markdown", "main.md",
+      hasBom = true) == @["1:1", "UTF-8 (BOM)", "Markdown", "main.md"]
+    check statusBarEncodingShouldShow("non_utf8", true, true)
+    check statusBarEncodingText("UTF-8", true) == "UTF-8 (BOM)"
+    removeFile(path)
+    removeDir(root)
+
+  test "status bar settings are present in schema and reject unknown encoding modes":
+    let schema = settingsSchema()
+    let encodingSchema = schema["properties"]["statusBar"]["properties"][
+      "activeEncodingButton"]
+    check encodingSchema["enum"].getElems.mapIt(it.getStr) == @["enabled", "non_utf8", "disabled"]
+    let diagnostics = validateSettings(parseJson(
+      "{\"statusBar\":{\"activeEncodingButton\":\"unknown\"}}"))
+    check diagnostics.len == 1
+    check diagnostics[0].path == "statusBar.activeEncodingButton"

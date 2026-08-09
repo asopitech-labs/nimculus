@@ -37,6 +37,7 @@ import nimculus/task_service
 import nimculus/update_service
 import nimculus/terminal
 import nimculus/settings
+import nimculus/status_bar
 when defined(windows):
   import nimculus/windows_terminal
 
@@ -4915,10 +4916,9 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
         if language == "markdown": language = "Markdown"
       except ValueError:
         discard
-    let lineEnding = if document != nil and document[].lineEnding == crlf: "CRLF" else: "LF"
-    let languageServer = if lspBridge != nil: "LSP: 接続済み" else: "LSP: なし"
     let cursor = if document == nil: "1:1" else:
       editorViewState.cursorPositionText(document[].buffer)
+    let lineEnding = if document != nil and document[].lineEnding == crlf: "CRLF" else: "LF"
     let activeFile = if document == nil: "" else:
       if document[].path.len > 0:
         let parts = splitFile(document[].path)
@@ -4926,15 +4926,10 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
           editorSession.displayTitle(editorSession.activeTab)
       else:
         editorSession.displayTitle(editorSession.activeTab)
-    let footer = @[
-      cursor,
-      "Spaces: " & $max(1, editorViewState.indentWidth),
-      "UTF-8",
-      lineEnding,
-      language,
-      languageServer,
-      activeFile
-    ]
+    # FileDocument has no encoding/BOM detector yet; keep the Zed decision
+    # boundary explicit and pass the current UTF-8/no-BOM state.
+    let footer = statusBarFooter(appSettings, cursor, "UTF-8", lineEnding, language, activeFile,
+      isUtf8 = true, hasBom = false)
     platformSetEditorFooter(footer.join("\t").cstring)
 
 when defined(macosx):

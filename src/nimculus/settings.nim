@@ -199,6 +199,19 @@ proc validateSettings*(root: JsonNode): seq[SettingsDiagnostic] =
   let insertSpaces = nodeAt(root, "editor.insertSpaces")
   if insertSpaces != nil and insertSpaces.kind != JBool:
     result.add(SettingsDiagnostic(path: "editor.insertSpaces", message: "must be a boolean"))
+  for key in ["statusBar.showActiveFile", "statusBar.activeLanguageButton",
+      "statusBar.cursorPositionButton", "statusBar.lineEndingsButton"]:
+    let value = nodeAt(root, key)
+    if value != nil and value.kind != JBool:
+      result.add(SettingsDiagnostic(path: key, message: "must be a boolean"))
+  let activeEncodingButton = nodeAt(root, "statusBar.activeEncodingButton")
+  if activeEncodingButton != nil:
+    if activeEncodingButton.kind != JString:
+      result.add(SettingsDiagnostic(path: "statusBar.activeEncodingButton",
+        message: "must be one of: enabled, non_utf8, disabled"))
+    elif activeEncodingButton.getStr notin ["enabled", "non_utf8", "disabled"]:
+      result.add(SettingsDiagnostic(path: "statusBar.activeEncodingButton",
+        message: "must be one of: enabled, non_utf8, disabled"))
   let fontFeatures = nodeAt(root, "editor.fontFeatures")
   if fontFeatures != nil:
     if fontFeatures.kind != JObject:
@@ -260,6 +273,14 @@ proc settingsSchema*(): JsonNode =
         "fontFallbacks": {"type": "array", "items": {"type": "string"}},
         "tabSize": {"type": "integer", "minimum": 1, "maximum": 16},
         "insertSpaces": {"type": "boolean"}
+    }},
+    "statusBar": {"type": "object", "properties": {
+      "showActiveFile": {"type": "boolean", "default": false},
+      "activeLanguageButton": {"type": "boolean", "default": true},
+      "cursorPositionButton": {"type": "boolean", "default": true},
+      "lineEndingsButton": {"type": "boolean", "default": false},
+      "activeEncodingButton": {"type": "string",
+        "enum": ["enabled", "non_utf8", "disabled"], "default": "non_utf8"}
     }},
     "theme": {"type": "string"},
     "soft_wrap": {"type": "string", "enum": ["none", "editor_width", "bounded"]},
