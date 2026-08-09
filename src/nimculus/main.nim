@@ -9019,6 +9019,15 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       syncEditorCursor()
       refreshEditorSyntax()
 
+proc filterEditorScrollDelta(view: var EditorViewState, horizontalDelta,
+                             verticalDelta: float32, precise: bool):
+                             tuple[horizontal, vertical: float32] =
+  ## Zed's element/mouse.rs applies OngoingScroll only to ScrollDelta::Pixels.
+  ## Wheel/line deltas remain on the existing path and do not update the lock.
+  var delta = Point(x: px(horizontalDelta), y: px(verticalDelta))
+  discard view.ongoingScroll.applyScrollDelta(delta, precise)
+  (float32(delta.x), float32(delta.y))
+
 proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   if event.isNil: return
   when defined(windows):
@@ -9112,12 +9121,17 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       let scrollSensitivity = if appSettings != nil:
           appSettings.editorScrollSensitivity(optionModifier in modifiers) else:
         DefaultScrollSensitivity
-      let horizontalDelta = if abs(float32(event.deltaX)) > 0.01'f32:
+      let rawHorizontalDelta = if abs(float32(event.deltaX)) > 0.01'f32:
           float32(event.deltaX)
         elif shiftScroll: float32(event.deltaY) else: 0'f32
-      let verticalDelta = if shiftScroll and abs(float32(event.deltaX)) <= 0.01'f32:
+      let rawVerticalDelta = if shiftScroll and abs(float32(event.deltaX)) <= 0.01'f32:
           0'f32 else: float32(event.deltaY)
       if pane == 1:
+        var view = editorSession.secondaryView
+        let filteredDelta = filterEditorScrollDelta(view, rawHorizontalDelta,
+          rawVerticalDelta, event.preciseScrolling)
+        let horizontalDelta = filteredDelta.horizontal
+        let verticalDelta = filteredDelta.vertical
         if not editorSession.secondaryView.softWrap and abs(horizontalDelta) > 0.01'f32:
           let widest = float32(platformSecondaryEditorWidestVisibleLineWidth())
           let viewportWidth = editorTextLayoutWidth(secondary = true)
@@ -9125,14 +9139,19 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
             editorSession.secondaryView.scrollX + horizontalDelta * scrollSensitivity, widest,
             viewportWidth)
         if abs(verticalDelta) > 0.01'f32:
-          var view = editorSession.secondaryView
           view.reconcileScrollPosition(editorLineHeight(), float32(maxScroll) * editorLineHeight())
           let pixelDelta = scrollPixelDelta(
             verticalDelta, event.preciseScrolling, editorLineHeight(), scrollSensitivity)
           view.setScrollYPixels(view.scrollYPixels + pixelDelta, editorLineHeight(),
             float32(maxScroll) * editorLineHeight())
           editorSession.secondaryView = view
+        else:
+          editorSession.secondaryView = view
       else:
+        let filteredDelta = filterEditorScrollDelta(editorViewState, rawHorizontalDelta,
+          rawVerticalDelta, event.preciseScrolling)
+        let horizontalDelta = filteredDelta.horizontal
+        let verticalDelta = filteredDelta.vertical
         if not editorViewState.softWrap and abs(horizontalDelta) > 0.01'f32:
           let widest = float32(platformEditorWidestVisibleLineWidth())
           let viewportWidth = editorTextLayoutWidth()

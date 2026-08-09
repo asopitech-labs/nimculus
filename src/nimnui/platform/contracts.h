@@ -25,7 +25,14 @@ typedef struct NimculusInputEvent {
   double delta_x;
   double delta_y;
   bool precise_scrolling;
+  uint32_t phase;
 } NimculusInputEvent;
+
+enum {
+  NIMCULUS_TOUCH_PHASE_STARTED = 0,
+  NIMCULUS_TOUCH_PHASE_MOVED = 1,
+  NIMCULUS_TOUCH_PHASE_ENDED = 2
+};
 
 typedef struct NimculusTerminalRun {
   uint32_t start_byte;

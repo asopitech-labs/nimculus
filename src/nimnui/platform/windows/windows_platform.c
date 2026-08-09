@@ -3485,6 +3485,7 @@ static void send_input(UINT type, UINT key_code, UINT button, LPARAM lparam,
   double scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
   event.x = (double)point.x / scale;
   event.y = (double)point.y / scale;
+  event.phase = NIMCULUS_TOUCH_PHASE_MOVED;
   if (g_first_input_qpc.QuadPart == 0)
     QueryPerformanceCounter(&g_first_input_qpc);
   g_input_count++;
@@ -3509,6 +3510,7 @@ static void send_scroll(WPARAM wparam, LPARAM lparam, bool horizontal) {
   if (horizontal) event.delta_x = delta;
   else event.delta_y = delta;
   event.precise_scrolling = false;
+  event.phase = NIMCULUS_TOUCH_PHASE_MOVED;
   if (g_first_input_qpc.QuadPart == 0)
     QueryPerformanceCounter(&g_first_input_qpc);
   g_input_count++;

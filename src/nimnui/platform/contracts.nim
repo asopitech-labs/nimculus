@@ -5,6 +5,13 @@
 ## platform implementation, not in this module.
 
 type
+  ## The phases forwarded by the macOS scroll-wheel contract. The native ABI
+  ## stores this as uint32 so every backend has the same layout.
+  TouchPhase* = enum
+    touchStarted
+    touchMoved
+    touchEnded
+
   PlatformPriority* = enum
     platformHigh
     platformMedium
@@ -85,6 +92,7 @@ type
     kind*, keyCode*, modifiers*, button*: uint32
     x*, y*, deltaX*, deltaY*: cdouble
     preciseScrolling*: bool
+    phase*: uint32
 
   InputCallback* = proc(event: ptr NimculusInputEvent) {.cdecl.}
   ShortcutCallback* = proc(event: ptr NimculusInputEvent): bool {.cdecl.}

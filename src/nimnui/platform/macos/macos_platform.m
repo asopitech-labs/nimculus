@@ -3473,6 +3473,18 @@ static BOOL nimculusInputLogEnabled(void) {
   return cached == 1;
 }
 
+static uint32_t nimculusTouchPhaseForEvent(NSEvent *event) {
+  switch (event.phase) {
+    case NSEventPhaseBegan:
+    case NSEventPhaseMayBegin:
+      return NIMCULUS_TOUCH_PHASE_STARTED;
+    case NSEventPhaseEnded:
+      return NIMCULUS_TOUCH_PHASE_ENDED;
+    default:
+      return NIMCULUS_TOUCH_PHASE_MOVED;
+  }
+}
+
 static BOOL logInput(NSString *kind, NSEvent *event) {
   if (g_first_input_time == 0) g_first_input_time = mach_absolute_time();
   g_input_count++;
@@ -3498,10 +3510,12 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   const CGFloat deltaX = isScrollWheel ? event.scrollingDeltaX : 0.0;
   const CGFloat deltaY = isScrollWheel ? event.scrollingDeltaY : 0.0;
   const BOOL preciseScrolling = isScrollWheel && event.hasPreciseScrollingDeltas;
+  const uint32_t phase = isScrollWheel
+    ? nimculusTouchPhaseForEvent(event) : NIMCULUS_TOUCH_PHASE_MOVED;
   if (nimculusInputLogEnabled()) {
-    NSLog(@"Nimculus input kind=%@ keyCode=%hu modifiers=0x%lx x=%.1f y=%.1f dx=%.1f dy=%.1f",
+    NSLog(@"Nimculus input kind=%@ keyCode=%hu modifiers=0x%lx x=%.1f y=%.1f dx=%.1f dy=%.1f phase=%u",
           kind, keyCode, event.modifierFlags, location.x, location.y,
-          deltaX, deltaY);
+          deltaX, deltaY, phase);
   }
   if (g_input_callback) {
     NimculusInputEvent input = {
@@ -3512,6 +3526,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
       .x = location.x, .y = location.y,
       .delta_x = deltaX, .delta_y = deltaY,
       .precise_scrolling = preciseScrolling,
+      .phase = phase,
     };
     if (event.type == NSEventTypeKeyDown && g_shortcut_callback &&
         g_shortcut_callback(&input)) {
@@ -13494,7 +13509,8 @@ bool nimculus_platform_validate_input_event_fields(void) {
     return g_input_count == before + 6 && g_validation_scroll_seen &&
       fabs(g_validation_scroll_event.delta_x - scrollWheel.scrollingDeltaX) < 0.001 &&
       fabs(g_validation_scroll_event.delta_y - scrollWheel.scrollingDeltaY) < 0.001 &&
-      g_validation_scroll_event.precise_scrolling == scrollWheel.hasPreciseScrollingDeltas;
+      g_validation_scroll_event.precise_scrolling == scrollWheel.hasPreciseScrollingDeltas &&
+      g_validation_scroll_event.phase == NIMCULUS_TOUCH_PHASE_MOVED;
   }
 }
 

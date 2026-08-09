@@ -1,4 +1,7 @@
 import nimnui/geometry
+import std/monotimes
+import std/options
+import std/times
 
 const
   ## The text origin is supplied by the editor gutter. Keep this fallback for
@@ -15,14 +18,75 @@ const
   EditorScrollbarBottomInset* = 14'f32
   EditorScrollbarHeight* = 6'f32
   EditorScrollbarMinimumThumb* = 24'f32
+  ## Keep these values identical to references/zed/crates/editor/src/scroll.rs.
+  SCROLL_EVENT_SEPARATION* = initDuration(milliseconds = 28)
+  UNLOCK_PERCENT* = 1.9'f32
+  UNLOCK_LOWER_BOUND* = 6'f32
 
 type
+  ScrollAxis* = enum
+    axisVertical
+    axisHorizontal
+
+  ## Zed's scroll.rs OngoingScroll: retain the last precise scroll event and
+  ## the axis selected for the current scroll burst.
+  OngoingScroll* = object
+    lastEvent: MonoTime
+    axis: Option[ScrollAxis]
+
   EditorHorizontalScrollbar* = object
     track*: Rect
     thumb*: Rect
     viewportWidth*: float32
     contentWidth*: float32
     maxScroll*: float32
+
+proc newOngoingScroll*(lastEventAge = SCROLL_EVENT_SEPARATION,
+                       initialAxis: Option[ScrollAxis] = none(ScrollAxis)):
+                       OngoingScroll =
+  OngoingScroll(lastEvent: getMonoTime() - lastEventAge, axis: initialAxis)
+
+proc filter*(ongoing: OngoingScroll, delta: var Point): Option[ScrollAxis] =
+  ## Port of Zed's OngoingScroll::filter. Keep this pure with respect to the
+  ## ongoing state; the caller records the returned axis after applying the
+  ## delta, matching editor/scroll/actions.rs.
+  var axis = ongoing.axis
+  let x = abs(float32(delta.x))
+  let y = abs(float32(delta.y))
+  let duration = getMonoTime() - ongoing.lastEvent
+  if duration > SCROLL_EVENT_SEPARATION:
+    axis = if x <= y: some(axisVertical) else: some(axisHorizontal)
+  elif max(x, y) >= UNLOCK_LOWER_BOUND:
+    if axis.isSome:
+      case axis.get
+      of axisVertical:
+        if x > y and x >= y * UNLOCK_PERCENT:
+          axis = none(ScrollAxis)
+      of axisHorizontal:
+        if y > x and y >= x * UNLOCK_PERCENT:
+          axis = none(ScrollAxis)
+
+  if axis.isSome:
+    case axis.get
+    of axisVertical:
+      delta = Point(x: px(0'f32), y: delta.y)
+    of axisHorizontal:
+      delta = Point(x: delta.x, y: px(0'f32))
+  axis
+
+proc updateOngoingScroll*(ongoing: var OngoingScroll, axis: Option[ScrollAxis]) =
+  ongoing.lastEvent = getMonoTime()
+  ongoing.axis = axis
+
+proc applyScrollDelta*(ongoing: var OngoingScroll, delta: var Point,
+                       precise: bool): Option[ScrollAxis] =
+  ## Equivalent to Zed's ScrollDelta::Pixels/Lines split: only precise
+  ## (trackpad pixel) deltas enter OngoingScroll::filter.
+  if not precise:
+    return none(ScrollAxis)
+  let axis = ongoing.filter(delta)
+  ongoing.updateOngoingScroll(axis)
+  axis
 
 proc emptyRect(): Rect =
   Rect(size: Size(width: px(0), height: px(0)))

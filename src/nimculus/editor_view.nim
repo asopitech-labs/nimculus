@@ -6,6 +6,7 @@ import nimculus/editor_buffer
 import nimnui/text
 import nimnui/nimnui
 import nimculus/syntax
+import nimculus/editor_scroll
 
 type
   EditorViewState* = object
@@ -28,6 +29,8 @@ type
     scrollDisplayPixels*: float32
     scrollDisplayInitialized*: bool
     scrollX*: float32
+    ## Zed's per-editor OngoingScroll state for precise trackpad deltas.
+    ongoingScroll*: OngoingScroll
     showLineNumbers*, softWrap*, showIndentGuides*: bool
     indentWidth*: int
     ## Fold state is byte anchored to the document, while the native backend
@@ -41,7 +44,7 @@ proc newEditorView*(): EditorViewState =
   # Zed keeps long lines unwrapped by default. Turning soft-wrap on remains a
   # per-view preference and is restored when a session explicitly saved it.
   EditorViewState(showLineNumbers: true, softWrap: false,
-    showIndentGuides: true, indentWidth: 2)
+    showIndentGuides: true, indentWidth: 2, ongoingScroll: newOngoingScroll())
 
 proc editorLineHeight*(): float32 =
   ## One metric shared by rendering, scrolling, hit testing, IME placement,

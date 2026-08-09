@@ -4,6 +4,8 @@ import std/os
 when defined(posix):
   import std/files
 import std/strutils
+import std/options
+import std/times
 import nimculus/editor_buffer
 import nimculus/editor_diagnostics
 import nimculus/lsp
@@ -21,6 +23,62 @@ import nimnui/render
 suite "session persistence scheduling":
   test "new editor views default to Zed no-wrap":
     check not newEditorView().softWrap
+
+  test "ongoing scroll chooses vertical when absolute y is at least x":
+    var ongoing = newOngoingScroll()
+    var delta = Point(x: px(4'f32), y: px(-6'f32))
+    check ongoing.filter(delta) == some(axisVertical)
+    check delta == Point(x: px(0'f32), y: px(-6'f32))
+
+  test "ongoing scroll chooses horizontal when absolute x exceeds y":
+    var ongoing = newOngoingScroll()
+    var delta = Point(x: px(-7'f32), y: px(4'f32))
+    check ongoing.filter(delta) == some(axisHorizontal)
+    check delta == Point(x: px(-7'f32), y: px(0'f32))
+
+  test "ongoing scroll unlocks only at Zed's ratio and lower bound":
+    var belowRatio = newOngoingScroll(initDuration(milliseconds = 0),
+      some(axisVertical))
+    var delta = Point(x: px(11'f32), y: px(6'f32))
+    check belowRatio.filter(delta) == some(axisVertical)
+    check delta == Point(x: px(0'f32), y: px(6'f32))
+
+    var atThreshold = newOngoingScroll(initDuration(milliseconds = 0),
+      some(axisVertical))
+    delta = Point(x: px(11.4'f32), y: px(6'f32))
+    check atThreshold.filter(delta).isNone
+    check delta == Point(x: px(11.4'f32), y: px(6'f32))
+
+    var belowLowerBound = newOngoingScroll(initDuration(milliseconds = 0),
+      some(axisVertical))
+    delta = Point(x: px(5.7'f32), y: px(3'f32))
+    check belowLowerBound.filter(delta) == some(axisVertical)
+    check delta == Point(x: px(0'f32), y: px(3'f32))
+
+    var horizontal = newOngoingScroll(initDuration(milliseconds = 0),
+      some(axisHorizontal))
+    delta = Point(x: px(6'f32), y: px(12'f32))
+    check horizontal.filter(delta).isNone
+    check delta == Point(x: px(6'f32), y: px(12'f32))
+
+  test "ongoing scroll starts a new axis after 28 milliseconds":
+    var ongoing = newOngoingScroll(initDuration(milliseconds = 29),
+      some(axisVertical))
+    var delta = Point(x: px(8'f32), y: px(2'f32))
+    check ongoing.filter(delta) == some(axisHorizontal)
+    check delta == Point(x: px(8'f32), y: px(0'f32))
+
+  test "wheel deltas bypass ongoing scroll and preserve legacy delta":
+    var ongoing = newOngoingScroll(initDuration(milliseconds = 0),
+      some(axisVertical))
+    var delta = Point(x: px(8'f32), y: px(2'f32))
+    check ongoing.applyScrollDelta(delta, precise = false).isNone
+    check delta == Point(x: px(8'f32), y: px(2'f32))
+
+  test "wheel pixel conversion remains unchanged":
+    let lineHeight = editorLineHeight()
+    check abs(scrollPixelDelta(-120'f32, false, lineHeight) -
+      120'f32 * lineHeight) < 0.001'f32
 
   test "horizontal scrollbar geometry clamps and maps scroll positions":
     let bounds = Rect(origin: Point(x: px(20), y: px(40)),
