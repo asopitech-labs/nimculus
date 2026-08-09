@@ -1,5 +1,105 @@
 # Design Decisions
 
+## UI-119: 設定が変わったときのパネルの引き取り直し（UI-118 の 5）
+
+### Zed の意味論（`dock.rs:589-655`）
+
+`SettingsStore` を監視し、パネルの位置が変わったら移す。**ただの付け替えではない。**
+
+```rust
+let new_position = panel.read(cx).position(window, cx);
+if new_position == this.position { return; }
+```
+
+**移す前に 2 つの状態を保存する**（`:614-623`）:
+
+```rust
+let was_visible = this.is_open()
+    && this.visible_panel().is_some_and(|p| p.panel_id() == panel_id);
+let size_state = this.panel_entries.iter()
+    .find(|e| e.panel.panel_id() == panel_id)
+    .map(|e| e.size_state).unwrap_or_default();
+```
+
+**軸が変わるならサイズを捨てる**（`:625-631`）:
+
+```rust
+let previous_axis = this.position.axis();
+let next_axis = new_position.axis();
+let size_state = if previous_axis == next_axis { size_state }
+                 else { PanelSizeState::default() };
+```
+
+左↔右は同じ軸（横幅）なので幅を保つ。左↔下は軸が変わる（幅→高さ）ので捨てる。
+
+**移した先で、元が見えていたときだけ開く**（`:641-646`）:
+
+```rust
+if was_visible {
+    new_dock.set_open(true, window, cx);
+    new_dock.activate_panel(index, window, cx);
+}
+```
+
+閉じていたパネルを移しても、移動先のドックは開かない。
+
+**取り外しの失敗を握り潰さない**（`:633-636`）:
+
+```rust
+if !this.remove_panel(&panel, window, cx) {
+    // Panel was already moved from this dock
+    return;
+}
+```
+
+最後にワークスペースを永続化する（`:650-653`）。
+
+### Nimculus の受け皿
+
+**監視の口は既にある。** `settings.nim:658` の `reload()` が
+ファイルのスタンプを見て、変わっていれば true を返す。
+`main.nim:4213, 5670, 5864, 7222` が呼んでおり、直後に
+`applySettingsTheme()` が走る。**同じ場所にパネルの引き取り直しを足せる。**
+
+`DockState`（`workspace_ui.nim:47`）は `side` / `isOpen` / `activePanel` / `size`
+を持つ。Zed の `was_visible` は `isOpen and activePanel == panel` で表せる。
+
+### 軸の概念が無い
+
+Zed の `DockPosition::axis()` に相当するものが Nimculus に無い。
+左・右は横、下は縦。**サイズを引き継ぐか捨てるかの判断に要る**ので、足す。
+
+### やること
+
+1. `DockSide` に軸を返す関数を足す（左・右＝横、下＝縦）
+2. 設定の再読み込み後、各パネルの設定上の位置と現在の所有を比べ、
+   違えば移す
+3. 移す前に「見えていたか」と「サイズ」を保存する
+4. 軸が変わるならサイズを既定へ戻す
+5. 移動先は、元が見えていたときだけ開いてそのパネルを選ぶ
+6. 元のドックからパネルが消えた結果 `activePanel` が不正になる場合の後始末
+   （Zed は `remove_panel` の中でやっている）
+7. セッションの永続化を更新する
+
+### 却下案
+
+**(a) 位置が変わったら単に付け替える。** 開閉状態とサイズが飛ぶ。
+左→右に動かしただけでドックが勝手に開く、あるいは幅が既定に戻る。
+Zed は両方を保存している。却下。
+
+**(b) 軸を見ずにサイズを常に引き継ぐ。** 下ドックの高さが
+左ドックの幅になる。却下。
+
+**(c) 軸を見ずにサイズを常に捨てる。** 左→右で幅が戻る。Zed は保つ。却下。
+
+### テスト観点
+
+- 左→右: 幅を保つ。開いていたら開いたまま、閉じていたら閉じたまま
+- 左→下: サイズは既定へ。開閉は保つ
+- 見えていなかったパネルを移しても移動先が開かない
+- 移動元の `activePanel` が移されたパネルだった場合の後始末
+- 設定に無効な値を書いても位置が動かない（UI-118 の 2 のフォールバック）
+
 ## UI-118: パネルが自分の位置を持つ構造（UI-117 の 4 番目）
 
 **調査記録。実装指示はまだ出さない。** 影響範囲が広く、着手順の判断が要る。
