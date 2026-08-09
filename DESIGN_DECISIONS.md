@@ -1,5 +1,42 @@
 # Design Decisions
 
+## UI-114: ステータスバー左側の 7 項目（未着手）
+
+UI-113 で右側を Zed に合わせた。左側は未移植であり、ここに調査結果だけ残す。
+
+### Zed の左側（`crates/zed/src/zed.rs:635-641`、この順）
+
+| 項目 | 実装 | 既定の見え方 |
+| --- | --- | --- |
+| search button | `search_status_button.rs:22` | 虫眼鏡アイコン（`search.button` 既定 true） |
+| lsp button | `lsp_button` crate | アイコン |
+| diagnostic summary | `diagnostics/src/items.rs:30,36` | エラー 0 なら**チェックアイコン** |
+| active file name | `active_file_name.rs:28` | 非表示（既定 false、UI-113 参照） |
+| git blame status | `git_ui::GitBlameStatus` | blame 有効時のみ |
+| merge conflict | `git_ui::MergeConflictIndicator` | 競合時のみ |
+| activity indicator | `activity_indicator.rs:655` | 表示するものが無ければ空 |
+
+**既定・無風の状態で見えるのは 3 つ**（検索・LSP・チェック）。残り 4 つは
+条件付きで、通常は空を返す。
+
+さらに `workspace.rs:1757-1759` の左ドック / 右ドック / 下ドックのトグルが
+ステータスバー両端に入る。
+
+### Nimculus の左側
+
+UI-097 で決めた構成（パネルトグル群）。Zed の 7 項目はどれも未移植。
+
+### 着手順（依存が浅い順）
+
+1. diagnostic summary（LSP 診断は既にあり、アイコン化のみ）
+2. search button（検索 UI は既にある）
+3. activity indicator（LSP のダウンロード進捗など、表示するものが先に要る）
+4. lsp button（ポップオーバーメニューを伴う。UI-111 の AppKit chrome に触れる）
+5. git blame / merge conflict（どちらも未実装機能が前提）
+
+ドックのトグル配置は Zed の左ドック・右ドック・下ドックという構成自体が
+Nimculus に無く、UI-111 の下流。
+
 ## UI-113: ステータスバーの項目は Zed の既定表示条件に従う
 
 対応マイルストーンは UI パリティ。完了条件は、既定設定でステータスバー右側の
