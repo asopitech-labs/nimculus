@@ -939,17 +939,6 @@ static NSColor *themeRoleColor(NSString *key, NSColor *fallback) {
   return themeHexColor(themeRole(key, nil), themeTokenFallback(key, fallback));
 }
 
-static NSString *editorPaintToken(void) {
-  NSString *token = themeRole(@"editor", g_theme_background);
-  // The One Light token is #fafafa, while Zed's captured painted surface is
-  // #fcfcfc on the reference display. Apply that display-space correction at
-  // the final opaque Metal fill, rather than changing the theme definition or
-  // letting an AppKit overlay tint the gutter independently. One Dark's
-  // #282c33 token is already the captured painted value and remains unchanged.
-  if ([token caseInsensitiveCompare:@"#fafafa"] == NSOrderedSame) return @"#fcfcfc";
-  return token;
-}
-
 // Workspace chrome controls are intentionally quiet until the pointer reaches
 // them.  Keeping hover state in the native button means tracking, repainting,
 // tooltips, accessibility, and command dispatch remain independent of the
@@ -2567,7 +2556,7 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height, themeRed, themeGreen, themeBlue, alpha, transform);
   } else if (paint.kind == 15) { // editor background
-    themeRGB(editorPaintToken(),
+    themeRGB(themeRole(@"editor", g_theme_background),
       [NSColor colorWithCalibratedWhite:0.12 alpha:1.0],
       &themeRed, &themeGreen, &themeBlue);
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
@@ -8492,7 +8481,8 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
 }
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
-  [themeHexColor(editorPaintToken(), [NSColor colorWithCalibratedWhite:0.98 alpha:1.0]) setFill];
+  [themeHexColor(themeRole(@"editor", g_theme_background),
+    [NSColor colorWithCalibratedWhite:0.98 alpha:1.0]) setFill];
   NSRectFill(self.bounds);
   // Zed closes the toolbar with a 1pt `border.variant` rule measured as
   // #dfdfe0 along its bottom edge.
@@ -10113,7 +10103,7 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
     editorGap.frame = NSMakeRect(g_editor_rect[0], 46.0,
       MAX(1.0, g_editor_rect[2]), 14.0);
     editorGap.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
-    editorGap.backgroundColor = themeHexColor(editorPaintToken(),
+    editorGap.backgroundColor = themeHexColor(themeRole(@"editor", g_theme_background),
       [NSColor colorWithCalibratedWhite:0.98 alpha:1.0]);
     [editorGap setNeedsDisplay:YES];
   }

@@ -289,7 +289,7 @@ suite "M12 settings foundation":
     let store = newSettingsStore("", "", "")
     let light = store.themeRegistry["light"].colors
     let dark = store.themeRegistry["dark"].colors
-    check light.editor == "#fcfcfc"
+    check light.editor == "#fafafa"
     check light.editorForeground == "#242529"
     check light.gutter == light.editor
     check light.editorActiveLine == "#ececedbf"
