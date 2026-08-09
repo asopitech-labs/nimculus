@@ -54,7 +54,7 @@ Silicon macOSビルドの証拠と突き合わせたレビュー記録である�
 - M3: Core Text計測、UTF-8/grapheme、atlasモデル、IME状態のunit test。
 - M3 visible text asset contract: native contractが日本語・記号・絵文字を含む混在サンプルをCore Text textureとglyph pathへ投入する。実フレーム送信は既存のcold-start/soak `frames=`ゲート、混在文字の実機表示は別の受入確認とする。日本語IME候補の実機操作とRetina表示の手動確認は未完了。
 - M3 mixed GPU text path: color emojiが含まれる行でもglyph atlas生成を中断せず、glyph runの通常文字だけをR8 atlasへ投入し、RGBA Core Text textureは色絵文字runだけを描画する経路へ修正。native contractで同一混在サンプルから両資産が生成されることを確認した。実Metal frameの視認確認は未完了。
-- M3 color glyph classification: Unicode scalar範囲だけではキーキャップ（数字＋Variation Selector＋`U+20E3`）や将来のemoji sequenceを分類できないため、Zedと同じくCore Textが解決した`AppleColorEmoji`/`.AppleColorEmojiUI` font runを色glyphの権威判定に変更。Unicode範囲判定はfallbackとして残し、混在native contractに`1️⃣`を追加した。実機表示は未確認。
+- M3 color glyph classification: Unicode scalar範囲ではなく、Zedと同じくCore Textが解決した`AppleColorEmoji`/`.AppleColorEmojiUI` font runだけを色glyphの判定根拠にした。Unicode範囲判定は削除し、混在native contractに`1️⃣`と本文フォント供給の`❌`を追加した。実機表示は未確認。
 - M3 native IME: marked rangeを文書UTF-16位置として保持し、候補矩形をeditor座標からNSView座標へ変換する経路を補正。日本語IMEの実機確認は未完了。
 - M3 IME cancellation: AppKitの`unmarkText`がNim側compositionを取り残していたため、Zedの`InputHandler::unmark_text`相当として空のcomposing callbackを返し、ネイティブ表示と編集状態を同時に消去。
 - M3 selection contract: `platformSetEditorSelection`でUTF-8 byte範囲をUTF-16へ変換してから、Core Text描画と`NSTextInputClient`へ渡す契約を確認。

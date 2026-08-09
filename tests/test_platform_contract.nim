@@ -357,7 +357,7 @@ suite "macOS platform contract":
     else:
       echo "  [SKIP] color emoji atlas routing contract (no Metal/Core Text device in this session)"
 
-  test "Core Text classifies joined and keycap emoji sequences":
+  test "Core Text routes color-font glyphs and keeps body-font U+274C monochrome":
     check platformValidateColorEmojiSequences()
 
   test "mixed Japanese symbol and emoji text reaches the visible text asset paths":

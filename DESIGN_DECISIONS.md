@@ -173,8 +173,8 @@ ROADMAP の M3 完了条件には「日本語、英語、記号、絵文字をGP
 ### 文字単位・スレッド・UI ブロッキング
 
 絵文字は複数コードポイント（ZWJ 連結・キーキャップ）を含む。既存の
-`colorEmojiAtUTF16Index`（`macos_platform.m:3178`）が UTF-16 位置で判定しており、
-そこは変えない。ラスタライズはミス時のみ、フレーム内で完結する。
+以前の UTF-16 位置ベースの絵文字判定は削除し、シェープ済み run の
+実フォント識別だけを使う。ラスタライズはミス時のみ、フレーム内で完結する。
 
 ### テスト観点
 
@@ -4207,12 +4207,13 @@ commands, while the platform renderer remains responsible for text shaping.
 ## M3-022: Split ordinary glyphs from color emoji in mixed lines
 
 The previous macOS path returned from atlas generation as soon as a document
-contained one color-emoji scalar. That made a mixed Japanese/ASCII/emoji line
+contained one color-emoji run. That made a mixed Japanese/ASCII/emoji line
 fall back as one complete Core Text texture and did not exercise the intended
-GPU split. The atlas path now inspects Core Text glyph-run string indices,
-skips only glyphs backed by color-emoji scalars, and retains ordinary glyphs
-in the R8 atlas. The RGBA texture masks non-emoji foreground glyphs when the
-atlas is available, leaving the color-emoji runs as the fallback layer.
+GPU split. The atlas path now inspects the resolved Core Text font for each
+glyph run, sends only `AppleColorEmoji` runs to the polychrome atlas, and
+retains ordinary glyphs in the R8 atlas. The RGBA texture masks non-emoji
+foreground glyphs when the atlas is available, leaving the color-emoji runs as
+the fallback layer.
 
 This follows Zed's separation of monochrome glyph atlases and color-glyph
 resources while keeping Core Text responsible for macOS fallback shaping.
@@ -4227,12 +4228,13 @@ keycaps combine an ASCII digit or symbol with Variation Selector-16 and
 macOS text system marks a shaped glyph as emoji from the resolved
 `AppleColorEmoji` or `.AppleColorEmojiUI` font rather than from a scalar list.
 
-Nimculus now uses that same Core Text run boundary for the main decision:
+Nimculus now uses that same Core Text run boundary for the only decision:
 ordinary runs are rasterized into the R8 atlas, while color-font runs remain
 in the RGBA Core Text fallback texture. The previous Unicode scalar classifier
-is retained only as a defensive fallback when filtering individual atlas
-glyphs. The native mixed-text contract includes a ZWJ sequence, a supplementary
-emoji, and a keycap, and requires both rendering assets.
+has been removed; there is no codepoint-based fallback when filtering
+individual atlas glyphs. The native mixed-text contract includes a ZWJ
+sequence, a supplementary emoji, a keycap, and U+274C, and requires the
+font-based classification to remain monochrome for the body-font glyph.
 
 ## M1-017: Treat a new Metal target as a full retained-scene rebuild
 

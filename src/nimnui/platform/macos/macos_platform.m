@@ -3215,27 +3215,6 @@ static NSUInteger editorUTF16OffsetAtPoint(double x, double y) {
 static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text);
 static void resetGlyphSprites(void);
 
-static BOOL scalarIsColorEmoji(uint32_t scalar) {
-  return (scalar >= 0x1F000 && scalar <= 0x1FAFF) ||
-    (scalar >= 0x2600 && scalar <= 0x27BF);
-}
-
-static BOOL colorEmojiAtUTF16Index(NSString *text, NSUInteger index,
-                                   NSUInteger *unitLength) {
-  if (!text || index >= text.length) return NO;
-  uint32_t scalar = [text characterAtIndex:index];
-  NSUInteger length = 1;
-  if (scalar >= 0xD800 && scalar <= 0xDBFF && index + 1 < text.length) {
-    uint32_t low = [text characterAtIndex:index + 1];
-    if (low >= 0xDC00 && low <= 0xDFFF) {
-      scalar = 0x10000 + ((scalar - 0xD800) << 10) + (low - 0xDC00);
-      length = 2;
-    }
-  }
-  if (unitLength) *unitLength = length;
-  return scalarIsColorEmoji(scalar);
-}
-
 static BOOL fontIsColorEmoji(CTFontRef font) {
   if (!font) return NO;
   NSString *postScriptName = (__bridge_transfer NSString *)CTFontCopyPostScriptName(font);
@@ -3356,8 +3335,7 @@ void nimculus_platform_layout_line(const uint8_t *utf8, uint32_t length,
       CTFontRef actualFont = (__bridge CTFontRef)[runAttributes
         objectForKey:(id)kCTFontAttributeName];
       output->font_id = layoutFontIdForFont(actualFont ?: baseFont);
-      output->is_emoji = colorEmojiAtUTF16Index(value, unitIndex, NULL) ||
-        fontIsColorEmoji(actualFont);
+      output->is_emoji = fontIsColorEmoji(actualFont ?: baseFont);
     }
     free(runGlyphs); free(positions); free(indices);
   }
@@ -3954,18 +3932,14 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
       if (glyphCount == 0) continue;
       CGGlyph *glyphs = malloc(sizeof(CGGlyph) * (NSUInteger)glyphCount);
       CGPoint *positions = malloc(sizeof(CGPoint) * (NSUInteger)glyphCount);
-      CFIndex *stringIndices = malloc(sizeof(CFIndex) * (NSUInteger)glyphCount);
-      if (!glyphs || !positions || !stringIndices) {
-        free(glyphs); free(positions); free(stringIndices); continue;
+      if (!glyphs || !positions) {
+        free(glyphs); free(positions); continue;
       }
       CTRunGetGlyphs(run, CFRangeMake(0, glyphCount), glyphs);
       CTRunGetPositions(run, CFRangeMake(0, glyphCount), positions);
-      CTRunGetStringIndices(run, CFRangeMake(0, glyphCount), stringIndices);
       uint32_t fontId = layoutFontIdForFont(font);
       for (CFIndex glyphIndex = 0; glyphIndex < glyphCount; glyphIndex++) {
-        BOOL colorEmojiGlyph = stringIndices[glyphIndex] != kCFNotFound
-          ? colorEmojiAtUTF16Index(lineText, (NSUInteger)stringIndices[glyphIndex], NULL)
-          : fontIsColorEmoji(font);
+        BOOL colorEmojiGlyph = fontIsColorEmoji(font);
         CGFloat scaledX = positions[glyphIndex].x * scale;
         CGFloat scaledY = (baselineY + positions[glyphIndex].y) * scale;
         CGFloat quantizedX = roundHalfTowardZero(scaledX * NIMCULUS_SUBPIXEL_VARIANTS_X) /
@@ -3987,7 +3961,6 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
       }
       free(glyphs);
       free(positions);
-      free(stringIndices);
     }
     CFRelease(line);
     [attributed release];
@@ -8603,15 +8576,6 @@ static NSParagraphStyle *terminalParagraphStyle(void) {
   return [style autorelease];
 }
 
-static BOOL terminalRangeContainsColorEmoji(NSRange range) {
-  if (range.length == 0 || !g_terminal_text) return NO;
-  NSUInteger end = MIN(g_terminal_text.length, NSMaxRange(range));
-  for (NSUInteger index = MIN(range.location, end); index < end; index++) {
-    if (colorEmojiAtUTF16Index(g_terminal_text, index, NULL)) return YES;
-  }
-  return NO;
-}
-
 static void applyTerminalRuns(NSTextView *terminal) {
   if (!terminal) return;
   // The Metal cell batch is the primary presentation path for ordinary
@@ -8647,9 +8611,7 @@ static void applyTerminalRuns(NSTextView *terminal) {
       run.background_red, run.background_green, run.background_blue, NO, run.flags);
     if (run.flags & 16) { NSColor *swap = foreground; foreground = background; background = swap; }
     if (metalTerminal) {
-      if (!terminalRangeContainsColorEmoji(NSMakeRange(start, end - start))) {
-        foreground = [NSColor clearColor];
-      }
+      foreground = [NSColor clearColor];
       background = [NSColor clearColor];
     }
     NSFont *font = terminalBaseFont();
@@ -8797,19 +8759,14 @@ static void updateTerminalGlyphAtlas(id<MTLDevice> device) {
       if (glyphCount == 0) continue;
       CGGlyph *glyphs = malloc(sizeof(CGGlyph) * (NSUInteger)glyphCount);
       CGPoint *positions = malloc(sizeof(CGPoint) * (NSUInteger)glyphCount);
-      CFIndex *stringIndices = malloc(sizeof(CFIndex) * (NSUInteger)glyphCount);
-      if (!glyphs || !positions || !stringIndices) {
-        free(glyphs); free(positions); free(stringIndices); continue;
+      if (!glyphs || !positions) {
+        free(glyphs); free(positions); continue;
       }
       CTRunGetGlyphs(textRun, CFRangeMake(0, glyphCount), glyphs);
       CTRunGetPositions(textRun, CFRangeMake(0, glyphCount), positions);
-      CTRunGetStringIndices(textRun, CFRangeMake(0, glyphCount), stringIndices);
       uint32_t fontId = layoutFontIdForFont(ctFont);
       for (CFIndex glyphIndex = 0; glyphIndex < glyphCount; glyphIndex++) {
-        NSUInteger localIndex = stringIndices[glyphIndex] == kCFNotFound ? 0 :
-          (NSUInteger)stringIndices[glyphIndex];
-        BOOL isEmoji = colorEmojiAtUTF16Index(g_terminal_text, start + localIndex, NULL) ||
-          fontIsColorEmoji(ctFont);
+        BOOL isEmoji = fontIsColorEmoji(ctFont);
         NimculusGlyphAtlasEntry entry;
         if (!atlasEntryForGlyph(device, ctFont, glyphs[glyphIndex], fontId,
             g_terminal_font_size, scale,
@@ -8819,7 +8776,7 @@ static void updateTerminalGlyphAtlas(id<MTLDevice> device) {
         appendTerminalGlyphSpriteForEntry(viewport, entry, originX, baseline,
           red, green, blue, alpha, isEmoji);
       }
-      free(glyphs); free(positions); free(stringIndices);
+      free(glyphs); free(positions);
     }
     CFRelease(line);
     [attributed release];
@@ -14371,13 +14328,70 @@ bool nimculus_platform_validate_color_emoji_sprite_routing(void) {
   }
 }
 
+static BOOL shapedStringUsesColorFont(NSString *value, CTFontRef requestedFont,
+                                      BOOL expectedColor) {
+  if (!value || !requestedFont) return NO;
+  NSAttributedString *attributed = [[NSAttributedString alloc]
+    initWithString:value attributes:@{(id)kCTFontAttributeName: (__bridge id)requestedFont}];
+  CTLineRef line = CTLineCreateWithAttributedString((CFAttributedStringRef)attributed);
+  if (!line) {
+    [attributed release];
+    return NO;
+  }
+  CFArrayRef runs = CTLineGetGlyphRuns(line);
+  BOOL sawGlyph = NO;
+  BOOL valid = YES;
+  for (CFIndex index = 0; index < CFArrayGetCount(runs); index++) {
+    CTRunRef run = (CTRunRef)CFArrayGetValueAtIndex(runs, index);
+    if (CTRunGetGlyphCount(run) == 0) continue;
+    sawGlyph = YES;
+    NSDictionary *attributes = (__bridge NSDictionary *)CTRunGetAttributes(run);
+    CTFontRef actualFont = (__bridge CTFontRef)[attributes
+      objectForKey:(id)kCTFontAttributeName];
+    if (!actualFont || fontIsColorEmoji(actualFont) != expectedColor) {
+      valid = NO;
+      break;
+    }
+  }
+  CFRelease(line);
+  [attributed release];
+  return sawGlyph && valid;
+}
+
+static CTFontRef loadReferenceBodyFont(void) {
+  NSString *path = [[[NSFileManager defaultManager] currentDirectoryPath]
+    stringByAppendingPathComponent:@"references/zed/assets/fonts/lilex/Lilex-Regular.ttf"];
+  NSURL *url = [NSURL fileURLWithPath:path];
+  CFErrorRef error = NULL;
+  CTFontManagerRegisterFontsForURL((__bridge CFURLRef)url,
+    kCTFontManagerScopeProcess, &error);
+  if (error) CFRelease(error);
+  return CTFontCreateWithName(CFSTR("Lilex-Regular"), 15.0, NULL);
+}
+
 bool nimculus_platform_validate_color_emoji_sequences(void) {
+  CTFontRef colorFont = CTFontCreateWithName(CFSTR("AppleColorEmoji"), 15.0, NULL);
+  CTFontRef bodyFont = loadReferenceBodyFont();
+  UniChar bodyCharacter = 0x274C;
+  CGGlyph bodyGlyph = 0;
+  BOOL bodySuppliesGlyph = bodyFont &&
+    CTFontGetGlyphsForCharacters(bodyFont, &bodyCharacter, &bodyGlyph, 1) && bodyGlyph != 0;
+  BOOL colorRoutesToPolychrome = colorFont &&
+    shapedStringUsesColorFont(@"🙂", colorFont, YES) &&
+    glyphTextureKind(fontIsColorEmoji(colorFont)) == NIMCULUS_GLYPH_TEXTURE_POLYCHROME;
+  BOOL bodyRoutesToMonochrome = bodySuppliesGlyph &&
+    shapedStringUsesColorFont(@"❌", bodyFont, NO) &&
+    glyphTextureKind(fontIsColorEmoji(bodyFont)) == NIMCULUS_GLYPH_TEXTURE_MONOCHROME;
+  if (colorFont) CFRelease(colorFont);
+  if (bodyFont) CFRelease(bodyFont);
+  if (!colorRoutesToPolychrome || !bodyRoutesToMonochrome) return NO;
+
   // This contract does not require a drawable. It verifies the same shaped
-  // glyph flag that the framework consumes, without a second full-string
-  // emoji scan in the renderer.
-  NSString *samples[] = {@"👩‍💻", @"1️⃣", @"Nimculus 日本語"};
-  BOOL expected[] = {YES, YES, NO};
-  for (NSUInteger index = 0; index < 3; index++) {
+  // glyph flag that the framework consumes. A supplementary emoji and a
+  // joined/keycap sequence must come from AppleColorEmoji.
+  NSString *samples[] = {@"🙂", @"👩‍💻", @"1️⃣", @"Nimculus 日本語"};
+  BOOL expected[] = {YES, YES, YES, NO};
+  for (NSUInteger index = 0; index < 4; index++) {
     NSString *value = samples[index];
     NSData *bytes = [value dataUsingEncoding:NSUTF8StringEncoding];
     NimculusPlatformLineMetrics metrics;
