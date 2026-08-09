@@ -53,7 +53,7 @@ bool nimculus_platform_validate_frame_timing_tracking(void);
 bool nimculus_platform_validate_clipboard_roundtrip(void);
 bool nimculus_platform_validate_glyph_atlas(void);
 bool nimculus_platform_validate_glyph_atlas_eviction(void);
-bool nimculus_platform_validate_color_emoji_fallback(void);
+bool nimculus_platform_validate_color_emoji_sprite_routing(void);
 bool nimculus_platform_validate_color_emoji_sequences(void);
 bool nimculus_platform_validate_terminal_overlay_runs(void);
 bool nimculus_platform_validate_editor_context_header(void);

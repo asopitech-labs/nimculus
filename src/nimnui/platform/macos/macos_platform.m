@@ -1245,17 +1245,22 @@ typedef struct NimculusDrawUniforms {
 static id<MTLRenderPipelineState> g_pipeline = nil;
 static id<MTLRenderPipelineState> g_text_pipeline = nil;
 static id<MTLRenderPipelineState> g_glyph_pipeline = nil;
+static id<MTLRenderPipelineState> g_polychrome_glyph_pipeline = nil;
 static id<MTLRenderPipelineState> g_image_pipeline = nil;
 static id<MTLCommandQueue> g_queue = nil;
 static id<MTLTexture> g_text_texture = nil;
 static id<MTLTexture> g_secondary_text_texture = nil;
 static CGFloat g_text_texture_scale = 1.0;
 static id<MTLTexture> g_glyph_atlas_texture = nil;
+static id<MTLTexture> g_color_glyph_atlas_texture = nil;
 static CGFloat g_glyph_atlas_scale = 0.0;
 static BOOL g_glyph_rendering_available = NO;
 static NSUInteger g_glyph_atlas_next_x = 0;
 static NSUInteger g_glyph_atlas_next_y = 0;
 static NSUInteger g_glyph_atlas_row_height = 0;
+static NSUInteger g_color_glyph_atlas_next_x = 0;
+static NSUInteger g_color_glyph_atlas_next_y = 0;
+static NSUInteger g_color_glyph_atlas_row_height = 0;
 static uint64_t g_glyph_atlas_hit_count = 0;
 static uint64_t g_glyph_atlas_miss_count = 0;
 static uint64_t g_glyph_atlas_eviction_count = 0;
@@ -1352,9 +1357,26 @@ typedef struct NimculusMonochromeSprite {
   NimculusGlyphColor color;
 } NimculusMonochromeSprite;
 
+// This is the macOS-side equivalent of Zed's PolychromeSprite. Keep the
+// leading fields and the GPU-facing order of the fields identical to the
+// design: grayscale / opacity / bounds / content_mask / corner_radii / tile.
+typedef struct NimculusPolychromeSprite {
+  uint32_t order;
+  uint32_t pad;
+  uint32_t grayscale;
+  float opacity;
+  NimculusGlyphRect bounds;
+  NimculusGlyphRect content_mask;
+  NimculusGlyphRect corner_radii;
+  NimculusGlyphRect tile;
+} NimculusPolychromeSprite;
+
 static NimculusMonochromeSprite *g_glyph_sprites = NULL;
 static uint32_t g_glyph_sprite_count = 0;
 static uint32_t g_glyph_sprite_capacity = 0;
+static NimculusPolychromeSprite *g_polychrome_glyph_sprites = NULL;
+static uint32_t g_polychrome_glyph_sprite_count = 0;
+static uint32_t g_polychrome_glyph_sprite_capacity = 0;
 static NimculusEditorLayoutRow *g_editor_layout_rows = NULL;
 static uint32_t g_editor_layout_row_count = 0;
 static NimculusEditorLayoutGlyph *g_editor_layout_glyphs = NULL;
@@ -1366,12 +1388,18 @@ static uint32_t g_secondary_layout_glyph_count = 0;
 static NimculusMonochromeSprite *g_secondary_glyph_sprites = NULL;
 static uint32_t g_secondary_glyph_sprite_count = 0;
 static uint32_t g_secondary_glyph_sprite_capacity = 0;
+static NimculusPolychromeSprite *g_secondary_polychrome_glyph_sprites = NULL;
+static uint32_t g_secondary_polychrome_glyph_sprite_count = 0;
+static uint32_t g_secondary_polychrome_glyph_sprite_capacity = 0;
 // Terminal cells use the same Core Text glyph atlas as the editor, but keep a
 // separate vertex batch and viewport. This prevents a terminal redraw from
 // inheriting the editor's scroll origin or text clip.
 static NimculusMonochromeSprite *g_terminal_glyph_sprites = NULL;
 static uint32_t g_terminal_glyph_sprite_count = 0;
 static uint32_t g_terminal_glyph_sprite_capacity = 0;
+static NimculusPolychromeSprite *g_terminal_polychrome_glyph_sprites = NULL;
+static uint32_t g_terminal_polychrome_glyph_sprite_count = 0;
+static uint32_t g_terminal_polychrome_glyph_sprite_capacity = 0;
 static const float g_glyph_unit_vertices[12] = {
   0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f,
   0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f,
@@ -1421,6 +1449,7 @@ static void releasePlatformResources(void) {
   [g_text_texture release]; g_text_texture = nil;
   [g_secondary_text_texture release]; g_secondary_text_texture = nil;
   [g_glyph_atlas_texture release]; g_glyph_atlas_texture = nil;
+  [g_color_glyph_atlas_texture release]; g_color_glyph_atlas_texture = nil;
   [g_image_textures release]; g_image_textures = nil;
   free(g_glyph_atlas_cache); g_glyph_atlas_cache = NULL;
   g_glyph_atlas_cache_capacity = 0;
@@ -1428,10 +1457,13 @@ static void releasePlatformResources(void) {
   [g_pipeline release]; g_pipeline = nil;
   [g_text_pipeline release]; g_text_pipeline = nil;
   [g_glyph_pipeline release]; g_glyph_pipeline = nil;
+  [g_polychrome_glyph_pipeline release]; g_polychrome_glyph_pipeline = nil;
   [g_image_pipeline release]; g_image_pipeline = nil;
   [g_queue release]; g_queue = nil;
   free(g_glyph_sprites); g_glyph_sprites = NULL;
   g_glyph_sprite_count = 0; g_glyph_sprite_capacity = 0;
+  free(g_polychrome_glyph_sprites); g_polychrome_glyph_sprites = NULL;
+  g_polychrome_glyph_sprite_count = 0; g_polychrome_glyph_sprite_capacity = 0;
   free(g_editor_layout_rows); g_editor_layout_rows = NULL; g_editor_layout_row_count = 0;
   free(g_editor_layout_glyphs); g_editor_layout_glyphs = NULL; g_editor_layout_glyph_count = 0;
   free(g_secondary_layout_rows); g_secondary_layout_rows = NULL; g_secondary_layout_row_count = 0;
@@ -1439,9 +1471,15 @@ static void releasePlatformResources(void) {
   g_secondary_layout_glyph_count = 0;
   free(g_secondary_glyph_sprites); g_secondary_glyph_sprites = NULL;
   g_secondary_glyph_sprite_count = 0; g_secondary_glyph_sprite_capacity = 0;
+  free(g_secondary_polychrome_glyph_sprites); g_secondary_polychrome_glyph_sprites = NULL;
+  g_secondary_polychrome_glyph_sprite_count = 0;
+  g_secondary_polychrome_glyph_sprite_capacity = 0;
   clearLayoutFonts();
   free(g_terminal_glyph_sprites); g_terminal_glyph_sprites = NULL;
   g_terminal_glyph_sprite_count = 0; g_terminal_glyph_sprite_capacity = 0;
+  free(g_terminal_polychrome_glyph_sprites); g_terminal_polychrome_glyph_sprites = NULL;
+  g_terminal_polychrome_glyph_sprite_count = 0;
+  g_terminal_polychrome_glyph_sprite_capacity = 0;
   free(g_paint_commands); g_paint_commands = NULL; g_paint_count = 0;
   free(g_paint_selection_rows); g_paint_selection_rows = NULL;
   g_paint_selection_row_count = 0;
@@ -1514,21 +1552,28 @@ static void releasePlatformResources(void) {
 bool nimculus_platform_validate_resource_teardown(void) {
   releasePlatformResources();
   return g_scene_texture == nil && g_text_texture == nil &&
-    g_glyph_atlas_texture == nil && g_image_textures == nil &&
+    g_glyph_atlas_texture == nil && g_color_glyph_atlas_texture == nil &&
+    g_image_textures == nil &&
     g_glyph_atlas_cache == NULL && g_pipeline == nil &&
     g_text_pipeline == nil && g_glyph_pipeline == nil &&
+    g_polychrome_glyph_pipeline == nil &&
     g_image_pipeline == nil && g_queue == nil && g_glyph_sprites == NULL &&
-    g_secondary_glyph_sprites == NULL && g_terminal_glyph_sprites == NULL &&
+    g_secondary_glyph_sprites == NULL && g_polychrome_glyph_sprites == NULL &&
+    g_secondary_polychrome_glyph_sprites == NULL &&
+    g_terminal_glyph_sprites == NULL && g_terminal_polychrome_glyph_sprites == NULL &&
     g_paint_commands == NULL && g_paint_dirty_regions == NULL &&
     g_highlights == NULL && g_secondary_highlights == NULL && g_diagnostics == NULL &&
     g_secondary_diagnostics == NULL && g_git_hunks == NULL && g_secondary_git_hunks == NULL &&
     g_terminal_runs == NULL && g_editor_annotations == NULL && g_secondary_editor_annotations == NULL &&
     g_pending_file_open_paths == nil &&
-    g_glyph_sprite_count == 0 && g_secondary_glyph_sprite_count == 0 &&
+    g_glyph_sprite_count == 0 && g_polychrome_glyph_sprite_count == 0 &&
+    g_secondary_glyph_sprite_count == 0 &&
+    g_secondary_polychrome_glyph_sprite_count == 0 &&
     g_paint_count == 0 &&
     g_paint_dirty_count == 0 && g_highlight_count == 0 && g_secondary_highlight_count == 0 &&
     g_diagnostic_count == 0 && g_git_hunk_count == 0 &&
     g_terminal_run_count == 0 && g_terminal_glyph_sprite_count == 0 &&
+    g_terminal_polychrome_glyph_sprite_count == 0 &&
     g_editor_annotation_count == 0 && g_secondary_editor_annotation_count == 0;
 }
 
@@ -3364,19 +3409,41 @@ static void rebuildSecondaryEditorTexture(id<MTLDevice> device) {
 }
 
 static void resetGlyphSprites(void) {
-  if (g_rendering_secondary_editor) g_secondary_glyph_sprite_count = 0;
-  else g_glyph_sprite_count = 0;
+  if (g_rendering_secondary_editor) {
+    g_secondary_glyph_sprite_count = 0;
+    g_secondary_polychrome_glyph_sprite_count = 0;
+  } else {
+    g_glyph_sprite_count = 0;
+    g_polychrome_glyph_sprite_count = 0;
+  }
+}
+
+typedef enum NimculusGlyphTextureKind {
+  NIMCULUS_GLYPH_TEXTURE_MONOCHROME = 0,
+  NIMCULUS_GLYPH_TEXTURE_POLYCHROME = 1
+} NimculusGlyphTextureKind;
+
+static NimculusGlyphTextureKind glyphTextureKind(BOOL isEmoji) {
+  return isEmoji ? NIMCULUS_GLYPH_TEXTURE_POLYCHROME
+                 : NIMCULUS_GLYPH_TEXTURE_MONOCHROME;
 }
 
 static void ensureGlyphAtlas(id<MTLDevice> device, CGFloat scale) {
   const NSUInteger atlasSize = 2048;
-  if (!g_glyph_atlas_texture || fabs(g_glyph_atlas_scale - scale) > 0.001) {
-    MTLTextureDescriptor *descriptor = [MTLTextureDescriptor
+  if (!g_glyph_atlas_texture || !g_color_glyph_atlas_texture ||
+      fabs(g_glyph_atlas_scale - scale) > 0.001) {
+    MTLTextureDescriptor *monochromeDescriptor = [MTLTextureDescriptor
       texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm
       width:atlasSize height:atlasSize mipmapped:NO];
-    descriptor.usage = MTLTextureUsageShaderRead;
+    monochromeDescriptor.usage = MTLTextureUsageShaderRead;
     [g_glyph_atlas_texture release];
-    g_glyph_atlas_texture = [device newTextureWithDescriptor:descriptor];
+    g_glyph_atlas_texture = [device newTextureWithDescriptor:monochromeDescriptor];
+    MTLTextureDescriptor *polychromeDescriptor = [MTLTextureDescriptor
+      texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+      width:atlasSize height:atlasSize mipmapped:NO];
+    polychromeDescriptor.usage = MTLTextureUsageShaderRead;
+    [g_color_glyph_atlas_texture release];
+    g_color_glyph_atlas_texture = [device newTextureWithDescriptor:polychromeDescriptor];
     g_glyph_atlas_scale = scale;
     free(g_glyph_atlas_cache);
     g_glyph_atlas_cache = NULL;
@@ -3385,6 +3452,9 @@ static void ensureGlyphAtlas(id<MTLDevice> device, CGFloat scale) {
     g_glyph_atlas_next_x = 0;
     g_glyph_atlas_next_y = 0;
     g_glyph_atlas_row_height = 0;
+    g_color_glyph_atlas_next_x = 0;
+    g_color_glyph_atlas_next_y = 0;
+    g_color_glyph_atlas_row_height = 0;
   }
   if (!g_glyph_atlas_cache) {
     g_glyph_atlas_cache = calloc(NIMCULUS_GLYPH_ATLAS_HASH_CAPACITY,
@@ -3409,6 +3479,20 @@ static void appendGlyphSpriteTo(NimculusMonochromeSprite **target,
   (*target)[(*count)++] = sprite;
 }
 
+static void appendPolychromeGlyphSpriteTo(NimculusPolychromeSprite **target,
+                                          uint32_t *count, uint32_t *capacityTarget,
+                                          NimculusPolychromeSprite sprite) {
+  if (*count == *capacityTarget) {
+    uint32_t capacity = *capacityTarget == 0 ? 1024 : *capacityTarget * 2;
+    NimculusPolychromeSprite *sprites = realloc(*target,
+      sizeof(NimculusPolychromeSprite) * capacity);
+    if (!sprites) return;
+    *target = sprites;
+    *capacityTarget = capacity;
+  }
+  (*target)[(*count)++] = sprite;
+}
+
 static void appendGlyphSprite(NimculusMonochromeSprite sprite) {
   if (g_rendering_secondary_editor) {
     appendGlyphSpriteTo(&g_secondary_glyph_sprites, &g_secondary_glyph_sprite_count,
@@ -3416,6 +3500,17 @@ static void appendGlyphSprite(NimculusMonochromeSprite sprite) {
   } else {
     appendGlyphSpriteTo(&g_glyph_sprites, &g_glyph_sprite_count,
       &g_glyph_sprite_capacity, sprite);
+  }
+}
+
+static void appendPolychromeGlyphSprite(NimculusPolychromeSprite sprite) {
+  if (g_rendering_secondary_editor) {
+    appendPolychromeGlyphSpriteTo(&g_secondary_polychrome_glyph_sprites,
+      &g_secondary_polychrome_glyph_sprite_count,
+      &g_secondary_polychrome_glyph_sprite_capacity, sprite);
+  } else {
+    appendPolychromeGlyphSpriteTo(&g_polychrome_glyph_sprites,
+      &g_polychrome_glyph_sprite_count, &g_polychrome_glyph_sprite_capacity, sprite);
   }
 }
 
@@ -3553,32 +3648,56 @@ static BOOL atlasEntryForGlyph(id<MTLDevice> device, CTFontRef font, CGGlyph gly
   NSUInteger width = (NSUInteger)ceil(bounds.size.width * scale) + padding * 2;
   NSUInteger height = (NSUInteger)ceil(bounds.size.height * scale) + padding * 2;
   const NSUInteger atlasSize = 2048;
-  if (width >= atlasSize || height >= atlasSize) goto atlas_done;
-  if (g_glyph_atlas_next_x + width > atlasSize) {
-    g_glyph_atlas_next_x = 0;
-    g_glyph_atlas_next_y += g_glyph_atlas_row_height;
-    g_glyph_atlas_row_height = 0;
+  NimculusGlyphTextureKind textureKind = glyphTextureKind(isEmoji);
+  NSUInteger *nextX = textureKind == NIMCULUS_GLYPH_TEXTURE_POLYCHROME
+    ? &g_color_glyph_atlas_next_x : &g_glyph_atlas_next_x;
+  NSUInteger *nextY = textureKind == NIMCULUS_GLYPH_TEXTURE_POLYCHROME
+    ? &g_color_glyph_atlas_next_y : &g_glyph_atlas_next_y;
+  NSUInteger *rowHeight = textureKind == NIMCULUS_GLYPH_TEXTURE_POLYCHROME
+    ? &g_color_glyph_atlas_row_height : &g_glyph_atlas_row_height;
+  id<MTLTexture> atlasTexture = textureKind == NIMCULUS_GLYPH_TEXTURE_POLYCHROME
+    ? g_color_glyph_atlas_texture : g_glyph_atlas_texture;
+  if (width >= atlasSize || height >= atlasSize || !atlasTexture) goto atlas_done;
+  if (*nextX + width > atlasSize) {
+    *nextX = 0;
+    *nextY += *rowHeight;
+    *rowHeight = 0;
   }
-  if (g_glyph_atlas_next_y + height > atlasSize) {
+  if (*nextY + height > atlasSize) {
+    // A cache entry contains the atlas coordinates but not a generation. As
+    // with the existing R8 path, evict both shelves together so no batch can
+    // contain coordinates from different atlas generations.
     clearGlyphAtlasEntries();
     g_glyph_atlas_next_x = 0;
     g_glyph_atlas_next_y = 0;
     g_glyph_atlas_row_height = 0;
+    g_color_glyph_atlas_next_x = 0;
+    g_color_glyph_atlas_next_y = 0;
+    g_color_glyph_atlas_row_height = 0;
     g_glyph_atlas_eviction_count++;
   }
-  if (g_glyph_atlas_next_x + width > atlasSize ||
-      g_glyph_atlas_next_y + height > atlasSize) goto atlas_done;
-  NSUInteger x = g_glyph_atlas_next_x;
-  NSUInteger y = g_glyph_atlas_next_y;
-  g_glyph_atlas_next_x += width;
-  g_glyph_atlas_row_height = MAX(g_glyph_atlas_row_height, height);
-  NSMutableData *pixels = [NSMutableData dataWithLength:width * height];
-  CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceGray();
+  if (*nextX + width > atlasSize || *nextY + height > atlasSize) goto atlas_done;
+  NSUInteger x = *nextX;
+  NSUInteger y = *nextY;
+  *nextX += width;
+  *rowHeight = MAX(*rowHeight, height);
+  const BOOL colorGlyph = textureKind == NIMCULUS_GLYPH_TEXTURE_POLYCHROME;
+  NSUInteger bytesPerPixel = colorGlyph ? 4 : 1;
+  NSMutableData *pixels = [NSMutableData dataWithLength:width * height * bytesPerPixel];
+  CGColorSpaceRef colorSpace = colorGlyph ? CGColorSpaceCreateDeviceRGB() :
+    CGColorSpaceCreateDeviceGray();
+  CGBitmapInfo bitmapInfo = colorGlyph
+    ? (CGBitmapInfo)(kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little)
+    : (CGBitmapInfo)kCGImageAlphaNone;
   CGContextRef context = CGBitmapContextCreate(pixels.mutableBytes, width, height, 8,
-    width, colorSpace, (CGBitmapInfo)kCGImageAlphaNone);
+    width * bytesPerPixel, colorSpace, bitmapInfo);
   CGColorSpaceRelease(colorSpace);
   if (!context) goto atlas_done;
-  CGContextSetGrayFillColor(context, 1.0, 1.0);
+  if (colorGlyph) {
+    CGContextClearRect(context, CGRectMake(0, 0, width, height));
+  } else {
+    CGContextSetGrayFillColor(context, 1.0, 1.0);
+  }
   CGContextScaleCTM(context, scale, scale);
   CGPoint origin = CGPointMake((CGFloat)padding / scale - bounds.origin.x +
       (CGFloat)variantX / (CGFloat)(NIMCULUS_SUBPIXEL_VARIANTS_X * scale),
@@ -3590,18 +3709,18 @@ static BOOL atlasEntryForGlyph(id<MTLDevice> device, CTFontRef font, CGGlyph gly
   // texture coordinates used by the editor. Normalize the atlas payload once
   // at insertion time, rather than flipping every glyph quad at draw time.
   uint8_t *pixelRows = pixels.mutableBytes;
-  uint8_t *rowScratch = malloc(width);
+  uint8_t *rowScratch = malloc(width * bytesPerPixel);
   if (!rowScratch) goto atlas_done;
   for (NSUInteger row = 0; row < height / 2; row++) {
-    uint8_t *top = pixelRows + row * width;
-    uint8_t *bottom = pixelRows + (height - row - 1) * width;
-    memcpy(rowScratch, top, width);
-    memcpy(top, bottom, width);
-    memcpy(bottom, rowScratch, width);
+    uint8_t *top = pixelRows + row * width * bytesPerPixel;
+    uint8_t *bottom = pixelRows + (height - row - 1) * width * bytesPerPixel;
+    memcpy(rowScratch, top, width * bytesPerPixel);
+    memcpy(top, bottom, width * bytesPerPixel);
+    memcpy(bottom, rowScratch, width * bytesPerPixel);
   }
   free(rowScratch);
-  [g_glyph_atlas_texture replaceRegion:MTLRegionMake2D(x, y, width, height)
-    mipmapLevel:0 withBytes:pixels.bytes bytesPerRow:width];
+  [atlasTexture replaceRegion:MTLRegionMake2D(x, y, width, height)
+    mipmapLevel:0 withBytes:pixels.bytes bytesPerRow:width * bytesPerPixel];
   entry->x = (uint32_t)x;
   entry->y = (uint32_t)y;
   entry->width = (uint32_t)width;
@@ -3619,7 +3738,7 @@ static void appendEditorGlyphSprite(CGSize sceneSize, CGRect editorRect,
                                     CGFloat textOriginX, CGFloat scrollX,
                                     NimculusGlyphAtlasEntry entry, CGFloat glyphX,
                                     CGFloat baselineY, CGFloat red, CGFloat green,
-                                    CGFloat blue, CGFloat alpha) {
+                                    CGFloat blue, CGFloat alpha, BOOL isEmoji) {
   if (entry.width == 0 || entry.height == 0 || sceneSize.width <= 0 ||
       sceneSize.height <= 0 || editorRect.size.width <= 0 ||
       editorRect.size.height <= 0 || contentMask.width <= 0 ||
@@ -3628,13 +3747,24 @@ static void appendEditorGlyphSprite(CGSize sceneSize, CGRect editorRect,
   CGFloat bottomOrigin = baselineY + entry.bounds_y;
   CGFloat y = editorRect.origin.y + editorRect.size.height -
     (bottomOrigin + entry.bounds_height);
-  NimculusMonochromeSprite sprite = {
-    { (float)x, (float)y, (float)entry.bounds_width, (float)entry.bounds_height },
-    { contentMask.x, contentMask.y, contentMask.width, contentMask.height },
-    { (float)entry.x, (float)entry.y, (float)entry.width, (float)entry.height },
-    { red, green, blue, alpha }
-  };
-  appendGlyphSprite(sprite);
+  if (glyphTextureKind(isEmoji) == NIMCULUS_GLYPH_TEXTURE_POLYCHROME) {
+    NimculusPolychromeSprite sprite = {
+      0, 0, 0, 1.0f,
+      { (float)x, (float)y, (float)entry.bounds_width, (float)entry.bounds_height },
+      { contentMask.x, contentMask.y, contentMask.width, contentMask.height },
+      { 0, 0, 0, 0 },
+      { (float)entry.x, (float)entry.y, (float)entry.width, (float)entry.height }
+    };
+    appendPolychromeGlyphSprite(sprite);
+  } else {
+    NimculusMonochromeSprite sprite = {
+      { (float)x, (float)y, (float)entry.bounds_width, (float)entry.bounds_height },
+      { contentMask.x, contentMask.y, contentMask.width, contentMask.height },
+      { (float)entry.x, (float)entry.y, (float)entry.width, (float)entry.height },
+      { red, green, blue, alpha }
+    };
+    appendGlyphSprite(sprite);
+  }
 }
 
 static void updateEditorGlyphAtlasFromLayout(id<MTLDevice> device) {
@@ -3695,11 +3825,13 @@ static void updateEditorGlyphAtlasFromLayout(id<MTLDevice> device) {
           variantX, variantY, glyph.is_emoji, &entry)) {
         appendEditorGlyphSprite(sceneSize, editorRect, contentMask, textOriginX, scrollX,
           entry, quantizedX, integerOriginY,
-          glyph.red, glyph.green, glyph.blue, glyph.alpha);
+          glyph.red, glyph.green, glyph.blue, glyph.alpha, glyph.is_emoji);
       }
     }
   }
-  g_glyph_rendering_available = g_glyph_pipeline != nil && g_glyph_sprite_count > 0;
+  g_glyph_rendering_available =
+    (g_glyph_pipeline != nil && g_glyph_sprite_count > 0) ||
+    (g_polychrome_glyph_pipeline != nil && g_polychrome_glyph_sprite_count > 0);
   logGlyphAtlasStats();
 }
 
@@ -3742,9 +3874,6 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
   g_glyph_rendering_available = NO;
   resetGlyphSprites();
   if (!device) return;
-  // The atlas is currently R8 monochrome. Zed separates polychrome emoji
-  // sprites into a different atlas. Keep ordinary glyph runs in this atlas
-  // and let the RGBA Core Text texture render only the color-emoji runs.
   CGFloat scale = g_metrics.scale_factor > 0.0 ? g_metrics.scale_factor : 1.0;
   ensureGlyphAtlas(device, scale);
   uint64_t evictionCountBefore = g_glyph_atlas_eviction_count;
@@ -3837,7 +3966,6 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
         BOOL colorEmojiGlyph = stringIndices[glyphIndex] != kCFNotFound
           ? colorEmojiAtUTF16Index(lineText, (NSUInteger)stringIndices[glyphIndex], NULL)
           : fontIsColorEmoji(font);
-        if (colorEmojiGlyph) continue;
         CGFloat scaledX = positions[glyphIndex].x * scale;
         CGFloat scaledY = (baselineY + positions[glyphIndex].y) * scale;
         CGFloat quantizedX = roundHalfTowardZero(scaledX * NIMCULUS_SUBPIXEL_VARIANTS_X) /
@@ -3852,9 +3980,9 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
         NimculusGlyphAtlasEntry entry;
         if (atlasEntryForGlyph(device, font, glyphs[glyphIndex], fontId, g_editor_font_size,
             scale,
-            variantX, variantY, NO, &entry)) {
+            variantX, variantY, colorEmojiGlyph, &entry)) {
           appendEditorGlyphSprite(sceneSize, editorRect, contentMask, textOriginX, scrollX,
-            entry, quantizedX, integerOriginY, red, green, blue, alpha);
+            entry, quantizedX, integerOriginY, red, green, blue, alpha, colorEmojiGlyph);
         }
       }
       free(glyphs);
@@ -3881,7 +4009,9 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
     resetGlyphSprites();
     return;
   }
-  g_glyph_rendering_available = g_glyph_pipeline != nil && g_glyph_sprite_count > 0;
+  g_glyph_rendering_available =
+    (g_glyph_pipeline != nil && g_glyph_sprite_count > 0) ||
+    (g_polychrome_glyph_pipeline != nil && g_polychrome_glyph_sprite_count > 0);
 }
 
 static double millisecondsSince(uint64_t start) {
@@ -8488,8 +8618,11 @@ static void applyTerminalRuns(NSTextView *terminal) {
   // terminal glyphs. Keep AppKit's text view as an input/selection surface
   // and as a color-emoji fallback, but do not paint a second opaque copy of
   // the regular glyphs on top of the Metal scene.
-  const BOOL metalTerminal = g_glyph_pipeline != nil &&
-    g_glyph_atlas_texture != nil && g_terminal_glyph_sprite_count > 0;
+  const BOOL metalTerminal =
+    (g_glyph_pipeline != nil && g_glyph_atlas_texture != nil &&
+      g_terminal_glyph_sprite_count > 0) ||
+    (g_polychrome_glyph_pipeline != nil && g_color_glyph_atlas_texture != nil &&
+      g_terminal_polychrome_glyph_sprite_count > 0);
   NSColor *baseForeground = metalTerminal ? [NSColor clearColor] :
     terminalColor(0, 0, 0, 0, 0, YES, 0);
   NSColor *baseBackground = metalTerminal ? [NSColor clearColor] :
@@ -8567,24 +8700,42 @@ static void appendTerminalGlyphSprite(NimculusMonochromeSprite sprite) {
     &g_terminal_glyph_sprite_capacity, sprite);
 }
 
+static void appendTerminalPolychromeGlyphSprite(NimculusPolychromeSprite sprite) {
+  appendPolychromeGlyphSpriteTo(&g_terminal_polychrome_glyph_sprites,
+    &g_terminal_polychrome_glyph_sprite_count,
+    &g_terminal_polychrome_glyph_sprite_capacity, sprite);
+}
+
 static void appendTerminalGlyphSpriteForEntry(NimculusPaintRegion viewport,
                                               NimculusGlyphAtlasEntry entry,
                                               CGFloat x, CGFloat baseline,
                                               CGFloat red, CGFloat green,
-                                              CGFloat blue, CGFloat alpha) {
+                                              CGFloat blue, CGFloat alpha,
+                                              BOOL isEmoji) {
   if (entry.width == 0 || entry.height == 0 || viewport.width <= 0 ||
       viewport.height <= 0) return;
   CGFloat x0 = x + entry.bounds_x;
   CGFloat x1 = x0 + entry.bounds_width;
   CGFloat y0 = baseline - entry.bounds_y - entry.bounds_height;
   CGFloat y1 = baseline - entry.bounds_y;
-  NimculusMonochromeSprite sprite = {
-    { (float)x0, (float)y0, (float)(x1 - x0), (float)(y1 - y0) },
-    { viewport.x, viewport.y, viewport.width, viewport.height },
-    { (float)entry.x, (float)entry.y, (float)entry.width, (float)entry.height },
-    { red, green, blue, alpha }
-  };
-  appendTerminalGlyphSprite(sprite);
+  if (glyphTextureKind(isEmoji) == NIMCULUS_GLYPH_TEXTURE_POLYCHROME) {
+    NimculusPolychromeSprite sprite = {
+      0, 0, 0, 1.0f,
+      { (float)x0, (float)y0, (float)(x1 - x0), (float)(y1 - y0) },
+      { viewport.x, viewport.y, viewport.width, viewport.height },
+      { 0, 0, 0, 0 },
+      { (float)entry.x, (float)entry.y, (float)entry.width, (float)entry.height }
+    };
+    appendTerminalPolychromeGlyphSprite(sprite);
+  } else {
+    NimculusMonochromeSprite sprite = {
+      { (float)x0, (float)y0, (float)(x1 - x0), (float)(y1 - y0) },
+      { viewport.x, viewport.y, viewport.width, viewport.height },
+      { (float)entry.x, (float)entry.y, (float)entry.width, (float)entry.height },
+      { red, green, blue, alpha }
+    };
+    appendTerminalGlyphSprite(sprite);
+  }
 }
 
 static void terminalRunColorComponents(NimculusTerminalRun run, BOOL foreground,
@@ -8657,16 +8808,16 @@ static void updateTerminalGlyphAtlas(id<MTLDevice> device) {
       for (CFIndex glyphIndex = 0; glyphIndex < glyphCount; glyphIndex++) {
         NSUInteger localIndex = stringIndices[glyphIndex] == kCFNotFound ? 0 :
           (NSUInteger)stringIndices[glyphIndex];
-        if (colorEmojiAtUTF16Index(g_terminal_text, start + localIndex, NULL) ||
-            fontIsColorEmoji(ctFont)) continue;
+        BOOL isEmoji = colorEmojiAtUTF16Index(g_terminal_text, start + localIndex, NULL) ||
+          fontIsColorEmoji(ctFont);
         NimculusGlyphAtlasEntry entry;
         if (!atlasEntryForGlyph(device, ctFont, glyphs[glyphIndex], fontId,
             g_terminal_font_size, scale,
-            0, 0, NO, &entry)) continue;
+            0, 0, isEmoji, &entry)) continue;
         CGFloat originX = viewport.x + (CGFloat)run.column * cellWidth + positions[glyphIndex].x;
         CGFloat baseline = viewport.y + (CGFloat)run.row * lineHeight + lineHeight - 3.0;
         appendTerminalGlyphSpriteForEntry(viewport, entry, originX, baseline,
-          red, green, blue, alpha);
+          red, green, blue, alpha, isEmoji);
       }
       free(glyphs); free(positions); free(stringIndices);
     }
@@ -9751,6 +9902,36 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
       }
       [glyphBuffer release];
     }
+    if (g_polychrome_glyph_pipeline && g_color_glyph_atlas_texture &&
+        g_polychrome_glyph_sprite_count > 0) {
+      id<MTLBuffer> polychromeGlyphBuffer = [drawable.texture.device
+        newBufferWithBytes:g_polychrome_glyph_sprites
+        length:sizeof(NimculusPolychromeSprite) * g_polychrome_glyph_sprite_count
+        options:MTLResourceStorageModeShared];
+      [encoder setRenderPipelineState:g_polychrome_glyph_pipeline];
+      [encoder setVertexBytes:g_glyph_unit_vertices length:sizeof(g_glyph_unit_vertices)
+        atIndex:0];
+      [encoder setVertexBuffer:polychromeGlyphBuffer offset:0 atIndex:1];
+      [encoder setVertexBytes:glyphViewportSize length:sizeof(glyphViewportSize) atIndex:2];
+      [encoder setVertexBytes:glyphAtlasSize length:sizeof(glyphAtlasSize) atIndex:3];
+      [encoder setFragmentBuffer:polychromeGlyphBuffer offset:0 atIndex:1];
+      [encoder setFragmentTexture:g_color_glyph_atlas_texture atIndex:0];
+      if (fullSceneRebuild) {
+        setScissorForRegion(encoder, primaryEditorRegion, logicalSize, drawableSize);
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6
+          instanceCount:g_polychrome_glyph_sprite_count];
+      } else {
+        for (uint32_t i = 0; i < g_paint_dirty_count; i++) {
+          NimculusPaintRegion visible = intersectPaintRegions(g_paint_dirty_regions[i],
+                                                               primaryEditorRegion);
+          if (visible.width <= 0 || visible.height <= 0) continue;
+          setScissorForRegion(encoder, visible, logicalSize, drawableSize);
+          [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6
+            instanceCount:g_polychrome_glyph_sprite_count];
+        }
+      }
+      [polychromeGlyphBuffer release];
+    }
     if (g_glyph_pipeline && g_glyph_atlas_texture && g_secondary_editor_visible &&
         g_secondary_glyph_sprite_count > 0) {
       id<MTLBuffer> secondaryGlyphBuffer = [drawable.texture.device
@@ -9780,6 +9961,36 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
         }
       }
       [secondaryGlyphBuffer release];
+    }
+    if (g_polychrome_glyph_pipeline && g_color_glyph_atlas_texture &&
+        g_secondary_editor_visible && g_secondary_polychrome_glyph_sprite_count > 0) {
+      id<MTLBuffer> secondaryPolychromeGlyphBuffer = [drawable.texture.device
+        newBufferWithBytes:g_secondary_polychrome_glyph_sprites
+        length:sizeof(NimculusPolychromeSprite) * g_secondary_polychrome_glyph_sprite_count
+        options:MTLResourceStorageModeShared];
+      [encoder setRenderPipelineState:g_polychrome_glyph_pipeline];
+      [encoder setVertexBytes:g_glyph_unit_vertices length:sizeof(g_glyph_unit_vertices)
+        atIndex:0];
+      [encoder setVertexBuffer:secondaryPolychromeGlyphBuffer offset:0 atIndex:1];
+      [encoder setVertexBytes:glyphViewportSize length:sizeof(glyphViewportSize) atIndex:2];
+      [encoder setVertexBytes:glyphAtlasSize length:sizeof(glyphAtlasSize) atIndex:3];
+      [encoder setFragmentBuffer:secondaryPolychromeGlyphBuffer offset:0 atIndex:1];
+      [encoder setFragmentTexture:g_color_glyph_atlas_texture atIndex:0];
+      if (fullSceneRebuild) {
+        setScissorForRegion(encoder, secondaryEditorRegion, logicalSize, drawableSize);
+        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6
+          instanceCount:g_secondary_polychrome_glyph_sprite_count];
+      } else {
+        for (uint32_t i = 0; i < g_paint_dirty_count; i++) {
+          NimculusPaintRegion visible = intersectPaintRegions(g_paint_dirty_regions[i],
+                                                               secondaryEditorRegion);
+          if (visible.width <= 0 || visible.height <= 0) continue;
+          setScissorForRegion(encoder, visible, logicalSize, drawableSize);
+          [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6
+            instanceCount:g_secondary_polychrome_glyph_sprite_count];
+        }
+      }
+      [secondaryPolychromeGlyphBuffer release];
     }
     NimculusPaintRegion terminalViewport = terminalContentViewport();
     if (g_terminal_run_count > 0 && (g_terminal_visible || g_task_output_visible) &&
@@ -9823,6 +10034,26 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
           [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6
             instanceCount:g_terminal_glyph_sprite_count];
           [terminalGlyphBuffer release];
+        }
+      }
+      if (g_polychrome_glyph_pipeline && g_color_glyph_atlas_texture &&
+          g_terminal_polychrome_glyph_sprite_count > 0) {
+        id<MTLBuffer> terminalPolychromeGlyphBuffer = [drawable.texture.device
+          newBufferWithBytes:g_terminal_polychrome_glyph_sprites
+          length:sizeof(NimculusPolychromeSprite) * g_terminal_polychrome_glyph_sprite_count
+          options:MTLResourceStorageModeShared];
+        if (terminalPolychromeGlyphBuffer) {
+          [encoder setRenderPipelineState:g_polychrome_glyph_pipeline];
+          [encoder setVertexBytes:g_glyph_unit_vertices length:sizeof(g_glyph_unit_vertices)
+            atIndex:0];
+          [encoder setVertexBuffer:terminalPolychromeGlyphBuffer offset:0 atIndex:1];
+          [encoder setVertexBytes:glyphViewportSize length:sizeof(glyphViewportSize) atIndex:2];
+          [encoder setVertexBytes:glyphAtlasSize length:sizeof(glyphAtlasSize) atIndex:3];
+          [encoder setFragmentBuffer:terminalPolychromeGlyphBuffer offset:0 atIndex:1];
+          [encoder setFragmentTexture:g_color_glyph_atlas_texture atIndex:0];
+          [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6
+            instanceCount:g_terminal_polychrome_glyph_sprite_count];
+          [terminalPolychromeGlyphBuffer release];
         }
       }
     }
@@ -11043,9 +11274,27 @@ static id<MTLRenderPipelineState> newGlyphPipeline(id<MTLLibrary> library,
   return pipeline;
 }
 
+static id<MTLRenderPipelineState> newPolychromeGlyphPipeline(id<MTLLibrary> library,
+                                                              NSError **error) {
+  if (!library) return nil;
+  MTLRenderPipelineDescriptor *descriptor = [MTLRenderPipelineDescriptor new];
+  descriptor.vertexFunction = [[library newFunctionWithName:@"polychromeGlyphVs"] autorelease];
+  descriptor.fragmentFunction = [[library newFunctionWithName:@"polychromeGlyphFs"] autorelease];
+  descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+  descriptor.colorAttachments[0].blendingEnabled = YES;
+  descriptor.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+  descriptor.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+  descriptor.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+  descriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+  id<MTLRenderPipelineState> pipeline =
+    [library.device newRenderPipelineStateWithDescriptor:descriptor error:error];
+  [descriptor release];
+  return pipeline;
+}
+
 static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
   if (!device) return NO;
-  if (g_glyph_pipeline) return YES;
+  if (g_glyph_pipeline && g_polychrome_glyph_pipeline) return YES;
   NSError *error = nil;
   NSString *source = @"#include <metal_stdlib>\nusing namespace metal;\n"
     "struct GS { float4 bounds; float4 content_mask; float4 tile; float4 color; };\n"
@@ -11067,11 +11316,32 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
     "fragment float4 glyphFs(GV input [[stage_in]], texture2d<float> atlas [[texture(0)]]) { "
     "if (any(input.clip_distance < float4(0.0))) return float4(0.0); "
     "constexpr sampler s(filter::linear); float alpha=atlas.sample(s,input.uv).r; "
-    "return float4(input.color.rgb,input.color.a*alpha); }";
+    "return float4(input.color.rgb,input.color.a*alpha); }\n"
+    "struct PGS { uint order; uint pad; uint grayscale; float opacity; "
+    "float4 bounds; float4 content_mask; float4 corner_radii; float4 tile; };\n"
+    "struct PGV { float4 pos [[position]]; float2 uv; uint sprite_id [[flat]]; "
+    "float4 clip_distance; };\n"
+    "vertex PGV polychromeGlyphVs(uint vertex_id [[vertex_id]], uint instance_id [[instance_id]], "
+    "constant float2 *unit_vertices [[buffer(0)]], constant PGS *sprites [[buffer(1)]], "
+    "constant float2 *viewport [[buffer(2)]], constant float2 *atlas_size [[buffer(3)]]) { "
+    "float2 unit=unit_vertices[vertex_id]; PGS sprite=sprites[instance_id]; "
+    "float2 position=unit*sprite.bounds.zw+sprite.bounds.xy; PGV output; "
+    "output.pos=float4(position/float2(viewport->x,viewport->y)*float2(2.0,-2.0)+float2(-1.0,1.0),0,1); "
+    "output.uv=float2((sprite.tile.x+unit.x*sprite.tile.z)/atlas_size->x, "
+    "(sprite.tile.y+(1.0-unit.y)*sprite.tile.w)/atlas_size->y); "
+    "output.sprite_id=instance_id; output.clip_distance=distance_from_clip_rect(unit, "
+    "sprite.bounds,sprite.content_mask); return output; }\n"
+    "fragment float4 polychromeGlyphFs(PGV input [[stage_in]], constant PGS *sprites [[buffer(1)]], "
+    "texture2d<float> atlas [[texture(0)]]) { if (any(input.clip_distance < float4(0.0))) return float4(0.0); "
+    "constexpr sampler s(filter::linear); float4 color=atlas.sample(s,input.uv); "
+    "PGS sprite=sprites[input.sprite_id]; if (sprite.grayscale != 0u) { "
+    "float gray=0.2126*color.r+0.7152*color.g+0.0722*color.b; color.rgb=float3(gray); } "
+    "color.a*=sprite.opacity; return color; }";
   id<MTLLibrary> library = [device newLibraryWithSource:source options:nil error:&error];
   g_glyph_pipeline = newGlyphPipeline(library, &error);
+  g_polychrome_glyph_pipeline = newPolychromeGlyphPipeline(library, &error);
   [library release];
-  return g_glyph_pipeline != nil;
+  return g_glyph_pipeline != nil && g_polychrome_glyph_pipeline != nil;
 }
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
@@ -11108,7 +11378,27 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
      "fragment float4 glyphFs(GV input [[stage_in]], texture2d<float> atlas [[texture(0)]]) { "
      "if (any(input.clip_distance < float4(0.0))) return float4(0.0); "
      "constexpr sampler s(filter::linear); float alpha=atlas.sample(s,input.uv).r; "
-     "return float4(input.color.rgb,input.color.a*alpha); }"];
+     "return float4(input.color.rgb,input.color.a*alpha); }\n"
+     "struct PGS { uint order; uint pad; uint grayscale; float opacity; "
+     "float4 bounds; float4 content_mask; float4 corner_radii; float4 tile; };\n"
+     "struct PGV { float4 pos [[position]]; float2 uv; uint sprite_id [[flat]]; "
+     "float4 clip_distance; };\n"
+     "vertex PGV polychromeGlyphVs(uint vertex_id [[vertex_id]], uint instance_id [[instance_id]], "
+     "constant float2 *unit_vertices [[buffer(0)]], constant PGS *sprites [[buffer(1)]], "
+     "constant float2 *viewport [[buffer(2)]], constant float2 *atlas_size [[buffer(3)]]) { "
+     "float2 unit=unit_vertices[vertex_id]; PGS sprite=sprites[instance_id]; "
+     "float2 position=unit*sprite.bounds.zw+sprite.bounds.xy; PGV output; "
+     "output.pos=float4(position/float2(viewport->x,viewport->y)*float2(2.0,-2.0)+float2(-1.0,1.0),0,1); "
+     "output.uv=float2((sprite.tile.x+unit.x*sprite.tile.z)/atlas_size->x, "
+     "(sprite.tile.y+(1.0-unit.y)*sprite.tile.w)/atlas_size->y); "
+     "output.sprite_id=instance_id; output.clip_distance=distance_from_clip_rect(unit, "
+     "sprite.bounds,sprite.content_mask); return output; }\n"
+     "fragment float4 polychromeGlyphFs(PGV input [[stage_in]], constant PGS *sprites [[buffer(1)]], "
+     "texture2d<float> atlas [[texture(0)]]) { if (any(input.clip_distance < float4(0.0))) return float4(0.0); "
+     "constexpr sampler s(filter::linear); float4 color=atlas.sample(s,input.uv); "
+     "PGS sprite=sprites[input.sprite_id]; if (sprite.grayscale != 0u) { "
+     "float gray=0.2126*color.r+0.7152*color.g+0.0722*color.b; color.rgb=float3(gray); } "
+     "color.a*=sprite.opacity; return color; }"];
   id<MTLLibrary> library = [device newLibraryWithSource:source options:nil error:&error];
   if (library) {
     MTLRenderPipelineDescriptor *descriptor = [MTLRenderPipelineDescriptor new];
@@ -11132,6 +11422,7 @@ static BOOL ensureGlyphValidationPipeline(id<MTLDevice> device) {
     textDescriptor.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
     g_text_pipeline = [device newRenderPipelineStateWithDescriptor:textDescriptor error:&error];
     g_glyph_pipeline = newGlyphPipeline(library, &error);
+    g_polychrome_glyph_pipeline = newPolychromeGlyphPipeline(library, &error);
     MTLRenderPipelineDescriptor *imageDescriptor = [MTLRenderPipelineDescriptor new];
     imageDescriptor.vertexFunction = [[library newFunctionWithName:@"imageVs"] autorelease];
     imageDescriptor.fragmentFunction = [[library newFunctionWithName:@"imageFs"] autorelease];
@@ -14057,7 +14348,7 @@ bool nimculus_platform_validate_retina_text_scaling(void) {
   return valid;
 }
 
-bool nimculus_platform_validate_color_emoji_fallback(void) {
+bool nimculus_platform_validate_color_emoji_sprite_routing(void) {
   @autoreleasepool {
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (!device) return false;
@@ -14069,11 +14360,14 @@ bool nimculus_platform_validate_color_emoji_fallback(void) {
     if (g_editor_rect[3] <= 0.0) g_editor_rect[3] = 320.0;
     g_editor_scroll_line = 0;
     if (!ensureGlyphValidationPipeline(device)) return false;
-    // Ordinary glyphs and color emoji must coexist: the former remains in the
-    // R8 atlas while the latter is supplied by the RGBA Core Text texture.
-    updateEditorTextTexture(device, @"A🙂 1️⃣", YES);
-    return g_text_texture != nil && g_glyph_rendering_available &&
-      g_glyph_sprite_count > 0;
+    // This is the texture_kind() contract in the renderer: is_emoji glyphs
+    // use the BGRA atlas and ordinary glyphs remain in the R8 atlas.
+    if (glyphTextureKind(YES) != NIMCULUS_GLYPH_TEXTURE_POLYCHROME ||
+        glyphTextureKind(NO) != NIMCULUS_GLYPH_TEXTURE_MONOCHROME) return NO;
+    updateEditorGlyphAtlas(device, @"A🙂 1️⃣");
+    return g_glyph_atlas_texture != nil && g_color_glyph_atlas_texture != nil &&
+      g_glyph_sprite_count > 0 && g_polychrome_glyph_sprite_count > 0 &&
+      g_glyph_rendering_available;
   }
 }
 
@@ -14107,15 +14401,11 @@ bool nimculus_platform_validate_visible_text_assets(void) {
     if (g_editor_rect[2] <= 0.0) g_editor_rect[2] = 640.0;
     if (g_editor_rect[3] <= 0.0) g_editor_rect[3] = 320.0;
 
-    // Exercise the two text asset paths with the same document: ordinary
-    // glyphs use the monochrome atlas, while the emoji remains in the RGBA
-    // Core Text texture fallback.
+    // Exercise the two atlas paths with the same document.
     NSString *mixed = @"A日本語・記号👩‍💻🙂 1️⃣\nnext";
-    updateEditorTextTexture(device, mixed, YES);
-    BOOL atlasValid = g_glyph_atlas_texture != nil && g_glyph_sprite_count > 0;
-    BOOL textureValid = g_text_texture != nil && g_text_texture.width > 0 &&
-      g_text_texture.height > 0;
-    return atlasValid && textureValid;
+    updateEditorGlyphAtlas(device, mixed);
+    return g_glyph_atlas_texture != nil && g_color_glyph_atlas_texture != nil &&
+      g_glyph_sprite_count > 0 && g_polychrome_glyph_sprite_count > 0;
   }
 }
 

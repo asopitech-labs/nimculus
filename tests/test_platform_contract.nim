@@ -349,13 +349,13 @@ suite "macOS platform contract":
     else:
       echo "  [SKIP] Retina text scale contract (no Metal/Core Text device in this session)"
 
-  test "color emoji keeps the RGBA fallback beside the glyph atlas":
-    if platformValidateColorEmojiFallback():
+  test "is_emoji glyphs use the polychrome atlas and ordinary glyphs use R8":
+    if platformValidateColorEmojiSpriteRouting():
       check true
     elif nativeGuiValidationRequired():
       check false
     else:
-      echo "  [SKIP] color emoji fallback contract (no Metal/Core Text device in this session)"
+      echo "  [SKIP] color emoji atlas routing contract (no Metal/Core Text device in this session)"
 
   test "Core Text classifies joined and keycap emoji sequences":
     check platformValidateColorEmojiSequences()

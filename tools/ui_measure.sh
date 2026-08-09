@@ -35,6 +35,9 @@ fi
 if [ "$MODE" = parity ]; then
   TEST_ARGS+=(-only-testing:"$SCHEME/ZedParityTests")
 fi
+if [ "$MODE" = emoji ]; then
+  TEST_ARGS+=(-only-testing:"$SCHEME/ZedParityTests/testCaptureEmoji")
+fi
 if [ "$MODE" = selection ]; then
   TEST_ARGS+=(-only-testing:"$SCHEME/ZedParityTests/testCaptureMultiLineSelection")
 fi

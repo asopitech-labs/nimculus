@@ -20,6 +20,11 @@ final class ZedParityTests: XCTestCase {
 
   private static let document = "/Users/admin/nimculus/DEVELOPMENT_GUIDELINES.md"
 
+  /// A file whose text mixes scripts, symbols and several kinds of emoji.
+  /// DEVELOPMENT_GUIDELINES.md contains no emoji at all, so it cannot show
+  /// whether the colour path draws them.
+  private static let emojiDocument = "/Users/admin/nimculus/tests/macos_ui/emoji_sample.md"
+
   /// Scroll events per measured run, matching tools/scroll_cost.sh.
   private static let scrollCount = 40
 
@@ -272,5 +277,20 @@ final class ZedParityTests: XCTestCase {
       stem, stem, stem)
     return window.descendants(matching: .any).matching(predicate).firstMatch
       .waitForExistence(timeout: 10)
+  }
+
+  /// Capture the mixed-script sample in both editors. Colour emoji were being
+  /// dropped before they reached the atlas, so this is the capture that shows
+  /// whether they are drawn at all.
+  func testCaptureEmoji() {
+    for (id, label) in [("dev.zed.Zed", "zed"), ("com.asopitech.nimculus", "nimculus")] {
+      let app = XCUIApplication(bundleIdentifier: id)
+      app.launchArguments = [Self.emojiDocument]
+      app.launch()
+      XCTAssertTrue(app.wait(for: .runningForeground, timeout: 60))
+      sleep(6)
+      let window = self.window(of: app)
+      write(window.screenshot().pngRepresentation, "\(label)-emoji.png")
+    }
   }
 }

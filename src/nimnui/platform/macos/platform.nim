@@ -59,7 +59,8 @@ proc platformValidateGlyphAtlas*(): bool {.importc: "nimculus_platform_validate_
 proc platformValidateGlyphAtlasEviction*(): bool {.importc: "nimculus_platform_validate_glyph_atlas_eviction", cdecl.}
 proc platformValidateRetinaTextScaling*(): bool {.importc: "nimculus_platform_validate_retina_text_scaling", cdecl.}
 proc platformValidateResourceTeardown*(): bool {.importc: "nimculus_platform_validate_resource_teardown", cdecl.}
-proc platformValidateColorEmojiFallback*(): bool {.importc: "nimculus_platform_validate_color_emoji_fallback", cdecl.}
+proc platformValidateColorEmojiSpriteRouting*(): bool
+    {.importc: "nimculus_platform_validate_color_emoji_sprite_routing", cdecl.}
 proc platformValidateColorEmojiSequences*(): bool {.importc: "nimculus_platform_validate_color_emoji_sequences", cdecl.}
 proc platformValidateTerminalOverlayRuns*(): bool {.importc: "nimculus_platform_validate_terminal_overlay_runs", cdecl.}
 proc platformValidateEditorContextHeader*(): bool {.importc: "nimculus_platform_validate_editor_context_header", cdecl.}

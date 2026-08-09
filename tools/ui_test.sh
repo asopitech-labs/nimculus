@@ -107,7 +107,7 @@ case "$MODE" in
     echo "VM $RUN is up. Attach with: tart exec $RUN bash -l"
     wait "$VM_PID"
     ;;
-  smoke|regression|parity|profile|selection)
+  smoke|regression|parity|profile|selection|emoji)
     tart exec "$RUN" bash -lc "
       set -e
       cd /Users/admin/nimculus
@@ -121,7 +121,7 @@ case "$MODE" in
     tart exec "$RUN" bash -lc "cat /Users/admin/nimculus/build/ui-test/xcuitest.log" \
       > "$OUT/xcuitest.log" 2>/dev/null || rm -f "$OUT/xcuitest.log"
     # The .xcresult is a bundle, so it travels as an archive.
-    for p in nimculus-selection.png zed-selection.png hot-lines.txt sample-Nimculus.txt sample-zed.txt nimculus-window.png zed-window.png nimculus-ms-per-scroll.txt zed-ms-per-scroll.txt scroll-normalised.txt nimculus-scroll-cal-0.png nimculus-scroll-cal-1.png nimculus-scroll-cal-2.png nimculus-scroll-cal-4.png nimculus-scroll-cal-8.png nimculus-scroll-cal-16.png zed-scroll-cal-0.png zed-scroll-cal-1.png zed-scroll-cal-2.png zed-scroll-cal-4.png zed-scroll-cal-8.png zed-scroll-cal-16.png \
+    for p in nimculus-emoji.png zed-emoji.png nimculus-selection.png zed-selection.png hot-lines.txt sample-Nimculus.txt sample-zed.txt nimculus-window.png zed-window.png nimculus-ms-per-scroll.txt zed-ms-per-scroll.txt scroll-normalised.txt nimculus-scroll-cal-0.png nimculus-scroll-cal-1.png nimculus-scroll-cal-2.png nimculus-scroll-cal-4.png nimculus-scroll-cal-8.png nimculus-scroll-cal-16.png zed-scroll-cal-0.png zed-scroll-cal-1.png zed-scroll-cal-2.png zed-scroll-cal-4.png zed-scroll-cal-8.png zed-scroll-cal-16.png \
              nimculus-scroll-before.png nimculus-scroll-after.png zed-scroll-before.png zed-scroll-after.png; do
       tart exec "$RUN" bash -lc "cat /Users/admin/nimculus/build/ui-test/$p" \
         > "$OUT/$p" 2>/dev/null || rm -f "$OUT/$p"
@@ -132,7 +132,7 @@ case "$MODE" in
     exit "$STATUS"
     ;;
   *)
-    echo "unknown mode: $MODE (smoke|regression|parity|profile|selection|shell)" >&2
+    echo "unknown mode: $MODE (smoke|regression|parity|profile|selection|emoji|shell)" >&2
     exit 2
     ;;
 esac
