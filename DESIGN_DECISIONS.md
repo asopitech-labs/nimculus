@@ -1,5 +1,102 @@
 # Design Decisions
 
+## UI-111: 最大の構造差 — chrome を AppKit で描いていること
+
+対応マイルストーンは ROADMAP.md 全体に関わる。
+**この項目は着手の可否を判断するための調査記録であり、実装指示は出さない。**
+これまでの調査で「他の項目の上流」として繰り返し現れたものの正体。
+
+### 事実
+
+**Zed は UI を GPUI/Metal で全部描く。** `crates/gpui_macos/src/window.rs:483` の
+`TrafficLightButtons { close, minimize, zoom }` が唯一の AppKit ビューで、
+これはウィンドウの信号機ボタン、つまり **OS が提供するウィンドウ装飾**である。
+タブバーもツールバーもサイドバーもコマンドパレットも、すべてシーンに描かれる。
+
+**Nimculus は chrome を AppKit ビューで描く。** `macos_platform.m`（16,950 行）に
+42 個の `Nimculus*` ビュークラスがある:
+
+```
+NimculusTabBarOverlay        NimculusWorkspaceToolbar     NimculusFooterOverlay
+NimculusStatusOverlay        NimculusSidebarHeader        NimculusCommandPaletteOverlay
+NimculusDocumentSearchOverlay NimculusOutlineOverlay      NimculusSettingsOverlay
+NimculusTerminalOverlay      NimculusWelcomeOverlay       NimculusGitCommitOverlay
+NimculusLineNumberOverlay    NimculusIndentGuideOverlay   NimculusPickerListView
+（ほか）
+```
+
+Metal で描いているのは**エディタ本文のグリフと矩形だけ**。
+
+### これが上流にある項目
+
+調査の過程で「単独では移植できない」と判定した項目のうち、次はこの差の下流:
+
+| 項目 | 記録 |
+| --- | --- |
+| `svg_renderer.rs` | アイコンが `NSButton` の `NSImage` なので、SVG を描く先が無い |
+| `asset_cache.rs` | キャッシュする対象がシーンに載っていない |
+| `scene.rs` のプリミティブ体系 | chrome が AppKit なので、`Quad` / `Shadow` / `Underline` の描き先が本文しかない |
+| `bounds_tree.rs` | 上記の帰結（バッチ化する対象が少ない） |
+| `taffy.rs` の完全移植 | chrome のレイアウトは AppKit の制約系が持っている |
+| 要素モデル（即時 vs 保持） | chrome が AppKit である限り、要素ツリーの対象はエディタ本文に限られる |
+
+**「Zed にあるのに移植していない」と数えた項目の多くが、実はこの 1 点に集約される。**
+
+### この差は記録されていなかった
+
+`DESIGN_DECISIONS.md` に AppKit chrome を選んだ判断の記録は無い。
+`ARCHITECTURE.md` も「NimNUI text, selection, cursor, status and native AppKit
+services」と書くにとどまり、**chrome 全体が AppKit ビューであることを述べていない**。
+明示的な設計判断ではなく、実装の積み重ねでそうなったと見られる。
+
+### 現状の評価
+
+**見た目は既に Zed と一致している。** UI パリティの実測（`tools/bitdiff.sh` の
+overall identical 73.59%、帯ごとの比較、`tools/ui_test.sh` のキャプチャ）で
+確認済みで、AppKit で描いていることが見た目の差として現れてはいない。
+
+**性能も一致している。** スクロールは移動量あたり Zed と同等
+（Nimculus 17.969 / Zed 18.125 ms per 100px）。
+
+つまり**この差は現時点で実害として観測されていない**。実害は「Zed にある機能を
+移植しようとすると、描く先が無い」という形で現れる。
+
+### 移植した場合の規模
+
+42 のビュークラスすべてを Metal のシーンへ移すことになる。加えて:
+
+- テキスト入力（`NSTextField` / `NSSearchField` を使っている箇所）を
+  自前で描き、IME を通す必要がある。IME は `NSTextInputClient` として
+  `NimculusMetalView` に既にあるが、**フィールドごとの入力状態管理**は AppKit 任せ
+- スクロールビュー、テーブル、ピッカーの挙動を自前で持つ
+- Accessibility は今回 NimNUI 側に移植済みなので、そこは活きる
+
+**これはリライトに近い規模**であり、「移植漏れを 1 件潰す」作業ではない。
+
+### 判断
+
+**着手しない。記録にとどめる。**
+
+理由:
+
+1. 見た目・性能とも現時点で Zed と一致しており、**実測上の動機が無い**
+2. 規模がリライトに近く、`nimculus-ui-design` の「最小縦切り」に反する
+3. 下流の項目（SVG / アセット / シーンのプリミティブ）は、**それぞれが必要に
+   なった時点で**個別に判断できる。例えばアイコンを Metal で描く必要が出たら、
+   その時に chrome 全体ではなくアイコンだけを移せばよい
+
+**ただし「移植漏れではない」とは言わない。** Zed との構造差として実在し、
+下流の項目を塞いでいる。この記録は、次に誰かが `svg_renderer` を見て
+「なぜ移植しないのか」と考えたときの答えである。
+
+### 着手する場合の順序（将来の参考）
+
+1. アイコン（`NSButton` の `NSImage`）を Metal のスプライトへ。`PolychromeSprite`
+   と `svg_renderer` がここで要る
+2. 静的な chrome（タブバー・ツールバー・フッターの背景と罫線）を `Quad` へ
+3. テキスト入力を含むもの（検索・コマンドパレット・設定）を最後に。IME の
+   扱いが最も難しい
+
 ## UI-110: PolychromeSprite を入れて、まずカラー絵文字を描く
 
 対応マイルストーンは ROADMAP.md の M3（macOS テキスト描画と IME）。
