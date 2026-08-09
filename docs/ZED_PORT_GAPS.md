@@ -45,7 +45,7 @@ Zed 側にあるモジュールで、Nimculus 側に対応物が見当たらな�
 | `key_dispatch.rs` / `keymap/` | `src/nimnui/commands.nim` | **部分移植（2026-08-09 確認）**。Zed は `DispatchTree` が `context_stack: Vec<KeyContext>`（key_dispatch.rs:73,127）を持ち、フォーカス位置に応じて同じキーを別アクションへ振り分ける。こちらは `CommandRegistry` が `Shortcut` → `Command` の**単一の平坦な表**で、コンテキストの概念が無い |
 | `path_builder.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `Primitive::Path`（scene.rs:111,893）を描画プリミティブとして持ち、lyon でパスを組む。`render.nim` の `PaintKind` は rectangle / border / roundedRectangle / text / image / clip / transform / shadow / caret / selection / scrollbar 等で、**任意パスが無い** |
 | `svg_renderer.rs` | `macos_platform.m:4587`（`NSImage initWithData:`） | **方式が違う（2026-08-09 確認）**。Zed は `SvgRenderer` を `App` が保持し（app.rs:203,727）、`AssetSource` から SVG を読んでラスタライズしアトラスへ載せる。こちらは AppKit の `NSImage` に丸投げで、framework 層に相当物が無い |
-| `gestures.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は `TouchEvent` からジェスチャを認識する語彙を framework に持つ。こちらの `gesture` という語はコメント中の用法のみで、ピンチ・回転・スワイプの認識が無い。macOS のトラックパッド操作に関わる |
+| `gestures.rs` | 無し（移植しない） | **macOS では Zed も使っていない（2026-08-09 調査）**。`GestureKinds { tap, long_press, pan, pinch }`（gestures.rs:60）は**タッチデバイス用**で、`PlatformGestures`（:107）の macOS 実装は `NullPlatformGestures`（:121、no-op）。当初「トラックパッドのピンチ・回転」と書いたのは**誤り**。<br>macOS のトラックパッドは `ScrollWheelEvent` の `TouchPhase`（events.rs:236-268）として扱われ、`OngoingScroll` の軸ロック（editor/src/scroll.rs:68,132）が本命 → **DESIGN_DECISIONS UI-104** |
 | `asset_cache.rs` | 無し | **移植漏れ（2026-08-09 確認）**。Zed は非同期に解決したアセットをキャッシュする。こちらにアセットの概念自体が無い（アイコンは AppKit の SF Symbols / NSImage 直結） |
 | `arena.rs` | 無し | **単独では移植できない（2026-08-09 調査）**。Zed の `draw()` は `ArenaClearNeeded` を返し、次の draw の前に `clear()` される（window.rs:2679, :337）。`AnyElement::new` は要素を作るたびにアリーナから確保する（element.rs:596）。つまり**アリーナは即時モードの帰結**で、毎フレーム作り直される要素の置き場である。Nimculus は `UiTree` を保持し続ける保持モードなので、アリーナに入れるものが無い。→ 下の「要素モデル」の行を参照 |
 | `executor.rs` / `platform_scheduler.rs` / `queue.rs` | `src/nimculus/poll_scheduler.nim`（アイドル間隔の調整のみ） | **方式が違う（2026-08-09 確認）**。Zed は `BackgroundExecutor` / `ForegroundExecutor` に future を `spawn` し、優先度も指定できる（executor.rs:14,22,89,101,314）。こちらに非同期実行基盤は無く、LSP は `poll()`（lsp.nim:811）をイベントループから叩き、プロセス終了は `waitForExit` で同期的に待つ。`git rev-parse` を同期で待って UI をブロックしていた過去の不具合（handoff §5）はこの構造に由来する |
@@ -100,7 +100,9 @@ Zed 側にあるモジュールで、Nimculus 側に対応物が見当たらな�
 
 ### 機能として欠けている順
 
-1. **`gestures.rs`** — トラックパッドのピンチ・回転・スワイプ。macOS では体感に直結
+1. ~~**`gestures.rs`**~~ → **`TouchPhase` + 軸ロック（UI-104）に差し替え（2026-08-09）**。
+   `gestures.rs` はタッチ用で macOS では Zed も使っていない。体感に効くのは
+   トラックパッドの軸ロックのほうで、こちらは実際に移植漏れ
 2. **`path_builder.rs`** — 任意ベクタパス。アイコンや装飾の表現力
 3. **`open_type.rs`** — 合字・字形代替。`buffer_font_features` 相当の設定も無い
 4. **`pasteboard`** の画像・ファイル貼り付け

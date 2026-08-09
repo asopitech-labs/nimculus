@@ -1,5 +1,89 @@
 # Design Decisions
 
+## UI-104: Port Zed's ongoing-scroll axis lock, not its touch gestures
+
+対応マイルストーンは ROADMAP.md の M3（macOS テキスト描画と IME）／M20。
+完了条件は、トラックパッドの 2 本指スクロールで軸がロックされ、Zed と同じ
+しきい値で解除されること。unit テストで検証されていること。
+
+### `gestures.rs` は macOS では使われていない（棚卸しの記述を訂正）
+
+`references/zed/crates/gpui/src/gestures.rs` が定義するのは
+`GestureKinds { tap, long_press, pan, pinch }`（:60）で、**タッチデバイス用**。
+`PlatformGestures` トレイト（:107）の macOS 実装は無く、`NullPlatformGestures`
+（:121、no-op）のままである。
+
+`docs/ZED_PORT_GAPS.md` に「トラックパッドのピンチ・回転・スワイプ。macOS では
+体感に直結」と書いたのは**誤り**。Zed 自身が macOS でピンチ・回転を扱っていない。
+
+### 本命: `TouchPhase` と軸ロック
+
+macOS のトラックパッドは、Zed では**スクロールイベントに付随する情報**として
+扱われる。`references/zed/crates/gpui_macos/src/events.rs:236-268` が
+`NSEvent.phase` を `TouchPhase`（Started / Ended / Moved）へ変換し、
+`ScrollWheelEvent` に載せる。
+
+これを使うのが `references/zed/crates/editor/src/scroll.rs:68` の `OngoingScroll`:
+
+```rust
+pub struct OngoingScroll { last_event: Instant, axis: Option<Axis> }
+
+pub fn filter(&self, delta: &mut gpui::Point<Pixels>) -> Option<Axis> {
+    const UNLOCK_PERCENT: f32 = 1.9;
+    const UNLOCK_LOWER_BOUND: Pixels = px(6.);
+    // 前のイベントから SCROLL_EVENT_SEPARATION 以上空いていれば新しいスクロール:
+    //   |x| <= |y| なら Vertical、そうでなければ Horizontal に軸を決める
+    // 継続中なら、直交方向が UNLOCK_PERCENT 倍を超えたときだけロックを外す
+}
+```
+
+`element/mouse.rs:539` の `ScrollDelta::Pixels` 分岐が
+`position_map.snapshot.ongoing_scroll.filter(&mut pixels)` を呼び、
+**トラックパッドのときだけ**軸ロックを適用する（ホイールの `Lines` 分岐は
+`axis = None` で素通し）。
+
+### 現状の Nimculus
+
+- `NimculusInputEvent` に `precise_scrolling` はあるが **`phase` が無い**
+- 軸ロックが**無い**（`grep -rn "axis\|ongoing"` で該当なし）
+
+そのため、トラックパッドで縦にスクロールする際、指のわずかな横ぶれがそのまま
+水平スクロールとして出る。Zed は軸をロックしてこれを抑えている。**体感に直結する
+挙動差**であり、`gestures.rs` ではなくこちらが移植すべきものだった。
+
+### 移植する範囲
+
+1. `TouchPhase`（Started / Moved / Ended）を platform の入力イベントに載せる。
+   `NSEvent.phase` からの変換は `events.rs:236-268` のとおり。
+2. `OngoingScroll` 相当を editor 側に持つ。`filter` の定数（`UNLOCK_PERCENT` 1.9、
+   `UNLOCK_LOWER_BOUND` 6px、`SCROLL_EVENT_SEPARATION`）を Zed と同じにする。
+3. **精密デルタ（トラックパッド）のときだけ**適用する。ホイールには適用しない
+   （`mouse.rs:539` の分岐と同じ）。
+
+`gestures.rs` そのものは**移植しない**。macOS で Zed が使っていないものを
+入れる理由がない。タッチデバイス対応が視野に入った時点で再検討する。
+
+### 却下案
+
+**(a) `gestures.rs` を移植する。** macOS 実装が `NullPlatformGestures` である以上、
+入れても動く先が無い。棚卸しの誤読から出た案。却下。
+
+**(b) 軸ロックを自前のしきい値で作る。** Zed と体感を揃えるのが目的なので、
+定数は Zed と同じにする。独自の値にする理由がない。却下。
+
+### 文字単位・スレッド・UI ブロッキング
+
+文字を扱わない。入力イベント経路に載るのでメインスレッドで完結し、
+1 イベントあたりの追加計算は比較 2 回と時刻差分のみ。
+
+### テスト観点
+
+- unit: 新しいスクロール開始時に `|x| <= |y|` で縦、そうでなければ横に軸が決まること。
+  継続中に直交方向が 1.9 倍かつ 6px を超えたときだけロックが外れること。
+  `SCROLL_EVENT_SEPARATION` を超えたら軸が決め直されること
+- 精密デルタでないとき（ホイール）は軸ロックが適用されないこと
+- 実測: `tools/ui_test.sh parity` の非回帰
+
 ## UI-103: Extend the layout spec toward Zed's Style, without adopting a layout engine
 
 対応マイルストーンは ROADMAP.md の M2（NimNUI 基礎 UI システム）。完了条件は、
