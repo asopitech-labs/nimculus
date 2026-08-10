@@ -40,6 +40,7 @@ bool nimculus_platform_validate_secondary_annotation_isolation(void);
 bool nimculus_platform_validate_status_update_deduplication(void);
 bool nimculus_platform_validate_editor_footer_items(void);
 bool nimculus_platform_validate_editor_git_blame(void);
+bool nimculus_platform_validate_editor_git_hunk_gutter(void);
 bool nimculus_platform_validate_editor_diagnostics_summary(void);
 bool nimculus_platform_validate_editor_activity_indicator(void);
 bool nimculus_platform_validate_editor_search_button(void);

@@ -4025,12 +4025,13 @@ when defined(macosx):
     if document == nil or document[].path != editorGitPath or output.exitCode != 0:
       return
     let hunks = parseDiffHunks(output.output)
-    var nativeHunks = newSeq[NativeGitHunkSpan](hunks.len)
-    for index, hunk in hunks:
-      nativeHunks[index] = NativeGitHunkSpan(
-        startLine: uint32(max(0, hunk.newStart - 1)),
-        lineCount: uint32(max(1, hunk.newCount)),
-        kind: uint32(ord(hunk.kind)))
+    var nativeHunks: seq[NativeGitHunkSpan]
+    for hunk in hunks:
+      for changedRange in gutterLineRanges(hunk):
+        nativeHunks.add(NativeGitHunkSpan(
+          startLine: uint32(max(0, changedRange.startLine - 1)),
+          lineCount: uint32(max(1, changedRange.lineCount)),
+          kind: uint32(ord(hunk.kind))))
     if nativeHunks.len > 0:
       platformSetEditorGitHunks(addr nativeHunks[0], uint32(nativeHunks.len))
     else:
@@ -4058,12 +4059,13 @@ when defined(macosx):
     if document == nil or document[].path != editorSecondaryGitPath or output.exitCode != 0:
       return
     let hunks = parseDiffHunks(output.output)
-    var nativeHunks = newSeq[NativeGitHunkSpan](hunks.len)
-    for index, hunk in hunks:
-      nativeHunks[index] = NativeGitHunkSpan(
-        startLine: uint32(max(0, hunk.newStart - 1)),
-        lineCount: uint32(max(1, hunk.newCount)),
-        kind: uint32(ord(hunk.kind)))
+    var nativeHunks: seq[NativeGitHunkSpan]
+    for hunk in hunks:
+      for changedRange in gutterLineRanges(hunk):
+        nativeHunks.add(NativeGitHunkSpan(
+          startLine: uint32(max(0, changedRange.startLine - 1)),
+          lineCount: uint32(max(1, changedRange.lineCount)),
+          kind: uint32(ord(hunk.kind))))
     if nativeHunks.len > 0:
       platformSetSecondaryEditorGitHunks(addr nativeHunks[0], uint32(nativeHunks.len))
     else:

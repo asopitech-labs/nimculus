@@ -6411,6 +6411,20 @@ static NSString * const NimculusSearchRegexSVG =
 }
 @end
 
+static CGFloat editorGitHunkStripWidth(void) {
+  return floor(0.275 * MAX(0.0, editorLineHeight()));
+}
+
+static NSColor *editorGitHunkColor(uint32_t kind) {
+  if (kind == 0) {
+    return themeRoleColor(@"added", themeHexColor(@"#27a657", [NSColor systemGreenColor]));
+  }
+  if (kind == 1) {
+    return themeRoleColor(@"deleted", themeHexColor(@"#e06c76", [NSColor systemRedColor]));
+  }
+  return themeRoleColor(@"modified", themeHexColor(@"#d3b020", [NSColor systemYellowColor]));
+}
+
 @implementation NimculusLineNumberOverlay
 - (BOOL)isFlipped { return YES; }
 - (BOOL)acceptsFirstResponder { return NO; }
@@ -6484,15 +6498,11 @@ static NSString * const NimculusSearchRegexSVG =
       NimculusGitHunkSpan hunk = g_git_hunks[hunkIndex];
       NSUInteger hunkEnd = hunk.start_line + MAX((uint32_t)1, hunk.line_count);
       if (index < hunk.start_line || index >= hunkEnd) continue;
-      CGFloat red = 0.30, green = 0.75, blue = 0.42;
-      if (hunk.kind == 1) {
-        red = 0.92; green = 0.34; blue = 0.34;
-      } else if (hunk.kind >= 2) {
-        red = 0.35; green = 0.58; blue = 0.95;
-      }
-      [[NSColor colorWithCalibratedRed:red green:green blue:blue alpha:0.9] setFill];
-      NSRect marker = NSMakeRect(MAX(0.0, (gutter.left_padding - 2.0) / 2.0),
-        y + 2.0, 2.0, MAX(1.0, editorLineHeight() - 4.0));
+      [editorGitHunkColor(hunk.kind) setFill];
+      CGFloat lineTop = NSMinY(gutterClip) + visibleRows * editorLineHeight() -
+        g_editor_scroll_y_fraction;
+      NSRect marker = NSMakeRect(0.0, lineTop, editorGitHunkStripWidth(),
+        MAX(1.0, editorLineHeight()));
       NSRectFill(marker);
       break;
     }
@@ -8189,6 +8199,100 @@ bool nimculus_platform_validate_editor_activity_indicator(void) {
     [footer release];
     nimculus_platform_set_activity_progress(previous.UTF8String);
     [previous release];
+    return valid;
+  }
+}
+
+static BOOL bitmapColorBounds(NSBitmapImageRep *bitmap, NSColor *expected,
+                              NSUInteger *minX, NSUInteger *maxX,
+                              NSUInteger *minY, NSUInteger *maxY) {
+  if (!bitmap || !expected) return NO;
+  NSColor *rgbExpected = [expected colorUsingColorSpace:[NSColorSpace deviceRGBColorSpace]];
+  if (!rgbExpected) return NO;
+  CGFloat expectedRed = 0.0, expectedGreen = 0.0, expectedBlue = 0.0, expectedAlpha = 1.0;
+  [rgbExpected getRed:&expectedRed green:&expectedGreen blue:&expectedBlue alpha:&expectedAlpha];
+  BOOL found = NO;
+  NSUInteger foundMinX = bitmap.pixelsWide, foundMinY = bitmap.pixelsHigh;
+  NSUInteger foundMaxX = 0, foundMaxY = 0;
+  for (NSUInteger y = 0; y < bitmap.pixelsHigh; y++) {
+    for (NSUInteger x = 0; x < bitmap.pixelsWide; x++) {
+      NSColor *pixel = [[bitmap colorAtX:x y:y]
+        colorUsingColorSpace:[NSColorSpace deviceRGBColorSpace]];
+      if (!pixel) continue;
+      CGFloat red = 0.0, green = 0.0, blue = 0.0, alpha = 0.0;
+      [pixel getRed:&red green:&green blue:&blue alpha:&alpha];
+      if (alpha < 0.98 || fabs(red - expectedRed) > 0.02 ||
+          fabs(green - expectedGreen) > 0.02 || fabs(blue - expectedBlue) > 0.02) {
+        continue;
+      }
+      found = YES;
+      foundMinX = MIN(foundMinX, x);
+      foundMaxX = MAX(foundMaxX, x);
+      foundMinY = MIN(foundMinY, y);
+      foundMaxY = MAX(foundMaxY, y);
+    }
+  }
+  if (!found) return NO;
+  if (minX) *minX = foundMinX;
+  if (maxX) *maxX = foundMaxX;
+  if (minY) *minY = foundMinY;
+  if (maxY) *maxY = foundMaxY;
+  return YES;
+}
+
+bool nimculus_platform_validate_editor_git_hunk_gutter(void) {
+  @autoreleasepool {
+    NSString *previousText = [g_editor_text retain];
+    const uint32_t previousCount = g_git_hunk_count;
+    NimculusGitHunkSpan *previousHunks = NULL;
+    if (previousCount > 0 && g_git_hunks) {
+      previousHunks = malloc(sizeof(NimculusGitHunkSpan) * previousCount);
+      if (previousHunks) memcpy(previousHunks, g_git_hunks,
+        sizeof(NimculusGitHunkSpan) * previousCount);
+    }
+    const NSUInteger previousScrollLine = g_editor_scroll_line;
+    const CGFloat previousScrollFraction = g_editor_scroll_y_fraction;
+    nimculus_platform_set_editor_text("one\ntwo\nthree\nfour\nfive", 23);
+    g_editor_scroll_line = 0;
+    g_editor_scroll_y_fraction = 0.0;
+    NimculusGitHunkSpan spans[] = {
+      {.start_line = 0, .line_count = 1, .kind = 0},
+      {.start_line = 2, .line_count = 1, .kind = 1},
+      {.start_line = 4, .line_count = 1, .kind = 2}
+    };
+    nimculus_platform_set_editor_git_hunks(spans, 3);
+
+    NimculusLineNumberOverlay *overlay = [[NimculusLineNumberOverlay alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 120.0, 150.0)];
+    NSBitmapImageRep *bitmap = [[NSBitmapImageRep alloc]
+      initWithBitmapDataPlanes:NULL pixelsWide:120 pixelsHigh:150 bitsPerSample:8
+      samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSDeviceRGBColorSpace
+      bitmapFormat:0 bytesPerRow:0 bitsPerPixel:0];
+    NSGraphicsContext *context = [NSGraphicsContext graphicsContextWithBitmapImageRep:bitmap];
+    [NSGraphicsContext saveGraphicsState];
+    [NSGraphicsContext setCurrentContext:context];
+    [overlay drawRect:overlay.bounds];
+    [NSGraphicsContext restoreGraphicsState];
+
+    NSUInteger minX = 0, maxX = 0, minY = 0, maxY = 0;
+    const CGFloat expectedWidth = floor(0.275 * editorLineHeight());
+    BOOL valid = expectedWidth >= 1.0 &&
+      bitmapColorBounds(bitmap, editorGitHunkColor(0), &minX, &maxX, &minY, &maxY) &&
+      minX == 0 && maxX - minX + 1 == (NSUInteger)expectedWidth &&
+      bitmapColorBounds(bitmap, editorGitHunkColor(1), NULL, NULL, NULL, NULL) &&
+      bitmapColorBounds(bitmap, editorGitHunkColor(2), &minX, &maxX, &minY, &maxY) &&
+      minX == 0 && maxX - minX + 1 == (NSUInteger)expectedWidth &&
+      maxY - minY + 1 == (NSUInteger)MAX(1.0, editorLineHeight());
+
+    [bitmap release];
+    [overlay release];
+    nimculus_platform_set_editor_text(previousText.UTF8String,
+      (uint32_t)[previousText lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
+    [previousText release];
+    g_editor_scroll_line = previousScrollLine;
+    g_editor_scroll_y_fraction = previousScrollFraction;
+    nimculus_platform_set_editor_git_hunks(previousHunks, previousCount);
+    free(previousHunks);
     return valid;
   }
 }

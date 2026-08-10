@@ -2,6 +2,11 @@ import std/unittest
 import nimculus/git_gutter
 
 suite "Git gutter input routing":
+  test "change-bar width follows the editor line height":
+    check gitGutterStripWidth(24'f32) == 6'f32
+    check gitGutterStripWidth(30'f32) == 8'f32
+    check gitGutterStripWidth(0'f32) == 0'f32
+
   test "normal click maps the visible row to a stage action":
     let action = gitGutterActionAt(34'f32, 49'f32, 32'f32, 20'f32, 8'f32,
       12, 0)

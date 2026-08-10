@@ -1,5 +1,6 @@
-import std/math
 import nimculus/editor_view
+
+import std/math
 
 type
   GitGutterActionKind* = enum
@@ -8,6 +9,9 @@ type
   GitGutterAction* = object
     kind*: GitGutterActionKind
     line*: int
+
+proc gitGutterStripWidth*(lineHeight: float32): float32 =
+  floor(0.275'f32 * max(0'f32, lineHeight))
 
 const gitGutterUnstageModifier* = 1'u32 shl 19
 

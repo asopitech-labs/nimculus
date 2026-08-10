@@ -214,6 +214,9 @@ suite "macOS platform contract":
   test "native Git blame footer uses a hint-colored file button":
     check platformValidateEditorGitBlame()
 
+  test "native Git hunk gutter draws the changed row with theme geometry":
+    check platformValidateEditorGitHunkGutter()
+
   test "native diagnostics summary matches Zed's counts, labels, and visibility":
     check platformValidateEditorDiagnosticsSummary()
 

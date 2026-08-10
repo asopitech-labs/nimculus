@@ -83,8 +83,28 @@ suite "M9 Git service":
     check hunks[0].kind == gitHunkModified
     check hunks[0].addedLines == 2
     check hunks[0].removedLines == 1
+    check hunks[0].changedRanges.len == 1
+    check hunks[0].changedRanges[0].startLine == 2
+    check hunks[0].changedRanges[0].lineCount == 2
     check hunks[1].kind == gitHunkDeleted
+    check gutterLineRanges(hunks[1])[0].startLine == 9
+    check gutterLineRanges(hunks[1])[0].lineCount == 1
+    check gitHunkThemeRole(gitHunkAdded) == "added"
+    check gitHunkThemeRole(gitHunkModified) == "modified"
+    check gitHunkThemeRole(gitHunkDeleted) == "deleted"
     check hunks[0].patchText.startsWith("@@ -2,2 +2,3 @@")
+
+    let workspaceHunks = parseDiffHunks(
+      "diff --git a/workspace_target.txt b/workspace_target.txt\n" &
+      "index e83319a..ab5872f 100644\n" &
+      "--- a/workspace_target.txt\n+++ b/workspace_target.txt\n" &
+      "@@ -1,3 +1,3 @@\n # Workspace capture target\n committed line\n" &
+      "-changed line\n+working tree hunk\n")
+    check workspaceHunks.len == 1
+    check workspaceHunks[0].newCount == 3
+    check gutterLineRanges(workspaceHunks[0]).len == 1
+    check gutterLineRanges(workspaceHunks[0])[0].startLine == 3
+    check gutterLineRanges(workspaceHunks[0])[0].lineCount == 1
 
   test "parses porcelain status including conflicts and renames":
     let status = " M old.txt\0R  new.txt\0old.txt\0UU conflict.txt\0"

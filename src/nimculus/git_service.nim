@@ -53,11 +53,17 @@ type
   GitDiffHunkKind* = enum
     gitHunkAdded, gitHunkDeleted, gitHunkModified
 
+  GitDiffLineRange* = object
+    ## One contiguous run of changed lines in the new file, one-based like
+    ## the line numbers in a unified diff header.
+    startLine*, lineCount*: int
+
   GitDiffHunk* = object
     oldStart*, oldCount*: int
     newStart*, newCount*: int
     addedLines*, removedLines*: int
     kind*: GitDiffHunkKind
+    changedRanges*: seq[GitDiffLineRange]
     patchText*: string
 
   GitJob* = ref object
@@ -347,12 +353,37 @@ proc parseDiffRange(value: string): tuple[start, count: int] =
   except ValueError:
     (0, 0)
 
+proc appendChangedLine(hunk: var GitDiffHunk; line: int) =
+  if hunk.changedRanges.len > 0:
+    let last = hunk.changedRanges.high
+    if hunk.changedRanges[last].startLine + hunk.changedRanges[last].lineCount == line:
+      inc hunk.changedRanges[last].lineCount
+      return
+  hunk.changedRanges.add(GitDiffLineRange(startLine: line, lineCount: 1))
+
+proc gitHunkThemeRole*(kind: GitDiffHunkKind): string =
+  case kind
+  of gitHunkAdded: "added"
+  of gitHunkDeleted: "deleted"
+  of gitHunkModified: "modified"
+
+proc gutterLineRanges*(hunk: GitDiffHunk): seq[GitDiffLineRange] =
+  ## Return only lines represented by +/- records, not unified-diff context.
+  ## A deletion has no line in the new file, so its marker occupies the line
+  ## at the deletion insertion point, matching Zed's gutter behavior.
+  if hunk.changedRanges.len > 0:
+    return hunk.changedRanges
+  if hunk.kind == gitHunkDeleted:
+    return @[GitDiffLineRange(startLine: max(1, hunk.newStart), lineCount: 1)]
+
 proc parseDiffHunks*(output: string): seq[GitDiffHunk] =
   ## Convert unified diff headers into stable line ranges for inline/gutter UI.
   ## Body lines are counted only after a header, so file metadata cannot alter
   ## the current hunk's added/removed counts.
   var current = -1
   var currentPatch: seq[string]
+  var oldLine = 0
+  var newLine = 0
   for line in output.splitLines:
     if line.startsWith("@@ "):
       if current >= 0:
@@ -364,13 +395,26 @@ proc parseDiffHunks*(output: string): seq[GitDiffHunk] =
       result.add(GitDiffHunk(oldStart: oldRange.start, oldCount: oldRange.count,
         newStart: newRange.start, newCount: newRange.count,
         kind: if oldRange.count == 0: gitHunkAdded
-          elif newRange.count == 0: gitHunkDeleted else: gitHunkModified))
+          elif newRange.count == 0: gitHunkDeleted else: gitHunkModified,
+        changedRanges: @[]))
       current = result.high
       currentPatch = @[line]
+      oldLine = oldRange.start
+      newLine = newRange.start
     elif current >= 0 and line.len > 0:
       currentPatch.add(line)
-      if line[0] == '+': inc result[current].addedLines
-      elif line[0] == '-': inc result[current].removedLines
+      case line[0]
+      of '+':
+        inc result[current].addedLines
+        result[current].appendChangedLine(newLine)
+        inc newLine
+      of '-':
+        inc result[current].removedLines
+        inc oldLine
+      of ' ':
+        inc oldLine
+        inc newLine
+      else: discard
   if current >= 0:
     result[current].patchText = currentPatch.join("\n") & "\n"
 
