@@ -131,6 +131,9 @@ type
   LspSessionState* = enum
     lspSessionInitializing, lspSessionReady, lspSessionStopped, lspSessionFailed
 
+  LspMessageKind* = enum
+    lspInvalidMessage, lspNotification, lspServerRequest, lspResponse
+
   LspSession* = ref object
     process*: LspProcess
     tracker*: LspRequestTracker
@@ -383,6 +386,34 @@ proc responseError*(message: JsonNode): string =
     let error = message["error"]
     if error.kind == JObject and error.hasKey("message"): return error["message"].getStr
     return $error
+
+proc classifyLspMessage*(message: JsonNode): LspMessageKind =
+  ## JSON-RPC distinguishes requests from responses by the presence of method,
+  ## not by the presence of id alone. A message with both fields is a request
+  ## from the server, even when its id happens to collide with a client request.
+  if message == nil or message.kind != JObject: return lspInvalidMessage
+  let hasMethod = message.hasKey("method")
+  let hasId = message.hasKey("id")
+  if hasMethod and hasId: return lspServerRequest
+  if hasMethod: return lspNotification
+  if hasId: return lspResponse
+  lspInvalidMessage
+
+proc unrecognizedMethodResponse*(message: JsonNode): JsonNode =
+  ## Respond to an unhandled server request so the server does not wait forever.
+  if message == nil or message.kind != JObject or
+      not message.hasKey("method") or not message.hasKey("id"): return
+  let methodName = if message["method"].kind == JString:
+    message["method"].getStr
+  else:
+    $message["method"]
+  result = newJObject()
+  result["jsonrpc"] = newJString("2.0")
+  result["id"] = message["id"]
+  result["error"] = %*{
+    "code": -32601,
+    "message": "Unrecognized method `" & methodName & "`"
+  }
 
 proc acceptResponse*(tracker: var LspRequestTracker, message: JsonNode): bool =
   let id = responseId(message)
@@ -816,21 +847,28 @@ proc poll*(session: LspSession): seq[JsonNode] =
   if session.state == lspSessionFailed: return
   for message in session.process.readMessages():
     result.add(message)
-    if message.kind != JObject: continue
-    if message.hasKey("method") and message["method"].getStr == "textDocument/publishDiagnostics":
-      let parsed = parseDiagnostics(message)
-      session.diagnostics[parsed.uri] = parsed.diagnostics
-    if not message.hasKey("id") or message["id"].kind != JInt: continue
-    let id = message["id"].getInt
-    if id == session.initializeId and session.tracker.acceptsResponse(id):
-      discard session.tracker.finishResponse(id)
-      session.state = lspSessionReady
-      if session.process.isRunning:
-        session.process.send(initializedNotification())
-    else:
-      if session.tracker.acceptsResponse(id):
-        session.responses[id] = message
-      discard session.tracker.finishResponse(id)
+    case classifyLspMessage(message)
+    of lspNotification:
+      if message["method"].kind == JString and
+          message["method"].getStr == "textDocument/publishDiagnostics":
+        let parsed = parseDiagnostics(message)
+        session.diagnostics[parsed.uri] = parsed.diagnostics
+    of lspServerRequest:
+      session.process.send(unrecognizedMethodResponse(message))
+    of lspResponse:
+      if message["id"].kind != JInt: continue
+      let id = message["id"].getInt
+      if id == session.initializeId and session.tracker.acceptsResponse(id):
+        discard session.tracker.finishResponse(id)
+        session.state = lspSessionReady
+        if session.process.isRunning:
+          session.process.send(initializedNotification())
+      else:
+        if session.tracker.acceptsResponse(id):
+          session.responses[id] = message
+        discard session.tracker.finishResponse(id)
+    of lspInvalidMessage:
+      discard
   if not session.process.isRunning:
     session.state = if session.process.state == lspStopped: lspSessionStopped else: lspSessionFailed
 

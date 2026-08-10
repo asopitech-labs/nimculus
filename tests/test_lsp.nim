@@ -51,6 +51,23 @@ suite "M8 LSP protocol foundation":
     check second.len == 3
     check decoder.buffer.len == 0
 
+  test "classifies JSON-RPC notifications, server requests, and responses":
+    check classifyLspMessage(%*{"jsonrpc": "2.0", "method": "$/progress",
+      "id": 7}) == lspServerRequest
+    check classifyLspMessage(%*{"jsonrpc": "2.0", "method": "$/progress"}) ==
+      lspNotification
+    check classifyLspMessage(%*{"jsonrpc": "2.0", "id": 7, "result": nil}) ==
+      lspResponse
+
+  test "builds a method-not-found response for an unrecognized request":
+    let response = unrecognizedMethodResponse(%*{"jsonrpc": "2.0", "id": 9,
+      "method": "workspace/configuration", "params": {}})
+    check response["jsonrpc"].getStr == "2.0"
+    check response["id"].getInt == 9
+    check response["error"]["code"].getInt == -32601
+    check response["error"]["message"].getStr ==
+      "Unrecognized method `workspace/configuration`"
+
   test "drops cancelled and stale responses":
     var tracker = initLspRequestTracker()
     let first = tracker.beginRequest("textDocument/completion")
@@ -262,6 +279,40 @@ suite "M8 LSP protocol foundation":
     check session.state == lspSessionReady
     check session.diagnosticsFor("file:///a.nim").len == 1
     check session.diagnosticsFor("file:///a.nim")[0].message == "error"
+
+  test "responds to a server request even when its id collides with a client request":
+    let server = "import sys,json,time\n" &
+      "def frame(x):\n" &
+      "    b=json.dumps(x,separators=(',',':')).encode()\n" &
+      "    return ('Content-Length: '+str(len(b))+'\\r\\n\\r\\n').encode()+b\n" &
+      "def read_message():\n" &
+      "    h=b''\n" &
+      "    while b'\\r\\n\\r\\n' not in h: h += sys.stdin.buffer.read(1)\n" &
+      "    n=int(h.split(b':')[1].split()[0])\n" &
+      "    return json.loads(sys.stdin.buffer.read(n))\n" &
+      "initialize=read_message()\n" &
+      "request={'jsonrpc':'2.0','id':initialize['id'],'method':'workspace/configuration'}\n" &
+      "response={'jsonrpc':'2.0','id':initialize['id'],'result':{'capabilities':{}}}\n" &
+      "sys.stdout.buffer.write(frame(request)+frame(response)); sys.stdout.buffer.flush()\n" &
+      "received=read_message()\n" &
+      "notification={'jsonrpc':'2.0','method':'test/received','params':received}\n" &
+      "sys.stdout.buffer.write(frame(notification)); sys.stdout.buffer.flush(); time.sleep(2)\n"
+    let session = startLspSession("python3", ["-u", "-c", server], "", "Nimculus")
+    defer: session.stop()
+    var received: JsonNode
+    for _ in 0 ..< 100:
+      for message in session.poll():
+        if message.kind == JObject and message.hasKey("method") and
+            message["method"].getStr == "test/received":
+          received = message["params"]
+      if received != nil: break
+      sleep(10)
+    check received != nil
+    check received["id"].getInt == 1
+    check received["error"]["code"].getInt == -32601
+    check received["error"]["message"].getStr ==
+      "Unrecognized method `workspace/configuration`"
+    check session.state == lspSessionReady
 
   test "session fails and releases an initialize request after timeout":
     let server = "import time; time.sleep(2)"
