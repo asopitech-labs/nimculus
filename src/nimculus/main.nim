@@ -335,13 +335,6 @@ proc setupDemoUi() =
   ## Keep rendering state synchronized with the document session at the
   ## composition boundary. Pane ownership remains independent: a split
   ## duplicates a viewport, never a document buffer.
-  when defined(macosx):
-    # The bottom dock has no persistent content of its own: terminal PTYs and
-    # task output both cease to exist when the app exits. Never reserve editor
-    # space for restored dock metadata unless a native presenter is actually
-    # visible. This makes the render layout match the AppKit overlay contract.
-    if not editorTerminalVisible and not editorTaskOutputVisible:
-      editorWorkspaceUi.bottomDock.isOpen = false
   let document = activeDocument()
   let hasDocument = document != nil
   syncWorkspaceUiTabs()
@@ -4260,19 +4253,7 @@ proc restoreSession() =
   demoSplitRatio = editorSession.effectiveSplitRatio
   demoSplitEnabled = editorSession.split
   demoSplitDirection = editorSession.splitDirection
-  # Bottom-panel processes are not restorable. Clear the persisted open bit
-  # before constructing the workspace too, so the next persistence write
-  # cannot reintroduce an empty dock from stale session metadata.
-  editorSession.workspaceBottomDockOpen = false
   editorWorkspaceUi = initWorkspaceUi(editorSession, appSettings)
-  # Project navigation is the primary Zed-like startup surface. Restoring an
-  # old Outline selection leaves an empty, low-value pane beside the editor
-  # and obscures the files users need to act on first.
-  editorWorkspaceUi.openPanel(panelFiles)
-  # A terminal or task cannot survive process relaunch. Restoring only this
-  # dock's geometry while its native presenter is absent leaves an inert blank
-  # region over the editor, so always reopen it through an explicit action.
-  editorWorkspaceUi.bottomDock.isOpen = false
   editorWorkspaceUi.focusedRegion = regionCenter
   editorSidebarMode = sidebarFiles
   if editorSession.split:
@@ -9779,12 +9760,9 @@ when isMainModule:
       openActiveWorkspace(restoredRoot)
     else:
       # LaunchServices starts app bundles with `/` as their current directory.
-      # Treating it as a project would enumerate the entire machine. Keep the
-      # Files dock instead, with its explicit Open Folder action: this is the
-      # useful Zed-like entry point for an empty launch.
-      editorWorkspaceUi.openPanel(panelFiles)
+      # Treating it as a project would enumerate the entire machine. Leave the
+      # docks closed until the user opens one explicitly.
       editorWorkspaceUi.focusedRegion = regionCenter
-      editorSidebarMode = sidebarFiles
       setupDemoUi()
     if activeWorkspace != nil and editorSession.workspaceRoots.len > 1:
       for root in editorSession.workspaceRoots[1 .. ^1]:

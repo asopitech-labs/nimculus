@@ -815,6 +815,30 @@ suite "M5 editor services":
     check recovered.buffer.isDirty
     removeFile(path); removeFile(sessionPath); removeFile(recoveryPath)
 
+  test "session defaults all docks closed when dock state is absent":
+    let sessionPath = getTempDir() / "nimculus-m5-dock-defaults-session.json"
+    writeFile(sessionPath, "{\"activeTab\":-1,\"tabs\":[]}")
+    let restored = loadSession(sessionPath)
+    check not restored.workspaceLeftDockOpen
+    check not restored.workspaceBottomDockOpen
+    check not restored.workspaceRightDockOpen
+    removeFile(sessionPath)
+
+  test "session restores explicitly saved open state for all docks":
+    let sessionPath = getTempDir() / "nimculus-m5-dock-open-session.json"
+    writeFile(sessionPath, """{
+      "activeTab": -1,
+      "workspaceLeftDockOpen": true,
+      "workspaceBottomDockOpen": true,
+      "workspaceRightDockOpen": true,
+      "tabs": []
+    }""")
+    let restored = loadSession(sessionPath)
+    check restored.workspaceLeftDockOpen
+    check restored.workspaceBottomDockOpen
+    check restored.workspaceRightDockOpen
+    removeFile(sessionPath)
+
   test "session restores a secondary pane document independently of primary":
     let sessionPath = getTempDir() / "nimculus-m5-split-secondary-session.json"
     if fileExists(sessionPath): removeFile(sessionPath)

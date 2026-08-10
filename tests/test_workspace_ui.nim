@@ -67,6 +67,7 @@ suite "workspace UI state":
     writeFile(path, """{"projectPanel":{"dock":"left"},"terminal":{"dock":"right"}}""")
     let settings = newSettingsStore(path, "", "")
     var state = initWorkspaceUi(settings = newSettingsStore("", "", ""))
+    state.openPanel(panelFiles)
     state.openPanel(panelTerminal)
     state.applyPanelDockSettings(settings)
     check state.panelDockSide(panelFiles) == dockLeft
@@ -148,6 +149,7 @@ suite "workspace UI state":
     writeFile(path, """{"projectPanel":{"dock":"diagonal"}}""")
     let settings = newSettingsStore(path, "", "")
     var state = initWorkspaceUi()
+    state.openPanel(panelFiles)
     state.rightDock.size = 321'f32
     state.applyPanelDockSettings(settings)
     check state.panelDockSide(panelFiles) == dockRight
@@ -179,6 +181,23 @@ suite "workspace UI state":
     check not session.workspaceRightDockOpen
     check session.workspaceRightDockSize == 347'f32
     check session.workspaceRightPanel == ord(panelGit)
+    let restored = initWorkspaceUi(session)
+    check restored.leftDock.isOpen
+    check restored.leftDock.size == 271'f32
+    check restored.leftDock.activePanel == panelAgent
+    check restored.bottomDock.isOpen
+    check restored.bottomDock.size == 299'f32
+    check restored.bottomDock.activePanel == panelTerminal
+    check not restored.rightDock.isOpen
+    check restored.rightDock.size == 347'f32
+    check restored.rightDock.activePanel == panelGit
+
+  test "session without dock state keeps all docks closed":
+    var session: EditorSession
+    let restored = initWorkspaceUi(session)
+    check not restored.leftDock.isOpen
+    check not restored.bottomDock.isOpen
+    check not restored.rightDock.isOpen
 
   test "panel dock side mask keeps left, bottom, and right distinct":
     let state = initWorkspaceUi()
@@ -187,16 +206,19 @@ suite "workspace UI state":
     check (mask shr (ord(panelTerminal) * 2) and 3'u32) == 2'u32
     check (mask shr (ord(panelFiles) * 2) and 3'u32) == 3'u32
 
-  test "initial workspace gives files a persistent right dock":
+  test "initial workspace starts with all docks closed":
     let state = initWorkspaceUi(tabCount = 3, activeTab = 1)
     check state.validate()
-    check state.rightDock.isOpen
+    check not state.leftDock.isOpen
+    check not state.bottomDock.isOpen
+    check not state.rightDock.isOpen
     check state.rightDock.activePanel == panelFiles
     check state.center.firstPane().tabIndices == @[0, 1, 2]
     check state.center.firstPane().activeTabIndex == 1
 
   test "panel toggles preserve independent dock state":
     var state = initWorkspaceUi()
+    state.openPanel(panelFiles)
     state.openPanel(panelTerminal)
     check state.bottomDock.isOpen
     check state.bottomDock.activePanel == panelTerminal
@@ -251,6 +273,7 @@ suite "workspace UI state":
 
   test "layout protects a usable editor center":
     var state = initWorkspaceUi()
+    state.openPanel(panelFiles)
     state.resizeDock(dockLeft, 900, 800)
     let layout = state.layout(Size(width: px(800), height: px(600)))
     check float32(layout.center.size.width) >= MinimumCenterWidth
@@ -259,6 +282,7 @@ suite "workspace UI state":
 
   test "right dock geometry has no activity rail between panel and editor":
     var state = initWorkspaceUi()
+    state.openPanel(panelFiles)
     let viewport = Size(width: px(960), height: px(640))
     let layout = state.layout(viewport)
     check float32(layout.rightDock.size.width) == DefaultLeftDockWidth
@@ -299,6 +323,7 @@ suite "workspace UI state":
   test "right dock hit testing follows its visible presentation":
     let viewport = Size(width: px(520), height: px(600))
     var state = initWorkspaceUi()
+    state.openPanel(panelFiles)
     let narrowed = state.layout(viewport)
     let narrowedDock = dockPresentationWidth(float32(narrowed.rightDock.size.width), 178'f32)
     check narrowedDock == 0'f32

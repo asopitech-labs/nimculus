@@ -181,69 +181,45 @@ proc initWorkspaceUi*(tabCount = 0, activeTab = -1,
   result.focusedRegion = regionCenter
   result.focusedPane = PaneId(1)
   result.nextPaneId = 2
-  result.openPanel(panelFiles)
-  result.focusedRegion = regionCenter
 
 proc panelFromOrdinal(value: int, fallback: PanelKind): PanelKind =
   if value >= ord(low(PanelKind)) and value <= ord(high(PanelKind)):
     PanelKind(value) else: fallback
 
+proc restoreDock(state: var WorkspaceUiState, side: DockSide, isOpen: bool,
+                 size: float32, panel: PanelKind) =
+  let restoredSize = max(DefaultDockMinimumSize, size)
+  case side
+  of dockLeft:
+    state.leftDock.isOpen = isOpen
+    state.leftDock.size = restoredSize
+    state.leftDock.activePanel = panel
+  of dockBottom:
+    state.bottomDock.isOpen = isOpen
+    state.bottomDock.size = restoredSize
+    state.bottomDock.activePanel = panel
+  of dockRight:
+    state.rightDock.isOpen = isOpen
+    state.rightDock.size = restoredSize
+    state.rightDock.activePanel = panel
+
 proc initWorkspaceUi*(session: EditorSession, settings: SettingsStore = nil): WorkspaceUiState =
   result = initWorkspaceUi(session.tabs.len, session.activeTab, settings)
-  # A zero size identifies sessions written before workspace composition was
-  # persisted. Keep their default Files dock instead of treating `false` as a
-  # deliberate close.
+  # Session fields belong to physical docks, so restore each dock from its own
+  # open bit, size, and active panel. A zero size means there is no persisted
+  # dock state, and therefore leaves the dock closed.
   if session.workspaceLeftDockSize > 0:
-    let panel = panelFromOrdinal(session.workspaceLeftPanel, panelFiles)
-    let side = result.panelDockSide(panel)
-    let size = max(DefaultDockMinimumSize, session.workspaceLeftDockSize)
-    case side
-    of dockLeft:
-      result.leftDock.isOpen = session.workspaceLeftDockOpen
-      result.leftDock.size = size
-      result.leftDock.activePanel = panel
-    of dockBottom:
-      result.bottomDock.isOpen = session.workspaceLeftDockOpen
-      result.bottomDock.size = size
-      result.bottomDock.activePanel = panel
-    of dockRight:
-      result.rightDock.isOpen = session.workspaceLeftDockOpen
-      result.rightDock.size = size
-      result.rightDock.activePanel = panel
+    result.restoreDock(dockLeft, session.workspaceLeftDockOpen,
+      session.workspaceLeftDockSize,
+      panelFromOrdinal(session.workspaceLeftPanel, panelAgent))
   if session.workspaceBottomDockSize > 0:
-    let panel = panelFromOrdinal(session.workspaceBottomPanel, panelTerminal)
-    let side = result.panelDockSide(panel)
-    let size = max(DefaultDockMinimumSize, session.workspaceBottomDockSize)
-    case side
-    of dockLeft:
-      result.leftDock.isOpen = session.workspaceBottomDockOpen
-      result.leftDock.size = size
-      result.leftDock.activePanel = panel
-    of dockBottom:
-      result.bottomDock.isOpen = session.workspaceBottomDockOpen
-      result.bottomDock.size = size
-      result.bottomDock.activePanel = panel
-    of dockRight:
-      result.rightDock.isOpen = session.workspaceBottomDockOpen
-      result.rightDock.size = size
-      result.rightDock.activePanel = panel
+    result.restoreDock(dockBottom, session.workspaceBottomDockOpen,
+      session.workspaceBottomDockSize,
+      panelFromOrdinal(session.workspaceBottomPanel, panelTerminal))
   if session.workspaceRightDockSize > 0:
-    let panel = panelFromOrdinal(session.workspaceRightPanel, panelFiles)
-    let side = result.panelDockSide(panel)
-    let size = max(DefaultDockMinimumSize, session.workspaceRightDockSize)
-    case side
-    of dockLeft:
-      result.leftDock.isOpen = session.workspaceRightDockOpen
-      result.leftDock.size = size
-      result.leftDock.activePanel = panel
-    of dockBottom:
-      result.bottomDock.isOpen = session.workspaceRightDockOpen
-      result.bottomDock.size = size
-      result.bottomDock.activePanel = panel
-    of dockRight:
-      result.rightDock.isOpen = session.workspaceRightDockOpen
-      result.rightDock.size = size
-      result.rightDock.activePanel = panel
+    result.restoreDock(dockRight, session.workspaceRightDockOpen,
+      session.workspaceRightDockSize,
+      panelFromOrdinal(session.workspaceRightPanel, panelFiles))
 
 proc panelDockSide*(state: WorkspaceUiState, panel: PanelKind): DockSide =
   state.panelDockSides[panel]
