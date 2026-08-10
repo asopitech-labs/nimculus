@@ -42,7 +42,9 @@ description: >-
 4〜5ms 動く。VM を 2 台走らせた計測は**数字として使えない**。
 
 したがって: **実装は並行、計測は直列。** 各ワークトリーで
-`nimble format / lint / test / build` まで済ませ、**計測待ちの列に並べる**。
+`nimble format` / `lint` とランナー（`tests/test_runner.nim`）まで済ませ、
+**計測待ちの列に並べる**。`nimble test` の終了コードは当てにならない
+（[nimculus-ui-test] の §0）。
 
 ## 2. ワークトリーを作る・畳む
 
