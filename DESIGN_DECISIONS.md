@@ -1,5 +1,79 @@
 # Design Decisions
 
+## UI-132: タイトルバーの中身が違う
+
+UI-130 のあと、タイトルバーは `identical 87.55%` で**唯一動かなかった帯**。
+差は rows 18-45（`>32` が 18-21%）に集中。
+
+### 実測（2026-08-10、テスト VM、単一ファイルを開いた状態）
+
+| | 中身 |
+| --- | --- |
+| **Zed** | `⚠ Restricted Mode` + **`DEVELOPMENT_GUIDELINES.md`** |
+| Nimculus | **`Nimculus`**（アプリ名）+ `⑂ No Git branch` |
+
+### 差は 3 つ
+
+**(1) 名前が違う。** Zed は**開いているものの名前**を出す
+（`title_bar.rs:789` `render_project_name`）。プロジェクトが無ければ
+`"Open Recent Project"`。40 文字で切る（`MAX_PROJECT_NAME_LENGTH = 40`）。
+
+Nimculus は**アプリ名**（`Nimculus`）を固定で出している。
+
+**(2) git ブランチが無いとき何も出さない。**
+`title_bar.rs:921` `render_worktree_and_branch` は
+`Option<AnyElement>` を返し、リポジトリが無ければ呼ばれない
+（`:324` が `when_some` 相当の位置）。
+
+Nimculus は `No Git branch` という**文言を出している**。
+Zed にこの文言は無い。
+
+ブランチがあるときの表示も違う: Zed は**状態でアイコンを変える**
+（`:949-960`）:
+
+| 状態 | アイコン | 色 |
+| --- | --- | --- |
+| 競合あり | `Warning` | `VersionControlConflict` |
+| 変更あり | `SquareDot` | `VersionControlModified` |
+| 追加あり | `SquarePlus` | `VersionControlAdded` |
+| 削除あり | `SquareMinus` | `VersionControlDeleted` |
+| なし | `GitBranch` | `Muted` |
+
+分離 HEAD ならブランチ名の代わりに**短縮 SHA**（`MAX_SHORT_SHA_LENGTH`）。
+
+**(3) Restricted Mode は Zed の機能。** ワークスペースの信頼
+（`render_restricted_mode`、`:314`）。Nimculus に該当機能が無い。
+**移植対象は機能のほうで、表示ではない。**
+
+### 設定で消せる
+
+`title_bar_settings.show_branch_name` と `show_project_items`（`:297`）。
+**両方 false なら項目ごと出さない。** 既定値を確認すること。
+
+### やること
+
+1. 名前を**開いているものの名前**にする（40 文字で切る）
+2. リポジトリが無いとき**何も出さない**（`No Git branch` を消す）
+3. ブランチの状態でアイコンと色を変える
+4. 分離 HEAD で短縮 SHA を出す
+5. `show_branch_name` / `show_project_items` の設定を持つ
+
+**1 と 2 が画素に効く。** 3〜5 はリポジトリを開いた状態でないと見えない。
+
+### 却下案
+
+**(a) アプリ名を残す。** Zed は出さない。却下。
+
+**(b) `No Git branch` を残す（情報として親切）。**
+UI-113 の却下案 c と同じ。有用性は判断基準ではない。却下。
+
+### テスト観点
+
+- ファイルだけを開いたときタイトルバーにファイル名が出る
+- リポジトリが無いときブランチの項目が出ない
+- 40 文字を超える名前が切られる
+- キャプチャ: タイトルバー帯の `identical` が上がること（現状 87.55%）
+
 ## UI-131: ステータスバーのアイコンが Zed より大きい
 
 UI-130 でドックを閉じたら、帯ごとの `identical` の順位が変わった。
