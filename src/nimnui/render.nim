@@ -26,6 +26,7 @@ type
     radius*: Pixels
     transform*: Transform2D
     imageId*: uint32
+    color*: Hsla
     ## Only populated for roundedSelection. Keeping the rows on the paint
     ## command lets the retained command stay one concrete shape instead of
     ## becoming one rounded rectangle per line.
@@ -98,8 +99,12 @@ proc clear*(paint: var PaintList) =
 proc drawRectangle*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: rectangle, bounds: bounds, clip: bounds))
 
+proc drawText*(paint: var PaintList, bounds: Rect, text: string, color: Hsla) =
+  paint.add(PaintCommand(kind: PaintKind.text, bounds: bounds, clip: bounds, text: text,
+    color: color))
+
 proc drawText*(paint: var PaintList, bounds: Rect, text: string) =
-  paint.add(PaintCommand(kind: PaintKind.text, bounds: bounds, clip: bounds, text: text))
+  paint.drawText(bounds, text, hsla(0'f32, 0'f32, 1'f32, 1'f32))
 
 proc drawBorder*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: border,
     bounds: bounds, clip: bounds))

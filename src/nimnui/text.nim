@@ -48,7 +48,7 @@ type
     ## App decoration run. `color` is intentionally outside CacheKey.
     len*: int
     fontId*: uint32
-    color*: array[4, float32]
+    color*: Hsla
 
   ShapedGlyph* = object
     ## A glyph ready for painting. `index` is a UTF-8 byte boundary.
