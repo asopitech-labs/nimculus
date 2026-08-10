@@ -28,8 +28,19 @@ Nimculus は**アプリ名**（`Nimculus`）を固定で出している。
 Nimculus は `No Git branch` という**文言を出している**。
 Zed にこの文言は無い。
 
-ブランチがあるときの表示も違う: Zed は**状態でアイコンを変える**
-（`:949-960`）:
+ブランチがあるときの表示も違う。ただし**状態アイコンは既定で出ない**
+（`default.json:548` の `show_branch_status_icon: false`）。
+`title_bar.rs:1030-1033`:
+
+```rust
+let (branch_icon, branch_icon_color) = if settings.show_branch_status_icon {
+    icon_info
+} else {
+    (IconName::GitBranch, Color::Muted)
+};
+```
+
+**既定では常に `GitBranch` の `Muted`。** 設定を有効にしたときだけ状態で変わる:
 
 | 状態 | アイコン | 色 |
 | --- | --- | --- |
@@ -39,7 +50,16 @@ Zed にこの文言は無い。
 | 削除あり | `SquareMinus` | `VersionControlDeleted` |
 | なし | `GitBranch` | `Muted` |
 
-分離 HEAD ならブランチ名の代わりに**短縮 SHA**（`MAX_SHORT_SHA_LENGTH`）。
+分離 HEAD ならブランチ名の代わりに**短縮 SHA**（`MAX_SHORT_SHA_LENGTH`）で、
+ボタンの文言も `Create Branch`（`GitBranchPlus` アイコン、`:1035-1041`）に変わる。
+
+既定値（`default.json:548-552`）:
+
+| キー | 既定 |
+| --- | --- |
+| `show_branch_status_icon` | **false** |
+| `show_branch_name` | true |
+| `show_project_items` | true |
 
 **(3) Restricted Mode は Zed の機能。** ワークスペースの信頼
 （`render_restricted_mode`、`:314`）。Nimculus に該当機能が無い。
