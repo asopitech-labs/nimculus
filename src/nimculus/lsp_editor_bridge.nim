@@ -7,6 +7,13 @@ import nimculus/editor_buffer
 import nimculus/editor_view
 
 type
+  LspRequestKind* = enum
+    lspCompletionRequest, lspHoverRequest, lspDefinitionRequest,
+    lspFormattingRequest, lspReferencesRequest, lspSymbolsRequest,
+    lspCodeActionsRequest, lspCodeActionResolveRequest,
+    lspExecuteCommandRequest, lspRenameRequest, lspSignatureRequest,
+    lspSemanticTokensRequest, lspInlayHintsRequest
+
   LspDocumentState = object
     path: string
     uri: string
@@ -29,41 +36,29 @@ type
     lastError*: string
     completionItems*: seq[LspCompletionItem]
     completionSelected*: int
-    completionRequestId*: int
+    requests*: Table[LspRequestKind, int]
     completionCursorByte*: int
     completionVersion*: int
     completionVisible*: bool
-    hoverRequestId*: int
     hoverCursorByte*: int
     hoverTargetByte*: int
     hoverDelayTicks*: int
     hoverVersion*: int
     hoverText*: string
     hoverVisible*: bool
-    definitionRequestId*: int
     definitionCursorByte*: int
     definitionLocations*: seq[LspLocation]
-    formattingRequestId*: int
     formattingVersion*: int
     formattingEdits*: seq[LspTextEdit]
     formattingReady*: bool
-    referencesRequestId*: int
     referenceLocations*: seq[LspLocation]
-    symbolsRequestId*: int
     symbols*: seq[LspSymbol]
-    codeActionsRequestId*: int
     codeActions*: seq[LspCodeAction]
-    codeActionResolveRequestId*: int
     resolvedCodeAction*: LspCodeAction
-    executeCommandRequestId*: int
     commandEdits*: seq[LspWorkspaceEdit]
-    renameRequestId*: int
     renameEdits*: seq[LspWorkspaceEdit]
-    signatureRequestId*: int
     signatureHelp*: LspSignatureHelp
-    semanticTokensRequestId*: int
     semanticTokens*: seq[LspSemanticToken]
-    inlayHintsRequestId*: int
     inlayHintsRequestPath*: string
     inlayHintsRequestVersion*: int
     inlayHintsPath*: string
@@ -125,64 +120,75 @@ proc languageIdForPath*(path: string): string =
   of ".md", ".markdown": "markdown"
   else: "plaintext"
 
+proc initLspRequestTable(): Table[LspRequestKind, int] =
+  result = initTable[LspRequestKind, int]()
+  for kind in LspRequestKind:
+    result[kind] = 0
+
+const allLspRequestKinds = {lspCompletionRequest, lspHoverRequest,
+  lspDefinitionRequest, lspFormattingRequest, lspReferencesRequest,
+  lspSymbolsRequest, lspCodeActionsRequest, lspCodeActionResolveRequest,
+  lspExecuteCommandRequest, lspRenameRequest, lspSignatureRequest,
+  lspSemanticTokensRequest, lspInlayHintsRequest}
+
+proc requestId(bridge: LspEditorBridge, kind: LspRequestKind): int =
+  if bridge != nil:
+    result = bridge.requests.getOrDefault(kind)
+
+proc cancelRequest(bridge: LspEditorBridge, kind: LspRequestKind) =
+  if bridge == nil: return
+  let requestId = bridge.requestId(kind)
+  if requestId > 0 and bridge.session != nil:
+    discard bridge.session.takeResponse(requestId)
+    discard bridge.session.cancel(requestId)
+  bridge.requests[kind] = 0
+
+proc evictRequests*(bridge: LspEditorBridge, kinds: set[LspRequestKind]) =
+  if bridge == nil: return
+  for kind in kinds:
+    bridge.cancelRequest(kind)
+
 proc newLspEditorBridge*(command: string, args: openArray[string] = [],
                          rootUri = ""): LspEditorBridge =
   LspEditorBridge(command: command, args: @args, rootUri: rootUri, version: 0,
-    documents: initTable[string, LspDocumentState]())
+    requests: initLspRequestTable(), documents: initTable[string, LspDocumentState]())
 
 proc hideCompletion*(bridge: LspEditorBridge) =
   if bridge == nil: return
-  if bridge.completionRequestId > 0 and bridge.session != nil:
-    discard bridge.session.takeResponse(bridge.completionRequestId)
-    discard bridge.session.cancel(bridge.completionRequestId)
-  bridge.completionRequestId = 0
+  bridge.cancelRequest(lspCompletionRequest)
   bridge.completionItems.setLen(0)
   bridge.completionSelected = 0
   bridge.completionVisible = false
 
 proc hideHover*(bridge: LspEditorBridge) =
   if bridge == nil: return
-  if bridge.hoverRequestId > 0 and bridge.session != nil:
-    discard bridge.session.takeResponse(bridge.hoverRequestId)
-    discard bridge.session.cancel(bridge.hoverRequestId)
-  bridge.hoverRequestId = 0
+  bridge.cancelRequest(lspHoverRequest)
   bridge.hoverText = ""
   bridge.hoverVisible = false
 
 proc hideDefinition*(bridge: LspEditorBridge) =
   if bridge == nil: return
-  if bridge.definitionRequestId > 0 and bridge.session != nil:
-    discard bridge.session.takeResponse(bridge.definitionRequestId)
-    discard bridge.session.cancel(bridge.definitionRequestId)
-  bridge.definitionRequestId = 0
+  bridge.cancelRequest(lspDefinitionRequest)
   bridge.definitionLocations.setLen(0)
 
 proc hideFormatting*(bridge: LspEditorBridge) =
   if bridge == nil: return
-  if bridge.formattingRequestId > 0 and bridge.session != nil:
-    discard bridge.session.takeResponse(bridge.formattingRequestId)
-    discard bridge.session.cancel(bridge.formattingRequestId)
-  bridge.formattingRequestId = 0
+  bridge.cancelRequest(lspFormattingRequest)
   bridge.formattingVersion = 0
   bridge.formattingEdits.setLen(0)
   bridge.formattingReady = false
-
-proc cancelRequest(bridge: LspEditorBridge, requestId: var int) =
-  if requestId > 0 and bridge.session != nil:
-    discard bridge.session.takeResponse(requestId)
-    discard bridge.session.cancel(requestId)
-  requestId = 0
 
 proc requestReferences*(bridge: LspEditorBridge, buffer: PieceTable,
                         cursorByte: int): bool =
   if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
       bridge.uri.len == 0: return false
-  bridge.cancelRequest(bridge.referencesRequestId)
+  bridge.cancelRequest(lspReferencesRequest)
   let position = buffer.utf16Position(cursorByte)
   let request = referencesRequest(bridge.uri, LspPosition(line: position.line,
     character: position.character))
   try:
-    bridge.referencesRequestId = bridge.session.request(request.methodName, request.params).id
+    bridge.requests[lspReferencesRequest] = bridge.session.request(
+      request.methodName, request.params).id
     result = true
   except CatchableError: bridge.lastError = getCurrentExceptionMsg()
 
@@ -194,10 +200,11 @@ proc takeReferenceLocations*(bridge: LspEditorBridge): seq[LspLocation] =
 proc requestSymbols*(bridge: LspEditorBridge): bool =
   if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
       bridge.uri.len == 0: return false
-  bridge.cancelRequest(bridge.symbolsRequestId)
+  bridge.cancelRequest(lspSymbolsRequest)
   let request = documentSymbolRequest(bridge.uri)
   try:
-    bridge.symbolsRequestId = bridge.session.request(request.methodName, request.params).id
+    bridge.requests[lspSymbolsRequest] = bridge.session.request(
+      request.methodName, request.params).id
     result = true
   except CatchableError: bridge.lastError = getCurrentExceptionMsg()
 
@@ -209,10 +216,11 @@ proc takeSymbols*(bridge: LspEditorBridge): seq[LspSymbol] =
 proc requestCodeActions*(bridge: LspEditorBridge, range: LspRange): bool =
   if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
       bridge.uri.len == 0: return false
-  bridge.cancelRequest(bridge.codeActionsRequestId)
+  bridge.cancelRequest(lspCodeActionsRequest)
   let request = codeActionRequest(bridge.uri, range)
   try:
-    bridge.codeActionsRequestId = bridge.session.request(request.methodName, request.params).id
+    bridge.requests[lspCodeActionsRequest] = bridge.session.request(
+      request.methodName, request.params).id
     result = true
   except CatchableError: bridge.lastError = getCurrentExceptionMsg()
 
@@ -225,11 +233,11 @@ proc requestCodeActionResolve*(bridge: LspEditorBridge,
                                action: LspCodeAction): bool =
   if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
       action.raw == nil: return false
-  bridge.cancelRequest(bridge.codeActionResolveRequestId)
+  bridge.cancelRequest(lspCodeActionResolveRequest)
   bridge.resolvedCodeAction = LspCodeAction()
   let request = codeActionResolveRequest(action.raw)
   try:
-    bridge.codeActionResolveRequestId = bridge.session.request(
+    bridge.requests[lspCodeActionResolveRequest] = bridge.session.request(
       request.methodName, request.params).id
     result = true
   except CatchableError: bridge.lastError = getCurrentExceptionMsg()
@@ -243,11 +251,12 @@ proc requestExecuteCommand*(bridge: LspEditorBridge, command: string,
                             arguments: seq[JsonNode]): bool =
   if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
       command.len == 0: return false
-  bridge.cancelRequest(bridge.executeCommandRequestId)
+  bridge.cancelRequest(lspExecuteCommandRequest)
   bridge.commandEdits.setLen(0)
   let request = executeCommandRequest(command, arguments)
   try:
-    bridge.executeCommandRequestId = bridge.session.request(request.methodName, request.params).id
+    bridge.requests[lspExecuteCommandRequest] = bridge.session.request(
+      request.methodName, request.params).id
     result = true
   except CatchableError: bridge.lastError = getCurrentExceptionMsg()
 
@@ -260,12 +269,13 @@ proc requestRename*(bridge: LspEditorBridge, buffer: PieceTable,
                     cursorByte: int, newName: string): bool =
   if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
       bridge.uri.len == 0: return false
-  bridge.cancelRequest(bridge.renameRequestId)
+  bridge.cancelRequest(lspRenameRequest)
   let position = buffer.utf16Position(cursorByte)
   let request = renameRequest(bridge.uri, LspPosition(line: position.line,
     character: position.character), newName)
   try:
-    bridge.renameRequestId = bridge.session.request(request.methodName, request.params).id
+    bridge.requests[lspRenameRequest] = bridge.session.request(
+      request.methodName, request.params).id
     result = true
   except CatchableError: bridge.lastError = getCurrentExceptionMsg()
 
@@ -278,12 +288,13 @@ proc requestSignatureHelp*(bridge: LspEditorBridge, buffer: PieceTable,
                            cursorByte: int): bool =
   if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
       bridge.uri.len == 0: return false
-  bridge.cancelRequest(bridge.signatureRequestId)
+  bridge.cancelRequest(lspSignatureRequest)
   let position = buffer.utf16Position(cursorByte)
   let request = signatureHelpRequest(bridge.uri, LspPosition(line: position.line,
     character: position.character))
   try:
-    bridge.signatureRequestId = bridge.session.request(request.methodName, request.params).id
+    bridge.requests[lspSignatureRequest] = bridge.session.request(
+      request.methodName, request.params).id
     result = true
   except CatchableError: bridge.lastError = getCurrentExceptionMsg()
 
@@ -295,10 +306,11 @@ proc takeSignatureHelp*(bridge: LspEditorBridge): LspSignatureHelp =
 proc requestSemanticTokens*(bridge: LspEditorBridge): bool =
   if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
       bridge.uri.len == 0: return false
-  bridge.cancelRequest(bridge.semanticTokensRequestId)
+  bridge.cancelRequest(lspSemanticTokensRequest)
   let request = semanticTokensRequest(bridge.uri)
   try:
-    bridge.semanticTokensRequestId = bridge.session.request(request.methodName, request.params).id
+    bridge.requests[lspSemanticTokensRequest] = bridge.session.request(
+      request.methodName, request.params).id
     result = true
   except CatchableError: bridge.lastError = getCurrentExceptionMsg()
 
@@ -316,10 +328,11 @@ proc requestInlayHintsForPath*(bridge: LspEditorBridge, path: string,
   if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
       path.len == 0: return false
   let uri = fileUri(path)
-  bridge.cancelRequest(bridge.inlayHintsRequestId)
+  bridge.cancelRequest(lspInlayHintsRequest)
   let request = inlayHintRequest(uri, range)
   try:
-    bridge.inlayHintsRequestId = bridge.session.request(request.methodName, request.params).id
+    bridge.requests[lspInlayHintsRequest] = bridge.session.request(
+      request.methodName, request.params).id
     bridge.inlayHintsRequestPath = uri
     bridge.inlayHintsRequestVersion = bridge.documents.getOrDefault(uri).version
     result = true
@@ -351,15 +364,7 @@ proc cancelDocumentFeatureRequests*(bridge: LspEditorBridge) =
   ## Results tied to a previous text snapshot must never reach the editor.
   ## Zed cancels pending project requests when the buffer generation advances.
   if bridge == nil: return
-  bridge.cancelRequest(bridge.referencesRequestId)
-  bridge.cancelRequest(bridge.symbolsRequestId)
-  bridge.cancelRequest(bridge.codeActionsRequestId)
-  bridge.cancelRequest(bridge.codeActionResolveRequestId)
-  bridge.cancelRequest(bridge.executeCommandRequestId)
-  bridge.cancelRequest(bridge.renameRequestId)
-  bridge.cancelRequest(bridge.signatureRequestId)
-  bridge.cancelRequest(bridge.semanticTokensRequestId)
-  bridge.cancelRequest(bridge.inlayHintsRequestId)
+  bridge.evictRequests(allLspRequestKinds)
   bridge.inlayHintsRequestPath = ""
   bridge.inlayHintsRequestVersion = 0
   bridge.inlayHintsPath = ""
@@ -377,11 +382,11 @@ proc cancelDocumentFeatureRequests*(bridge: LspEditorBridge) =
 proc requestFormatting*(bridge: LspEditorBridge): bool =
   if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
       bridge.uri.len == 0: return false
-  bridge.hideFormatting()
+  bridge.cancelRequest(lspFormattingRequest)
   let request = formattingRequest(bridge.uri)
   try:
     let pending = bridge.session.request(request.methodName, request.params)
-    bridge.formattingRequestId = pending.id
+    bridge.requests[lspFormattingRequest] = pending.id
     bridge.formattingVersion = bridge.version
     result = true
   except CatchableError:
@@ -397,13 +402,13 @@ proc requestDefinition*(bridge: LspEditorBridge, buffer: PieceTable,
                         cursorByte: int): bool =
   if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
       bridge.uri.len == 0: return false
-  bridge.hideDefinition()
+  bridge.cancelRequest(lspDefinitionRequest)
   let position = buffer.utf16Position(cursorByte)
   let request = definitionRequest(bridge.uri,
     LspPosition(line: position.line, character: position.character))
   try:
     let pending = bridge.session.request(request.methodName, request.params)
-    bridge.definitionRequestId = pending.id
+    bridge.requests[lspDefinitionRequest] = pending.id
     bridge.definitionCursorByte = max(0, min(cursorByte, buffer.toString().len))
     result = true
   except CatchableError:
@@ -418,7 +423,7 @@ proc scheduleHover*(bridge: LspEditorBridge, cursorByte: int) =
   if bridge == nil: return
   let target = max(0, cursorByte)
   if bridge.hoverTargetByte == target and
-      (bridge.hoverDelayTicks > 0 or bridge.hoverRequestId > 0 or
+      (bridge.hoverDelayTicks > 0 or bridge.requestId(lspHoverRequest) > 0 or
        bridge.hoverVisible):
     return
   bridge.hideHover()
@@ -429,12 +434,13 @@ proc requestHover*(bridge: LspEditorBridge, buffer: PieceTable,
                    cursorByte: int): bool =
   if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
       bridge.uri.len == 0: return false
+  bridge.cancelRequest(lspHoverRequest)
   let position = buffer.utf16Position(cursorByte)
   let request = hoverRequest(bridge.uri,
     LspPosition(line: position.line, character: position.character))
   try:
     let pending = bridge.session.request(request.methodName, request.params)
-    bridge.hoverRequestId = pending.id
+    bridge.requests[lspHoverRequest] = pending.id
     bridge.hoverCursorByte = max(0, min(cursorByte, buffer.toString().len))
     bridge.hoverVersion = bridge.version
     result = true
@@ -454,13 +460,13 @@ proc requestCompletion*(bridge: LspEditorBridge, buffer: PieceTable,
                         cursorByte: int): bool =
   if bridge == nil or bridge.session == nil or bridge.session.state != lspSessionReady or
       bridge.uri.len == 0: return false
-  bridge.hideCompletion()
+  bridge.cancelRequest(lspCompletionRequest)
   let position = buffer.utf16Position(cursorByte)
   let request = completionRequest(bridge.uri,
     LspPosition(line: position.line, character: position.character))
   try:
     let pending = bridge.session.request(request.methodName, request.params)
-    bridge.completionRequestId = pending.id
+    bridge.requests[lspCompletionRequest] = pending.id
     bridge.completionCursorByte = max(0, min(cursorByte, buffer.toString().len))
     bridge.completionVersion = bridge.version
     result = true
@@ -508,15 +514,7 @@ proc closeDocument*(bridge: LspEditorBridge) =
   bridge.hideHover()
   bridge.hideDefinition()
   bridge.hideFormatting()
-  bridge.cancelRequest(bridge.referencesRequestId)
-  bridge.cancelRequest(bridge.symbolsRequestId)
-  bridge.cancelRequest(bridge.codeActionsRequestId)
-  bridge.cancelRequest(bridge.codeActionResolveRequestId)
-  bridge.cancelRequest(bridge.executeCommandRequestId)
-  bridge.cancelRequest(bridge.renameRequestId)
-  bridge.cancelRequest(bridge.signatureRequestId)
-  bridge.cancelRequest(bridge.semanticTokensRequestId)
-  bridge.cancelRequest(bridge.inlayHintsRequestId)
+  bridge.evictRequests(allLspRequestKinds)
   bridge.referenceLocations.setLen(0)
   bridge.symbols.setLen(0)
   bridge.codeActions.setLen(0)
@@ -620,89 +618,89 @@ proc poll*(bridge: LspEditorBridge): bool =
     bridge.lastError = getCurrentExceptionMsg()
     bridge.session.state = lspSessionFailed
     return false
-  if bridge.completionRequestId > 0:
-    let response = bridge.session.takeResponse(bridge.completionRequestId)
+  if bridge.requestId(lspCompletionRequest) > 0:
+    let response = bridge.session.takeResponse(bridge.requestId(lspCompletionRequest))
     if response != nil:
       let completion = parseCompletion(response)
       bridge.completionItems = completion.items
       bridge.completionSelected = 0
       bridge.completionVisible = bridge.completionVersion == bridge.version and
         completion.items.len > 0
-      bridge.completionRequestId = 0
+      bridge.requests[lspCompletionRequest] = 0
       result = true
-  if bridge.hoverRequestId > 0:
-    let response = bridge.session.takeResponse(bridge.hoverRequestId)
+  if bridge.requestId(lspHoverRequest) > 0:
+    let response = bridge.session.takeResponse(bridge.requestId(lspHoverRequest))
     if response != nil:
       let hover = parseHover(response)
       bridge.hoverText = hover.text
       bridge.hoverVisible = bridge.hoverVersion == bridge.version and
         hover.text.len > 0 and bridge.hoverCursorByte == bridge.hoverTargetByte
-      bridge.hoverRequestId = 0
+      bridge.requests[lspHoverRequest] = 0
       result = true
-  if bridge.definitionRequestId > 0:
-    let response = bridge.session.takeResponse(bridge.definitionRequestId)
+  if bridge.requestId(lspDefinitionRequest) > 0:
+    let response = bridge.session.takeResponse(bridge.requestId(lspDefinitionRequest))
     if response != nil:
       bridge.definitionLocations = parseLocations(response)
-      bridge.definitionRequestId = 0
+      bridge.requests[lspDefinitionRequest] = 0
       result = true
-  if bridge.formattingRequestId > 0:
-    let response = bridge.session.takeResponse(bridge.formattingRequestId)
+  if bridge.requestId(lspFormattingRequest) > 0:
+    let response = bridge.session.takeResponse(bridge.requestId(lspFormattingRequest))
     if response != nil:
       if bridge.formattingVersion == bridge.version:
         bridge.formattingEdits = parseTextEdits(response)
         bridge.formattingReady = true
-      bridge.formattingRequestId = 0
+      bridge.requests[lspFormattingRequest] = 0
       result = true
-  if bridge.referencesRequestId > 0:
-    let response = bridge.session.takeResponse(bridge.referencesRequestId)
+  if bridge.requestId(lspReferencesRequest) > 0:
+    let response = bridge.session.takeResponse(bridge.requestId(lspReferencesRequest))
     if response != nil:
       bridge.referenceLocations = parseLocations(response)
-      bridge.referencesRequestId = 0
+      bridge.requests[lspReferencesRequest] = 0
       result = true
-  if bridge.symbolsRequestId > 0:
-    let response = bridge.session.takeResponse(bridge.symbolsRequestId)
+  if bridge.requestId(lspSymbolsRequest) > 0:
+    let response = bridge.session.takeResponse(bridge.requestId(lspSymbolsRequest))
     if response != nil:
       bridge.symbols = parseSymbols(response)
-      bridge.symbolsRequestId = 0
+      bridge.requests[lspSymbolsRequest] = 0
       result = true
-  if bridge.codeActionsRequestId > 0:
-    let response = bridge.session.takeResponse(bridge.codeActionsRequestId)
+  if bridge.requestId(lspCodeActionsRequest) > 0:
+    let response = bridge.session.takeResponse(bridge.requestId(lspCodeActionsRequest))
     if response != nil:
       bridge.codeActions = parseCodeActions(response)
-      bridge.codeActionsRequestId = 0
+      bridge.requests[lspCodeActionsRequest] = 0
       result = true
-  if bridge.codeActionResolveRequestId > 0:
-    let response = bridge.session.takeResponse(bridge.codeActionResolveRequestId)
+  if bridge.requestId(lspCodeActionResolveRequest) > 0:
+    let response = bridge.session.takeResponse(bridge.requestId(lspCodeActionResolveRequest))
     if response != nil:
       bridge.resolvedCodeAction = parseCodeAction(response)
-      bridge.codeActionResolveRequestId = 0
+      bridge.requests[lspCodeActionResolveRequest] = 0
       result = true
-  if bridge.executeCommandRequestId > 0:
-    let response = bridge.session.takeResponse(bridge.executeCommandRequestId)
+  if bridge.requestId(lspExecuteCommandRequest) > 0:
+    let response = bridge.session.takeResponse(bridge.requestId(lspExecuteCommandRequest))
     if response != nil:
       bridge.commandEdits = parseWorkspaceEdit(response)
-      bridge.executeCommandRequestId = 0
+      bridge.requests[lspExecuteCommandRequest] = 0
       result = true
-  if bridge.renameRequestId > 0:
-    let response = bridge.session.takeResponse(bridge.renameRequestId)
+  if bridge.requestId(lspRenameRequest) > 0:
+    let response = bridge.session.takeResponse(bridge.requestId(lspRenameRequest))
     if response != nil:
       bridge.renameEdits = parseWorkspaceEdit(response)
-      bridge.renameRequestId = 0
+      bridge.requests[lspRenameRequest] = 0
       result = true
-  if bridge.signatureRequestId > 0:
-    let response = bridge.session.takeResponse(bridge.signatureRequestId)
+  if bridge.requestId(lspSignatureRequest) > 0:
+    let response = bridge.session.takeResponse(bridge.requestId(lspSignatureRequest))
     if response != nil:
       bridge.signatureHelp = parseSignatureHelp(response)
-      bridge.signatureRequestId = 0
+      bridge.requests[lspSignatureRequest] = 0
       result = true
-  if bridge.semanticTokensRequestId > 0:
-    let response = bridge.session.takeResponse(bridge.semanticTokensRequestId)
+  if bridge.requestId(lspSemanticTokensRequest) > 0:
+    let response = bridge.session.takeResponse(bridge.requestId(lspSemanticTokensRequest))
     if response != nil:
       bridge.semanticTokens = parseSemanticTokens(response)
-      bridge.semanticTokensRequestId = 0
+      bridge.requests[lspSemanticTokensRequest] = 0
       result = true
-  if bridge.inlayHintsRequestId > 0:
-    let response = bridge.session.takeResponse(bridge.inlayHintsRequestId)
+  if bridge.requestId(lspInlayHintsRequest) > 0:
+    let response = bridge.session.takeResponse(bridge.requestId(lspInlayHintsRequest))
     if response != nil:
       let responsePath = bridge.inlayHintsRequestPath
       let hints = parseInlayHints(response)
@@ -715,7 +713,7 @@ proc poll*(bridge: LspEditorBridge): bool =
         bridge.inlayHints = hints
       else:
         bridge.inlayHints.setLen(0)
-      bridge.inlayHintsRequestId = 0
+      bridge.requests[lspInlayHintsRequest] = 0
       bridge.inlayHintsRequestVersion = 0
       result = true
   if bridge.session.state == lspSessionReady and not bridge.opened and

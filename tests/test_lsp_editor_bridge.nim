@@ -1,11 +1,38 @@
 import std/unittest
+import std/json
 import std/os
+import std/sets
+import std/strutils
 import std/times
 import std/tables
 import nimculus/editor_buffer
 import nimculus/editor_diagnostics
 import nimculus/lsp
 import nimculus/lsp_editor_bridge
+
+proc pendingRequestServer(logPath: string): string =
+  "import sys,json,time\n" &
+    "def frame(x):\n" &
+    "    b=json.dumps(x,separators=(',',':')).encode()\n" &
+    "    return ('Content-Length: '+str(len(b))+'\\r\\n\\r\\n').encode()+b\n" &
+    "init={'jsonrpc':'2.0','id':1,'result':{'capabilities':{}}}\n" &
+    "sys.stdout.buffer.write(frame(init)); sys.stdout.buffer.flush()\n" &
+    "log_path='" & logPath & "'\n" &
+    "while True:\n" &
+    "    header=sys.stdin.buffer.readline()\n" &
+    "    if not header: break\n" &
+    "    if not header.lower().startswith(b'content-length:'): continue\n" &
+    "    length=int(header.split(b':',1)[1])\n" &
+    "    sys.stdin.buffer.readline()\n" &
+    "    message=json.loads(sys.stdin.buffer.read(length))\n" &
+    "    if message.get('method') == '$/cancelRequest':\n" &
+    "        with open(log_path,'a') as log: log.write(str(message['params']['id'])+'\\n')\n" &
+    "time.sleep(2)\n"
+
+proc cancelledIds(path: string): HashSet[int] =
+  if not fileExists(path): return
+  for line in readFile(path).splitLines:
+    if line.len > 0: result.incl(parseInt(line))
 
 suite "LSP editor bridge":
   when defined(posix):
@@ -230,7 +257,7 @@ suite "LSP editor bridge":
     check bridge.requestDefinition(buffer, buffer.toString().len)
     for _ in 0 ..< 30:
       discard bridge.poll()
-      if bridge.definitionRequestId == 0: break
+      if bridge.requests[lspDefinitionRequest] == 0: break
       sleep(10)
     let locations = bridge.takeDefinitionLocations()
     check locations.len == 1
@@ -271,6 +298,83 @@ suite "LSP editor bridge":
     check edits[0].range.start.character == 0
     check edits[0].range.finish.character == 5
     check edits[0].newText == "world"
+
+  when defined(posix):
+    test "evicts every in-flight request when a split-pane document changes":
+      let logPath = "/tmp/nimculus-lsp-editor-bridge-cancel-all"
+      if fileExists(logPath): removeFile(logPath)
+      defer:
+        if fileExists(logPath): removeFile(logPath)
+      let bridge = newLspEditorBridge("python3", ["-u", "-c",
+        pendingRequestServer(logPath)])
+      defer: bridge.stop()
+      let primary = "/tmp/lsp-cancel-primary.nim"
+      let secondary = "/tmp/lsp-cancel-secondary.nim"
+      for _ in 0 ..< 50:
+        bridge.updateDocument(primary, "let primary = 1")
+        bridge.syncDocument(secondary, "let secondary = 2")
+        discard bridge.poll()
+        if bridge.openedDocumentCount == 2: break
+        sleep(10)
+      check bridge.openedDocumentCount == 2
+      let buffer = initPieceTable("let value = 1")
+      let position = LspPosition(line: 0, character: 1)
+      let range = LspRange(start: position, finish: position)
+      check bridge.requestCompletion(buffer, 1)
+      check bridge.requestHover(buffer, 1)
+      check bridge.requestDefinition(buffer, 1)
+      check bridge.requestFormatting()
+      check bridge.requestReferences(buffer, 1)
+      check bridge.requestSymbols()
+      check bridge.requestCodeActions(range)
+      check bridge.requestCodeActionResolve(LspCodeAction(raw: %*{"title": "action"}))
+      check bridge.requestExecuteCommand("command", newSeq[JsonNode]())
+      check bridge.requestRename(buffer, 1, "renamed")
+      check bridge.requestSignatureHelp(buffer, 1)
+      check bridge.requestSemanticTokens()
+      check bridge.requestInlayHintsForPath(secondary, range)
+
+      var inFlight = initHashSet[int]()
+      for kind in LspRequestKind:
+        let requestId = bridge.requests[kind]
+        check requestId > 0
+        inFlight.incl(requestId)
+      check inFlight.len == 13
+
+      bridge.updateDocument(primary, "let primary = 2")
+      for _ in 0 ..< 50:
+        if cancelledIds(logPath).len == inFlight.len: break
+        sleep(10)
+      check cancelledIds(logPath) == inFlight
+      for kind in LspRequestKind:
+        check bridge.requests[kind] == 0
+
+    test "replacing a request of one kind cancels its predecessor once":
+      let logPath = "/tmp/nimculus-lsp-editor-bridge-cancel-one"
+      if fileExists(logPath): removeFile(logPath)
+      defer:
+        if fileExists(logPath): removeFile(logPath)
+      let bridge = newLspEditorBridge("python3", ["-u", "-c",
+        pendingRequestServer(logPath)])
+      defer: bridge.stop()
+      let buffer = initPieceTable("let value = 1")
+      for _ in 0 ..< 50:
+        bridge.updateDocument("/tmp/lsp-replace-primary.nim", "let value = 1")
+        bridge.syncDocument("/tmp/lsp-replace-secondary.nim", "let other = 2")
+        discard bridge.poll()
+        if bridge.openedDocumentCount == 2: break
+        sleep(10)
+      check bridge.openedDocumentCount == 2
+      check bridge.requestCompletion(buffer, 1)
+      let firstRequestId = bridge.requests[lspCompletionRequest]
+      check bridge.requestCompletion(buffer, 2)
+      check bridge.requests[lspCompletionRequest] != firstRequestId
+      for _ in 0 ..< 50:
+        if cancelledIds(logPath).len == 1: break
+        sleep(10)
+      let cancelled = cancelledIds(logPath)
+      check cancelled.len == 1
+      check firstRequestId in cancelled
 
   test "drops document feature results when the text generation advances":
     let bridge = newLspEditorBridge("python3", [])
