@@ -1,5 +1,50 @@
 # Design Decisions
 
+## 採番台帳
+
+**次に使う番号: UI-157**
+
+新しい判断を追記するときは、この行の番号を使い、この行を 1 つ進める。
+本文の末尾に追記するだけでは番号が衝突する。実際 2026-08-10 まで
+**20 の番号が 2〜3 回ずつ使われていた**（UI-079 が「継続的なスクロール位置」と
+「Outline を LSP 前に使う」と「未折返しスクロール」の 3 つを指していた）。
+
+参照するときは番号だけでなく表題も添える。番号は移植の台帳
+（`docs/ZED_PORT_TASKS.md`）から引く。
+
+### 2026-08-10 の採番し直し
+
+衝突していた 22 件に UI-135〜UI-156 を振り直した。
+**各番号の最初の出現が番号を保持し、2 つ目以降が新番号を得た。**
+本文からの相互参照 2 件（UI-076 / UI-093）はどちらも保持側を指しており、変更不要だった。
+
+| 旧 | 新 | 表題 |
+| --- | --- | --- |
+| UI-059 | **UI-135** | Model Git History as explicit loading, error, and loaded states |
+| UI-060 | **UI-136** | Make Files-panel tree navigation continuously reachable |
+| UI-061 | **UI-137** | Keep document search and navigation inside the editor surface |
+| UI-062 | **UI-138** | Present the command palette as editor chrome, not an alert |
+| UI-063 | **UI-139** | Start workspace search without a blocking prompt |
+| UI-064 | **UI-140** | Edit a Git commit message in the Changes surface |
+| UI-065 | **UI-141** | Keep Quick Open inside the editor workflow |
+| UI-075 | **UI-142** | Keep split-pane viewport calculations local |
+| UI-076 | **UI-143** | Make multi-selection a user-visible editor feature |
+| UI-077 | **UI-144** | Synchronize the selected tab at the session/UI composition boundary |
+| UI-078 | **UI-145** | Keep the native Files selection row readable while inactive |
+| UI-079 | **UI-146** | Keep Outline useful before LSP symbols arrive |
+| UI-081 | **UI-147** | Reconstruct syntax siblings from Tree-sitter ranges |
+| UI-082 | **UI-148** | Keep syntax folding as an item-owned display map |
+| UI-083 | **UI-149** | Derive structural brackets from the syntax snapshot |
+| UI-084 | **UI-150** | Keep fold commands semantically separate |
+| UI-079 | **UI-151** | Use a continuous macOS editor scroll position |
+| UI-080 | **UI-152** | Keep wheel scrolling independent from cursor visibility |
+| UI-082 | **UI-153** | Clone Zed's Project Panel presentation in the native Files dock |
+| UI-092 | **UI-154** | Port Zed's option-aware search bars and project filters |
+| UI-094 | **UI-155** | Snap editor rows and wrap width to Zed's pixel contract |
+| UI-093 | **UI-156** | Make Git Changes rows native checkbox controls with a pinned commit footer |
+
+---
+
 ## UI-134: ガターの変更バー（UI-133 の 4）
 
 UI-133 でフォルダを開いた比較を足して見つけた 4 件のうち、
@@ -8886,7 +8931,7 @@ the active document remains visible while a user can refine, restart, or stop
 search directly from its results. Native contract and GUI E2E cover the two
 controls.
 
-## UI-059: Model Git History as explicit loading, error, and loaded states
+## UI-135: Model Git History as explicit loading, error, and loaded states
 
 **Context.** Zed's Git Panel renders `Loading Commit History…`, a failure
 placeholder, or an empty-history message while repository data changes. The
@@ -8904,7 +8949,7 @@ that created the list.
 asynchronous operation, has no stale clickable rows during loading or failure,
 and file-history refresh remains stable even when editor focus changes.
 
-## UI-060: Make Files-panel tree navigation continuously reachable
+## UI-136: Make Files-panel tree navigation continuously reachable
 
 **Context.** Zed's Project Panel exposes both fast hierarchy reset and
 selection-oriented navigation. Nimculus had `Reveal Active File` internally,
@@ -9205,7 +9250,7 @@ cancellation, stale-job handling, and focus remain identical to pointer use.
 **Consequences.** Git history has a keyboard entry point without duplicate
 repository state. The native sidebar contract verifies both command bindings.
 
-## UI-061: Keep document search and navigation inside the editor surface
+## UI-137: Keep document search and navigation inside the editor surface
 
 **Context.** Find, Replace, and Go to Line were presented as `NSAlert` sheets.
 They suspended the user's editing flow and made an accidental shortcut look
@@ -9224,7 +9269,7 @@ it returns first responder status to `NimculusMetalView`.
 document stays visible and responsive. The native contract proves the three
 modes, live command routing, lack of an attached sheet, and focus restoration.
 
-## UI-062: Present the command palette as editor chrome, not an alert
+## UI-138: Present the command palette as editor chrome, not an alert
 
 **Context.** The old `NSAlert` command palette blocked the app behind a sheet.
 Zed's `CommandPalette` uses a focused picker with command completion, runs the
@@ -9244,7 +9289,7 @@ while keyboard completion and exact command input remain available. The native
 overlay contract verifies visibility, Enter dispatch, absence of a sheet, and
 Esc focus restoration.
 
-## UI-063: Start workspace search without a blocking prompt
+## UI-139: Start workspace search without a blocking prompt
 
 **Context.** Project Search in Zed retains the document and displays results
 in a dedicated search surface. Nimculus already has a Search sidebar and a
@@ -9261,7 +9306,7 @@ editor focus without changing the current search job.
 non-modal query entry point. Search remains cancellable from the persistent
 Search sidebar, and document content is never replaced by search output.
 
-## UI-064: Edit a Git commit message in the Changes surface
+## UI-140: Edit a Git commit message in the Changes surface
 
 **Context.** Nimculus had a Commit button in its Zed-like Changes panel but
 opened an `NSAlert` to collect the message. Zed keeps a commit editor in the
@@ -9278,7 +9323,7 @@ keyboard-complete without weakening Git validation or creating a second commit
 implementation. The native overlay contract verifies Enter, Esc, and command
 routing without an attached sheet.
 
-## UI-065: Keep Quick Open inside the editor workflow
+## UI-141: Keep Quick Open inside the editor workflow
 
 **Context.** Quick Open already streamed fuzzy file results into the Files
 sidebar, but its query was collected through an `NSAlert`. That interrupted
@@ -9492,7 +9537,7 @@ document's visible annotations, and a stale response cannot replace a newer
 snapshot. The native contract checks pointer, count, and owned-string
 separation for both panes.
 
-## UI-075: Keep split-pane viewport calculations local
+## UI-142: Keep split-pane viewport calculations local
 
 **Context.** The primary and secondary macOS editor panes can display different
 documents and have different heights in a horizontal split. Reusing the
@@ -9511,7 +9556,7 @@ different line counts, and resizing one pane does not change the other pane's
 scroll behavior. The shared UI/editor contracts continue to own interaction
 semantics while the macOS platform layer supplies pane-specific geometry.
 
-## UI-076: Make multi-selection a user-visible editor feature
+## UI-143: Make multi-selection a user-visible editor feature
 
 **Context.** The editor buffer already supported atomic `applyEdits`, but the
 application exposed only one selection and one caret. That made the M4
@@ -9540,7 +9585,7 @@ single-caret navigation, so the behavior is predictable when leaving a
 multi-selection operation. The native array is capped at 256 entries to keep
 per-frame ABI work bounded.
 
-## UI-077: Synchronize the selected tab at the session/UI composition boundary
+## UI-144: Synchronize the selected tab at the session/UI composition boundary
 
 **Context.** `EditorSession.activeTab` is updated when a startup path, Finder
 open event, or Files-panel activation selects a document. The macOS workspace
@@ -9558,7 +9603,7 @@ including direct startup paths and Finder/Open With.
 represented by the selected tab, and the tab label cannot drift from the
 document shown in the editor. Split-pane tab ownership remains unchanged.
 
-## UI-078: Keep the native Files selection row readable while inactive
+## UI-145: Keep the native Files selection row readable while inactive
 
 **Context.** The macOS Files panel uses an `NSTextView` so keyboard navigation,
 selection, and accessibility stay native, while NimNUI supplies the full-width
@@ -9578,7 +9623,7 @@ presentation even when the editor owns first responder. Stable row alignment is
 preserved across workspace refreshes without a one-row visual drift or a pale
 inactive strip hiding the selected path.
 
-## UI-079: Keep Outline useful before LSP symbols arrive
+## UI-146: Keep Outline useful before LSP symbols arrive
 
 **Context.** Tree-sitter already parsed the active document, but the macOS
 Outline panel was populated only by asynchronous LSP document symbols. A plain
@@ -9620,7 +9665,7 @@ adding Cocoa types to the editor core. The operation stops at the parsed
 syntax-tree leaf and reports that state instead of silently changing an
 unrelated range.
 
-## UI-081: Reconstruct syntax siblings from Tree-sitter ranges
+## UI-147: Reconstruct syntax siblings from Tree-sitter ranges
 
 Zed's `SelectNextSyntaxNode` and `SelectPreviousSyntaxNode` operate on syntax
 siblings, and climb to a parent when the current node has no sibling. The
@@ -9634,7 +9679,7 @@ through the focused editor selection boundary. This keeps the macOS interaction
 contract aligned with Zed while keeping the platform-independent syntax module
 free of Cocoa and editor-session state.
 
-## UI-082: Keep syntax folding as an item-owned display map
+## UI-148: Keep syntax folding as an item-owned display map
 
 Zed folds syntax ranges in a display map while preserving the underlying buffer
 and anchor positions. Nimculus follows the same boundary: `EditorViewState`
@@ -9654,7 +9699,7 @@ Syntax highlighting, diagnostics, Git annotations, and text input continue to
 address the original UTF-8 document; only their native display projection is
 compressed.
 
-## UI-083: Derive structural brackets from the syntax snapshot
+## UI-149: Derive structural brackets from the syntax snapshot
 
 Zed's enclosing-bracket navigation uses language-aware bracket ranges rather
 than scanning every delimiter in the raw buffer. Nimculus keeps the compact
@@ -9669,7 +9714,7 @@ grammar. The macOS editor uses the syntax-aware overload whenever the active
 Tree-sitter snapshot is valid, so brackets in comments and literals cannot
 change cursor navigation or fold structure.
 
-## UI-084: Keep fold commands semantically separate
+## UI-150: Keep fold commands semantically separate
 
 Zed distinguishes `Fold`, `UnfoldLines`, `ToggleFold`, recursive folding, and
 fold-at-level actions. Nimculus therefore keeps a focused-pane fold map but
@@ -10274,7 +10319,7 @@ idle frames or duplicate synchronous submissions. The renderer's existing
 present, timing, frame-count, and damage/dirty-region logic is unchanged, and
 non-macOS/headless backends require no display-link knowledge.
 
-## UI-079: Use a continuous macOS editor scroll position
+## UI-151: Use a continuous macOS editor scroll position
 
 **Context.** Precise trackpad deltas were accumulated into an integer line, so
 the editor jumped by a full line even though the input was pixel-based.
@@ -10292,7 +10337,7 @@ right corner when both thumbs are present.
 through compatibility reconciliation. Non-macOS rendering and frame,
 display-link, and damage semantics are unchanged.
 
-## UI-080: Keep wheel scrolling independent from cursor visibility
+## UI-152: Keep wheel scrolling independent from cursor visibility
 
 **Context.** A precise wheel or trackpad event updates the editor's continuous
 scroll position, but the redraw synchronization also ran `ensureCursorVisible`.
@@ -10311,7 +10356,7 @@ sub-line motion, horizontal scrolling, native scrollbars, and independent
 split-pane state. A subsequent cursor movement restores the cursor to the
 visible viewport when needed.
 
-## UI-082: Clone Zed's Project Panel presentation in the native Files dock
+## UI-153: Clone Zed's Project Panel presentation in the native Files dock
 
 **Context.** The Files tree already owned selection, expansion, keyboard
 navigation, context menus, reveal, and drag dispatch, but its presentation
@@ -10410,7 +10455,7 @@ the elevation/shadow treatment from `references/zed/crates/ui/src/traits/styled_
 and `styles/elevation.rs`, and the light/dark role values from
 `references/zed/assets/themes/one/one.json`.
 
-## UI-092: Port Zed's option-aware search bars and project filters
+## UI-154: Port Zed's option-aware search bars and project filters
 
 **Context.** Nimculus's native find overlay previously exposed only a literal
 query and Replace All, while workspace search used a case-sensitive substring
@@ -10435,7 +10480,7 @@ filter placement were read from the vendored Zed sources
 `references/zed/crates/search/src/search_bar.rs`; semantic colors follow
 `assets/themes/one/one.json` and Nimculus's existing theme-role bridge.
 
-## UI-094: Snap editor rows and wrap width to Zed's pixel contract
+## UI-155: Snap editor rows and wrap width to Zed's pixel contract
 
 **Context.** The macOS editor resolved the comfortable buffer line height as
 the fractional value `15 * 1.618 = 24.27`, and soft wrapping used the full
@@ -10463,7 +10508,7 @@ surfaces rather than widening the footer's left cluster.
 two-em reservation is from
 `references/zed/crates/editor/src/element.rs` (`editor_width` and
 `calculate_wrap_width`).
-## UI-093: Make Git Changes rows native checkbox controls with a pinned commit footer
+## UI-156: Make Git Changes rows native checkbox controls with a pinned commit footer
 
 **Context.** The existing Git sidebar already had section-aware stage/unstage
 dispatch and bulk actions, but its rows were plain text. The leading gesture
