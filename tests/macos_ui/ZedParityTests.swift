@@ -36,6 +36,14 @@ final class ZedParityTests: XCTestCase {
   private static let inlineBlameDocument =
     "/Users/admin/inline-blame-repo/inline_blame.txt"
 
+  /// A multi-file repository for the workspace parity capture. The target file
+  /// is changed after its initial commit so the branch, file tree, git hunk,
+  /// and status items all have something to render.
+  private static let workspaceRepository = "/Users/admin/workspace-capture-repo"
+  private static let workspaceDocument =
+    "/Users/admin/workspace-capture-repo/workspace_target.txt"
+  private static let workspaceDocumentFirstLine = "# Workspace capture target"
+
   /// Nimculus persists this in the guest's per-user Application Support
   /// directory.  Reset it between XCTest cases because app relaunches reuse
   /// the same guest user and `restoreSession()` reads it on every startup.
@@ -56,6 +64,7 @@ final class ZedParityTests: XCTestCase {
       at: Self.outDir, withIntermediateDirectories: true)
     resetNimculusSession()
     removeInlineBlameRepositories()
+    removeWorkspaceRepository()
   }
 
   // MARK: - helpers
@@ -86,6 +95,10 @@ final class ZedParityTests: XCTestCase {
     for path in [Self.inlineBlameRepository] + names {
       try? fileManager.removeItem(atPath: path)
     }
+  }
+
+  private func removeWorkspaceRepository() {
+    try? FileManager.default.removeItem(atPath: Self.workspaceRepository)
   }
 
   private func prepareInlineBlameRepository(
@@ -121,6 +134,44 @@ final class ZedParityTests: XCTestCase {
       at: settingsDirectory, withIntermediateDirectories: true)
     let settings = "{\"git\":{\"inlineBlame\":{\"padding\":\(padding)}}}\n"
     try Data(settings.utf8).write(to: settingsDirectory.appendingPathComponent("settings.json"))
+  }
+
+  private func prepareWorkspaceRepository() throws {
+    let fileManager = FileManager.default
+    let repository = URL(fileURLWithPath: Self.workspaceRepository)
+    try fileManager.createDirectory(at: repository, withIntermediateDirectories: true)
+    try fileManager.createDirectory(
+      at: repository.appendingPathComponent("src"), withIntermediateDirectories: true)
+    try Data("# Workspace capture target\ncommitted line\nchanged line\n".utf8)
+      .write(to: repository.appendingPathComponent("workspace_target.txt"))
+    try Data("# Workspace notes\nThis file keeps the project tree non-trivial.\n".utf8)
+      .write(to: repository.appendingPathComponent("notes.md"))
+    try Data("helper = true\n".utf8)
+      .write(to: repository.appendingPathComponent("src/helper.txt"))
+
+    let commands = [
+      ["init", "-q", repository.path],
+      ["-C", repository.path, "config", "user.name", "Nimculus UI Test"],
+      ["-C", repository.path, "config", "user.email", "ui-test@nimculus.local"],
+      ["-C", repository.path, "add", "."],
+      ["-C", repository.path, "commit", "-q", "-m", "Initial workspace capture sample"],
+      ["-C", repository.path, "branch", "-M", "ui-132-workspace"]
+    ]
+    for arguments in commands {
+      let process = Process()
+      process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+      process.arguments = arguments
+      try process.run()
+      process.waitUntilExit()
+      XCTAssertEqual(
+        process.terminationStatus, 0,
+        "git command failed: git \(arguments.joined(separator: " "))")
+    }
+
+    // Leave a tracked-file hunk in the working tree while keeping the target
+    // file's first line stable for the Nimculus accessibility assertion.
+    try Data("# Workspace capture target\ncommitted line\nworking tree hunk\n".utf8)
+      .write(to: repository.appendingPathComponent("workspace_target.txt"))
   }
 
   /// Total CPU milliseconds consumed by every process with this name.
@@ -373,6 +424,59 @@ final class ZedParityTests: XCTestCase {
       padding: 7, repositoryPath: Self.inlineBlameRepository)
     try captureNimculusInlineBlame(
       padding: 0, repositoryPath: Self.inlineBlameRepository)
+  }
+
+  /// Capture both editors with the same git repository open as a workspace and
+  /// the same tracked file active inside it. This intentionally complements
+  /// testCaptureBothWindows: the single-file pair cannot exercise workspace
+  /// tree, branch, hunk, or git status presentation.
+  func testCaptureWorkspace() throws {
+    defer {
+      resetNimculusSession()
+      XCUIApplication(bundleIdentifier: "dev.zed.Zed").terminate()
+      removeWorkspaceRepository()
+    }
+    try prepareWorkspaceRepository()
+
+    for (id, label) in [("dev.zed.Zed", "zed"), ("com.asopitech.nimculus", "nimculus")] {
+      let app = XCUIApplication(bundleIdentifier: id)
+      if app.state != .notRunning {
+        app.terminate()
+        _ = app.wait(for: .notRunning, timeout: 10)
+      }
+      // The directory opens the workspace; the file selects the identical
+      // document in that workspace for a directly comparable editor surface.
+      app.launchArguments = [Self.workspaceRepository, Self.workspaceDocument]
+      if id == "com.asopitech.nimculus" {
+        app.launchEnvironment = [
+          "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"
+        ]
+      }
+      app.launch()
+      XCTAssertTrue(app.wait(for: .runningForeground, timeout: 60))
+      sleep(6)
+
+      let window = self.window(of: app)
+      XCTAssertTrue(
+        Self.showsDocument(window, document: Self.workspaceDocument),
+        "\(label) is not showing the workspace comparison document")
+      if id == "com.asopitech.nimculus" {
+        let text = Self.accessibleEditorText(
+          window, containing: Self.workspaceDocumentFirstLine)
+        XCTAssertNotNil(text, "nimculus does not expose the workspace document body")
+        XCTAssertTrue(
+          text?.contains("working tree hunk") == true,
+          "nimculus is showing stale workspace document content")
+      } else {
+        // Zed does not expose its editor surface through accessibility. The
+        // target filename plus rendered editor ink are the available checks.
+        XCTAssertTrue(
+          Self.showsEditorBody(window.screenshot().pngRepresentation),
+          "zed shows the workspace document tab but no rendered editor body")
+      }
+      moveCursorToDocumentStart(in: window)
+      write(window.screenshot().pngRepresentation, "\(label)-workspace.png")
+    }
   }
 
   // MARK: - profiling
