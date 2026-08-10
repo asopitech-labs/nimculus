@@ -1,5 +1,81 @@
 # Design Decisions
 
+## UI-128: パンくずのシンボルは構文の色で描く
+
+UI-124 でエディタ本文の見出しの色を直したあと、
+ツールバー帯（`identical 70.73%`、エディタ以外で最も低い）を調べて見つけた。
+
+### 実測（2026-08-10、テスト VM）
+
+パンくずは `DEVELOPMENT_GUIDELINES.md › # Nimculus 開発ガイドライン`。
+
+| 部分 | Zed | Nimculus |
+| --- | --- | --- |
+| ファイル名 | `#58585a` | `#58585a` **一致** |
+| **シンボル** | **`#d3604f`**（`syntax.title`）| `#58585a` + **太字** |
+
+**ファイル名は合っていて、シンボルだけ違う。**
+
+差はツールバー帯の rows 164-188 に集中し、`>32` が 20-31%。
+
+### Zed の実装
+
+`crates/editor/src/editor.rs:10893` `breadcrumbs_inner`:
+
+```rust
+// ファイル名はハイライト無し
+vec![HighlightedText { text: text.into(), highlights: vec![] }]
+...
+// シンボルは自分のハイライトを持ってくる
+breadcrumbs.extend(symbols.iter().map(|symbol| HighlightedText {
+    text: symbol.text.clone(),
+    highlights: symbol.highlight_ranges.clone(),
+}));
+```
+
+**ファイル名は `highlights: vec![]`（色なし）、シンボルは
+`symbol.highlight_ranges` をそのまま持ってくる。**
+
+シンボルのハイライトはアウトラインの項目が持つもので、
+**エディタ本文と同じ構文の色**。だから Markdown の見出しなら
+`syntax.title` の赤になる。
+
+`items.rs:1078` の `breadcrumbs` が
+`Option<(Vec<HighlightedText>, Option<Font>)>` を返し、
+`HighlightedText` が**テキストと範囲つきのハイライト**を運ぶ。
+
+### Nimculus の現状
+
+シンボルを `textMuted`（`#58585a`）の太字で描いている。
+**構文の色を持ってきていない。**
+
+UI-124 と同じ根（構文の色がテーマから離れている）だが、
+UI-124 で直したのは**エディタ本文の描画**で、
+パンくずは別経路なので残った。
+
+### やること
+
+1. パンくずのシンボルに、そのシンボルの構文の色を適用する
+2. 太字をやめる（Zed は通常ウェイト。`syntax.title` の `font_weight` は 400）
+3. ファイル名は現状のまま（`#58585a` で一致している）
+
+### 却下案
+
+**(a) シンボルを `syntax.title` 固定にする。** 見出しなら合うが、
+関数やクラスのシンボルは別の色になる。Zed は
+**シンボルごとのハイライト範囲**を持ってくる。却下。
+
+**(b) 太字を残す。** Zed の `syntax.title` は `font_weight: 400`。
+太字は Nimculus の独自装飾。却下。
+
+### テスト観点
+
+- Markdown の見出しのシンボルが `syntax.title` の色になる
+- ファイル名の色が変わらない
+- シンボルが太字でない
+- **契約テスト**（AppKit のビュー階層。UI-115 / UI-116 と同じ形）
+- キャプチャ: ツールバー帯の `identical` が上がること（現状 70.73%）
+
 ## UI-127: アクティビティインジケータの表示（UI-126 の 6）
 
 UI-126 の 1〜5 で LSP の `$/progress` を受信して保持できるようになった。
