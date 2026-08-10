@@ -20,6 +20,50 @@ macOS 実機受け入れは `docs/MACOS_MANUAL_ACCEPTANCE.md`。
 **完了はコードの存在ではなく、再現可能なテスト・ベンチマーク・実機確認で判定する。**
 既知のデータ破損・入力不能・UI フリーズ・再現可能クラッシュ・配布不能を残して次へ進めない。
 
+## 0. 検証の関門（最優先。これを間違えると他が全部無意味になる）
+
+**`nimble` の終了コードを検証に使わないこと。** この環境の nimble 0.22.2 は
+子プロセスの失敗を潰す。実測（2026-08-10）:
+
+```
+nimble nonexistenttask   → rc=0     ← 存在しない task でも 0
+nimble test（1 件失敗）  → rc=0
+```
+
+`nimble test` / `build` / `lint` の rc は**すべて意味を持たない**。
+
+正しい関門はランナーを直接走らせること:
+
+```bash
+nim c --mm:arc --nimcache:.nimcache/test_runner -r --path:src tests/test_runner.nim
+```
+
+これは全ファイルを走らせ、最後に要約を出し、**失敗すれば rc=1 を返す**。
+
+```
+実行: 27 / 成功: 26 / 失敗: 1
+失敗したファイル:
+  tests/test_platform_contract.nim
+```
+
+### なぜこれが要るか
+
+2026-08-10 まで `task test` は `exec` を並べる形で、**最初の失敗で中断**していた。
+`test_platform_contract` が落ちた結果 **27 本中 6 本しか走らず**、
+それでも `nimble test` は 0 を返していた。
+`test_lsp` / `test_settings` / `test_ui_text` / `test_editor` などは
+**一度も走らないまま「テストが通った」と報告されていた。**
+
+ランナーは `tests/test_*.nim` を**走査**する。一覧をハードコードしない。
+登録を忘れて黙って走らない、という同じ失敗を繰り返さないため。
+除外は `excludedTestFiles` に理由付きで書く（Windows 専用の 3 件は
+`task testWindows` の担当）。
+
+### 「走らなかった」と「成功した」を区別する
+
+出力の `実行: N` を見る。件数が減っていたら、通ったのではなく走っていない。
+
+
 ## 1. 必須テスト種別
 
 新しい UI/機能には、該当する種別を必ず追加する。

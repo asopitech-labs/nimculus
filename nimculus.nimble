@@ -4,6 +4,7 @@ description   = "A macOS-first GPU-native code editor"
 license       = "MIT"
 srcDir        = "src"
 bin           = @ ["nimculus/main"]
+testEntryPoint = "tests/test_runner.nim"
 
 requires "nim >= 2.0.0"
 requires "graphemes >= 0.12.0"
@@ -25,35 +26,6 @@ task format, "Format Nim sources with nimpretty":
 
 task lint, "Run Nim's static checks":
   exec "nim check --mm:arc --nimcache:.nimcache/lint --path:src src/nimculus/main.nim"
-
-task test, "Run unit and integration tests":
-  exec "nim c --mm:arc --threads:on --nimcache:.nimcache/test_executor -r --path:src tests/test_executor.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_platform_headless -r --path:src tests/test_platform_headless.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_macos_file_panels -r --path:src tests/test_macos_file_panels.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_macos_modal_sheets -r --path:src tests/test_macos_modal_sheets.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_macos_application_alert_sheet -r --path:src tests/test_macos_application_alert_sheet.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_platform_contract -r --path:src tests/test_platform_contract.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_accessibility -r --path:src tests/test_accessibility.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_ui_text -r --path:src tests/test_ui_text.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_workspace_ui -r --path:src tests/test_workspace_ui.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_editor -r --path:src tests/test_editor.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_editor_fuzz -r --path:src tests/test_editor_fuzz.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_workspace -r --path:src tests/test_workspace.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_tree_sitter -r --path:src tests/test_tree_sitter.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_syntax -r --path:src tests/test_syntax.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_editor_syntax -r --path:src tests/test_editor_syntax.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_lsp -r --path:src tests/test_lsp.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_lsp_editor_bridge -r --path:src tests/test_lsp_editor_bridge.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_git_service -r --path:src tests/test_git_service.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_git_gutter -r --path:src tests/test_git_gutter.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_terminal -r --path:src tests/test_terminal.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_task_service -r --path:src tests/test_task_service.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_settings -r --path:src tests/test_settings.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_update_service -r --path:src tests/test_update_service.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_workspace_watcher -r --path:src tests/test_workspace_watcher.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_dap -r --path:src tests/test_dap.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_agent_service -r --path:src tests/test_agent_service.nim"
-  exec "nim c --mm:arc --nimcache:.nimcache/test_extension_service -r --path:src tests/test_extension_service.nim"
 
 task testWindows, "Run Windows-only tests on a Windows runner":
   exec "nim c --mm:arc --nimcache:.nimcache/test_windows_terminal -r --path:src tests/test_windows_terminal.nim"

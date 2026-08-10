@@ -237,7 +237,9 @@ tools/ui_test.sh parity
 
 統合前（ワークトリーごと）:
 
-- [ ] `nimble format / lint / test / build` が通る
+- [ ] `nimble format` / `lint` を実行した
+- [ ] **ランナーで検証した**（`nim c --mm:arc -r --path:src tests/test_runner.nim` の rc=0）。
+      `nimble test` の rc は当てにならない — nimble はこの環境で常に 0 を返す
 - [ ] `NIMCULUS_ALLOW_ADHOC=1 nimble packageMacos` が通る
 - [ ] 計測が要る項目は**計測待ちの列に入れた**（ここでは計測しない）
 
