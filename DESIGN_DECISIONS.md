@@ -1,5 +1,107 @@
 # Design Decisions
 
+## UI-126: LSP の `$/progress`（アクティビティインジケータの前提）
+
+アクティビティインジケータ（UI-114 の 5）は入力源を 6 つ持ち、
+Nimculus はそのどれも持っていない。**そのうち最も自己完結している
+`$/progress` から設計する。**
+
+### Zed の実装
+
+**受け口**: `crates/project/src/lsp_store.rs:10625` `on_lsp_progress`。
+`ProgressParamsValue` を `WorkDone` と `WorkspaceDiagnostic` に分ける。
+
+**WorkDone の扱い**（`:10669` `handle_work_done_progress`）:
+
+```rust
+if !language_server_status.progress_tokens.contains(&token) { return; }
+```
+
+**サーバが `window/workDoneProgress/create` で作ったトークンだけを受ける。**
+勝手に来た `$/progress` は無視する。
+
+3 状態に分かれる（`:10698-10736`）:
+
+| | 動作 |
+| --- | --- |
+| `Begin` | `pending_work` にトークンを登録。`title` / `message` / `percentage` / `cancellable` / `last_update_at` を持つ |
+| `Report` | 同じトークンの内容を更新（`title` は `None`）|
+| `End` | `progress_tokens` からトークンを削除し、`pending_work` からも消す |
+
+**ディスク由来の診断だけ特別扱い**（`:10683`）:
+`disk_based_diagnostics_progress_token` で始まるトークンは
+`disk_based_diagnostics_started` / `_finished` を呼ぶ。
+これは言語アダプタごとの設定値。
+
+**表示側**（`activity_indicator.rs:352-383`）:
+
+```rust
+let mut message = progress.title.clone().unwrap_or(progress_token.to_string());
+if let Some(percentage) = progress.percentage { write!(message, " ({}%)", percentage); }
+if let Some(progress_message) = progress.message.as_ref() {
+    message.push_str(": "); message.push_str(progress_message);
+}
+let additional_work_count = pending_work.count();
+if additional_work_count > 0 { write!(message, " + {} more", additional_work_count); }
+```
+
+**最初の 1 件だけを出し、残りは「+ N more」**。
+
+### Nimculus の現状
+
+`src/nimculus/lsp.nim:811` の `poll` が受信を分岐している。
+分岐しているのは **`textDocument/publishDiagnostics` の 1 つだけ**（`:820`）。
+`$/progress` は `result` に積まれて呼び出し側へ渡るが、**誰も見ていない**。
+
+**`window/workDoneProgress` の capability を宣言していない**（`:250` 付近の
+`initialize` に `window` セクションが無い）。宣言しない限り、
+サーバは `window/workDoneProgress/create` を送ってこない。
+つまり **Zed の「登録されたトークンだけ受ける」判定に相当する入口が無い。**
+
+### 移植の順序
+
+1. **`initialize` に `window.workDoneProgress: true` を宣言する。**
+   これが無いとサーバが進捗を送ってこない
+2. **`window/workDoneProgress/create` を受けてトークンを登録する。**
+   これはサーバ→クライアントの**リクエスト**なので、応答を返す必要がある
+   （Nimculus の LSP 層がサーバ発リクエストに応答できるか要確認）
+3. `$/progress` を `poll` で分岐し、`Begin` / `Report` / `End` を
+   トークンごとの状態に反映する
+4. 登録されていないトークンは無視する（Zed の `:10685`）
+5. 表示は UI-114 の 5（アクティビティインジケータ）で扱う
+
+### 2 が要注意
+
+**サーバからのリクエストに応答する経路があるか**を先に確認すること。
+`poll` は `id` を持つメッセージを「自分が出した要求への応答」として扱っている
+（`:823-831`）。サーバ発のリクエストも `id` を持つので、
+**現状はそれを応答と誤認する可能性がある。**
+
+`window/workDoneProgress/create` はサーバ発リクエストの代表例なので、
+ここを直さないと 2 は成立しない。**この確認を最初にやること。**
+
+### 却下案
+
+**(a) capability を宣言せずに `$/progress` だけ処理する。**
+宣言しないサーバもトークン無しで送ってくることはあるが、
+Zed は登録されたトークンしか受けない。動作が変わる。却下。
+
+**(b) トークンの登録判定を省く。** 同上。
+Zed の `if !progress_tokens.contains(&token) { return; }` が無いと、
+サーバが投げるすべての進捗を表示することになる。却下。
+
+**(c) 表示まで一度に作る。** 受信と表示は別の層。
+受信が動いていることを先に確認できないと、
+表示が出ないときに原因を切り分けられない。却下。
+
+### テスト観点
+
+- `initialize` に `window.workDoneProgress` が含まれる
+- サーバ発リクエストに応答できる（`window/workDoneProgress/create` を含む）
+- 登録されていないトークンの `$/progress` を無視する
+- `Begin` → `Report` → `End` でトークンの状態が正しく遷移する
+- `End` のあとトークンが残らない
+
 ## UI-124: Markdown 見出しの色が観測値のせいでテーマから離れている
 
 UI-112 / UI-123 でテーマ表の観測値を排除したあと、
