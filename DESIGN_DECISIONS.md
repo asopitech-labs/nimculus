@@ -1,5 +1,86 @@
 # Design Decisions
 
+## UI-129: 長時間の git ジョブ（アクティビティインジケータの源 4）
+
+UI-127 で表示の連鎖を作った。**次の源を足せるか調べた。**
+
+### Zed の実装
+
+**表示するのは「メッセージを持つジョブ」だけ**（`git_store.rs:5836-5846`）:
+
+```rust
+if let Some(s) = status {
+    this.active_jobs.insert(job_id, JobInfo { start: Instant::now(), message: s });
+}
+```
+
+`send_job(key, status, job)` の `status` が `None` のジョブは
+`active_jobs` に入らない。**大半は `None`**:
+`get_permalink_to_line` / `reset` / `show` / `load_commit_diff` /
+`stash_entries` / `stash_pop` / `add_path_to_gitignore` など。
+
+`Some` を渡すのは:
+
+| ジョブ | メッセージ |
+| --- | --- |
+| `run_hook` | `git hook <name>` |
+| `fetch` | `git fetch` |
+| `pull` | 状況に応じた文字列 |
+
+**ユーザが待つ操作だけが名乗る。** 内部のデータ取得は名乗らない。
+
+**遅延は 0**（`activity_indicator.rs:29` の
+`GIT_OPERATION_DELAY = Duration::from_millis(0)`）。
+名前に反して待たない。`current_job` があれば即座に出す。
+
+`current_job`（`git_store.rs:9226`）は `active_jobs.values().next()` で、
+**`HashMap` の走査順の最初の 1 件**。順序は不定。
+
+### Nimculus の現状
+
+`git_service.nim:252` に `startGitJob` があり、非同期の git 実行はできる。
+**しかし:**
+
+- ジョブに**メッセージが無い**（`args` だけ）
+- **開始時刻を持たない**
+- **走っているジョブの一覧が無い**（呼び出し側が個別に `GitJob` を持つ）
+- `fetch` / `pull` / `push` を**実装していない**（grep で 0 件）
+
+`startGitJob` の呼び出しは blame、status、hunks など**内部のデータ取得**で、
+Zed ではどれも `None` を渡す種類のもの。
+
+**つまり「表示すべきジョブ」が 1 つも無い。**
+
+### 判断
+
+**着手しない。** 理由:
+
+Zed が表示するのは `fetch` / `pull` / `run_hook` の 3 つで、
+**Nimculus はどれも実装していない**。ジョブ追跡の仕組みだけ作っても、
+**表示されるものが存在しない。**
+
+UI-127（LSP 進捗の表示）は源が 1 つでも作る判断をしたが、
+あれは**受信した進捗が実在した**からで、
+本項は**追跡する対象が無い**という違いがある。
+
+### 着手できる順序
+
+1. `fetch` / `pull` / `push` を実装する（**これが本体**）
+2. ジョブにメッセージと開始時刻を持たせる
+3. 走っているジョブの一覧を持つ
+4. アクティビティインジケータの連鎖に分岐を足す
+
+**1 が本項の 10 倍以上の作業量**であり、UI パリティではなく機能の移植。
+
+### 却下案
+
+**(a) 内部のデータ取得（blame / status / hunks）を表示する。**
+Zed はそれらに `None` を渡す。表示すると Zed に無いものが出る。却下。
+
+**(b) ジョブ追跡だけ先に作る。** 表示されるものが無いので、
+動いているか確認できない。UI-126 の 5 と 6 を分けたときと違い、
+**確認の手段が無い**。却下。
+
 ## UI-128: パンくずのシンボルは構文の色で描く
 
 UI-124 でエディタ本文の見出しの色を直したあと、
