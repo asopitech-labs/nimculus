@@ -403,6 +403,7 @@ static NSArray<NSString *> *g_editor_tab_titles = nil;
 static NSUInteger g_editor_active_tab = 0;
 static NSArray<NSString *> *g_secondary_editor_tab_titles = nil;
 static NSUInteger g_secondary_editor_active_tab = 0;
+static NSString *truncateAndTrailoff(NSString *text, NSUInteger maxCharacters);
 static BOOL g_editor_indent_guides = YES;
 static NSUInteger g_editor_indent_width = 2;
 static BOOL g_editor_line_numbers = YES;
@@ -4138,6 +4139,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 // stealing or overlapping editor coordinates.
 @interface NimculusTitlebarView : NSView
 @property(nonatomic, retain) NSButton *branchButton;
+- (NSString *)projectNameForDisplay;
 - (void)updateBranchButton;
 @end
 
@@ -4151,14 +4153,13 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 - (instancetype)initWithFrame:(NSRect)frame {
   self = [super initWithFrame:frame];
   if (!self) return nil;
-  self.branchButton = [NimculusChromeButton buttonWithTitle:@"No Git branch" target:self
+  self.branchButton = [NimculusChromeButton buttonWithTitle:@"" target:self
     action:@selector(openBranches:)];
   styleWorkspaceNavigationButton(self.branchButton, NO, NO);
   self.branchButton.alignment = NSTextAlignmentLeft;
   self.branchButton.imageHugsTitle = YES;
   self.branchButton.toolTip = @"Git branch — click to open Branches";
   self.branchButton.accessibilityLabel = @"Git branch, open branch picker";
-  [self addSubview:self.branchButton];
   [self updateBranchButton];
   return self;
 }
@@ -4187,25 +4188,40 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.92],
     NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightRegular]
   };
-  // The document breadcrumb is intentionally independent from the workspace
-  // title. Its first component is the filename, while this title remains the
-  // application/workspace label.
-  NSString *workspaceName = @"Nimculus";
-  [workspaceName drawAtPoint:NSMakePoint(76.0, 7.0) withAttributes:titleAttributes];
+  [[self projectNameForDisplay] drawAtPoint:NSMakePoint(76.0, 7.0)
+    withAttributes:titleAttributes];
 }
 - (void)layout {
   [super layout];
+  if (self.branchButton.superview != self) return;
   NSDictionary *titleAttributes = @{
     NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightRegular]
   };
-  CGFloat titleWidth = ceil([@"Nimculus" sizeWithAttributes:titleAttributes].width);
+  CGFloat titleWidth = ceil([[self projectNameForDisplay] sizeWithAttributes:titleAttributes].width);
   CGFloat branchX = 76.0 + titleWidth + NimculusSpace2;
   CGFloat availableWidth = MAX(1.0, self.bounds.size.width - branchX - NimculusSpace2);
   self.branchButton.frame = NSMakeRect(branchX, 2.0, MIN(260.0, availableWidth),
     NimculusControlHit);
 }
+- (NSString *)projectNameForDisplay {
+  NSString *name = g_editor_tab_titles.count > 0 &&
+    g_editor_active_tab < g_editor_tab_titles.count
+    ? g_editor_tab_titles[g_editor_active_tab] : @"";
+  if ([name hasSuffix:@" •"]) name = [name substringToIndex:name.length - 2];
+  if ([name hasPrefix:@"📌 "]) name = [name substringFromIndex:3];
+  if (name.length == 0) return @"Open Recent Project";
+  return truncateAndTrailoff(name, 40);
+}
 - (void)updateBranchButton {
-  NSString *branch = g_editor_git_branch.length > 0 ? g_editor_git_branch : @"No Git branch";
+  if (g_editor_git_branch.length == 0) {
+    [self.branchButton removeFromSuperview];
+    self.branchButton.hidden = YES;
+    [self setNeedsLayout:YES];
+    return;
+  }
+  if (self.branchButton.superview != self) [self addSubview:self.branchButton];
+  self.branchButton.hidden = NO;
+  NSString *branch = g_editor_git_branch;
   NSColor *foreground = themeRoleColor(@"fgMuted", themeHexColor(g_theme_foreground,
     [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]));
   self.branchButton.image = nil;
@@ -4226,6 +4242,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
     @"Git branch: %@ — click to open Branches", branch];
   self.branchButton.accessibilityLabel = [NSString stringWithFormat:
     @"Git branch %@, open branch picker", branch];
+  [self setNeedsLayout:YES];
 }
 - (void)openBranches:(id)sender {
   (void)sender;
@@ -7654,8 +7671,7 @@ static NimculusFooterStatusButton *newFooterButton(NimculusFooterOverlay *owner,
   return button;
 }
 
-static NSString *footerTruncateAndTrailoff(NSString *text) {
-  const NSUInteger maxCharacters = 50;
+static NSString *truncateAndTrailoff(NSString *text, NSUInteger maxCharacters) {
   NSUInteger index = 0;
   NSUInteger characterCount = 0;
   while (index < text.length && characterCount < maxCharacters) {
@@ -7668,6 +7684,10 @@ static NSString *footerTruncateAndTrailoff(NSString *text) {
   }
   if (index >= text.length) return text;
   return [[text substringToIndex:index] stringByAppendingString:@"…"];
+}
+
+static NSString *footerTruncateAndTrailoff(NSString *text) {
+  return truncateAndTrailoff(text, 50);
 }
 
 static NimculusFooterStatusButton *newActivityButton(NimculusFooterOverlay *owner,
@@ -13552,6 +13572,49 @@ bool nimculus_platform_validate_editor_tab_context(void) {
   }
 }
 
+bool nimculus_platform_validate_titlebar_content(void) {
+  @autoreleasepool {
+    NSArray<NSString *> *previousTitles = [g_editor_tab_titles retain];
+    NSUInteger previousActive = g_editor_active_tab;
+    NSString *previousBranch = [g_editor_git_branch retain];
+    replaceOwnedArray((NSArray **)&g_editor_tab_titles, @[]);
+    g_editor_active_tab = 0;
+    replaceOwnedString(&g_editor_git_branch, @"");
+    NimculusTitlebarView *titlebar = [[NimculusTitlebarView alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 960.0, nimculusTitlebarHeight())];
+    BOOL recentProject = [[titlebar projectNameForDisplay]
+      isEqualToString:@"Open Recent Project"];
+
+    replaceOwnedArray((NSArray **)&g_editor_tab_titles, @[@"DEVELOPMENT_GUIDELINES.md"]);
+    g_editor_active_tab = 0;
+    BOOL activeFile = [[titlebar projectNameForDisplay]
+      isEqualToString:@"DEVELOPMENT_GUIDELINES.md"];
+
+    replaceOwnedArray((NSArray **)&g_editor_tab_titles,
+      @[@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNO"]);
+    NSString *expectedLongName = @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN…";
+    BOOL truncated = [[titlebar projectNameForDisplay] isEqualToString:expectedLongName];
+
+    [titlebar updateBranchButton];
+    BOOL noRepository = titlebar.branchButton.superview == nil && titlebar.branchButton.hidden;
+    replaceOwnedString(&g_editor_git_branch, @"main");
+    [titlebar updateBranchButton];
+    [titlebar layout];
+    BOOL branchPreserved = titlebar.branchButton.superview == titlebar &&
+      !titlebar.branchButton.hidden &&
+      [titlebar.branchButton.attributedTitle.string isEqualToString:@"main"] &&
+      !NSIsEmptyRect(titlebar.branchButton.frame);
+
+    [titlebar release];
+    replaceOwnedArray((NSArray **)&g_editor_tab_titles, previousTitles ?: @[]);
+    g_editor_active_tab = previousActive;
+    replaceOwnedString(&g_editor_git_branch, previousBranch ?: @"");
+    [previousTitles release];
+    [previousBranch release];
+    return recentProject && activeFile && truncated && noRepository && branchPreserved;
+  }
+}
+
 bool nimculus_platform_validate_git_branch_context(void) {
   @autoreleasepool {
     NimculusCommandCallback previousCallback = g_command_callback;
@@ -16277,6 +16340,12 @@ void nimculus_platform_set_editor_tabs(const char *utf8, uint32_t length, uint32
     : MIN((NSUInteger)active_index, g_editor_tab_titles.count - 1);
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
+  NSView *root = view.superview;
+  if ([root isKindOfClass:[NimculusWindowContentView class]]) {
+    NimculusTitlebarView *titlebar = ((NimculusWindowContentView *)root).titlebarView;
+    [titlebar setNeedsDisplay:YES];
+    [titlebar setNeedsLayout:YES];
+  }
   [view updateTerminalFrame];
   for (NSView *subview in view.subviews) {
     if ([subview isKindOfClass:[NimculusTabBarOverlay class]] &&

@@ -340,6 +340,9 @@ suite "macOS platform contract":
   test "editor tab context actions retain their pane and tab target":
     check platformValidateEditorTabContext()
 
+  test "titlebar uses the active item, truncates it, and omits an absent repository":
+    check platformValidateTitlebarContent()
+
   test "Git branch context action retains its selected branch row":
     check platformValidateGitBranchContext()
 

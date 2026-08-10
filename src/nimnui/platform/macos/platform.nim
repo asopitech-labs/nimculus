@@ -78,6 +78,7 @@ proc platformValidateOutputPanelBar*(): bool {.importc: "nimculus_platform_valid
 proc platformValidateTabBarCloseTargets*(): bool {.importc: "nimculus_platform_validate_tab_bar_close_targets", cdecl.}
 proc platformValidateTabBarHitTestGeometry*(): bool {.importc: "nimculus_platform_validate_tab_bar_hit_test_geometry", cdecl.}
 proc platformValidateEditorTabContext*(): bool {.importc: "nimculus_platform_validate_editor_tab_context", cdecl.}
+proc platformValidateTitlebarContent*(): bool {.importc: "nimculus_platform_validate_titlebar_content", cdecl.}
 proc platformValidateGitBranchContext*(): bool {.importc: "nimculus_platform_validate_git_branch_context", cdecl.}
 proc platformValidateSidebarDispatch*(): bool {.importc: "nimculus_platform_validate_sidebar_dispatch", cdecl.}
 proc platformValidateSidebarContextDispatch*(): bool {.importc: "nimculus_platform_validate_sidebar_context_dispatch", cdecl.}
