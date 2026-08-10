@@ -50,6 +50,11 @@ description: >-
 # 作る（ブランチも同時に切る）
 git worktree add ../nimculus-wt-<課題> -b port/<課題>
 
+# 作った直後に必ずやる。これを飛ばすとビルドが通らない
+cd ../nimculus-wt-<課題>
+git submodule update --init --recursive
+ln -s /Users/yoshinori/work/nimculus/references/zed references/zed
+
 # 一覧
 git worktree list
 
@@ -62,6 +67,21 @@ git branch -d port/<課題>
 `tools/ui_test.sh` が VM へ配るソースに混入する。
 
 **`nimble clean` は並行時も禁止。** `build/` が消えるのは各ワークトリーで同じ。
+
+### `references/` は付いてこない（2026-08-10 に踏んだ）
+
+`git worktree add` が展開するのは**追跡ファイルだけ**。この 2 つは来ない。
+
+| | 状態 | 結果 |
+| --- | --- | --- |
+| `references/tree-sitter*` | **サブモジュール** | 空ディレクトリになる |
+| `references/zed` | **`.gitignore:27`** | 存在しない |
+
+3 本を同時に流して**3 本ともビルドが落ちた**。`nimble build` は tree-sitter の
+ソースを要求し、指示書は `references/zed` の行番号を参照する。
+どちらも無いので、codex は「参照先が無い」と報告して止まる。
+
+`zed` は 148 万行あるのでコピーしない。**読むだけなのでシンボリックリンクで共有する。**
 
 ### 隔離が効いていることの実測（2026-08-10）
 
@@ -118,6 +138,22 @@ Nimculus は Zed のような層分割が済んでおらず、実装が 2 ファ
 | A | `src/nimculus/lsp.nim`, `lsp_editor_bridge.nim`, `tests/test_lsp.nim` |
 | B | `src/nimculus/settings.nim`, `syntax.nim`, `tests/test_settings.nim` |
 | C | `src/nimnui/text.nim`, `tests/test_ui_text.nim` |
+
+### 受け入れ条件が所有外を要求していないか確かめる
+
+**指示書の受け入れ条件が、所有していないファイルの変更を要求していたら、
+そのタスクは並列に流せない。**
+
+2026-08-10 の実例: `Hsla とアルファの導出` を
+`geometry.nim` / `render.nim` / `text.nim` の所有で流したが、
+受け入れ条件に「`macos_platform.m` の色梯子を置き換えてキャプチャで確認」が
+入っていた。codex は**所有外に手を出さず、止めて報告した**。指示どおりの正しい振る舞いで、
+誤っていたのは束ね方。
+
+束ねる前に、`files_to_touch` だけでなく **`acceptance` が要求するファイルも**見る。
+画素で判定する項目（`verifiable_by: capture-pixels`）はほぼ必ず
+`macos_platform.m` を要求するので、**画素判定のものは並列に回さない**。
+unit test で判定できるものが並列向き。
 
 `macos_platform.m` を触るタスクは**常に 1 本だけ**。これが並列度の上限を決める。
 UI パリティの作業はほぼ全部この 1 ファイルに落ちるので、**そこが本当のボトルネック**。
