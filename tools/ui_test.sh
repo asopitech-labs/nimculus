@@ -130,6 +130,17 @@ tart exec -i "$RUN" bash -lc 'cat > /tmp/source.tgz' < "$OUT/source.tgz" || exit
 tart exec "$RUN" bash -lc 'tar -xzf /tmp/source.tgz -C /Users/admin/nimculus' || exit 1
 tart exec "$RUN" bash -lc 'test -f /Users/admin/nimculus/nimculus.nimble' || {
   echo "source did not arrive in the guest" >&2; exit 1; }
+# The golden image can contain a Zed editor buffer for this path.  Zed restores
+# that buffer from its editor database before opening the path, so remove only
+# the stale row before the parity test asks Zed to open the guest copy.
+tart exec "$RUN" bash -lc '
+  pkill -x Zed 2>/dev/null || true
+  pkill -x zed 2>/dev/null || true
+  db="/Users/admin/Library/Application Support/Zed/db/0-stable/db.sqlite"
+  if [ -f "$db" ]; then
+    sqlite3 "$db" "DELETE FROM editors WHERE path LIKE \"%/Users/admin/nimculus/DEVELOPMENT_GUIDELINES.md\";"
+  fi
+' || exit 1
 
 echo "== run: $MODE"
 case "$MODE" in

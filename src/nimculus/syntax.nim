@@ -38,7 +38,14 @@ proc classify(kind: string): HighlightKind =
 proc highlight*(tree: SyntaxTree): seq[HighlightSpan] =
   for node in tree.nodes:
     if node.endByte > node.startByte:
-      result.add(HighlightSpan(startByte: node.startByte, endByte: node.endByte, kind: classify(node.kind)))
+      let highlightKind = classify(node.kind)
+      # Container nodes such as `document`, `section`, and `inline` classify as
+      # primary text. Emitting them makes the first full-document span consume
+      # every later syntax span in the native line-layout path. Primary text is
+      # already the renderer's default, so only publish semantic spans here.
+      if highlightKind != identifier:
+        result.add(HighlightSpan(startByte: node.startByte, endByte: node.endByte,
+          kind: highlightKind))
 
 proc highlightVisible*(tree: SyntaxTree, firstByte, lastByte: uint32): seq[HighlightSpan] =
   for span in tree.highlight():

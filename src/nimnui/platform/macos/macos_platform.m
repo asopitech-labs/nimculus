@@ -2616,26 +2616,8 @@ static BOOL sceneNeedsFullRebuild(BOOL initialized, uint32_t dirtyCount) {
 }
 
 static void highlightColor(uint32_t kind, CGFloat *r, CGFloat *g, CGFloat *b) {
-  // Syntax colors must track the resolved theme background. A dark-only palette
-  // washes out on a light background (pale token text on near-white), so keep a
-  // parallel light palette with the same hue identity but darker, readable
-  // luminance. Both branches share the same `kind` mapping.
-  // Markdown headings use Zed's muted editor foreground rather than the
-  // theme's warm `syntax.title` token. Keep this in the existing syntax-color
-  // pass: adding a second foreground/font attribute pass to a wrapped Core
-  // Text string can make CTFramesetter stall on mixed paragraph attributes.
-  if (kind == 8) {
-    NSColor *headingBase = themeRoleColor(@"editorForeground", [NSColor textColor]);
-    NSColor *headingRGB = [headingBase colorUsingColorSpace:[NSColorSpace genericRGBColorSpace]];
-    CGFloat alpha = 1.0;
-    [headingRGB getRed:r green:g blue:b alpha:&alpha];
-    if (*r + *g + *b < 1.5) {
-      *r = MIN(1.0, *r + 0.025);
-      *g = MIN(1.0, *g + 0.030);
-      *b = MIN(1.0, *b + 0.035);
-    }
-    return;
-  }
+  // Syntax colors come from the resolved theme, including Markdown headings.
+  // Keep the fallback palette below for themes that do not publish a token.
   NSString *syntaxKey = kind == 0 ? @"keyword" : kind == 1 ? @"string" :
     kind == 2 ? @"number" : kind == 3 ? @"comment" : kind == 6 ? @"function" :
     kind == 7 ? @"type" : kind == 8 ? @"title" : kind == 9 ? @"emphasis.strong" :
@@ -2716,12 +2698,6 @@ static NSString *syntaxKeyForKind(uint32_t kind) {
 
 static CTFontRef syntaxFontForKind(uint32_t kind, CTFontRef baseFont) {
   if (!baseFont) return NULL;
-  if (kind == 8) {
-    // Apply heading weight through the existing syntax pass. A later, separate
-    // heading-font mutation is unsafe for wrapped Core Text paragraphs.
-    return CTFontCreateCopyWithSymbolicTraits(baseFont, 0.0, NULL,
-      kCTFontTraitBold, kCTFontTraitBold);
-  }
   NSString *key = syntaxKeyForKind(kind);
   if (!key) return NULL;
   NSDictionary *syntax = [g_theme_palette[@"syntax"] isKindOfClass:[NSDictionary class]] ?
