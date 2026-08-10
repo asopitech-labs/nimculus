@@ -94,6 +94,40 @@ Nimculus は `workspace.configuration` も `window` も宣言していないの�
 サーバが `window/workDoneProgress/create` を送り始め、
 応答が返らないまま滞留する。**capability の宣言が引き金になる。**
 
+### Zed の受信構造（`crates/lsp/src/lsp.rs`）
+
+**通知とリクエストを別のハンドラ表で持つ**:
+
+- `on_notification`（`:1146`）— 通知用
+- `on_request`（`:1158`）— **サーバ発リクエスト用**。ハンドラは
+  `Future<Output = Result<T::Result>>` を返す。つまり**応答を返す前提**
+
+**知らないメソッドにもエラー応答を返す**（`:496-510`）:
+
+```rust
+if !did_handle && let Some(message_id) = msg.id {
+    let response = AnyResponse {
+        id: message_id,
+        error: Some(Error {
+            code: -32601,
+            message: format!("Unrecognized method `{}`", msg.method),
+            data: None,
+        }),
+        result: None,
+    };
+    response_channel.send(response).await.ok();
+}
+```
+
+**`id` があるのに処理できなければ `-32601 Method not found` を返す。**
+JSON-RPC の規約どおりで、**サーバを待たせない**。
+
+Nimculus は無視する。これが「応答待ちが滞留する」構造の正体。
+
+**この 1 点が、`$/progress` より先に移植すべきもの。**
+知らないリクエストにエラーを返すだけで、
+未実装のサーバ発リクエストすべてが「無視」から「明示的な拒否」に変わる。
+
 ### 2 が要注意
 
 **サーバからのリクエストに応答する経路があるか**を先に確認すること。
