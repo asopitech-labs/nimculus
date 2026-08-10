@@ -1,7 +1,9 @@
 import std/json
 import std/os
+import std/options
 import std/sets
 import std/strutils
+import std/tables
 import std/times
 import std/unittest
 import nimculus/lsp
@@ -171,6 +173,92 @@ suite "M8 LSP protocol foundation":
     check tokens.registerProgressToken(%*{"token": "build"})
     check tokens.hasProgressToken(%*42)
     check tokens.hasProgressToken(%*"build")
+
+  test "tracks registered work-done progress through begin report and end":
+    var session: LspSession
+    new(session)
+    session.progressTokens = initHashSet[LspProgressToken]()
+    session.progresses = initTable[LspProgressToken, LspProgress]()
+    check session.registerProgressToken(%*{"token": "build"})
+    let token = LspProgressToken(kind: lspProgressTokenString, text: "build")
+    check not session.handleWorkDoneProgress(%*{
+      "jsonrpc": "2.0", "method": "$/progress",
+      "params": {"token": "unregistered", "value": {"kind": "begin"}}})
+    check token notin session.progresses
+
+    check session.handleWorkDoneProgress(%*{
+      "jsonrpc": "2.0", "method": "$/progress",
+      "params": {"token": "build", "value": {"kind": "begin",
+        "title": "Build", "message": "starting", "percentage": 10,
+        "cancellable": true}}})
+    check token in session.progressTokens
+    check token in session.progresses
+    check session.progresses[token].title.get == "Build"
+    check session.progresses[token].message.get == "starting"
+    check session.progresses[token].percentage.get == 10
+    check session.progresses[token].isCancellable
+    let beginUpdate = session.progresses[token].lastUpdateAtMs
+
+    check session.handleWorkDoneProgress(%*{
+      "jsonrpc": "2.0", "method": "$/progress",
+      "params": {"token": "build", "value": {"kind": "report",
+        "message": "halfway", "percentage": 50}}})
+    check session.progresses[token].title.get == "Build"
+    check session.progresses[token].message.get == "halfway"
+    check session.progresses[token].percentage.get == 50
+    check not session.progresses[token].isCancellable
+    check session.progresses[token].lastUpdateAtMs >= beginUpdate
+
+    check session.handleWorkDoneProgress(%*{
+      "jsonrpc": "2.0", "method": "$/progress",
+      "params": {"token": "build", "value": {"kind": "report"}}})
+    check session.progresses[token].title.get == "Build"
+    check session.progresses[token].message.isNone
+    check session.progresses[token].percentage.isNone
+
+    check session.handleWorkDoneProgress(%*{
+      "jsonrpc": "2.0", "method": "$/progress",
+      "params": {"token": "build", "value": {"kind": "end"}}})
+    check token notin session.progressTokens
+    check token notin session.progresses
+
+  test "tracks work-done progress through a real language-server request":
+    let server = "import sys,json,time\n" &
+      "def frame(x):\n" &
+      "    b=json.dumps(x,separators=(',',':')).encode()\n" &
+      "    return ('Content-Length: '+str(len(b))+'\\r\\n\\r\\n').encode()+b\n" &
+      "def read_message():\n" &
+      "    h=b''\n" &
+      "    while b'\\r\\n\\r\\n' not in h: h += sys.stdin.buffer.read(1)\n" &
+      "    n=int(h.split(b':')[1].split()[0])\n" &
+      "    return json.loads(sys.stdin.buffer.read(n))\n" &
+      "initialize=read_message()\n" &
+      "response={'jsonrpc':'2.0','id':initialize['id'],'result':{'capabilities':{}}}\n" &
+      "create={'jsonrpc':'2.0','id':23,'method':'window/workDoneProgress/create','params':{'token':'server-work'}}\n" &
+      "sys.stdout.buffer.write(frame(response)+frame(create)); sys.stdout.buffer.flush()\n" &
+      "initialized=read_message(); create_response=read_message()\n" &
+      "progress=[]\n" &
+      "for kind,extra in [('begin',{'title':'Indexing','percentage':1}),('report',{'message':'working','percentage':50}),('end',{})]:\n" &
+      "    value={'kind':kind}; value.update(extra)\n" &
+      "    progress.append({'jsonrpc':'2.0','method':'$/progress','params':{'token':'server-work','value':value}})\n" &
+      "received={'jsonrpc':'2.0','method':'test/received','params':{'initialized':initialized,'create':create_response}}\n" &
+      "sys.stdout.buffer.write(b''.join(frame(x) for x in progress)+frame(received)); sys.stdout.buffer.flush(); time.sleep(2)\n"
+    let session = startLspSession("python3", ["-u", "-c", server], "", "Nimculus")
+    defer: session.stop()
+    var received: JsonNode
+    for _ in 0 ..< 100:
+      for message in session.poll():
+        if message.kind == JObject and message.hasKey("method") and
+            message["method"].getStr == "test/received":
+          received = message["params"]
+      if received != nil: break
+      sleep(10)
+    check received != nil
+    check received["create"]["result"].kind == JNull
+    check session.state == lspSessionReady
+    let token = LspProgressToken(kind: lspProgressTokenString, text: "server-work")
+    check token notin session.progressTokens
+    check token notin session.progresses
 
   test "parses diagnostics notification":
     let message = %*{"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",

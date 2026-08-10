@@ -2,6 +2,7 @@ import std/json
 import std/hashes
 import std/os
 import std/osproc
+import std/options
 import std/sets
 import std/streams
 import std/strutils
@@ -146,6 +147,17 @@ type
     of lspProgressTokenString:
       text*: string
 
+  LspProgress* = object
+    ## The state of one server-created work-done progress token.
+    title*: Option[string]
+    message*: Option[string]
+    percentage*: Option[int]
+    isCancellable*: bool
+    lastUpdateAtMs*: int64
+    ## Nimculus has no language-adapter setting equivalent to Zed's
+    ## disk_based_diagnostics_progress_token, so this special diagnostic
+    ## classification is intentionally not represented here.
+
   LspSession* = ref object
     process*: LspProcess
     tracker*: LspRequestTracker
@@ -159,6 +171,9 @@ type
     diagnostics: Table[string, seq[LspDiagnostic]]
     responses: Table[int, JsonNode]
     progressTokens*: HashSet[LspProgressToken]
+    ## Public so the activity-indicator layer can consume progress without
+    ## coupling itself to the LSP transport's polling implementation.
+    progresses*: Table[LspProgressToken, LspProgress]
 
 const
   MaxLspFrameBytes* = 16 * 1024 * 1024
@@ -465,11 +480,16 @@ proc workDoneProgressCreateResponse*(message: JsonNode): JsonNode =
   result["id"] = message["id"]
   result["result"] = newJNull()
 
+proc ensureProgressTable(session: LspSession) =
+  if session.progresses.len == 0:
+    session.progresses = initTable[LspProgressToken, LspProgress]()
+
 proc registerProgressToken*(session: LspSession, params: JsonNode): bool =
   if session == nil or params == nil or params.kind != JObject or
       not params.hasKey("token"): return false
   var token: LspProgressToken
   if not parseProgressToken(params["token"], token): return false
+  session.ensureProgressTable()
   session.progressTokens.incl(token)
   result = true
 
@@ -478,6 +498,78 @@ proc hasProgressToken*(session: LspSession, tokenNode: JsonNode): bool =
   var token: LspProgressToken
   if not parseProgressToken(tokenNode, token): return false
   token in session.progressTokens
+
+proc progressFor*(session: LspSession, tokenNode: JsonNode): Option[LspProgress] =
+  ## Read one retained progress state without exposing token parsing to callers.
+  if session == nil: return
+  session.ensureProgressTable()
+  var token: LspProgressToken
+  if not parseProgressToken(tokenNode, token) or token notin session.progresses:
+    return
+  some(session.progresses[token])
+
+proc optionalString(node: JsonNode, key: string): Option[string] =
+  if node != nil and node.kind == JObject and node.hasKey(key) and
+      node[key].kind == JString:
+    some(node[key].getStr)
+  else:
+    none(string)
+
+proc optionalPercentage(node: JsonNode): Option[int] =
+  if node != nil and node.kind == JObject and node.hasKey("percentage") and
+      node["percentage"].kind == JInt and node["percentage"].getInt >= 0:
+    some(node["percentage"].getInt)
+  else:
+    none(int)
+
+proc cancellableValue(node: JsonNode): bool =
+  node != nil and node.kind == JObject and node.hasKey("cancellable") and
+    node["cancellable"].kind == JBool and node["cancellable"].getBool
+
+proc handleWorkDoneProgress*(session: LspSession, message: JsonNode): bool =
+  ## Apply one $/progress notification. Only tokens acknowledged through
+  ## window/workDoneProgress/create are allowed to create or update state.
+  if session == nil or message == nil or message.kind != JObject or
+      not message.hasKey("params") or message["params"].kind != JObject:
+    return false
+  session.ensureProgressTable()
+  let params = message["params"]
+  if not params.hasKey("token") or not params.hasKey("value") or
+      params["value"].kind != JObject:
+    return false
+  var token: LspProgressToken
+  if not parseProgressToken(params["token"], token) or
+      token notin session.progressTokens:
+    return false
+  let value = params["value"]
+  if not value.hasKey("kind") or value["kind"].kind != JString:
+    return false
+  let kind = value["kind"].getStr.toLowerAscii
+  case kind
+  of "begin":
+    session.progresses[token] = LspProgress(
+      title: optionalString(value, "title"),
+      message: optionalString(value, "message"),
+      percentage: optionalPercentage(value),
+      isCancellable: cancellableValue(value),
+      lastUpdateAtMs: nowMs())
+    result = true
+  of "report":
+    # Reports do not carry a title. Preserve the Begin title while replacing
+    # the reportable fields with the current values (or their absent defaults).
+    var progress = session.progresses.getOrDefault(token)
+    progress.message = optionalString(value, "message")
+    progress.percentage = optionalPercentage(value)
+    progress.isCancellable = cancellableValue(value)
+    progress.lastUpdateAtMs = nowMs()
+    session.progresses[token] = progress
+    result = true
+  of "end":
+    session.progressTokens.excl(token)
+    session.progresses.del(token)
+    result = true
+  else:
+    discard
 
 proc acceptResponse*(tracker: var LspRequestTracker, message: JsonNode): bool =
   let id = responseId(message)
@@ -881,7 +973,8 @@ proc startLspSession*(command: string, args: openArray[string],
     rootUri: rootUri, clientName: clientName,
     diagnostics: initTable[string, seq[LspDiagnostic]](),
     responses: initTable[int, JsonNode](),
-    progressTokens: initHashSet[LspProgressToken]())
+    progressTokens: initHashSet[LspProgressToken](),
+    progresses: initTable[LspProgressToken, LspProgress]())
   let request = result.process.sendRequest(result.tracker, "initialize",
     initializeParams(rootUri, clientName))
   result.initializeId = request.id
@@ -914,10 +1007,15 @@ proc poll*(session: LspSession): seq[JsonNode] =
     result.add(message)
     case classifyLspMessage(message)
     of lspNotification:
-      if message["method"].kind == JString and
-          message["method"].getStr == "textDocument/publishDiagnostics":
-        let parsed = parseDiagnostics(message)
-        session.diagnostics[parsed.uri] = parsed.diagnostics
+      if message["method"].kind == JString:
+        case message["method"].getStr
+        of "textDocument/publishDiagnostics":
+          let parsed = parseDiagnostics(message)
+          session.diagnostics[parsed.uri] = parsed.diagnostics
+        of "$/progress":
+          discard session.handleWorkDoneProgress(message)
+        else:
+          discard
     of lspServerRequest:
       if message["method"].kind == JString and
           message["method"].getStr == "window/workDoneProgress/create":
@@ -982,6 +1080,7 @@ proc restart*(session: LspSession) =
   session.diagnostics.clear()
   session.responses.clear()
   session.progressTokens.clear()
+  session.progresses.clear()
   session.state = lspSessionInitializing
   let request = session.process.sendRequest(session.tracker, "initialize",
     initializeParams(session.rootUri, session.clientName))
