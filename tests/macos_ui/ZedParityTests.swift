@@ -19,11 +19,17 @@ final class ZedParityTests: XCTestCase {
     fileURLWithPath: "/Users/admin/nimculus/build/ui-test", isDirectory: true)
 
   private static let document = "/Users/admin/nimculus/DEVELOPMENT_GUIDELINES.md"
+  private static let documentFirstLine = "# Nimculus 開発ガイドライン"
 
   /// A file whose text mixes scripts, symbols and several kinds of emoji.
   /// DEVELOPMENT_GUIDELINES.md contains no emoji at all, so it cannot show
   /// whether the colour path draws them.
   private static let emojiDocument = "/Users/admin/nimculus/tests/macos_ui/emoji_sample.md"
+  private static let emojiContentMarkers = [
+    "# Mixed script sample",
+    "Emoji, plain:",
+    "Emoji, ZWJ sequence:"
+  ]
 
   /// Created inside the guest so both editors see the same repository and file.
   private static let inlineBlameRepository = "/Users/admin/inline-blame-repo"
@@ -280,6 +286,15 @@ final class ZedParityTests: XCTestCase {
       XCTAssertTrue(
         Self.showsDocument(window),
         "\(label) is not showing \(Self.document); the capture would not be a comparison")
+      if let text = Self.accessibleEditorText(window, containing: Self.documentFirstLine) {
+        let firstLine = text.components(separatedBy: .newlines).first ?? ""
+        XCTAssertEqual(firstLine, Self.documentFirstLine,
+                       "\(label) is showing the wrong first line")
+      } else {
+        XCTAssertTrue(
+          Self.showsEditorBody(window.screenshot().pngRepresentation),
+          "\(label) shows the document tab but no rendered editor body")
+      }
       moveCursorToDocumentStart(in: window)
       write(window.screenshot().pngRepresentation, "\(label)-window.png")
     }
@@ -448,6 +463,52 @@ final class ZedParityTests: XCTestCase {
       .waitForExistence(timeout: 10)
   }
 
+  /// Return text exposed by the editor's accessibility element. Nimculus uses
+  /// `editor.content`; Zed does not expose its editor surface in the
+  /// accessibility tree. Looking for a known document marker keeps this from
+  /// accepting a tab title or a stale window label as proof that the buffer is
+  /// correct.
+  private static func accessibleEditorText(
+    _ window: XCUIElement, containing marker: String
+  ) -> String? {
+    // Do not query `editor.content` directly: that identifier is Nimculus'
+    // contract and is absent from Zed, where a missing match is itself
+    // reported as an XCUITest failure. Scan the one accessibility snapshot
+    // instead and select the longest matching value; Nimculus' full editor
+    // text is longer than its breadcrumb and tab labels.
+    var candidates: [String] = []
+    for element in window.descendants(matching: .any).allElementsBoundByIndex {
+      guard let value = element.value as? String, !value.isEmpty,
+            value.contains(marker) else { continue }
+      candidates.append(value)
+    }
+    return candidates.max(by: { $0.count < $1.count })
+  }
+
+  /// Zed's editor surface is not an accessibility text element. Verify that
+  /// the document window contains rendered editor ink instead of accepting a
+  /// title/tab as proof that a buffer is visible.
+  private static func showsEditorBody(_ data: Data) -> Bool {
+    guard let image = NSBitmapImageRep(data: data),
+          image.pixelsWide > 0, image.pixelsHigh > 0 else { return false }
+
+    var pixel = [Int](repeating: 0, count: max(3, image.samplesPerPixel))
+    let minX = min(120, image.pixelsWide)
+    let maxX = image.pixelsWide
+    let minY = min(200, image.pixelsHigh)
+    let maxY = min(image.pixelsHigh, 900)
+    var inkPixels = 0
+    for y in minY..<maxY {
+      for x in minX..<maxX {
+        image.getPixel(&pixel, atX: x, y: y)
+        let luminance = 0.299 * Double(pixel[0]) +
+          0.587 * Double(pixel[1]) + 0.114 * Double(pixel[2])
+        if luminance < 245.0 { inkPixels += 1 }
+      }
+    }
+    return inkPixels >= 500
+  }
+
   /// Inline blame is drawn by the editor surface, which does not expose its
   /// text or icon through the XCUITest accessibility tree. The One Light hint
   /// colour is stable for this comparison, so use the first-line paint as the
@@ -510,6 +571,21 @@ final class ZedParityTests: XCTestCase {
       XCTAssertTrue(app.wait(for: .runningForeground, timeout: 60))
       sleep(6)
       let window = self.window(of: app)
+      XCTAssertTrue(
+        Self.showsDocument(window, document: Self.emojiDocument),
+        "\(label) is not showing \(Self.emojiDocument)")
+      if let text = Self.accessibleEditorText(
+        window, containing: Self.emojiContentMarkers[0]) {
+        let matches = Self.emojiContentMarkers.filter { marker in
+          text.contains(marker)
+        }
+        XCTAssertEqual(matches, Self.emojiContentMarkers,
+                       "\(label) exposes incomplete or stale emoji content")
+      } else {
+        XCTAssertTrue(
+          Self.showsEditorBody(window.screenshot().pngRepresentation),
+          "\(label) shows the emoji document tab but no rendered editor body")
+      }
       moveCursorToDocumentStart(in: window)
       write(window.screenshot().pngRepresentation, "\(label)-emoji.png")
     }
