@@ -68,7 +68,10 @@ type
     ## platform and renderer types.
     workspaceLeftDockOpen*, workspaceBottomDockOpen*, workspaceRightDockOpen*: bool
     workspaceLeftDockSize*, workspaceBottomDockSize*, workspaceRightDockSize*: float32
+    ## The integer fields remain as a compatibility view for callers that
+    ## construct sessions directly. Session JSON uses the name fields below.
     workspaceLeftPanel*, workspaceBottomPanel*, workspaceRightPanel*: int
+    workspaceLeftPanelName*, workspaceBottomPanelName*, workspaceRightPanelName*: string
 
 proc fileStamp(path: string): tuple[identity: string, size: int64, modified: Time] =
   let info = getFileInfo(path)
