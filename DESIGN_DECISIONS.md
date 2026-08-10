@@ -70,6 +70,30 @@ if additional_work_count > 0 { write!(message, " + {} more", additional_work_cou
 4. 登録されていないトークンは無視する（Zed の `:10685`）
 5. 表示は UI-114 の 5（アクティビティインジケータ）で扱う
 
+### 調査結果（2026-08-10、実装せず調査のみ）
+
+**(1) サーバ発リクエストに応答できない。**
+`lsp.nim:823-831` は `id` を持つメッセージを応答としてのみ扱う。
+サーバへ応答（`{"jsonrpc":"2.0","id":N,"result":...}`）を送る経路が**無い**。
+
+**(2) 上位層も救えない。**
+`lsp_editor_bridge.nim:616-618` は `poll()` の戻り値を**件数しか見ていない**。
+`poll` が返したサーバ発リクエストを別の層で処理する経路が無い。
+
+**(3) 今は偶然壊れていない。**
+Nimculus は `workspace.configuration` も `window` も宣言していないので、
+**準拠したサーバはこれらのリクエストを送ってこない。**
+宣言していないことが防波堤になっている。
+
+未対応のサーバ発リクエスト:
+`workspace/configuration` / `client/registerCapability` /
+`window/showMessageRequest` / `workspace/applyEdit` /
+`window/workDoneProgress/create`
+
+**これが本項の要点。** `window.workDoneProgress` を宣言した瞬間に、
+サーバが `window/workDoneProgress/create` を送り始め、
+応答が返らないまま滞留する。**capability の宣言が引き金になる。**
+
 ### 2 が要注意
 
 **サーバからのリクエストに応答する経路があるか**を先に確認すること。
