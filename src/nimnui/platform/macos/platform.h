@@ -67,6 +67,7 @@ bool nimculus_platform_validate_color_emoji_sprite_routing(void);
 bool nimculus_platform_validate_color_emoji_sequences(void);
 bool nimculus_platform_validate_terminal_overlay_runs(void);
 bool nimculus_platform_validate_editor_context_header(void);
+bool nimculus_platform_validate_editor_context_syntax_highlights(void);
 bool nimculus_platform_validate_tab_bar_hit_test_geometry(void);
 bool nimculus_platform_validate_sidebar_dispatch(void);
 bool nimculus_platform_validate_sidebar_context_dispatch(void);
@@ -180,6 +181,9 @@ void nimculus_platform_set_editor_tabs(const char *utf8, uint32_t length, uint32
 void nimculus_platform_set_secondary_editor_tabs(const char *utf8, uint32_t length,
                                                  uint32_t active_index);
 void nimculus_platform_set_editor_context(const char *utf8);
+void nimculus_platform_set_editor_context_highlights(const char *utf8,
+                                                      const NimculusBreadcrumbHighlight *spans,
+                                                      uint32_t count);
 void nimculus_platform_set_editor_git_branch(const char *utf8);
 void nimculus_platform_set_editor_status(const char *utf8);
 void nimculus_platform_set_activity_progress(const char *utf8);

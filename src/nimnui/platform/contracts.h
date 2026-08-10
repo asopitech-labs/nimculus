@@ -59,6 +59,7 @@ typedef struct NimculusHighlightSpan {
   uint32_t end_byte;
   uint32_t kind;
 } NimculusHighlightSpan;
+typedef NimculusHighlightSpan NimculusBreadcrumbHighlight;
 typedef struct NimculusDiagnosticSpan {
   uint32_t start_byte;
   uint32_t end_byte;

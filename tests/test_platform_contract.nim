@@ -346,6 +346,9 @@ suite "macOS platform contract":
   test "editor header keeps the complete Zed-shaped document breadcrumb":
     check platformValidateEditorContextHeader()
 
+  test "editor breadcrumb symbols retain their syntax highlight ranges":
+    check platformValidateEditorContextSyntaxHighlights()
+
   test "native glyph atlas uploads and reuses visible glyphs":
     if platformValidateGlyphAtlas():
       check true

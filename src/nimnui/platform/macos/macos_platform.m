@@ -396,6 +396,8 @@ static NSString *g_editor_activity_progress = @"";
 // grouping. Nim owns which typed items are present and their display order.
 static NSString *g_editor_footer = @"";
 static NSString *g_editor_context = @"";
+static NimculusBreadcrumbHighlight *g_editor_context_highlights = NULL;
+static uint32_t g_editor_context_highlight_count = 0;
 static NSString *g_editor_git_branch = @"";
 static NSArray<NSString *> *g_editor_tab_titles = nil;
 static NSUInteger g_editor_active_tab = 0;
@@ -1574,6 +1576,8 @@ static void releasePlatformResources(void) {
   [g_editor_status release]; g_editor_status = nil;
   [g_editor_footer release]; g_editor_footer = nil;
   [g_editor_context release]; g_editor_context = nil;
+  free(g_editor_context_highlights); g_editor_context_highlights = NULL;
+  g_editor_context_highlight_count = 0;
   [g_editor_outline_text release]; g_editor_outline_text = nil;
   [g_terminal_text release]; g_terminal_text = nil;
   [g_task_output_text release]; g_task_output_text = nil;
@@ -8592,18 +8596,18 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
 }
 - (void)updateBreadcrumbPresentation {
   NSString *text = self.stringValue ?: @"";
-  // Zed's breadcrumbs use Color::Muted for every segment. Heading names stay
-  // semibold, while markers, separators, and path text remain regular.
+  // The filename and separators stay muted. Symbol runs arrive from the
+  // syntax/highlight path, just as Zed's breadcrumb symbols carry their own
+  // highlight ranges; no symbol type is hard-coded here.
   NSColor *muted = themeRoleColor(@"textMuted", themeHexColor(g_theme_foreground,
     [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0]));
-  NSColor *heading = muted;
   const CGFloat actionWidth = (NimculusControlHit * 3.0) +
     (NimculusSpace1 * 4.0);
   NSFont *regularFont = editorUiFontWithWeight(NSFontWeightRegular);
-  NSFont *headingFont = editorUiFontWithWeight(NSFontWeightSemibold);
   NSMutableAttributedString *styled = [[[NSMutableAttributedString alloc] init]
     autorelease];
   NSArray<NSString *> *components = [text componentsSeparatedByString:@" › "];
+  NSUInteger componentStart = 0;
   for (NSUInteger index = 0; index < components.count; index++) {
     if (index > 0) {
       // Zed separates breadcrumb segments with layout gaps, not spaces: its
@@ -8623,36 +8627,31 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
           NSKernAttributeName: @(-6.0)}] autorelease]];
     }
     NSString *component = components[index];
-    if ([component hasPrefix:@"#"]) {
-      NSUInteger markerLength = 0;
-      while (markerLength < component.length &&
-          [component characterAtIndex:markerLength] == '#') markerLength++;
-      NSUInteger titleStart = markerLength;
-      while (titleStart < component.length &&
-          ([component characterAtIndex:titleStart] == ' ' ||
-           [component characterAtIndex:titleStart] == '\t')) titleStart++;
-      if (markerLength > 0 && titleStart < component.length) {
-        NSString *marker = [component substringToIndex:markerLength];
-        NSString *spacing = [component substringWithRange:NSMakeRange(markerLength,
-          titleStart - markerLength)];
-        NSString *title = [component substringFromIndex:titleStart];
-        [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:marker
-          attributes:@{NSForegroundColorAttributeName: muted,
-            NSFontAttributeName: regularFont}] autorelease]];
-        if (spacing.length > 0) {
-          [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:spacing
-            attributes:@{NSForegroundColorAttributeName: muted,
-              NSFontAttributeName: regularFont}] autorelease]];
-        }
-        [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:title
-          attributes:@{NSForegroundColorAttributeName: heading,
-            NSFontAttributeName: headingFont}] autorelease]];
-        continue;
-      }
-    }
     [styled appendAttributedString:[[[NSAttributedString alloc] initWithString:component
       attributes:@{NSForegroundColorAttributeName: muted,
         NSFontAttributeName: regularFont}] autorelease]];
+    NSUInteger componentEnd = componentStart +
+      [[component dataUsingEncoding:NSUTF8StringEncoding] length];
+    for (uint32_t runIndex = 0; runIndex < g_editor_context_highlight_count; runIndex++) {
+      NimculusBreadcrumbHighlight run = g_editor_context_highlights[runIndex];
+      if (run.end_byte <= componentStart || run.start_byte >= componentEnd) continue;
+      NSUInteger startByte = MAX((NSUInteger)run.start_byte, componentStart) - componentStart;
+      NSUInteger endByte = MIN((NSUInteger)run.end_byte, componentEnd) - componentStart;
+      if (endByte <= startByte) continue;
+      NSUInteger startUnit = utf16OffsetForUTF8Bytes(component, startByte);
+      NSUInteger endUnit = utf16OffsetForUTF8Bytes(component, endByte);
+      if (endUnit <= startUnit) continue;
+      NSRange range = NSMakeRange(styled.length - component.length + startUnit,
+        endUnit - startUnit);
+      NSString *syntaxKey = syntaxKeyForKind(run.kind);
+      if (!syntaxKey) continue;
+      NSColor *syntaxColor = themeSyntaxColor(syntaxKey, muted);
+      [styled addAttribute:NSForegroundColorAttributeName value:syntaxColor range:range];
+    }
+    componentStart = componentEnd;
+    if (index + 1 < components.count) {
+      componentStart += [[@" › " dataUsingEncoding:NSUTF8StringEncoding] length];
+    }
   }
   NSMutableParagraphStyle *paragraph = [[[NSMutableParagraphStyle alloc] init] autorelease];
   paragraph.lineBreakMode = NSLineBreakByClipping;
@@ -13575,8 +13574,16 @@ bool nimculus_platform_validate_editor_context_header(void) {
   @autoreleasepool {
     NSString *previous = [g_editor_context retain];
     NimculusCommandCallback previousCallback = g_command_callback;
-    replaceOwnedString(&g_editor_context,
-      @"DEVELOPMENT_GUIDELINES.md › # Nimculus 開発ガイドライン › ## 2. 基本原則 › ### 2.1 macOS を先行する");
+    NSString *breadcrumb =
+      @"DEVELOPMENT_GUIDELINES.md › # Nimculus 開発ガイドライン › ## 2. 基本原則 › ### 2.1 macOS を先行する";
+    NSUInteger headingStart = [[@"DEVELOPMENT_GUIDELINES.md › "
+      dataUsingEncoding:NSUTF8StringEncoding] length];
+    NimculusBreadcrumbHighlight headingRun = {
+      .start_byte = (uint32_t)headingStart,
+      .end_byte = (uint32_t)[[breadcrumb dataUsingEncoding:NSUTF8StringEncoding] length],
+      .kind = 8,
+    };
+    nimculus_platform_set_editor_context_highlights(breadcrumb.UTF8String, &headingRun, 1);
     NimculusEditorContextOverlay *context = [[NimculusEditorContextOverlay alloc]
       initWithFrame:NSMakeRect(12.0, 480.0, 300.0, NimculusBreadcrumbHeight)];
     context.stringValue = g_editor_context;
@@ -13640,12 +13647,85 @@ bool nimculus_platform_validate_editor_context_header(void) {
       fabs(breadcrumbFont.pointSize - NimculusUiTextSize) < 0.001 &&
       context.lineBreakMode == NSLineBreakByTruncatingMiddle &&
       context.frame.size.height == NimculusBreadcrumbHeight && !context.acceptsFirstResponder &&
-      [context hitTest:NSMakePoint(2.0, 2.0)] == nil && headingIsEmphasized &&
+      [context hitTest:NSMakePoint(2.0, 2.0)] == nil && !headingIsEmphasized &&
       hasActions && dispatchesFind && dispatchesFormat;
     [context release];
-    replaceOwnedString(&g_editor_context, previous ?: @"");
+    nimculus_platform_set_editor_context_highlights(previous.UTF8String, NULL, 0);
     [previous release];
     g_command_callback = previousCallback;
+    return valid;
+  }
+}
+
+bool nimculus_platform_validate_editor_context_syntax_highlights(void) {
+  @autoreleasepool {
+    NSString *previous = [g_editor_context retain];
+    uint32_t previousCount = g_editor_context_highlight_count;
+    NimculusBreadcrumbHighlight *previousHighlights = NULL;
+    if (previousCount > 0 && g_editor_context_highlights) {
+      previousHighlights = calloc(previousCount, sizeof(NimculusBreadcrumbHighlight));
+      if (previousHighlights) memcpy(previousHighlights, g_editor_context_highlights,
+        previousCount * sizeof(NimculusBreadcrumbHighlight));
+    }
+    NSString *breadcrumb = @"DEVELOPMENT_GUIDELINES.md › # Nimculus 開発ガイドライン › render";
+    NSString *heading = @"# Nimculus 開発ガイドライン";
+    NSUInteger startByte = [[@"DEVELOPMENT_GUIDELINES.md › "
+      dataUsingEncoding:NSUTF8StringEncoding] length];
+    NSUInteger endByte = startByte +
+      [[heading dataUsingEncoding:NSUTF8StringEncoding] length];
+    NSUInteger functionStartByte = [[@"DEVELOPMENT_GUIDELINES.md › # Nimculus 開発ガイドライン › "
+      dataUsingEncoding:NSUTF8StringEncoding] length];
+    NSUInteger functionEndByte = functionStartByte +
+      [[@"render" dataUsingEncoding:NSUTF8StringEncoding] length];
+    NimculusBreadcrumbHighlight runs[2] = {
+      { .start_byte = (uint32_t)startByte,
+        .end_byte = (uint32_t)endByte,
+        .kind = 8 },
+      { .start_byte = (uint32_t)functionStartByte,
+        .end_byte = (uint32_t)functionEndByte,
+        .kind = 6 },
+    };
+    nimculus_platform_set_editor_context_highlights(breadcrumb.UTF8String, runs, 2);
+    NimculusEditorContextOverlay *context = [[NimculusEditorContextOverlay alloc]
+      initWithFrame:NSMakeRect(12.0, 480.0, 420.0, NimculusBreadcrumbHeight)];
+    context.stringValue = g_editor_context;
+    [context updateBreadcrumbPresentation];
+    NSRange headingRange = [context.stringValue rangeOfString:heading];
+    NSRange functionRange = [context.stringValue rangeOfString:@"render"];
+    NSRange filenameRange = [context.stringValue rangeOfString:@"DEVELOPMENT_GUIDELINES.md"];
+    NSColor *headingColor = headingRange.location == NSNotFound ? nil :
+      [context.attributedStringValue attribute:NSForegroundColorAttributeName
+        atIndex:headingRange.location effectiveRange:nil];
+    NSColor *functionColor = functionRange.location == NSNotFound ? nil :
+      [context.attributedStringValue attribute:NSForegroundColorAttributeName
+        atIndex:functionRange.location effectiveRange:nil];
+    NSColor *filenameColor = filenameRange.location == NSNotFound ? nil :
+      [context.attributedStringValue attribute:NSForegroundColorAttributeName
+        atIndex:filenameRange.location effectiveRange:nil];
+    NSFont *headingFont = headingRange.location == NSNotFound ? nil :
+      [context.attributedStringValue attribute:NSFontAttributeName
+        atIndex:headingRange.location effectiveRange:nil];
+    NSColor *muted = themeRoleColor(@"textMuted", themeHexColor(g_theme_foreground,
+      [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0]));
+    NSColor *expectedTitle = themeSyntaxColor(@"title", muted);
+    NSColor *expectedFunction = themeSyntaxColor(@"function", muted);
+    BOOL valid = g_editor_context_highlight_count == 2 &&
+      g_editor_context_highlights[0].start_byte == startByte &&
+      g_editor_context_highlights[0].end_byte == endByte &&
+      g_editor_context_highlights[0].kind == 8 &&
+      g_editor_context_highlights[1].start_byte == functionStartByte &&
+      g_editor_context_highlights[1].end_byte == functionEndByte &&
+      g_editor_context_highlights[1].kind == 6 && headingColor != nil &&
+      [headingColor isEqual:expectedTitle] && functionColor != nil &&
+      [functionColor isEqual:expectedFunction] &&
+      filenameColor != nil && [filenameColor isEqual:muted] &&
+      headingFont != nil &&
+      (headingFont.fontDescriptor.symbolicTraits & NSFontDescriptorTraitBold) == 0;
+    [context release];
+    nimculus_platform_set_editor_context_highlights(previous.UTF8String,
+      previousHighlights, previousCount);
+    free(previousHighlights);
+    [previous release];
     return valid;
   }
 }
@@ -16226,8 +16306,24 @@ void nimculus_platform_set_secondary_editor_tabs(const char *utf8, uint32_t leng
   }
 }
 void nimculus_platform_set_editor_context(const char *utf8) {
+  nimculus_platform_set_editor_context_highlights(utf8, NULL, 0);
+}
+void nimculus_platform_set_editor_context_highlights(const char *utf8,
+                                                     const NimculusBreadcrumbHighlight *spans,
+                                                     uint32_t count) {
   replaceOwnedString(&g_editor_context, (utf8 && strlen(utf8) > 0)
     ? [NSString stringWithUTF8String:utf8] : @"");
+  free(g_editor_context_highlights);
+  g_editor_context_highlights = NULL;
+  g_editor_context_highlight_count = 0;
+  if (spans && count > 0) {
+    g_editor_context_highlights = calloc(count, sizeof(NimculusBreadcrumbHighlight));
+    if (g_editor_context_highlights) {
+      memcpy(g_editor_context_highlights, spans,
+        count * sizeof(NimculusBreadcrumbHighlight));
+      g_editor_context_highlight_count = count;
+    }
+  }
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
   if (!view) return;
   for (NSView *subview in view.subviews) {

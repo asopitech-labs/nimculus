@@ -71,6 +71,8 @@ proc platformValidateColorEmojiSpriteRouting*(): bool
 proc platformValidateColorEmojiSequences*(): bool {.importc: "nimculus_platform_validate_color_emoji_sequences", cdecl.}
 proc platformValidateTerminalOverlayRuns*(): bool {.importc: "nimculus_platform_validate_terminal_overlay_runs", cdecl.}
 proc platformValidateEditorContextHeader*(): bool {.importc: "nimculus_platform_validate_editor_context_header", cdecl.}
+proc platformValidateEditorContextSyntaxHighlights*(): bool {.importc:
+  "nimculus_platform_validate_editor_context_syntax_highlights", cdecl.}
 proc platformValidateTerminalSessionBar*(): bool {.importc: "nimculus_platform_validate_terminal_session_bar", cdecl.}
 proc platformValidateOutputPanelBar*(): bool {.importc: "nimculus_platform_validate_output_panel_bar", cdecl.}
 proc platformValidateTabBarCloseTargets*(): bool {.importc: "nimculus_platform_validate_tab_bar_close_targets", cdecl.}
@@ -216,6 +218,9 @@ proc platformSetEditorTabs*(titles: cstring, length,
 proc platformSetSecondaryEditorTabs*(titles: cstring, length,
     activeIndex: uint32) {.importc: "nimculus_platform_set_secondary_editor_tabs", cdecl.}
 proc platformSetEditorContext*(text: cstring) {.importc: "nimculus_platform_set_editor_context", cdecl.}
+proc platformSetEditorContextHighlights*(text: cstring,
+    spans: ptr NativeBreadcrumbHighlight, count: uint32) {.importc:
+      "nimculus_platform_set_editor_context_highlights", cdecl.}
 proc platformSetEditorGitBranch*(text: cstring) {.importc: "nimculus_platform_set_editor_git_branch", cdecl.}
 proc platformSetEditorStatus*(text: cstring) {.importc: "nimculus_platform_set_editor_status", cdecl.}
 proc platformSetActivityProgress*(text: cstring) {.importc: "nimculus_platform_set_activity_progress", cdecl.}

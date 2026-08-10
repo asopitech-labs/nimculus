@@ -45,6 +45,8 @@ type
 
   NativeHighlightSpan* {.bycopy.} = object
     startByte*, endByte*, kind*: uint32
+  NativeBreadcrumbHighlight* {.bycopy.} = object
+    startByte*, endByte*, kind*: uint32
   NativeDiagnosticSpan* {.bycopy.} = object
     startByte*, endByte*, severity*: uint32
   NativeEditorLayoutGlyph* {.bycopy.} = object

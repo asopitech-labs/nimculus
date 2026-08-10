@@ -1286,48 +1286,92 @@ when defined(macosx):
   proc scheduleNativeGitHunks(document: ptr FileDocument)
   proc scheduleNativeSecondaryGitHunks(document: ptr FileDocument)
 
+  type
+    BreadcrumbHeading = object
+      text: string
+      startByte, endByte: uint32
+    BreadcrumbSegment = object
+      text: string
+      syntaxKind: int
+
   proc breadcrumbSymbolsAtCursor(symbols: seq[LspSymbol], depths: seq[int],
-                                 cursorLine: int): seq[string] =
-    var matches: seq[tuple[depth, order: int, name: string]]
+                                 cursorLine: int): seq[LspSymbol] =
+    var matches: seq[tuple[depth, order: int, symbol: LspSymbol]]
     for index, symbol in symbols:
       if cursorLine < symbol.range.start.line or cursorLine > symbol.range.finish.line:
         continue
       matches.add((depth: if index < depths.len: depths[index] else: 0,
-        order: index, name: symbol.name))
-    matches.sort(proc(left, right: tuple[depth, order: int, name: string]): int =
+        order: index, symbol: symbol))
+    matches.sort(proc(left, right: tuple[depth, order: int, symbol: LspSymbol]): int =
       let depthOrder = cmp(left.depth, right.depth)
       if depthOrder != 0: depthOrder else: cmp(left.order, right.order))
     for match in matches:
-      if match.name.len > 0: result.add(match.name)
+      if match.symbol.name.len > 0: result.add(match.symbol)
 
-  proc markdownBreadcrumbHeadings(source: string, cursorLine: int): seq[string] =
+  proc markdownBreadcrumbHeadings(source: string, cursorLine: int): seq[BreadcrumbHeading] =
     ## Keep the complete enclosing ATX heading path, including skipped levels.
     ## Retaining the heading records makes the ancestor walk explicit and
     ## prevents a partial breadcrumb from being emitted.
-    var headings: seq[tuple[level: int, text: string]]
+    var headings: seq[tuple[level: int, text: string, startByte, endByte: uint32]]
     var lineIndex = 0
+    var lineStartByte = 0
     for line in source.splitLines:
       if lineIndex > cursorLine: break
       inc lineIndex
       let trimmed = line.strip
+      let leadingWhitespace = line.len - line.strip(leading = true, trailing = false).len
       var level = 0
       while level < trimmed.len and trimmed[level] == '#': inc level
       if level == 0 or level > 6 or level >= trimmed.len or
-          trimmed[level] notin {' ', '\t'}: continue
+          trimmed[level] notin {' ', '\t'}:
+        lineStartByte += line.len + 1
+        continue
       let heading = trimmed[level .. ^1].strip
-      if heading.len == 0: continue
+      if heading.len == 0:
+        lineStartByte += line.len + 1
+        continue
       while headings.len > 0 and headings[^1].level >= level:
         headings.setLen(headings.len - 1)
-      headings.add((level: level, text: trimmed[0 ..< level] & " " & heading))
+      headings.add((level: level, text: trimmed[0 ..< level] & " " & heading,
+        startByte: uint32(lineStartByte + leadingWhitespace),
+        endByte: uint32(lineStartByte + line.len)))
+      lineStartByte += line.len + 1
     for heading in headings:
-      result.add(heading.text)
+      result.add(BreadcrumbHeading(text: heading.text, startByte: heading.startByte,
+        endByte: heading.endByte))
 
-  proc editorContextText(document: ptr FileDocument): string =
+  proc syntaxKindForRange(firstByte, lastByte: uint32): int =
+    result = -1
+    if syntaxState == nil or syntaxState.tree == nil or lastByte <= firstByte: return -1
+    var bestSize = high(uint32)
+    for span in syntaxState.tree.highlight():
+      if span.startByte <= firstByte and span.endByte >= lastByte:
+        let size = span.endByte - span.startByte
+        if size < bestSize:
+          bestSize = size
+          result = ord(span.kind)
+
+  proc symbolSyntaxKind(document: ptr FileDocument, symbol: LspSymbol,
+                        source: string): int =
+    if document == nil or symbol.name.len == 0: return -1
+    let startByte = document[].buffer.byteOffsetAtUtf16Position(
+      symbol.range.start.line, symbol.range.start.character)
+    let endByte = document[].buffer.byteOffsetAtUtf16Position(
+      symbol.range.finish.line, symbol.range.finish.character)
+    if endByte <= startByte or startByte >= source.len: return -1
+    let nameStart = source.find(symbol.name, startByte)
+    if nameStart < startByte or nameStart + symbol.name.len > endByte: return -1
+    syntaxKindForRange(uint32(nameStart), uint32(nameStart + symbol.name.len))
+
+  proc editorContextPayload(document: ptr FileDocument): tuple[text: string,
+                                                                highlights: seq[
+                                                                    NativeBreadcrumbHighlight]] =
     ## Zed starts the breadcrumb with the complete filename and then follows
-    ## it with the heading/symbol path at the cursor. Keep the fallback useful
-    ## even before a language server or local syntax tree is ready.
+    ## it with the heading/symbol path at the cursor. The filename deliberately
+    ## has no highlight run; each symbol gets the matching syntax range kind.
     if document == nil:
-      return ""
+      result.text = ""
+      return
     let filename = if document[].path.len > 0:
       let parts = splitFile(document[].path)
       if parts.name.len > 0: parts.name & parts.ext else:
@@ -1335,18 +1379,31 @@ when defined(macosx):
     else:
       editorSession.displayTitle(editorSession.activeTab)
     if document[].path.len == 0:
-      return filename
+      result.text = filename
+      return
     let cursorLine = max(0, min(document[].buffer.lineStarts.high,
       document[].buffer.lineColumn(editorViewState.cursor).line))
-    var hierarchy: seq[string]
+    var segments = @[BreadcrumbSegment(text: filename, syntaxKind: -1)]
+    let source = document[].buffer.toString()
     let extension = splitFile(document[].path).ext.toLowerAscii
     if extension in [".md", ".markdown", ".mdown", ".mkdn"]:
-      hierarchy = markdownBreadcrumbHeadings(document[].buffer.toString(), cursorLine)
-    if hierarchy.len == 0:
-      hierarchy = breadcrumbSymbolsAtCursor(
+      for heading in markdownBreadcrumbHeadings(source, cursorLine):
+        segments.add(BreadcrumbSegment(text: heading.text,
+          syntaxKind: syntaxKindForRange(heading.startByte, heading.endByte)))
+    if segments.len == 1:
+      for symbol in breadcrumbSymbolsAtCursor(
         if pendingLspSymbols.len > 0: pendingLspSymbols else: pendingSyntaxSymbols,
-        if pendingLspSymbols.len > 0: pendingLspSymbolDepths else: @[], cursorLine)
-    if hierarchy.len > 0: filename & " › " & hierarchy.join(" › ") else: filename
+        if pendingLspSymbols.len > 0: pendingLspSymbolDepths else: @[], cursorLine):
+        segments.add(BreadcrumbSegment(text: symbol.name,
+          syntaxKind: symbolSyntaxKind(document, symbol, source)))
+    for index, segment in segments:
+      if index > 0: result.text.add(" › ")
+      let startByte = uint32(result.text.len)
+      result.text.add(segment.text)
+      let endByte = uint32(result.text.len)
+      if segment.syntaxKind >= 0:
+        result.highlights.add(NativeBreadcrumbHighlight(startByte: startByte,
+          endByte: endByte, kind: uint32(segment.syntaxKind)))
 
   proc gitRepositoryForDocument(document: ptr FileDocument): GitRepository =
     # Zed's Git panel is owned by a workspace repository, not by an editor
@@ -5279,7 +5336,11 @@ proc syncEditorCursor(ensureCursor = true) =
     platformSetEditorIndentGuides(editorViewState.showIndentGuides,
       uint32(max(1, editorViewState.indentWidth)))
     syncNativeEditorFolds(document, editorViewState, syntaxState)
-    platformSetEditorContext(editorContextText(document).cstring)
+    let contextPayload = editorContextPayload(document)
+    let contextHighlights = if contextPayload.highlights.len > 0:
+      addr contextPayload.highlights[0] else: nil
+    platformSetEditorContextHighlights(contextPayload.text.cstring, contextHighlights,
+      uint32(contextPayload.highlights.len))
     syncNativeEditorStatus(document)
     var tabTitles: seq[string]
     for index, tab in editorSession.tabs:
