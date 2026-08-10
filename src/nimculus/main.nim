@@ -5085,6 +5085,8 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
       else: appSettings.boolSetting("diagnostics.button", DefaultDiagnosticsButton))
     platformSetSearchButton(if appSettings == nil: DefaultSearchButton
       else: appSettings.boolSetting("search.button", DefaultSearchButton))
+    platformSetActivityProgress(if lspBridge == nil: "".cstring
+      else: lspBridge.activityProgressText().cstring)
     # FileDocument has no encoding/BOM detector yet; keep the Zed decision
     # boundary explicit and pass the current UTF-8/no-BOM state.
     let blameVisible = blameNeedsPublish and editorGitBlameLoaded and

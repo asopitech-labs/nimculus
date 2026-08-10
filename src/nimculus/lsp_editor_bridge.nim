@@ -728,6 +728,10 @@ proc diagnostics*(bridge: LspEditorBridge): seq[LspDiagnostic] =
   if bridge != nil and bridge.session != nil and bridge.uri.len > 0:
     result = bridge.session.diagnosticsFor(bridge.uri)
 
+proc activityProgressText*(bridge: LspEditorBridge): string =
+  if bridge != nil and bridge.session != nil:
+    result = bridge.session.activityProgressText()
+
 proc diagnosticsForPath*(bridge: LspEditorBridge, path: string): seq[LspDiagnostic] =
   ## Diagnostics are keyed by URI by the LSP transport, not by active pane.
   if bridge != nil and bridge.session != nil and path.len > 0:

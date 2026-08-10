@@ -217,6 +217,9 @@ suite "macOS platform contract":
   test "native diagnostics summary matches Zed's counts, labels, and visibility":
     check platformValidateEditorDiagnosticsSummary()
 
+  test "native activity indicator uses a spinner, truncation, and empty state":
+    check platformValidateEditorActivityIndicator()
+
   test "native project search button matches Zed's label and setting visibility":
     check platformValidateEditorSearchButton()
 

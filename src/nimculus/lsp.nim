@@ -1,4 +1,5 @@
 import std/json
+import std/algorithm
 import std/hashes
 import std/os
 import std/osproc
@@ -507,6 +508,52 @@ proc progressFor*(session: LspSession, tokenNode: JsonNode): Option[LspProgress]
   if not parseProgressToken(tokenNode, token) or token notin session.progresses:
     return
   some(session.progresses[token])
+
+proc progressTokenText*(token: LspProgressToken): string =
+  case token.kind
+  of lspProgressTokenNumber: $token.number
+  of lspProgressTokenString: token.text
+
+proc progressTokenJson(token: LspProgressToken): JsonNode =
+  case token.kind
+  of lspProgressTokenNumber: newJInt(token.number)
+  of lspProgressTokenString: newJString(token.text)
+
+proc compareProgressTokens(left, right: LspProgressToken): int =
+  ## Zed stores pending work in BTreeMap<ProgressToken, ...>. Match its
+  ## numeric-before-string ordering when update times are equal.
+  if left.kind != right.kind:
+    return cmp(ord(left.kind), ord(right.kind))
+  case left.kind
+  of lspProgressTokenNumber: cmp(left.number, right.number)
+  of lspProgressTokenString: cmp(left.text, right.text)
+
+proc activityProgressText*(session: LspSession): string =
+  ## Render the LSP branch of Zed's priority chain. The other source branches
+  ## are intentionally absent until Nimculus has their state to read.
+  if session == nil or session.progresses.len == 0: return
+  type PendingProgress = tuple[token: LspProgressToken, progress: LspProgress]
+  var pending: seq[PendingProgress]
+  for token, _ in session.progresses:
+    let progress = session.progressFor(progressTokenJson(token))
+    if progress.isSome:
+      pending.add((token, progress.get))
+  if pending.len == 0: return
+  pending.sort(proc(left, right: PendingProgress): int =
+    let byUpdate = cmp(right.progress.lastUpdateAtMs, left.progress.lastUpdateAtMs)
+    if byUpdate != 0: byUpdate
+    else: compareProgressTokens(left.token, right.token))
+
+  let first = pending[0]
+  result = if first.progress.title.isSome: first.progress.title.get
+    else: progressTokenText(first.token)
+  if first.progress.percentage.isSome:
+    result.add(" (" & $first.progress.percentage.get & "%)")
+  if first.progress.message.isSome:
+    result.add(": " & first.progress.message.get)
+  let additionalWorkCount = pending.len - 1
+  if additionalWorkCount > 0:
+    result.add(" + " & $additionalWorkCount & " more")
 
 proc optionalString(node: JsonNode, key: string): Option[string] =
   if node != nil and node.kind == JObject and node.hasKey(key) and

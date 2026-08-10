@@ -389,6 +389,7 @@ static NSUInteger g_secondary_editor_line_count = 0;
 static NimculusFoldRange *g_secondary_editor_folds = NULL;
 static uint32_t g_secondary_editor_fold_count = 0;
 static NSString *g_editor_status = @"Ready";
+static NSString *g_editor_activity_progress = @"";
 // Tab-separated, user-facing status items. The footer presenter keeps cursor,
 // indentation, encoding, line ending, language, LSP state, and active file
 // available as separate native controls while matching Zed's status-bar
@@ -7649,6 +7650,71 @@ static NimculusFooterStatusButton *newFooterButton(NimculusFooterOverlay *owner,
   return button;
 }
 
+static NSString *footerTruncateAndTrailoff(NSString *text) {
+  const NSUInteger maxCharacters = 50;
+  NSUInteger index = 0;
+  NSUInteger characterCount = 0;
+  while (index < text.length && characterCount < maxCharacters) {
+    const unichar value = [text characterAtIndex:index++];
+    if (value >= 0xD800 && value <= 0xDBFF && index < text.length) {
+      const unichar low = [text characterAtIndex:index];
+      if (low >= 0xDC00 && low <= 0xDFFF) index++;
+    }
+    characterCount++;
+  }
+  if (index >= text.length) return text;
+  return [[text substringToIndex:index] stringByAppendingString:@"…"];
+}
+
+static NimculusFooterStatusButton *newActivityButton(NimculusFooterOverlay *owner,
+                                                       NSString *message) {
+  NSString *displayMessage = footerTruncateAndTrailoff(message);
+  NimculusFooterStatusButton *button = newFooterButton(owner, @"", message,
+    NimculusFooterActionDisplayOnly);
+  button.accessibilityIdentifier = @"NimculusActivityIndicator";
+  NSStackView *content = [[[NSStackView alloc] initWithFrame:NSZeroRect] autorelease];
+  content.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+  content.alignment = NSLayoutAttributeCenterY;
+  content.spacing = NimculusSpace1;
+  content.translatesAutoresizingMaskIntoConstraints = NO;
+
+  NSProgressIndicator *spinner = [[[NSProgressIndicator alloc] initWithFrame:NSZeroRect]
+    autorelease];
+  spinner.style = NSProgressIndicatorStyleSpinning;
+  spinner.indeterminate = YES;
+  spinner.controlSize = NSControlSizeSmall;
+  spinner.accessibilityIdentifier = @"NimculusLoadingSpinner";
+  spinner.translatesAutoresizingMaskIntoConstraints = NO;
+  [spinner.widthAnchor constraintEqualToConstant:14.0].active = YES;
+  [spinner.heightAnchor constraintEqualToConstant:14.0].active = YES;
+  [spinner startAnimation:nil];
+  [content addArrangedSubview:spinner];
+
+  NSColor *foreground = themeRoleColor(@"fgMuted", themeHexColor(g_theme_foreground,
+    [NSColor colorWithCalibratedWhite:0.86 alpha:1.0]));
+  NSTextField *label = [NSTextField labelWithString:displayMessage];
+  label.textColor = [foreground colorWithAlphaComponent:0.96];
+  label.font = editorUiFontWithWeight(NSFontWeightMedium);
+  label.accessibilityIdentifier = @"NimculusActivityIndicatorLabel";
+  label.attributedStringValue = [[[NSAttributedString alloc] initWithString:displayMessage
+    attributes:@{NSForegroundColorAttributeName: [foreground colorWithAlphaComponent:0.96],
+      NSFontAttributeName: editorUiFontWithWeight(NSFontWeightMedium)}] autorelease];
+  [content addArrangedSubview:label];
+  [button addSubview:content];
+  [content.centerYAnchor constraintEqualToAnchor:button.centerYAnchor].active = YES;
+  [content.leadingAnchor constraintEqualToAnchor:button.leadingAnchor
+    constant:NimculusSpace2].active = YES;
+  [content.trailingAnchor constraintEqualToAnchor:button.trailingAnchor
+    constant:-NimculusSpace2].active = YES;
+  NSDictionary *attributes = @{NSForegroundColorAttributeName: foreground,
+    NSFontAttributeName: editorUiFontWithWeight(NSFontWeightMedium)};
+  button.footerPreferredWidth = MAX(NimculusControlHit,
+    ceil(NimculusSpace2 * 2.0 + 14.0 + NimculusSpace1 +
+      [displayMessage sizeWithAttributes:attributes].width));
+  styleFooterStatusButton(button, YES);
+  return button;
+}
+
 static void addDiagnosticPart(NSStackView *content, NSString *symbol, NSString *fallback,
                               uint32_t count, NSColor *color, CGFloat *width) {
   NSView *icon = nil;
@@ -7938,6 +8004,9 @@ static NSView *newFooterDivider(void) {
     styleFooterStatusButton(button, NO);
     [right addArrangedSubview:button];
   }
+  if (g_editor_activity_progress.length > 0) {
+    [left addArrangedSubview:newActivityButton(self, g_editor_activity_progress)];
+  }
   if (hasRightPanelButtons) [right addArrangedSubview:newFooterDivider()];
   for (NSUInteger index = 0; index < 2; index++) {
     if (!panelOnLeft[index]) [right addArrangedSubview:panelButtons[index]];
@@ -8041,6 +8110,63 @@ static NSButton *diagnosticsButtonInFooter(NSStackView *left) {
     }
   }
   return nil;
+}
+
+static NSButton *activityButtonInFooter(NSStackView *left) {
+  for (NSView *view in left.arrangedSubviews) {
+    if ([view isKindOfClass:[NSButton class]] &&
+        [((NSButton *)view).accessibilityIdentifier isEqualToString:
+          @"NimculusActivityIndicator"]) {
+      return (NSButton *)view;
+    }
+  }
+  return nil;
+}
+
+static NSView *footerDescendantWithIdentifier(NSView *root, NSString *identifier) {
+  for (NSView *view in root.subviews) {
+    if ([view.accessibilityIdentifier isEqualToString:identifier]) return view;
+    NSView *descendant = footerDescendantWithIdentifier(view, identifier);
+    if (descendant) return descendant;
+  }
+  return nil;
+}
+
+bool nimculus_platform_validate_editor_activity_indicator(void) {
+  @autoreleasepool {
+    NSString *previous = [g_editor_activity_progress retain];
+    NimculusFooterOverlay *footer = [[NimculusFooterOverlay alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 900.0, 30.0)];
+    NSStackView *left = nil;
+    for (NSView *view in footer.subviews) {
+      if ([view isKindOfClass:[NSStackView class]]) {
+        left = (NSStackView *)view;
+        break;
+      }
+    }
+    NSMutableString *fullMessage = [NSMutableString stringWithString:@"Indexing "];
+    while (fullMessage.length < 60) [fullMessage appendString:@"x"];
+    nimculus_platform_set_activity_progress(fullMessage.UTF8String);
+    [footer reloadStatusItems];
+    NSButton *activity = activityButtonInFooter(left);
+    NSView *spinner = activity ? footerDescendantWithIdentifier(activity,
+      @"NimculusLoadingSpinner") : nil;
+    NSView *label = activity ? footerDescendantWithIdentifier(activity,
+      @"NimculusActivityIndicatorLabel") : nil;
+    NSString *expected = footerTruncateAndTrailoff(fullMessage);
+    BOOL valid = activity != nil && spinner != nil &&
+      [spinner isKindOfClass:[NSProgressIndicator class]] &&
+      ((NSProgressIndicator *)spinner).style == NSProgressIndicatorStyleSpinning &&
+      [activity.toolTip isEqualToString:fullMessage] &&
+      [((NSTextField *)label).stringValue isEqualToString:expected];
+    nimculus_platform_set_activity_progress("");
+    [footer reloadStatusItems];
+    valid = valid && activityButtonInFooter(left) == nil;
+    [footer release];
+    nimculus_platform_set_activity_progress(previous.UTF8String);
+    [previous release];
+    return valid;
+  }
 }
 
 bool nimculus_platform_validate_editor_diagnostics_summary(void) {
@@ -16152,6 +16278,21 @@ void nimculus_platform_set_editor_status(const char *utf8) {
     if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
       [(NimculusFooterOverlay *)subview reloadStatusItems];
       [subview setNeedsDisplay:YES];
+    }
+  }
+}
+void nimculus_platform_set_activity_progress(const char *utf8) {
+  const char *value = (utf8 && strlen(utf8) > 0) ? utf8 : "";
+  if (g_editor_activity_progress &&
+      strcmp(g_editor_activity_progress.UTF8String, value) == 0) return;
+  replaceOwnedString(&g_editor_activity_progress, [NSString stringWithUTF8String:value]);
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if ([subview isKindOfClass:[NimculusFooterOverlay class]]) {
+      [(NimculusFooterOverlay *)subview reloadStatusItems];
+      [subview setNeedsDisplay:YES];
+      break;
     }
   }
 }

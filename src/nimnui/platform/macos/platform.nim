@@ -37,6 +37,7 @@ proc platformValidateStatusUpdateDeduplication*(): bool {.importc: "nimculus_pla
 proc platformValidateEditorFooterItems*(): bool {.importc: "nimculus_platform_validate_editor_footer_items", cdecl.}
 proc platformValidateEditorGitBlame*(): bool {.importc: "nimculus_platform_validate_editor_git_blame", cdecl.}
 proc platformValidateEditorDiagnosticsSummary*(): bool {.importc: "nimculus_platform_validate_editor_diagnostics_summary", cdecl.}
+proc platformValidateEditorActivityIndicator*(): bool {.importc: "nimculus_platform_validate_editor_activity_indicator", cdecl.}
 proc platformValidateEditorSearchButton*(): bool {.importc: "nimculus_platform_validate_editor_search_button", cdecl.}
 proc platformValidateEditorPanelFooter*(): bool {.importc: "nimculus_platform_validate_editor_panel_footer", cdecl.}
 proc platformValidateDamageRebuild*(): bool {.importc: "nimculus_platform_validate_damage_rebuild", cdecl.}
@@ -217,6 +218,7 @@ proc platformSetSecondaryEditorTabs*(titles: cstring, length,
 proc platformSetEditorContext*(text: cstring) {.importc: "nimculus_platform_set_editor_context", cdecl.}
 proc platformSetEditorGitBranch*(text: cstring) {.importc: "nimculus_platform_set_editor_git_branch", cdecl.}
 proc platformSetEditorStatus*(text: cstring) {.importc: "nimculus_platform_set_editor_status", cdecl.}
+proc platformSetActivityProgress*(text: cstring) {.importc: "nimculus_platform_set_activity_progress", cdecl.}
 proc platformSetEditorFooter*(text: cstring) {.importc: "nimculus_platform_set_editor_footer", cdecl.}
 proc platformSetDiagnosticsButton*(visible: bool) {.importc: "nimculus_platform_set_diagnostics_button", cdecl.}
 proc platformSetSearchButton*(visible: bool) {.importc: "nimculus_platform_set_search_button", cdecl.}

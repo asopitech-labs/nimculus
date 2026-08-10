@@ -222,6 +222,31 @@ suite "M8 LSP protocol foundation":
     check token notin session.progressTokens
     check token notin session.progresses
 
+  test "formats the newest retained progress and counts the rest":
+    var session: LspSession
+    new(session)
+    session.progressTokens = initHashSet[LspProgressToken]()
+    session.progresses = initTable[LspProgressToken, LspProgress]()
+    let first = LspProgressToken(kind: lspProgressTokenString, text: "first")
+    let newest = LspProgressToken(kind: lspProgressTokenString, text: "newest")
+    session.progressTokens.incl(first)
+    session.progressTokens.incl(newest)
+    session.progresses[first] = LspProgress(title: some("Older"),
+      message: some("waiting"), percentage: some(10), lastUpdateAtMs: 10)
+    session.progresses[newest] = LspProgress(title: some("Build"),
+      message: some("working"), percentage: some(50), lastUpdateAtMs: 20)
+    check session.activityProgressText() == "Build (50%): working + 1 more"
+
+  test "uses the progress token when the title is absent":
+    var session: LspSession
+    new(session)
+    session.progressTokens = initHashSet[LspProgressToken]()
+    session.progresses = initTable[LspProgressToken, LspProgress]()
+    let token = LspProgressToken(kind: lspProgressTokenString, text: "indexing")
+    session.progressTokens.incl(token)
+    session.progresses[token] = LspProgress(message: some("working"), lastUpdateAtMs: 1)
+    check session.activityProgressText() == "indexing: working"
+
   test "tracks work-done progress through a real language-server request":
     let server = "import sys,json,time\n" &
       "def frame(x):\n" &

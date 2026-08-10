@@ -41,6 +41,7 @@ bool nimculus_platform_validate_status_update_deduplication(void);
 bool nimculus_platform_validate_editor_footer_items(void);
 bool nimculus_platform_validate_editor_git_blame(void);
 bool nimculus_platform_validate_editor_diagnostics_summary(void);
+bool nimculus_platform_validate_editor_activity_indicator(void);
 bool nimculus_platform_validate_editor_search_button(void);
 bool nimculus_platform_validate_editor_panel_footer(void);
 bool nimculus_platform_validate_damage_rebuild(void);
@@ -181,6 +182,7 @@ void nimculus_platform_set_secondary_editor_tabs(const char *utf8, uint32_t leng
 void nimculus_platform_set_editor_context(const char *utf8);
 void nimculus_platform_set_editor_git_branch(const char *utf8);
 void nimculus_platform_set_editor_status(const char *utf8);
+void nimculus_platform_set_activity_progress(const char *utf8);
 void nimculus_platform_set_editor_footer(const char *utf8);
 void nimculus_platform_set_diagnostics_button(bool visible);
 void nimculus_platform_set_search_button(bool visible);
