@@ -1,6 +1,8 @@
 import std/json
+import std/hashes
 import std/os
 import std/osproc
+import std/sets
 import std/streams
 import std/strutils
 import std/tables
@@ -134,6 +136,16 @@ type
   LspMessageKind* = enum
     lspInvalidMessage, lspNotification, lspServerRequest, lspResponse
 
+  LspProgressTokenKind* = enum
+    lspProgressTokenNumber, lspProgressTokenString
+
+  LspProgressToken* = object
+    case kind*: LspProgressTokenKind
+    of lspProgressTokenNumber:
+      number*: int
+    of lspProgressTokenString:
+      text*: string
+
   LspSession* = ref object
     process*: LspProcess
     tracker*: LspRequestTracker
@@ -146,6 +158,7 @@ type
     initializeId: int
     diagnostics: Table[string, seq[LspDiagnostic]]
     responses: Table[int, JsonNode]
+    progressTokens*: HashSet[LspProgressToken]
 
 const
   MaxLspFrameBytes* = 16 * 1024 * 1024
@@ -155,6 +168,19 @@ const
 
 proc protocolError(message: string): ref LspProtocolError =
   newException(LspProtocolError, message)
+
+proc `==`*(left, right: LspProgressToken): bool =
+  if left.kind != right.kind: return false
+  case left.kind
+  of lspProgressTokenNumber: left.number == right.number
+  of lspProgressTokenString: left.text == right.text
+
+proc hash*(token: LspProgressToken): Hash =
+  var value = hash(ord(token.kind))
+  case token.kind
+  of lspProgressTokenNumber: value = value !& hash(token.number)
+  of lspProgressTokenString: value = value !& hash(token.text)
+  result = !$value
 
 proc acceptsResponse*(tracker: LspRequestTracker, id: int): bool
 proc finishResponse*(tracker: var LspRequestTracker, id: int): bool
@@ -260,7 +286,11 @@ proc initializeParams*(rootUri, clientName: string): JsonNode =
             "markdown"]}},
         "documentSymbol": {"hierarchicalDocumentSymbolSupport": true}
     },
-    "workspace": {"workspaceFolders": true, "workspaceEdit": {"documentChanges": true}}
+    "workspace": {"workspaceFolders": true, "workspaceEdit": {"documentChanges": true}},
+    # Zed also declares window.showMessage, but Nimculus does not declare it
+    # until window/showMessageRequest is implemented instead of returning
+    # -32601 for a capability it cannot currently support.
+    "window": {"workDoneProgress": true}
   }
   }
   if rootUri.len == 0: result["rootUri"] = newJNull()
@@ -414,6 +444,40 @@ proc unrecognizedMethodResponse*(message: JsonNode): JsonNode =
     "code": -32601,
     "message": "Unrecognized method `" & methodName & "`"
   }
+
+proc parseProgressToken*(node: JsonNode, token: var LspProgressToken): bool =
+  ## LSP ProgressToken is an integer JSON number or a string.
+  if node == nil: return false
+  case node.kind
+  of JInt:
+    token = LspProgressToken(kind: lspProgressTokenNumber, number: node.getInt)
+    result = true
+  of JString:
+    token = LspProgressToken(kind: lspProgressTokenString, text: node.getStr)
+    result = true
+  else:
+    discard
+
+proc workDoneProgressCreateResponse*(message: JsonNode): JsonNode =
+  ## The create request is acknowledged with JSON-RPC's null result.
+  result = newJObject()
+  result["jsonrpc"] = newJString("2.0")
+  result["id"] = message["id"]
+  result["result"] = newJNull()
+
+proc registerProgressToken*(session: LspSession, params: JsonNode): bool =
+  if session == nil or params == nil or params.kind != JObject or
+      not params.hasKey("token"): return false
+  var token: LspProgressToken
+  if not parseProgressToken(params["token"], token): return false
+  session.progressTokens.incl(token)
+  result = true
+
+proc hasProgressToken*(session: LspSession, tokenNode: JsonNode): bool =
+  if session == nil: return false
+  var token: LspProgressToken
+  if not parseProgressToken(tokenNode, token): return false
+  token in session.progressTokens
 
 proc acceptResponse*(tracker: var LspRequestTracker, message: JsonNode): bool =
   let id = responseId(message)
@@ -816,7 +880,8 @@ proc startLspSession*(command: string, args: openArray[string],
     requestTimeoutMs: DefaultLspRequestTimeoutMs,
     rootUri: rootUri, clientName: clientName,
     diagnostics: initTable[string, seq[LspDiagnostic]](),
-    responses: initTable[int, JsonNode]())
+    responses: initTable[int, JsonNode](),
+    progressTokens: initHashSet[LspProgressToken]())
   let request = result.process.sendRequest(result.tracker, "initialize",
     initializeParams(rootUri, clientName))
   result.initializeId = request.id
@@ -854,7 +919,12 @@ proc poll*(session: LspSession): seq[JsonNode] =
         let parsed = parseDiagnostics(message)
         session.diagnostics[parsed.uri] = parsed.diagnostics
     of lspServerRequest:
-      session.process.send(unrecognizedMethodResponse(message))
+      if message["method"].kind == JString and
+          message["method"].getStr == "window/workDoneProgress/create":
+        discard session.registerProgressToken(message.getOrDefault("params"))
+        session.process.send(workDoneProgressCreateResponse(message))
+      else:
+        session.process.send(unrecognizedMethodResponse(message))
     of lspResponse:
       if message["id"].kind != JInt: continue
       let id = message["id"].getInt
@@ -911,6 +981,7 @@ proc restart*(session: LspSession) =
   session.tracker = initLspRequestTracker()
   session.diagnostics.clear()
   session.responses.clear()
+  session.progressTokens.clear()
   session.state = lspSessionInitializing
   let request = session.process.sendRequest(session.tracker, "initialize",
     initializeParams(session.rootUri, session.clientName))

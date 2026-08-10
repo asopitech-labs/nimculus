@@ -1,5 +1,6 @@
 import std/json
 import std/os
+import std/sets
 import std/strutils
 import std/times
 import std/unittest
@@ -151,6 +152,25 @@ suite "M8 LSP protocol foundation":
     let commandRequest = executeCommandRequest("organizeImports", @[%*{"uri": "file:///a.nim"}])
     check commandRequest.methodName == "workspace/executeCommand"
     check commandRequest.params["arguments"][0]["uri"].getStr == "file:///a.nim"
+
+  test "advertises work-done progress without show-message requests":
+    let capabilities = initializeParams("", "Nimculus")["capabilities"]
+    check capabilities["window"]["workDoneProgress"].getBool
+    check not capabilities["window"].hasKey("showMessage")
+
+  test "builds a null response and registers numeric and string progress tokens":
+    let request = %*{"jsonrpc": "2.0", "id": 17,
+      "method": "window/workDoneProgress/create", "params": {"token": 42}}
+    let response = workDoneProgressCreateResponse(request)
+    check response["id"].getInt == 17
+    check response["result"].kind == JNull
+    var tokens: LspSession
+    new(tokens)
+    tokens.progressTokens = initHashSet[LspProgressToken]()
+    check tokens.registerProgressToken(%*{"token": 42})
+    check tokens.registerProgressToken(%*{"token": "build"})
+    check tokens.hasProgressToken(%*42)
+    check tokens.hasProgressToken(%*"build")
 
   test "parses diagnostics notification":
     let message = %*{"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
@@ -312,6 +332,39 @@ suite "M8 LSP protocol foundation":
     check received["error"]["code"].getInt == -32601
     check received["error"]["message"].getStr ==
       "Unrecognized method `workspace/configuration`"
+    check session.state == lspSessionReady
+
+  test "registers progress tokens from a real language-server request":
+    let server = "import sys,json,time\n" &
+      "def frame(x):\n" &
+      "    b=json.dumps(x,separators=(',',':')).encode()\n" &
+      "    return ('Content-Length: '+str(len(b))+'\\r\\n\\r\\n').encode()+b\n" &
+      "def read_message():\n" &
+      "    h=b''\n" &
+      "    while b'\\r\\n\\r\\n' not in h: h += sys.stdin.buffer.read(1)\n" &
+      "    n=int(h.split(b':')[1].split()[0])\n" &
+      "    return json.loads(sys.stdin.buffer.read(n))\n" &
+      "initialize=read_message()\n" &
+      "response={'jsonrpc':'2.0','id':initialize['id'],'result':{'capabilities':{}}}\n" &
+      "create={'jsonrpc':'2.0','id':23,'method':'window/workDoneProgress/create','params':{'token':'server-work'}}\n" &
+      "sys.stdout.buffer.write(frame(response)+frame(create)); sys.stdout.buffer.flush()\n" &
+      "received=read_message(); received=read_message()\n" &
+      "notification={'jsonrpc':'2.0','method':'test/received','params':received}\n" &
+      "sys.stdout.buffer.write(frame(notification)); sys.stdout.buffer.flush(); time.sleep(2)\n"
+    let session = startLspSession("python3", ["-u", "-c", server], "", "Nimculus")
+    defer: session.stop()
+    var received: JsonNode
+    for _ in 0 ..< 100:
+      for message in session.poll():
+        if message.kind == JObject and message.hasKey("method") and
+            message["method"].getStr == "test/received":
+          received = message["params"]
+      if received != nil: break
+      sleep(10)
+    check received != nil
+    check received["id"].getInt == 23
+    check received["result"].kind == JNull
+    check session.hasProgressToken(%*"server-work")
     check session.state == lspSessionReady
 
   test "session fails and releases an initialize request after timeout":
