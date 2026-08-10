@@ -5,6 +5,7 @@ import nimculus/editor_app
 import nimculus/editor_buffer
 import nimculus/editor_view
 import nimculus/atomic_io
+import nimculus/workspace_ui
 
 proc jsonInt(node: JsonNode, key: string, fallback: int): int =
   if node == nil or node.kind != JObject or not node.hasKey(key): return fallback
@@ -30,6 +31,34 @@ proc jsonFloat(node: JsonNode, key: string, fallback: float32): float32 =
   except CatchableError:
     discard
   fallback
+
+proc panelNameForOrdinal(value, fallbackOrdinal: int, fallbackName: string): string =
+  if value >= ord(low(PanelKind)) and value <= ord(high(PanelKind)):
+    return PanelPersistentName[PanelKind(value)]
+  if fallbackOrdinal >= ord(low(PanelKind)) and fallbackOrdinal <= ord(high(PanelKind)):
+    return PanelPersistentName[PanelKind(fallbackOrdinal)]
+  fallbackName
+
+proc panelSessionValue(node: JsonNode, key, fallbackName: string,
+                       fallbackOrdinal: int): tuple[name: string, ordinal: int] =
+  result = (fallbackName, fallbackOrdinal)
+  if node == nil or node.kind != JObject or not node.hasKey(key): return
+  let value = node[key]
+  try:
+    case value.kind
+    of JString:
+      result.name = value.getStr
+      for panel in PanelKind:
+        if PanelPersistentName[panel] == result.name:
+          result.ordinal = ord(panel)
+          break
+    of JInt:
+      result.ordinal = value.getInt
+      result.name = panelNameForOrdinal(result.ordinal, fallbackOrdinal, fallbackName)
+    else:
+      discard
+  except CatchableError:
+    discard
 
 proc normalizedSessionPaths(paths: openArray[string], directoriesOnly = false): seq[string] =
   ## Session data predates the canonical identity boundary used by Finder,
@@ -98,9 +127,15 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
                 "workspaceLeftDockSize": session.workspaceLeftDockSize,
                 "workspaceBottomDockSize": session.workspaceBottomDockSize,
                 "workspaceRightDockSize": session.workspaceRightDockSize,
-                "workspaceLeftPanel": session.workspaceLeftPanel,
-                "workspaceBottomPanel": session.workspaceBottomPanel,
-                "workspaceRightPanel": session.workspaceRightPanel}
+                "workspaceLeftPanel": if session.workspaceLeftPanelName.len > 0:
+                  session.workspaceLeftPanelName else:
+                    panelNameForOrdinal(session.workspaceLeftPanel, 0, "Project Panel"),
+                "workspaceBottomPanel": if session.workspaceBottomPanelName.len > 0:
+                  session.workspaceBottomPanelName else:
+                    panelNameForOrdinal(session.workspaceBottomPanel, 3, "TerminalPanel"),
+                "workspaceRightPanel": if session.workspaceRightPanelName.len > 0:
+                  session.workspaceRightPanelName else:
+                    panelNameForOrdinal(session.workspaceRightPanel, 0, "Project Panel")}
   var tabs = newJArray()
   var savedActive = -1
   var savedSecondary = -1
@@ -191,9 +226,15 @@ proc loadSession*(path: string): EditorSession =
   result.workspaceLeftDockSize = max(0'f32, jsonFloat(root, "workspaceLeftDockSize", 0'f32))
   result.workspaceBottomDockSize = max(0'f32, jsonFloat(root, "workspaceBottomDockSize", 0'f32))
   result.workspaceRightDockSize = max(0'f32, jsonFloat(root, "workspaceRightDockSize", 0'f32))
-  result.workspaceLeftPanel = max(0, jsonInt(root, "workspaceLeftPanel", 0))
-  result.workspaceBottomPanel = max(0, jsonInt(root, "workspaceBottomPanel", 3))
-  result.workspaceRightPanel = max(0, jsonInt(root, "workspaceRightPanel", 0))
+  let leftPanel = panelSessionValue(root, "workspaceLeftPanel", "Project Panel", 0)
+  let bottomPanel = panelSessionValue(root, "workspaceBottomPanel", "TerminalPanel", 3)
+  let rightPanel = panelSessionValue(root, "workspaceRightPanel", "Project Panel", 0)
+  result.workspaceLeftPanel = leftPanel.ordinal
+  result.workspaceBottomPanel = bottomPanel.ordinal
+  result.workspaceRightPanel = rightPanel.ordinal
+  result.workspaceLeftPanelName = leftPanel.name
+  result.workspaceBottomPanelName = bottomPanel.name
+  result.workspaceRightPanelName = rightPanel.name
   if root.hasKey("recentFiles") and root["recentFiles"].kind == JArray:
     for item in root["recentFiles"].getElems:
       if item.kind == JString:

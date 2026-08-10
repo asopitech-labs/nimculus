@@ -1,8 +1,10 @@
 import std/unittest
+import std/json
 import std/os
 import nimnui/geometry
 import nimculus/editor_app
 import nimculus/settings
+import nimculus/session
 import nimculus/workspace_ui
 
 suite "workspace UI state":
@@ -175,12 +177,15 @@ suite "workspace UI state":
     check session.workspaceLeftDockOpen
     check session.workspaceLeftDockSize == 271'f32
     check session.workspaceLeftPanel == ord(panelAgent)
+    check session.workspaceLeftPanelName == PanelPersistentName[panelAgent]
     check session.workspaceBottomDockOpen
     check session.workspaceBottomDockSize == 299'f32
     check session.workspaceBottomPanel == ord(panelTerminal)
+    check session.workspaceBottomPanelName == PanelPersistentName[panelTerminal]
     check not session.workspaceRightDockOpen
     check session.workspaceRightDockSize == 347'f32
     check session.workspaceRightPanel == ord(panelGit)
+    check session.workspaceRightPanelName == PanelPersistentName[panelGit]
     let restored = initWorkspaceUi(session)
     check restored.leftDock.isOpen
     check restored.leftDock.size == 271'f32
@@ -191,6 +196,72 @@ suite "workspace UI state":
     check not restored.rightDock.isOpen
     check restored.rightDock.size == 347'f32
     check restored.rightDock.activePanel == panelGit
+
+  test "session panel persistence uses names and survives enum order changes":
+    var persistentNames: seq[string]
+    for panel in PanelKind:
+      check PanelPersistentName[panel].len > 0
+      check PanelPersistentName[panel] notin persistentNames
+      persistentNames.add(PanelPersistentName[panel])
+    let root = getTempDir() / "nimculus-panel-persistent-names"
+    createDir(root)
+    let path = root / "session.json"
+    var state = initWorkspaceUi()
+    state.leftDock.isOpen = true
+    state.leftDock.size = 240'f32
+    state.leftDock.activePanel = panelAgent
+    state.bottomDock.isOpen = true
+    state.bottomDock.size = 260'f32
+    state.bottomDock.activePanel = panelTerminal
+    state.rightDock.isOpen = true
+    state.rightDock.size = 240'f32
+    state.rightDock.activePanel = panelGit
+    var session: EditorSession
+    state.saveWorkspaceUi(session)
+    session.saveSession(path)
+    let saved = parseJson(readFile(path))
+    check saved["workspaceLeftPanel"].getStr == "Agent Panel"
+    check saved["workspaceBottomPanel"].getStr == "TerminalPanel"
+    check saved["workspaceRightPanel"].getStr == "Git Panel"
+
+    # A reordered fixture would assign different ordinals to these panels; the
+    # persisted names remain the same lookup keys when the real enum changes.
+    type ReorderedPanelKind = enum
+      reorderedAgent, reorderedTerminal, reorderedGit
+    let reorderedNames: array[ReorderedPanelKind, string] = [
+      "Agent Panel", "TerminalPanel", "Git Panel"]
+    check reorderedNames[reorderedAgent] == saved["workspaceLeftPanel"].getStr
+    check reorderedNames[reorderedTerminal] == saved["workspaceBottomPanel"].getStr
+    check reorderedNames[reorderedGit] == saved["workspaceRightPanel"].getStr
+    let restored = initWorkspaceUi(loadSession(path))
+    check restored.leftDock.activePanel == panelAgent
+    check restored.bottomDock.activePanel == panelTerminal
+    check restored.rightDock.activePanel == panelGit
+    removeFile(path)
+    removeDir(root)
+
+  test "unknown panel name falls back to terminal":
+    let root = getTempDir() / "nimculus-unknown-panel-name"
+    createDir(root)
+    let path = root / "session.json"
+    writeFile(path, """{"workspaceBottomDockSize":260,"workspaceBottomPanel":"Unknown Panel"}""")
+    let restored = initWorkspaceUi(loadSession(path))
+    check restored.bottomDock.activePanel == panelTerminal
+    removeFile(path)
+    removeDir(root)
+
+  test "old integer panel ids migrate to persistent names":
+    let root = getTempDir() / "nimculus-old-panel-ids"
+    createDir(root)
+    let path = root / "session.json"
+    writeFile(path, """{"workspaceBottomDockSize":260,"workspaceBottomPanel":3}""")
+    var restored = initWorkspaceUi(loadSession(path))
+    check restored.bottomDock.activePanel == panelTerminal
+    writeFile(path, """{"workspaceBottomDockSize":260,"workspaceBottomPanel":7}""")
+    restored = initWorkspaceUi(loadSession(path))
+    check restored.bottomDock.activePanel == panelAgent
+    removeFile(path)
+    removeDir(root)
 
   test "session without dock state keeps all docks closed":
     var session: EditorSession

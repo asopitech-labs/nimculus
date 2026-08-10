@@ -14,7 +14,7 @@ type
     regionStatus
 
   PanelKind* = enum
-    # Keep new values at the end: panel ordinals are persisted in sessions.
+    ## Persistence uses PanelPersistentName below; enum order is not persisted.
     panelFiles, panelGit, panelOutline, panelTerminal, panelTasks, panelSearch,
     panelDebugger, panelAgent
 
@@ -93,6 +93,9 @@ type
 proc `==`*(a, b: PaneId): bool {.borrow.}
 
 const
+  PanelPersistentName*: array[PanelKind, string] = [
+    "Project Panel", "Git Panel", "Outline Panel", "TerminalPanel",
+    "Tasks Panel", "Search Panel", "Debugger Panel", "Agent Panel"]
   DefaultLeftDockWidth* = 240'f32
   DefaultBottomDockHeight* = 260'f32
   ## Zed's logical separator/status surface is presented by AppKit in the
@@ -186,6 +189,18 @@ proc panelFromOrdinal(value: int, fallback: PanelKind): PanelKind =
   if value >= ord(low(PanelKind)) and value <= ord(high(PanelKind)):
     PanelKind(value) else: fallback
 
+proc panelFromPersistentName(value: string, fallback: PanelKind): PanelKind =
+  for panel in PanelKind:
+    if PanelPersistentName[panel] == value:
+      return panel
+  fallback
+
+proc panelFromSession(name: string, ordinal: int, fallback: PanelKind): PanelKind =
+  if name.len > 0:
+    panelFromPersistentName(name, fallback)
+  else:
+    panelFromOrdinal(ordinal, fallback)
+
 proc restoreDock(state: var WorkspaceUiState, side: DockSide, isOpen: bool,
                  size: float32, panel: PanelKind) =
   let restoredSize = max(DefaultDockMinimumSize, size)
@@ -211,15 +226,18 @@ proc initWorkspaceUi*(session: EditorSession, settings: SettingsStore = nil): Wo
   if session.workspaceLeftDockSize > 0:
     result.restoreDock(dockLeft, session.workspaceLeftDockOpen,
       session.workspaceLeftDockSize,
-      panelFromOrdinal(session.workspaceLeftPanel, panelAgent))
+      panelFromSession(session.workspaceLeftPanelName, session.workspaceLeftPanel,
+        panelAgent))
   if session.workspaceBottomDockSize > 0:
     result.restoreDock(dockBottom, session.workspaceBottomDockOpen,
       session.workspaceBottomDockSize,
-      panelFromOrdinal(session.workspaceBottomPanel, panelTerminal))
+      panelFromSession(session.workspaceBottomPanelName, session.workspaceBottomPanel,
+        panelTerminal))
   if session.workspaceRightDockSize > 0:
     result.restoreDock(dockRight, session.workspaceRightDockOpen,
       session.workspaceRightDockSize,
-      panelFromOrdinal(session.workspaceRightPanel, panelFiles))
+      panelFromSession(session.workspaceRightPanelName, session.workspaceRightPanel,
+        panelFiles))
 
 proc panelDockSide*(state: WorkspaceUiState, panel: PanelKind): DockSide =
   state.panelDockSides[panel]
@@ -304,6 +322,9 @@ proc saveWorkspaceUi*(state: WorkspaceUiState, session: var EditorSession) =
   session.workspaceLeftPanel = ord(state.leftDock.activePanel)
   session.workspaceBottomPanel = ord(state.bottomDock.activePanel)
   session.workspaceRightPanel = ord(state.rightDock.activePanel)
+  session.workspaceLeftPanelName = PanelPersistentName[state.leftDock.activePanel]
+  session.workspaceBottomPanelName = PanelPersistentName[state.bottomDock.activePanel]
+  session.workspaceRightPanelName = PanelPersistentName[state.rightDock.activePanel]
 
 proc dock*(state: WorkspaceUiState, side: DockSide): DockState =
   case side
