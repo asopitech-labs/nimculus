@@ -1,5 +1,67 @@
 # Design Decisions
 
+## UI-130: セッションが無いときドックを開かない
+
+右側（cols 1500-2048）の `identical` が **11.15%** と極端に低い一方、
+`>32` は 2.64%。**広範囲のわずかな色差**を追って見つけた。
+
+### 実測（2026-08-10、テスト VM、両者とも単一ファイルを引数に起動）
+
+| | 右側の中身 |
+| --- | --- |
+| **Zed** | **ドック無し**。エディタ本文が右端まで（`#fafafa`）|
+| Nimculus | 右ドックが開き、「Open a folder to start a…」の空状態（`#ebebec`）|
+
+**ファイルだけを開いた状態で、Nimculus はドックを開いている。**
+
+### コードの既定は一致している
+
+| | 値 |
+| --- | --- |
+| Zed `Dock::new`（`dock.rs:418`）| `is_open: false` |
+| Nimculus `initWorkspaceUi`（`workspace_ui.nim:171-176`）| `isOpen: false` |
+
+**差はセッションの読み込み側**（`session.nim:188-190`）:
+
+```nim
+result.workspaceLeftDockOpen = jsonBool(root, "workspaceLeftDockOpen", true)   # ← true
+result.workspaceBottomDockOpen = jsonBool(root, "workspaceBottomDockOpen", false)
+result.workspaceRightDockOpen = jsonBool(root, "workspaceRightDockOpen", false)
+```
+
+**セッションファイルが無いとき、左ドックが開く既定になっている。**
+
+Zed は `Dock::new` が閉じた状態で始まり、**シリアライズされた状態からのみ開く**
+（`DockStructure` の復元、`persistence/model.rs:152-156`）。
+新規のワークスペースではドックは開かない。
+
+### なぜ今まで見えなかったか
+
+ハーネスが Zed の `workspaces` を全削除するようにしたのは今日
+（罠 19 の対策）。それ以前は Zed もゴールデンイメージの
+復元状態でドックを開いていたので、**両者ともドックがある状態で比べていた**。
+
+**測定条件を正した結果、実装の差が露出した。**
+
+### やること
+
+`session.nim:188` の既定を `false` にする。
+Zed と同じく「保存された状態が無ければ閉じている」にそろえる。
+
+### 却下案
+
+**(a) 初回起動でファイルツリーを見せたい。** Zed は見せない。
+UX の好みは移植の判断基準ではない（UI-113 の却下案 c と同じ）。却下。
+
+**(b) フォルダを開いたときだけ開く。** Zed はフォルダを開いても
+シリアライズされた状態が無ければ閉じたまま。却下。
+
+### テスト観点
+
+- セッションファイルが無いとき 3 つのドックがすべて閉じている
+- セッションに `true` が保存されていれば開く
+- キャプチャ: 右側の `identical` が上がること（現状 11.15%）
+
 ## UI-129: 長時間の git ジョブ（アクティビティインジケータの源 4）
 
 UI-127 で表示の連鎖を作った。**次の源を足せるか調べた。**
