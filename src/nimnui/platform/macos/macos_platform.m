@@ -904,15 +904,15 @@ static BOOL themeLooksLight(void) {
 static NSColor *themeTokenFallback(NSString *key, NSColor *fallback) {
   const BOOL light = themeLooksLight();
   NSDictionary *lightValues = @{
-    @"chromeBg": @"#dcddde", @"tabBar": @"#ececed", @"tabActive": @"#fcfcfc",
-    @"surface": @"#ececed", @"panel": @"#ececed", @"elevated": @"#ececed",
+    @"chromeBg": @"#dcdcdd", @"tabBar": @"#ebebec", @"tabActive": @"#fafafa",
+    @"surface": @"#ebebec", @"panel": @"#ebebec", @"elevated": @"#ebebec",
     @"border": @"#c9c9ca", @"borderVariant": @"#dfdfe0", @"fgPrimary": @"#242529",
     @"fgMuted": @"#58585a", @"accent": @"#5c78e2", @"textMuted": @"#58585a",
-    @"editor": @"#fcfcfc", @"editorForeground": @"#242529", @"gutter": @"#fcfcfc",
-    @"editorActiveLine": @"#ececedbf",
-    @"scrollbarThumb": @"#00000000", @"scrollbarHover": @"#dfdfe0",
+    @"editor": @"#fafafa", @"editorForeground": @"#242529", @"gutter": @"#fafafa",
+    @"editorActiveLine": @"#ebebecbf",
+    @"scrollbarThumb": @"#383a414c", @"scrollbarHover": @"#dfdfe0",
     @"lineNumber": @"#b4b4bb", @"activeLineNumber": @"#44454b", @"hoverLineNumber": @"#61616b",
-    @"caret": @"#5c78e2", @"statusBar": @"#dcddde", @"titleBar": @"#dcddde",
+    @"caret": @"#5c78e2", @"statusBar": @"#dcdcdd", @"titleBar": @"#dcdcdd",
     @"added": @"#27a657", @"modified": @"#d3b020", @"deleted": @"#e06c76",
     @"hint": @"#7274a7",
     @"ignored": @"#7e8086"
@@ -2140,11 +2140,6 @@ static NimculusPaintRegion paintCommandScissor(NimculusPaintCommand paint) {
 // glyph atlas, clipping, and line-number/guide layout.
 static const CGFloat NimculusEditorTextTopInset = 2.0;
 static const CGFloat NimculusEditorTextGlyphSafety = 2.0;
-// The theme RGB values remain unchanged. Zed's glyph atlas is lighter because
-// its rasterized coverage is thinner; applying coverage at the compositing
-// boundary reproduces that antialiasing without inventing replacement hex
-// colors or bypassing the resolved syntax roles.
-static const CGFloat NimculusEditorGlyphCoverage = 0.72;
 // The footer is flipped, so a small positive frame offset moves its glyphs
 // down to the vertical center of the painted status band.
 static const CGFloat NimculusStatusItemVerticalOffset = 4.5;
@@ -2666,7 +2661,7 @@ void nimculus_platform_get_editor_glyph_color(uint32_t kind,
     color->alpha = 1.0f;
     return;
   }
-  NSColor *rgb = [resolved colorUsingColorSpace:[NSColorSpace genericRGBColorSpace]];
+  NSColor *rgb = [resolved colorUsingColorSpace:[NSColorSpace sRGBColorSpace]];
   CGFloat alpha = 1.0;
   CGFloat red = 0.0, green = 0.0, blue = 0.0;
   [rgb getRed:&red green:&green blue:&blue alpha:&alpha];
@@ -2708,13 +2703,6 @@ static CTFontRef syntaxFontForKind(uint32_t kind, CTFontRef baseFont) {
   if (!weight || weight.doubleValue < 700.0) return NULL;
   return CTFontCreateCopyWithSymbolicTraits(baseFont, 0.0, NULL,
     kCTFontTraitBold, kCTFontTraitBold);
-}
-
-static NSColor *editorGlyphColor(NSColor *color) {
-  if (!color) return nil;
-  NSColor *rgb = [color colorUsingColorSpace:[NSColorSpace genericRGBColorSpace]];
-  if (!rgb) rgb = color;
-  return [rgb colorWithAlphaComponent:rgb.alphaComponent * NimculusEditorGlyphCoverage];
 }
 
 // Building the face from its name is not free, and the wrap and metrics paths
@@ -3881,9 +3869,9 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
   uint64_t evictionCountBefore = g_glyph_atlas_eviction_count;
   CTFontRef baseFont = editorFont();
   if (!baseFont) return;
-  NSColor *baseColor = editorGlyphColor(themeRoleColor(@"editorForeground",
+  NSColor *baseColor = themeRoleColor(@"editorForeground",
     themeHexColor(g_theme_foreground,
-      [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0])));
+      [NSColor colorWithCalibratedRed:0.85 green:0.90 blue:1.0 alpha:1.0]));
   NSDictionary *attributes = @{ (id)kCTFontAttributeName: (__bridge id)baseFont,
     (id)kCTForegroundColorAttributeName: (id)baseColor.CGColor };
   NSArray<NSString *> *lines = editorLinesForText(text);
@@ -3928,8 +3916,8 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
         if (endUnit > startUnit) {
           CGFloat red, green, blue;
           highlightColor(span.kind, &red, &green, &blue);
-          NSColor *color = editorGlyphColor([NSColor colorWithCalibratedRed:red
-            green:green blue:blue alpha:1.0]);
+          NSColor *color = [NSColor colorWithCalibratedRed:red
+            green:green blue:blue alpha:1.0];
           [attributed addAttribute:(id)kCTForegroundColorAttributeName
             value:(id)color.CGColor range:NSMakeRange(startUnit, endUnit - startUnit)];
           CTFontRef syntaxFont = syntaxFontForKind(span.kind, baseFont);
