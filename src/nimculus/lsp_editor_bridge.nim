@@ -735,6 +735,14 @@ proc diagnosticsForPath*(bridge: LspEditorBridge, path: string): seq[LspDiagnost
   if bridge != nil and bridge.session != nil and path.len > 0:
     result = bridge.session.diagnosticsFor(fileUri(path))
 
+proc diagnosticSummary*(bridge: LspEditorBridge): DiagnosticSummary =
+  if bridge != nil and bridge.session != nil and bridge.uri.len > 0:
+    result = bridge.session.diagnosticSummaryFor(bridge.uri)
+
+proc diagnosticSummaryForPath*(bridge: LspEditorBridge, path: string): DiagnosticSummary =
+  if bridge != nil and bridge.session != nil and path.len > 0:
+    result = bridge.session.diagnosticSummaryFor(fileUri(path))
+
 proc openedDocumentCount*(bridge: LspEditorBridge): int =
   if bridge == nil: return
   for _, document in bridge.documents:

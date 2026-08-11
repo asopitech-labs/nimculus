@@ -296,6 +296,43 @@ suite "M8 LSP protocol foundation":
     check parsed.diagnostics[0].range.start.line == 2
     check parsed.diagnostics[0].severity == 2
 
+  test "stores diagnostics per server and recomputes path summaries":
+    let session = startLspSession("python3", ["-u", "-c", "import time; time.sleep(2)"],
+      "", "Nimculus")
+    defer: session.stop()
+    let uri = "file:///a.nim"
+    let payload = proc(diagnostics: JsonNode): JsonNode =
+      %*{"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
+        "params": {"uri": uri, "diagnostics": diagnostics}}
+    let diagnostics = %*[{
+      "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}},
+      "severity": 1, "message": "error 1"}, {
+      "range": {"start": {"line": 1, "character": 0}, "end": {"line": 1, "character": 1}},
+      "severity": 1, "message": "error 2"}, {
+      "range": {"start": {"line": 2, "character": 0}, "end": {"line": 2, "character": 1}},
+      "severity": 2, "message": "warning"}, {
+      "range": {"start": {"line": 3, "character": 0}, "end": {"line": 3, "character": 1}},
+      "severity": 3, "message": "information"}, {
+      "range": {"start": {"line": 4, "character": 0}, "end": {"line": 4, "character": 1}},
+      "severity": 4, "message": "hint"}]
+    session.storeDiagnostics(payload(diagnostics), 1)
+    check session.diagnosticSummaryFor(uri) == DiagnosticSummary(errorCount: 2, warningCount: 1)
+
+    session.storeDiagnostics(payload(newJArray()), 1)
+    check session.diagnosticSummaryFor(uri) == DiagnosticSummary(errorCount: 0, warningCount: 0)
+
+    let firstServer = %*[{
+      "range": {"start": {"line": 5, "character": 0}, "end": {"line": 5, "character": 1}},
+      "severity": 1, "message": "server 1"}, {
+      "range": {"start": {"line": 6, "character": 0}, "end": {"line": 6, "character": 1}},
+      "severity": 2, "message": "server 1 warning"}]
+    let secondServer = %*[{
+      "range": {"start": {"line": 7, "character": 0}, "end": {"line": 7, "character": 1}},
+      "severity": 1, "message": "server 2"}]
+    session.storeDiagnostics(payload(firstServer), 1)
+    session.storeDiagnostics(payload(secondServer), 2)
+    check session.diagnosticsFor(uri).len == firstServer.len + secondServer.len
+
   test "parses feature responses and rejects stale responses":
     var tracker = initLspRequestTracker()
     let oldRequest = tracker.beginRequest("textDocument/hover")
