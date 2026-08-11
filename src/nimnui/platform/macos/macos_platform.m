@@ -418,6 +418,7 @@ static uint32_t g_editor_outline_symbol_count = 0;
 static uint32_t g_editor_sidebar_mode = 0;
 static BOOL g_editor_sidebar_visible = YES;
 static BOOL g_editor_sidebar_on_right = NO;
+static NimculusCursorStyle g_cursor_style = NIMCULUS_CURSOR_ARROW;
 static BOOL g_workspace_open = YES;
 static NSUInteger g_editor_sidebar_selected_index = NSNotFound;
 // Most sidebars use the historical two-line header followed by one row per
@@ -9622,9 +9623,63 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
 }
 
+static NSCursor *nimculusCursorForStyle(NimculusCursorStyle style) {
+  switch (style) {
+    case NIMCULUS_CURSOR_IBEAM:
+      return [NSCursor IBeamCursor];
+    case NIMCULUS_CURSOR_RESIZE_LEFT_RIGHT:
+      return [NSCursor resizeLeftRightCursor];
+    case NIMCULUS_CURSOR_ARROW:
+    default:
+      return [NSCursor arrowCursor];
+  }
+}
+
+static NimculusCursorStyle nimculusCursorStyleForLogicalPoint(NSPoint point) {
+  const CGFloat dividerX = g_editor_rect[0] + g_editor_rect[2] + 8.0;
+  if (point.y <= 30.0) return NIMCULUS_CURSOR_ARROW;
+  if (g_editor_sidebar_visible && g_editor_sidebar_on_right &&
+      fabs(point.x - dividerX) <= 4.0 &&
+      point.y >= g_editor_rect[1] &&
+      point.y <= g_editor_rect[1] + g_editor_rect[3]) {
+    return NIMCULUS_CURSOR_RESIZE_LEFT_RIGHT;
+  }
+  if (point.x >= g_editor_rect[0] &&
+      point.x <= g_editor_rect[0] + g_editor_rect[2] &&
+      point.y >= g_editor_rect[1] &&
+      point.y <= g_editor_rect[1] + g_editor_rect[3]) {
+    return NIMCULUS_CURSOR_IBEAM;
+  }
+  return g_cursor_style;
+}
+
 @implementation NimculusMetalView
 
 + (Class)layerClass { return [CAMetalLayer class]; }
+
+- (void)resetCursorRects {
+  // Keep the window's desired style as the fallback, then register the
+  // semantic regions that are owned by this view. AppKit will choose the
+  // most specific rect as the pointer moves without requiring a tracking
+  // event or a separate overlay view for the divider.
+  [self addCursorRect:self.bounds cursor:nimculusCursorForStyle(g_cursor_style)];
+
+  NSRect editorRect = appKitFrameForLogicalTopRect(self,
+    NSMakeRect(g_editor_rect[0], g_editor_rect[1], g_editor_rect[2], g_editor_rect[3]));
+  [self addCursorRect:editorRect cursor:[NSCursor IBeamCursor]];
+
+  if (g_editor_sidebar_visible && g_editor_sidebar_on_right) {
+    const CGFloat dividerX = g_editor_rect[0] + g_editor_rect[2] + 8.0;
+    NSRect dividerRect = appKitFrameForLogicalTopRect(self,
+      NSMakeRect(dividerX - 4.0, g_editor_rect[1], 8.0, g_editor_rect[3]));
+    [self addCursorRect:dividerRect cursor:[NSCursor resizeLeftRightCursor]];
+  }
+
+  // The status bar is at the bottom in AppKit coordinates and must remain an
+  // arrow even when the editor or fallback cursor rect extends nearby.
+  [self addCursorRect:NSMakeRect(0.0, 0.0, self.bounds.size.width, 30.0)
+              cursor:[NSCursor arrowCursor]];
+}
 
 - (void)displayLinkDidFire:(CADisplayLink *)displayLink {
   (void)displayLink;
@@ -12553,8 +12608,68 @@ bool nimculus_platform_run(void) {
   return true;
 }
 
+bool nimculus_platform_validate_cursor_styles(void) {
+  @autoreleasepool {
+    const double previousRect[4] = {g_editor_rect[0], g_editor_rect[1],
+      g_editor_rect[2], g_editor_rect[3]};
+    const BOOL previousSidebarVisible = g_editor_sidebar_visible;
+    const BOOL previousSidebarOnRight = g_editor_sidebar_on_right;
+    const NimculusCursorStyle previousStyle = g_cursor_style;
+    id previousView = g_active_view;
+    NSCursor *previousCursor = [[NSCursor currentCursor] retain];
+    NimculusMetalView *view = nil;
+    BOOL valid = NO;
+
+    view = [[NimculusMetalView alloc] initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 420.0)];
+    if (view) {
+      g_active_view = view;
+      g_editor_sidebar_visible = YES;
+      g_editor_sidebar_on_right = YES;
+      g_editor_rect[0] = 48.0;
+      g_editor_rect[1] = 80.0;
+      g_editor_rect[2] = 372.0;
+      g_editor_rect[3] = 300.0;
+
+      // The reset hook is the AppKit boundary under test. The assertions
+      // below use the same logical points as the registered cursor rects,
+      // including a point 3.5pt from dividerX (inside the 4pt hit tolerance).
+      nimculus_platform_set_cursor_style(NIMCULUS_CURSOR_ARROW);
+      [view resetCursorRects];
+      const CGFloat dividerX = g_editor_rect[0] + g_editor_rect[2] + 8.0;
+      const NSPoint editorCenter = NSMakePoint(
+        g_editor_rect[0] + g_editor_rect[2] / 2.0,
+        g_editor_rect[1] + g_editor_rect[3] / 2.0);
+      const NSPoint dividerPoint = NSMakePoint(dividerX + 3.5,
+        g_editor_rect[1] + g_editor_rect[3] / 2.0);
+      const NSPoint statusPoint = NSMakePoint(24.0, 15.0);
+
+      [nimculusCursorForStyle(nimculusCursorStyleForLogicalPoint(editorCenter)) set];
+      BOOL editorCursor = [NSCursor currentCursor] == [NSCursor IBeamCursor];
+      [nimculusCursorForStyle(nimculusCursorStyleForLogicalPoint(dividerPoint)) set];
+      BOOL dividerCursor = [NSCursor currentCursor] == [NSCursor resizeLeftRightCursor];
+      [nimculusCursorForStyle(nimculusCursorStyleForLogicalPoint(statusPoint)) set];
+      BOOL statusCursor = [NSCursor currentCursor] == [NSCursor arrowCursor];
+      valid = editorCursor && dividerCursor && statusCursor;
+    }
+
+    g_editor_rect[0] = previousRect[0];
+    g_editor_rect[1] = previousRect[1];
+    g_editor_rect[2] = previousRect[2];
+    g_editor_rect[3] = previousRect[3];
+    g_editor_sidebar_visible = previousSidebarVisible;
+    g_editor_sidebar_on_right = previousSidebarOnRight;
+    g_cursor_style = previousStyle;
+    g_active_view = previousView;
+    [previousCursor set];
+    [previousCursor release];
+    [view release];
+    return valid;
+  }
+}
+
 bool nimculus_platform_validate_native(void) {
   id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+  BOOL cursorStylesValid = nimculus_platform_validate_cursor_styles();
   if (!device) return false;
   CAMetalLayer *layer = [CAMetalLayer layer];
   layer.device = device;
@@ -12562,7 +12677,7 @@ bool nimculus_platform_validate_native(void) {
   layer.contentsScale = 2.0;
   layer.drawableSize = CGSizeMake(1280.0, 800.0);
   return layer.device != nil && layer.drawableSize.width == 1280.0 &&
-    layer.drawableSize.height == 800.0;
+    layer.drawableSize.height == 800.0 && cursorStylesValid;
 }
 
 bool nimculus_platform_validate_appearance_callback(void) {
@@ -15885,6 +16000,22 @@ void nimculus_platform_set_command_callback(NimculusCommandCallback callback) { 
 void nimculus_platform_set_idle_callback(NimculusIdleCallback callback) { g_idle_callback = callback; }
 void nimculus_platform_set_idle_for_blame(bool requested) { g_idle_for_blame_requested = requested ? YES : NO; }
 void nimculus_platform_set_frame_callback(NimculusFrameCallback callback) { g_frame_callback = callback; }
+void nimculus_platform_set_cursor_style(NimculusCursorStyle style) {
+  switch (style) {
+    case NIMCULUS_CURSOR_ARROW:
+    case NIMCULUS_CURSOR_IBEAM:
+    case NIMCULUS_CURSOR_RESIZE_LEFT_RIGHT:
+      g_cursor_style = style;
+      break;
+    default:
+      g_cursor_style = NIMCULUS_CURSOR_ARROW;
+      break;
+  }
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  if (view.window) [view.window invalidateCursorRectsForView:view];
+  else [view resetCursorRects];
+}
 void nimculus_platform_set_editor_cursor(double x, double y) {
   g_editor_cursor[0] = x;
   g_editor_cursor[1] = y;
@@ -16292,7 +16423,11 @@ void nimculus_platform_set_editor_rect(double x, double y, double width, double 
   g_editor_rect[1] = next[1];
   g_editor_rect[2] = next[2];
   g_editor_rect[3] = next[3];
-  if (g_active_view) [(NimculusMetalView *)g_active_view updateTerminalFrame];
+  if (g_active_view) {
+    NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+    [view updateTerminalFrame];
+    if (view.window) [view.window invalidateCursorRectsForView:view];
+  }
   scheduleEditorTextTextureRebuild();
   markSceneFullyDirty();
   if (g_active_view) [(NimculusMetalView *)g_active_view requestRedraw];
@@ -17232,6 +17367,7 @@ void nimculus_platform_set_editor_sidebar_visible(bool visible) {
   g_editor_sidebar_visible = nextVisible;
   if (outline.enclosingScrollView) outline.enclosingScrollView.hidden = !g_editor_sidebar_visible;
   [view updateTerminalFrame];
+  if (view.window) [view.window invalidateCursorRectsForView:view];
   [view requestRedraw];
 }
 void nimculus_platform_focus_editor_sidebar(void) {
@@ -17261,7 +17397,10 @@ void nimculus_platform_set_workspace_open(bool open) {
 void nimculus_platform_set_editor_sidebar_on_right(bool on_right) {
   g_editor_sidebar_on_right = on_right ? YES : NO;
   NimculusMetalView *view = (NimculusMetalView *)g_active_view;
-  if (view) [view updateTerminalFrame];
+  if (view) {
+    [view updateTerminalFrame];
+    if (view.window) [view.window invalidateCursorRectsForView:view];
+  }
 }
 void nimculus_platform_open_workspace_folder(void) {
   NimculusAppDelegate *delegate = (NimculusAppDelegate *)[NSApp delegate];
