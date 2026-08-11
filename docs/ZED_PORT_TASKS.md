@@ -32,7 +32,7 @@
 
 - [ ] **NSApplication bootstrap and app-delegate callbacks** — Zed `crates/gpui_macos/src/platform.rs:70 (build_classes), :488 (Platform::run), :1227 (did_finish_launching)`
 - [ ] **Runtime NSView/NSWindow subclass synthesis with a fixed selector set** — Zed `crates/gpui_macos/src/window.rs:131-303 (VIEW_CLASS), :365-474 (build_window_class)`
-- [ ] **Display-link frame pacing** — Zed `crates/gpui_macos/src/display_link.rs:65-226 (immortal per-display CVDisplayLink registry), :231 (WindowFrameSource), crates/gpui_macos/src/window.rs:659 (start_display_link), :2689 (step callback)`
+- [x] **Display-link frame pacing** — Zed `crates/gpui_macos/src/display_link.rs:65-226 (immortal per-display CVDisplayLink registry), :231 (WindowFrameSource), crates/gpui_macos/src/window.rs:659 (start_display_link), :2689 (step callback)`
 - [ ] **Metal renderer: pipeline states per primitive kind and a pooled instance buffer** — Zed `crates/gpui_macos/src/metal_renderer.rs:111-140 (MetalRenderer fields), :56-109 (InstanceBufferPool), :446 (draw), :1047-1568 (draw_shadows/quads/paths/underlines/mono+poly sprites/surfaces)`
 - [ ] **Sprite atlas with shelf packing and keyed tiles** — Zed `crates/gpui_macos/src/metal_atlas.rs:13 (MetalAtlas), :40 (get_or_insert_with), :96 (allocate), :121 (push_texture), :62/:250 (remove + refcount)`
 - [ ] **IME arbitration: who sees a key first, the keybinding matcher or the input context** — Zed `crates/gpui_macos/src/window.rs:2121 (handle_key_event), :2094 (is_ime_input_source_active), :2848 (do_command_by_selector)`
@@ -147,10 +147,10 @@
 - [ ] **KeyContext: the per-node context entry list** — Zed `crates/gpui/src/keymap/context.rs:10 (KeyContext), :14 (ContextEntry), :65 (parse), :117 (add), :126 (set), :137 (contains), :142 (get)`
 - [ ] **Keymap precedence resolution (bindings_for_input)** — Zed `crates/gpui/src/keymap.rs:164-242, sort at :187, binding_enabled at :245`
 - [ ] **The DispatchTree: per-frame node tree of contexts, focus ids and listeners** — Zed `crates/gpui/src/key_dispatch.rs:71 (DispatchTree), :83 (DispatchNode), :166 (push_node), :215 (set_key_context), :220 (set_focus_id), :226 (set_view_id), :323/:327/:333 (on_key_event / on_modifiers_changed / on_action)`
-- [ ] **dispatch_path / focus_path / focus_contains** — Zed `crates/gpui/src/key_dispatch.rs:563 (dispatch_path, root-to-focused), :574 (focus_path), :346 (focus_contains)`
+- [x] **dispatch_path / focus_path / focus_contains** — Zed `crates/gpui/src/key_dispatch.rs:563 (dispatch_path, root-to-focused), :574 (focus_path), :346 (focus_contains)`
 - [ ] **Capture/bubble phases for key and action listeners** — Zed `crates/gpui/src/window.rs:88 (DispatchPhase), :4999 (dispatch_key_down_up_event: capture root-to-focus, bubble focus-to-root, stopping when propagate_event is false), :5130 (dispatch_action_on_node_inner: global listeners first, then window capture, then bubble where `cx.propagate_event = false` is set *before* each bubble listener so actions stop propagation by default)`
 - [ ] **Synthetic keystrokes from modifier-only presses** — Zed `crates/gpui/src/window.rs:4815-4844 (a ModifiersChangedEvent that drops from exactly one modifier to zero without an intervening keystroke becomes a `shift`/`control`/`alt`/`platform`/`function` keystroke), crates/gpui/src/key_dispatch.rs:327 (modifiers_changed_listeners), window.rs:5030 (bubble-only dispatch of them)`
-- [ ] **FocusHandle / FocusId: refcounted, generation-safe focus identity** — Zed `crates/gpui/src/window.rs:267 (slotmap key FocusId), :383 (FocusHandle with tab_index and tab_stop), :404 (new, inserts into the FocusMap with a ref_count), :417 (for_id via atomic_incr_if_not_zero), :450 (downgrade to WeakFocusHandle), :457 (focus), :484 (dispatch_action from a handle)`
+- [x] **FocusHandle / FocusId: refcounted, generation-safe focus identity** — Zed `crates/gpui/src/window.rs:267 (slotmap key FocusId), :383 (FocusHandle with tab_index and tab_stop), :404 (new, inserts into the FocusMap with a ref_count), :417 (for_id via atomic_incr_if_not_zero), :450 (downgrade to WeakFocusHandle), :457 (focus), :484 (dispatch_action from a handle)`
 - [ ] **Platform input event vocabulary** — Zed `crates/gpui/src/interactive.rs:735 (PlatformInput enum), :25/:47/:62 (KeyDown/KeyUp/ModifiersChanged), :139/:176/:485/:513 (mouse down/up/move/scroll), :281 (ClickEvent unifying mouse, keyboard and touch activation), :762/:780 (mouse_event/keyboard_event partition)`
 
 **無い**
@@ -227,7 +227,7 @@
 **一部のみ — 先に片付ける**
 
 - [ ] **Panel trait (what a dock can contain)** — Zed `crates/workspace/src/dock.rs:36`
-- [ ] **Dock container: open bit, active panel index, per-panel size state** — Zed `crates/workspace/src/dock.rs:269`
+- [x] **Dock container: open bit, active panel index, per-panel size state** — Zed `crates/workspace/src/dock.rs:269`
 - [ ] **Dock resize handle geometry and double-click reset** — Zed `crates/workspace/src/dock.rs:1091 (Render for Dock), handle placement at dock.rs:1124-1150`
 - [ ] **PanelButtons (the status-bar dock toggles)** — Zed `crates/workspace/src/dock.rs:356, Render at dock.rs:1211, StatusItemView at dock.rs:1408`
 - [ ] **Item trait (what a tab knows how to be)** — Zed `crates/workspace/src/item.rs:170`
@@ -428,7 +428,7 @@
 - [ ] **Blame: entries by line range, plus batch commit-message fetch** — Zed `crates/git/src/blame.rs:17 (struct Blame: entries, messages by Oid, tag_names by Oid), :164 (BlameEntry: sha, range: Range<u32>, original_line_number, author/committer fields, summary), :29-58 (unique SHAs then one batched get_messages/get_tag_names); crates/project/src/git_store.rs:1880 blame_buffer`
 - [x] **Per-buffer LSP request keying and cancellation** — Zed `crates/project/src/lsp_store.rs:4140 (BufferLspData: buffer_version, per-feature caches, lsp_requests: HashMap<LspKey, HashMap<LspRequestId, Task<()>>>), :4154 (LspKey = request TypeId + server id), :4172-4208 remove_server_data`
 - [ ] **Buffer→server document synchronization with snapshot history for incremental didChange** — Zed `crates/project/src/lsp_store.rs:8431 on_buffer_edited (:8452-8470 builds incremental changes from edits_since against the last snapshot), :331 (buffer_snapshots: buffer_id → server_id → Vec<LspBufferSnapshot>), :14647 (LspBufferSnapshot), :236 (OpenLspBufferHandle — refcounted 'this buffer is open in servers'), :328 (registered_buffers: BufferId → count)`
-- [ ] **Diagnostics storage, per-path grouping and per-worktree summaries** — Zed `crates/project/src/lsp_store.rs:320-330 (LocalLspStore.diagnostics: WorktreeId → RelPath → Vec<(server_id, entries)>), :4131 (LspStore.diagnostic_summaries same shape → DiagnosticSummary), :14850 (DiagnosticSummary::new counts only is_primary entries), :4234 (LspStoreEvent::DiagnosticsUpdated{server_id, paths})`
+- [x] **Diagnostics storage, per-path grouping and per-worktree summaries** — Zed `crates/project/src/lsp_store.rs:320-330 (LocalLspStore.diagnostics: WorktreeId → RelPath → Vec<(server_id, entries)>), :4131 (LspStore.diagnostic_summaries same shape → DiagnosticSummary), :14850 (DiagnosticSummary::new counts only is_primary entries), :4234 (LspStoreEvent::DiagnosticsUpdated{server_id, paths})`
 - [ ] **Multi-root workspace with per-root ignore stacks** — Zed `crates/project/src/worktree_store.rs:352 worktrees / :359 visible_worktrees / :700 create_worktree; crates/worktree/src/worktree.rs:255 (ignores_by_parent_abs_path), :208 (enum WorkDirectory InProject/AboveProject)`
 
 **無い**
