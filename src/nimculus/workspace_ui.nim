@@ -104,6 +104,7 @@ type
     resizingDock*: DockSide
     isResizingDock*: bool
     nextPaneId*: int
+    agentDisabled: bool
 
 proc `==`*(a, b: PaneId): bool {.borrow.}
 
@@ -194,12 +195,17 @@ proc panelPositionIsValid*(panel: PanelKind, side: DockSide): bool
 proc panelDockSide*(state: WorkspaceUiState, panel: PanelKind): DockSide
 proc dock*(state: WorkspaceUiState, side: DockSide): DockView
 proc openPanel*(state: var WorkspaceUiState, panel: PanelKind)
+proc panelStartsOpen*(panel: PanelKind, settings: SettingsStore,
+                      hasFolderWorktree: bool): bool
 
 proc initWorkspaceUi*(tabCount = 0, activeTab = -1,
-                      settings: SettingsStore = nil): WorkspaceUiState =
+                      settings: SettingsStore = nil,
+                      hasFolderWorktree = false): WorkspaceUiState =
+  result.agentDisabled = settings != nil and settings.agentDisabled()
   var tabs: seq[int]
   for index in 0 ..< tabCount: tabs.add(index)
   for panel in PanelKind:
+    if result.agentDisabled and panel == panelAgent: continue
     result.panelDockSides[panel] = if settings == nil:
       defaultPanelDockSide(panel) else: panelDockSide(panel, settings)
     result.panelSizes[panel] = defaultDockSize(result.panelDockSides[panel])
@@ -207,7 +213,8 @@ proc initWorkspaceUi*(tabCount = 0, activeTab = -1,
     of dockLeft: result.leftDock.entries.add(panel)
     of dockBottom: result.bottomDock.entries.add(panel)
     of dockRight: result.rightDock.entries.add(panel)
-  result.leftDock = DockState(side: dockLeft, isOpen: false, activePanel: panelAgent,
+  result.leftDock = DockState(side: dockLeft, isOpen: false,
+    activePanel: if result.agentDisabled: panelSearch else: panelAgent,
     minimumSize: DefaultDockMinimumSize, entries: result.leftDock.entries)
   result.bottomDock = DockState(side: dockBottom, isOpen: false,
     activePanel: panelTerminal, minimumSize: DefaultDockMinimumSize,
@@ -220,6 +227,8 @@ proc initWorkspaceUi*(tabCount = 0, activeTab = -1,
   result.focusedRegion = regionCenter
   result.focusedPane = PaneId(1)
   result.nextPaneId = 2
+  if panelStartsOpen(panelFiles, settings, hasFolderWorktree):
+    result.openPanel(panelFiles)
 
 proc panelFromOrdinal(value: int, fallback: PanelKind): PanelKind =
   if value >= ord(low(PanelKind)) and value <= ord(high(PanelKind)):
@@ -240,40 +249,68 @@ proc panelFromSession(name: string, ordinal: int, fallback: PanelKind): PanelKin
 proc restoreDock(state: var WorkspaceUiState, side: DockSide, isOpen: bool,
                  size: float32, panel: PanelKind) =
   let restoredSize = max(DefaultDockMinimumSize, size)
+  var restoredPanel = panel
+  if state.agentDisabled and panel == panelAgent:
+    restoredPanel = case side
+      of dockLeft: panelSearch
+      of dockBottom: panelTerminal
+      of dockRight: panelFiles
   case side
   of dockLeft:
     state.leftDock.isOpen = isOpen
-    state.leftDock.activePanel = panel
-    state.panelSizes[panel] = restoredSize
+    state.leftDock.activePanel = restoredPanel
+    state.panelSizes[restoredPanel] = restoredSize
   of dockBottom:
     state.bottomDock.isOpen = isOpen
-    state.bottomDock.activePanel = panel
-    state.panelSizes[panel] = restoredSize
+    state.bottomDock.activePanel = restoredPanel
+    state.panelSizes[restoredPanel] = restoredSize
   of dockRight:
     state.rightDock.isOpen = isOpen
-    state.rightDock.activePanel = panel
-    state.panelSizes[panel] = restoredSize
+    state.rightDock.activePanel = restoredPanel
+    state.panelSizes[restoredPanel] = restoredSize
 
-proc initWorkspaceUi*(session: EditorSession, settings: SettingsStore = nil): WorkspaceUiState =
-  result = initWorkspaceUi(session.tabs.len, session.activeTab, settings)
+proc panelStartsOpen*(panel: PanelKind, settings: SettingsStore,
+                      hasFolderWorktree: bool): bool =
+  case panel
+  of panelFiles:
+    hasFolderWorktree and (settings == nil or settings.projectPanelStartsOpen())
+  else:
+    false
+
+proc restoreStartsOpen(state: var WorkspaceUiState, settings: SettingsStore,
+                       hasFolderWorktree: bool,
+                       restoredDocks: array[DockSide, bool]) =
+  if not panelStartsOpen(panelFiles, settings, hasFolderWorktree): return
+  let side = state.panelDockSide(panelFiles)
+  if not restoredDocks[side]: state.openPanel(panelFiles)
+
+proc initWorkspaceUi*(session: EditorSession, settings: SettingsStore = nil,
+                      hasFolderWorktree = false): WorkspaceUiState =
+  let hasFolder = hasFolderWorktree or session.workspaceRoots.len > 0
+  result = initWorkspaceUi(session.tabs.len, session.activeTab, settings, hasFolder)
+  var restoredDocks: array[DockSide, bool]
   # Session fields belong to physical docks, so restore each dock from its own
   # open bit, size, and active panel. A zero size means there is no persisted
   # dock state, and therefore leaves the dock closed.
   if session.workspaceLeftDockSize > 0:
+    restoredDocks[dockLeft] = true
     result.restoreDock(dockLeft, session.workspaceLeftDockOpen,
       session.workspaceLeftDockSize,
       panelFromSession(session.workspaceLeftPanelName, session.workspaceLeftPanel,
         panelAgent))
   if session.workspaceBottomDockSize > 0:
+    restoredDocks[dockBottom] = true
     result.restoreDock(dockBottom, session.workspaceBottomDockOpen,
       session.workspaceBottomDockSize,
       panelFromSession(session.workspaceBottomPanelName, session.workspaceBottomPanel,
         panelTerminal))
   if session.workspaceRightDockSize > 0:
+    restoredDocks[dockRight] = true
     result.restoreDock(dockRight, session.workspaceRightDockOpen,
       session.workspaceRightDockSize,
       panelFromSession(session.workspaceRightPanelName, session.workspaceRightPanel,
         panelFiles))
+  result.restoreStartsOpen(settings, hasFolder, restoredDocks)
 
 proc panelDockSide*(state: WorkspaceUiState, panel: PanelKind): DockSide =
   state.panelDockSides[panel]
@@ -297,6 +334,8 @@ proc applyPanelDockSettings*(state: var WorkspaceUiState, settings: SettingsStor
   let oldLeft = state.leftDock
   let oldBottom = state.bottomDock
   let oldRight = state.rightDock
+  let wasAgentDisabled = state.agentDisabled
+  state.agentDisabled = settings != nil and settings.agentDisabled()
   for panel in PanelKind:
     state.panelDockSides[panel] = panelDockSide(panel, settings)
 
@@ -362,6 +401,46 @@ proc applyPanelDockSettings*(state: var WorkspaceUiState, settings: SettingsStor
         of dockBottom: state.bottomDock.activePanel = replacement
         of dockRight: state.rightDock.activePanel = replacement
 
+  if state.agentDisabled:
+    for side in DockSide:
+      let entries = case side
+        of dockLeft: state.leftDock.entries
+        of dockBottom: state.bottomDock.entries
+        of dockRight: state.rightDock.entries
+      let index = entries.find(panelAgent)
+      if index >= 0:
+        case side
+        of dockLeft: state.leftDock.entries.delete(index)
+        of dockBottom: state.bottomDock.entries.delete(index)
+        of dockRight: state.rightDock.entries.delete(index)
+      let active = case side
+        of dockLeft: state.leftDock.activePanel
+        of dockBottom: state.bottomDock.activePanel
+        of dockRight: state.rightDock.activePanel
+      if active == panelAgent:
+        let replacement = state.replacementPanel(side, panelAgent)
+        if replacement == panelAgent:
+          case side
+          of dockLeft: state.leftDock.isOpen = false
+          of dockBottom: state.bottomDock.isOpen = false
+          of dockRight: state.rightDock.isOpen = false
+        else:
+          case side
+          of dockLeft: state.leftDock.activePanel = replacement
+          of dockBottom: state.bottomDock.activePanel = replacement
+          of dockRight: state.rightDock.activePanel = replacement
+  elif wasAgentDisabled:
+    let side = state.panelDockSide(panelAgent)
+    let entries = case side
+      of dockLeft: state.leftDock.entries
+      of dockBottom: state.bottomDock.entries
+      of dockRight: state.rightDock.entries
+    if panelAgent notin entries:
+      case side
+      of dockLeft: state.leftDock.entries.add(panelAgent)
+      of dockBottom: state.bottomDock.entries.add(panelAgent)
+      of dockRight: state.rightDock.entries.add(panelAgent)
+
 proc saveWorkspaceUi*(state: WorkspaceUiState, session: var EditorSession) =
   session.workspaceLeftDockOpen = state.leftDock.isOpen
   session.workspaceBottomDockOpen = state.bottomDock.isOpen
@@ -395,6 +474,7 @@ proc dock*(state: WorkspaceUiState, side: DockSide): DockView =
       minimumSize: state.rightDock.minimumSize, entries: state.rightDock.entries)
 
 proc panelIsActive*(state: WorkspaceUiState, panel: PanelKind): bool =
+  if panel == panelAgent and state.agentDisabled: return false
   let side = state.panelDockSide(panel)
   let current = state.dock(side)
   current.isOpen and current.activePanel == panel
@@ -465,6 +545,7 @@ proc panelDockSideMask*(state: WorkspaceUiState): uint32 =
     result = result or (sideCode shl uint32(ord(panel) * 2))
 
 proc openPanel*(state: var WorkspaceUiState, panel: PanelKind) =
+  if panel == panelAgent and state.agentDisabled: return
   let side = state.panelDockSide(panel)
   case side
   of dockLeft:

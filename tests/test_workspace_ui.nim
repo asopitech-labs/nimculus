@@ -270,6 +270,34 @@ suite "workspace UI state":
     check not restored.bottomDock.isOpen
     check not restored.rightDock.isOpen
 
+  test "project panel starts open only for a folder without persisted dock state":
+    let settings = newSettingsStore("", "", "")
+    let firstFolder = initWorkspaceUi(settings = settings, hasFolderWorktree = true)
+    check firstFolder.panelIsActive(panelFiles)
+    check firstFolder.rightDock.activePanel == panelFiles
+
+    let firstFile = initWorkspaceUi(settings = settings, hasFolderWorktree = false)
+    check not firstFile.rightDock.isOpen
+
+    var session: EditorSession
+    session.workspaceRightDockSize = 240'f32
+    session.workspaceRightDockOpen = false
+    let restoredClosed = initWorkspaceUi(session, settings, hasFolderWorktree = true)
+    check not restoredClosed.rightDock.isOpen
+
+  test "disabled agent is neither active nor explicitly openable":
+    let root = getTempDir() / ("nimculus-agent-disabled-" & $getCurrentProcessId())
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{"agent":{"disabled":true}}""")
+    let settings = newSettingsStore(path, "", "")
+    var state = initWorkspaceUi(settings = settings)
+    state.openPanel(panelAgent)
+    check not state.panelIsActive(panelAgent)
+    check not state.leftDock.isOpen
+    removeFile(path)
+    removeDir(root)
+
   test "panel dock side mask keeps left, bottom, and right distinct":
     let state = initWorkspaceUi()
     let mask = state.panelDockSideMask()
