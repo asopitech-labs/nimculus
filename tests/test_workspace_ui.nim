@@ -504,6 +504,51 @@ suite "workspace UI state":
     check state.focusPane(layout.panes[1].id)
     check state.focusedPane == layout.panes[1].id
 
+  test "splitting a focused leaf recursively keeps all pane rectangles":
+    var state = initWorkspaceUi(tabCount = 1, activeTab = 0)
+    check state.splitFocusedPane(paneVertical)
+    let second = state.center.children[1].pane.id
+    check state.focusPane(second)
+    check state.splitFocusedPane(paneHorizontal)
+    check state.center.children.len == 2
+    check state.center.children[1].kind == paneSplit
+    check state.center.children[1].children.len == 2
+    let layout = state.center.paneLayout(Rect(origin: Point(x: px(0), y: px(0)),
+      size: Size(width: px(1000), height: px(600))))
+    check layout.panes.len == 3
+    check layout.dividers.len == 2
+
+  test "splitting along a parent axis inserts a sibling without nesting":
+    var state = initWorkspaceUi(tabCount = 1, activeTab = 0)
+    check state.splitFocusedPane(paneVertical)
+    let target = state.center.children[1].pane.id
+    check state.focusPane(target)
+    check state.splitFocusedPane(paneVertical)
+    check state.center.children.len == 3
+    for child in state.center.children:
+      check child.kind == paneLeaf
+    var flexSum = 0'f32
+    for flex in state.center.flexes:
+      flexSum += flex
+    check flexSum == float32(state.center.children.len)
+
+  test "two equal vertical panes retain the two pixel divider geometry":
+    var state = initWorkspaceUi(tabCount = 1, activeTab = 0)
+    check state.splitFocusedPane(paneVertical)
+    let layout = state.center.paneLayout(Rect(origin: Point(x: px(0), y: px(0)),
+      size: Size(width: px(1000), height: px(600))))
+    check float32(layout.panes[0].bounds.size.width) == 499'f32
+    check float32(layout.dividers[0].bounds.size.width) == 2'f32
+    check float32(layout.panes[1].bounds.size.width) == 499'f32
+
+  test "three vertical children retain the aggregate pane floor":
+    var state = initWorkspaceUi(tabCount = 1, activeTab = 0)
+    check state.splitFocusedPane(paneVertical)
+    let target = state.center.children[0].pane.id
+    check state.splitPane(target, paneVertical)
+    check state.center.children.len == 3
+    check state.center.minimumPaneExtent(paneVertical) == 244'f32
+
   test "split panes retain Zed-compatible minimum extents when space permits":
     var sideBySide = initWorkspaceUi(tabCount = 1)
     check sideBySide.splitFocusedPane(paneVertical, 0.1'f32)
