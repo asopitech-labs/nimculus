@@ -52,8 +52,18 @@ type
     side*: DockSide
     isOpen*: bool
     activePanel*: PanelKind
+    minimumSize*: float32
+    entries*: seq[PanelKind]
+
+  DockView* = object
+    ## A read-only snapshot of a dock, including the active panel's size.
+    ## Width is stored per panel in WorkspaceUiState, not on the dock.
+    side*: DockSide
+    isOpen*: bool
+    activePanel*: PanelKind
     size*: float32
     minimumSize*: float32
+    entries*: seq[PanelKind]
 
   PanelListState* = object
     ## A panel owns its selection independently from the text presenter. Keys
@@ -82,6 +92,7 @@ type
   WorkspaceUiState* = object
     leftDock*, bottomDock*, rightDock*: DockState
     panelDockSides*: array[PanelKind, DockSide]
+    panelSizes*: array[PanelKind, float32]
     panelLists*: array[PanelKind, PanelListState]
     center*: PaneTree
     focusedRegion*: WorkspaceRegion
@@ -161,7 +172,7 @@ proc dockRegion(side: DockSide): WorkspaceRegion =
 proc panelDockSide*(panel: PanelKind, settings: SettingsStore): DockSide
 proc panelPositionIsValid*(panel: PanelKind, side: DockSide): bool
 proc panelDockSide*(state: WorkspaceUiState, panel: PanelKind): DockSide
-proc dock*(state: WorkspaceUiState, side: DockSide): DockState
+proc dock*(state: WorkspaceUiState, side: DockSide): DockView
 proc openPanel*(state: var WorkspaceUiState, panel: PanelKind)
 
 proc initWorkspaceUi*(tabCount = 0, activeTab = -1,
@@ -171,13 +182,18 @@ proc initWorkspaceUi*(tabCount = 0, activeTab = -1,
   for panel in PanelKind:
     result.panelDockSides[panel] = if settings == nil:
       defaultPanelDockSide(panel) else: panelDockSide(panel, settings)
+    result.panelSizes[panel] = defaultDockSize(result.panelDockSides[panel])
+    case result.panelDockSides[panel]
+    of dockLeft: result.leftDock.entries.add(panel)
+    of dockBottom: result.bottomDock.entries.add(panel)
+    of dockRight: result.rightDock.entries.add(panel)
   result.leftDock = DockState(side: dockLeft, isOpen: false, activePanel: panelAgent,
-    size: DefaultLeftDockWidth, minimumSize: DefaultDockMinimumSize)
+    minimumSize: DefaultDockMinimumSize, entries: result.leftDock.entries)
   result.bottomDock = DockState(side: dockBottom, isOpen: false,
-    activePanel: panelTerminal, size: DefaultBottomDockHeight,
-    minimumSize: DefaultDockMinimumSize)
+    activePanel: panelTerminal, minimumSize: DefaultDockMinimumSize,
+    entries: result.bottomDock.entries)
   result.rightDock = DockState(side: dockRight, isOpen: false, activePanel: panelFiles,
-    size: DefaultLeftDockWidth, minimumSize: DefaultDockMinimumSize)
+    minimumSize: DefaultDockMinimumSize, entries: result.rightDock.entries)
   result.center = newPane(1, tabs, activeTab)
   for panel in PanelKind:
     result.panelLists[panel].selectedIndex = -1
@@ -207,16 +223,16 @@ proc restoreDock(state: var WorkspaceUiState, side: DockSide, isOpen: bool,
   case side
   of dockLeft:
     state.leftDock.isOpen = isOpen
-    state.leftDock.size = restoredSize
     state.leftDock.activePanel = panel
+    state.panelSizes[panel] = restoredSize
   of dockBottom:
     state.bottomDock.isOpen = isOpen
-    state.bottomDock.size = restoredSize
     state.bottomDock.activePanel = panel
+    state.panelSizes[panel] = restoredSize
   of dockRight:
     state.rightDock.isOpen = isOpen
-    state.rightDock.size = restoredSize
     state.rightDock.activePanel = panel
+    state.panelSizes[panel] = restoredSize
 
 proc initWorkspaceUi*(session: EditorSession, settings: SettingsStore = nil): WorkspaceUiState =
   result = initWorkspaceUi(session.tabs.len, session.activeTab, settings)
@@ -244,8 +260,12 @@ proc panelDockSide*(state: WorkspaceUiState, panel: PanelKind): DockSide =
 
 proc replacementPanel(state: WorkspaceUiState, side: DockSide,
                       removed: PanelKind): PanelKind =
-  for panel in PanelKind:
-    if panel != removed and state.panelDockSide(panel) == side:
+  let entries = case side
+    of dockLeft: state.leftDock.entries
+    of dockBottom: state.bottomDock.entries
+    of dockRight: state.rightDock.entries
+  for panel in entries:
+    if panel != removed:
       return panel
   removed
 
@@ -270,13 +290,23 @@ proc applyPanelDockSettings*(state: var WorkspaceUiState, settings: SettingsStor
       of dockBottom: oldBottom
       of dockRight: oldRight
     let wasVisible = sourceDock.isOpen and sourceDock.activePanel == panel
-    let size = if source.axis == target.axis: sourceDock.size
-      else: defaultDockSize(target)
+    if source.axis != target.axis:
+      state.panelSizes[panel] = defaultDockSize(target)
 
+    case source
+    of dockLeft:
+      let index = state.leftDock.entries.find(panel)
+      if index >= 0: state.leftDock.entries.delete(index)
+    of dockBottom:
+      let index = state.bottomDock.entries.find(panel)
+      if index >= 0: state.bottomDock.entries.delete(index)
+    of dockRight:
+      let index = state.rightDock.entries.find(panel)
+      if index >= 0: state.rightDock.entries.delete(index)
     case target
-    of dockLeft: state.leftDock.size = size
-    of dockBottom: state.bottomDock.size = size
-    of dockRight: state.rightDock.size = size
+    of dockLeft: state.leftDock.entries.add(panel)
+    of dockBottom: state.bottomDock.entries.add(panel)
+    of dockRight: state.rightDock.entries.add(panel)
 
     if wasVisible:
       case target
@@ -316,9 +346,9 @@ proc saveWorkspaceUi*(state: WorkspaceUiState, session: var EditorSession) =
   session.workspaceLeftDockOpen = state.leftDock.isOpen
   session.workspaceBottomDockOpen = state.bottomDock.isOpen
   session.workspaceRightDockOpen = state.rightDock.isOpen
-  session.workspaceLeftDockSize = state.leftDock.size
-  session.workspaceBottomDockSize = state.bottomDock.size
-  session.workspaceRightDockSize = state.rightDock.size
+  session.workspaceLeftDockSize = state.panelSizes[state.leftDock.activePanel]
+  session.workspaceBottomDockSize = state.panelSizes[state.bottomDock.activePanel]
+  session.workspaceRightDockSize = state.panelSizes[state.rightDock.activePanel]
   session.workspaceLeftPanel = ord(state.leftDock.activePanel)
   session.workspaceBottomPanel = ord(state.bottomDock.activePanel)
   session.workspaceRightPanel = ord(state.rightDock.activePanel)
@@ -326,11 +356,23 @@ proc saveWorkspaceUi*(state: WorkspaceUiState, session: var EditorSession) =
   session.workspaceBottomPanelName = PanelPersistentName[state.bottomDock.activePanel]
   session.workspaceRightPanelName = PanelPersistentName[state.rightDock.activePanel]
 
-proc dock*(state: WorkspaceUiState, side: DockSide): DockState =
+proc dock*(state: WorkspaceUiState, side: DockSide): DockView =
   case side
-  of dockLeft: state.leftDock
-  of dockBottom: state.bottomDock
-  of dockRight: state.rightDock
+  of dockLeft:
+    DockView(side: state.leftDock.side, isOpen: state.leftDock.isOpen,
+      activePanel: state.leftDock.activePanel,
+      size: state.panelSizes[state.leftDock.activePanel],
+      minimumSize: state.leftDock.minimumSize, entries: state.leftDock.entries)
+  of dockBottom:
+    DockView(side: state.bottomDock.side, isOpen: state.bottomDock.isOpen,
+      activePanel: state.bottomDock.activePanel,
+      size: state.panelSizes[state.bottomDock.activePanel],
+      minimumSize: state.bottomDock.minimumSize, entries: state.bottomDock.entries)
+  of dockRight:
+    DockView(side: state.rightDock.side, isOpen: state.rightDock.isOpen,
+      activePanel: state.rightDock.activePanel,
+      size: state.panelSizes[state.rightDock.activePanel],
+      minimumSize: state.rightDock.minimumSize, entries: state.rightDock.entries)
 
 proc panelIsActive*(state: WorkspaceUiState, panel: PanelKind): bool =
   let side = state.panelDockSide(panel)
@@ -541,9 +583,9 @@ proc resetDockSize*(state: var WorkspaceUiState, side: DockSide) =
   ## Match Zed's resize-handle double-click behavior without exposing a
   ## platform event detail to the shared workspace model.
   case side
-  of dockLeft: state.leftDock.size = DefaultLeftDockWidth
-  of dockBottom: state.bottomDock.size = DefaultBottomDockHeight
-  of dockRight: state.rightDock.size = DefaultLeftDockWidth
+  of dockLeft: state.panelSizes[state.leftDock.activePanel] = DefaultLeftDockWidth
+  of dockBottom: state.panelSizes[state.bottomDock.activePanel] = DefaultBottomDockHeight
+  of dockRight: state.panelSizes[state.rightDock.activePanel] = DefaultLeftDockWidth
 
 proc resizeDock*(state: var WorkspaceUiState, side: DockSide, requested: float32,
                  available: float32) =
@@ -555,9 +597,9 @@ proc resizeDock*(state: var WorkspaceUiState, side: DockSide, requested: float32
     let upperBound = max(current.minimumSize, available - centerMinimum)
     let size = min(upperBound, max(current.minimumSize, requested))
     case side
-    of dockLeft: state.leftDock.size = size
-    of dockBottom: state.bottomDock.size = size
-    of dockRight: state.rightDock.size = size
+    of dockLeft: state.panelSizes[state.leftDock.activePanel] = size
+    of dockBottom: state.panelSizes[state.bottomDock.activePanel] = size
+    of dockRight: state.panelSizes[state.rightDock.activePanel] = size
 
 proc layout*(state: WorkspaceUiState, viewport: Size): WorkspaceLayout =
   let width = max(0'f32, float32(viewport.width))
@@ -565,11 +607,12 @@ proc layout*(state: WorkspaceUiState, viewport: Size): WorkspaceLayout =
   let statusHeight = min(DefaultStatusHeight, height)
   let usableHeight = max(0'f32, height - statusHeight)
   let leftWidth = if state.leftDock.isOpen:
-      min(max(0'f32, width - MinimumCenterWidth), state.leftDock.size) else: 0'f32
+      min(max(0'f32, width - MinimumCenterWidth), state.dock(dockLeft).size) else: 0'f32
   let rightWidth = if state.rightDock.isOpen:
-      min(max(0'f32, width - leftWidth - MinimumCenterWidth), state.rightDock.size) else: 0'f32
+      min(max(0'f32, width - leftWidth - MinimumCenterWidth), state.dock(
+          dockRight).size) else: 0'f32
   let bottomHeight = if state.bottomDock.isOpen:
-      min(max(0'f32, usableHeight - MinimumCenterHeight), state.bottomDock.size) else: 0'f32
+      min(max(0'f32, usableHeight - MinimumCenterHeight), state.dock(dockBottom).size) else: 0'f32
   result.leftDock = Rect(origin: Point(x: px(0), y: px(0)),
     size: Size(width: px(leftWidth), height: px(max(0'f32, usableHeight - bottomHeight))))
   result.center = Rect(origin: Point(x: px(leftWidth), y: px(0)),

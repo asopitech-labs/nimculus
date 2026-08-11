@@ -95,12 +95,12 @@ suite "workspace UI state":
     let settings = newSettingsStore(path, "", "")
     var state = initWorkspaceUi()
     state.openPanel(panelAgent)
-    state.leftDock.size = 312'f32
+    state.panelSizes[panelAgent] = 312'f32
     state.applyPanelDockSettings(settings)
     check state.panelDockSide(panelAgent) == dockRight
     check state.rightDock.isOpen
     check state.rightDock.activePanel == panelAgent
-    check state.rightDock.size == 312'f32
+    check state.dock(dockRight).size == 312'f32
     check state.leftDock.isOpen
     check state.leftDock.activePanel == panelSearch
     removeFile(path)
@@ -133,12 +133,12 @@ suite "workspace UI state":
     state.panelDockSides[panelTerminal] = dockLeft
     state.leftDock.isOpen = true
     state.leftDock.activePanel = panelTerminal
-    state.leftDock.size = 333'f32
+    state.panelSizes[panelTerminal] = 333'f32
     state.applyPanelDockSettings(settings)
     check state.panelDockSide(panelTerminal) == dockBottom
     check state.bottomDock.isOpen
     check state.bottomDock.activePanel == panelTerminal
-    check state.bottomDock.size == DefaultBottomDockHeight
+    check state.dock(dockBottom).size == DefaultBottomDockHeight
     check state.leftDock.isOpen
     check state.leftDock.activePanel == panelSearch
     removeFile(path)
@@ -152,25 +152,25 @@ suite "workspace UI state":
     let settings = newSettingsStore(path, "", "")
     var state = initWorkspaceUi()
     state.openPanel(panelFiles)
-    state.rightDock.size = 321'f32
+    state.panelSizes[panelFiles] = 321'f32
     state.applyPanelDockSettings(settings)
     check state.panelDockSide(panelFiles) == dockRight
     check state.rightDock.isOpen
     check state.rightDock.activePanel == panelFiles
-    check state.rightDock.size == 321'f32
+    check state.dock(dockRight).size == 321'f32
     removeFile(path)
     removeDir(root)
 
   test "session persistence records all three dock states":
     var state = initWorkspaceUi()
     state.leftDock.isOpen = true
-    state.leftDock.size = 271'f32
+    state.panelSizes[panelAgent] = 271'f32
     state.leftDock.activePanel = panelAgent
     state.bottomDock.isOpen = true
-    state.bottomDock.size = 299'f32
+    state.panelSizes[panelTerminal] = 299'f32
     state.bottomDock.activePanel = panelTerminal
     state.rightDock.isOpen = false
-    state.rightDock.size = 347'f32
+    state.panelSizes[panelGit] = 347'f32
     state.rightDock.activePanel = panelGit
     var session: EditorSession
     state.saveWorkspaceUi(session)
@@ -188,13 +188,13 @@ suite "workspace UI state":
     check session.workspaceRightPanelName == PanelPersistentName[panelGit]
     let restored = initWorkspaceUi(session)
     check restored.leftDock.isOpen
-    check restored.leftDock.size == 271'f32
+    check restored.dock(dockLeft).size == 271'f32
     check restored.leftDock.activePanel == panelAgent
     check restored.bottomDock.isOpen
-    check restored.bottomDock.size == 299'f32
+    check restored.dock(dockBottom).size == 299'f32
     check restored.bottomDock.activePanel == panelTerminal
     check not restored.rightDock.isOpen
-    check restored.rightDock.size == 347'f32
+    check restored.dock(dockRight).size == 347'f32
     check restored.rightDock.activePanel == panelGit
 
   test "session panel persistence uses names and survives enum order changes":
@@ -208,13 +208,13 @@ suite "workspace UI state":
     let path = root / "session.json"
     var state = initWorkspaceUi()
     state.leftDock.isOpen = true
-    state.leftDock.size = 240'f32
+    state.panelSizes[panelAgent] = 240'f32
     state.leftDock.activePanel = panelAgent
     state.bottomDock.isOpen = true
-    state.bottomDock.size = 260'f32
+    state.panelSizes[panelTerminal] = 260'f32
     state.bottomDock.activePanel = panelTerminal
     state.rightDock.isOpen = true
-    state.rightDock.size = 240'f32
+    state.panelSizes[panelGit] = 240'f32
     state.rightDock.activePanel = panelGit
     var session: EditorSession
     state.saveWorkspaceUi(session)
@@ -297,6 +297,29 @@ suite "workspace UI state":
     check not state.bottomDock.isOpen
     check state.rightDock.isOpen
 
+  test "dock sizes belong to panels and entries retain their order":
+    var state = initWorkspaceUi()
+    state.openPanel(panelFiles)
+    state.resizeDock(dockRight, 300, 1200)
+    check state.dock(dockRight).size == 300'f32
+    state.openPanel(panelGit)
+    check state.dock(dockRight).size == DefaultLeftDockWidth
+    state.openPanel(panelFiles)
+    check state.dock(dockRight).size == 300'f32
+
+    state.openPanel(panelTerminal)
+    check state.dock(dockBottom).size == DefaultBottomDockHeight
+
+    let root = getTempDir() / "nimculus-panel-entry-order"
+    createDir(root)
+    let path = root / "settings.json"
+    writeFile(path, """{"gitPanel":{"dock":"left"}}""")
+    let settings = newSettingsStore(path, "", "")
+    state.applyPanelDockSettings(settings)
+    check state.dock(dockRight).entries == @[panelFiles, panelOutline]
+    removeFile(path)
+    removeDir(root)
+
   test "panel focus toggle returns to the editor without hiding the panel":
     var state = initWorkspaceUi()
     state.focusCenter()
@@ -366,17 +389,17 @@ suite "workspace UI state":
       presentedDockWidth = DefaultLeftDockWidth) == regionRightDock
     check state.dockResizeDivider(dockRight, 960) == 720
     state.resizeDock(dockRight, dockResizeRequest(dockRight, 660, 960), 960)
-    check state.rightDock.size == 300
+    check state.dock(dockRight).size == 300
 
   test "left and right dock resize coordinates use their real edges":
     var state = initWorkspaceUi()
     check state.dockResizeDivider(dockRight, 1200) == 960
     check dockResizeRequest(dockRight, 840, 1200) == 360
     state.resizeDock(dockRight, dockResizeRequest(dockRight, 840, 1200), 1200)
-    check state.rightDock.size == 360
+    check state.dock(dockRight).size == 360
     check state.dockResizeDivider(dockRight, 1200) == 840
     state.resetDockSize(dockRight)
-    check state.rightDock.size == DefaultLeftDockWidth
+    check state.dock(dockRight).size == DefaultLeftDockWidth
     state.leftDock.isOpen = true
     check state.dockResizeDivider(dockLeft, 1200) == DefaultLeftDockWidth
     check dockResizeRequest(dockLeft, 300, 1200) == 300
