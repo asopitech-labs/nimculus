@@ -118,9 +118,11 @@ const DefaultGitInlineBlameMinColumn* = 0
 
 const
   DefaultProjectPanelDock* = "right"
+  DefaultProjectPanelStartsOpen* = true
   DefaultOutlinePanelDock* = "right"
   DefaultGitPanelDock* = "right"
   DefaultAgentDock* = "left"
+  DefaultAgentDisabled* = false
   DefaultTerminalDock* = "bottom"
   DefaultDebuggerDock* = "bottom"
 
@@ -232,6 +234,10 @@ proc validateSettings*(root: JsonNode): seq[SettingsDiagnostic] =
       inlineBlameLocation.getStr notin ["inline", "status_bar"]):
     result.add(SettingsDiagnostic(path: "git.inlineBlame.location",
       message: "must be one of: inline, status_bar"))
+  for key in ["projectPanel.startsOpen", "projectPanel.starts_open", "agent.disabled"]:
+    let value = nodeAt(root, key)
+    if value != nil and value.kind != JBool:
+      result.add(SettingsDiagnostic(path: key, message: "must be a boolean"))
   for setting in [
       (path: "projectPanel.dock", allowed: @[
         "left", "bottom", "right"]),
@@ -326,7 +332,9 @@ proc settingsSchema*(): JsonNode =
         "insertSpaces": {"type": "boolean"}
     }},
     "projectPanel": {"type": "object", "properties": {
-      "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "right"}
+      "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "right"},
+      "startsOpen": {"type": "boolean", "default": true},
+      "starts_open": {"type": "boolean"}
     }},
     "outlinePanel": {"type": "object", "properties": {
       "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "right"}
@@ -335,7 +343,8 @@ proc settingsSchema*(): JsonNode =
       "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "right"}
     }},
     "agent": {"type": "object", "properties": {
-      "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "left"}
+      "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "left"},
+      "disabled": {"type": "boolean", "default": false}
     }},
     "statusBar": {"type": "object", "properties": {
       "showActiveFile": {"type": "boolean", "default": false},
@@ -780,6 +789,17 @@ proc terminalScrollMultiplier*(store: SettingsStore): float32 =
 
 proc boolSetting*(store: SettingsStore, path: string, fallback: bool): bool =
   jsonBoolAt(store.values, path, fallback)
+
+proc projectPanelStartsOpen*(store: SettingsStore): bool =
+  if store == nil: return DefaultProjectPanelStartsOpen
+  let configured = nodeAt(store.values, "projectPanel.startsOpen")
+  if configured != nil:
+    return store.boolSetting("projectPanel.startsOpen", DefaultProjectPanelStartsOpen)
+  store.boolSetting("projectPanel.starts_open", DefaultProjectPanelStartsOpen)
+
+proc agentDisabled*(store: SettingsStore): bool =
+  if store == nil: return DefaultAgentDisabled
+  store.boolSetting("agent.disabled", DefaultAgentDisabled)
 
 proc gitInlineBlameEnabled*(store: SettingsStore): bool =
   if store == nil: DefaultGitInlineBlameEnabled
