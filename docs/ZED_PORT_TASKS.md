@@ -49,7 +49,7 @@
 - [ ] **presents-with-transaction during synchronous redraw** — Zed `crates/gpui_macos/src/window.rs:2673 (display_layer), crates/gpui_macos/src/metal_renderer.rs:374 (set_presents_with_transaction), :492-499 (commit/wait_until_scheduled/present)`
 - [ ] **Glyph rasterization with subpixel variants and dilation** — Zed `crates/gpui_macos/src/text_system.rs:421 (raster_bounds, dilated by 1px), :436 (rasterize_glyph)`
 - [ ] **Font fallback cascade and OpenType features** — Zed `crates/gpui_macos/src/open_type.rs:34 (apply_features_and_fallbacks), :102 (generate_fallback_array), :155 (append_system_fallbacks)`
-- [ ] **Key-equivalent vs key-down de-duplication** — Zed `crates/gpui_macos/src/window.rs:2045 (handle_key_equivalent), :2149-2153 (last_key_equivalent), :2243 (don't forward modified key equivalents)`
+- [x] **Key-equivalent vs key-down de-duplication** — Zed `crates/gpui_macos/src/window.rs:2045 (handle_key_equivalent), :2149-2153 (last_key_equivalent), :2243 (don't forward modified key equivalents)`
 - [ ] **Keyboard layout identity and per-layout key-equivalent remapping** — Zed `crates/gpui_macos/src/keyboard.rs:13 (MacKeyboardLayout), :18 (MacKeyboardMapper), :30-50 (map_key_equivalent), plus ~1400 lines of per-layout character tables`
 - [ ] **Display enumeration and coordinate space** — Zed `crates/gpui_macos/src/display.rs:16 (MacDisplay), :28 (primary), :48 (all), :79 (uuid), :108 (bounds), :121 (visible_bounds)`
 - [ ] **Cursor style ownership** — Zed `crates/gpui_macos/src/window.rs:334 (set_active_window_cursor_style), :1994 (reset_cursor_rects), crates/gpui_macos/src/platform.rs:1039, :1045 (hide_cursor_until_mouse_moves)`
@@ -146,7 +146,7 @@
 
 - [ ] **KeyContext: the per-node context entry list** — Zed `crates/gpui/src/keymap/context.rs:10 (KeyContext), :14 (ContextEntry), :65 (parse), :117 (add), :126 (set), :137 (contains), :142 (get)`
 - [ ] **Keymap precedence resolution (bindings_for_input)** — Zed `crates/gpui/src/keymap.rs:164-242, sort at :187, binding_enabled at :245`
-- [ ] **The DispatchTree: per-frame node tree of contexts, focus ids and listeners** — Zed `crates/gpui/src/key_dispatch.rs:71 (DispatchTree), :83 (DispatchNode), :166 (push_node), :215 (set_key_context), :220 (set_focus_id), :226 (set_view_id), :323/:327/:333 (on_key_event / on_modifiers_changed / on_action)`
+- [x] **The DispatchTree: per-frame node tree of contexts, focus ids and listeners** — Zed `crates/gpui/src/key_dispatch.rs:71 (DispatchTree), :83 (DispatchNode), :166 (push_node), :215 (set_key_context), :220 (set_focus_id), :226 (set_view_id), :323/:327/:333 (on_key_event / on_modifiers_changed / on_action)`
 - [x] **dispatch_path / focus_path / focus_contains** — Zed `crates/gpui/src/key_dispatch.rs:563 (dispatch_path, root-to-focused), :574 (focus_path), :346 (focus_contains)`
 - [ ] **Capture/bubble phases for key and action listeners** — Zed `crates/gpui/src/window.rs:88 (DispatchPhase), :4999 (dispatch_key_down_up_event: capture root-to-focus, bubble focus-to-root, stopping when propagate_event is false), :5130 (dispatch_action_on_node_inner: global listeners first, then window capture, then bubble where `cx.propagate_event = false` is set *before* each bubble listener so actions stop propagation by default)`
 - [ ] **Synthetic keystrokes from modifier-only presses** — Zed `crates/gpui/src/window.rs:4815-4844 (a ModifiersChangedEvent that drops from exactly one modifier to zero without an intervening keystroke becomes a `shift`/`control`/`alt`/`platform`/`function` keystroke), crates/gpui/src/key_dispatch.rs:327 (modifiers_changed_listeners), window.rs:5030 (bubble-only dispatch of them)`
@@ -233,7 +233,7 @@
 - [ ] **Item trait (what a tab knows how to be)** — Zed `crates/workspace/src/item.rs:170`
 - [ ] **Tab detail disambiguation** — Zed `crates/workspace/src/pane.rs:4910 tab_details, called from render_tab_bar at pane.rs:3453`
 - [ ] **Pane: item list, active index, activation history, pinned prefix, preview item** — Zed `crates/workspace/src/pane.rs:398`
-- [ ] **Pane split tree (Member / PaneAxis with flexes)** — Zed `crates/workspace/src/pane_group.rs:294 Member, :640 PaneAxis, PaneAxis::split at pane_group.rs:694`
+- [x] **Pane split tree (Member / PaneAxis with flexes)** — Zed `crates/workspace/src/pane_group.rs:294 Member, :640 PaneAxis, PaneAxis::split at pane_group.rs:694`
 - [ ] **Tab bar rendering (tabs, nav buttons, pinned row, drop targets)** — Zed `crates/workspace/src/pane.rs:3396 render_tab_bar, per-tab at pane.rs:2825 render_tab, drop target at pane.rs:3626`
 - [ ] **Item toolbar / breadcrumb slot** — Zed `crates/workspace/src/toolbar.rs:64 Toolbar, ToolbarItemLocation at toolbar.rs:56; Item side at item.rs:343 breadcrumb_location, :347 breadcrumbs`
 - [ ] **Workspace serialization (DockStructure + pane tree + items)** — Zed `crates/workspace/src/persistence/model.rs:153 DockStructure, :203 DockData, :234 SerializedPaneGroup, :339 SerializedPane, :424 SerializedItem; writer at workspace.rs:7061 serialize_workspace_internal`
@@ -390,7 +390,7 @@
 - [ ] **layout_blame_entries — the gutter blame column** — Zed `crates/editor/src/element.rs:2197; width reservation in crates/editor/src/editor.rs:11583-11598 (git_blame_entries_width)`
 - [ ] **BlameRenderer — blame presentation as an injectable global** — Zed `crates/editor/src/git/blame.rs:88 (trait), :135 (unit impl returning None), :194 (GlobalBlameRenderer)`
 - [ ] **DiffHunkDelegate — per-editor-kind hunk affordances** — Zed `crates/editor/src/git.rs:23 (trait), :84 UncommittedDiffHunkDelegate, :164 RestoreOnlyDiffHunkDelegate, :201 RestoreOnlyUnstagedDiffHunkDelegate; render_hunk_as_staged at :79`
-- [ ] **path_for_buffer — detail-level path disambiguation** — Zed `crates/editor/src/items.rs:2217 (path_for_buffer), :2227 (path_for_file)`
+- [x] **path_for_buffer — detail-level path disambiguation** — Zed `crates/editor/src/items.rs:2217 (path_for_buffer), :2227 (path_for_file)`
 
 **不明（読めていない）**
 
