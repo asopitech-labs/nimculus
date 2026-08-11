@@ -1,6 +1,7 @@
 import nimnui/geometry
 import nimnui/layout_types
 import nimnui/context
+import std/algorithm
 
 type
   NodeId* = distinct uint64
@@ -12,6 +13,8 @@ type
   NodeHandle* = object
     id*: NodeId
     generation*: uint32
+    tabIndex*: int
+    tabStop*: bool
 
   UiState* = enum
     normal, focused, hovered, active, disabled
@@ -46,6 +49,8 @@ type
     nextId*: uint64
     focused*: NodeId
     nextGeneration*: uint32
+    recycledIds: seq[NodeId]
+    reservedFocusHandles: seq[NodeHandle]
 
 proc `==`*(a, b: NodeId): bool = uint64(a) == uint64(b)
 
@@ -62,12 +67,38 @@ proc nodeIndex*(tree: UiTree, id: NodeId): int =
     if node.id == id: return index
   -1
 
-proc addNode*(tree: var UiTree, parent: NodeId = NodeId(0), focusable = false,
-              tabIndex = 0, tabStop = true): NodeId =
-  let id = NodeId(tree.nextId)
-  inc tree.nextId
-  let generation = tree.nextGeneration
-  inc tree.nextGeneration
+proc dispatchPath*(tree: UiTree, target: NodeId): seq[NodeId]
+proc focusContains*(tree: UiTree, parent, child: NodeId): bool
+proc isValid*(tree: UiTree, handle: NodeHandle): bool
+proc updateVisualState(tree: var UiTree, index: int)
+
+proc nextNodeHandle(tree: var UiTree): NodeHandle =
+  if tree.reservedFocusHandles.len > 0:
+    result = tree.reservedFocusHandles[0]
+    tree.reservedFocusHandles.delete(0)
+  else:
+    let id = if tree.recycledIds.len > 0:
+      let recycledId = tree.recycledIds[^1]
+      tree.recycledIds.setLen(tree.recycledIds.len - 1)
+      recycledId
+    else:
+      let next = NodeId(tree.nextId)
+      inc tree.nextId
+      next
+    result.id = id
+    result.generation = tree.nextGeneration
+    inc tree.nextGeneration
+    result.tabStop = true
+
+proc addNodeWithHandle(tree: var UiTree, handle: NodeHandle, parent: NodeId,
+                       focusable: bool, tabIndex: int, tabStop: bool): NodeId =
+  if handle.id == NodeId(0) or tree.isValid(handle): return NodeId(0)
+  for index in countdown(tree.reservedFocusHandles.high, 0):
+    if tree.reservedFocusHandles[index].id == handle.id:
+      tree.reservedFocusHandles.delete(index)
+      break
+  let id = handle.id
+  let generation = handle.generation
   tree.nodes.add(UiNode(id: id, parent: parent, state: normal,
                         layoutDirty: true, paintDirty: true, focusable: focusable,
                         tabIndex: tabIndex, tabStop: tabStop,
@@ -82,6 +113,50 @@ proc addNode*(tree: var UiTree, parent: NodeId = NodeId(0), focusable = false,
         node.paintDirty = true
         break
   id
+
+proc addNode*(tree: var UiTree, parent: NodeId = NodeId(0), focusable = false,
+              tabIndex = 0, tabStop = true): NodeId =
+  let handle = tree.nextNodeHandle()
+  tree.addNodeWithHandle(handle, parent, focusable, tabIndex, tabStop)
+
+proc addNode*(tree: var UiTree, handle: NodeHandle,
+              parent: NodeId = NodeId(0), focusable = false): NodeId =
+  tree.addNodeWithHandle(handle, parent, focusable, handle.tabIndex, handle.tabStop)
+
+proc newFocusHandle*(tree: var UiTree): NodeHandle =
+  ## Reserve an identity before its node is attached to the tree.
+  result = tree.nextNodeHandle()
+  tree.reservedFocusHandles.add(result)
+
+proc removeNode*(tree: var UiTree, id: NodeId): bool =
+  ## Remove a node and its descendants, retaining their ids for generation-safe
+  ## reuse by a later node allocation.
+  let index = tree.nodeIndex(id)
+  if index < 0: return false
+  var removed: seq[NodeId]
+  for node in tree.nodes:
+    if tree.focusContains(id, node.id): removed.add(node.id)
+  let focusedNode = tree.focused
+  if focusedNode != NodeId(0) and tree.focusContains(id, focusedNode):
+    let focusedIndex = tree.nodeIndex(focusedNode)
+    if focusedIndex >= 0:
+      tree.nodes[focusedIndex].focusedState = false
+      tree.updateVisualState(focusedIndex)
+    tree.focused = NodeId(0)
+  for removedId in removed:
+    let removedIndex = tree.nodeIndex(removedId)
+    if removedIndex < 0: continue
+    let parent = tree.nodes[removedIndex].parent
+    if parent != NodeId(0):
+      let parentIndex = tree.nodeIndex(parent)
+      if parentIndex >= 0:
+        for childIndex in countdown(tree.nodes[parentIndex].children.high, 0):
+          if tree.nodes[parentIndex].children[childIndex] == removedId:
+            tree.nodes[parentIndex].children.delete(childIndex)
+            break
+    tree.nodes.delete(removedIndex)
+    tree.recycledIds.add(removedId)
+  true
 
 proc markLayoutDirty*(tree: var UiTree, id: NodeId)
 
@@ -148,39 +223,44 @@ proc hitTest*(tree: UiTree, point: Point): NodeId =
   for index in countdown(tree.nodes.high, 0):
     if tree.nodes[index].disabledState: continue
     if not tree.nodes[index].bounds.contains(point): continue
-    var current = tree.nodes[index].parent
+    let dispatchPath = tree.dispatchPath(tree.nodes[index].id)
+    if dispatchPath.len == 0: continue
     var descendant = tree.nodes[index].id
     var visible = true
-    while current != NodeId(0):
-      let ancestorIndex = tree.nodeIndex(current)
-      if ancestorIndex < 0 or tree.nodes[ancestorIndex].disabledState:
-        visible = false
-        break
-      let ancestor = tree.nodes[ancestorIndex]
-      let descendantIndex = tree.nodeIndex(descendant)
-      let descendantIsAbsolute = descendantIndex >= 0 and
-        tree.nodes[descendantIndex].layoutSpec.position == absolute
-      let useLegacyBounds = not ancestor.clipChildren and not descendantIsAbsolute
-      if ((useLegacyBounds and not ancestor.bounds.contains(point)) or
-          (ancestor.clipChildren and ((ancestor.clipX and
-          (float32(point.x) < float32(ancestor.clipBounds.origin.x) or
-           float32(point.x) >= float32(ancestor.clipBounds.origin.x +
-               ancestor.clipBounds.size.width))) or
-           (ancestor.clipY and
-          (float32(point.y) < float32(ancestor.clipBounds.origin.y) or
-           float32(point.y) >= float32(ancestor.clipBounds.origin.y +
-               ancestor.clipBounds.size.height)))))):
-        visible = false
-        break
-      descendant = current
-      current = tree.nodes[ancestorIndex].parent
+    if dispatchPath.len > 1:
+      for pathIndex in countdown(dispatchPath.high - 1, 0):
+        let ancestorIndex = tree.nodeIndex(dispatchPath[pathIndex])
+        if ancestorIndex < 0 or tree.nodes[ancestorIndex].disabledState:
+          visible = false
+          break
+        let ancestor = tree.nodes[ancestorIndex]
+        let descendantIndex = tree.nodeIndex(descendant)
+        let descendantIsAbsolute = descendantIndex >= 0 and
+          tree.nodes[descendantIndex].layoutSpec.position == absolute
+        let useLegacyBounds = not ancestor.clipChildren and not descendantIsAbsolute
+        if ((useLegacyBounds and not ancestor.bounds.contains(point)) or
+            (ancestor.clipChildren and ((ancestor.clipX and
+            (float32(point.x) < float32(ancestor.clipBounds.origin.x) or
+             float32(point.x) >= float32(ancestor.clipBounds.origin.x +
+                 ancestor.clipBounds.size.width))) or
+             (ancestor.clipY and
+            (float32(point.y) < float32(ancestor.clipBounds.origin.y) or
+             float32(point.y) >= float32(ancestor.clipBounds.origin.y +
+                 ancestor.clipBounds.size.height)))))):
+          visible = false
+          break
+        descendant = dispatchPath[pathIndex]
     if visible: return tree.nodes[index].id
   NodeId(0)
 
 proc handle*(tree: UiTree, id: NodeId): NodeHandle =
   let index = tree.nodeIndex(id)
-  if index >= 0: NodeHandle(id: id, generation: tree.nodes[index].generation)
-  else: NodeHandle(id: NodeId(0), generation: 0)
+  if index >= 0:
+    NodeHandle(id: id, generation: tree.nodes[index].generation,
+               tabIndex: tree.nodes[index].tabIndex,
+               tabStop: tree.nodes[index].tabStop)
+  else:
+    NodeHandle(id: NodeId(0), generation: 0, tabStop: true)
 
 proc isValid*(tree: UiTree, handle: NodeHandle): bool =
   let index = tree.nodeIndex(handle.id)
@@ -233,16 +313,7 @@ proc setDisabled*(tree: var UiTree, id: NodeId, value: bool) =
       # Disabling a focused node, or one of its ancestors, invalidates the
       # current focus path. Keep the focus owner and visual flags in sync so
       # keyboard routing cannot continue targeting disabled UI.
-      var current = tree.focused
-      var focusMustClear = false
-      while current != NodeId(0):
-        if current == id:
-          focusMustClear = true
-          break
-        let currentIndex = nodeIndex(tree, current)
-        if currentIndex < 0: break
-        current = tree.nodes[currentIndex].parent
-      if focusMustClear:
+      if tree.focusContains(id, tree.focused):
         let focusedIndex = nodeIndex(tree, tree.focused)
         if focusedIndex >= 0:
           tree.nodes[focusedIndex].focusedState = false
@@ -251,12 +322,9 @@ proc setDisabled*(tree: var UiTree, id: NodeId, value: bool) =
 
 proc isDisabledPath*(tree: UiTree, id: NodeId): bool =
   ## A node is not focusable while any node on its focus path is disabled.
-  var current = id
-  while current != NodeId(0):
-    let index = tree.nodeIndex(current)
-    if index < 0: return false
+  for ancestor in tree.dispatchPath(id):
+    let index = tree.nodeIndex(ancestor)
     if tree.nodes[index].disabledState: return true
-    current = tree.nodes[index].parent
   false
 
 proc focus*(tree: var UiTree, id: NodeId): bool =
@@ -272,6 +340,13 @@ proc focus*(tree: var UiTree, id: NodeId): bool =
   tree.updateVisualState(index)
   true
 
+proc focus*(tree: var UiTree, handle: NodeHandle): bool =
+  if not tree.isValid(handle): return false
+  let index = tree.nodeIndex(handle.id)
+  tree.nodes[index].tabIndex = handle.tabIndex
+  tree.nodes[index].tabStop = handle.tabStop
+  tree.focus(handle.id)
+
 proc setContext*(tree: var UiTree, id: NodeId, context: KeyContext) =
   let index = tree.nodeIndex(id)
   if index >= 0: tree.nodes[index].context = context
@@ -279,15 +354,24 @@ proc setContext*(tree: var UiTree, id: NodeId, context: KeyContext) =
 proc contextStack*(tree: UiTree): seq[KeyContext] =
   ## Collect the focused node's dispatch path, then expose it in Zed's
   ## root-to-focused order so Descendant predicates see parent before child.
-  var path: seq[NodeId]
-  var current = tree.focused
+  for id in tree.dispatchPath(tree.focused):
+    let index = tree.nodeIndex(id)
+    if tree.nodes[index].context.entries.len > 0:
+      result.add(tree.nodes[index].context)
+
+proc dispatchPath*(tree: UiTree, target: NodeId): seq[NodeId] =
+  ## Return the target's parent chain in root-to-target order.
+  var current = target
   while current != NodeId(0):
     let index = tree.nodeIndex(current)
-    if index < 0: break
-    path.add(current)
+    if index < 0: return @[]
+    result.add(current)
     current = tree.nodes[index].parent
-  if path.len > 0:
-    for index in countdown(path.high, 0):
-      let nodeIndex = tree.nodeIndex(path[index])
-      if nodeIndex >= 0 and tree.nodes[nodeIndex].context.entries.len > 0:
-        result.add(tree.nodes[nodeIndex].context)
+  result.reverse()
+
+proc focusContains*(tree: UiTree, parent, child: NodeId): bool =
+  ## Return whether parent is the focused-path ancestor of child.
+  if parent == child: return true
+  for id in tree.dispatchPath(child):
+    if id == parent: return true
+  false
