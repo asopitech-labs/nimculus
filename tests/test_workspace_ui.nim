@@ -52,7 +52,7 @@ suite "workspace UI state":
     check state.dock(dockRight).side == dockRight
 
   test "unknown panel dock settings use each panel's default side":
-    let root = getTempDir() / "nimculus-unknown-panel-dock-settings"
+    let root = getTempDir() / ("nimculus-unknown-panel-dock-settings-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"agent":{"dock":"diagonal"}}""")
@@ -63,7 +63,7 @@ suite "workspace UI state":
     removeDir(root)
 
   test "startup settings move panel ownership between the three docks":
-    let root = getTempDir() / "nimculus-panel-dock-settings"
+    let root = getTempDir() / ("nimculus-panel-dock-settings-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"projectPanel":{"dock":"left"},"terminal":{"dock":"right"}}""")
@@ -88,7 +88,7 @@ suite "workspace UI state":
     check dockBottom.axis == dockVertical
 
   test "moving a visible panel left to right preserves width and visibility":
-    let root = getTempDir() / "nimculus-live-panel-dock-horizontal"
+    let root = getTempDir() / ("nimculus-live-panel-dock-horizontal-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"agent":{"dock":"right"}}""")
@@ -107,7 +107,7 @@ suite "workspace UI state":
     removeDir(root)
 
   test "moving a closed panel does not open its target dock":
-    let root = getTempDir() / "nimculus-live-panel-dock-closed"
+    let root = getTempDir() / ("nimculus-live-panel-dock-closed-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"agent":{"dock":"right"}}""")
@@ -124,7 +124,7 @@ suite "workspace UI state":
     removeDir(root)
 
   test "moving a visible panel left to bottom uses the target default size":
-    let root = getTempDir() / "nimculus-live-panel-dock-axis"
+    let root = getTempDir() / ("nimculus-live-panel-dock-axis-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"terminal":{"dock":"bottom"}}""")
@@ -145,7 +145,7 @@ suite "workspace UI state":
     removeDir(root)
 
   test "invalid panel dock settings keep the current ownership":
-    let root = getTempDir() / "nimculus-live-panel-dock-invalid"
+    let root = getTempDir() / ("nimculus-live-panel-dock-invalid-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"projectPanel":{"dock":"diagonal"}}""")
@@ -203,7 +203,7 @@ suite "workspace UI state":
       check PanelPersistentName[panel].len > 0
       check PanelPersistentName[panel] notin persistentNames
       persistentNames.add(PanelPersistentName[panel])
-    let root = getTempDir() / "nimculus-panel-persistent-names"
+    let root = getTempDir() / ("nimculus-panel-persistent-names-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "session.json"
     var state = initWorkspaceUi()
@@ -241,7 +241,7 @@ suite "workspace UI state":
     removeDir(root)
 
   test "unknown panel name falls back to terminal":
-    let root = getTempDir() / "nimculus-unknown-panel-name"
+    let root = getTempDir() / ("nimculus-unknown-panel-name-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "session.json"
     writeFile(path, """{"workspaceBottomDockSize":260,"workspaceBottomPanel":"Unknown Panel"}""")
@@ -251,7 +251,7 @@ suite "workspace UI state":
     removeDir(root)
 
   test "old integer panel ids migrate to persistent names":
-    let root = getTempDir() / "nimculus-old-panel-ids"
+    let root = getTempDir() / ("nimculus-old-panel-ids-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "session.json"
     writeFile(path, """{"workspaceBottomDockSize":260,"workspaceBottomPanel":3}""")
@@ -310,7 +310,7 @@ suite "workspace UI state":
     state.openPanel(panelTerminal)
     check state.dock(dockBottom).size == DefaultBottomDockHeight
 
-    let root = getTempDir() / "nimculus-panel-entry-order"
+    let root = getTempDir() / ("nimculus-panel-entry-order-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"gitPanel":{"dock":"left"}}""")
@@ -503,6 +503,51 @@ suite "workspace UI state":
     check state.paneIndexAt(bounds, Point(x: px(400), y: px(40))) == 1
     check state.focusPane(layout.panes[1].id)
     check state.focusedPane == layout.panes[1].id
+
+  test "splitting a focused leaf recursively keeps all pane rectangles":
+    var state = initWorkspaceUi(tabCount = 1, activeTab = 0)
+    check state.splitFocusedPane(paneVertical)
+    let second = state.center.children[1].pane.id
+    check state.focusPane(second)
+    check state.splitFocusedPane(paneHorizontal)
+    check state.center.children.len == 2
+    check state.center.children[1].kind == paneSplit
+    check state.center.children[1].children.len == 2
+    let layout = state.center.paneLayout(Rect(origin: Point(x: px(0), y: px(0)),
+      size: Size(width: px(1000), height: px(600))))
+    check layout.panes.len == 3
+    check layout.dividers.len == 2
+
+  test "splitting along a parent axis inserts a sibling without nesting":
+    var state = initWorkspaceUi(tabCount = 1, activeTab = 0)
+    check state.splitFocusedPane(paneVertical)
+    let target = state.center.children[1].pane.id
+    check state.focusPane(target)
+    check state.splitFocusedPane(paneVertical)
+    check state.center.children.len == 3
+    for child in state.center.children:
+      check child.kind == paneLeaf
+    var flexSum = 0'f32
+    for flex in state.center.flexes:
+      flexSum += flex
+    check flexSum == float32(state.center.children.len)
+
+  test "two equal vertical panes retain the two pixel divider geometry":
+    var state = initWorkspaceUi(tabCount = 1, activeTab = 0)
+    check state.splitFocusedPane(paneVertical)
+    let layout = state.center.paneLayout(Rect(origin: Point(x: px(0), y: px(0)),
+      size: Size(width: px(1000), height: px(600))))
+    check float32(layout.panes[0].bounds.size.width) == 499'f32
+    check float32(layout.dividers[0].bounds.size.width) == 2'f32
+    check float32(layout.panes[1].bounds.size.width) == 499'f32
+
+  test "three vertical children retain the aggregate pane floor":
+    var state = initWorkspaceUi(tabCount = 1, activeTab = 0)
+    check state.splitFocusedPane(paneVertical)
+    let target = state.center.children[0].pane.id
+    check state.splitPane(target, paneVertical)
+    check state.center.children.len == 3
+    check state.center.minimumPaneExtent(paneVertical) == 244'f32
 
   test "split panes retain Zed-compatible minimum extents when space permits":
     var sideBySide = initWorkspaceUi(tabCount = 1)

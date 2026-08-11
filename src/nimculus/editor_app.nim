@@ -219,16 +219,55 @@ proc visibleTabTitle(tab: EditorTab): string =
       return parts.name & parts.ext
   if tab.title.len > 0: tab.title else: "Untitled"
 
+proc pathForFile*(path: string; height: int; includeFilename: bool): string =
+  ## Return the shortest useful path suffix with `height` parent directories.
+  ## The first component of an absolute path is the tree root, so it is not
+  ## included in a suffix. Once the requested height leaves that tree, retain
+  ## the absolute path instead of producing an ambiguous partial label.
+  if path.len == 0: return ""
+  let filename = extractFilename(path)
+  let parent = splitFile(path).dir
+  var components = path.split({DirSep, AltSep}).filterIt(it.len > 0)
+  if components.len > 0: components.setLen(components.len - 1)
+  if isAbsolute(path) and components.len > 0:
+    components.delete(0)
+  if height > components.len:
+    return if includeFilename: path else: parent
+
+  let start = max(0, components.len - height)
+  for component in components[start ..< components.len]:
+    if result.len > 0: result.add(DirSep)
+    result.add(component)
+  if includeFilename and filename.len > 0:
+    if result.len > 0: result.add(DirSep)
+    result.add(filename)
+
 proc displayTitle*(session: EditorSession, index: int): string =
   ## Titles are item labels, not stable identities. A restored set of unsaved
   ## buffers can legitimately contain several "Untitled" entries; number only
   ## duplicate labels so every visible tab remains an actionable target.
   if index < 0 or index >= session.tabs.len: return "Untitled"
+  let selectedTab = session.tabs[index]
   let title = visibleTabTitle(session.tabs[index])
+  if selectedTab.document.path.len > 0:
+    var height = 0
+    while true:
+      result = pathForFile(selectedTab.document.path, height, true)
+      var unique = true
+      for candidate, tab in session.tabs:
+        if candidate == index or tab.document.path.len == 0 or
+            visibleTabTitle(tab) != title:
+          continue
+        if pathForFile(tab.document.path, height, true) == result:
+          unique = false
+          break
+      if unique or result == selectedTab.document.path: return
+      inc height
+
   var total = 0
   var ordinal = 0
   for candidate, tab in session.tabs:
-    if visibleTabTitle(tab) == title:
+    if tab.document.path.len == 0 and visibleTabTitle(tab) == title:
       inc total
       if candidate <= index: inc ordinal
   result = if total > 1: title & " " & $ordinal else: title

@@ -13316,7 +13316,8 @@ static void validationScrollInputCallback(const NimculusInputEvent *event) {
 
 static void validationShortcutInputCallback(const NimculusInputEvent *event) {
   if (event && event->type == NSEventTypeKeyDown && event->key_code == 35 &&
-      (event->modifiers & NSEventModifierFlagCommand) != 0) {
+      (event->modifiers & NSEventModifierFlagCommand) != 0 &&
+      (event->modifiers & NSEventModifierFlagShift) != 0) {
     g_validation_shortcut_input_count++;
   }
 }
@@ -13374,9 +13375,9 @@ static void validationGutterInputCallback(const NimculusInputEvent *event) {
 }
 
 bool nimculus_platform_validate_shortcut_dispatch(void) {
-  // AppKit may deliver one shortcut through performKeyEquivalent: and then
-  // deliver the same event through keyDown:. The view must dispatch the
-  // shortcut once and must not hand a modified equivalent to the IME.
+  // Standard menu equivalents are resolved by AppKit before this view sees
+  // keyDown:. This contract covers the complementary application shortcut
+  // path, matching Zed's separation of key-equivalent and key-down events.
   @autoreleasepool {
     NimculusInputCallback previousInputCallback = g_input_callback;
     NimculusShortcutCallback previousShortcutCallback = g_shortcut_callback;

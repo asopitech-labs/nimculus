@@ -13,7 +13,7 @@ import std/times
 
 suite "M12 settings foundation":
   test "editor font features and fallbacks parse in stable platform order":
-    let root = getTempDir() / "nimculus-font-settings"
+    let root = getTempDir() / ("nimculus-font-settings-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"editor":{"fontFeatures":{"liga":false,"calt":true},"fontFallbacks":["Hiragino Sans","Apple Symbols"]}}""")
@@ -34,7 +34,7 @@ suite "M12 settings foundation":
     removeDir(root)
 
   test "invalid editor font feature and fallback values are diagnosed":
-    let root = getTempDir() / "nimculus-invalid-font-settings"
+    let root = getTempDir() / ("nimculus-invalid-font-settings-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"editor":{"fontFeatures":{"liga":1,"tooLong":true,"éééé":false},"fontFallbacks":["",3]}}""")
@@ -46,7 +46,7 @@ suite "M12 settings foundation":
     removeDir(root)
 
   test "merges global, workspace, and language settings recursively":
-    let root = getTempDir() / "nimculus-settings-test"
+    let root = getTempDir() / ("nimculus-settings-test-" & $getCurrentProcessId())
     createDir(root)
     let globalPath = root / "global.json"
     let workspacePath = root / "workspace.json"
@@ -73,7 +73,7 @@ suite "M12 settings foundation":
     check store.terminalDock() == DefaultTerminalDock
     check store.debuggerDock() == DefaultDebuggerDock
 
-    let root = getTempDir() / "nimculus-panel-dock-settings"
+    let root = getTempDir() / ("nimculus-panel-dock-settings-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{
@@ -95,7 +95,7 @@ suite "M12 settings foundation":
     removeDir(root)
 
   test "panel dock settings validate their allowed positions":
-    let root = getTempDir() / "nimculus-invalid-panel-dock-settings"
+    let root = getTempDir() / ("nimculus-invalid-panel-dock-settings-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{
@@ -115,7 +115,7 @@ suite "M12 settings foundation":
     check softWrapEnabledForPath("main.nim", "editor_width")
 
   test "scroll sensitivity settings keep Zed's minimum":
-    let root = getTempDir() / "nimculus-scroll-settings"
+    let root = getTempDir() / ("nimculus-scroll-settings-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{
@@ -152,7 +152,7 @@ suite "M12 settings foundation":
     check schema["properties"]["keymap"]["items"]["required"].len == 2
 
   test "validates types and exposes layered keymap and theme":
-    let root = getTempDir() / "nimculus-settings-validation"
+    let root = getTempDir() / ("nimculus-settings-validation-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"editor":{"fontSize":"large"},"scroll_sensitivity":"fast","keymap":[{"key":"cmd+s","command":"save","when":"Editor && mode == full"}],"themeColors":{"background":"#000000"}}""")
@@ -170,7 +170,7 @@ suite "M12 settings foundation":
     removeDir(root)
 
   test "reloads changed files without replacing unchanged state":
-    let root = getTempDir() / "nimculus-settings-reload"
+    let root = getTempDir() / ("nimculus-settings-reload-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"editor":{"tabSize":2}}""")
@@ -183,7 +183,7 @@ suite "M12 settings foundation":
     removeDir(root)
 
   test "reloads a newly selected workspace settings layer":
-    let root = getTempDir() / "nimculus-settings-switch"
+    let root = getTempDir() / ("nimculus-settings-switch-" & $getCurrentProcessId())
     createDir(root)
     let globalPath = root / "global.json"
     let firstPath = root / "first.json"
@@ -203,7 +203,7 @@ suite "M12 settings foundation":
     removeDir(root)
 
   test "switches the language overlay without a file change":
-    let root = getTempDir() / "nimculus-settings-language-switch"
+    let root = getTempDir() / ("nimculus-settings-language-switch-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{
@@ -227,7 +227,7 @@ suite "M12 settings foundation":
     removeDir(root)
 
   test "ignores malformed keymap entries without raising":
-    let root = getTempDir() / "nimculus-settings-keymap-types"
+    let root = getTempDir() / ("nimculus-settings-keymap-types-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"keymap":[{"key":12,"command":"save"},{"key":"cmd+s"},{"key":"cmd+p","command":"commandPalette","when":false},"bad"]}""")
@@ -238,7 +238,7 @@ suite "M12 settings foundation":
     removeDir(root)
 
   test "resolves configured theme and icon registries":
-    let root = getTempDir() / "nimculus-settings-registry"
+    let root = getTempDir() / ("nimculus-settings-registry-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{
@@ -269,7 +269,7 @@ suite "M12 settings foundation":
     check store.iconForPath("src", true) == "▸"
 
   test "resolves the system theme without reloading settings":
-    let root = getTempDir() / "nimculus-settings-system-theme"
+    let root = getTempDir() / ("nimculus-settings-system-theme-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, "{\"theme\":\"system\"}")
@@ -355,7 +355,7 @@ suite "M12 settings foundation":
     check light.normal == lightNormal
     check light.bright == lightBright
     check light.dim == lightDim
-    let systemRoot = getTempDir() / "nimculus-terminal-theme-switch"
+    let systemRoot = getTempDir() / ("nimculus-terminal-theme-switch-" & $getCurrentProcessId())
     createDir(systemRoot)
     let systemStore = newSettingsStore(systemRoot / "settings.json", "", "")
     writeFile(systemRoot / "settings.json", "{\"theme\":\"system\"}")
@@ -379,7 +379,7 @@ suite "M12 settings foundation":
       "cursor=1:1\tlanguage=Markdown"
 
   test "status bar line ending setting shows LF and CRLF":
-    let root = getTempDir() / "nimculus-status-bar-line-endings"
+    let root = getTempDir() / ("nimculus-status-bar-line-endings-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, "{\"statusBar\":{\"lineEndingsButton\":true}}")
@@ -396,7 +396,7 @@ suite "M12 settings foundation":
     removeDir(root)
 
   test "status bar encoding modes follow Zed's should_show":
-    let root = getTempDir() / "nimculus-status-bar-encoding"
+    let root = getTempDir() / ("nimculus-status-bar-encoding-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, "{\"statusBar\":{\"activeEncodingButton\":\"enabled\"}}")
@@ -423,7 +423,7 @@ suite "M12 settings foundation":
     removeDir(root)
 
   test "status bar encoding appends BOM and active file follows its setting":
-    let root = getTempDir() / "nimculus-status-bar-file"
+    let root = getTempDir() / ("nimculus-status-bar-file-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, "{\"statusBar\":{\"showActiveFile\":true}}")
@@ -449,7 +449,7 @@ suite "M12 settings foundation":
     check diagnostics[0].path == "statusBar.activeEncodingButton"
 
   test "search button defaults to visible and follows its setting":
-    let root = getTempDir() / "nimculus-search-button-settings"
+    let root = getTempDir() / ("nimculus-search-button-settings-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     let defaults = newSettingsStore(path, "", "")
@@ -491,7 +491,7 @@ suite "M12 settings foundation":
     check diagnostics.anyIt(it.path == "git.inlineBlame.location")
     check diagnostics.anyIt(it.path == "git.inlineBlame.enabled")
     check diagnostics.anyIt(it.path == "git.inlineBlame.showCommitSummary")
-    let root = getTempDir() / "nimculus-git-blame-status-settings"
+    let root = getTempDir() / ("nimculus-git-blame-status-settings-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, "{\"git\":{\"inlineBlame\":{\"delayMs\":120,\"padding\":9,\"minColumn\":24}}}")

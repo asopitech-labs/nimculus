@@ -55,7 +55,7 @@ suite "M17 extension registry":
     check network.validateExtensionHostPermissions().len > 0
 
   test "negotiates API version and validates a wasm container before registration":
-    let root = getTempDir() / "nimculus-wasm-extension-test"
+    let root = getTempDir() / ("nimculus-wasm-extension-test-" & $getCurrentProcessId())
     createDir(root)
     let manifest = parseExtensionManifest("""
       {"id":"wasm.tools","name":"Wasm Tools","version":"1",
@@ -74,7 +74,7 @@ suite "M17 extension registry":
     removeDir(root)
 
   test "builds a bounded Wasmtime plan without shell interpolation":
-    let root = getTempDir() / "nimculus-wasm-plan-test"
+    let root = getTempDir() / ("nimculus-wasm-plan-test-" & $getCurrentProcessId())
     let runtime = root / "wasmtime"
     createDir(root)
     writeFile(runtime, "#!/bin/sh\nexit 0\n")
@@ -97,7 +97,7 @@ suite "M17 extension registry":
     removeDir(root)
 
   test "rejects an unavailable Wasmtime runtime before starting a process":
-    let root = getTempDir() / "nimculus-wasm-runtime-missing-test"
+    let root = getTempDir() / ("nimculus-wasm-runtime-missing-test-" & $getCurrentProcessId())
     createDir(root)
     writeFile(root / "extension.wasm", "\x00asm\x01\x00\x00\x00")
     let manifest = parseExtensionManifest("""
@@ -113,7 +113,7 @@ suite "M17 extension registry":
     if runtime.len == 0:
       echo "  [SKIP] Wasmtime runtime is not installed"
     else:
-      let root = getTempDir() / "nimculus-wasm-execution-test"
+      let root = getTempDir() / ("nimculus-wasm-execution-test-" & $getCurrentProcessId())
       createDir(root)
       writeFile(root / "extension.wasm", "\x00asm\x01\x00\x00\x00")
       let manifest = parseExtensionManifest("""
@@ -131,7 +131,7 @@ suite "M17 extension registry":
       removeDir(root)
 
   test "keeps the optional Component host behind validation and an error boundary":
-    let root = getTempDir() / "nimculus-component-host-boundary-test"
+    let root = getTempDir() / ("nimculus-component-host-boundary-test-" & $getCurrentProcessId())
     createDir(root)
     writeFile(root / "extension.wasm", "not a component")
     let manifest = parseExtensionManifest("""
@@ -151,7 +151,7 @@ suite "M17 extension registry":
       if wasmTools.len == 0 or not fileExists(library):
         echo "  [SKIP] wasm-tools or the Wasmtime Component library is not installed"
       else:
-        let root = getTempDir() / "nimculus-component-platform-runtime-test"
+        let root = getTempDir() / ("nimculus-component-platform-runtime-test-" & $getCurrentProcessId())
         let embedded = root / "extension.embedded.wasm"
         let component = root / "extension.component.wasm"
         createDir(root)
@@ -198,7 +198,7 @@ suite "M17 extension registry":
       if wasmTools.len == 0 or not fileExists(library):
         echo "  [SKIP] wasm-tools or the Wasmtime Component library is not installed"
       else:
-        let root = getTempDir() / "nimculus-component-process-runtime-test"
+        let root = getTempDir() / ("nimculus-component-process-runtime-test-" & $getCurrentProcessId())
         let embedded = root / "extension.embedded.wasm"
         let component = root / "extension.component.wasm"
         createDir(root)
@@ -247,7 +247,7 @@ suite "M17 extension registry":
         removeDir(root)
 
   test "polls an optional Component worker without blocking the caller":
-    let root = getTempDir() / "nimculus-component-worker-boundary-test"
+    let root = getTempDir() / ("nimculus-component-worker-boundary-test-" & $getCurrentProcessId())
     createDir(root)
     writeFile(root / "extension.wasm", "\x00asm\x0d\x00\x01\x00")
     let manifest = parseExtensionManifest("""
@@ -272,7 +272,7 @@ suite "M17 extension registry":
     removeDir(root)
 
   test "discovers extension directories and resolves language ownership":
-    let root = getTempDir() / "nimculus-extension-test"
+    let root = getTempDir() / ("nimculus-extension-test-" & $getCurrentProcessId())
     let extensionRoot = root / "markdown"
     createDir(extensionRoot)
     writeFile(extensionRoot / "extension.json", """
@@ -284,7 +284,7 @@ suite "M17 extension registry":
     removeDir(root)
 
   test "installs a validated local extension into the global root":
-    let root = getTempDir() / "nimculus-extension-install-test"
+    let root = getTempDir() / ("nimculus-extension-install-test-" & $getCurrentProcessId())
     let source = root / "source"
     let destination = root / "installed"
     createDir(source)
@@ -303,7 +303,7 @@ suite "M17 extension registry":
     removeDir(root)
 
   test "rejects extension ids that can escape the install root":
-    let root = getTempDir() / "nimculus-extension-install-boundary-test"
+    let root = getTempDir() / ("nimculus-extension-install-boundary-test-" & $getCurrentProcessId())
     let source = root / "source"
     createDir(source)
     writeFile(source / "extension.json", """
@@ -340,7 +340,7 @@ suite "M17 extension registry":
 
   when defined(macosx):
     test "inspects and installs a catalog ZIP through the safe registry boundary":
-      let root = getTempDir() / "nimculus-extension-catalog-package-test"
+      let root = getTempDir() / ("nimculus-extension-catalog-package-test-" & $getCurrentProcessId())
       let source = root / "catalog-ext"
       let destination = root / "installed"
       let archive = root / "catalog-ext.zip"

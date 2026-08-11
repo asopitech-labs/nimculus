@@ -53,7 +53,7 @@ suite "macOS platform contract":
     check platformValidateTitlebarHeight()
 
   test "settings values can be handed to the editor font platform contract":
-    let root = getTempDir() / "nimculus-font-platform-handoff"
+    let root = getTempDir() / ("nimculus-font-platform-handoff-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"editor":{"fontFeatures":{"calt":false},"fontFallbacks":["Hiragino Sans"]}}""")

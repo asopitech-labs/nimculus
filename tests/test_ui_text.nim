@@ -1,6 +1,8 @@
 import std/unittest
 import std/unicode
 import std/options
+import std/monotimes
+import std/times
 import nimnui/nimnui
 import nimnui/text
 import nimculus/editor_view
@@ -669,6 +671,32 @@ suite "M2 UI foundation":
     var event = UiEvent(kind: pointerDown, target: child)
     let phases = tree.dispatch(event)
     check phases == @[capture, capture, target, bubble, bubble]
+
+  test "node key listeners run once during capture and once during bubble":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let parent = tree.addNode(root)
+    let child = tree.addNode(parent)
+    var invocations = 0
+    tree.onKeyEvent(root, proc(event: var UiEvent) =
+      inc invocations)
+    var event = UiEvent(kind: keyDown, target: child)
+    discard tree.dispatchWithHandlers(event)
+    check invocations == 2
+
+  test "context stack for a deep tree uses the node index":
+    var tree = newUiTree()
+    var current = tree.addNode(focusable = true)
+    for _ in 1 ..< 2000:
+      current = tree.addNode(current, focusable = true)
+    for node in tree.nodes:
+      tree.setContext(node.id, keyContext("DeepTree"))
+    check tree.focus(current)
+    let started = getMonoTime()
+    let contexts = tree.contextStack()
+    let elapsed = inMicroseconds(getMonoTime() - started)
+    check contexts.len == 2000
+    check elapsed < 1_000
 
 suite "M3 text foundation":
   test "positions handle UTF-8 and combining marks":

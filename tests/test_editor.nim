@@ -127,7 +127,7 @@ suite "session persistence scheduling":
     check commandBottom <= editorBottom
 
   test "legacy sessions default to no-wrap while explicit wrap survives":
-    let path = getTempDir() / "nimculus-soft-wrap-default-session.json"
+    let path = getTempDir() / ("nimculus-soft-wrap-default-session-" & $getCurrentProcessId() & ".json")
     defer: removeFile(path)
     writeFile(path, "{\"activeTab\":0,\"tabs\":[{" &
       "\"path\":\"\",\"content\":\"long line\",\"view\":{}}]}")
@@ -235,7 +235,7 @@ suite "M4 editor buffer":
     check nextWordBoundary("hello 世界", 0) == 5
 
   test "startup paths accept Japanese files and ignore editor flags":
-    let root = getTempDir() / "nimculus-日本語-startup-paths"
+    let root = getTempDir() / ("nimculus-日本語-startup-paths-" & $getCurrentProcessId())
     if dirExists(root): removeDir(root)
     createDir(root)
     let source = root / "日本語🙂.nim"
@@ -258,7 +258,7 @@ suite "M4 editor buffer":
     check canonicalOpenPath(source) == expandFilename(source)
 
   test "opening an existing Japanese path resolves its current tab":
-    let path = getTempDir() / "nimculus-日本語-existing-tab🙂.txt"
+    let path = getTempDir() / ("nimculus-日本語-existing-tab🙂-" & $getCurrentProcessId() & ".txt")
     writeFile(path, "日本語")
     defer:
       if fileExists(path): removeFile(path)
@@ -271,8 +271,8 @@ suite "M4 editor buffer":
     check untitledSession.tabIndexForPath("") == -1
 
   test "Save As canonicalizes identity and detects an open destination":
-    let source = getTempDir() / "nimculus-save-as-日本語-source🙂.txt"
-    let destination = getTempDir() / "nimculus-save-as-日本語-destination🙂.txt"
+    let source = getTempDir() / ("nimculus-save-as-日本語-source🙂-" & $getCurrentProcessId() & ".txt")
+    let destination = getTempDir() / ("nimculus-save-as-日本語-destination🙂-" & $getCurrentProcessId() & ".txt")
     writeFile(source, "source")
     writeFile(destination, "destination")
     defer:
@@ -291,8 +291,8 @@ suite "M4 editor buffer":
 
   when defined(macosx):
     test "atomic save preserves a document symlink":
-      let target = getTempDir() / "nimculus-save-symlink-target.txt"
-      let link = getTempDir() / "nimculus-save-symlink-link.txt"
+      let target = getTempDir() / ("nimculus-save-symlink-target-" & $getCurrentProcessId() & ".txt")
+      let link = getTempDir() / ("nimculus-save-symlink-link-" & $getCurrentProcessId() & ".txt")
       writeFile(target, "before")
       if symlinkExists(link): removeFile(link)
       createSymlink(target, link)
@@ -377,7 +377,7 @@ suite "M5 editor services":
       regex: true)).len == 1
 
   test "open save search replace and external change":
-    let path = getTempDir() / "nimculus-m5-日本語🙂.txt"
+    let path = getTempDir() / ("nimculus-m5-日本語🙂-" & $getCurrentProcessId() & ".txt")
     writeFile(path, "one\r\n日本語🙂\r\none")
     var document = openDocument(path)
     check document.lineEnding == crlf
@@ -399,10 +399,10 @@ suite "M5 editor services":
     removeFile(path)
 
   test "failed save does not change the document path":
-    let path = getTempDir() / "nimculus-m5-save-source.txt"
+    let path = getTempDir() / ("nimculus-m5-save-source-" & $getCurrentProcessId() & ".txt")
     writeFile(path, "source")
     var document = openDocument(path)
-    let invalidPath = getTempDir() / "nimculus-m5-missing-dir" / "target.txt"
+    let invalidPath = getTempDir() / ("nimculus-m5-missing-dir-" & $getCurrentProcessId()) / "target.txt"
     expect IOError:
       document.save(invalidPath)
     check document.path == canonicalOpenPath(path)
@@ -410,7 +410,7 @@ suite "M5 editor services":
     check document.externallyChanged
 
   test "external deletion is detected for an empty file":
-    let path = getTempDir() / "nimculus-m5-empty-external.txt"
+    let path = getTempDir() / ("nimculus-m5-empty-external-" & $getCurrentProcessId() & ".txt")
     writeFile(path, "")
     let document = openDocument(path)
     check not document.externallyChanged
@@ -418,7 +418,7 @@ suite "M5 editor services":
     check document.externallyChanged
 
   test "atomic replacement is detected even when the file size is unchanged":
-    let path = getTempDir() / "nimculus-m5-identity.txt"
+    let path = getTempDir() / ("nimculus-m5-identity-" & $getCurrentProcessId() & ".txt")
     writeFile(path, "first")
     var document = openDocument(path)
     check document.externalIdentity.len > 0
@@ -429,7 +429,7 @@ suite "M5 editor services":
     removeFile(path)
 
   test "keeping edits after external deletion records deleted disk state":
-    let path = getTempDir() / "nimculus-m5-keep-deleted.txt"
+    let path = getTempDir() / ("nimculus-m5-keep-deleted-" & $getCurrentProcessId() & ".txt")
     writeFile(path, "content")
     var document = openDocument(path)
     removeFile(path)
@@ -492,11 +492,41 @@ suite "M5 editor services":
     check session.displayTitle(1) == "Untitled 2"
     check session.displayTitle(2) == "Untitled 3"
 
+  test "duplicate file tab labels use directory context":
+    check pathForFile("/w/src/main.rs", 1, true) == "src/main.rs"
+    check pathForFile("/w/tests/main.rs", 1, true) == "tests/main.rs"
+    check pathForFile("/w/a/b/x.nim", 2, true) == "a/b/x.nim"
+    check pathForFile("/w/c/b/x.nim", 2, true) == "c/b/x.nim"
+    check pathForFile("/w/a/b/x.nim", 3, true) == "/w/a/b/x.nim"
+
+    var session: EditorSession
+    var source = newDocument()
+    source.path = "/w/src/main.rs"
+    var tests = newDocument()
+    tests.path = "/w/tests/main.rs"
+    session.addTab(source)
+    session.addTab(tests)
+    check session.displayTitle(0) == "src/main.rs"
+    check session.displayTitle(1) == "tests/main.rs"
+
+    var nested: EditorSession
+    var left = newDocument()
+    left.path = "/w/a/b/x.nim"
+    var right = newDocument()
+    right.path = "/w/c/b/x.nim"
+    nested.addTab(left)
+    nested.addTab(right)
+    check nested.displayTitle(0) == "a/b/x.nim"
+    check nested.displayTitle(1) == "c/b/x.nim"
+
   test "named tab labels retain their file extension":
-    let path = getTempDir() / "DEVELOPMENT_GUIDELINES.md"
+    let root = getTempDir() / ("nimculus-editor-named-label-" & $getCurrentProcessId())
+    createDir(root)
+    let path = root / "DEVELOPMENT_GUIDELINES.md"
     writeFile(path, "# Breadcrumb\n")
     defer:
       if fileExists(path): removeFile(path)
+      if dirExists(root): removeDir(root)
     var session: EditorSession
     session.addTab(openDocument(path))
     check session.displayTitle(0) == "DEVELOPMENT_GUIDELINES.md"
@@ -547,7 +577,7 @@ suite "M5 editor services":
     check session.splitSecondaryTab == 0
 
   test "pinned tab state survives session restore":
-    let path = getTempDir() / "nimculus-pinned-tab-session.json"
+    let path = getTempDir() / ("nimculus-pinned-tab-session-" & $getCurrentProcessId() & ".json")
     defer:
       if fileExists(path): removeFile(path)
     var session: EditorSession
@@ -575,7 +605,7 @@ suite "M5 editor services":
     check session.activeTab == 1
 
   test "reopen closed tab reloads the newest clean path without reviving discarded text":
-    let root = getTempDir() / "nimculus-reopen-closed-tab"
+    let root = getTempDir() / ("nimculus-reopen-closed-tab-" & $getCurrentProcessId())
     if dirExists(root): removeDir(root)
     createDir(root)
     defer:
@@ -754,8 +784,8 @@ suite "M5 editor services":
     check buffer.toString() == "a b c"
 
   test "session and recovery round trip":
-    let path = getTempDir() / "nimculus-m5-session.txt"
-    let recoveryPath = getTempDir() / "nimculus-m5-recovery.txt"
+    let path = getTempDir() / ("nimculus-m5-session-" & $getCurrentProcessId() & ".txt")
+    let recoveryPath = getTempDir() / ("nimculus-m5-recovery-" & $getCurrentProcessId() & ".txt")
     writeFile(path, "session\none\ntwo\nthree")
     var session: EditorSession
     session.addTab(openDocument(path))
@@ -778,7 +808,7 @@ suite "M5 editor services":
     session.workspaceRightDockOpen = true
     session.workspaceRightDockSize = 296'f32
     session.workspaceRightPanel = 0
-    let sessionPath = getTempDir() / "nimculus-m5-session.json"
+    let sessionPath = getTempDir() / ("nimculus-m5-session-" & $getCurrentProcessId() & ".json")
     session.saveSession(sessionPath)
     for candidate in walkFiles(sessionPath & ".tmp." & $getCurrentProcessId() & ".*"):
       check not fileExists(candidate)
@@ -816,7 +846,7 @@ suite "M5 editor services":
     removeFile(path); removeFile(sessionPath); removeFile(recoveryPath)
 
   test "session defaults all docks closed when dock state is absent":
-    let sessionPath = getTempDir() / "nimculus-m5-dock-defaults-session.json"
+    let sessionPath = getTempDir() / ("nimculus-m5-dock-defaults-session-" & $getCurrentProcessId() & ".json")
     writeFile(sessionPath, "{\"activeTab\":-1,\"tabs\":[]}")
     let restored = loadSession(sessionPath)
     check not restored.workspaceLeftDockOpen
@@ -825,7 +855,7 @@ suite "M5 editor services":
     removeFile(sessionPath)
 
   test "session restores explicitly saved open state for all docks":
-    let sessionPath = getTempDir() / "nimculus-m5-dock-open-session.json"
+    let sessionPath = getTempDir() / ("nimculus-m5-dock-open-session-" & $getCurrentProcessId() & ".json")
     writeFile(sessionPath, """{
       "activeTab": -1,
       "workspaceLeftDockOpen": true,
@@ -840,7 +870,7 @@ suite "M5 editor services":
     removeFile(sessionPath)
 
   test "session restores a secondary pane document independently of primary":
-    let sessionPath = getTempDir() / "nimculus-m5-split-secondary-session.json"
+    let sessionPath = getTempDir() / ("nimculus-m5-split-secondary-session-" & $getCurrentProcessId() & ".json")
     if fileExists(sessionPath): removeFile(sessionPath)
     var session: EditorSession
     var first = newDocument()
@@ -871,7 +901,7 @@ suite "M5 editor services":
     var untitled = newDocument()
     untitled.buffer.edit(Edit(startByte: 0, endByte: 0, text: "draft🙂"))
     session.addTab(untitled)
-    let sessionPath = getTempDir() / "nimculus-m5-untitled-session.json"
+    let sessionPath = getTempDir() / ("nimculus-m5-untitled-session-" & $getCurrentProcessId() & ".json")
     session.saveSession(sessionPath)
     let restored = loadSession(sessionPath)
     check restored.tabs.len == 1
@@ -881,14 +911,14 @@ suite "M5 editor services":
     removeFile(sessionPath)
 
   test "session restores dirty named tab content after a crash":
-    let path = getTempDir() / "nimculus-m5-dirty-session.txt"
+    let path = getTempDir() / ("nimculus-m5-dirty-session-" & $getCurrentProcessId() & ".txt")
     writeFile(path, "on disk")
     var session: EditorSession
     var document = openDocument(path)
     document.buffer.edit(Edit(startByte: 0, endByte: document.buffer.toString().len,
       text: "unsaved🙂"))
     session.addTab(document)
-    let sessionPath = getTempDir() / "nimculus-m5-dirty-session.json"
+    let sessionPath = getTempDir() / ("nimculus-m5-dirty-session-" & $getCurrentProcessId() & ".json")
     session.saveSession(sessionPath)
     let restored = loadSession(sessionPath)
     check restored.tabs.len == 1
@@ -897,8 +927,8 @@ suite "M5 editor services":
     check restored.tabs[0].document.buffer.isDirty
 
   test "session restore coalesces duplicate named tabs without losing dirty active content":
-    let path = getTempDir() / "nimculus-session-duplicate-日本語🙂.txt"
-    let sessionPath = getTempDir() / "nimculus-session-duplicate.json"
+    let path = getTempDir() / ("nimculus-session-duplicate-日本語🙂-" & $getCurrentProcessId() & ".txt")
+    let sessionPath = getTempDir() / ("nimculus-session-duplicate-" & $getCurrentProcessId() & ".json")
     defer:
       if fileExists(path): removeFile(path)
       if fileExists(sessionPath): removeFile(sessionPath)
@@ -936,8 +966,8 @@ suite "M5 editor services":
     removeFile(sessionPath)
 
   test "session save coalesces duplicate named tabs before writing":
-    let path = getTempDir() / "nimculus-save-duplicate-日本語🙂.txt"
-    let sessionPath = getTempDir() / "nimculus-save-duplicate.json"
+    let path = getTempDir() / ("nimculus-save-duplicate-日本語🙂-" & $getCurrentProcessId() & ".txt")
+    let sessionPath = getTempDir() / ("nimculus-save-duplicate-" & $getCurrentProcessId() & ".json")
     defer:
       if fileExists(path): removeFile(path)
       if fileExists(sessionPath): removeFile(sessionPath)
@@ -959,10 +989,10 @@ suite "M5 editor services":
     check restored.tabs[0].document.buffer.isDirty
 
   test "session canonicalizes duplicate recent files and workspace roots":
-    let root = getTempDir() / "nimculus-session-workspace-日本語🙂"
-    let alias = getTempDir() / "nimculus-session-workspace-alias"
+    let root = getTempDir() / ("nimculus-session-workspace-日本語🙂-" & $getCurrentProcessId())
+    let alias = getTempDir() / ("nimculus-session-workspace-alias-" & $getCurrentProcessId())
     let recent = root / "recent.txt"
-    let sessionPath = getTempDir() / "nimculus-session-workspace.json"
+    let sessionPath = getTempDir() / ("nimculus-session-workspace-" & $getCurrentProcessId() & ".json")
     defer:
       if symlinkExists(alias): removeFile(alias)
       if dirExists(root): removeDir(root)
@@ -981,14 +1011,14 @@ suite "M5 editor services":
     check restored.workspaceRoots == @[canonicalOpenPath(root)]
 
   test "session restores dirty named tab after the disk file is deleted":
-    let path = getTempDir() / "nimculus-m5-deleted-dirty-session.txt"
+    let path = getTempDir() / ("nimculus-m5-deleted-dirty-session-" & $getCurrentProcessId() & ".txt")
     writeFile(path, "on disk")
     var session: EditorSession
     var document = openDocument(path)
     document.buffer.edit(Edit(startByte: 0, endByte: document.buffer.toString().len,
       text: "recover me"))
     session.addTab(document)
-    let sessionPath = getTempDir() / "nimculus-m5-deleted-dirty-session.json"
+    let sessionPath = getTempDir() / ("nimculus-m5-deleted-dirty-session-" & $getCurrentProcessId() & ".json")
     session.saveSession(sessionPath)
     removeFile(path)
     let restored = loadSession(sessionPath)
@@ -1003,7 +1033,7 @@ suite "M5 editor services":
     removeFile(sessionPath)
 
   test "legacy deleted session paths are canonicalized before recovery":
-    let sessionPath = getTempDir() / "nimculus-m5-legacy-deleted-session.json"
+    let sessionPath = getTempDir() / ("nimculus-m5-legacy-deleted-session-" & $getCurrentProcessId() & ".json")
     let legacyPath = "/tmp/nimculus-legacy-日本語-deleted.txt"
     writeFile(sessionPath, "{\"activeTab\":0,\"tabs\":[{\"path\":\"" & legacyPath &
       "\",\"dirty\":true,\"content\":\"recover🙂\",\"lineEnding\":\"lf\"}]}")
@@ -1015,14 +1045,14 @@ suite "M5 editor services":
     check restored.tabs[0].document.buffer.isDirty
 
   test "session restores dirty named tab when its path becomes a directory":
-    let path = getTempDir() / "nimculus-m5-directory-dirty-session.txt"
+    let path = getTempDir() / ("nimculus-m5-directory-dirty-session-" & $getCurrentProcessId() & ".txt")
     writeFile(path, "on disk")
     var session: EditorSession
     var document = openDocument(path)
     document.buffer.edit(Edit(startByte: 0, endByte: document.buffer.toString().len,
       text: "recover me"))
     session.addTab(document)
-    let sessionPath = getTempDir() / "nimculus-m5-directory-dirty-session.json"
+    let sessionPath = getTempDir() / ("nimculus-m5-directory-dirty-session-" & $getCurrentProcessId() & ".json")
     session.saveSession(sessionPath)
     removeFile(path)
     createDir(path)
@@ -1035,7 +1065,7 @@ suite "M5 editor services":
     removeFile(sessionPath)
 
   test "discarded session omits dirty buffers":
-    let namedPath = getTempDir() / "nimculus-m5-discarded.txt"
+    let namedPath = getTempDir() / ("nimculus-m5-discarded-" & $getCurrentProcessId() & ".txt")
     writeFile(namedPath, "on disk")
     var session: EditorSession
     var named = openDocument(namedPath)
@@ -1044,7 +1074,7 @@ suite "M5 editor services":
     var untitled = newDocument()
     untitled.buffer.edit(Edit(startByte: 0, endByte: 0, text: "discard too"))
     session.addTab(untitled)
-    let sessionPath = getTempDir() / "nimculus-m5-discarded.json"
+    let sessionPath = getTempDir() / ("nimculus-m5-discarded-" & $getCurrentProcessId() & ".json")
     session.saveSession(sessionPath, preserveDirty = false)
     let restored = loadSession(sessionPath)
     check restored.tabs.len == 1
@@ -1055,7 +1085,7 @@ suite "M5 editor services":
     removeFile(sessionPath)
 
   test "external reload preserves view state and clamps selection":
-    let path = getTempDir() / "nimculus-m5-reload.txt"
+    let path = getTempDir() / ("nimculus-m5-reload-" & $getCurrentProcessId() & ".txt")
     writeFile(path, "before🙂\nsecond")
     var session: EditorSession
     session.addTab(openDocument(path))
@@ -1073,7 +1103,7 @@ suite "M5 editor services":
     removeFile(path)
 
   test "branch-style refresh reloads clean tabs and retains dirty tabs":
-    let root = getTempDir() / "nimculus-editor-branch-refresh"
+    let root = getTempDir() / ("nimculus-editor-branch-refresh-" & $getCurrentProcessId())
     if dirExists(root): removeDir(root)
     createDir(root)
     defer: removeDir(root)
@@ -1093,7 +1123,7 @@ suite "M5 editor services":
     check session.tabs[1].document.buffer.isDirty
 
   test "session loader tolerates partial metadata":
-    let path = getTempDir() / "nimculus-m5-partial-session.json"
+    let path = getTempDir() / ("nimculus-m5-partial-session-" & $getCurrentProcessId() & ".json")
     writeFile(path, "{\"tabs\": []}")
     let session = loadSession(path)
     check session.activeTab == -1
@@ -1101,17 +1131,17 @@ suite "M5 editor services":
     removeFile(path)
 
   test "session loader tolerates invalid JSON and out of range active tab":
-    let invalidPath = getTempDir() / "nimculus-m5-invalid-session.json"
+    let invalidPath = getTempDir() / ("nimculus-m5-invalid-session-" & $getCurrentProcessId() & ".json")
     writeFile(invalidPath, "not-json")
     check loadSession(invalidPath).activeTab == -1
     removeFile(invalidPath)
 
-    let rangePath = getTempDir() / "nimculus-m5-range-session.json"
+    let rangePath = getTempDir() / ("nimculus-m5-range-session-" & $getCurrentProcessId() & ".json")
     writeFile(rangePath, "{\"activeTab\": 99, \"tabs\": []}")
     check loadSession(rangePath).activeTab == -1
     removeFile(rangePath)
 
-    let malformedPath = getTempDir() / "nimculus-m5-malformed-session.json"
+    let malformedPath = getTempDir() / ("nimculus-m5-malformed-session-" & $getCurrentProcessId() & ".json")
     writeFile(malformedPath,
       "{\"activeTab\":\"bad\",\"split\":\"bad\",\"splitDirection\":7," &
       "\"tabs\":[{\"path\":7}]}")
