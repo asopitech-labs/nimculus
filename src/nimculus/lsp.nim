@@ -67,6 +67,10 @@ type
     message*: string
     source*: string
 
+  DiagnosticSummary* = object
+    errorCount*: int
+    warningCount*: int
+
   LspLocation* = object
     uri*: string
     range*: LspRange
@@ -168,8 +172,10 @@ type
     requestTimeoutMs*: int64
     rootUri*: string
     clientName*: string
+    serverId*: int
     initializeId: int
-    diagnostics: Table[string, seq[LspDiagnostic]]
+    diagnostics: Table[tuple[uri: string, serverId: int], seq[LspDiagnostic]]
+    summaries: Table[string, DiagnosticSummary]
     responses: Table[int, JsonNode]
     progressTokens*: HashSet[LspProgressToken]
     ## Public so the activity-indicator layer can consume progress without
@@ -392,6 +398,8 @@ proc parseDiagnostics*(message: JsonNode): tuple[uri: string, diagnostics: seq[L
   if params.kind != JObject: return
   if params.hasKey("uri"): result.uri = params["uri"].getStr
   if not params.hasKey("diagnostics") or params["diagnostics"].kind != JArray: return
+  ## relatedInformation is not parsed, so multi-span server errors count once
+  ## per span here, unlike Zed's primary-diagnostic counting.
   for item in params["diagnostics"]:
     if item.kind != JObject or not item.hasKey("range") or not item.hasKey("message"): continue
     let source = if item.hasKey("source"): item["source"].getStr else: ""
@@ -1013,12 +1021,13 @@ proc restart*(client: LspProcess) =
   client.state = lspRunning
 
 proc startLspSession*(command: string, args: openArray[string],
-                      rootUri, clientName: string): LspSession =
+                      rootUri, clientName: string, serverId = 1): LspSession =
   result = LspSession(process: startLspProcess(command, args),
     tracker: initLspRequestTracker(), state: lspSessionInitializing,
     requestTimeoutMs: DefaultLspRequestTimeoutMs,
-    rootUri: rootUri, clientName: clientName,
-    diagnostics: initTable[string, seq[LspDiagnostic]](),
+    rootUri: rootUri, clientName: clientName, serverId: serverId,
+    diagnostics: initTable[tuple[uri: string, serverId: int], seq[LspDiagnostic]](),
+    summaries: initTable[string, DiagnosticSummary](),
     responses: initTable[int, JsonNode](),
     progressTokens: initHashSet[LspProgressToken](),
     progresses: initTable[LspProgressToken, LspProgress]())
@@ -1044,6 +1053,23 @@ proc cancelExpiredRequests(session: LspSession) =
     if wasInitialize and session.state == lspSessionInitializing:
       session.state = lspSessionFailed
 
+proc recomputeDiagnosticSummary(session: LspSession, uri: string) =
+  var summary: DiagnosticSummary
+  for key, diagnostics in session.diagnostics:
+    if key.uri != uri: continue
+    for diagnostic in diagnostics:
+      case diagnostic.severity
+      of 1: inc summary.errorCount
+      of 2: inc summary.warningCount
+      else: discard
+  session.summaries[uri] = summary
+
+proc storeDiagnostics*(session: LspSession, message: JsonNode, serverId: int) =
+  if session == nil: return
+  let parsed = parseDiagnostics(message)
+  session.diagnostics[(parsed.uri, serverId)] = parsed.diagnostics
+  session.recomputeDiagnosticSummary(parsed.uri)
+
 proc poll*(session: LspSession): seq[JsonNode] =
   ## Consume one worker-task read and apply protocol-level session updates.
   ## Feature-specific response decoding remains at the caller boundary.
@@ -1057,8 +1083,7 @@ proc poll*(session: LspSession): seq[JsonNode] =
       if message["method"].kind == JString:
         case message["method"].getStr
         of "textDocument/publishDiagnostics":
-          let parsed = parseDiagnostics(message)
-          session.diagnostics[parsed.uri] = parsed.diagnostics
+          session.storeDiagnostics(message, session.serverId)
         of "$/progress":
           discard session.handleWorkDoneProgress(message)
         else:
@@ -1113,7 +1138,13 @@ proc notify*(session: LspSession, methodName: string, params: JsonNode = nil) =
   session.process.sendNotification(methodName, params)
 
 proc diagnosticsFor*(session: LspSession, uri: string): seq[LspDiagnostic] =
-  if session != nil and uri in session.diagnostics: result = session.diagnostics[uri]
+  if session == nil: return
+  for key, diagnostics in session.diagnostics:
+    if key.uri == uri: result.add(diagnostics)
+
+proc diagnosticSummaryFor*(session: LspSession, uri: string): DiagnosticSummary =
+  if session != nil and uri in session.summaries:
+    result = session.summaries[uri]
 
 proc stop*(session: LspSession) =
   if session == nil: return
@@ -1125,6 +1156,7 @@ proc restart*(session: LspSession) =
   session.process.restart()
   session.tracker = initLspRequestTracker()
   session.diagnostics.clear()
+  session.summaries.clear()
   session.responses.clear()
   session.progressTokens.clear()
   session.progresses.clear()
