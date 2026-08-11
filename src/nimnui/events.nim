@@ -53,37 +53,64 @@ proc nativeEventButton*(eventType: uint32): uint32 =
 proc ancestorPath(tree: UiTree, target: NodeId): seq[NodeId] =
   tree.dispatchPath(target)
 
-proc dispatch*(tree: var UiTree, event: var UiEvent): seq[EventPhase] =
-  let path = ancestorPath(tree, event.target)
-  for index in 0 .. path.high:
-    event.phase = capture
-    result.add(capture)
-    if event.handled: return
-  event.phase = target
-  result.add(target)
-  if event.handled: return
-  for index in countdown(path.high, 0):
-    event.phase = bubble
-    result.add(bubble)
-    if event.handled: return
+proc invokeNodeListeners(tree: var UiTree, id: NodeId, event: var UiEvent) =
+  let index = tree.nodeIndex(id)
+  if index < 0: return
+  case event.kind
+  of keyDown, keyUp:
+    for handler in tree.nodes[index].keyListeners:
+      handler(addr event)
+  of modifiersChanged:
+    for handler in tree.nodes[index].modifiersChangedListeners:
+      handler(addr event)
+  of command:
+    for listener in tree.nodes[index].actionListeners:
+      if listener.action == event.command:
+        listener.handler(event.command)
+  else: discard
 
-proc dispatchWithHandlers*(tree: var UiTree, event: var UiEvent,
-                           handlers: seq[tuple[node: NodeId, handler: EventHandler]]): seq[EventPhase] =
+proc onKeyEvent*(tree: var UiTree, id: NodeId, handler: EventHandler) =
+  let index = tree.nodeIndex(id)
+  if index < 0 or handler == nil: return
+  tree.nodes[index].keyListeners.add(proc(eventPtr: pointer) =
+    var event = cast[ptr UiEvent](eventPtr)
+    handler(event[]))
+
+proc onModifiersChanged*(tree: var UiTree, id: NodeId, handler: EventHandler) =
+  let index = tree.nodeIndex(id)
+  if index < 0 or handler == nil: return
+  tree.nodes[index].modifiersChangedListeners.add(proc(eventPtr: pointer) =
+    var event = cast[ptr UiEvent](eventPtr)
+    handler(event[]))
+
+proc onAction*(tree: var UiTree, id: NodeId, action: string,
+               handler: ActionHandler) =
+  let index = tree.nodeIndex(id)
+  if index < 0 or handler == nil: return
+  tree.nodes[index].actionListeners.add((action, handler))
+
+proc onAction*(tree: var UiTree, id: NodeId, handler: ActionHandler,
+               action: string) =
+  tree.onAction(id, action, handler)
+
+proc dispatchWithHandlers*(tree: var UiTree,
+                           event: var UiEvent): seq[EventPhase]
+
+proc dispatch*(tree: var UiTree, event: var UiEvent): seq[EventPhase] =
+  tree.dispatchWithHandlers(event)
+
+proc dispatchWithHandlers*(tree: var UiTree, event: var UiEvent): seq[EventPhase] =
   let path = ancestorPath(tree, event.target)
   for index in 0 .. path.high:
     event.phase = capture
     result.add(capture)
-    for entry in handlers:
-      if entry.node == path[index]: entry.handler(event)
+    tree.invokeNodeListeners(path[index], event)
     if event.handled: return
   event.phase = target
   result.add(target)
-  for entry in handlers:
-    if entry.node == event.target: entry.handler(event)
   if event.handled: return
   for index in countdown(path.high, 0):
     event.phase = bubble
     result.add(bubble)
-    for entry in handlers:
-      if entry.node == path[index]: entry.handler(event)
+    tree.invokeNodeListeners(path[index], event)
     if event.handled: return
