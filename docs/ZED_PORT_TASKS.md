@@ -78,7 +78,7 @@
 - [ ] **WindowInvalidator + DrawPhase state machine** — Zed `crates/gpui/src/window.rs:117 WindowInvalidatorInner, :140 impl, :153 invalidate_view, :180 set_phase, :1197 enum DrawPhase, :1891 Window::refresh`
 - [ ] **Three-phase element pipeline: request_layout -> prepaint -> paint** — Zed `crates/gpui/src/window.rs:2853 draw_roots (Prepaint at :2854, root request_layout :2884, stretch_auto_size_to_fill :2885, prepaint_as_root :2889, Paint at :2923, root paint :2924), :4252 request_layout, :4301 compute_layout, :4318 layout_bounds, :3039 prepaint_deferred_draws, :3109 paint_deferred_draws`
 - [ ] **Hitbox list + topmost hit testing with blocking behaviors** — Zed `crates/gpui/src/window.rs:678 struct Hitbox, :724 enum HitboxBehavior, :4338 insert_hitbox, :935 Frame::hit_test, :2919 (per-frame cache)`
-- [ ] **Content mask stack and element offset stack** — Zed `crates/gpui/src/window.rs:1793 ContentMask, :3323 with_content_mask, :3341 with_element_offset, :3360 with_absolute_element_offset, :3473 element_offset, :4325-4327 (layout_bounds applies snapped offset)`
+- [x] **Content mask stack and element offset stack** — Zed `crates/gpui/src/window.rs:1793 ContentMask, :3323 with_content_mask, :3341 with_element_offset, :3360 with_absolute_element_offset, :3473 element_offset, :4325-4327 (layout_bounds applies snapped offset)`
 - [ ] **Typed pixel units and the scale-factor ladder** — Zed `crates/gpui/src/geometry.rs:2677 Pixels, :2781 impl (floor/round/ceil/scale/pow/abs), :2829 Pixels::scale, :2982 DevicePixels, :3075 ScaledPixels, :3131 ScaledPixels->DevicePixels, :3238 Rems, :3298 AbsoluteLength, :3460 DefiniteLength, :3611 Length, :3736 px()`
 - [ ] **Bounds / Point / Size / Edges / Corners generic over unit** — Zed `crates/gpui/src/geometry.rs:85 Point<T>, :396 Size<T>, :723 Bounds<T>, :1750 Edges<T>, :2258 Corners<T>, :43 trait Along, :25 enum Axis, :1694 Bounds<Pixels>::scale, :1707 to_device_pixels`
 - [ ] **Frame profiling: dirty-timestamp accumulation and present** — Zed `crates/gpui/src/window.rs:126 FrameDirtyAccumulator, :2681 take_frame_dirty, :2789 record_frame_timing, :2827 present, :2841 present_if_needed`
@@ -468,7 +468,7 @@
 
 - [ ] **Panel trait / dock contract** — Zed `crates/workspace/src/dock.rs:36 (trait Panel), :98 (PanelHandle), :290 (DockPosition)`
 - [x] **Panel persistence identity (persistent_name)** — Zed `crates/project_panel/src/project_panel.rs:7607, crates/outline_panel/src/outline_panel.rs:4955, crates/terminal_view/src/terminal_panel.rs:1625`
-- [ ] **Startup panel construction** — Zed `crates/zed/src/zed.rs:775 initialize_panels, :874 initialize_agent_panel`
+- [x] **Startup panel construction** — Zed `crates/zed/src/zed.rs:775 initialize_panels, :874 initialize_agent_panel`
 - [ ] **Outline panel** — Zed `crates/outline_panel/src/outline_panel.rs:653 init, :4954 impl Panel`
 - [ ] **Git panel / git integration** — Zed `crates/git_ui/src/git_panel.rs:8064 impl Panel (crate is 44979 lines over 32 files)`
 - [ ] **Agent panel / agent runtime** — Zed `crates/agent_ui/src/agent_panel.rs:371 init, :4954 impl Panel; crates/agent (85010 lines, 56 files)`
