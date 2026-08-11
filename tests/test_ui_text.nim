@@ -914,6 +914,22 @@ suite "M3 text foundation":
     check result.handled
     check result.command == "run"
     check not overlay.open
+    overlay.showPopup(NodeId(2), Rect(origin: Point(x: px(10), y: px(10)),
+      size: Size(width: px(80), height: px(24))), viewport,
+      @[OverlayItem(label: "Run", command: "run", enabled: true)])
+    let space = overlay.handleKey(49)
+    check space.handled
+    check space.command == result.command
+    check not overlay.open
+    overlay.showPopup(NodeId(2), Rect(origin: Point(x: px(10), y: px(10)),
+      size: Size(width: px(80), height: px(24))), viewport,
+      @[OverlayItem(label: "Run", command: "run", enabled: true)])
+    let inside = overlay.handlePointerDown(Point(
+      x: overlay.bounds.origin.x + px(4),
+      y: overlay.bounds.origin.y + overlay.itemHeight / px(2)))
+    check inside.handled
+    check inside.command == result.command
+    check not overlay.open
     overlay.showPopup(NodeId(2), Rect(size: Size(width: px(80), height: px(24))),
       viewport, @[OverlayItem(label: "Run", command: "run", enabled: true)])
     let outside = overlay.handlePointerDown(Point(x: px(390), y: px(230)))

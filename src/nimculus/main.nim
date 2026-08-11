@@ -9728,10 +9728,27 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
   if kind == pointerUp and activePointerNode != NodeId(0):
     demoTree.setActive(activePointerNode, false)
     activePointerNode = NodeId(0)
-  var uiEvent = UiEvent(kind: kind, target: target,
-    position: point, keyCode: event.keyCode, button: event.button, modifiers: event.modifiers,
-    shortcutModifiers: macOSModifiers(event.modifiers),
-    deltaX: float32(event.deltaX), deltaY: float32(event.deltaY))
+  var uiEvent: UiEvent
+  case kind
+  of pointerDown, pointerUp:
+    uiEvent = UiEvent(kind: kind, target: target, position: point,
+      button: event.button,
+      pointerShortcutModifiers: macOSModifiers(event.modifiers))
+  of pointerMove, pointerEnter, pointerExit:
+    uiEvent = UiEvent(kind: kind, target: target, movePosition: point,
+      moveShortcutModifiers: macOSModifiers(event.modifiers))
+  of scroll:
+    uiEvent = UiEvent(kind: kind, target: target, scrollPosition: point,
+      scrollShortcutModifiers: macOSModifiers(event.modifiers),
+      deltaX: float32(event.deltaX), deltaY: float32(event.deltaY))
+  of keyDown, keyUp:
+    uiEvent = UiEvent(kind: kind, target: target, keyCode: event.keyCode,
+      shortcutModifiers: macOSModifiers(event.modifiers))
+  of modifiersChanged:
+    uiEvent = UiEvent(kind: kind, target: target, changedModifiers: event.modifiers,
+      changedShortcutModifiers: macOSModifiers(event.modifiers))
+  of command:
+    uiEvent = UiEvent(kind: kind, target: target, command: "")
   discard demoTree.dispatch(uiEvent)
 
 when isMainModule:
