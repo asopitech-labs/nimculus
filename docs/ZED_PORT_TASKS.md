@@ -383,9 +383,9 @@
 
 **無い**
 
-- [ ] **gutter_strip_width — the diff change-bar width** — Zed `crates/editor/src/element.rs:5309`
-- [ ] **diff_hunk_bounds — hunk vertical extent in gutter space** — Zed `crates/editor/src/element.rs:5313`
-- [ ] **Diff hunk painting: colour by kind, hollow for unstaged** — Zed `crates/editor/src/element.rs:5202 (paint_gutter_diff_hunks), crates/editor/src/element.rs:6570 (diff_hunk_hollow)`
+- [x] **gutter_strip_width — the diff change-bar width** — Zed `crates/editor/src/element.rs:5309`
+- [x] **diff_hunk_bounds — hunk vertical extent in gutter space** — Zed `crates/editor/src/element.rs:5313`
+- [ ] **Diff hunk painting: colour by kind, hollow for unstaged** — 色は済（テーマの added/modified/deleted から引く、UI-134）。**hollow が未着手** — Zed `crates/editor/src/element.rs:5202 (paint_gutter_diff_hunks), crates/editor/src/element.rs:6570 (diff_hunk_hollow)`
 - [ ] **ScrollbarLayout — thumb sizing and marker quads** — Zed `crates/editor/src/element.rs:9787 (struct), crates/editor/src/element.rs:9870 (new_with_hitbox_and_track_length), crates/editor/src/element.rs:9931 (thumb_bounds), crates/editor/src/element.rs:9956 (marker_quads_for_ranges); layout at crates/editor/src/element.rs:1285, paint at :5755`
 - [ ] **layout_blame_entries — the gutter blame column** — Zed `crates/editor/src/element.rs:2197; width reservation in crates/editor/src/editor.rs:11583-11598 (git_blame_entries_width)`
 - [ ] **BlameRenderer — blame presentation as an injectable global** — Zed `crates/editor/src/git/blame.rs:88 (trait), :135 (unit impl returning None), :194 (GlobalBlameRenderer)`
@@ -426,7 +426,7 @@
 - [ ] **Anchored diff hunks with secondary (staged) status** — Zed `crates/buffer_diff/src/buffer_diff.rs:100 (DiffHunk: range as Points, buffer_range as Anchors, diff_base_byte_range, secondary_status, word diffs), :70 (DiffHunkStatus), :85 (DiffHunkSecondaryStatus with the 5 states incl. the two Pending ones), :125 (PendingHunk), :423 hunks_in_row_range`
 - [ ] **Git status scan → panel projection (staged / unstaged / conflicts)** — Zed `crates/project/src/git_store.rs:317 (StatusEntry), :366 (impl sum_tree::Item so statuses roll up per directory), crates/git/src/status.rs:10 (FileStatus), :31 (TrackedStatus: index_status + worktree_status), :351 (GitSummary)`
 - [ ] **Blame: entries by line range, plus batch commit-message fetch** — Zed `crates/git/src/blame.rs:17 (struct Blame: entries, messages by Oid, tag_names by Oid), :164 (BlameEntry: sha, range: Range<u32>, original_line_number, author/committer fields, summary), :29-58 (unique SHAs then one batched get_messages/get_tag_names); crates/project/src/git_store.rs:1880 blame_buffer`
-- [ ] **Per-buffer LSP request keying and cancellation** — Zed `crates/project/src/lsp_store.rs:4140 (BufferLspData: buffer_version, per-feature caches, lsp_requests: HashMap<LspKey, HashMap<LspRequestId, Task<()>>>), :4154 (LspKey = request TypeId + server id), :4172-4208 remove_server_data`
+- [x] **Per-buffer LSP request keying and cancellation** — Zed `crates/project/src/lsp_store.rs:4140 (BufferLspData: buffer_version, per-feature caches, lsp_requests: HashMap<LspKey, HashMap<LspRequestId, Task<()>>>), :4154 (LspKey = request TypeId + server id), :4172-4208 remove_server_data`
 - [ ] **Buffer→server document synchronization with snapshot history for incremental didChange** — Zed `crates/project/src/lsp_store.rs:8431 on_buffer_edited (:8452-8470 builds incremental changes from edits_since against the last snapshot), :331 (buffer_snapshots: buffer_id → server_id → Vec<LspBufferSnapshot>), :14647 (LspBufferSnapshot), :236 (OpenLspBufferHandle — refcounted 'this buffer is open in servers'), :328 (registered_buffers: BufferId → count)`
 - [ ] **Diagnostics storage, per-path grouping and per-worktree summaries** — Zed `crates/project/src/lsp_store.rs:320-330 (LocalLspStore.diagnostics: WorktreeId → RelPath → Vec<(server_id, entries)>), :4131 (LspStore.diagnostic_summaries same shape → DiagnosticSummary), :14850 (DiagnosticSummary::new counts only is_primary entries), :4234 (LspStoreEvent::DiagnosticsUpdated{server_id, paths})`
 - [ ] **Multi-root workspace with per-root ignore stacks** — Zed `crates/project/src/worktree_store.rs:352 worktrees / :359 visible_worktrees / :700 create_worktree; crates/worktree/src/worktree.rs:255 (ignores_by_parent_abs_path), :208 (enum WorkDirectory InProject/AboveProject)`
@@ -467,7 +467,7 @@
 **一部のみ — 先に片付ける**
 
 - [ ] **Panel trait / dock contract** — Zed `crates/workspace/src/dock.rs:36 (trait Panel), :98 (PanelHandle), :290 (DockPosition)`
-- [ ] **Panel persistence identity (persistent_name)** — Zed `crates/project_panel/src/project_panel.rs:7607, crates/outline_panel/src/outline_panel.rs:4955, crates/terminal_view/src/terminal_panel.rs:1625`
+- [x] **Panel persistence identity (persistent_name)** — Zed `crates/project_panel/src/project_panel.rs:7607, crates/outline_panel/src/outline_panel.rs:4955, crates/terminal_view/src/terminal_panel.rs:1625`
 - [ ] **Startup panel construction** — Zed `crates/zed/src/zed.rs:775 initialize_panels, :874 initialize_agent_panel`
 - [ ] **Outline panel** — Zed `crates/outline_panel/src/outline_panel.rs:653 init, :4954 impl Panel`
 - [ ] **Git panel / git integration** — Zed `crates/git_ui/src/git_panel.rs:8064 impl Panel (crate is 44979 lines over 32 files)`
