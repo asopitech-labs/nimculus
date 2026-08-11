@@ -167,15 +167,9 @@ type
     tabStop: bool
 
 proc tabPath(tree: UiTree, id: NodeId): seq[int] =
-  ## The parent chain is NimNUI's equivalent of Zed's current_path. The
-  ## node's own tabIndex is the leaf component of the path.
-  var current = id
-  while current != NodeId(0):
-    let index = tree.nodeIndex(current)
-    if index < 0: break
-    result.add(tree.nodes[index].tabIndex)
-    current = tree.nodes[index].parent
-  result.reverse()
+  ## The dispatch path is NimNUI's equivalent of Zed's current_path.
+  for nodeId in tree.dispatchPath(id):
+    result.add(tree.handle(nodeId).tabIndex)
 
 proc compareTabPaths(left, right: seq[int]): int =
   let commonLength = min(left.len, right.len)
@@ -188,9 +182,10 @@ proc tabStopOrder(tree: UiTree): seq[TabStopEntry] =
   ## Sort by the (group, tab index) path, then by declaration order for
   ## equal paths, matching TabStopNode's path/insertion ordering in Zed.
   for index, node in tree.nodes:
+    let handle = tree.handle(node.id)
     if node.focusable and not tree.isDisabledPath(node.id):
       result.add(TabStopEntry(id: node.id, path: tree.tabPath(node.id),
-                              insertionIndex: index, tabStop: node.tabStop))
+                              insertionIndex: index, tabStop: handle.tabStop))
   result.sort(proc(left, right: TabStopEntry): int =
     let pathOrder = compareTabPaths(left.path, right.path)
     if pathOrder != 0: pathOrder else: cmp(left.insertionIndex, right.insertionIndex))

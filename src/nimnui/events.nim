@@ -1,4 +1,3 @@
-import std/sequtils
 import nimnui/commands
 import nimnui/geometry
 import nimnui/ui_tree
@@ -52,23 +51,18 @@ proc nativeEventButton*(eventType: uint32): uint32 =
   else: 0'u32
 
 proc ancestorPath(tree: UiTree, target: NodeId): seq[NodeId] =
-  var current = target
-  while current != NodeId(0):
-    result.add(current)
-    let index = tree.nodes.mapIt(it.id).find(current)
-    if index < 0: break
-    current = tree.nodes[index].parent
+  tree.dispatchPath(target)
 
 proc dispatch*(tree: var UiTree, event: var UiEvent): seq[EventPhase] =
   let path = ancestorPath(tree, event.target)
-  for index in countdown(path.high, 0):
+  for index in 0 .. path.high:
     event.phase = capture
     result.add(capture)
     if event.handled: return
   event.phase = target
   result.add(target)
   if event.handled: return
-  for index in 0 .. path.high:
+  for index in countdown(path.high, 0):
     event.phase = bubble
     result.add(bubble)
     if event.handled: return
@@ -76,7 +70,7 @@ proc dispatch*(tree: var UiTree, event: var UiEvent): seq[EventPhase] =
 proc dispatchWithHandlers*(tree: var UiTree, event: var UiEvent,
                            handlers: seq[tuple[node: NodeId, handler: EventHandler]]): seq[EventPhase] =
   let path = ancestorPath(tree, event.target)
-  for index in countdown(path.high, 0):
+  for index in 0 .. path.high:
     event.phase = capture
     result.add(capture)
     for entry in handlers:
@@ -87,7 +81,7 @@ proc dispatchWithHandlers*(tree: var UiTree, event: var UiEvent,
   for entry in handlers:
     if entry.node == event.target: entry.handler(event)
   if event.handled: return
-  for index in 0 .. path.high:
+  for index in countdown(path.high, 0):
     event.phase = bubble
     result.add(bubble)
     for entry in handlers:

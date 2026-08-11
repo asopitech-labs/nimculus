@@ -518,6 +518,51 @@ suite "M2 UI foundation":
     check tree.isValid(handle)
     check not tree.isValid(NodeHandle(id: node, generation: handle.generation + 1))
 
+  test "focus handles reject stale generations after id reuse":
+    var tree = newUiTree()
+    let current = tree.addNode(focusable = true)
+    let target = tree.addNode(focusable = true)
+    let stale = tree.handle(target)
+    check tree.focus(current)
+    check tree.removeNode(target)
+    let replacement = tree.addNode(focusable = true)
+    check replacement == target
+    check not tree.isValid(stale)
+    check not tree.focus(stale)
+    check tree.focused == current
+
+  test "focus handles carry and apply tab order":
+    var tree = newUiTree()
+    let first = tree.addNode(focusable = true, tabIndex = 20)
+    let second = tree.addNode(focusable = true, tabIndex = 10)
+    var handle = tree.handle(first)
+    check handle.tabIndex == 20
+    check handle.tabStop
+    handle.tabIndex = 0
+    check tree.focus(handle)
+    check tree.focusNext() == second
+
+  test "focus handles can be minted before attachment":
+    var tree = newUiTree()
+    let handle = tree.newFocusHandle()
+    check not tree.isValid(handle)
+    let node = tree.addNode(focusable = true)
+    check node == handle.id
+    check tree.isValid(handle)
+    check tree.focus(handle)
+
+  test "dispatch paths are root-first and reusable":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let parent = tree.addNode(root)
+    let child = tree.addNode(parent)
+    let target = tree.addNode(child)
+    check tree.dispatchPath(target) == @[root, parent, child, target]
+    check tree.focusContains(root, target)
+    check tree.focusContains(parent, parent)
+    check not tree.focusContains(parent, root)
+    check not tree.focusContains(child, tree.addNode())
+
   test "focus traversal skips disabled controls":
     var tree = newUiTree()
     let root = tree.addNode()
