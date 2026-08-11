@@ -177,15 +177,15 @@ suite "workspace UI state":
     check session.workspaceLeftDockOpen
     check session.workspaceLeftDockSize == 271'f32
     check session.workspaceLeftPanel == ord(panelAgent)
-    check session.workspaceLeftPanelName == PanelPersistentName[panelAgent]
+    check session.workspaceLeftPanelName == panelPersistentKey(panelAgent)
     check session.workspaceBottomDockOpen
     check session.workspaceBottomDockSize == 299'f32
     check session.workspaceBottomPanel == ord(panelTerminal)
-    check session.workspaceBottomPanelName == PanelPersistentName[panelTerminal]
+    check session.workspaceBottomPanelName == panelPersistentKey(panelTerminal)
     check not session.workspaceRightDockOpen
     check session.workspaceRightDockSize == 347'f32
     check session.workspaceRightPanel == ord(panelGit)
-    check session.workspaceRightPanelName == PanelPersistentName[panelGit]
+    check session.workspaceRightPanelName == panelPersistentKey(panelGit)
     let restored = initWorkspaceUi(session)
     check restored.leftDock.isOpen
     check restored.dock(dockLeft).size == 271'f32
@@ -220,16 +220,16 @@ suite "workspace UI state":
     state.saveWorkspaceUi(session)
     session.saveSession(path)
     let saved = parseJson(readFile(path))
-    check saved["workspaceLeftPanel"].getStr == "Agent Panel"
-    check saved["workspaceBottomPanel"].getStr == "TerminalPanel"
-    check saved["workspaceRightPanel"].getStr == "Git Panel"
+    check saved["workspaceLeftPanel"].getStr == "agent.dock"
+    check saved["workspaceBottomPanel"].getStr == "terminal.dock"
+    check saved["workspaceRightPanel"].getStr == "gitPanel.dock"
 
     # A reordered fixture would assign different ordinals to these panels; the
     # persisted names remain the same lookup keys when the real enum changes.
     type ReorderedPanelKind = enum
       reorderedAgent, reorderedTerminal, reorderedGit
     let reorderedNames: array[ReorderedPanelKind, string] = [
-      "Agent Panel", "TerminalPanel", "Git Panel"]
+      "agent.dock", "terminal.dock", "gitPanel.dock"]
     check reorderedNames[reorderedAgent] == saved["workspaceLeftPanel"].getStr
     check reorderedNames[reorderedTerminal] == saved["workspaceBottomPanel"].getStr
     check reorderedNames[reorderedGit] == saved["workspaceRightPanel"].getStr
@@ -237,6 +237,66 @@ suite "workspace UI state":
     check restored.leftDock.activePanel == panelAgent
     check restored.bottomDock.activePanel == panelTerminal
     check restored.rightDock.activePanel == panelGit
+    removeFile(path)
+    removeDir(root)
+
+  test "recursive pane serialization preserves groups, flexes, active tabs, and pins":
+    var state = initWorkspaceUi(tabCount = 3, activeTab = 0)
+    check state.splitFocusedPane(paneVertical)
+    let nestedTarget = state.center.children[1].pane.id
+    check state.splitPane(nestedTarget, paneHorizontal)
+    state.center.flexes = @[1'f32, 1'f32]
+    state.center.children[1].flexes = @[1'f32, 1'f32]
+    state.center.children[0].pane.activeTabIndex = 0
+    state.center.children[1].children[0].pane.activeTabIndex = 1
+    state.center.children[1].children[1].pane.activeTabIndex = 2
+    state.center.children[0].pane.pinnedCount = 1
+    state.center.children[1].children[0].pane.pinnedCount = 2
+    let encoded = state.center.toJson()
+    let restored = fromJson(encoded)
+    check restored.kind == paneSplit
+    check restored.axis == paneVertical
+    check restored.children.len == 2
+    check restored.flexes.len == 2
+    check abs(restored.flexes[0] - 1'f32) < 0.000001'f32
+    check abs(restored.flexes[1] - 1'f32) < 0.000001'f32
+    check restored.children[1].kind == paneSplit
+    check restored.children[1].axis == paneHorizontal
+    check restored.children[1].children.len == 2
+    check restored.children[0].pane.activeTabIndex == 0
+    check restored.children[1].children[0].pane.activeTabIndex == 1
+    check restored.children[1].children[1].pane.activeTabIndex == 2
+    check restored.children[0].pane.pinnedCount == 1
+    check restored.children[1].children[0].pane.pinnedCount == 2
+
+  test "workspace JSON writes stable dock keys and zoom with the pane tree":
+    let root = getTempDir() / ("nimculus-workspace-tree-session-" & $getCurrentProcessId())
+    createDir(root)
+    let path = root / "session.json"
+    var state = initWorkspaceUi(tabCount = 3, activeTab = 0)
+    discard state.splitFocusedPane(paneVertical)
+    state.rightDock.activePanel = panelGit
+    state.rightDock.zoom = true
+    state.center.children[0].pane.pinnedCount = 1
+    var session: EditorSession
+    state.saveWorkspaceUi(session)
+    session.saveSession(path)
+    let saved = parseJson(readFile(path))
+    check saved["workspaceRightPanel"].getStr == "gitPanel.dock"
+    check saved["workspaceRightDockZoom"].getBool
+    check saved.hasKey("paneTree")
+    check saved["paneTree"]["kind"].getStr == "group"
+    check not saved.hasKey("split")
+    check not saved.hasKey("splitDirection")
+    check not saved.hasKey("splitRatio")
+    check not saved.hasKey("splitActivePane")
+    check not saved.hasKey("splitSecondaryTab")
+    let restored = initWorkspaceUi(loadSession(path))
+    check restored.rightDock.activePanel == panelGit
+    check restored.rightDock.zoom
+    check restored.center.kind == paneSplit
+    check restored.center.children.len == 2
+    check restored.center.children[0].pane.pinnedCount == 1
     removeFile(path)
     removeDir(root)
 

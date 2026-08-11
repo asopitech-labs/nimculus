@@ -32,29 +32,32 @@ proc jsonFloat(node: JsonNode, key: string, fallback: float32): float32 =
     discard
   fallback
 
-proc panelNameForOrdinal(value, fallbackOrdinal: int, fallbackName: string): string =
+proc panelNameForOrdinal(value: int, fallback: PanelKind): string =
   if value >= ord(low(PanelKind)) and value <= ord(high(PanelKind)):
-    return PanelPersistentName[PanelKind(value)]
-  if fallbackOrdinal >= ord(low(PanelKind)) and fallbackOrdinal <= ord(high(PanelKind)):
-    return PanelPersistentName[PanelKind(fallbackOrdinal)]
-  fallbackName
+    return panelPersistentKey(PanelKind(value))
+  panelPersistentKey(fallback)
 
-proc panelSessionValue(node: JsonNode, key, fallbackName: string,
-                       fallbackOrdinal: int): tuple[name: string, ordinal: int] =
-  result = (fallbackName, fallbackOrdinal)
+proc panelSessionValue(node: JsonNode, key: string,
+                       fallback: PanelKind): tuple[name: string, ordinal: int] =
+  result = (panelPersistentKey(fallback), ord(fallback))
   if node == nil or node.kind != JObject or not node.hasKey(key): return
   let value = node[key]
   try:
     case value.kind
     of JString:
       result.name = value.getStr
+      var found = false
       for panel in PanelKind:
-        if PanelPersistentName[panel] == result.name:
+        if panelPersistentKey(panel) == result.name or
+            PanelPersistentName[panel] == result.name:
           result.ordinal = ord(panel)
+          result.name = panelPersistentKey(panel)
+          found = true
           break
+      if not found: result.name = panelPersistentKey(fallback)
     of JInt:
       result.ordinal = value.getInt
-      result.name = panelNameForOrdinal(result.ordinal, fallbackOrdinal, fallbackName)
+      result.name = panelNameForOrdinal(result.ordinal, fallback)
     else:
       discard
   except CatchableError:
@@ -113,11 +116,11 @@ proc loadView(node: JsonNode, text: string): EditorViewState =
 proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
   let recentFiles = normalizedSessionPaths(session.recentFiles)
   let workspaceRoots = normalizedSessionPaths(session.workspaceRoots, directoriesOnly = true)
-  var root = %*{"activeTab": -1, "split": session.split,
-                "splitDirection": $session.splitDirection,
-                "splitRatio": session.effectiveSplitRatio,
-                "splitActivePane": session.splitActivePane,
-                "splitSecondaryTab": -1,
+  let paneTree = if session.workspacePaneTree != nil:
+      session.workspacePaneTree else: toJson(paneTreeFromSession(session))
+  let activePane = if session.workspacePaneTree != nil:
+      session.workspaceActivePane else: session.splitActivePane
+  var root = %*{"activeTab": -1,
                 "splitSecondaryView": serializedView(session.secondaryView),
                 "recentFiles": recentFiles,
                 "workspaceRoots": workspaceRoots,
@@ -127,18 +130,22 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
                 "workspaceLeftDockSize": session.workspaceLeftDockSize,
                 "workspaceBottomDockSize": session.workspaceBottomDockSize,
                 "workspaceRightDockSize": session.workspaceRightDockSize,
+                "workspaceLeftDockZoom": session.workspaceLeftDockZoom,
+                "workspaceBottomDockZoom": session.workspaceBottomDockZoom,
+                "workspaceRightDockZoom": session.workspaceRightDockZoom,
                 "workspaceLeftPanel": if session.workspaceLeftPanelName.len > 0:
                   session.workspaceLeftPanelName else:
-                    panelNameForOrdinal(session.workspaceLeftPanel, 0, "Project Panel"),
+                    panelNameForOrdinal(session.workspaceLeftPanel, panelFiles),
                 "workspaceBottomPanel": if session.workspaceBottomPanelName.len > 0:
                   session.workspaceBottomPanelName else:
-                    panelNameForOrdinal(session.workspaceBottomPanel, 3, "TerminalPanel"),
+                    panelNameForOrdinal(session.workspaceBottomPanel, panelTerminal),
                 "workspaceRightPanel": if session.workspaceRightPanelName.len > 0:
                   session.workspaceRightPanelName else:
-                    panelNameForOrdinal(session.workspaceRightPanel, 0, "Project Panel")}
+                    panelNameForOrdinal(session.workspaceRightPanel, panelFiles),
+                "paneTree": paneTree,
+                "activePane": activePane}
   var tabs = newJArray()
   var savedActive = -1
-  var savedSecondary = -1
   # Keep persistence on the same one-buffer-per-canonical-path invariant as
   # live document opens. This also repairs an in-memory session produced by
   # older builds before its next launch. Dirty content wins; active dirty
@@ -178,7 +185,6 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
     if not preserveDirty and dirty and tab.document.path.len == 0: continue
     let saveDirty = preserveDirty and dirty
     if originalIndex == session.activeTab: savedActive = tabs.len
-    if originalIndex == session.effectiveSplitSecondaryTab(): savedSecondary = tabs.len
     var serializedTab = %*{"path": tab.document.path, "title": tab.title,
       "dirty": saveDirty,
       "pinned": tab.pinned,
@@ -198,9 +204,22 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
           savedActive = index
           break
   root["activeTab"] = %savedActive
-  root["splitSecondaryTab"] = %savedSecondary
   root["tabs"] = tabs
   atomicWriteFile(path, $root)
+
+proc applyPaneTreeSession(session: var EditorSession, tree: PaneTree,
+                          activePane: int) =
+  if tree.isNil: return
+  session.workspaceActivePane = min(1, max(0, activePane))
+  session.split = tree.kind == paneSplit
+  if tree.kind != paneSplit: return
+  session.splitDirection = if tree.axis == paneVertical: splitVertical else: splitHorizontal
+  if tree.flexes.len >= 2 and tree.flexes[0] + tree.flexes[1] > 0'f32:
+    session.splitRatio = normalizedSplitRatio(
+      tree.flexes[0] / (tree.flexes[0] + tree.flexes[1]))
+  if tree.children.len > 1:
+    session.splitSecondaryTab = tree.children[1].firstPane().activeTabIndex
+  session.splitActivePane = session.workspaceActivePane
 
 proc loadSession*(path: string): EditorSession =
   if not fileExists(path): return
@@ -214,21 +233,32 @@ proc loadSession*(path: string): EditorSession =
     result.activeTab = -1
     return
   result.activeTab = jsonInt(root, "activeTab", -1)
-  result.split = jsonBool(root, "split", false)
-  let direction = jsonString(root, "splitDirection", "splitVertical")
-  result.splitDirection = if direction == "splitHorizontal": splitHorizontal else: splitVertical
-  result.splitRatio = normalizedSplitRatio(jsonFloat(root, "splitRatio", 0.5'f32))
-  result.splitActivePane = min(1, max(0, jsonInt(root, "splitActivePane", 0)))
-  result.splitSecondaryTab = jsonInt(root, "splitSecondaryTab", result.activeTab)
+  let hasPaneTree = root.hasKey("paneTree") and root["paneTree"].kind == JObject
+  if hasPaneTree:
+    result.workspacePaneTree = root["paneTree"]
+    let tree = fromJson(result.workspacePaneTree)
+    if not tree.isNil:
+      result.applyPaneTreeSession(tree, jsonInt(root, "activePane", 0))
+  if not hasPaneTree:
+    # One-release migration for the former flat editor split fields.
+    result.split = jsonBool(root, "split", false)
+    let direction = jsonString(root, "splitDirection", "splitVertical")
+    result.splitDirection = if direction == "splitHorizontal": splitHorizontal else: splitVertical
+    result.splitRatio = normalizedSplitRatio(jsonFloat(root, "splitRatio", 0.5'f32))
+    result.splitActivePane = min(1, max(0, jsonInt(root, "splitActivePane", 0)))
+    result.splitSecondaryTab = jsonInt(root, "splitSecondaryTab", result.activeTab)
   result.workspaceLeftDockOpen = jsonBool(root, "workspaceLeftDockOpen", false)
   result.workspaceBottomDockOpen = jsonBool(root, "workspaceBottomDockOpen", false)
   result.workspaceRightDockOpen = jsonBool(root, "workspaceRightDockOpen", false)
   result.workspaceLeftDockSize = max(0'f32, jsonFloat(root, "workspaceLeftDockSize", 0'f32))
   result.workspaceBottomDockSize = max(0'f32, jsonFloat(root, "workspaceBottomDockSize", 0'f32))
   result.workspaceRightDockSize = max(0'f32, jsonFloat(root, "workspaceRightDockSize", 0'f32))
-  let leftPanel = panelSessionValue(root, "workspaceLeftPanel", "Project Panel", 0)
-  let bottomPanel = panelSessionValue(root, "workspaceBottomPanel", "TerminalPanel", 3)
-  let rightPanel = panelSessionValue(root, "workspaceRightPanel", "Project Panel", 0)
+  result.workspaceLeftDockZoom = jsonBool(root, "workspaceLeftDockZoom", false)
+  result.workspaceBottomDockZoom = jsonBool(root, "workspaceBottomDockZoom", false)
+  result.workspaceRightDockZoom = jsonBool(root, "workspaceRightDockZoom", false)
+  let leftPanel = panelSessionValue(root, "workspaceLeftPanel", panelFiles)
+  let bottomPanel = panelSessionValue(root, "workspaceBottomPanel", panelTerminal)
+  let rightPanel = panelSessionValue(root, "workspaceRightPanel", panelFiles)
   result.workspaceLeftPanel = leftPanel.ordinal
   result.workspaceBottomPanel = bottomPanel.ordinal
   result.workspaceRightPanel = rightPanel.ordinal
