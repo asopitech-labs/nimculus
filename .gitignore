@@ -24,7 +24,7 @@ tests/bench_syntax
 packaging/macos/*.icns
 dist/windows/
 tests/test_windows_terminal
-references/zed/
+references/zed
 .nimcache/
 tests/test_*
 !tests/test_*.nim

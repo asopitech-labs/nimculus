@@ -4387,8 +4387,26 @@ the current AppKit overlay receives retained cell attributes as copied runs.
 ## Reference: Zed GPUI Metal implementation
 
 Zed was cloned at `references/zed` for local, ignored reference use. The
-current reference revision is recorded by the clone itself; the directory is
-not part of Nimculus source control.
+directory is not part of Nimculus source control.
+
+**参照している版（2026-08-10 以降）**
+
+```
+6634c945d3af826e6466d6da3eee0782c62b5a8d
+2026-08-10T22:42:22Z
+```
+
+**2026-08-10 に元のクローンを失った。** ワークトリーへ張った
+`references/zed` のシンボリックリンクが `.gitignore` の
+`references/zed/`（末尾スラッシュ）に一致せず追跡され、マージで実体を上書きした。
+`.gitignore` は末尾スラッシュを外して直してある。
+
+そのため**この文書と `docs/` の 512 件の行参照は、失われた版に対するもの**。
+再クローン後の実測では **±12 行程度のずれ**（`element.rs` +9、`dock.rs` −12、
+`zed.rs` +4、`text_system.rs` と `constants.rs` は 0）。
+
+**行番号ではなく記号名で引くこと。** 行番号は目安として残す。
+書き直していないのは、512 件を機械的に付け直しても次の `git pull` でまたずれるため。
 
 The following patterns are relevant to future NimNUI milestones:
 
