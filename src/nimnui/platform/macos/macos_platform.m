@@ -4113,9 +4113,6 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic) BOOL displayLinkRunning;
 @property(nonatomic) BOOL redrawDirty;
 @property(nonatomic) BOOL displayLinkRecoveryScheduled;
-@property(nonatomic) BOOL hasLastKeyEquivalent;
-@property(nonatomic) unsigned short lastKeyEquivalentKeyCode;
-@property(nonatomic) NSEventModifierFlags lastKeyEquivalentModifiers;
 @property(nonatomic, copy) NSString *markedText;
 @property(nonatomic) NSRange markedTextRange;
 @property(nonatomic) NSRange selectedTextRange;
@@ -10854,29 +10851,8 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 }
 
 - (void)keyDown:(NSEvent *)event {
-  const NSEventModifierFlags modifiers =
-    event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
-  const BOOL duplicateKeyDown = self.hasLastKeyEquivalent &&
-    self.lastKeyEquivalentKeyCode == event.keyCode &&
-    self.lastKeyEquivalentModifiers == modifiers;
-  // AppKit may send the same physical key once through performKeyEquivalent:
-  // and once through keyDown:. Consume the marker for every key-down so an
-  // unrelated event cannot inherit it, then drop only the matching event.
-  self.hasLastKeyEquivalent = NO;
-  if (duplicateKeyDown) return;
   if (logInput(@"keyDown", event)) return;
   [self interpretKeyEvents:@[event]];
-}
-- (BOOL)performKeyEquivalent:(NSEvent *)event {
-  if (event.type != NSEventTypeKeyDown) return [super performKeyEquivalent:event];
-  self.hasLastKeyEquivalent = YES;
-  self.lastKeyEquivalentKeyCode = event.keyCode;
-  self.lastKeyEquivalentModifiers =
-    event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
-  // Keep key equivalents on the same shortcut path as keyDown:. If AppKit
-  // subsequently delivers keyDown: for an unhandled equivalent, the marker
-  // above prevents it from reaching the IME as a second text event.
-  return logInput(@"keyEquivalent", event);
 }
 - (void)keyUp:(NSEvent *)event { logInput(@"keyUp", event); }
 - (void)flagsChanged:(NSEvent *)event { logInput(@"flagsChanged", event); }
@@ -13280,7 +13256,6 @@ bool nimculus_platform_validate_command_palette(void) {
 
 static uint32_t g_validation_shortcut_count = 0;
 static uint32_t g_validation_shortcut_input_count = 0;
-static uint32_t g_validation_set_marked_text_count = 0;
 static uint32_t g_validation_gutter_input_count = 0;
 static NimculusInputEvent g_validation_gutter_event;
 static BOOL g_validation_scroll_seen = NO;
@@ -13294,35 +13269,19 @@ static void validationScrollInputCallback(const NimculusInputEvent *event) {
 
 static void validationShortcutInputCallback(const NimculusInputEvent *event) {
   if (event && event->type == NSEventTypeKeyDown && event->key_code == 35 &&
-      (event->modifiers & NSEventModifierFlagCommand) != 0) {
+      (event->modifiers & NSEventModifierFlagCommand) != 0 &&
+      (event->modifiers & NSEventModifierFlagShift) != 0) {
     g_validation_shortcut_input_count++;
   }
 }
 
 static bool validationShortcutCallback(const NimculusInputEvent *event) {
   if (!event || event->type != NSEventTypeKeyDown || event->key_code != 35) return false;
-  if ((event->modifiers & NSEventModifierFlagCommand) == 0) return false;
+  if ((event->modifiers & NSEventModifierFlagCommand) == 0 ||
+      (event->modifiers & NSEventModifierFlagShift) == 0) return false;
   g_validation_shortcut_count++;
   return true;
 }
-
-// Treat an IME handoff as a marked-text update so the key-equivalent contract
-// can observe the behavior without depending on the active keyboard layout.
-@interface NimculusKeyEquivalentValidationView : NimculusMetalView
-@end
-
-@implementation NimculusKeyEquivalentValidationView
-- (void)interpretKeyEvents:(NSArray *)events {
-  (void)events;
-  [self setMarkedText:@"unexpected" selectedRange:NSMakeRange(0, 0)
-    replacementRange:NSMakeRange(NSNotFound, 0)];
-}
-- (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange
-      replacementRange:(NSRange)replacementRange {
-  g_validation_set_marked_text_count++;
-  [super setMarkedText:string selectedRange:selectedRange replacementRange:replacementRange];
-}
-@end
 
 static void validationGutterInputCallback(const NimculusInputEvent *event) {
   if (!event || event->type != NSEventTypeLeftMouseDown) return;
@@ -13331,46 +13290,30 @@ static void validationGutterInputCallback(const NimculusInputEvent *event) {
 }
 
 bool nimculus_platform_validate_shortcut_dispatch(void) {
-  // AppKit may deliver one shortcut through performKeyEquivalent: and then
-  // deliver the same event through keyDown:. The view must dispatch the
-  // shortcut once and must not hand a modified equivalent to the IME.
+  // Standard menu equivalents are resolved by AppKit before this view sees
+  // keyDown:. This contract covers the complementary application shortcut
+  // path, matching Zed's separation of key-equivalent and key-down events.
   @autoreleasepool {
     NimculusInputCallback previousInputCallback = g_input_callback;
     NimculusShortcutCallback previousShortcutCallback = g_shortcut_callback;
     g_validation_shortcut_count = 0;
     g_validation_shortcut_input_count = 0;
-    g_validation_set_marked_text_count = 0;
     g_input_callback = validationShortcutInputCallback;
     g_shortcut_callback = validationShortcutCallback;
-    NimculusKeyEquivalentValidationView *view = [[NimculusKeyEquivalentValidationView alloc]
-      initWithFrame:
+    NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
       NSMakeRect(0.0, 0.0, 640.0, 480.0)];
-    NSEvent *commandP = [NSEvent keyEventWithType:NSEventTypeKeyDown
+    NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown
       location:NSMakePoint(32.0, 24.0)
-      modifierFlags:NSEventModifierFlagCommand
+      modifierFlags:NSEventModifierFlagCommand | NSEventModifierFlagShift
       timestamp:0.0 windowNumber:0 context:nil characters:@"P"
       charactersIgnoringModifiers:@"p" isARepeat:NO keyCode:35];
-    if (view && commandP) {
-      [view performKeyEquivalent:commandP];
-      [view keyDown:commandP];
-    }
-    BOOL commandPValid = g_validation_shortcut_input_count == 0 &&
+    if (view && event) [view keyDown:event];
+    BOOL valid = g_validation_shortcut_input_count == 0 &&
       g_validation_shortcut_count == 1;
-
-    NSEvent *commandGrave = [NSEvent keyEventWithType:NSEventTypeKeyDown
-      location:NSMakePoint(32.0, 24.0)
-      modifierFlags:NSEventModifierFlagCommand
-      timestamp:0.0 windowNumber:0 context:nil characters:@"`"
-      charactersIgnoringModifiers:@"`" isARepeat:NO keyCode:50];
-    if (view && commandGrave) {
-      [view performKeyEquivalent:commandGrave];
-      [view keyDown:commandGrave];
-    }
-    BOOL commandGraveValid = g_validation_set_marked_text_count == 0;
     g_input_callback = previousInputCallback;
     g_shortcut_callback = previousShortcutCallback;
     [view release];
-    return commandPValid && commandGraveValid;
+    return valid;
   }
 }
 
