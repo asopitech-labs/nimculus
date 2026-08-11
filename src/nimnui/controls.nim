@@ -34,6 +34,16 @@ type
     handled*: bool
     command*: string
 
+  ClickEventKind* = enum
+    mouse, keyboard
+
+  ClickEvent* = object
+    case kind*: ClickEventKind
+    of mouse:
+      position*: Point
+    of keyboard:
+      keyCode*: uint32
+
   OverlayModel* = object
     kind*: ControlKind
     owner*: NodeId
@@ -181,29 +191,39 @@ proc activateSelected*(model: var OverlayModel): string =
   result = model.items[model.selectedIndex].command
   model.dismiss()
 
+proc activate*(model: var OverlayModel, click: ClickEvent): OverlayKeyResult =
+  if not model.open: return
+  var shouldActivate = false
+  case click.kind
+  of mouse:
+    let index = model.itemAt(click.position)
+    if index >= 0:
+      model.selectedIndex = index
+      result.handled = true
+      shouldActivate = true
+    elif model.grabsInput:
+      result.handled = true
+      model.dismiss()
+  of keyboard:
+    if model.kind == tooltip: return
+    case click.keyCode
+    of 125'u32: result.handled = model.moveSelection(1)
+    of 126'u32: result.handled = model.moveSelection(-1)
+    of 36'u32, 49'u32:
+      result.handled = true
+      shouldActivate = true
+    of 53'u32:
+      result.handled = true
+      model.dismiss()
+    else: discard
+  if shouldActivate:
+    result.command = model.activateSelected()
+
 proc handleKey*(model: var OverlayModel, keyCode: uint32): OverlayKeyResult =
-  if not model.open or model.kind == tooltip: return
-  case keyCode
-  of 125'u32: result.handled = model.moveSelection(1)
-  of 126'u32: result.handled = model.moveSelection(-1)
-  of 36'u32, 49'u32:
-    result.handled = model.kind != tooltip
-    if result.handled: result.command = model.activateSelected()
-  of 53'u32:
-    result.handled = true
-    model.dismiss()
-  else: discard
+  model.activate(ClickEvent(kind: keyboard, keyCode: keyCode))
 
 proc handlePointerDown*(model: var OverlayModel, point: Point): OverlayKeyResult =
-  if not model.open: return
-  let index = model.itemAt(point)
-  if index >= 0:
-    model.selectedIndex = index
-    result.handled = true
-    result.command = model.activateSelected()
-  elif model.grabsInput:
-    result.handled = true
-    model.dismiss()
+  model.activate(ClickEvent(kind: mouse, position: point))
 
 proc handlePointerMove*(model: var OverlayModel, point: Point): bool =
   if not model.open: return false

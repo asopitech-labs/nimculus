@@ -11,20 +11,31 @@ type
     capture, target, bubble
 
   UiEvent* = object
-    kind*: UiEventKind
     phase*: EventPhase
     target*: NodeId
-    position*: Point
-    keyCode*: uint32
-    ## 0 = left, 1 = right, 2 = other. Pointer events without a button use 0.
-    button*: uint32
-    ## Raw platform flags are retained for diagnostics and platform-specific
-    ## handling. Command routing should use shortcutModifiers.
-    modifiers*: uint32
-    shortcutModifiers*: set[Modifier]
-    deltaX*, deltaY*: float32
-    command*: string
     handled*: bool
+    case kind*: UiEventKind
+    of pointerDown, pointerUp:
+      position*: Point
+      ## 0 = left, 1 = right, 2 = other. Pointer events without a button use 0.
+      button*: uint32
+      pointerShortcutModifiers*: set[Modifier]
+    of pointerMove, pointerEnter, pointerExit:
+      movePosition*: Point
+      moveShortcutModifiers*: set[Modifier]
+    of scroll:
+      scrollPosition*: Point
+      scrollShortcutModifiers*: set[Modifier]
+      deltaX*, deltaY*: float32
+    of keyDown, keyUp:
+      keyCode*: uint32
+      shortcutModifiers*: set[Modifier]
+    of modifiersChanged:
+      ## The raw flags are useful for diagnostics on this platform-state event.
+      changedModifiers*: uint32
+      changedShortcutModifiers*: set[Modifier]
+    of command:
+      command*: string
 
   EventHandler* = proc(event: var UiEvent) {.closure.}
 
