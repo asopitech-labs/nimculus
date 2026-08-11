@@ -210,8 +210,9 @@ proc layoutNodeRecursive(tree: var UiTree, id: NodeId, bounds: Rect,
     for index in 0 ..< children.len: baseTotal = baseTotal + extents[index] + mainMargins[index]
     remaining = maxPx(px(0), available - gapTotal - baseTotal)
 
-  var cursor = if rowDirection: content.origin.x - spec.scrollOffset
-    else: content.origin.y - spec.scrollOffset
+  ## Scrolling is a prepaint element offset. Keeping it out of the cursor
+  ## leaves every node's layout bounds stable while it is scrolled.
+  var cursor = if rowDirection: content.origin.x else: content.origin.y
   var distributedGap = spec.gap
   case mainAlignment
   of alignEnd: cursor = cursor + remaining
