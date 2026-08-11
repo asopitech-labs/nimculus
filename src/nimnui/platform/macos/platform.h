@@ -26,6 +26,7 @@ void nimculus_platform_get_editor_glyph_color(uint32_t kind,
 
 bool nimculus_platform_run(void);
 bool nimculus_platform_validate_native(void);
+bool nimculus_platform_validate_cursor_styles(void);
 bool nimculus_platform_validate_titlebar_height(void);
 bool nimculus_platform_validate_appearance_callback(void);
 bool nimculus_platform_validate_window_lifecycle(void);
@@ -131,6 +132,7 @@ void nimculus_platform_show_git_history_context(uint32_t item_index);
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback);
 void nimculus_platform_set_idle_callback(NimculusIdleCallback callback);
 void nimculus_platform_set_idle_for_blame(bool requested);
+void nimculus_platform_set_cursor_style(NimculusCursorStyle style);
 void nimculus_platform_set_editor_cursor(double x, double y);
 void nimculus_platform_set_editor_cursor_byte(uint32_t byte_offset, uint32_t line);
 void nimculus_platform_set_editor_font_size(double size);

@@ -34,6 +34,12 @@ enum {
   NIMCULUS_TOUCH_PHASE_ENDED = 2
 };
 
+typedef enum NimculusCursorStyle {
+  NIMCULUS_CURSOR_ARROW = 0,
+  NIMCULUS_CURSOR_IBEAM = 1,
+  NIMCULUS_CURSOR_RESIZE_LEFT_RIGHT = 2
+} NimculusCursorStyle;
+
 typedef struct NimculusTerminalRun {
   uint32_t start_byte;
   uint32_t end_byte;
