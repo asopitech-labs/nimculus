@@ -45,6 +45,10 @@ type
       pane*: PaneState
     of paneSplit:
       axis*: PaneAxis
+      children*: seq[PaneTree]
+      flexes*: seq[float32]
+      ## These fields keep the transitional native editor bridge source
+      ## compatible while callers migrate to `children` and `flexes`.
       ratio*: float32
       first*, second*: PaneTree
 
@@ -146,6 +150,22 @@ proc projectDockPresentationWidth*(logicalWidth, minimumPresenterWidth: float32)
 proc newPane(id: int, tabIndices: seq[int] = @[], activeTabIndex = -1): PaneTree =
   PaneTree(kind: paneLeaf, pane: PaneState(id: PaneId(id), tabIndices: tabIndices,
     activeTabIndex: activeTabIndex))
+
+proc splitFlexes(ratio: float32): seq[float32] =
+  let normalized = normalizedRatio(ratio)
+  let first = 2'f32 * normalized
+  @[first, 2'f32 - first]
+
+proc newPaneSplit(axis: PaneAxis, children: seq[PaneTree],
+                 flexes: seq[float32]): PaneTree =
+  result = PaneTree(kind: paneSplit, axis: axis, children: children,
+    flexes: flexes)
+  if children.len > 0:
+    result.first = children[0]
+  if children.len > 1:
+    result.second = children[1]
+  if flexes.len >= 2:
+    result.ratio = flexes[0] / (flexes[0] + flexes[1])
 
 proc defaultPanelDockSide(panel: PanelKind): DockSide =
   case panel
@@ -663,20 +683,27 @@ proc presentedRegionAt*(layout: WorkspaceLayout, viewport: Size, point: Point,
 
 proc firstPane*(tree: PaneTree): PaneState =
   if tree.isNil: return
-  if tree.kind == paneLeaf: tree.pane else: tree.first.firstPane()
+  if tree.kind == paneLeaf: tree.pane else:
+    if tree.children.len == 0: PaneState() else: tree.children[0].firstPane()
 
-proc minimumPaneExtent(tree: PaneTree, axis: PaneAxis): float32 =
+proc minimumPaneExtent*(tree: PaneTree, axis: PaneAxis): float32 =
   ## The minimum space this subtree needs along `axis`. A split on that axis
   ## adds its children; an orthogonal split overlays their requirement.
   if tree.isNil: return 0'f32
   if tree.kind == paneLeaf:
     return if axis == paneVertical: MinimumPaneWidth else: MinimumPaneHeight
-  let first = minimumPaneExtent(tree.first, axis)
-  let second = minimumPaneExtent(tree.second, axis)
+  if tree.children.len == 0: return 0'f32
+  var extents: seq[float32]
+  for child in tree.children:
+    extents.add(minimumPaneExtent(child, axis))
   if tree.axis == axis:
-    first + PaneDividerThickness + second
+    result = PaneDividerThickness * float32(tree.children.len - 1)
+    for extent in extents:
+      result += extent
   else:
-    max(first, second)
+    result = extents[0]
+    for extent in extents[1..^1]:
+      result = max(result, extent)
 
 proc clampedRootSplitRatio*(state: WorkspaceUiState, bounds: Rect,
                             requested: float32): float32 =
@@ -685,13 +712,14 @@ proc clampedRootSplitRatio*(state: WorkspaceUiState, bounds: Rect,
   ## from visually stopping at a minimum while session state records a value
   ## that would unexpectedly expand/collapse after the window is resized.
   result = normalizedRatio(requested)
-  if state.center.isNil or state.center.kind != paneSplit: return
+  if state.center.isNil or state.center.kind != paneSplit or
+      state.center.children.len != 2: return
   let axis = state.center.axis
   let available = max(0'f32, (if axis == paneVertical:
     float32(bounds.size.width) else: float32(bounds.size.height)) - PaneDividerThickness)
   if available <= 0'f32: return
-  let firstMinimum = minimumPaneExtent(state.center.first, axis)
-  let secondMinimum = minimumPaneExtent(state.center.second, axis)
+  let firstMinimum = minimumPaneExtent(state.center.children[0], axis)
+  let secondMinimum = minimumPaneExtent(state.center.children[1], axis)
   if available < firstMinimum + secondMinimum: return
   let first = min(available - secondMinimum,
     max(firstMinimum, available * result))
@@ -706,43 +734,70 @@ proc paneLayout*(tree: PaneTree, bounds: Rect): PaneLayout =
     if tree.kind == paneLeaf:
       layout.panes.add(PaneLayoutEntry(id: tree.pane.id, bounds: rect))
       return
+    if tree.children.len == 0: return
     let sideBySide = tree.axis == paneVertical
-    let available = max(0'f32, (if sideBySide: float32(rect.size.width)
-      else: float32(rect.size.height)) - PaneDividerThickness)
-    let preferredFirst = available * normalizedRatio(tree.ratio)
-    let firstMinimum = minimumPaneExtent(tree.first, tree.axis)
-    let secondMinimum = minimumPaneExtent(tree.second, tree.axis)
-    # When the available extent can honor both panes, clamp the divider to
-    # Zed's per-pane floor. If the window itself is already smaller than that
-    # aggregate floor, preserve the requested ratio rather than producing a
-    # negative sibling rectangle.
-    let firstLength = if available >= firstMinimum + secondMinimum:
-        min(available - secondMinimum, max(firstMinimum, preferredFirst))
-      else:
-        preferredFirst
-    if sideBySide:
-      let firstRect = Rect(origin: rect.origin,
-        size: Size(width: px(firstLength), height: rect.size.height))
-      let divider = Rect(origin: Point(x: px(float32(rect.origin.x) + firstLength),
-        y: rect.origin.y), size: Size(width: px(PaneDividerThickness), height: rect.size.height))
-      let secondRect = Rect(origin: Point(x: px(float32(divider.origin.x) + PaneDividerThickness),
-        y: rect.origin.y), size: Size(width: px(max(0'f32, available - firstLength)),
-            height: rect.size.height))
-      append(tree.first, firstRect, layout)
-      layout.dividers.add(PaneDivider(axis: tree.axis, bounds: divider))
-      append(tree.second, secondRect, layout)
-    else:
-      let firstRect = Rect(origin: rect.origin,
-        size: Size(width: rect.size.width, height: px(firstLength)))
-      let divider = Rect(origin: Point(x: rect.origin.x,
-        y: px(float32(rect.origin.y) + firstLength)),
-        size: Size(width: rect.size.width, height: px(PaneDividerThickness)))
-      let secondRect = Rect(origin: Point(x: rect.origin.x,
-        y: px(float32(divider.origin.y) + PaneDividerThickness)),
-        size: Size(width: rect.size.width, height: px(max(0'f32, available - firstLength))))
-      append(tree.first, firstRect, layout)
-      layout.dividers.add(PaneDivider(axis: tree.axis, bounds: divider))
-      append(tree.second, secondRect, layout)
+    let dividerCount = tree.children.len - 1
+    let totalExtent = if sideBySide: float32(rect.size.width) else: float32(rect.size.height)
+    let available = max(0'f32, totalExtent - PaneDividerThickness * float32(dividerCount))
+    var weights = tree.flexes
+    if weights.len != tree.children.len:
+      weights.setLen(tree.children.len)
+      for index in 0 ..< weights.len:
+        weights[index] = 1'f32
+    var totalWeight = 0'f32
+    for weight in weights:
+      totalWeight += max(0'f32, weight)
+    if totalWeight <= 0'f32:
+      totalWeight = float32(tree.children.len)
+      for index in 0 ..< weights.len:
+        weights[index] = 1'f32
+    var minimums: seq[float32]
+    for child in tree.children:
+      minimums.add(minimumPaneExtent(child, tree.axis))
+    var lengths = newSeq[float32](tree.children.len)
+    var totalMinimum = 0'f32
+    for minimum in minimums:
+      totalMinimum += minimum
+    let enoughRoom = available >= totalMinimum
+    var remainingExtent = available
+    var remainingWeight = totalWeight
+    for index in 0 ..< tree.children.len:
+      let preferred = if remainingWeight > 0'f32:
+          remainingExtent * max(0'f32, weights[index]) / remainingWeight
+        else: 0'f32
+      var minimumRemaining = 0'f32
+      for remaining in index + 1 ..< minimums.len:
+        minimumRemaining += minimums[remaining]
+      lengths[index] = if index == tree.children.high:
+          remainingExtent
+        elif enoughRoom:
+          min(remainingExtent - minimumRemaining,
+            max(minimums[index], preferred))
+        else:
+          preferred
+      lengths[index] = max(0'f32, lengths[index])
+      remainingExtent = max(0'f32, remainingExtent - lengths[index])
+      remainingWeight = max(0'f32, remainingWeight - max(0'f32, weights[index]))
+
+    var cursor = if sideBySide: float32(rect.origin.x) else: float32(rect.origin.y)
+    for index, child in tree.children:
+      let childRect = if sideBySide:
+          Rect(origin: Point(x: px(cursor), y: rect.origin.y),
+            size: Size(width: px(lengths[index]), height: rect.size.height))
+        else:
+          Rect(origin: Point(x: rect.origin.x, y: px(cursor)),
+            size: Size(width: rect.size.width, height: px(lengths[index])))
+      append(child, childRect, layout)
+      cursor += lengths[index]
+      if index < tree.children.high:
+        let divider = if sideBySide:
+            Rect(origin: Point(x: px(cursor), y: rect.origin.y),
+              size: Size(width: px(PaneDividerThickness), height: rect.size.height))
+          else:
+            Rect(origin: Point(x: rect.origin.x, y: px(cursor)),
+              size: Size(width: rect.size.width, height: px(PaneDividerThickness)))
+        layout.dividers.add(PaneDivider(axis: tree.axis, bounds: divider))
+        cursor += PaneDividerThickness
   append(tree, bounds, computed)
   result = computed
 
@@ -759,7 +814,9 @@ proc focusPane*(state: var WorkspaceUiState, pane: PaneId): bool =
   proc contains(tree: PaneTree): bool =
     if tree.isNil: return false
     if tree.kind == paneLeaf: return tree.pane.id == pane
-    contains(tree.first) or contains(tree.second)
+    for child in tree.children:
+      if contains(child): return true
+    false
   if not contains(state.center): return false
   state.focusedPane = pane
   state.focusedRegion = regionCenter
@@ -779,8 +836,8 @@ proc syncRootTabs*(state: var WorkspaceUiState, tabCount, activeTab: int) =
       if tree.pane.activeTabIndex notin indices:
         tree.pane.activeTabIndex = activeTab
     else:
-      sync(tree.first)
-      sync(tree.second)
+      for child in tree.children:
+        sync(child)
   sync(state.center)
 
 proc selectTab*(state: var WorkspaceUiState, tabIndex: int) =
@@ -793,8 +850,8 @@ proc selectTab*(state: var WorkspaceUiState, tabIndex: int) =
     if tree.kind == paneLeaf:
       tree.pane.activeTabIndex = if tabIndex in tree.pane.tabIndices: tabIndex else: -1
     else:
-      select(tree.first)
-      select(tree.second)
+      for child in tree.children:
+        select(child)
   select(state.center)
 
 proc paneTabIndex*(state: WorkspaceUiState, pane: PaneId): int =
@@ -802,8 +859,10 @@ proc paneTabIndex*(state: WorkspaceUiState, pane: PaneId): int =
     if tree.isNil: return -1
     if tree.kind == paneLeaf:
       return if tree.pane.id == pane: tree.pane.activeTabIndex else: -1
-    let first = find(tree.first)
-    if first >= 0: first else: find(tree.second)
+    for child in tree.children:
+      let found = find(child)
+      if found >= 0: return found
+    -1
   find(state.center)
 
 proc selectPaneTab*(state: var WorkspaceUiState, pane: PaneId, tabIndex: int): bool =
@@ -815,7 +874,9 @@ proc selectPaneTab*(state: var WorkspaceUiState, pane: PaneId, tabIndex: int): b
       if tree.pane.id != pane or tabIndex notin tree.pane.tabIndices: return false
       tree.pane.activeTabIndex = tabIndex
       return true
-    select(tree.first) or select(tree.second)
+    for child in tree.children:
+      if select(child): return true
+    false
   result = select(state.center)
   if result:
     state.focusedPane = pane
@@ -838,8 +899,10 @@ proc cyclePaneTab*(state: var WorkspaceUiState, pane: PaneId, delta: int): int =
       let next = (base + step + count) mod count
       tree.pane.activeTabIndex = tree.pane.tabIndices[next]
       return tree.pane.activeTabIndex
-    let first = cycle(tree.first)
-    if first >= 0: first else: cycle(tree.second)
+    for child in tree.children:
+      let found = cycle(child)
+      if found >= 0: return found
+    -1
   result = cycle(state.center)
   if result >= 0:
     state.focusedPane = pane
@@ -861,36 +924,78 @@ proc removeTab*(state: var WorkspaceUiState, tabIndex: int) =
         tree.pane.activeTabIndex = if tree.pane.tabIndices.len == 0: -1
           else: min(tabIndex, tree.pane.tabIndices.high)
     else:
-      remove(tree.first)
-      remove(tree.second)
+      for child in tree.children:
+        remove(child)
   remove(state.center)
+
+proc splitPane*(state: var WorkspaceUiState, targetPane: PaneId, axis: PaneAxis,
+                ratio = 0.5'f32): bool
 
 proc splitFocusedPane*(state: var WorkspaceUiState, axis: PaneAxis,
                        ratio = 0.5'f32): bool =
-  ## The first vertical slice splits the root pane.  Recursive pane operations
-  ## follow once tab ownership moves from EditorSession to PaneState.
-  if state.center.isNil or state.center.kind != paneLeaf: return false
-  let source = state.center.pane
+  splitPane(state, state.focusedPane, axis, ratio)
+
+proc splitPane*(state: var WorkspaceUiState, targetPane: PaneId, axis: PaneAxis,
+                ratio = 0.5'f32): bool =
+  ## Split a leaf in place. A split on the parent's axis inserts a sibling in
+  ## that axis; an orthogonal split replaces the leaf with a nested axis.
+  if state.center.isNil: return false
   let newId = state.nextPaneId
+  var didSplit = false
+  proc splitIn(tree: PaneTree): bool =
+    if tree.isNil or tree.kind == paneLeaf: return false
+    for index, child in tree.children:
+      if child.isNil: continue
+      if child.kind == paneLeaf and child.pane.id == targetPane:
+        let source = child.pane
+        let sibling = newPane(newId, source.tabIndices, source.activeTabIndex)
+        if tree.axis == axis:
+          tree.children.insert(sibling, index + 1)
+          tree.flexes.insert(1'f32, index + 1)
+          if tree.flexes.len != tree.children.len:
+            tree.flexes = newSeq[float32](tree.children.len)
+            for flexIndex in 0 ..< tree.flexes.len:
+              tree.flexes[flexIndex] = 1'f32
+          tree.ratio = if tree.flexes.len > 0:
+              tree.flexes[0] / float32(tree.children.len)
+            else: 0.5'f32
+          tree.first = tree.children[0]
+          tree.second = if tree.children.len > 1: tree.children[1] else: nil
+        else:
+          tree.children[index] = newPaneSplit(axis, @[child, sibling],
+            splitFlexes(ratio))
+        return true
+      if splitIn(child): return true
+    false
+
+  if state.center.kind == paneLeaf:
+    if state.center.pane.id != targetPane: return false
+    let source = state.center.pane
+    let sibling = newPane(newId, source.tabIndices, source.activeTabIndex)
+    state.center = newPaneSplit(axis, @[state.center, sibling], splitFlexes(ratio))
+    didSplit = true
+  else:
+    didSplit = splitIn(state.center)
+  if not didSplit: return false
   inc state.nextPaneId
-  state.center = PaneTree(kind: paneSplit, axis: axis, ratio: normalizedRatio(ratio),
-    first: PaneTree(kind: paneLeaf, pane: source),
-    second: newPane(newId, source.tabIndices, source.activeTabIndex))
   state.focusedRegion = regionCenter
-  state.focusedPane = source.id
+  state.focusedPane = targetPane
   true
 
 proc setRootSplitRatio*(state: var WorkspaceUiState, ratio: float32): bool =
   ## The current editor bridge supports one split pair. Keep its divider
   ## ownership in the PaneTree now, so recursive pane layout can replace the
   ## bridge without another state migration.
-  if state.center.isNil or state.center.kind != paneSplit: return false
+  if state.center.isNil or state.center.kind != paneSplit or
+      state.center.children.len != 2: return false
+  state.center.flexes = splitFlexes(ratio)
   state.center.ratio = normalizedRatio(ratio)
   true
 
 proc closeRootSplit*(state: var WorkspaceUiState): bool =
-  if state.center.isNil or state.center.kind != paneSplit: return false
-  state.center = state.center.first
+  if state.center.isNil or state.center.kind != paneSplit or
+      state.center.children.len != 2: return false
+  state.center = state.center.children[0]
   state.focusedRegion = regionCenter
   state.focusedPane = state.center.pane.id
   true
