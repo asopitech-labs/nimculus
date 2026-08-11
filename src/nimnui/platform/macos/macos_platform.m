@@ -4112,6 +4112,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic, strong) CADisplayLink *displayLink;
 @property(nonatomic) BOOL displayLinkRunning;
 @property(nonatomic) BOOL redrawDirty;
+@property(nonatomic) BOOL displayLinkRecoveryScheduled;
 @property(nonatomic, copy) NSString *markedText;
 @property(nonatomic) NSRange markedTextRange;
 @property(nonatomic) NSRange selectedTextRange;
@@ -9644,6 +9645,18 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
   }
   if (self.displayLinkRunning) [self stopDisplayLink];
   [self drawFrame];
+  // AppKit can briefly report an occluded window during makeKeyAndOrderFront.
+  // Re-arm on the next main-run-loop turn so that transient false visibility
+  // does not permanently demote the view to synchronous drawing. The start
+  // method rechecks the window state, so a genuinely hidden window remains
+  // stopped and will be picked up by its normal lifecycle notification.
+  if (self.window && !self.displayLinkRecoveryScheduled) {
+    self.displayLinkRecoveryScheduled = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      self.displayLinkRecoveryScheduled = NO;
+      [self restartDisplayLinkIfNeeded];
+    });
+  }
 }
 
 - (void)startDisplayLinkIfNeeded {
@@ -9678,7 +9691,6 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 }
 
 - (void)restartDisplayLinkIfNeeded {
-  if (!self.displayLinkRunning) return;
   [self stopDisplayLink];
   [self startDisplayLinkIfNeeded];
 }
