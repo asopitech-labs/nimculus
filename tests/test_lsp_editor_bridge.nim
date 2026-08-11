@@ -9,6 +9,7 @@ import nimculus/editor_buffer
 import nimculus/editor_diagnostics
 import nimculus/lsp
 import nimculus/lsp_editor_bridge
+import wait_support
 
 proc pendingRequestServer(logPath: string): string =
   "import sys,json,time\n" &
@@ -79,11 +80,11 @@ suite "LSP editor bridge":
         "time.sleep(2)\n"
       let bridge = newLspEditorBridge("python3", ["-u", "-c", server])
       defer: bridge.stop()
-      for _ in 0 ..< 40:
+      let wait = waitForTest("LSP bridge TypeScript marker", condition = proc(): bool =
         bridge.updateDocument("/tmp/component.tsx", "export const Component = () => <main />")
         discard bridge.poll()
-        if fileExists(markerPath): break
-        sleep(10)
+        fileExists(markerPath))
+      check checkTestWait(wait)
       check bridge.opened
       check fileExists(markerPath)
       if fileExists(markerPath): check readFile(markerPath) == "typescriptreact"
@@ -99,10 +100,10 @@ suite "LSP editor bridge":
     let bridge = newLspEditorBridge("python3", ["-u", "-c", server])
     defer: bridge.stop()
     bridge.updateDocument("/tmp/a b.nim", "A日本")
-    for _ in 0 ..< 20:
+    let wait = waitForTest("LSP bridge document open", condition = proc(): bool =
       discard bridge.poll()
-      if bridge.opened: break
-      sleep(10)
+      bridge.opened)
+    check checkTestWait(wait)
     check bridge.opened
     check bridge.version == 1
     check bridge.diagnostics.len == 1
@@ -125,14 +126,14 @@ suite "LSP editor bridge":
       let bridge = newLspEditorBridge("python3", ["-u", "-c", server])
       defer: bridge.stop()
       var longestPoll = 0.0
-      for _ in 0 ..< 100:
+      let wait = waitForTest("LSP bridge split-pane documents", condition = proc(): bool =
         bridge.updateDocument("/tmp/primary.nim", "let primary = 1")
         bridge.syncDocument("/tmp/secondary.nim", "let secondary = 2")
         let pollStarted = epochTime()
         discard bridge.poll()
         longestPoll = max(longestPoll, epochTime() - pollStarted)
-        if bridge.openedDocumentCount == 2: break
-        sleep(10)
+        bridge.openedDocumentCount == 2)
+      check checkTestWait(wait)
       check longestPoll < 0.5
       check bridge.openedDocumentCount == 2
       check bridge.documentVersion("/tmp/primary.nim") == 1
@@ -175,17 +176,17 @@ suite "LSP editor bridge":
     let bridge = newLspEditorBridge("python3", ["-u", "-c", server])
     defer: bridge.stop()
     bridge.updateDocument("/tmp/completion.nim", "x日本")
-    for _ in 0 ..< 30:
+    let openWait = waitForTest("completion document open", condition = proc(): bool =
       discard bridge.poll()
-      if bridge.opened: break
-      sleep(10)
+      bridge.opened)
+    check checkTestWait(openWait)
     check bridge.opened
     let buffer = initPieceTable("x日本")
     check bridge.requestCompletion(buffer, buffer.toString().len)
-    for _ in 0 ..< 30:
+    let completionWait = waitForTest("completion response", condition = proc(): bool =
       discard bridge.poll()
-      if bridge.completionVisible: break
-      sleep(10)
+      bridge.completionVisible)
+    check checkTestWait(completionWait)
     check bridge.completionVisible
     check bridge.completionItems[0].label == "日本語"
     let edit = bridge.completionEdit(buffer)
@@ -212,19 +213,19 @@ suite "LSP editor bridge":
     let bridge = newLspEditorBridge("python3", ["-u", "-c", server])
     defer: bridge.stop()
     bridge.updateDocument("/tmp/hover.nim", "symbol")
-    for _ in 0 ..< 30:
+    let openWait = waitForTest("hover document open", condition = proc(): bool =
       discard bridge.poll()
-      if bridge.opened: break
-      sleep(10)
+      bridge.opened)
+    check checkTestWait(openWait)
     let buffer = initPieceTable("symbol")
     bridge.scheduleHover(2)
     check not bridge.tickHover(buffer)
     for _ in 0 ..< 3: check not bridge.tickHover(buffer)
     check bridge.tickHover(buffer)
-    for _ in 0 ..< 30:
+    let hoverWait = waitForTest("hover response", condition = proc(): bool =
       discard bridge.poll()
-      if bridge.hoverVisible: break
-      sleep(10)
+      bridge.hoverVisible)
+    check checkTestWait(hoverWait)
     check bridge.hoverVisible
     check bridge.hoverText() == "symbol info"
     bridge.scheduleHover(3)
@@ -249,16 +250,16 @@ suite "LSP editor bridge":
     let bridge = newLspEditorBridge("python3", ["-u", "-c", server])
     defer: bridge.stop()
     bridge.updateDocument("/tmp/definition.nim", "x日本")
-    for _ in 0 ..< 30:
+    let openWait = waitForTest("definition document open", condition = proc(): bool =
       discard bridge.poll()
-      if bridge.opened: break
-      sleep(10)
+      bridge.opened)
+    check checkTestWait(openWait)
     let buffer = initPieceTable("x日本")
     check bridge.requestDefinition(buffer, buffer.toString().len)
-    for _ in 0 ..< 30:
+    let definitionWait = waitForTest("definition response", condition = proc(): bool =
       discard bridge.poll()
-      if bridge.requests[lspDefinitionRequest] == 0: break
-      sleep(10)
+      bridge.requests[lspDefinitionRequest] == 0)
+    check checkTestWait(definitionWait)
     let locations = bridge.takeDefinitionLocations()
     check locations.len == 1
     check locations[0].uri == "file:///tmp/target.nim"
@@ -283,16 +284,16 @@ suite "LSP editor bridge":
     let bridge = newLspEditorBridge("python3", ["-u", "-c", server])
     defer: bridge.stop()
     bridge.updateDocument("/tmp/format.nim", "hello")
-    for _ in 0 ..< 30:
+    let openWait = waitForTest("formatting document open", condition = proc(): bool =
       discard bridge.poll()
-      if bridge.opened: break
-      sleep(10)
+      bridge.opened)
+    check checkTestWait(openWait)
     check bridge.opened
     check bridge.requestFormatting()
-    for _ in 0 ..< 30:
+    let formattingWait = waitForTest("formatting response", condition = proc(): bool =
       discard bridge.poll()
-      if bridge.formattingReady: break
-      sleep(10)
+      bridge.formattingReady)
+    check checkTestWait(formattingWait)
     let edits = bridge.takeFormattingEdits()
     check edits.len == 1
     check edits[0].range.start.character == 0
@@ -310,12 +311,12 @@ suite "LSP editor bridge":
       defer: bridge.stop()
       let primary = "/tmp/lsp-cancel-primary.nim"
       let secondary = "/tmp/lsp-cancel-secondary.nim"
-      for _ in 0 ..< 50:
+      let documentsWait = waitForTest("LSP bridge cancellation documents", condition = proc(): bool =
         bridge.updateDocument(primary, "let primary = 1")
         bridge.syncDocument(secondary, "let secondary = 2")
         discard bridge.poll()
-        if bridge.openedDocumentCount == 2: break
-        sleep(10)
+        bridge.openedDocumentCount == 2)
+      check checkTestWait(documentsWait)
       check bridge.openedDocumentCount == 2
       let buffer = initPieceTable("let value = 1")
       let position = LspPosition(line: 0, character: 1)
@@ -342,9 +343,9 @@ suite "LSP editor bridge":
       check inFlight.len == 13
 
       bridge.updateDocument(primary, "let primary = 2")
-      for _ in 0 ..< 50:
-        if cancelledIds(logPath).len == inFlight.len: break
-        sleep(10)
+      let cancellationWait = waitForTest("cancellation of all in-flight LSP requests",
+        condition = proc(): bool = cancelledIds(logPath).len == inFlight.len)
+      check checkTestWait(cancellationWait)
       check cancelledIds(logPath) == inFlight
       for kind in LspRequestKind:
         check bridge.requests[kind] == 0
@@ -358,20 +359,20 @@ suite "LSP editor bridge":
         pendingRequestServer(logPath)])
       defer: bridge.stop()
       let buffer = initPieceTable("let value = 1")
-      for _ in 0 ..< 50:
+      let documentsWait = waitForTest("LSP bridge replacement documents", condition = proc(): bool =
         bridge.updateDocument("/tmp/lsp-replace-primary.nim", "let value = 1")
         bridge.syncDocument("/tmp/lsp-replace-secondary.nim", "let other = 2")
         discard bridge.poll()
-        if bridge.openedDocumentCount == 2: break
-        sleep(10)
+        bridge.openedDocumentCount == 2)
+      check checkTestWait(documentsWait)
       check bridge.openedDocumentCount == 2
       check bridge.requestCompletion(buffer, 1)
       let firstRequestId = bridge.requests[lspCompletionRequest]
       check bridge.requestCompletion(buffer, 2)
       check bridge.requests[lspCompletionRequest] != firstRequestId
-      for _ in 0 ..< 50:
-        if cancelledIds(logPath).len == 1: break
-        sleep(10)
+      let cancellationWait = waitForTest("replacement request cancellation",
+        condition = proc(): bool = cancelledIds(logPath).len == 1)
+      check checkTestWait(cancellationWait)
       let cancelled = cancelledIds(logPath)
       check cancelled.len == 1
       check firstRequestId in cancelled

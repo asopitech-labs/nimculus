@@ -7,6 +7,7 @@ import std/tables
 import std/times
 import std/unittest
 import nimculus/lsp
+import wait_support
 
 suite "M8 LSP protocol foundation":
   test "encodes Content-Length as UTF-8 byte length":
@@ -106,10 +107,10 @@ suite "M8 LSP protocol foundation":
     defer: discard client.stop()
     client.sendNotification("initialized", %*{"message": "日本語"})
     var messages: seq[JsonNode]
-    for _ in 0 ..< 8:
+    let wait = waitForTest("LSP notification response", condition = proc(): bool =
       messages = client.readMessages()
-      if messages.len > 0: break
-      sleep(10)
+      messages.len > 0)
+    check checkTestWait(wait)
     check messages.len == 1
     check messages[0]["method"].getStr == "initialized"
     check messages[0]["params"]["message"].getStr == "日本語"
@@ -123,10 +124,10 @@ suite "M8 LSP protocol foundation":
 
   test "releases an exited language server before restart":
     let client = startLspProcess("/bin/sh", ["-c", "exit 0"])
-    for _ in 0 ..< 100:
+    let wait = waitForTest("LSP server exit", condition = proc(): bool =
       discard client.readMessages()
-      if client.state != lspRunning: break
-      sleep(10)
+      client.state != lspRunning)
+    check checkTestWait(wait)
     check client.state == lspStopped
     check not client.isRunning
 
@@ -271,13 +272,14 @@ suite "M8 LSP protocol foundation":
     let session = startLspSession("python3", ["-u", "-c", server], "", "Nimculus")
     defer: session.stop()
     var received: JsonNode
-    for _ in 0 ..< 100:
-      for message in session.poll():
-        if message.kind == JObject and message.hasKey("method") and
-            message["method"].getStr == "test/received":
-          received = message["params"]
-      if received != nil: break
-      sleep(10)
+    let wait = waitForTest("LSP progress notification response",
+      condition = proc(): bool =
+        for message in session.poll():
+          if message.kind == JObject and message.hasKey("method") and
+              message["method"].getStr == "test/received":
+            received = message["params"]
+        received != nil)
+    check checkTestWait(wait)
     check received != nil
     check received["create"]["result"].kind == JNull
     check session.state == lspSessionReady
@@ -441,10 +443,10 @@ suite "M8 LSP protocol foundation":
     let session = startLspSession("python3", ["-u", "-c", server], "", "Nimculus")
     defer: session.stop()
     var messages: seq[JsonNode]
-    for _ in 0 ..< 100:
+    let wait = waitForTest("LSP diagnostics response", condition = proc(): bool =
       messages = session.poll()
-      if messages.len > 0: break
-      sleep(10)
+      messages.len > 0)
+    check checkTestWait(wait)
     check messages.len >= 1
     check session.state == lspSessionReady
     check session.diagnosticsFor("file:///a.nim").len == 1
@@ -470,13 +472,14 @@ suite "M8 LSP protocol foundation":
     let session = startLspSession("python3", ["-u", "-c", server], "", "Nimculus")
     defer: session.stop()
     var received: JsonNode
-    for _ in 0 ..< 100:
-      for message in session.poll():
-        if message.kind == JObject and message.hasKey("method") and
-            message["method"].getStr == "test/received":
-          received = message["params"]
-      if received != nil: break
-      sleep(10)
+    let wait = waitForTest("LSP server-request response",
+      condition = proc(): bool =
+        for message in session.poll():
+          if message.kind == JObject and message.hasKey("method") and
+              message["method"].getStr == "test/received":
+            received = message["params"]
+        received != nil)
+    check checkTestWait(wait)
     check received != nil
     check received["id"].getInt == 1
     check received["error"]["code"].getInt == -32601
@@ -504,13 +507,14 @@ suite "M8 LSP protocol foundation":
     let session = startLspSession("python3", ["-u", "-c", server], "", "Nimculus")
     defer: session.stop()
     var received: JsonNode
-    for _ in 0 ..< 100:
-      for message in session.poll():
-        if message.kind == JObject and message.hasKey("method") and
-            message["method"].getStr == "test/received":
-          received = message["params"]
-      if received != nil: break
-      sleep(10)
+    let wait = waitForTest("LSP progress-token response",
+      condition = proc(): bool =
+        for message in session.poll():
+          if message.kind == JObject and message.hasKey("method") and
+              message["method"].getStr == "test/received":
+            received = message["params"]
+        received != nil)
+    check checkTestWait(wait)
     check received != nil
     check received["id"].getInt == 23
     check received["result"].kind == JNull

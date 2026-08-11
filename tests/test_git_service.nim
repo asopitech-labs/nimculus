@@ -8,6 +8,7 @@ import std/unittest
 when defined(posix):
   import std/envvars
 import nimculus/git_service
+import wait_support
 import nimculus/git_blame
 import nimculus/editor_buffer
 
@@ -297,9 +298,9 @@ suite "M9 Git service":
         if fileExists(fakeGit): removeFile(fakeGit)
         if dirExists(root): removeDir(root)
       let job = GitRepository(root: root).startGitJob(["status", "--porcelain"])
-      let deadline = epochTime() + 3.0
-      while not job.poll() and epochTime() < deadline:
-        sleep(1)
+      let wait = waitForTest("verbose Git job completion", timeoutMs = 10_000,
+        condition = proc(): bool = job.poll())
+      check checkTestWait(wait)
       if not job.done: job.cancel()
       check job.done
       check job.result.exitCode == 0

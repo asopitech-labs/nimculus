@@ -2,13 +2,12 @@ import std/[asyncdispatch, os, osproc, times, unittest]
 import nimnui/platform/headless/platform
 import nimnui/executor
 import nimculus/git_service
+import wait_support
 
-proc tickUntil[T](future: Future[T]) =
-  for _ in 0 ..< 400:
-    if future.finished: return
+proc tickUntil[T](label: string; future: Future[T]): TestWaitResult =
+  waitForTest(label, condition = proc(): bool =
     pollAsyncDispatchTick()
-    sleep(1)
-  pollAsyncDispatchTick()
+    future.finished)
 
 suite "Zed-shaped async execution":
   test "Future completion is observed by one frame tick":
@@ -17,7 +16,8 @@ suite "Zed-shaped async execution":
     let ownerThread = getThreadId()
     let future = executor.spawn(proc(): int {.gcsafe.} = getThreadId())
     check not future.finished
-    tickUntil(future)
+    let wait = tickUntil("background future completion", future)
+    check checkTestWait(wait)
     check future.finished
     check future.read != ownerThread
 
@@ -33,9 +33,11 @@ suite "Zed-shaped async execution":
     var callbackThread = 0
     let future = executor.spawn(proc(): string {.gcsafe.} = "ready")
     future.addCallback(proc() = callbackThread = getThreadId())
-    tickUntil(future)
-    if callbackThread == 0:
-      pollAsyncDispatchTick()
+    let wait = waitForTest("background future and callback completion",
+      condition = proc(): bool =
+        pollAsyncDispatchTick()
+        future.finished and callbackThread != 0)
+    check checkTestWait(wait)
     check future.read == "ready"
     check callbackThread == ownerThread
 
@@ -50,6 +52,7 @@ suite "Zed-shaped async execution":
     let started = epochTime()
     let future = newGitRepository(root, executor)
     check epochTime() - started < 0.2
-    tickUntil(future)
+    let wait = tickUntil("newGitRepository future completion", future)
+    check checkTestWait(wait)
     check future.finished
     check future.read != nil

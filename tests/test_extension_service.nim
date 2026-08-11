@@ -8,6 +8,7 @@ import nimculus/extension_service
 import nimculus/extension_catalog
 import nimculus/task_service
 import nimculus/wasm_runtime
+import wait_support
 
 suite "M17 extension registry":
   test "parses data-backed registrations and LSP commands":
@@ -123,9 +124,9 @@ suite "M17 extension registry":
       let plan = prepareWasmExecution(manifest)
       let job = startTask(TaskSpec(command: plan.command, args: plan.args,
         workingDirectory: plan.workingDirectory))
-      for _ in 0 .. 100:
-        if job.poll(): break
-        sleep(10)
+      let wait = waitForTest("validated Wasm task completion",
+        condition = proc(): bool = job.poll())
+      check checkTestWait(wait)
       check job.done
       check job.result.status == taskSucceeded
       removeDir(root)
@@ -261,10 +262,11 @@ suite "M17 extension registry":
     else:
       var state = 0
       var errorMessage = ""
-      for _ in 0 .. 100:
-        state = pollWasmComponentJob(job, errorMessage)
-        if state != 0: break
-        sleep(10)
+      let wait = waitForTest("Wasm Component worker completion",
+        condition = proc(): bool =
+          state = pollWasmComponentJob(job, errorMessage)
+          state != 0)
+      check checkTestWait(wait)
       check state != 0
       check state in [2, 3]
       check errorMessage.len > 0

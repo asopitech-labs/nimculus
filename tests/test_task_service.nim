@@ -2,6 +2,7 @@ import std/os
 import std/strutils
 import std/unittest
 import nimculus/task_service
+import wait_support
 
 suite "M10 task service":
   test "matches common compiler problem locations":
@@ -19,18 +20,16 @@ suite "M10 task service":
     let job = startTask(TaskSpec(command: "/bin/sh", args: @[
       "-c", "printf '%s:%s' \"$TASK_MARKER\" \"$(pwd)\""],
       workingDirectory: "/tmp", environment: @[ ("TASK_MARKER", "nimculus")]))
-    for _ in 0 ..< 100:
-      if job.poll(): break
-      sleep(10)
+    let wait = waitForTest("successful task completion", condition = proc(): bool = job.poll())
+    check checkTestWait(wait)
     check job.processId > 0
     check job.isSuccess()
     check job.result.output == "nimculus:" & expandFilename("/tmp")
 
   test "preserves a nonzero exit status":
     let job = startTask(TaskSpec(command: "/bin/sh", args: @["-c", "printf fail; exit 7"]))
-    for _ in 0 ..< 100:
-      if job.poll(): break
-      sleep(10)
+    let wait = waitForTest("failed task completion", condition = proc(): bool = job.poll())
+    check checkTestWait(wait)
     check job.result.status == taskFailed
     check job.result.exitCode == 7
     check job.result.output == "fail"
@@ -53,12 +52,11 @@ suite "M10 task service":
     let job = startTask(TaskSpec(command: "/bin/sh", args: @["-c",
       "printf first; sleep 1; printf second"]))
     var sawFirst = false
-    for _ in 0 ..< 50:
+    let wait = waitForTest("first task output", condition = proc(): bool =
       discard job.poll()
-      if job.result.output.find("first") >= 0:
-        sawFirst = true
-        break
-      sleep(10)
+      sawFirst = job.result.output.find("first") >= 0
+      sawFirst)
+    check checkTestWait(wait)
     check sawFirst
     job.cancel()
     check "first" in job.result.output

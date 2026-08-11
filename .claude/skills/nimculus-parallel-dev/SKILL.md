@@ -269,6 +269,9 @@ tools/ui_test.sh parity
 - [ ] `nimble format` / `lint` を実行した
 - [ ] **ランナーで検証した**（`nim c --mm:arc -r --path:src tests/test_runner.nim` の rc=0）。
       `nimble test` の rc は当てにならない — nimble はこの環境で常に 0 を返す
+- [ ] **`nim check ... src/nimculus/main.nim` が通る。**
+      ランナーは本体をコンパイルしないので、型を変えると
+      **テストが 27/27 のまま本体が壊れる**（2026-08-12 の実例）
 - [ ] `NIMCULUS_ALLOW_ADHOC=1 nimble packageMacos` が通る
 - [ ] 計測が要る項目は**計測待ちの列に入れた**（ここでは計測しない）
 

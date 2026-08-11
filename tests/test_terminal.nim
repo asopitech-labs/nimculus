@@ -3,6 +3,7 @@ import std/os
 import std/strutils
 import std/times
 import nimculus/terminal
+import wait_support
 
 when defined(macosx):
   import std/posix
@@ -373,11 +374,11 @@ suite "M10 terminal core":
       check second.writeInput("printf 'second-session\\n'\n") > 0
       var firstOutput = ""
       var secondOutput = ""
-      for _ in 0 ..< 100:
+      let wait = waitForTest("first and second terminal output", condition = proc(): bool =
         firstOutput.add(first.pollOutput())
         secondOutput.add(second.pollOutput())
-        if "first-session" in firstOutput and "second-session" in secondOutput: break
-        sleep(10)
+        "first-session" in firstOutput and "second-session" in secondOutput)
+      check checkTestWait(wait)
       check "first-session" in firstOutput
       check "second-session" in secondOutput
       check first.screen.visibleText() != second.screen.visibleText()
@@ -387,10 +388,10 @@ suite "M10 terminal core":
       defer: pty.close()
       check pty.writeInput("printf 'nimculus-pty\\n'\n") > 0
       var received = ""
-      for _ in 0 ..< 100:
+      let wait = waitForTest("terminal printf output", condition = proc(): bool =
         received.add(pty.pollOutput())
-        if "nimculus-pty" in received: break
-        sleep(10)
+        "nimculus-pty" in received)
+      check checkTestWait(wait)
       check "nimculus-pty" in received
       check pty.screen.lineText(0).len > 0
       pty.resize(60, 12)
@@ -409,10 +410,10 @@ suite "M10 terminal core":
       var received = ""
       # Login-shell startup may load the user's normal macOS profile. Keep a
       # bounded readiness window without imposing a fixed delay on success.
-      for _ in 0 ..< 500:
+      let wait = waitForTest("login shell startup output", condition = proc(): bool =
         received.add(pty.pollOutput())
-        if "nimculus-zsh:" in received and "/tmp" in received: break
-        sleep(10)
+        "nimculus-zsh:" in received and "/tmp" in received)
+      check checkTestWait(wait)
       check "nimculus-zsh:" in received
       check "/tmp" in received
 
@@ -421,11 +422,11 @@ suite "M10 terminal core":
       let childPid = pty.childPid
       check pty.writeInput("exec sleep 30\n") > 0
       var accepted = false
-      for _ in 0 ..< 20:
-        if "sleep 30" in pty.pollOutput():
-          accepted = true
-          break
-        sleep(10)
+      let wait = waitForTest("terminal long-running command acceptance",
+        condition = proc(): bool =
+          accepted = "sleep 30" in pty.pollOutput()
+          accepted)
+      check checkTestWait(wait)
       check accepted
       pty.close()
       check kill(childPid, 0) == -1
@@ -439,11 +440,11 @@ suite "M10 terminal core":
       # a potential orphan on shells that reorganize job-control groups.
       check pty.writeInput("trap '' TERM; read ignored\n") > 0
       var accepted = false
-      for _ in 0 ..< 20:
-        if "read ignored" in pty.pollOutput():
-          accepted = true
-          break
-        sleep(10)
+      let wait = waitForTest("terminal stdin-blocked command acceptance",
+        condition = proc(): bool =
+          accepted = "read ignored" in pty.pollOutput()
+          accepted)
+      check checkTestWait(wait)
       check accepted
       let started = epochTime()
       pty.close()
@@ -460,10 +461,10 @@ suite "M10 terminal core":
         "exec /usr/bin/printf '\\164\\145\\162\\155\\151\\156\\141\\154\\055\\145\\170\\151\\164\\145\\144\\012'\n"
       ) > 0
       var output = ""
-      for _ in 0 ..< 100:
+      let wait = waitForTest("terminal process exit", condition = proc(): bool =
         output.add(pty.pollOutput())
-        if pty.closed: break
-        sleep(10)
+        pty.closed)
+      check checkTestWait(wait)
       check "terminal-exited" in output
       check pty.closed
       check pty.pendingInputBytes == 0

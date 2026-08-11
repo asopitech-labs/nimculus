@@ -63,6 +63,36 @@ nim c --mm:arc --nimcache:.nimcache/test_runner -r --path:src tests/test_runner.
 
 出力の `実行: N` を見る。件数が減っていたら、通ったのではなく走っていない。
 
+### ランナーだけでは足りない — アプリ本体のビルドを必ず見る
+
+**ランナーはテストファイルしかコンパイルしない。`src/nimculus/main.nim` は対象外。**
+型を変えて呼び出し側が追随できていなくても、**テストは 27/27 で通る。**
+
+2026-08-12 の実例: `src/nimnui/events.nim` の `UiEvent` を構造化したところ、
+`main.nim:9731` が旧い平坦な生成を使っていてコンパイルできなくなった。
+**ランナーは 27/27。** `nim check` で初めて分かった。
+
+したがって関門は 2 つ:
+
+```bash
+nim check --mm:arc --nimcache:.nimcache/chk --path:src src/nimculus/main.nim   # 本体が通るか
+nim c --mm:arc --nimcache:.nimcache/test_runner -r --path:src tests/test_runner.nim  # テスト
+```
+
+`nimble lint` が前者に相当するが、**nimble の終了コードは当てにならない**ので
+`nim check` を直接呼ぶ。出力に `Error:` が無いことを見る。
+
+### 衝突マーカーが残っていてもテストは通る
+
+キャッシュされたバイナリで走るため。マージ直後は
+
+```bash
+grep -c '^<<<<<<<' <衝突しうるファイル>
+rm -rf .nimcache/test_runner
+```
+
+を先にやる。2026-08-12、16 個のマーカーが残った状態で 27/27 が出た。
+
 
 ## 1. 必須テスト種別
 

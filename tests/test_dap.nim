@@ -5,6 +5,7 @@ import std/strutils
 import std/unittest
 
 import nimculus/dap
+import wait_support
 
 suite "M19 DAP transport":
   test "frames use UTF-8 byte length and decode partial messages":
@@ -86,10 +87,10 @@ suite "M19 DAP transport":
     let request = session.sendRequest("initialize", initializeArguments())
     check request.seq == 1
     var messages: seq[DapMessage]
-    for _ in 0 .. 20:
+    let wait = waitForTest("DAP initialize response", condition = proc(): bool =
       messages = session.poll()
-      if messages.len > 0: break
-      sleep(10)
+      messages.len > 0)
+    check checkTestWait(wait)
     check messages.len == 1
     check messages[0].messageType == dapResponseMessage
     check messages[0].requestSeq == 1
@@ -134,7 +135,8 @@ suite "M19 DAP transport":
       var frameId = 0
       var variableReference = 0
 
-      for _ in 0 ..< 800:
+      let wait = waitForTest("DAP launch, stop, and variables response",
+      condition = proc(): bool =
         for message in session.poll():
           case message.messageType
           of dapResponseMessage:
@@ -206,8 +208,8 @@ suite "M19 DAP transport":
           of dapRequestMessage:
             session.sendResponse(message, false, %*{},
               "reverse request is not part of this integration fixture")
-        if variablesReceived: break
-        sleep(10)
+        variablesReceived)
+      check checkTestWait(wait)
 
       check initialized
       check launched
@@ -252,7 +254,8 @@ suite "M19 DAP transport":
       var initialized = false
       var attached = false
       var stopped = false
-      for _ in 0 ..< 800:
+      let wait = waitForTest("DAP attach and stop response",
+      condition = proc(): bool =
         for message in session.poll():
           case message.messageType
           of dapResponseMessage:
@@ -275,8 +278,8 @@ suite "M19 DAP transport":
           of dapRequestMessage:
             session.sendResponse(message, false, %*{},
               "reverse request is not part of this integration fixture")
-        if stopped: break
-        sleep(10)
+        stopped)
+      check checkTestWait(wait)
       check initialized
       check attached
       check stopped

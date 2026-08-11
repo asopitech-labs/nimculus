@@ -2,6 +2,7 @@ import std/os
 import std/strutils
 import std/unittest
 import nimculus/workspace
+import wait_support
 
 when defined(macosx):
   {.compile: "test_workspace_watcher_macos.m".}
@@ -16,11 +17,13 @@ when defined(macosx) or defined(windows):
       sleep(50)
 
   proc waitForPath(workspace: Workspace, suffix: string): bool =
-    for _ in 0 ..< 40:
-      for path in workspace.changedPaths():
-        if path.endsWith(suffix): return true
-      pumpWatcher()
-    false
+    let wait = waitForTest("workspace watcher path " & suffix,
+      condition = proc(): bool =
+        for path in workspace.changedPaths():
+          if path.endsWith(suffix): return true
+        pumpWatcher()
+        false)
+    checkTestWait(wait)
 
   proc newWatcherRoot(label: string): string =
     getTempDir() / ("nimculus-workspace-watcher-" & label & "-" &

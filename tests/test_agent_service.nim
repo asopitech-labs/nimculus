@@ -3,6 +3,7 @@ import std/strutils
 import std/unittest
 
 import nimculus/agent_service
+import wait_support
 
 suite "M18 CLI agent sessions":
   test "resolves known CLI providers without weakening their safety flags":
@@ -49,12 +50,12 @@ suite "M18 CLI agent sessions":
     let session = newAgentSession(1, "/bin/sh", @[
       "-c", "read line; printf 'agent:%s\\n' \"$line\"; printf changed > main.txt"], root)
     session.sendPrompt("hello")
-    var result: AgentPollResult
-    for _ in 0 .. 40:
-      result = session.poll()
-      if result.done: break
-      sleep(10)
-    check result.done
+    var pollResult: AgentPollResult
+    let wait = waitForTest("CLI agent session completion", condition = proc(): bool =
+      pollResult = session.poll()
+      pollResult.done)
+    check checkTestWait(wait)
+    check pollResult.done
     check session.retainedOutput.contains("agent:hello")
     check "main.txt" in session.refreshChanges()
     let patch = "diff --git a/agent.txt b/agent.txt\nnew file mode 100644\n--- /dev/null\n+++ b/agent.txt\n@@ -0,0 +1 @@\n+applied\n"
