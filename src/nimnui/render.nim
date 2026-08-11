@@ -1,3 +1,4 @@
+import std/math
 import nimnui/geometry
 
 type
@@ -36,6 +37,11 @@ type
     dirty*: seq[Rect]
     clipStack*: seq[Rect]
     transformStack*: seq[Transform2D]
+    ## Element offsets are ambient prepaint translations. Unlike an affine
+    ## transform they are pixel-snapped when a command is resolved, matching
+    ## GPUI's `element_offset` rather than changing layout geometry.
+    elementOffsetStack*: seq[Point]
+    scaleFactor*: float32
 
 proc intersects*(a, b: Rect): bool =
   float32(a.origin.x) < float32(b.origin.x + b.size.width) and
@@ -61,6 +67,30 @@ proc unionRect(a, b: Rect): Rect =
   Rect(origin: Point(x: px(left), y: px(top)),
     size: Size(width: px(right - left), height: px(bottom - top)))
 
+proc currentElementOffset*(paint: PaintList): Point =
+  if paint.elementOffsetStack.len > 0: paint.elementOffsetStack[^1]
+  else: Point()
+
+proc effectiveScaleFactor(paint: PaintList): float32 =
+  if paint.scaleFactor > 0: paint.scaleFactor else: 1.0'f32
+
+proc pixelSnap*(value: Pixels, scaleFactor: float32): Pixels =
+  ## Snap an ambient offset without making a half-pixel scroll move a full
+  ## logical pixel on a 1x display. Truncation toward zero is intentional:
+  ## the offset is a prepaint delta, not an absolute layout coordinate.
+  let scale = if scaleFactor > 0: scaleFactor else: 1.0'f32
+  let scaled = float32(value) * scale
+  let snapped = if scaled >= 0: floor(scaled) else: ceil(scaled)
+  px(snapped / scale)
+
+proc pixelSnapPoint*(point: Point, scaleFactor: float32): Point =
+  Point(x: pixelSnap(point.x, scaleFactor), y: pixelSnap(point.y, scaleFactor))
+
+proc resolvedBounds(paint: PaintList, bounds: Rect, transform: Transform2D): Rect =
+  let transformed = transform.transformRect(bounds)
+  let offset = pixelSnapPoint(paint.currentElementOffset(), paint.effectiveScaleFactor())
+  transformed.offset(offset.x, offset.y)
+
 proc invalidate*(paint: var PaintList, rect: Rect) =
   if float32(rect.size.width) <= 0 or float32(rect.size.height) <= 0: return
   var merged = rect
@@ -76,16 +106,19 @@ proc invalidate*(paint: var PaintList, rect: Rect) =
 
 proc add*(paint: var PaintList, command: PaintCommand) =
   let transform = if paint.transformStack.len > 0: paint.transformStack[^1] else: identityTransform()
-  let transformedBounds = transform.transformRect(command.bounds)
+  let transformedBounds = paint.resolvedBounds(command.bounds, transform)
+  var effectiveClip = transformedBounds
+  if paint.clipStack.len > 0:
+    effectiveClip = intersection(effectiveClip, paint.clipStack[^1])
   for dirty in paint.dirty:
-    var visible = intersection(transformedBounds, dirty)
-    if paint.clipStack.len > 0:
-      visible = intersection(visible, paint.clipStack[^1])
+    let visible = intersection(effectiveClip, dirty)
     if float32(visible.size.width) > 0 and float32(visible.size.height) > 0:
       var clipped = command
       clipped.sourceBounds = command.bounds
       clipped.bounds = transformedBounds
-      clipped.clip = visible
+      ## Damage filtering decides whether a command is emitted; it is not a
+      ## content mask. Keep `clip` equal to the effective content clip.
+      clipped.clip = effectiveClip
       clipped.transform = transform
       paint.commands.add(clipped)
 
@@ -94,6 +127,7 @@ proc clear*(paint: var PaintList) =
   paint.dirty.setLen(0)
   paint.clipStack.setLen(0)
   paint.transformStack.setLen(0)
+  paint.elementOffsetStack.setLen(0)
 
 proc drawRectangle*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: rectangle, bounds: bounds, clip: bounds))
@@ -110,7 +144,7 @@ proc drawImage*(paint: var PaintList, bounds: Rect, imageId: uint32 = 0) =
 proc pushClip*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: clip, bounds: bounds, clip: bounds))
   let transform = if paint.transformStack.len > 0: paint.transformStack[^1] else: identityTransform()
-  let transformedBounds = transform.transformRect(bounds)
+  let transformedBounds = paint.resolvedBounds(bounds, transform)
   let effective = if paint.clipStack.len > 0:
     intersection(transformedBounds, paint.clipStack[^1])
   else: transformedBounds
@@ -122,6 +156,17 @@ proc pushTransform*(paint: var PaintList, transform: Transform2D) =
   paint.transformStack.add(current * transform)
 proc popTransform*(paint: var PaintList) =
   if paint.transformStack.len > 0: paint.transformStack.setLen(paint.transformStack.len - 1)
+
+proc pushElementOffset*(paint: var PaintList, offset: Point) =
+  let current = paint.currentElementOffset()
+  paint.elementOffsetStack.add(Point(x: current.x + offset.x, y: current.y + offset.y))
+
+proc pushAbsoluteElementOffset*(paint: var PaintList, offset: Point) =
+  paint.elementOffsetStack.add(offset)
+
+proc popElementOffset*(paint: var PaintList) =
+  if paint.elementOffsetStack.len > 0:
+    paint.elementOffsetStack.setLen(paint.elementOffsetStack.len - 1)
 proc drawShadow*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: shadow,
     bounds: bounds, clip: bounds))
 proc drawCaret*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: caret,

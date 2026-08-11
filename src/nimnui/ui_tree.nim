@@ -86,6 +86,7 @@ proc nodeIndex*(tree: UiTree, id: NodeId): int =
 proc dispatchPath*(tree: UiTree, target: NodeId): seq[NodeId]
 proc focusContains*(tree: UiTree, parent, child: NodeId): bool
 proc isValid*(tree: UiTree, handle: NodeHandle): bool
+proc nodeClip*(node: UiNode): Rect
 proc updateVisualState(tree: var UiTree, index: int)
 
 proc nextNodeHandle(tree: var UiTree): NodeHandle =
@@ -266,15 +267,14 @@ proc hitTest*(tree: UiTree, point: Point): NodeId =
         let descendantIsAbsolute = descendantIndex >= 0 and
           tree.nodes[descendantIndex].layoutSpec.position == absolute
         let useLegacyBounds = not ancestor.clipChildren and not descendantIsAbsolute
+        let clip = ancestor.nodeClip()
         if ((useLegacyBounds and not ancestor.bounds.contains(point)) or
             (ancestor.clipChildren and ((ancestor.clipX and
-            (float32(point.x) < float32(ancestor.clipBounds.origin.x) or
-             float32(point.x) >= float32(ancestor.clipBounds.origin.x +
-                 ancestor.clipBounds.size.width))) or
+            (float32(point.x) < float32(clip.origin.x) or
+             float32(point.x) >= float32(clip.origin.x + clip.size.width))) or
              (ancestor.clipY and
-            (float32(point.y) < float32(ancestor.clipBounds.origin.y) or
-             float32(point.y) >= float32(ancestor.clipBounds.origin.y +
-                 ancestor.clipBounds.size.height)))))):
+            (float32(point.y) < float32(clip.origin.y) or
+             float32(point.y) >= float32(clip.origin.y + clip.size.height)))))):
           visible = false
           break
         descendant = dispatchPath[pathIndex]
@@ -296,6 +296,21 @@ proc isValid*(tree: UiTree, handle: NodeHandle): bool =
 
 proc node*(tree: var UiTree, id: NodeId): var UiNode =
   tree.nodes[nodeIndex(tree, id)]
+
+proc nodeClip*(node: UiNode): Rect =
+  ## The single clip value consumed by prepaint and hit testing. Layout keeps
+  ## this as the inherited/own content mask intersection; intersecting once
+  ## more with bounds makes the invariant explicit for callers that paint a
+  ## node directly.
+  let left = max(float32(node.clipBounds.origin.x), float32(node.bounds.origin.x))
+  let top = max(float32(node.clipBounds.origin.y), float32(node.bounds.origin.y))
+  let right = min(float32(node.clipBounds.origin.x + node.clipBounds.size.width),
+    float32(node.bounds.origin.x + node.bounds.size.width))
+  let bottom = min(float32(node.clipBounds.origin.y + node.clipBounds.size.height),
+    float32(node.bounds.origin.y + node.bounds.size.height))
+  Rect(origin: Point(x: px(left), y: px(top)),
+    size: Size(width: px(max(0'f32, right - left)),
+      height: px(max(0'f32, bottom - top))))
 
 proc markLayoutDirty*(tree: var UiTree, id: NodeId) =
   let index = nodeIndex(tree, id)
