@@ -492,6 +492,33 @@ suite "M5 editor services":
     check session.displayTitle(1) == "Untitled 2"
     check session.displayTitle(2) == "Untitled 3"
 
+  test "duplicate file tab labels use directory context":
+    check pathForFile("/w/src/main.rs", 1, true) == "src/main.rs"
+    check pathForFile("/w/tests/main.rs", 1, true) == "tests/main.rs"
+    check pathForFile("/w/a/b/x.nim", 2, true) == "a/b/x.nim"
+    check pathForFile("/w/c/b/x.nim", 2, true) == "c/b/x.nim"
+    check pathForFile("/w/a/b/x.nim", 3, true) == "/w/a/b/x.nim"
+
+    var session: EditorSession
+    var source = newDocument()
+    source.path = "/w/src/main.rs"
+    var tests = newDocument()
+    tests.path = "/w/tests/main.rs"
+    session.addTab(source)
+    session.addTab(tests)
+    check session.displayTitle(0) == "src/main.rs"
+    check session.displayTitle(1) == "tests/main.rs"
+
+    var nested: EditorSession
+    var left = newDocument()
+    left.path = "/w/a/b/x.nim"
+    var right = newDocument()
+    right.path = "/w/c/b/x.nim"
+    nested.addTab(left)
+    nested.addTab(right)
+    check nested.displayTitle(0) == "a/b/x.nim"
+    check nested.displayTitle(1) == "c/b/x.nim"
+
   test "named tab labels retain their file extension":
     let root = getTempDir() / ("nimculus-editor-named-label-" & $getCurrentProcessId())
     createDir(root)
