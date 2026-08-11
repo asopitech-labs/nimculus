@@ -2,6 +2,7 @@ import std/os
 import std/times
 import std/strutils
 import std/sequtils
+import std/json
 import nimculus/editor_buffer
 import nimculus/atomic_io
 import nimculus/editor_view
@@ -72,6 +73,11 @@ type
     ## construct sessions directly. Session JSON uses the name fields below.
     workspaceLeftPanel*, workspaceBottomPanel*, workspaceRightPanel*: int
     workspaceLeftPanelName*, workspaceBottomPanelName*, workspaceRightPanelName*: string
+    workspaceLeftDockZoom*, workspaceBottomDockZoom*, workspaceRightDockZoom*: bool
+    ## The recursive workspace UI owns the shape; keeping its JSON here avoids
+    ## a module cycle between the editor session and workspace_ui.
+    workspacePaneTree*: JsonNode
+    workspaceActivePane*: int
 
 proc fileStamp(path: string): tuple[identity: string, size: int64, modified: Time] =
   let info = getFileInfo(path)

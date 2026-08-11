@@ -5,6 +5,7 @@
 ## and focus in one place, as Zed's Workspace does.
 
 import nimnui/geometry
+import std/json
 import nimculus/editor_app
 import nimculus/settings
 
@@ -35,6 +36,7 @@ type
     id*: PaneId
     tabIndices*: seq[int]
     activeTabIndex*: int
+    pinnedCount*: int
 
   PaneTreeKind* = enum
     paneLeaf, paneSplit
@@ -55,6 +57,7 @@ type
   DockState* = object
     side*: DockSide
     isOpen*: bool
+    zoom*: bool
     activePanel*: PanelKind
     minimumSize*: float32
     entries*: seq[PanelKind]
@@ -64,6 +67,7 @@ type
     ## Width is stored per panel in WorkspaceUiState, not on the dock.
     side*: DockSide
     isOpen*: bool
+    zoom*: bool
     activePanel*: PanelKind
     size*: float32
     minimumSize*: float32
@@ -129,6 +133,18 @@ const
   MinimumPaneHeight* = 100'f32
   PaneDividerThickness* = 2'f32
 
+proc panelPersistentKey*(panel: PanelKind): string =
+  ## Stable identifiers are independent of PanelKind declaration order.
+  case panel
+  of panelFiles: "projectPanel.dock"
+  of panelGit: "gitPanel.dock"
+  of panelOutline: "outlinePanel.dock"
+  of panelTerminal: "terminal.dock"
+  of panelTasks: "tasks.dock"
+  of panelSearch: "search.dock"
+  of panelDebugger: "debugger.dock"
+  of panelAgent: "agent.dock"
+
 proc normalizedRatio*(ratio: float32): float32 =
   min(0.9'f32, max(0.1'f32, ratio))
 
@@ -150,7 +166,7 @@ proc projectDockPresentationWidth*(logicalWidth, minimumPresenterWidth: float32)
 
 proc newPane(id: int, tabIndices: seq[int] = @[], activeTabIndex = -1): PaneTree =
   PaneTree(kind: paneLeaf, pane: PaneState(id: PaneId(id), tabIndices: tabIndices,
-    activeTabIndex: activeTabIndex))
+    activeTabIndex: activeTabIndex, pinnedCount: 0))
 
 proc splitFlexes(ratio: float32): seq[float32] =
   let normalized = normalizedRatio(ratio)
@@ -167,6 +183,106 @@ proc newPaneSplit(axis: PaneAxis, children: seq[PaneTree],
     result.second = children[1]
   if flexes.len >= 2:
     result.ratio = flexes[0] / (flexes[0] + flexes[1])
+
+proc paneJsonInt(node: JsonNode, key: string, fallback: int): int =
+  if node == nil or node.kind != JObject or not node.hasKey(key): return fallback
+  try:
+    node[key].getInt(fallback)
+  except CatchableError:
+    fallback
+
+proc paneAxisName(axis: PaneAxis): string =
+  if axis == paneVertical: "vertical" else: "horizontal"
+
+proc paneAxisFromJson(value: string, fallback: PaneAxis): PaneAxis =
+  case value
+  of "vertical", "paneVertical": paneVertical
+  of "horizontal", "paneHorizontal": paneHorizontal
+  else: fallback
+
+proc paneJsonKind(node: JsonNode, variant: string): JsonNode =
+  if node != nil and node.kind == JObject and node.hasKey(variant):
+    node[variant]
+  else:
+    node
+
+proc toJson*(t: PaneTree): JsonNode =
+  ## Persist the same recursive distinction as Zed's SerializedPaneGroup:
+  ## groups carry axis/flexes and panes carry their item list and pin prefix.
+  if t.isNil: return newJNull()
+  if t.kind == paneLeaf:
+    var items = newJArray()
+    for tabIndex in t.pane.tabIndices:
+      items.add(%*{"kind": "tab", "item_id": tabIndex,
+        "active": tabIndex == t.pane.activeTabIndex, "preview": false})
+    return %*{"kind": "pane", "active": t.pane.activeTabIndex,
+      "children": items, "pinnedCount": max(0, t.pane.pinnedCount)}
+  var children = newJArray()
+  for child in t.children:
+    children.add(toJson(child))
+  var flexes = newJArray()
+  for flex in t.flexes:
+    flexes.add(%*flex)
+  %*{"kind": "group", "axis": paneAxisName(t.axis),
+      "flexes": flexes, "children": children}
+
+proc fromJsonImpl(node: JsonNode, nextPaneId: var int): PaneTree =
+  ## Be liberal when reading: the explicit kind form is Nimculus's current
+  ## shape, while Group/Pane also accepts the externally-tagged Rust form.
+  if node == nil or node.kind != JObject: return nil
+  let group = paneJsonKind(node, "Group")
+  let pane = paneJsonKind(node, "Pane")
+  let kind =
+    if node.hasKey("Group"):
+      "group"
+    elif node.hasKey("Pane"):
+      "pane"
+    elif node.hasKey("kind") and node["kind"].kind == JString:
+      node["kind"].getStr
+    else:
+      ""
+  if kind == "group":
+    if group == nil or group.kind != JObject: return nil
+    let axisValue = if group.hasKey("axis") and group["axis"].kind == JString:
+      group["axis"].getStr else: "horizontal"
+    var children: seq[PaneTree]
+    if group.hasKey("children") and group["children"].kind == JArray:
+      for child in group["children"]:
+        let restored = fromJsonImpl(child, nextPaneId)
+        if not restored.isNil: children.add(restored)
+    if children.len == 0: return nil
+    var flexes: seq[float32]
+    if group.hasKey("flexes") and group["flexes"].kind == JArray:
+      for flex in group["flexes"]:
+        try: flexes.add(float32(flex.getFloat))
+        except CatchableError: flexes.add(1'f32)
+    if flexes.len != children.len:
+      flexes = newSeq[float32](children.len)
+      for index in 0 ..< flexes.len: flexes[index] = 1'f32
+    return newPaneSplit(paneAxisFromJson(axisValue, paneHorizontal), children, flexes)
+  if kind != "pane": return nil
+  let payload = if node.hasKey("Pane"): pane else: node
+  if payload == nil or payload.kind != JObject: return nil
+  var indices: seq[int]
+  var active = paneJsonInt(payload, "active", -1)
+  if payload.hasKey("children") and payload["children"].kind == JArray:
+    for item in payload["children"]:
+      if item.kind != JObject: continue
+      let itemId = paneJsonInt(item, "item_id", paneJsonInt(item, "itemId", -1))
+      if itemId < 0: continue
+      indices.add(itemId)
+      if item.hasKey("active") and item["active"].kind == JBool and
+          item["active"].getBool:
+        active = itemId
+  let pinned = max(0, paneJsonInt(payload, "pinnedCount",
+    paneJsonInt(payload, "pinned_count", 0)))
+  result = newPane(nextPaneId, indices, active)
+  inc nextPaneId
+  result.pane.pinnedCount = min(pinned, indices.len)
+
+proc fromJson*(node: JsonNode): PaneTree =
+  var nextPaneId = 1
+  fromJsonImpl(node, nextPaneId)
 
 proc defaultPanelDockSide(panel: PanelKind): DockSide =
   case panel
@@ -213,13 +329,14 @@ proc initWorkspaceUi*(tabCount = 0, activeTab = -1,
     of dockLeft: result.leftDock.entries.add(panel)
     of dockBottom: result.bottomDock.entries.add(panel)
     of dockRight: result.rightDock.entries.add(panel)
-  result.leftDock = DockState(side: dockLeft, isOpen: false,
+  result.leftDock = DockState(side: dockLeft, isOpen: false, zoom: false,
     activePanel: if result.agentDisabled: panelSearch else: panelAgent,
     minimumSize: DefaultDockMinimumSize, entries: result.leftDock.entries)
-  result.bottomDock = DockState(side: dockBottom, isOpen: false,
+  result.bottomDock = DockState(side: dockBottom, isOpen: false, zoom: false,
     activePanel: panelTerminal, minimumSize: DefaultDockMinimumSize,
     entries: result.bottomDock.entries)
-  result.rightDock = DockState(side: dockRight, isOpen: false, activePanel: panelFiles,
+  result.rightDock = DockState(side: dockRight, isOpen: false, zoom: false,
+    activePanel: panelFiles,
     minimumSize: DefaultDockMinimumSize, entries: result.rightDock.entries)
   result.center = newPane(1, tabs, activeTab)
   for panel in PanelKind:
@@ -236,7 +353,7 @@ proc panelFromOrdinal(value: int, fallback: PanelKind): PanelKind =
 
 proc panelFromPersistentName(value: string, fallback: PanelKind): PanelKind =
   for panel in PanelKind:
-    if PanelPersistentName[panel] == value:
+    if panelPersistentKey(panel) == value or PanelPersistentName[panel] == value:
       return panel
   fallback
 
@@ -284,10 +401,40 @@ proc restoreStartsOpen(state: var WorkspaceUiState, settings: SettingsStore,
   let side = state.panelDockSide(panelFiles)
   if not restoredDocks[side]: state.openPanel(panelFiles)
 
+proc paneTreeFromSession*(session: EditorSession): PaneTree =
+  ## Build a recursive compatibility tree for callers that save an
+  ## EditorSession without a live WorkspaceUiState.
+  var indices: seq[int]
+  for index in 0 ..< session.tabs.len: indices.add(index)
+  let pinned = session.pinnedTabCount()
+  proc leaf(id: int, active: int): PaneTree =
+    result = newPane(id, indices, active)
+    result.pane.pinnedCount = pinned
+  if not session.split:
+    return leaf(1, session.activeTab)
+  let second = session.effectiveSplitSecondaryTab()
+  let axis = if session.splitDirection == splitVertical: paneVertical else: paneHorizontal
+  newPaneSplit(axis, @[leaf(1, session.activeTab), leaf(2, second)],
+    splitFlexes(session.effectiveSplitRatio))
+
+proc maxPaneId(tree: PaneTree): int =
+  if tree.isNil: return 0
+  if tree.kind == paneLeaf: return int(tree.pane.id)
+  for child in tree.children:
+    result = max(result, maxPaneId(child))
+
 proc initWorkspaceUi*(session: EditorSession, settings: SettingsStore = nil,
                       hasFolderWorktree = false): WorkspaceUiState =
   let hasFolder = hasFolderWorktree or session.workspaceRoots.len > 0
   result = initWorkspaceUi(session.tabs.len, session.activeTab, settings, hasFolder)
+  result.leftDock.zoom = session.workspaceLeftDockZoom
+  result.bottomDock.zoom = session.workspaceBottomDockZoom
+  result.rightDock.zoom = session.workspaceRightDockZoom
+  if session.workspacePaneTree != nil:
+    let restoredTree = fromJson(session.workspacePaneTree)
+    if not restoredTree.isNil:
+      result.center = restoredTree
+      result.nextPaneId = max(2, maxPaneId(restoredTree) + 1)
   var restoredDocks: array[DockSide, bool]
   # Session fields belong to physical docks, so restore each dock from its own
   # open bit, size, and active panel. A zero size means there is no persisted
@@ -310,6 +457,9 @@ proc initWorkspaceUi*(session: EditorSession, settings: SettingsStore = nil,
       session.workspaceRightDockSize,
       panelFromSession(session.workspaceRightPanelName, session.workspaceRightPanel,
         panelFiles))
+  if session.workspacePaneTree == nil:
+    result.center = paneTreeFromSession(session)
+    result.nextPaneId = max(2, maxPaneId(result.center) + 1)
   result.restoreStartsOpen(settings, hasFolder, restoredDocks)
 
 proc panelDockSide*(state: WorkspaceUiState, panel: PanelKind): DockSide =
@@ -448,27 +598,43 @@ proc saveWorkspaceUi*(state: WorkspaceUiState, session: var EditorSession) =
   session.workspaceLeftDockSize = state.panelSizes[state.leftDock.activePanel]
   session.workspaceBottomDockSize = state.panelSizes[state.bottomDock.activePanel]
   session.workspaceRightDockSize = state.panelSizes[state.rightDock.activePanel]
-  session.workspaceLeftPanel = ord(state.leftDock.activePanel)
-  session.workspaceBottomPanel = ord(state.bottomDock.activePanel)
-  session.workspaceRightPanel = ord(state.rightDock.activePanel)
-  session.workspaceLeftPanelName = PanelPersistentName[state.leftDock.activePanel]
-  session.workspaceBottomPanelName = PanelPersistentName[state.bottomDock.activePanel]
-  session.workspaceRightPanelName = PanelPersistentName[state.rightDock.activePanel]
+  session.workspaceLeftDockZoom = state.leftDock.zoom
+  session.workspaceBottomDockZoom = state.bottomDock.zoom
+  session.workspaceRightDockZoom = state.rightDock.zoom
+  ## Keep the integer fields usable for older in-process callers, but never
+  ## use them as the persisted identity.
+  let leftPanel = state.leftDock.activePanel
+  let bottomPanel = state.bottomDock.activePanel
+  let rightPanel = state.rightDock.activePanel
+  session.workspaceLeftPanel = ord(leftPanel)
+  session.workspaceBottomPanel = ord(bottomPanel)
+  session.workspaceRightPanel = ord(rightPanel)
+  session.workspaceLeftPanelName = panelPersistentKey(leftPanel)
+  session.workspaceBottomPanelName = panelPersistentKey(bottomPanel)
+  session.workspaceRightPanelName = panelPersistentKey(rightPanel)
+  session.workspacePaneTree = state.center.toJson()
+  session.workspaceActivePane = if state.center != nil and
+      state.center.kind == paneSplit and state.center.children.len > 1 and
+      state.center.children[1].kind == paneLeaf and
+      state.center.children[1].pane.id == state.focusedPane: 1 else: 0
 
 proc dock*(state: WorkspaceUiState, side: DockSide): DockView =
   case side
   of dockLeft:
     DockView(side: state.leftDock.side, isOpen: state.leftDock.isOpen,
+      zoom: state.leftDock.zoom,
       activePanel: state.leftDock.activePanel,
       size: state.panelSizes[state.leftDock.activePanel],
       minimumSize: state.leftDock.minimumSize, entries: state.leftDock.entries)
   of dockBottom:
     DockView(side: state.bottomDock.side, isOpen: state.bottomDock.isOpen,
+      zoom: state.bottomDock.zoom,
       activePanel: state.bottomDock.activePanel,
       size: state.panelSizes[state.bottomDock.activePanel],
       minimumSize: state.bottomDock.minimumSize, entries: state.bottomDock.entries)
   of dockRight:
     DockView(side: state.rightDock.side, isOpen: state.rightDock.isOpen,
+      zoom: state.rightDock.zoom,
       activePanel: state.rightDock.activePanel,
       size: state.panelSizes[state.rightDock.activePanel],
       minimumSize: state.rightDock.minimumSize, entries: state.rightDock.entries)
@@ -495,13 +661,8 @@ proc panelDockSettingKey*(panel: PanelKind): string =
   ## camelCase path convention. Tasks and Search have no corresponding Zed
   ## panel setting yet and retain their legacy dock until a setting is added.
   case panel
-  of panelFiles: "projectPanel.dock"
-  of panelGit: "gitPanel.dock"
-  of panelOutline: "outlinePanel.dock"
-  of panelTerminal: "terminal.dock"
-  of panelDebugger: "debugger.dock"
-  of panelAgent: "agent.dock"
   of panelTasks, panelSearch: ""
+  else: panelPersistentKey(panel)
 
 proc dockSideFromSetting(value: string, fallback: DockSide): DockSide =
   case value
@@ -541,7 +702,8 @@ proc panelDockSideMask*(state: WorkspaceUiState): uint32 =
   ## AppKit uses the complete mapping to put left panels in its left cluster;
   ## bottom and right panels intentionally share the right cluster.
   for panel in PanelKind:
-    let sideCode = uint32(ord(state.panelDockSide(panel))) + 1'u32
+    let panelSide = state.panelDockSide(panel)
+    let sideCode = uint32(ord(panelSide)) + 1'u32
     result = result or (sideCode shl uint32(ord(panel) * 2))
 
 proc openPanel*(state: var WorkspaceUiState, panel: PanelKind) =
@@ -914,6 +1076,7 @@ proc syncRootTabs*(state: var WorkspaceUiState, tabCount, activeTab: int) =
     if tree.isNil: return
     if tree.kind == paneLeaf:
       tree.pane.tabIndices = indices
+      tree.pane.pinnedCount = min(tree.pane.pinnedCount, indices.len)
       if tree.pane.activeTabIndex notin indices:
         tree.pane.activeTabIndex = activeTab
     else:
@@ -997,6 +1160,8 @@ proc removeTab*(state: var WorkspaceUiState, tabIndex: int) =
     if tree.isNil: return
     if tree.kind == paneLeaf:
       if tabIndex notin tree.pane.tabIndices: return
+      if tree.pane.tabIndices.find(tabIndex) < tree.pane.pinnedCount:
+        dec tree.pane.pinnedCount
       tree.pane.tabIndices.delete(tree.pane.tabIndices.find(tabIndex))
       for index in 0 ..< tree.pane.tabIndices.len:
         if tree.pane.tabIndices[index] > tabIndex: dec tree.pane.tabIndices[index]
@@ -1030,6 +1195,7 @@ proc splitPane*(state: var WorkspaceUiState, targetPane: PaneId, axis: PaneAxis,
       if child.kind == paneLeaf and child.pane.id == targetPane:
         let source = child.pane
         let sibling = newPane(newId, source.tabIndices, source.activeTabIndex)
+        sibling.pane.pinnedCount = source.pinnedCount
         if tree.axis == axis:
           tree.children.insert(sibling, index + 1)
           tree.flexes.insert(1'f32, index + 1)
@@ -1053,6 +1219,7 @@ proc splitPane*(state: var WorkspaceUiState, targetPane: PaneId, axis: PaneAxis,
     if state.center.pane.id != targetPane: return false
     let source = state.center.pane
     let sibling = newPane(newId, source.tabIndices, source.activeTabIndex)
+    sibling.pane.pinnedCount = source.pinnedCount
     state.center = newPaneSplit(axis, @[state.center, sibling], splitFlexes(ratio))
     didSplit = true
   else:
