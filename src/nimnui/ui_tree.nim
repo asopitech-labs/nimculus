@@ -2,9 +2,18 @@ import nimnui/geometry
 import nimnui/layout_types
 import nimnui/context
 import std/algorithm
+import std/tables
 
 type
   NodeId* = distinct uint64
+
+  ## The public EventHandler is declared in events.nim because UiEvent depends
+  ## on the command module.  This private bridge is stored on a node;
+  ## events.nim adapts the public handler to it without introducing an import
+  ## cycle between commands, events, and ui_tree.
+  EventHandler = proc(event: pointer) {.closure.}
+
+  ActionHandler* = proc(action: string) {.closure.}
 
   A11yRole* = enum
     a11yNone, a11yWindow, a11yGroup, a11yToolbar, a11yButton, a11yTabGroup,
@@ -43,9 +52,13 @@ type
     a11yAction*: string
     a11ySelected*, a11yExpanded*: bool
     context*: KeyContext
+    keyListeners*: seq[EventHandler]
+    modifiersChangedListeners*: seq[EventHandler]
+    actionListeners*: seq[tuple[action: string, handler: ActionHandler]]
 
   UiTree* = object
     nodes*: seq[UiNode]
+    index*: Table[NodeId, int]
     nextId*: uint64
     focused*: NodeId
     nextGeneration*: uint32
@@ -60,12 +73,15 @@ proc a11yNodeId*(node: UiNode): uint64 =
   value = (value xor (value shr 27)) * 0x94d049bb133111eb'u64
   value xor (value shr 31)
 
-proc newUiTree*(): UiTree = UiTree(nextId: 1, nextGeneration: 1, focused: NodeId(0))
+proc newUiTree*(): UiTree = UiTree(nextId: 1, nextGeneration: 1,
+                                   focused: NodeId(0), index: initTable[NodeId, int]())
 
 proc nodeIndex*(tree: UiTree, id: NodeId): int =
-  for index, node in tree.nodes:
-    if node.id == id: return index
-  -1
+  let index = tree.index.getOrDefault(id, -1)
+  if index >= 0 and index < tree.nodes.len and tree.nodes[index].id == id:
+    index
+  else:
+    -1
 
 proc dispatchPath*(tree: UiTree, target: NodeId): seq[NodeId]
 proc focusContains*(tree: UiTree, parent, child: NodeId): bool
@@ -98,6 +114,7 @@ proc addNodeWithHandle(tree: var UiTree, handle: NodeHandle, parent: NodeId,
       tree.reservedFocusHandles.delete(index)
       break
   let id = handle.id
+  let index = tree.nodes.len
   let generation = handle.generation
   tree.nodes.add(UiNode(id: id, parent: parent, state: normal,
                         layoutDirty: true, paintDirty: true, focusable: focusable,
@@ -105,6 +122,7 @@ proc addNodeWithHandle(tree: var UiTree, handle: NodeHandle, parent: NodeId,
                         generation: generation,
                         maxSize: Size(width: px(100000), height: px(100000)),
                         layoutSpec: defaultLayoutSpec()))
+  tree.index[id] = index
   if parent != NodeId(0):
     for node in tree.nodes.mitems:
       if node.id == parent:
@@ -143,19 +161,29 @@ proc removeNode*(tree: var UiTree, id: NodeId): bool =
       tree.nodes[focusedIndex].focusedState = false
       tree.updateVisualState(focusedIndex)
     tree.focused = NodeId(0)
-  for removedId in removed:
-    let removedIndex = tree.nodeIndex(removedId)
-    if removedIndex < 0: continue
-    let parent = tree.nodes[removedIndex].parent
-    if parent != NodeId(0):
-      let parentIndex = tree.nodeIndex(parent)
-      if parentIndex >= 0:
-        for childIndex in countdown(tree.nodes[parentIndex].children.high, 0):
-          if tree.nodes[parentIndex].children[childIndex] == removedId:
-            tree.nodes[parentIndex].children.delete(childIndex)
-            break
-    tree.nodes.delete(removedIndex)
-    tree.recycledIds.add(removedId)
+  let parent = tree.nodes[index].parent
+  if parent != NodeId(0):
+    let parentIndex = tree.nodeIndex(parent)
+    if parentIndex >= 0:
+      for childIndex in countdown(tree.nodes[parentIndex].children.high, 0):
+        if tree.nodes[parentIndex].children[childIndex] == id:
+          tree.nodes[parentIndex].children.delete(childIndex)
+          break
+  var kept: seq[UiNode]
+  for node in tree.nodes:
+    var isRemoved = false
+    for removedId in removed:
+      if node.id == removedId:
+        isRemoved = true
+        break
+    if isRemoved:
+      tree.recycledIds.add(node.id)
+    else:
+      kept.add(node)
+  tree.nodes = kept
+  tree.index.clear()
+  for nodeIndex, node in tree.nodes:
+    tree.index[node.id] = nodeIndex
   true
 
 proc markLayoutDirty*(tree: var UiTree, id: NodeId)

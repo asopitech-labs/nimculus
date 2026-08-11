@@ -113,7 +113,7 @@ proc alignCross(origin, available, extent, leading, trailing: Pixels,
 proc layoutNodeRecursive(tree: var UiTree, id: NodeId, bounds: Rect,
                          spec: LayoutSpec, inheritedClip: Rect,
                          inheritedClipX, inheritedClipY: bool) =
-  let index = tree.nodes.mapIt(it.id).find(id)
+  let index = tree.nodeIndex(id)
   if index < 0: return
   tree.nodes[index].bounds = bounds
   tree.nodes[index].layoutDirty = false
