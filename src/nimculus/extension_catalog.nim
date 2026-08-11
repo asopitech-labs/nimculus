@@ -122,7 +122,7 @@ proc extractCatalogArchive(archivePath, staging: string) =
 proc inspectCatalogArchive*(archivePath: string): ExtensionManifest =
   ## Validate package contents before a permission sheet or install mutation.
   let staging = getTempDir() / ("nimculus-extension-catalog-inspect-" &
-    $int(epochTime() * 1000.0))
+    $getCurrentProcessId() & "-" & $int(epochTime() * 1000.0))
   try:
     extractCatalogArchive(archivePath, staging)
     var manifests: seq[string]
@@ -141,7 +141,7 @@ proc installCatalogArchive*(registry: ExtensionRegistry, archivePath,
   ## performs the only mutation of the global extension root.
   if registry == nil: raise catalogError("extension registry is nil")
   let staging = getTempDir() / ("nimculus-extension-catalog-install-" &
-    $int(epochTime() * 1000.0))
+    $getCurrentProcessId() & "-" & $int(epochTime() * 1000.0))
   try:
     extractCatalogArchive(archivePath, staging)
     var manifests: seq[string]

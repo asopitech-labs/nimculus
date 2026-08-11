@@ -202,7 +202,7 @@ suite "M9 Git service":
     check repository.showCommit("").exitCode == -1
 
   test "lists and safely switches local branches":
-    let root = getTempDir() / "nimculus-m9-branches"
+    let root = getTempDir() / ("nimculus-m9-branches-" & $getCurrentProcessId())
     if dirExists(root): removeDir(root)
     createDir(root)
     defer: removeDir(root)
@@ -224,7 +224,7 @@ suite "M9 Git service":
     check repository.switchBranch("not a valid branch").exitCode == -1
 
   test "cancels a running git job":
-    let root = getTempDir() / "nimculus-m9-job"
+    let root = getTempDir() / ("nimculus-m9-job-" & $getCurrentProcessId())
     if dirExists(root): removeDir(root)
     createDir(root)
     defer: removeDir(root)

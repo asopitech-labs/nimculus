@@ -75,7 +75,7 @@ suite "M19 DAP transport":
     check tracker.pendingCount == 0
 
   test "session starts, exchanges a DAP frame, and stops its direct child":
-    let server = getTempDir() / "nimculus-dap-test-server.sh"
+    let server = getTempDir() / ("nimculus-dap-test-server-" & $getCurrentProcessId() & ".sh")
     let response = "{\"seq\":2,\"type\":\"response\",\"request_seq\":1,\"success\":true,\"command\":\"initialize\"}"
     writeFile(server, "#!/bin/sh\n" &
       "IFS= read -r header\n" &

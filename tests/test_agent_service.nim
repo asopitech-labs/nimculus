@@ -40,7 +40,7 @@ suite "M18 CLI agent sessions":
     check not bounded.output.startsWith("\x80")
 
   test "runs a session in its worktree, exchanges a prompt, and tracks changes":
-    let root = getTempDir() / "nimculus-agent-test-root"
+    let root = getTempDir() / ("nimculus-agent-test-root-" & $getCurrentProcessId())
     createDir(root)
     discard execShellCmd("git init -q " & quoteShell(root))
     writeFile(root / "main.txt", "before\n")
@@ -64,7 +64,7 @@ suite "M18 CLI agent sessions":
     removeDir(root)
 
   test "manager supports concurrent sessions and direct-child cleanup":
-    let root = getTempDir() / "nimculus-agent-manager-root"
+    let root = getTempDir() / ("nimculus-agent-manager-root-" & $getCurrentProcessId())
     createDir(root)
     let manager = newAgentManager()
     let first = manager.start("/bin/sh", ["-c", "sleep 10"], root)

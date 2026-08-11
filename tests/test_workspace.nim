@@ -16,7 +16,7 @@ suite "M6 workspace":
       check validateWorkspaceWatcherRescanFlags()
 
   test "FSEvents watcher can stop before its workspace is released":
-    let root = getTempDir() / "nimculus-m6-watcher-stop"
+    let root = getTempDir() / ("nimculus-m6-watcher-stop-" & $getCurrentProcessId())
     if dirExists(root): removeDir(root)
     createDir(root)
     defer: removeDir(root)
@@ -27,8 +27,8 @@ suite "M6 workspace":
     check not workspace.isWatching
 
   test "workspace roots coalesce symlink aliases before watcher registration":
-    let root = getTempDir() / "nimculus-m6-root-identity-日本語🙂"
-    let alias = getTempDir() / "nimculus-m6-root-identity-alias"
+    let root = getTempDir() / ("nimculus-m6-root-identity-日本語🙂-" & $getCurrentProcessId())
+    let alias = getTempDir() / ("nimculus-m6-root-identity-alias-" & $getCurrentProcessId())
     if symlinkExists(alias): removeFile(alias)
     if dirExists(root): removeDir(root)
     createDir(root)
@@ -42,7 +42,7 @@ suite "M6 workspace":
       check workspace.rootPaths == @[canonicalWorkspaceRoot(root)]
 
   test "lazy tree honors gitignore and enumerates files":
-    let root = getTempDir() / "nimculus-m6-workspace"
+    let root = getTempDir() / ("nimculus-m6-workspace-" & $getCurrentProcessId())
     createDir(root)
     createDir(root / "src")
     createDir(root / "ignored")
@@ -59,7 +59,7 @@ suite "M6 workspace":
     removeFile(root / ".gitignore"); removeFile(root / "cache.tmp"); removeDir(root)
 
   test "gitignore supports negation, anchored globs, and nested files":
-    let root = getTempDir() / "nimculus-m6-ignore-spec"
+    let root = getTempDir() / ("nimculus-m6-ignore-spec-" & $getCurrentProcessId())
     createDir(root); createDir(root / "src"); createDir(root / "build")
     createDir(root / "src" / "nested")
     writeFile(root / ".gitignore", "*.log\n!/keep.log\n/build/\n")
@@ -81,7 +81,7 @@ suite "M6 workspace":
     removeDir(root)
 
   test "ignore stacks reload after ignore file changes":
-    let root = getTempDir() / "nimculus-m6-ignore-reload"
+    let root = getTempDir() / ("nimculus-m6-ignore-reload-" & $getCurrentProcessId())
     createDir(root)
     writeFile(root / ".gitignore", "ignored\n")
     writeFile(root / "ignored", "value")
@@ -93,7 +93,7 @@ suite "M6 workspace":
     removeFile(root / ".gitignore"); removeFile(root / "ignored"); removeDir(root)
 
   test "search can be cancelled":
-    let root = getTempDir() / "nimculus-m6-search"
+    let root = getTempDir() / ("nimculus-m6-search-" & $getCurrentProcessId())
     createDir(root)
     writeFile(root / "a.txt", "needle\nneedle")
     var workspace = openWorkspace(root)
@@ -105,7 +105,7 @@ suite "M6 workspace":
     removeFile(root / "a.txt"); removeDir(root)
 
   test "workspace search options honor case, whole-word, regex, and filters":
-    let root = getTempDir() / "nimculus-m6-search-options"
+    let root = getTempDir() / ("nimculus-m6-search-options-" & $getCurrentProcessId())
     createDir(root)
     writeFile(root / "main.txt", "Needle needle needle42\ncat scatter")
     writeFile(root / "other.log", "needle")
@@ -121,7 +121,7 @@ suite "M6 workspace":
     removeFile(root / "main.txt"); removeFile(root / "other.log"); removeDir(root)
 
   test "search job yields bounded batches and can be cancelled":
-    let root = getTempDir() / "nimculus-m6-search-job"
+    let root = getTempDir() / ("nimculus-m6-search-job-" & $getCurrentProcessId())
     createDir(root)
     writeFile(root / "a.txt", "needle")
     writeFile(root / "b.txt", "needle")
@@ -140,7 +140,7 @@ suite "M6 workspace":
     removeFile(root / "a.txt"); removeFile(root / "b.txt"); removeDir(root)
 
   test "search job scopes traversal to a selected workspace directory":
-    let root = getTempDir() / "nimculus-m6-search-scope"
+    let root = getTempDir() / ("nimculus-m6-search-scope-" & $getCurrentProcessId())
     let selected = root / "selected"
     let sibling = root / "sibling"
     createDir(root); createDir(selected); createDir(sibling)
@@ -158,7 +158,7 @@ suite "M6 workspace":
     removeDir(selected); removeDir(sibling); removeDir(root)
 
   test "changed paths are normalized and coalesced":
-    let root = getTempDir() / "nimculus-m6-change-set"
+    let root = getTempDir() / ("nimculus-m6-change-set-" & $getCurrentProcessId())
     createDir(root)
     let filePath = root / "a.txt"
     writeFile(filePath, "value")
@@ -174,7 +174,7 @@ suite "M6 workspace":
     removeFile(filePath); removeDir(root)
 
   test "changed paths invalidate cached files and descendants":
-    let root = getTempDir() / "nimculus-m6-cache-invalidation"
+    let root = getTempDir() / ("nimculus-m6-cache-invalidation-" & $getCurrentProcessId())
     createDir(root); createDir(root / "nested")
     writeFile(root / "nested" / "one.txt", "one")
     writeFile(root / "nested" / "two.txt", "two")
@@ -190,7 +190,7 @@ suite "M6 workspace":
     removeDir(root)
 
   test "fuzzy search yields bounded batches and can be cancelled":
-    let root = getTempDir() / "nimculus-m6-fuzzy-job"
+    let root = getTempDir() / ("nimculus-m6-fuzzy-job-" & $getCurrentProcessId())
     createDir(root)
     for index in 0 ..< 5:
       writeFile(root / ("needle-" & $index & ".txt"), "value")
@@ -220,8 +220,8 @@ suite "M6 workspace":
     removeDir(root)
 
   test "supports roots, file operations, and fuzzy search":
-    let root = getTempDir() / "nimculus-m6-ops"
-    let second = getTempDir() / "nimculus-m6-ops-second"
+    let root = getTempDir() / ("nimculus-m6-ops-" & $getCurrentProcessId())
+    let second = getTempDir() / ("nimculus-m6-ops-second-" & $getCurrentProcessId())
     createDir(root); createDir(second)
     createDir(second / "ignored")
     writeFile(second / ".gitignore", "ignored\n")
@@ -242,7 +242,7 @@ suite "M6 workspace":
     expect ValueError:
       discard workspace.entryPathAt(secondaryLocation.root, "")
     expect ValueError:
-      discard workspace.splitWorkspacePath(getTempDir() / "outside-workspace.txt")
+      discard workspace.splitWorkspacePath(getTempDir() / ("outside-workspace-" & $getCurrentProcessId() & ".txt"))
     check workspace.enumerateFiles().anyIt(it.rootPath == canonicalWorkspaceRoot(second) and
       it.relativePath == "src/secondary.nim")
     check workspace.searchWorkspace("discard").anyIt(
@@ -279,8 +279,8 @@ suite "M6 workspace":
     removeDir(root); removeDir(second)
 
   test "rejects symlink paths that escape the workspace root":
-    let root = getTempDir() / "nimculus-m6-symlink-root"
-    let outside = getTempDir() / "nimculus-m6-symlink-outside"
+    let root = getTempDir() / ("nimculus-m6-symlink-root-" & $getCurrentProcessId())
+    let outside = getTempDir() / ("nimculus-m6-symlink-outside-" & $getCurrentProcessId())
     createDir(root); createDir(outside)
     when defined(posix):
       createSymlink(outside, root / "escape")
@@ -293,7 +293,7 @@ suite "M6 workspace":
     removeDir(root); removeDir(outside)
 
   test "uses ripgrep-compatible search results when available":
-    let root = getTempDir() / "nimculus-m6-rg"
+    let root = getTempDir() / ("nimculus-m6-rg-" & $getCurrentProcessId())
     createDir(root)
     writeFile(root / "main.nim", "needle here")
     let workspace = openWorkspace(root)
@@ -312,7 +312,7 @@ suite "M6 workspace":
 
   when defined(macosx):
     test "worktree metadata probe is bounded when Git does not respond":
-      let root = getTempDir() / "nimculus-m6-worktree-timeout"
+      let root = getTempDir() / ("nimculus-m6-worktree-timeout-" & $getCurrentProcessId())
       let fakeGit = root / "git"
       if dirExists(root): removeDir(root)
       createDir(root)
@@ -330,7 +330,7 @@ suite "M6 workspace":
       check epochTime() - started < 4.0
 
   test "ripgrep results preserve colons in paths and source lines":
-    let root = getTempDir() / "nimculus-m6-rg-colon"
+    let root = getTempDir() / ("nimculus-m6-rg-colon-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "a:b.txt"
     writeFile(path, "needle: here\nneedle again")
@@ -344,7 +344,7 @@ suite "M6 workspace":
     removeFile(path); removeDir(root)
 
   test "search result count is bounded":
-    let root = getTempDir() / "nimculus-m6-search-limit"
+    let root = getTempDir() / ("nimculus-m6-search-limit-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "many.txt"
     writeFile(path, repeat("needle\n", MaxWorkspaceSearchResults + 5))
@@ -354,7 +354,7 @@ suite "M6 workspace":
     removeFile(path); removeDir(root)
 
   test "cooperative search stops after its global result limit":
-    let root = getTempDir() / "nimculus-m6-search-job-limit"
+    let root = getTempDir() / ("nimculus-m6-search-job-limit-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "many.txt"
     writeFile(path, repeat("needle\n", MaxWorkspaceSearchResults + 5))

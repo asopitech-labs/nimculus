@@ -21,18 +21,19 @@ suite "M11 update service":
     check release.url.startsWith("https://")
     check release.sha256 == "0000000000000000000000000000000000000000000000000000000000000000"
     check isUpdateAvailable("0.1.0", release)
-    let path = getTempDir() / "nimculus-update-artifact"
+    let path = getTempDir() / ("nimculus-update-artifact-" & $getCurrentProcessId())
     writeFile(path, "hello")
     check verifySha256(path, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
     removeFile(path)
-    let invalidDestination = getTempDir() / "nimculus-update-invalid"
+    let invalidDestination = getTempDir() / ("nimculus-update-invalid-" & $getCurrentProcessId())
     check not downloadAndVerify(UpdateRelease(url: "http://example.invalid/a",
       sha256: "0000000000000000000000000000000000000000000000000000000000000000"),
       invalidDestination)
     check not fileExists(invalidDestination)
-    check not verifyMacosSignedApp(getTempDir() / "missing-nimculus.app")
-    check not installMacosDmgUpdate(getTempDir() / "missing-nimculus.dmg",
-      getTempDir() / "missing-nimculus.app", getTempDir() / "nimculus-update-test")
+    check not verifyMacosSignedApp(getTempDir() / ("missing-nimculus-" & $getCurrentProcessId() & ".app"))
+    check not installMacosDmgUpdate(getTempDir() / ("missing-nimculus-" & $getCurrentProcessId() & ".dmg"),
+      getTempDir() / ("missing-nimculus-" & $getCurrentProcessId() & ".app"),
+      getTempDir() / ("nimculus-update-test-" & $getCurrentProcessId()))
 
   test "rejects insecure artifacts and compares prereleases":
     let release = parseUpdateManifest("""{"version":"0.2.0","url":"http://example.invalid/Nimculus.dmg"}""")
@@ -44,11 +45,11 @@ suite "M11 update service":
       sha256: "0000000000000000000000000000000000000000000000000000000000000000"))
     let invalidJob = startUpdateDownload(UpdateRelease(url: "http://example.invalid/a",
       sha256: "0000000000000000000000000000000000000000000000000000000000000000"),
-      getTempDir() / "nimculus-update-job-invalid")
+      getTempDir() / ("nimculus-update-job-invalid-" & $getCurrentProcessId()))
     check invalidJob.done
     check not invalidJob.success
 
-    let staleDestination = getTempDir() / "nimculus-update-stale"
+    let staleDestination = getTempDir() / ("nimculus-update-stale-" & $getCurrentProcessId())
     writeFile(staleDestination, "stale")
     let rejected = startUpdateDownload(UpdateRelease(url: "http://example.invalid/a",
       sha256: "0000000000000000000000000000000000000000000000000000000000000000"),
@@ -57,17 +58,18 @@ suite "M11 update service":
     check not fileExists(staleDestination)
 
   test "rejects an invalid install target without touching the artifact":
-    let artifact = getTempDir() / "nimculus-update-invalid-install.dmg"
+    let artifact = getTempDir() / ("nimculus-update-invalid-install-" & $getCurrentProcessId() & ".dmg")
     writeFile(artifact, "not a disk image")
     defer:
       if fileExists(artifact): removeFile(artifact)
-    check not installMacosDmgUpdate(artifact, getTempDir() / "missing-nimculus.app",
-      getTempDir() / "nimculus-update-test")
+    check not installMacosDmgUpdate(artifact,
+      getTempDir() / ("missing-nimculus-" & $getCurrentProcessId() & ".app"),
+      getTempDir() / ("nimculus-update-test-" & $getCurrentProcessId()))
     check fileExists(artifact)
 
   when defined(posix):
     test "cancels an active update download within a bounded wait":
-      let root = getTempDir() / "nimculus-update-cancel"
+      let root = getTempDir() / ("nimculus-update-cancel-" & $getCurrentProcessId())
       let fakeCurl = root / "curl"
       let destination = root / "Nimculus-update.dmg"
       createDir(root)

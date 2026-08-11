@@ -52,7 +52,7 @@ suite "workspace UI state":
     check state.dock(dockRight).side == dockRight
 
   test "unknown panel dock settings use each panel's default side":
-    let root = getTempDir() / "nimculus-unknown-panel-dock-settings"
+    let root = getTempDir() / ("nimculus-unknown-panel-dock-settings-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"agent":{"dock":"diagonal"}}""")
@@ -63,7 +63,7 @@ suite "workspace UI state":
     removeDir(root)
 
   test "startup settings move panel ownership between the three docks":
-    let root = getTempDir() / "nimculus-panel-dock-settings"
+    let root = getTempDir() / ("nimculus-panel-dock-settings-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"projectPanel":{"dock":"left"},"terminal":{"dock":"right"}}""")
@@ -88,7 +88,7 @@ suite "workspace UI state":
     check dockBottom.axis == dockVertical
 
   test "moving a visible panel left to right preserves width and visibility":
-    let root = getTempDir() / "nimculus-live-panel-dock-horizontal"
+    let root = getTempDir() / ("nimculus-live-panel-dock-horizontal-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"agent":{"dock":"right"}}""")
@@ -107,7 +107,7 @@ suite "workspace UI state":
     removeDir(root)
 
   test "moving a closed panel does not open its target dock":
-    let root = getTempDir() / "nimculus-live-panel-dock-closed"
+    let root = getTempDir() / ("nimculus-live-panel-dock-closed-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"agent":{"dock":"right"}}""")
@@ -124,7 +124,7 @@ suite "workspace UI state":
     removeDir(root)
 
   test "moving a visible panel left to bottom uses the target default size":
-    let root = getTempDir() / "nimculus-live-panel-dock-axis"
+    let root = getTempDir() / ("nimculus-live-panel-dock-axis-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"terminal":{"dock":"bottom"}}""")
@@ -145,7 +145,7 @@ suite "workspace UI state":
     removeDir(root)
 
   test "invalid panel dock settings keep the current ownership":
-    let root = getTempDir() / "nimculus-live-panel-dock-invalid"
+    let root = getTempDir() / ("nimculus-live-panel-dock-invalid-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"projectPanel":{"dock":"diagonal"}}""")
@@ -203,7 +203,7 @@ suite "workspace UI state":
       check PanelPersistentName[panel].len > 0
       check PanelPersistentName[panel] notin persistentNames
       persistentNames.add(PanelPersistentName[panel])
-    let root = getTempDir() / "nimculus-panel-persistent-names"
+    let root = getTempDir() / ("nimculus-panel-persistent-names-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "session.json"
     var state = initWorkspaceUi()
@@ -241,7 +241,7 @@ suite "workspace UI state":
     removeDir(root)
 
   test "unknown panel name falls back to terminal":
-    let root = getTempDir() / "nimculus-unknown-panel-name"
+    let root = getTempDir() / ("nimculus-unknown-panel-name-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "session.json"
     writeFile(path, """{"workspaceBottomDockSize":260,"workspaceBottomPanel":"Unknown Panel"}""")
@@ -251,7 +251,7 @@ suite "workspace UI state":
     removeDir(root)
 
   test "old integer panel ids migrate to persistent names":
-    let root = getTempDir() / "nimculus-old-panel-ids"
+    let root = getTempDir() / ("nimculus-old-panel-ids-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "session.json"
     writeFile(path, """{"workspaceBottomDockSize":260,"workspaceBottomPanel":3}""")
@@ -310,7 +310,7 @@ suite "workspace UI state":
     state.openPanel(panelTerminal)
     check state.dock(dockBottom).size == DefaultBottomDockHeight
 
-    let root = getTempDir() / "nimculus-panel-entry-order"
+    let root = getTempDir() / ("nimculus-panel-entry-order-" & $getCurrentProcessId())
     createDir(root)
     let path = root / "settings.json"
     writeFile(path, """{"gitPanel":{"dock":"left"}}""")
