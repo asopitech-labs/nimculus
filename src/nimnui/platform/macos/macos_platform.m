@@ -4113,6 +4113,11 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic) BOOL displayLinkRunning;
 @property(nonatomic) BOOL redrawDirty;
 @property(nonatomic) BOOL displayLinkRecoveryScheduled;
+@property(nonatomic) BOOL hasLastKeyEquivalent;
+@property(nonatomic) unsigned short lastKeyEquivalentKeyCode;
+@property(nonatomic) NSEventModifierFlags lastKeyEquivalentModifiers;
+@property(nonatomic) BOOL lastKeyEquivalentHandled;
+@property(nonatomic) BOOL lastKeyEquivalentSuppressesIme;
 @property(nonatomic, copy) NSString *markedText;
 @property(nonatomic) NSRange markedTextRange;
 @property(nonatomic) NSRange selectedTextRange;
@@ -10851,8 +10856,47 @@ bool nimculus_platform_validate_terminal_overlay_runs(void) {
 }
 
 - (void)keyDown:(NSEvent *)event {
+  const NSEventModifierFlags modifiers =
+    event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+  const BOOL matchingKeyEquivalent = self.hasLastKeyEquivalent &&
+    self.lastKeyEquivalentKeyCode == event.keyCode &&
+    self.lastKeyEquivalentModifiers == modifiers;
+  const BOOL duplicateKeyDown = matchingKeyEquivalent && self.lastKeyEquivalentHandled;
+  const BOOL suppressIme = matchingKeyEquivalent && self.lastKeyEquivalentSuppressesIme;
+  const BOOL navigationKey = event.keyCode >= 123 && event.keyCode <= 126;
+  const BOOL unhandledNavigationKeyDown = matchingKeyEquivalent &&
+    !self.lastKeyEquivalentHandled && navigationKey;
+  // AppKit may send the same physical key once through performKeyEquivalent:
+  // and once through keyDown:. Consume the marker for every key-down so an
+  // unrelated event cannot inherit it. Only a key-equivalent that was
+  // handled by the application is dropped entirely; an unhandled navigation
+  // key must still reach interpretKeyEvents: for commands such as Cmd+Up.
+  self.hasLastKeyEquivalent = NO;
+  if (duplicateKeyDown || suppressIme) return;
+  if (unhandledNavigationKeyDown) {
+    [self interpretKeyEvents:@[event]];
+    return;
+  }
   if (logInput(@"keyDown", event)) return;
   [self interpretKeyEvents:@[event]];
+}
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+  if (event.type != NSEventTypeKeyDown) return [super performKeyEquivalent:event];
+  self.hasLastKeyEquivalent = YES;
+  self.lastKeyEquivalentKeyCode = event.keyCode;
+  self.lastKeyEquivalentModifiers =
+    event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+  self.lastKeyEquivalentHandled = logInput(@"keyEquivalent", event);
+  // Zed does not forward modified key equivalents to the IME. Preserve the
+  // editor's native movement path for arrow equivalents: Nimculus resolves
+  // Cmd+Up/Down/Left/Right through interpretKeyEvents:/doCommandBySelector:.
+  const NSEventModifierFlags modifiers =
+    event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+  const BOOL navigationKey = event.keyCode >= 123 && event.keyCode <= 126;
+  const NSEventModifierFlags nonFunctionModifiers =
+    modifiers & ~NSEventModifierFlagFunction;
+  self.lastKeyEquivalentSuppressesIme = nonFunctionModifiers != 0 && !navigationKey;
+  return self.lastKeyEquivalentHandled;
 }
 - (void)keyUp:(NSEvent *)event { logInput(@"keyUp", event); }
 - (void)flagsChanged:(NSEvent *)event { logInput(@"flagsChanged", event); }
@@ -13256,6 +13300,9 @@ bool nimculus_platform_validate_command_palette(void) {
 
 static uint32_t g_validation_shortcut_count = 0;
 static uint32_t g_validation_shortcut_input_count = 0;
+static uint32_t g_validation_set_marked_text_count = 0;
+static uint32_t g_validation_navigation_command_count = 0;
+static uint32_t g_validation_navigation_command_mask = 0;
 static uint32_t g_validation_gutter_input_count = 0;
 static NimculusInputEvent g_validation_gutter_event;
 static BOOL g_validation_scroll_seen = NO;
@@ -13276,12 +13323,50 @@ static void validationShortcutInputCallback(const NimculusInputEvent *event) {
 }
 
 static bool validationShortcutCallback(const NimculusInputEvent *event) {
-  if (!event || event->type != NSEventTypeKeyDown || event->key_code != 35) return false;
-  if ((event->modifiers & NSEventModifierFlagCommand) == 0 ||
-      (event->modifiers & NSEventModifierFlagShift) == 0) return false;
+  if (!event || event->type != NSEventTypeKeyDown || event->key_code != 35 ||
+      (event->modifiers & NSEventModifierFlagCommand) == 0) return false;
   g_validation_shortcut_count++;
   return true;
 }
+
+static void validationNavigationCommandCallback(const char *command) {
+  if (!command) return;
+  g_validation_navigation_command_count++;
+  if (strcmp(command, "moveToBeginningOfLine") == 0) {
+    g_validation_navigation_command_mask |= 1u << 0;
+  } else if (strcmp(command, "moveToEndOfLine") == 0) {
+    g_validation_navigation_command_mask |= 1u << 1;
+  } else if (strcmp(command, "moveToBeginningOfDocument") == 0) {
+    g_validation_navigation_command_mask |= 1u << 2;
+  } else if (strcmp(command, "moveToEndOfDocument") == 0) {
+    g_validation_navigation_command_mask |= 1u << 3;
+  }
+}
+
+// Treat an IME handoff as a marked-text update so the key-equivalent contract
+// can observe the behavior without depending on the active keyboard layout.
+@interface NimculusKeyEquivalentValidationView : NimculusMetalView
+@end
+
+@implementation NimculusKeyEquivalentValidationView
+- (void)interpretKeyEvents:(NSArray *)events {
+  NSEvent *event = events.count > 0 ? [events objectAtIndex:0] : nil;
+  switch (event.keyCode) {
+    case 123: [self doCommandBySelector:@selector(moveToBeginningOfLine:)]; return;
+    case 124: [self doCommandBySelector:@selector(moveToEndOfLine:)]; return;
+    case 125: [self doCommandBySelector:@selector(moveToEndOfDocument:)]; return;
+    case 126: [self doCommandBySelector:@selector(moveToBeginningOfDocument:)]; return;
+    default: break;
+  }
+  [self setMarkedText:@"unexpected" selectedRange:NSMakeRange(0, 0)
+    replacementRange:NSMakeRange(NSNotFound, 0)];
+}
+- (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange
+      replacementRange:(NSRange)replacementRange {
+  g_validation_set_marked_text_count++;
+  [super setMarkedText:string selectedRange:selectedRange replacementRange:replacementRange];
+}
+@end
 
 static void validationGutterInputCallback(const NimculusInputEvent *event) {
   if (!event || event->type != NSEventTypeLeftMouseDown) return;
@@ -13296,24 +13381,64 @@ bool nimculus_platform_validate_shortcut_dispatch(void) {
   @autoreleasepool {
     NimculusInputCallback previousInputCallback = g_input_callback;
     NimculusShortcutCallback previousShortcutCallback = g_shortcut_callback;
+    NimculusCommandCallback previousCommandCallback = g_command_callback;
     g_validation_shortcut_count = 0;
     g_validation_shortcut_input_count = 0;
+    g_validation_set_marked_text_count = 0;
+    g_validation_navigation_command_count = 0;
+    g_validation_navigation_command_mask = 0;
     g_input_callback = validationShortcutInputCallback;
     g_shortcut_callback = validationShortcutCallback;
-    NimculusMetalView *view = [[NimculusMetalView alloc] initWithFrame:
+    g_command_callback = validationNavigationCommandCallback;
+    NimculusKeyEquivalentValidationView *view = [[NimculusKeyEquivalentValidationView alloc]
+      initWithFrame:
       NSMakeRect(0.0, 0.0, 640.0, 480.0)];
-    NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown
+    NSEvent *commandP = [NSEvent keyEventWithType:NSEventTypeKeyDown
       location:NSMakePoint(32.0, 24.0)
-      modifierFlags:NSEventModifierFlagCommand | NSEventModifierFlagShift
+      modifierFlags:NSEventModifierFlagCommand
       timestamp:0.0 windowNumber:0 context:nil characters:@"P"
       charactersIgnoringModifiers:@"p" isARepeat:NO keyCode:35];
-    if (view && event) [view keyDown:event];
-    BOOL valid = g_validation_shortcut_input_count == 0 &&
+    if (view && commandP) {
+      [view performKeyEquivalent:commandP];
+      [view keyDown:commandP];
+    }
+    BOOL commandPValid = g_validation_shortcut_input_count == 0 &&
       g_validation_shortcut_count == 1;
+
+    // Unhandled navigation equivalents must still reach the application
+    // command boundary once. This guards Cmd+Up/Down/Left/Right against broad
+    // de-duplication that would otherwise strand document movement.
+    const unsigned short navigationKeyCodes[] = {123, 124, 125, 126};
+    for (NSUInteger index = 0; index < 4; index++) {
+      NSEvent *navigation = [NSEvent keyEventWithType:NSEventTypeKeyDown
+        location:NSMakePoint(32.0, 24.0)
+        modifierFlags:NSEventModifierFlagCommand
+        timestamp:0.0 windowNumber:0 context:nil characters:@"\uF700"
+        charactersIgnoringModifiers:@"\uF700" isARepeat:NO
+        keyCode:navigationKeyCodes[index]];
+      if (view && navigation) {
+        [view performKeyEquivalent:navigation];
+        [view keyDown:navigation];
+      }
+    }
+    BOOL navigationValid = g_validation_navigation_command_count == 4 &&
+      g_validation_navigation_command_mask == 0xFu;
+
+    NSEvent *commandGrave = [NSEvent keyEventWithType:NSEventTypeKeyDown
+      location:NSMakePoint(32.0, 24.0)
+      modifierFlags:NSEventModifierFlagCommand
+      timestamp:0.0 windowNumber:0 context:nil characters:@"`"
+      charactersIgnoringModifiers:@"`" isARepeat:NO keyCode:50];
+    if (view && commandGrave) {
+      [view performKeyEquivalent:commandGrave];
+      [view keyDown:commandGrave];
+    }
+    BOOL commandGraveValid = g_validation_set_marked_text_count == 0;
     g_input_callback = previousInputCallback;
     g_shortcut_callback = previousShortcutCallback;
+    g_command_callback = previousCommandCallback;
     [view release];
-    return valid;
+    return commandPValid && navigationValid && commandGraveValid;
   }
 }
 
