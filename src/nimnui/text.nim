@@ -148,12 +148,62 @@ type
   TextLayout* = object
     positions*: seq[TextPosition]
     glyphs*: seq[Glyph]
+    ## Label metadata is kept on the layout so the renderer does not need to
+    ## rediscover the style that produced the glyphs.
+    fontSize*: Pixels
+    weight*: TextWeight
+    lineHeight*: LineHeightStyle
+    truncated*: bool
+
+  TextSize* = enum
+    ## The UI typography scale used by labels. Values are logical pixels.
+    text16, text14, text12, text10
+
+  TextWeight* = enum
+    weightRegular, weightMedium, weightSemibold
+
+  TruncationMode* = enum
+    truncateEnd, truncateStart, truncateMiddle
+
+  LineHeightStyle* = enum
+    textLabel, uiLabel
+
+  LabelSpec* = object
+    text*: string
+    size*: TextSize
+    weight*: TextWeight
+    truncation*: TruncationMode
+    lineHeight*: LineHeightStyle
+    padding*: EdgeInsets
 
   NativeTextMetrics* {.bycopy.} = object
     width*, ascent*, descent*: cdouble
     glyphCount*: uint32
 
 type FontCallback* = proc(name: cstring) {.cdecl.}
+
+const
+  ## Short names make a LabelSpec read like the corresponding Zed style.
+  textLarge* = text16
+  textDefault* = text14
+  textSmall* = text12
+  textXSmall* = text10
+  regular* = weightRegular
+  medium* = weightMedium
+  semibold* = weightSemibold
+
+proc textSizePixels*(size: TextSize): Pixels =
+  case size
+  of text16: px(16)
+  of text14: px(14)
+  of text12: px(12)
+  of text10: px(10)
+
+proc defaultLabelSpec*(text: string, size = text14, weight = weightRegular,
+                       truncation = truncateEnd, lineHeight = uiLabel,
+                       padding = EdgeInsets()): LabelSpec =
+  LabelSpec(text: text, size: size, weight: weight, truncation: truncation,
+    lineHeight: lineHeight, padding: padding)
 
 when defined(macosx) or defined(windows):
   proc nativeFontAvailable*(name: cstring, size: cdouble): bool {.importc: "nimculus_font_available", cdecl.}
@@ -423,6 +473,59 @@ proc layoutText*(text: string, advance = px(8)): TextLayout =
   result.positions = textPositions(text)
   for rune in text.runes:
     result.glyphs.add(Glyph(codepoint: rune, advance: advance))
+
+proc appendLabelRune(text: var string, rune: Rune) =
+  text.add(rune.toUTF8)
+
+proc layoutLabel*(spec: LabelSpec, availableWidth: Pixels): TextLayout =
+  ## Lay out a single-line label and apply its truncation policy before glyph
+  ## creation. Padding belongs to the label, so callers pass the full slot
+  ## width instead of subtracting chrome-specific constants themselves.
+  let advance = textSizePixels(spec.size)
+  let contentWidth = max(0'f32, float32(availableWidth) -
+    float32(spec.padding.left) - float32(spec.padding.right))
+  let capacity = int(contentWidth / max(1'f32, float32(advance)))
+
+  var source: seq[Rune] = @[]
+  for rune in spec.text.runes:
+    source.add(rune)
+
+  var visible: seq[Rune] = @[]
+  result.truncated = source.len > capacity
+  if not result.truncated:
+    visible = source
+  elif capacity <= 0:
+    discard
+  elif capacity == 1:
+    visible.add(Rune(0x2026))
+  else:
+    let retained = capacity - 1
+    case spec.truncation
+    of truncateEnd:
+      for index in 0 ..< retained:
+        visible.add(source[index])
+      visible.add(Rune(0x2026))
+    of truncateStart:
+      visible.add(Rune(0x2026))
+      for index in source.len - retained ..< source.len:
+        visible.add(source[index])
+    of truncateMiddle:
+      let leading = retained div 2
+      let trailing = retained - leading
+      for index in 0 ..< leading:
+        visible.add(source[index])
+      visible.add(Rune(0x2026))
+      for index in source.len - trailing ..< source.len:
+        visible.add(source[index])
+
+  var rendered = newStringOfCap(visible.len)
+  for rune in visible:
+    rendered.appendLabelRune(rune)
+  result = layoutText(rendered, advance)
+  result.fontSize = advance
+  result.weight = spec.weight
+  result.lineHeight = spec.lineHeight
+  result.truncated = source.len > visible.len
 
 proc layoutVisibleText*(text: string, firstGrapheme, lastGrapheme: int,
                         advance = px(8)): TextLayout =
