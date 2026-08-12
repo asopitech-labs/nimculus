@@ -145,7 +145,7 @@
 **一部のみ — 先に片付ける**
 
 - [x] **KeyContext: the per-node context entry list** — Zed `crates/gpui/src/keymap/context.rs:10 (KeyContext), :14 (ContextEntry), :65 (parse), :117 (add), :126 (set), :137 (contains), :142 (get)`
-- [ ] **Keymap precedence resolution (bindings_for_input)** — Zed `crates/gpui/src/keymap.rs:164-242, sort at :187, binding_enabled at :245`
+- [x] **Keymap precedence resolution (bindings_for_input)** — Zed `crates/gpui/src/keymap.rs:164-242, sort at :187, binding_enabled at :245`
 - [x] **The DispatchTree: per-frame node tree of contexts, focus ids and listeners** — Zed `crates/gpui/src/key_dispatch.rs:71 (DispatchTree), :83 (DispatchNode), :166 (push_node), :215 (set_key_context), :220 (set_focus_id), :226 (set_view_id), :323/:327/:333 (on_key_event / on_modifiers_changed / on_action)`
 - [x] **dispatch_path / focus_path / focus_contains** — Zed `crates/gpui/src/key_dispatch.rs:563 (dispatch_path, root-to-focused), :574 (focus_path), :346 (focus_contains)`
 - [ ] **Capture/bubble phases for key and action listeners** — Zed `crates/gpui/src/window.rs:88 (DispatchPhase), :4999 (dispatch_key_down_up_event: capture root-to-focus, bubble focus-to-root, stopping when propagate_event is false), :5130 (dispatch_action_on_node_inner: global listeners first, then window capture, then bubble where `cx.propagate_event = false` is set *before* each bubble listener so actions stop propagation by default)`
@@ -184,7 +184,7 @@
 
 - [x] **Semantic colour token enum** — Zed `crates/ui/src/styles/color.rs:19 (enum), :90 (Color::color)`
 - [x] **Size scale as a pure table** — Zed `crates/ui/src/components/button/button_like.rs:455 (ButtonSize), :465 (rems); crates/ui/src/components/icon.rs:54 (IconSize), :70 (rems), :86 (square_components); crates/ui/src/styles/typography.rs:93 (TextSize), :132 (rems/pixels); crates/ui/src/components/label/label_like.rs:7 (LabelSize)`
-- [ ] **Elevation -> shadow stack and background** — Zed `crates/ui/src/styles/elevation.rs:14 (ElevationIndex), :42 (shadow), :84 (bg), :95 (on_elevation_bg), :108 (darker_bg); crates/ui/src/traits/styled_ext.rs:6 (elevated), :45 elevation_1, :62 elevation_2, :83 elevation_3`
+- [x] **Elevation -> shadow stack and background** — Zed `crates/ui/src/styles/elevation.rs:14 (ElevationIndex), :42 (shadow), :84 (bg), :95 (on_elevation_bg), :108 (darker_bg); crates/ui/src/traits/styled_ext.rs:6 (elevated), :45 elevation_1, :62 elevation_2, :83 elevation_3`
 - [ ] **Component-instance identity and state** — Zed `crates/ui/src/components/button/button_like.rs:484 (ElementId), :512 (focus_handle), :745 render; crates/ui/src/components/context_menu.rs:211 (ContextMenu as an Entity with focus_handle, selected_index, subscriptions)`
 - [ ] **Label rendering: size, weight, truncation mode** — Zed `crates/ui/src/components/label/label_like.rs:7 (LabelSize), :23 (LineHeightStyle), :34 (LabelCommon), :233 (render)`
 - [ ] **Menu item model separated from menu rendering** — Zed `crates/ui/src/components/context_menu.rs:46 (ContextMenuItem enum), :82 (ContextMenuEntry), :211 (ContextMenu state), :1449 (render_menu_item), :2180 (render, submenu offset + aside)`
