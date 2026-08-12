@@ -741,8 +741,10 @@ suite "M2 UI foundation":
     for node in tree.nodes:
       tree.setContext(node.id, keyContext("DeepTree"))
     check tree.focus(current)
-    let contexts = tree.contextStack()
+    var nodeIndexLookups = 0
+    let contexts = tree.contextStack(nodeIndexLookups)
     check contexts.len == 2000
+    check nodeIndexLookups == contexts.len * 2
     for context in contexts:
       check context.contains("DeepTree")
 

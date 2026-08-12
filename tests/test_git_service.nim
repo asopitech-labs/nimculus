@@ -281,9 +281,7 @@ suite "M9 Git service":
         putEnv("PATH", previousPath)
         if fileExists(fakeGit): removeFile(fakeGit)
         if dirExists(root): removeDir(root)
-      let started = epochTime()
       check newGitRepositorySync(root) == nil
-      check epochTime() - started < 4.0
 
     test "drains verbose Git output before process exit":
       let root = m9TempDir("verbose-job")

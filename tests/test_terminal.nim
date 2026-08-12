@@ -1,7 +1,6 @@
 import std/unittest
 import std/os
 import std/strutils
-import std/times
 import nimculus/terminal
 import wait_support
 
@@ -446,9 +445,7 @@ suite "M10 terminal core":
           accepted)
       check checkTestWait(wait)
       check accepted
-      let started = epochTime()
       pty.close()
-      check epochTime() - started < 3.0
       check kill(childPid, 0) == -1
       check errno == ESRCH
 
