@@ -12,6 +12,12 @@ type
   ElevationIndex* = enum
     background, surface, editorSurface, elevatedSurface, modalSurface
 
+  ## Zed uses a narrow scrollbar for ordinary panels and a wider strip for an
+  ## editor.  Keep this as a semantic style rather than making callers repeat
+  ## the pixel values at every layout site.
+  ScrollbarStyle* = enum
+    regular, editor
+
   BoxShadow* = object
     offset*: Point
     blurRadius*: Pixels
@@ -244,6 +250,21 @@ proc drawCaret*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kin
     bounds: bounds, clip: bounds))
 proc drawSelection*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: selection,
     bounds: bounds, clip: bounds))
+
+proc toPixels*(style: ScrollbarStyle): Pixels =
+  case style
+  of regular: px(6'f32)
+  of editor: px(15'f32)
+
+proc scrollbarWidth*(style: ScrollbarStyle): Pixels = style.toPixels
+
+proc scrollbarStrip*(body: Rect, style: ScrollbarStyle): Rect =
+  ## Return the vertical strip at the body's trailing edge.  A zero-sized
+  ## body stays zero-sized so an unavailable viewport cannot create a paint
+  ## command by accident.
+  let width = minPx(body.size.width, style.toPixels)
+  Rect(origin: Point(x: body.origin.x + body.size.width - width, y: body.origin.y),
+    size: Size(width: width, height: body.size.height))
 proc roundedSelectionBounds*(rows: openArray[Rect]): Rect =
   if rows.len == 0: return
   result = rows[0]
@@ -269,6 +290,8 @@ proc drawRoundedSelection*(paint: var PaintList, rows: openArray[Rect], radius: 
     clip: roundedSelectionBounds(rows), radius: radius, selectionRows: @rows))
 proc drawScrollbar*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: scrollbar,
     bounds: bounds, clip: bounds))
+proc drawScrollbar*(paint: var PaintList, body: Rect, style: ScrollbarStyle) =
+  paint.drawScrollbar(body.scrollbarStrip(style))
 proc drawWorkspaceBackground*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: workspaceBackground, bounds: bounds, clip: bounds))
 proc drawWorkspacePanel*(paint: var PaintList, bounds: Rect) =
@@ -281,6 +304,8 @@ proc drawEditorBackground*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: editorBackground, bounds: bounds, clip: bounds))
 proc drawScrollbarTrack*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: scrollbarTrack, bounds: bounds, clip: bounds))
+proc drawScrollbarTrack*(paint: var PaintList, body: Rect, style: ScrollbarStyle) =
+  paint.drawScrollbarTrack(body.scrollbarStrip(style))
 proc drawEditorDiagnostic*(paint: var PaintList, bounds: Rect, severity: int) =
   paint.add(PaintCommand(kind: editorDiagnostic, bounds: bounds, clip: bounds,
     imageId: uint32(max(0, severity))))
