@@ -2084,6 +2084,13 @@ static NimculusPaintRegion intersectPaintRegions(NimculusPaintRegion a,
 static NimculusPaintRegion paintCommandScissor(NimculusPaintCommand paint) {
   NimculusPaintRegion clip = {paint.clip_x, paint.clip_y,
                               paint.clip_width, paint.clip_height};
+  if (paint.kind == 7) {
+    const float blur = MAX(0.0f, paint.radius);
+    clip.x -= blur;
+    clip.y -= blur;
+    clip.width += blur * 2.0f;
+    clip.height += blur * 2.0f;
+  }
   if (paint.kind != 10) return clip;
 
   // Scrollbar commands use the same retained paint path as every other
@@ -2457,9 +2464,15 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
       x, y, width, height,
       themeRed, themeGreen, themeBlue, 1.0f, transform);
   } else if (paint.kind == 7) { // shadow
-    drawColoredRectangleWithTransform(encoder, device, logicalSize,
-      x + 3.0, y + 3.0, width, height,
-      0.0f, 0.0f, 0.0f, 0.35f, transform);
+    const float red = (float)(paint.image_id & 0xffu) / 255.0f;
+    const float green = (float)((paint.image_id >> 8) & 0xffu) / 255.0f;
+    const float blue = (float)((paint.image_id >> 16) & 0xffu) / 255.0f;
+    const float alpha = paint.image_id == 0 ? 0.35f :
+      (float)((paint.image_id >> 24) & 0xffu) / 255.0f;
+    const double blur = MAX(0.0, (double)paint.radius);
+    drawRoundedRectangleWithTransform(encoder, device, logicalSize,
+      x - blur, y - blur, width + blur * 2.0, height + blur * 2.0,
+      blur, red, green, blue, alpha, transform);
   } else if (paint.kind == 8) { // caret
     themeRGB(themeRole(@"foreground", g_theme_foreground), [NSColor whiteColor],
       &themeRed, &themeGreen, &themeBlue);

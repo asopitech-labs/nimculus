@@ -53,6 +53,7 @@ type
     items*: seq[OverlayItem]
     contentText*: string
     itemHeight*: Pixels
+    elevation*: ElevationIndex
     open*: bool
     grabsInput*: bool
     selectedIndex*: int
@@ -109,6 +110,10 @@ proc showOverlay*(model: var OverlayModel, kind: ControlKind, owner: NodeId,
     model.items[index] = item
   model.contentText = contentText
   model.itemHeight = maxPx(px(1), itemHeight)
+  model.elevation = if kind == contextMenu or kind == popup or kind == tooltip:
+    elevatedSurface
+  else:
+    surface
   model.grabsInput = grabsInput and kind != tooltip
   let width = minPx(maxPx(px(1), preferredWidth), viewport.size.width)
   let height = minPx(maxPx(px(1), model.overlayHeight), viewport.size.height)
@@ -234,13 +239,15 @@ proc handlePointerMove*(model: var OverlayModel, point: Point): bool =
     return false
   model.selectAt(point)
 
-proc paintOverlay*(paint: var PaintList, model: OverlayModel) =
+proc paintOverlay*(paint: var PaintList, model: OverlayModel, light = true) =
   ## Emit the basic overlay primitives. Text shaping remains the renderer's
   ## responsibility, but the control now has a real paint path rather than an
   ## enum-only placeholder.
   if not model.open: return
   paint.invalidate(model.bounds)
-  paint.drawShadow(model.bounds.offset(px(2), px(3)))
+  for boxShadow in shadows(model.elevation, light):
+    paint.drawShadow(model.bounds, boxShadow.offset, boxShadow.blurRadius,
+      boxShadow.color)
   paint.drawRoundedRectangle(model.bounds, px(6))
   paint.drawBorder(model.bounds)
   if model.kind == tooltip:
