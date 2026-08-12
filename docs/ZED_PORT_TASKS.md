@@ -52,7 +52,7 @@
 - [x] **Key-equivalent vs key-down de-duplication** — Zed `crates/gpui_macos/src/window.rs:2045 (handle_key_equivalent), :2149-2153 (last_key_equivalent), :2243 (don't forward modified key equivalents)`
 - [ ] **Keyboard layout identity and per-layout key-equivalent remapping** — Zed `crates/gpui_macos/src/keyboard.rs:13 (MacKeyboardLayout), :18 (MacKeyboardMapper), :30-50 (map_key_equivalent), plus ~1400 lines of per-layout character tables`
 - [ ] **Display enumeration and coordinate space** — Zed `crates/gpui_macos/src/display.rs:16 (MacDisplay), :28 (primary), :48 (all), :79 (uuid), :108 (bounds), :121 (visible_bounds)`
-- [ ] **Cursor style ownership** — Zed `crates/gpui_macos/src/window.rs:334 (set_active_window_cursor_style), :1994 (reset_cursor_rects), crates/gpui_macos/src/platform.rs:1039, :1045 (hide_cursor_until_mouse_moves)`
+- [x] **Cursor style ownership** — Zed `crates/gpui_macos/src/window.rs:334 (set_active_window_cursor_style), :1994 (reset_cursor_rects), crates/gpui_macos/src/platform.rs:1039, :1045 (hide_cursor_until_mouse_moves)`
 - [ ] **External file drag-and-drop onto the window** — Zed `crates/gpui_macos/src/window.rs:2931 (dragging_entered), :2943 (dragging_updated), :2958 (perform_drag_operation), :2964 (external_paths_from_event), :3011 (send_file_drop_event)`
 - [ ] **Window blur / vibrancy background** — Zed `crates/gpui_macos/src/window.rs:304 (BLURRED_VIEW_CLASS on NSVisualEffectView), :1525 (set_background_appearance), :3082 (blurred_view_update_layer), :3092 (remove_layer_background), :123 (CGSSetWindowBackgroundBlurRadius)`
 - [ ] **Native window tabs** — Zed `crates/gpui_macos/src/window.rs:448-471 (tab selectors), :1052-1080 (addTabbedWindow at open), :1141 (get_user_tabbing_preference), :1238-1294, :1707-1761`
@@ -236,7 +236,7 @@
 - [x] **Pane split tree (Member / PaneAxis with flexes)** — Zed `crates/workspace/src/pane_group.rs:294 Member, :640 PaneAxis, PaneAxis::split at pane_group.rs:694`
 - [ ] **Tab bar rendering (tabs, nav buttons, pinned row, drop targets)** — Zed `crates/workspace/src/pane.rs:3396 render_tab_bar, per-tab at pane.rs:2825 render_tab, drop target at pane.rs:3626`
 - [ ] **Item toolbar / breadcrumb slot** — Zed `crates/workspace/src/toolbar.rs:64 Toolbar, ToolbarItemLocation at toolbar.rs:56; Item side at item.rs:343 breadcrumb_location, :347 breadcrumbs`
-- [ ] **Workspace serialization (DockStructure + pane tree + items)** — Zed `crates/workspace/src/persistence/model.rs:153 DockStructure, :203 DockData, :234 SerializedPaneGroup, :339 SerializedPane, :424 SerializedItem; writer at workspace.rs:7061 serialize_workspace_internal`
+- [x] **Workspace serialization (DockStructure + pane tree + items)** — Zed `crates/workspace/src/persistence/model.rs:153 DockStructure, :203 DockData, :234 SerializedPaneGroup, :339 SerializedPane, :424 SerializedItem; writer at workspace.rs:7061 serialize_workspace_internal`
 - [ ] **Serialization throttle** — Zed `crates/workspace/src/workspace.rs:7044 serialize_workspace`
 
 **無い**
@@ -483,7 +483,7 @@
 **無い**
 
 - [ ] **Crate init() registration order** — Zed `crates/zed/src/main.rs:491-771`
-- [ ] **Settings UI (schema-driven)** — Zed `crates/settings_ui/src/settings_ui.rs (6797 lines) with page_data.rs, pages/, components/`
+- [x] **Settings UI (schema-driven)** — Zed `crates/settings_ui/src/settings_ui.rs (6797 lines) with page_data.rs, pages/, components/`
 - [ ] **Vim modal editing as an editor addon** — Zed `crates/vim/src/vim.rs:286 init (crate 47454 lines, 39 files); registered after editor at crates/zed/src/main.rs:761`
 - [ ] **Collaboration (collab, collab_ui, call, channel, livekit)** — Zed `crates/collab_ui/src/collab_ui.rs (62 lines entry; crate 6392, collab server 15013), init at crates/zed/src/main.rs:749 (channel) and :771 (call)`
 - [ ] **REPL / notebook** — Zed `crates/repl/src/repl.rs:31 init (crate 12400 lines), notebook initialised separately at crates/zed/src/main.rs:733`
