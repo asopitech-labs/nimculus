@@ -670,9 +670,9 @@ proc dispatchNativeShortcut(event: ptr NimculusInputEvent): bool {.cdecl.} =
     # Keep the registry's platform-neutral command bindings usable on Win32.
     if (modifiers and (1'u32 shl 18)) != 0:
       modifiers = (modifiers or (1'u32 shl 20)) and not (1'u32 shl 18)
-  shortcutRegistry.dispatchShortcut(Shortcut(
-    keyCode: event.keyCode,
-    modifiers: macOSModifiers(modifiers)), demoTree.contextStack())
+  shortcutRegistry.dispatchShortcut(Shortcut(keystrokes: @[
+    Keystroke(keyCode: event.keyCode, modifiers: macOSModifiers(modifiers))]),
+    demoTree.contextStack())
 
 proc nativeShortcutAction(name: string): proc(): bool {.closure.} =
   result = proc(): bool =
@@ -683,13 +683,13 @@ proc setupShortcutRegistry() =
   shortcutRegistry = CommandRegistry()
   shortcutRegistry.register(Command(
     name: "commandPalette",
-    shortcut: Shortcut(keyCode: 35, modifiers: {commandModifier, shiftModifier}),
+    shortcut: shortcutFromKeyBinding("cmd+shift+p"),
     action: proc(): bool =
     platformShowCommandPalette()
     true))
   shortcutRegistry.register(Command(
     name: "workspaceSearch",
-    shortcut: Shortcut(keyCode: 3, modifiers: {commandModifier, shiftModifier}),
+    shortcut: shortcutFromKeyBinding("cmd+shift+f"),
     action: proc(): bool =
     platformShowWorkspaceSearch()
     true))
@@ -698,76 +698,76 @@ proc setupShortcutRegistry() =
   # and pointer navigation on one panel-state path.
   shortcutRegistry.register(Command(
     name: "toggleFiles",
-    shortcut: Shortcut(keyCode: 14, modifiers: {commandModifier, shiftModifier}),
+    shortcut: shortcutFromKeyBinding("cmd+shift+e"),
     action: nativeShortcutAction("commandPalette:toggle files")))
   shortcutRegistry.register(Command(
     name: "toggleOutline",
-    shortcut: Shortcut(keyCode: 11, modifiers: {commandModifier, shiftModifier}),
+    shortcut: shortcutFromKeyBinding("cmd+shift+b"),
     action: nativeShortcutAction("commandPalette:toggle outline")))
   shortcutRegistry.register(Command(
     name: "outlinePicker",
-    shortcut: Shortcut(keyCode: 31, modifiers: {commandModifier, shiftModifier}),
+    shortcut: shortcutFromKeyBinding("cmd+shift+o"),
     action: nativeShortcutAction("showOutlinePicker")))
   shortcutRegistry.register(Command(
     name: "expandSyntaxSelection",
-    shortcut: Shortcut(keyCode: 124, modifiers: {commandModifier, controlModifier}),
+    shortcut: shortcutFromKeyBinding("cmd+ctrl+right"),
     action: nativeShortcutAction("expandSelection")))
   shortcutRegistry.register(Command(
     name: "shrinkSyntaxSelection",
-    shortcut: Shortcut(keyCode: 123, modifiers: {commandModifier, controlModifier}),
+    shortcut: shortcutFromKeyBinding("cmd+ctrl+left"),
     action: nativeShortcutAction("shrinkSelection")))
   shortcutRegistry.register(Command(
     name: "selectPreviousSyntaxNode",
-    shortcut: Shortcut(keyCode: 126, modifiers: {commandModifier, controlModifier}),
+    shortcut: shortcutFromKeyBinding("cmd+ctrl+up"),
     action: nativeShortcutAction("selectPreviousSyntaxNode")))
   shortcutRegistry.register(Command(
     name: "selectNextSyntaxNode",
-    shortcut: Shortcut(keyCode: 125, modifiers: {commandModifier, controlModifier}),
+    shortcut: shortcutFromKeyBinding("cmd+ctrl+down"),
     action: nativeShortcutAction("selectNextSyntaxNode")))
   shortcutRegistry.register(Command(
     name: "moveToEnclosingBracket",
-    shortcut: Shortcut(keyCode: 42, modifiers: {commandModifier, shiftModifier}),
+    shortcut: shortcutFromKeyBinding("cmd+shift+backslash"),
     action: nativeShortcutAction("moveToEnclosingBracket")))
   shortcutRegistry.register(Command(
     name: "moveToEnclosingBracketControlM",
-    shortcut: Shortcut(keyCode: 46, modifiers: {controlModifier}),
+    shortcut: shortcutFromKeyBinding("ctrl+m"),
     action: nativeShortcutAction("moveToEnclosingBracket")))
   # Zed's macOS fold bindings are Option-Cmd-[ / ]. Keep the same physical
   # keys while routing the action through the document-owned fold map.
   shortcutRegistry.register(Command(
     name: "fold",
-    shortcut: Shortcut(keyCode: 33, modifiers: {commandModifier, optionModifier}),
+    shortcut: shortcutFromKeyBinding("cmd+alt+leftbracket"),
     action: nativeShortcutAction("fold")))
   shortcutRegistry.register(Command(
     name: "unfold",
-    shortcut: Shortcut(keyCode: 30, modifiers: {commandModifier, optionModifier}),
+    shortcut: shortcutFromKeyBinding("cmd+alt+rightbracket"),
     action: nativeShortcutAction("unfold")))
   shortcutRegistry.register(Command(
     name: "toggleGit",
-    shortcut: Shortcut(keyCode: 5, modifiers: {controlModifier, shiftModifier}),
+    shortcut: shortcutFromKeyBinding("ctrl+shift+g"),
     action: nativeShortcutAction("commandPalette:toggle git")))
   shortcutRegistry.register(Command(
     name: "toggleTerminal",
-    shortcut: Shortcut(keyCode: 50, modifiers: {controlModifier}),
+    shortcut: shortcutFromKeyBinding("ctrl+backtick"),
     action: nativeShortcutAction("commandPalette:toggle terminal")))
   # Zed's multi-selection entry points: Cmd+D selects the next match,
   # Cmd+Shift+L selects all matches, and Option+Shift+Up/Down add a caret in
   # the adjacent logical line.
   shortcutRegistry.register(Command(
     name: "selectNext",
-    shortcut: Shortcut(keyCode: 2, modifiers: {commandModifier}),
+    shortcut: shortcutFromKeyBinding("cmd+d"),
     action: nativeShortcutAction("selectNext")))
   shortcutRegistry.register(Command(
     name: "selectAllMatches",
-    shortcut: Shortcut(keyCode: 37, modifiers: {commandModifier, shiftModifier}),
+    shortcut: shortcutFromKeyBinding("cmd+shift+l"),
     action: nativeShortcutAction("selectAllMatches")))
   shortcutRegistry.register(Command(
     name: "addSelectionAbove",
-    shortcut: Shortcut(keyCode: 126, modifiers: {optionModifier, shiftModifier}),
+    shortcut: shortcutFromKeyBinding("alt+shift+up"),
     action: nativeShortcutAction("addSelectionAbove")))
   shortcutRegistry.register(Command(
     name: "addSelectionBelow",
-    shortcut: Shortcut(keyCode: 125, modifiers: {optionModifier, shiftModifier}),
+    shortcut: shortcutFromKeyBinding("alt+shift+down"),
     action: nativeShortcutAction("addSelectionBelow")))
   # Keep all commands addressable from settings keymaps. They have no default
   # shortcut here when AppKit owns the standard menu equivalent; custom
@@ -817,7 +817,10 @@ proc applySettingsKeymap() =
     setupShortcutRegistry()
     for binding in appSettings.keyBindings():
       let shortcut = shortcutFromKeyBinding(binding.key)
-      if shortcut.keyCode == 0: continue
+      var validShortcut = shortcut.keystrokes.len > 0
+      for keystroke in shortcut.keystrokes:
+        if keystroke.keyCode == 0: validShortcut = false
+      if not validShortcut: continue
       for index in 0 ..< shortcutRegistry.commands.len:
         if shortcutRegistry.commands[index].name == binding.command:
           shortcutRegistry.commands[index].shortcut = shortcut

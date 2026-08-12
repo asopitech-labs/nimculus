@@ -7,7 +7,13 @@ type
   Modifier* = enum
     commandModifier, optionModifier, controlModifier, shiftModifier
 
+  Keystroke* = object
+    keyCode*: uint32
+    modifiers*: set[Modifier]
+
   Shortcut* = object
+    keystrokes*: seq[Keystroke]
+    ## Deprecated single-keystroke fields retained for source compatibility.
     keyCode*: uint32
     modifiers*: set[Modifier]
 
@@ -22,6 +28,20 @@ type
     commands*: seq[Command]
 
 var keyBindingPredicateParseCount* = 0
+
+proc effectiveKeystrokes(shortcut: Shortcut): seq[Keystroke] =
+  if shortcut.keystrokes.len > 0:
+    result = shortcut.keystrokes
+  elif shortcut.keyCode != 0 or shortcut.modifiers != {}:
+    result = @[Keystroke(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers)]
+
+proc matchKeystrokes*(binding: Shortcut,
+                      typed: openArray[Keystroke]): tuple[matched, pending: bool] =
+  let bindingKeystrokes = binding.effectiveKeystrokes()
+  if typed.len > bindingKeystrokes.len: return (false, false)
+  for index, keystroke in typed:
+    if keystroke != bindingKeystrokes[index]: return (false, false)
+  if typed.len < bindingKeystrokes.len: (false, true) else: (true, false)
 
 const
   ## NSEventModifierFlags values used by AppKit. Keep this conversion at the
@@ -62,8 +82,8 @@ proc bindingsForInput*(registry: CommandRegistry, shortcut: Shortcut,
   var matches: seq[tuple[command: Command, depth: int, index: int]]
   for index in countdown(registry.commands.high, 0):
     let candidate = registry.commands[index]
-    if candidate.shortcut.keyCode != shortcut.keyCode or
-        candidate.shortcut.modifiers != shortcut.modifiers: continue
+    if candidate.shortcut.matchKeystrokes(shortcut.effectiveKeystrokes()) !=
+        (true, false): continue
     let depth = candidate.matchingDepth(contexts)
     if depth >= 0:
       matches.add((candidate, depth, index))
@@ -156,18 +176,22 @@ proc macOSKeyCode(key: string): uint32 =
 
 proc shortcutFromKeyBinding*(binding: string): Shortcut =
   ## Parse the macOS keymap spelling used by settings.json, e.g.
-  ## `cmd+shift+p` or `ctrl+alt+f`. The platform boundary still owns the
-  ## NSEvent bitmask conversion; this function only creates a Shortcut value.
-  var key = ""
-  for part in binding.split('+'):
-    let value = part.strip.toLowerAscii
-    case value
-    of "cmd", "command": result.modifiers.incl(commandModifier)
-    of "ctrl", "control": result.modifiers.incl(controlModifier)
-    of "alt", "option": result.modifiers.incl(optionModifier)
-    of "shift": result.modifiers.incl(shiftModifier)
-    else: key = value
-  result.keyCode = macOSKeyCode(key)
+  ## `cmd+shift+p` or `ctrl-alt-f`. Whitespace separates keystrokes, while
+  ## either `-` or `+` separates modifiers within each keystroke.
+  for keystrokeBinding in binding.splitWhitespace:
+    var keystroke = Keystroke()
+    for part in keystrokeBinding.split({'-', '+'}):
+      let value = part.strip.toLowerAscii
+      case value
+      of "cmd", "command": keystroke.modifiers.incl(commandModifier)
+      of "ctrl", "control": keystroke.modifiers.incl(controlModifier)
+      of "alt", "option": keystroke.modifiers.incl(optionModifier)
+      of "shift": keystroke.modifiers.incl(shiftModifier)
+      else: keystroke.keyCode = macOSKeyCode(value)
+    result.keystrokes.add(keystroke)
+  if result.keystrokes.len == 1:
+    result.keyCode = result.keystrokes[0].keyCode
+    result.modifiers = result.keystrokes[0].modifiers
 
 type
   TabStopEntry = object
