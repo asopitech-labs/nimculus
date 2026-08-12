@@ -224,7 +224,7 @@ when defined(windows):
     float32(max(1.0, platformEditorLineHeight()))
 
   proc windowsEditorCellWidth(): float32 =
-    let size = if appSettings != nil: appSettings.intSetting("editor.fontSize", 15) else: 15
+    let size = appSettings.intSetting("editor.fontSize")
     max(4'f32, float32(size) * 0.5'f32)
 
   proc registerWindowsDemoImage() =
@@ -289,7 +289,7 @@ when defined(macosx):
     let startByte = max(0, selection.startByte)
     let endByte = max(startByte, selection.endByte)
     let lineHeight = editorLineHeight()
-    let fontSize = if appSettings != nil: appSettings.intSetting("editor.fontSize", 15) else: 15
+    let fontSize = appSettings.intSetting("editor.fontSize")
     let cellWidth = max(4'f32, float32(fontSize) * 0.6'f32)
     let textOrigin = if secondary: float32(platformSecondaryEditorTextOriginX())
       else: float32(platformEditorTextOriginX())
@@ -845,18 +845,16 @@ proc applySettingsTheme() =
     else:
       platformSetEditorFontFallbacks(nil, 0)
     when defined(windows):
-      platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize", 15)))
-      platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily", ".ZedMono").cstring)
-      platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize", 15)))
-      platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily",
-          ".ZedMono").cstring)
+      platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize")))
+      platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily").cstring)
+      platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize")))
+      platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily").cstring)
     elif defined(macosx):
       let colors = appSettings.resolvedTheme(platformIsDarkAppearance())
-      platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize", 15)))
-      platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily", ".ZedMono").cstring)
-      platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize", 15)))
-      platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily",
-          ".ZedMono").cstring)
+      platformSetEditorFontSize(cdouble(appSettings.intSetting("editor.fontSize")))
+      platformSetEditorFontName(appSettings.stringSetting("editor.fontFamily").cstring)
+      platformSetTerminalFontSize(cdouble(appSettings.intSetting("terminal.fontSize")))
+      platformSetTerminalFontName(appSettings.stringSetting("terminal.fontFamily").cstring)
       resizeNativeTerminals()
       platformSetThemePaletteJson(themePaletteJson(colors).cstring)
 
@@ -3684,9 +3682,7 @@ when defined(macosx):
       splitFile(absolutePath(activeDocument()[].path)).dir
     else: getCurrentDir()
     try:
-      let shell = if appSettings != nil:
-        appSettings.stringSetting("terminal.shell", "/bin/zsh")
-      else: "/bin/zsh"
+      let shell = appSettings.stringSetting("terminal.shell")
       let session = newTerminalPty(shell, cwd, 120, 8)
       editorTerminals.add(session)
       activateNativeTerminal(editorTerminals.high)
@@ -3779,8 +3775,7 @@ when defined(macosx):
     if kind == scroll:
       let rows = terminalScrollLineDelta(editorTerminalScrollRemainder, deltaY,
         preciseScrolling, float32(platformTerminalLineHeight()),
-        if appSettings != nil: appSettings.terminalScrollMultiplier()
-        else: DefaultTerminalScrollMultiplier)
+        appSettings.terminalScrollMultiplier())
       if rows != 0:
         editorTerminalScrollOffset = terminalScrollOffset(editorTerminalScrollOffset,
           editorTerminal.screen.lineCount(), editorTerminal.screen.rows, rows)
@@ -4141,8 +4136,7 @@ when defined(macosx):
       for span in syntax.visibleHighlights(uint32(firstByte), uint32(lastByte)):
         decorations.add(TextDecoration(startByte: int(span.startByte),
           endByte: int(span.endByte), kind: ord(span.kind)))
-    let fontSize = px(float32(if appSettings != nil:
-      appSettings.intSetting("editor.fontSize", 15) else: 15))
+    let fontSize = px(float32(appSettings.intSetting("editor.fontSize")))
     let layout = buildVisibleEditorLayout(document[].buffer, max(0, view.scrollLine),
       visibleLines, view.softWrap, editorTextLayoutWidth(secondary), fontSize,
       editorLineLayoutCache, decorations, view.foldedRanges)
@@ -5045,8 +5039,7 @@ when defined(macosx):
     let sameDocument = editorGitBlameCache.matches(repositoryRoot, document[].path,
       documentVersion)
     let previousLine = editorGitBlameLine
-    let delayMs = if appSettings == nil: DefaultGitInlineBlameDelayMs
-      else: appSettings.gitInlineBlameDelayMs()
+    let delayMs = appSettings.gitInlineBlameDelayMs()
     let delayChanged = delayMs != editorGitBlameConfiguredDelayMs
     if sameDocument:
       editorGitBlameLine = line
@@ -5121,10 +5114,8 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
           editorSession.displayTitle(editorSession.activeTab)
       else:
         editorSession.displayTitle(editorSession.activeTab)
-    platformSetDiagnosticsButton(if appSettings == nil: DefaultDiagnosticsButton
-      else: appSettings.boolSetting("diagnostics.button", DefaultDiagnosticsButton))
-    platformSetSearchButton(if appSettings == nil: DefaultSearchButton
-      else: appSettings.boolSetting("search.button", DefaultSearchButton))
+    platformSetDiagnosticsButton(appSettings.boolSetting("diagnostics.button"))
+    platformSetSearchButton(appSettings.boolSetting("search.button"))
     platformSetActivityProgress(if lspBridge == nil: "".cstring
       else: lspBridge.activityProgressText().cstring)
     # FileDocument has no encoding/BOM detector yet; keep the Zed decision
@@ -5144,10 +5135,8 @@ proc syncNativeEditorStatus(document: ptr FileDocument) =
         appSettings.gitInlineBlameLocation() == "inline" and editorGitBlameInlineShown and
         editorFocused and editorGitBlameLoaded and not editorGitBlameLineEmpty and
         editorGitBlameEntry.hash.len > 0 and blameText.len > 0
-      let inlinePadding = if appSettings == nil: DefaultGitInlineBlamePadding
-        else: appSettings.gitInlineBlamePadding()
-      let inlineMinColumn = if appSettings == nil: DefaultGitInlineBlameMinColumn
-        else: appSettings.gitInlineBlameMinColumn()
+      let inlinePadding = appSettings.gitInlineBlamePadding()
+      let inlineMinColumn = appSettings.gitInlineBlameMinColumn()
       platformSetEditorInlineBlame(false, inlineVisible and
         (not editorSession.split or editorSession.splitActivePane == 0),
         uint32(max(0, editorGitBlameLine)), blameText.cstring, inlinePadding, inlineMinColumn)
@@ -5244,8 +5233,7 @@ proc syncSoftWrappedDisplayScroll(view: var EditorViewState, visibleLines: int) 
     for span in syntaxState.tree.highlight():
       decorations.add(TextDecoration(startByte: int(span.startByte),
         endByte: int(span.endByte), kind: ord(span.kind)))
-  let fontSize = px(float32(if appSettings != nil:
-    appSettings.intSetting("editor.fontSize", 15) else: 15))
+  let fontSize = px(float32(appSettings.intSetting("editor.fontSize")))
   let wrapWidth = editorTextLayoutWidth()
   if not view.scrollDisplayInitialized:
     view.scrollDisplayPixels = float32(displayRowsBeforeLine(document[].buffer,
@@ -6902,7 +6890,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     resetPointerInteractions()
   elif name == "appearanceChanged":
     when defined(macosx):
-      if appSettings != nil and appSettings.stringSetting("theme", "dark").toLowerAscii == "system":
+      if appSettings != nil and appSettings.stringSetting("theme").toLowerAscii == "system":
         applySettingsTheme()
   elif name in ["splitEditor", "splitEditorHorizontal"]:
     if document == nil:
@@ -7412,15 +7400,12 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorViewState.statusMessage = "Settings failed: " & error.msg
   elif name == "openSettingsUI":
     when defined(macosx):
-      let theme = if appSettings != nil: appSettings.stringSetting("theme", "system") else: "system"
-      let editorSize = if appSettings != nil: $appSettings.intSetting("editor.fontSize", 15) else: "15"
-      let terminalSize = if appSettings != nil: $appSettings.intSetting("terminal.fontSize", 15) else: "15"
-      let editorFont = if appSettings != nil: appSettings.stringSetting("editor.fontFamily",
-          ".ZedMono") else: ".ZedMono"
-      let terminalFont = if appSettings != nil: appSettings.stringSetting("terminal.fontFamily",
-          ".ZedMono") else: ".ZedMono"
-      let shell = if appSettings != nil: appSettings.stringSetting("terminal.shell",
-          "/bin/zsh") else: "/bin/zsh"
+      let theme = appSettings.themeForSettingsPanel()
+      let editorSize = $appSettings.intSetting("editor.fontSize")
+      let terminalSize = $appSettings.intSetting("terminal.fontSize")
+      let editorFont = appSettings.stringSetting("editor.fontFamily")
+      let terminalFont = appSettings.stringSetting("terminal.fontFamily")
+      let shell = appSettings.stringSetting("terminal.shell")
       platformShowSettingsPanel(theme.cstring, editorSize.cstring, terminalSize.cstring,
         editorFont.cstring, terminalFont.cstring, shell.cstring)
   elif name.startsWith("settingsApply:"):
@@ -9422,9 +9407,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
         max(0, scrollDocument[].buffer.lineStarts.len - visibleLines)
       let modifiers = macOSModifiers(event.modifiers)
       let shiftScroll = shiftModifier in modifiers
-      let scrollSensitivity = if appSettings != nil:
-          appSettings.editorScrollSensitivity(optionModifier in modifiers) else:
-        DefaultScrollSensitivity
+      let scrollSensitivity = appSettings.editorScrollSensitivity(optionModifier in modifiers)
       let rawHorizontalDelta = if abs(float32(event.deltaX)) > 0.01'f32:
           float32(event.deltaX)
         elif shiftScroll: float32(event.deltaY) else: 0'f32
@@ -9467,8 +9450,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           let pixelDelta = scrollPixelDelta(verticalDelta,
             event.preciseScrolling, editorLineHeight(), scrollSensitivity)
           if editorViewState.softWrap:
-            let fontSize = px(float32(if appSettings != nil:
-              appSettings.intSetting("editor.fontSize", 15) else: 15))
+            let fontSize = px(float32(appSettings.intSetting("editor.fontSize")))
             if not editorViewState.scrollDisplayInitialized:
               editorViewState.scrollDisplayPixels = float32(
                 displayRowsBeforeLine(document[].buffer,
@@ -9803,7 +9785,7 @@ when isMainModule:
       # empty Outline presenter.
       refreshWorkspacePreview()
     let lspCommand = getEnv("NIMCULUS_LSP_COMMAND",
-      appSettings.stringSetting("lsp.command", ""))
+      appSettings.stringSetting("lsp.command"))
     if lspCommand.len > 0:
       lspBridge = newLspEditorBridge(lspCommand,
         getEnv("NIMCULUS_LSP_ARGS", "").splitWhitespace,

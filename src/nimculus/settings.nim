@@ -106,31 +106,114 @@ type
     themeRegistry*: Table[string, ThemeDefinition]
     iconThemeRegistry*: Table[string, IconThemeDefinition]
 
-const DefaultSoftWrapMode* = "none"
-const DefaultDiagnosticsButton* = true
-const DefaultSearchButton* = true
-const DefaultGitInlineBlameEnabled* = true
-const DefaultGitInlineBlameLocation* = "inline"
-const DefaultGitInlineBlameShowCommitSummary* = false
-const DefaultGitInlineBlameDelayMs* = 0
-const DefaultGitInlineBlamePadding* = 7
-const DefaultGitInlineBlameMinColumn* = 0
+  SettingKind* = enum
+    settingBool, settingInt, settingString, settingFloat
 
-const
-  DefaultProjectPanelDock* = "right"
-  DefaultProjectPanelStartsOpen* = true
-  DefaultOutlinePanelDock* = "right"
-  DefaultGitPanelDock* = "right"
-  DefaultAgentDock* = "left"
-  DefaultAgentDisabled* = false
-  DefaultTerminalDock* = "bottom"
-  DefaultDebuggerDock* = "bottom"
+  SettingDescriptor* = object
+    key*: string
+    kind*: SettingKind
+    default*: JsonNode
+    title*: string
+
+let settingDescriptors* = @[
+  SettingDescriptor(key: "statusBar.showActiveFile", kind: settingBool,
+    default: newJBool(false), title: "Show Active File"),
+  SettingDescriptor(key: "statusBar.activeLanguageButton", kind: settingBool,
+    default: newJBool(true), title: "Show Active Language"),
+  SettingDescriptor(key: "statusBar.cursorPositionButton", kind: settingBool,
+    default: newJBool(true), title: "Show Cursor Position"),
+  SettingDescriptor(key: "statusBar.lineEndingsButton", kind: settingBool,
+    default: newJBool(false), title: "Show Line Endings"),
+  SettingDescriptor(key: "statusBar.activeEncodingButton", kind: settingString,
+    default: newJString("non_utf8"), title: "Encoding Display"),
+  SettingDescriptor(key: "editor.fontSize", kind: settingInt,
+    default: newJInt(15), title: "Editor Font Size"),
+  SettingDescriptor(key: "editor.tabSize", kind: settingInt,
+    default: newJInt(2), title: "Tab Size"),
+  SettingDescriptor(key: "editor.fontFamily", kind: settingString,
+    default: newJString(".ZedMono"), title: "Editor Font Family"),
+  SettingDescriptor(key: "terminal.fontSize", kind: settingInt,
+    default: newJInt(15), title: "Terminal Font Size"),
+  SettingDescriptor(key: "terminal.fontFamily", kind: settingString,
+    default: newJString(".ZedMono"), title: "Terminal Font Family"),
+  SettingDescriptor(key: "terminal.shell", kind: settingString,
+    default: newJString("/bin/zsh"), title: "Terminal Shell"),
+  SettingDescriptor(key: "terminal.dock", kind: settingString,
+    default: newJString("bottom"), title: "Terminal Dock"),
+  SettingDescriptor(key: "terminal.scroll_multiplier", kind: settingFloat,
+    default: newJFloat(1.0), title: "Terminal Scroll Multiplier"),
+  SettingDescriptor(key: "projectPanel.dock", kind: settingString,
+    default: newJString("right"), title: "Project Panel Dock"),
+  SettingDescriptor(key: "projectPanel.startsOpen", kind: settingBool,
+    default: newJBool(true), title: "Project Panel Starts Open"),
+  SettingDescriptor(key: "projectPanel.starts_open", kind: settingBool,
+    default: newJBool(true), title: "Project Panel Starts Open (Legacy)"),
+  SettingDescriptor(key: "outlinePanel.dock", kind: settingString,
+    default: newJString("right"), title: "Outline Panel Dock"),
+  SettingDescriptor(key: "gitPanel.dock", kind: settingString,
+    default: newJString("right"), title: "Git Panel Dock"),
+  SettingDescriptor(key: "agent.dock", kind: settingString,
+    default: newJString("left"), title: "Agent Dock"),
+  SettingDescriptor(key: "agent.disabled", kind: settingBool,
+    default: newJBool(false), title: "Disable Agent"),
+  SettingDescriptor(key: "debugger.dock", kind: settingString,
+    default: newJString("bottom"), title: "Debugger Dock"),
+  SettingDescriptor(key: "diagnostics.button", kind: settingBool,
+    default: newJBool(true), title: "Diagnostics Button"),
+  SettingDescriptor(key: "search.button", kind: settingBool,
+    default: newJBool(true), title: "Search Button"),
+  SettingDescriptor(key: "git.inlineBlame.enabled", kind: settingBool,
+    default: newJBool(true), title: "Inline Blame"),
+  SettingDescriptor(key: "git.inlineBlame.location", kind: settingString,
+    default: newJString("inline"), title: "Inline Blame Location"),
+  SettingDescriptor(key: "git.inlineBlame.showCommitSummary", kind: settingBool,
+    default: newJBool(false), title: "Inline Blame Commit Summary"),
+  SettingDescriptor(key: "git.inlineBlame.delayMs", kind: settingInt,
+    default: newJInt(0), title: "Inline Blame Delay"),
+  SettingDescriptor(key: "git.inlineBlame.padding", kind: settingInt,
+    default: newJInt(7), title: "Inline Blame Padding"),
+  SettingDescriptor(key: "git.inlineBlame.minColumn", kind: settingInt,
+    default: newJInt(0), title: "Inline Blame Minimum Column"),
+  SettingDescriptor(key: "soft_wrap", kind: settingString,
+    default: newJString("none"), title: "Soft Wrap"),
+  SettingDescriptor(key: "scroll_sensitivity", kind: settingFloat,
+    default: newJFloat(1.0), title: "Scroll Sensitivity"),
+  SettingDescriptor(key: "fast_scroll_sensitivity", kind: settingFloat,
+    default: newJFloat(4.0), title: "Fast Scroll Sensitivity"),
+  SettingDescriptor(key: "theme", kind: settingString,
+    default: newJString("dark"), title: "Theme"),
+  SettingDescriptor(key: "iconTheme", kind: settingString,
+    default: newJString("Nimculus Default"), title: "Icon Theme"),
+  SettingDescriptor(key: "themeColors.background", kind: settingString,
+    default: newJString(""), title: "Theme Background"),
+  SettingDescriptor(key: "themeColors.accent", kind: settingString,
+    default: newJString(""), title: "Theme Accent"),
+  SettingDescriptor(key: "lsp.command", kind: settingString,
+    default: newJString(""), title: "LSP Command")
+]
+
+proc settingDescriptor*(key: string): SettingDescriptor =
+  for descriptor in settingDescriptors:
+    if descriptor.key == key: return descriptor
+  when not defined(release):
+    raise newException(KeyError, "Unknown setting key: " & key)
+  else:
+    result = SettingDescriptor(key: key)
+
+proc settingDefaultBool(key: string): bool = settingDescriptor(key).default.getBool
+proc settingDefaultString(key: string): string = settingDescriptor(key).default.getStr
+
+proc requireSettingKind(key: string, expected: SettingKind): SettingDescriptor =
+  result = settingDescriptor(key)
+  when not defined(release):
+    if result.kind != expected:
+      raise newException(ValueError, "Setting kind mismatch for " & key)
 
 proc softWrapEnabledForPath*(path, configuredMode: string): bool =
   ## Zed's global default is `none`, but Markdown has a language-scoped
   ## `editor_width` default. Preserve that distinction at the settings edge.
   if configuredMode in ["editor_width", "bounded"]: return true
-  if configuredMode != DefaultSoftWrapMode: return false
+  if configuredMode != settingDefaultString("soft_wrap"): return false
   splitFile(path).ext.toLowerAscii in [".md", ".markdown"]
 
 proc objectNode(): JsonNode = newJObject()
@@ -317,9 +400,22 @@ proc validateSettings*(root: JsonNode): seq[SettingsDiagnostic] =
             result.add(SettingsDiagnostic(path: itemPath,
               message: "missing required field: " & required))
 
+proc applySettingDefaults(schema: JsonNode) =
+  for descriptor in settingDescriptors:
+    var node = schema
+    var found = true
+    for part in descriptor.key.split('.'):
+      if node == nil or node.kind != JObject or not node.hasKey("properties") or
+          not node["properties"].hasKey(part):
+        found = false
+        break
+      node = node["properties"][part]
+    if found and node != nil and node.kind == JObject:
+      node["default"] = descriptor.default.copy()
+
 proc settingsSchema*(): JsonNode =
   ## Stable schema consumed by editors and future settings UI completion.
-  %*{
+  result = %*{
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "properties": {
@@ -332,49 +428,49 @@ proc settingsSchema*(): JsonNode =
         "insertSpaces": {"type": "boolean"}
     }},
     "projectPanel": {"type": "object", "properties": {
-      "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "right"},
-      "startsOpen": {"type": "boolean", "default": true},
+      "dock": {"type": "string", "enum": ["left", "bottom", "right"]},
+      "startsOpen": {"type": "boolean"},
       "starts_open": {"type": "boolean"}
     }},
     "outlinePanel": {"type": "object", "properties": {
-      "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "right"}
+      "dock": {"type": "string", "enum": ["left", "bottom", "right"]}
     }},
     "gitPanel": {"type": "object", "properties": {
-      "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "right"}
+      "dock": {"type": "string", "enum": ["left", "bottom", "right"]}
     }},
     "agent": {"type": "object", "properties": {
-      "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "left"},
-      "disabled": {"type": "boolean", "default": false}
+      "dock": {"type": "string", "enum": ["left", "bottom", "right"]},
+      "disabled": {"type": "boolean"}
     }},
     "statusBar": {"type": "object", "properties": {
-      "showActiveFile": {"type": "boolean", "default": false},
-      "activeLanguageButton": {"type": "boolean", "default": true},
-      "cursorPositionButton": {"type": "boolean", "default": true},
-      "lineEndingsButton": {"type": "boolean", "default": false},
+      "showActiveFile": {"type": "boolean"},
+      "activeLanguageButton": {"type": "boolean"},
+      "cursorPositionButton": {"type": "boolean"},
+      "lineEndingsButton": {"type": "boolean"},
       "activeEncodingButton": {"type": "string",
-        "enum": ["enabled", "non_utf8", "disabled"], "default": "non_utf8"}
+        "enum": ["enabled", "non_utf8", "disabled"]}
     }},
     "diagnostics": {"type": "object", "properties": {
-      "button": {"type": "boolean", "default": true}
+      "button": {"type": "boolean"}
     }},
     "search": {"type": "object", "properties": {
-      "button": {"type": "boolean", "default": true}
+      "button": {"type": "boolean"}
     }},
     "git": {"type": "object", "properties": {
       "inlineBlame": {"type": "object", "properties": {
-        "enabled": {"type": "boolean", "default": true},
+        "enabled": {"type": "boolean"},
         "location": {"type": "string", "enum": ["inline", "status_bar"],
-          "default": "inline"},
-        "showCommitSummary": {"type": "boolean", "default": false},
-        "delayMs": {"type": "integer", "minimum": 0, "default": 0},
-        "padding": {"type": "integer", "minimum": 0, "default": 7},
-        "minColumn": {"type": "integer", "minimum": 0, "default": 0}
+      },
+        "showCommitSummary": {"type": "boolean"},
+        "delayMs": {"type": "integer", "minimum": 0},
+        "padding": {"type": "integer", "minimum": 0},
+        "minColumn": {"type": "integer", "minimum": 0}
       }}
     }},
     "theme": {"type": "string"},
     "soft_wrap": {"type": "string", "enum": ["none", "editor_width", "bounded"]},
-    "scroll_sensitivity": {"type": "number", "default": 1.0},
-    "fast_scroll_sensitivity": {"type": "number", "default": 4.0},
+    "scroll_sensitivity": {"type": "number"},
+    "fast_scroll_sensitivity": {"type": "number"},
     "iconTheme": {"type": "string"},
     "themes": {"type": "object", "additionalProperties": {"type": "object"}},
     "iconThemes": {"type": "object", "additionalProperties": {"type": "object"}},
@@ -407,11 +503,11 @@ proc settingsSchema*(): JsonNode =
     "terminal": {"type": "object", "properties": {
       "shell": {"type": "string"}, "fontFamily": {"type": "string"},
       "fontSize": {"type": "integer", "minimum": 6, "maximum": 48},
-      "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "bottom"},
-      "scroll_multiplier": {"type": "number", "default": 1.0}
+      "dock": {"type": "string", "enum": ["left", "bottom", "right"]},
+      "scroll_multiplier": {"type": "number"}
     }},
     "debugger": {"type": "object", "properties": {
-      "dock": {"type": "string", "enum": ["left", "bottom", "right"], "default": "bottom"}
+      "dock": {"type": "string", "enum": ["left", "bottom", "right"]}
     }},
     "lsp": {"type": "object", "properties": {"command": {"type": "string"}}},
     "keymap": {"type": "array", "items": {"type": "object",
@@ -420,6 +516,7 @@ proc settingsSchema*(): JsonNode =
       }}}
   }
   }
+  applySettingDefaults(result)
 
 proc settingsPaths*(home: string): tuple[globalPath, workspaceName: string] =
   (home / "Library" / "Application Support" / "Nimculus" / "settings.json", ".nimculus" / "settings.json")
@@ -727,98 +824,91 @@ proc setLanguageId*(store: SettingsStore, languageId: string): bool =
 proc values*(store: SettingsStore): JsonNode =
   if store != nil: store.settings.values else: objectNode()
 
-proc stringSetting*(store: SettingsStore, path: string; fallback = ""): string =
-  jsonStringAt(store.values, path, fallback)
+proc stringSetting*(store: SettingsStore, path: string): string =
+  let descriptor = requireSettingKind(path, settingString)
+  jsonStringAt(store.values, path, descriptor.default.getStr)
 
-proc normalizedDockSetting(store: SettingsStore, path, fallback: string,
+proc normalizedDockSetting(store: SettingsStore, path: string,
                            allowed: openArray[string]): string =
-  let value = store.stringSetting(path, fallback)
-  if value in allowed: value else: fallback
+  let value = store.stringSetting(path)
+  if value in allowed: value else: settingDefaultString(path)
 
 proc projectPanelDock*(store: SettingsStore): string =
-  store.normalizedDockSetting("projectPanel.dock", DefaultProjectPanelDock,
-    ["left", "bottom", "right"])
+  store.normalizedDockSetting("projectPanel.dock", ["left", "bottom", "right"])
 
 proc outlinePanelDock*(store: SettingsStore): string =
-  store.normalizedDockSetting("outlinePanel.dock", DefaultOutlinePanelDock,
-    ["left", "bottom", "right"])
+  store.normalizedDockSetting("outlinePanel.dock", ["left", "bottom", "right"])
 
 proc gitPanelDock*(store: SettingsStore): string =
-  store.normalizedDockSetting("gitPanel.dock", DefaultGitPanelDock,
-    ["left", "bottom", "right"])
+  store.normalizedDockSetting("gitPanel.dock", ["left", "bottom", "right"])
 
 proc agentDock*(store: SettingsStore): string =
-  store.normalizedDockSetting("agent.dock", DefaultAgentDock,
-    ["left", "bottom", "right"])
+  store.normalizedDockSetting("agent.dock", ["left", "bottom", "right"])
 
 proc terminalDock*(store: SettingsStore): string =
-  store.normalizedDockSetting("terminal.dock", DefaultTerminalDock,
-    ["left", "bottom", "right"])
+  store.normalizedDockSetting("terminal.dock", ["left", "bottom", "right"])
 
 proc debuggerDock*(store: SettingsStore): string =
-  store.normalizedDockSetting("debugger.dock", DefaultDebuggerDock,
-    ["left", "bottom", "right"])
+  store.normalizedDockSetting("debugger.dock", ["left", "bottom", "right"])
 
 proc softWrapMode*(store: SettingsStore): string =
   ## Zed's factory default is the explicit string "none". Keep the setting
   ## value visible at the settings boundary instead of inferring it from a
   ## boolean view default.
-  let mode = store.stringSetting("soft_wrap", DefaultSoftWrapMode)
-  if mode in ["none", "editor_width", "bounded"]: mode else: DefaultSoftWrapMode
+  let mode = store.stringSetting("soft_wrap")
+  if mode in ["none", "editor_width", "bounded"]: mode else: settingDefaultString("soft_wrap")
 
-proc intSetting*(store: SettingsStore, path: string, fallback: int): int =
-  jsonIntAt(store.values, path, fallback)
+proc themeForSettingsPanel*(store: SettingsStore): string =
+  ## The panel uses `system` as its display-only value when no theme is configured.
+  if nodeAt(store.values, "theme") == nil: "system"
+  else: store.stringSetting("theme")
 
-proc floatSetting*(store: SettingsStore, path: string, fallback: float32): float32 =
-  jsonFloatAt(store.values, path, fallback)
+proc intSetting*(store: SettingsStore, path: string): int =
+  let descriptor = requireSettingKind(path, settingInt)
+  jsonIntAt(store.values, path, descriptor.default.getInt)
+
+proc floatSetting*(store: SettingsStore, path: string): float32 =
+  let descriptor = requireSettingKind(path, settingFloat)
+  jsonFloatAt(store.values, path, float32(descriptor.default.getFloat))
 
 const
-  DefaultScrollSensitivity* = 1'f32
-  DefaultFastScrollSensitivity* = 4'f32
-  DefaultTerminalScrollMultiplier* = 1'f32
   MinimumScrollSensitivity* = 0.01'f32
 
 proc editorScrollSensitivity*(store: SettingsStore, fast: bool): float32 =
   let path = if fast: "fast_scroll_sensitivity" else: "scroll_sensitivity"
-  max(MinimumScrollSensitivity, store.floatSetting(path,
-    if fast: DefaultFastScrollSensitivity else: DefaultScrollSensitivity))
+  max(MinimumScrollSensitivity, store.floatSetting(path))
 
 proc terminalScrollMultiplier*(store: SettingsStore): float32 =
-  max(MinimumScrollSensitivity, store.floatSetting("terminal.scroll_multiplier",
-    DefaultTerminalScrollMultiplier))
+  max(MinimumScrollSensitivity, store.floatSetting("terminal.scroll_multiplier"))
 
-proc boolSetting*(store: SettingsStore, path: string, fallback: bool): bool =
-  jsonBoolAt(store.values, path, fallback)
+proc boolSetting*(store: SettingsStore, path: string): bool =
+  let descriptor = requireSettingKind(path, settingBool)
+  jsonBoolAt(store.values, path, descriptor.default.getBool)
 
 proc projectPanelStartsOpen*(store: SettingsStore): bool =
-  if store == nil: return DefaultProjectPanelStartsOpen
+  let fallback = settingDefaultBool("projectPanel.startsOpen")
+  if store == nil: return fallback
   let configured = nodeAt(store.values, "projectPanel.startsOpen")
   if configured != nil:
-    return store.boolSetting("projectPanel.startsOpen", DefaultProjectPanelStartsOpen)
-  store.boolSetting("projectPanel.starts_open", DefaultProjectPanelStartsOpen)
+    return store.boolSetting("projectPanel.startsOpen")
+  store.boolSetting("projectPanel.starts_open")
 
 proc agentDisabled*(store: SettingsStore): bool =
-  if store == nil: return DefaultAgentDisabled
-  store.boolSetting("agent.disabled", DefaultAgentDisabled)
+  store.boolSetting("agent.disabled")
 
 proc gitInlineBlameEnabled*(store: SettingsStore): bool =
-  if store == nil: DefaultGitInlineBlameEnabled
-  else: store.boolSetting("git.inlineBlame.enabled", DefaultGitInlineBlameEnabled)
+  store.boolSetting("git.inlineBlame.enabled")
 
 proc gitInlineBlameLocation*(store: SettingsStore): string =
-  if store == nil: DefaultGitInlineBlameLocation
-  else:
-    let location = store.stringSetting("git.inlineBlame.location", DefaultGitInlineBlameLocation)
-    if location in ["inline", "status_bar"]: location else: DefaultGitInlineBlameLocation
+  let location = store.stringSetting("git.inlineBlame.location")
+  if location in ["inline", "status_bar"]: location else:
+    settingDefaultString("git.inlineBlame.location")
 
 proc gitInlineBlameShowCommitSummary*(store: SettingsStore): bool =
-  if store == nil: DefaultGitInlineBlameShowCommitSummary
-  else: store.boolSetting("git.inlineBlame.showCommitSummary",
-    DefaultGitInlineBlameShowCommitSummary)
+  store.boolSetting("git.inlineBlame.showCommitSummary")
 
 proc gitInlineBlameDelayMs*(store: SettingsStore): int =
-  if store == nil: DefaultGitInlineBlameDelayMs
-  else: max(0, store.intSetting("git.inlineBlame.delayMs", DefaultGitInlineBlameDelayMs))
+  max(0, store.intSetting("git.inlineBlame.delayMs"))
 
 proc gitInlineBlameDelay*(store: SettingsStore): Option[Duration] =
   let delayMs = store.gitInlineBlameDelayMs()
@@ -826,12 +916,10 @@ proc gitInlineBlameDelay*(store: SettingsStore): Option[Duration] =
   else: some(initDuration(milliseconds = delayMs))
 
 proc gitInlineBlamePadding*(store: SettingsStore): int =
-  if store == nil: DefaultGitInlineBlamePadding
-  else: max(0, store.intSetting("git.inlineBlame.padding", DefaultGitInlineBlamePadding))
+  max(0, store.intSetting("git.inlineBlame.padding"))
 
 proc gitInlineBlameMinColumn*(store: SettingsStore): int =
-  if store == nil: DefaultGitInlineBlameMinColumn
-  else: max(0, store.intSetting("git.inlineBlame.minColumn", DefaultGitInlineBlameMinColumn))
+  max(0, store.intSetting("git.inlineBlame.minColumn"))
 
 proc editorFontFeatures*(store: SettingsStore): seq[EditorFontFeature] =
   let node = nodeAt(store.values, "editor.fontFeatures")
@@ -862,7 +950,7 @@ proc keyBindings*(store: SettingsStore): seq[KeyBinding] =
       whenClause: if item.hasKey("when"): item["when"].getStr else: ""))
 
 proc theme*(store: SettingsStore): ThemeColors =
-  let requested = store.stringSetting("theme", "dark")
+  let requested = store.stringSetting("theme")
   let selected = if store != nil and store.themeRegistry.hasKey(requested): requested
     elif store != nil and store.themeRegistry.hasKey(requested.toLowerAscii): requested.toLowerAscii
     else: "dark"
@@ -876,8 +964,8 @@ proc resolvedTheme*(store: SettingsStore, systemDark: bool): ThemeColors =
   ## Resolve the system theme at the settings boundary so a platform appearance
   ## notification can repaint without reloading settings from disk.
   result = store.theme()
-  let requested = store.stringSetting("theme", "dark").toLowerAscii
-  let customBackground = store.stringSetting("themeColors.background", "")
+  let requested = store.stringSetting("theme").toLowerAscii
+  let customBackground = store.stringSetting("themeColors.background")
   if customBackground.len > 0 or requested notin ["light", "dark", "system"]: return
   let dark = if requested == "system": systemDark else: requested == "dark"
   result = store.themeRegistry[if dark: "dark" else: "light"].colors
@@ -930,7 +1018,7 @@ proc themeNames*(store: SettingsStore): seq[string] =
   result.sort()
 
 proc iconThemeName*(store: SettingsStore): string =
-  let requested = store.stringSetting("iconTheme", "Nimculus Default")
+  let requested = store.stringSetting("iconTheme")
   if store != nil and store.iconThemeRegistry.hasKey(requested): requested else: "Nimculus Default"
 
 proc iconForPath*(store: SettingsStore, path: string; directory = false): string =
