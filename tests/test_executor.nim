@@ -49,9 +49,8 @@ suite "Zed-shaped async execution":
     discard execCmdEx("git -C " & quoteShell(root) & " init -q")
     let dispatcher = newPlatformDispatcher()
     let executor = newBackgroundExecutor(dispatcher)
-    let started = epochTime()
     let future = newGitRepository(root, executor)
-    check epochTime() - started < 0.2
+    check not future.finished
     let wait = tickUntil("newGitRepository future completion", future)
     check checkTestWait(wait)
     check future.finished

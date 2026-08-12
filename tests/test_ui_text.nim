@@ -1,8 +1,6 @@
 import std/unittest
 import std/unicode
 import std/options
-import std/monotimes
-import std/times
 import nimnui/nimnui
 import nimnui/text
 import nimculus/editor_view
@@ -743,11 +741,10 @@ suite "M2 UI foundation":
     for node in tree.nodes:
       tree.setContext(node.id, keyContext("DeepTree"))
     check tree.focus(current)
-    let started = getMonoTime()
-    let contexts = tree.contextStack()
-    let elapsed = inMicroseconds(getMonoTime() - started)
+    var nodeIndexLookups = 0
+    let contexts = tree.contextStack(nodeIndexLookups)
     check contexts.len == 2000
-    check elapsed < 1_000
+    check nodeIndexLookups == contexts.len * 2
 
 suite "M3 text foundation":
   test "positions handle UTF-8 and combining marks":

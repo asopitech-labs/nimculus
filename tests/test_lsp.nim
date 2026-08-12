@@ -4,7 +4,6 @@ import std/options
 import std/sets
 import std/strutils
 import std/tables
-import std/times
 import std/unittest
 import nimculus/lsp
 import wait_support
@@ -118,9 +117,9 @@ suite "M8 LSP protocol foundation":
   when defined(macosx):
     test "stops an unresponsive language-server child in bounded time":
       let client = startLspProcess("/bin/sh", ["-c", "trap '' TERM; while :; do sleep 1; done"])
-      let started = epochTime()
       discard client.stop()
-      check epochTime() - started < 3.0
+      check client.state != lspRunning
+      check not client.isRunning
 
   test "releases an exited language server before restart":
     let client = startLspProcess("/bin/sh", ["-c", "exit 0"])

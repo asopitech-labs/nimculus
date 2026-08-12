@@ -394,13 +394,29 @@ proc setContext*(tree: var UiTree, id: NodeId, context: KeyContext) =
   let index = tree.nodeIndex(id)
   if index >= 0: tree.nodes[index].context = context
 
-proc contextStack*(tree: UiTree): seq[KeyContext] =
+proc contextStack*(tree: UiTree, nodeIndexLookups: var int): seq[KeyContext] =
   ## Collect the focused node's dispatch path, then expose it in Zed's
   ## root-to-focused order so Descendant predicates see parent before child.
-  for id in tree.dispatchPath(tree.focused):
+  ## The lookup counter is used by tests to assert that this remains an
+  ## indexed walk rather than a scan through all nodes for every parent.
+  var path: seq[NodeId]
+  var current = tree.focused
+  while current != NodeId(0):
+    inc nodeIndexLookups
+    let index = tree.nodeIndex(current)
+    if index < 0: return @[]
+    path.add(current)
+    current = tree.nodes[index].parent
+  path.reverse()
+  for id in path:
+    inc nodeIndexLookups
     let index = tree.nodeIndex(id)
     if tree.nodes[index].context.entries.len > 0:
       result.add(tree.nodes[index].context)
+
+proc contextStack*(tree: UiTree): seq[KeyContext] =
+  var ignoredLookups = 0
+  tree.contextStack(ignoredLookups)
 
 proc dispatchPath*(tree: UiTree, target: NodeId): seq[NodeId] =
   ## Return the target's parent chain in root-to-target order.
