@@ -745,6 +745,8 @@ suite "M2 UI foundation":
     let contexts = tree.contextStack(nodeIndexLookups)
     check contexts.len == 2000
     check nodeIndexLookups == contexts.len * 2
+    for context in contexts:
+      check context.contains("DeepTree")
 
 suite "M3 text foundation":
   test "positions handle UTF-8 and combining marks":
