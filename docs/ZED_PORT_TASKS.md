@@ -557,3 +557,15 @@
 
 3. **1 つの条件で確認したものは、その条件でしか確認されていない。**
    単一ファイル・フォルダ・git リポジトリの 3 条件で見る
+
+### 指示書にあり台帳に無かった項目（2026-08-13 に追加）
+
+10 のエージェントが別々に書いた指示書と、台帳の元になった構成図とで
+メカニズム名がずれていた 5 件。**台帳が更新されないまま同じ項目を 2 回投入していた**
+（`x` と `z` に同一の課題を渡した）。名前で照合する以上、両者は一致していなければならない。
+
+- [ ] **Style x state -> concrete style resolution** — Zed `references/zed/crates/ui/src/components/button/button_like.rs:125 (ButtonStyle), :190 (ButtonLikeStyles {background, border_color, label_color, icon_color}), :210 enabled(), :257 hovered(), through :448 for active()/disabled()`
+- [x] **Platform input event vocabulary (PlatformInput / ClickEvent)** — Zed `references/zed/crates/gpui/src/interactive.rs:735 (PlatformInput enum), :25/:47/:62 (KeyDown/KeyUp/ModifiersChanged payloads), :139/:176/:485/:513 (mouse down/up/move/scroll), :279 (ClickEvent enum: Mouse | Keyboard | Touch), :762/:780 (mouse_event/keyboard_event partition)`
+- [x] **KeyBinding: a keystroke sequence with prefix matching** — Zed `references/zed/crates/gpui/src/keymap/binding.rs:64 (struct KeyBinding, keystrokes: SmallVec<[KeybindingKeystroke;2]>), :100 (load splits on split_whitespace), :140 (match_keystrokes returning Option<bool> where Some(true) means pending prefix, Some(false) exact, None no match)`
+- [ ] **NoAction / Unbind disable markers and predicate is_superset** — Zed `references/zed/crates/gpui/src/action.rs:425-458 (NoAction, Unbind), keymap.rs:29 (disabled_binding_matches_context), :40 (binding_is_unbound), :192-227 (the candidate loop that breaks on a user NoAction and skips unbound bindings), keymap/binding.rs:143 (KeyBindingMetaIndex), keymap/context.rs:328 (is_superset)`
+- [ ] **Entry identity: ProjectEntryId with inode-based rename detection** — Zed `crates/worktree/src/worktree.rs:3896 (struct Entry with id/inode/mtime/is_ignored/is_hidden/is_private/is_external), :292 (RemovedEntries with by_inode and by_path)`
