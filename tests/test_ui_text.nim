@@ -95,7 +95,9 @@ suite "M2 UI foundation":
     var invoked = false
     registry.register(Command(name: "save",
       shortcut: Shortcut(keyCode: 1, modifiers: {commandModifier, shiftModifier}),
-      action: proc() = invoked = true))
+      action: proc(): bool =
+      invoked = true
+      true))
     var resolved: Command
     check registry.tryResolve(Shortcut(keyCode: 1,
       modifiers: {commandModifier, shiftModifier}), resolved)
@@ -111,11 +113,60 @@ suite "M2 UI foundation":
     var invoked = ""
     let shortcut = Shortcut(keyCode: 0, modifiers: {commandModifier})
     registry.register(Command(name: "first", shortcut: shortcut,
-      action: proc() = invoked = "first"))
+      action: proc(): bool =
+      invoked = "first"
+      true))
     registry.register(Command(name: "second", shortcut: shortcut,
-      action: proc() = invoked = "second"))
+      action: proc(): bool =
+      invoked = "second"
+      true))
     check registry.dispatchShortcut(shortcut)
     check invoked == "second"
+
+  test "bindings for input return every matching command in precedence order":
+    var registry: CommandRegistry
+    let shortcut = Shortcut(keyCode: 10)
+    registry.register(Command(name: "global", shortcut: shortcut))
+    registry.register(Command(name: "editor", shortcut: shortcut,
+      whenClause: "Editor"))
+    registry.register(Command(name: "editor-tab", shortcut: shortcut,
+      whenClause: "Editor > Tab"))
+    let contexts = @[keyContext("Workspace"), keyContext("Editor"),
+      keyContext("Tab")]
+    let bindings = registry.bindingsForInput(shortcut, contexts)
+    check bindings.len == 3
+    check bindings[0].name == "editor-tab"
+    check bindings[1].name == "global"
+    check bindings[2].name == "editor"
+
+  test "command predicates are parsed at registration, not dispatch":
+    let previousParseCount = keyBindingPredicateParseCount
+    var registry: CommandRegistry
+    let shortcut = Shortcut(keyCode: 11)
+    registry.register(Command(name: "editor", shortcut: shortcut,
+      whenClause: "Editor"))
+    check keyBindingPredicateParseCount == previousParseCount + 1
+    check registry.commands[0].predicate != nil
+    discard registry.bindingsForInput(shortcut, @[keyContext("Editor")])
+    discard registry.dispatchShortcut(shortcut, @[keyContext("Editor")])
+    check keyBindingPredicateParseCount == previousParseCount + 1
+
+  test "declining shortcut handlers fall through to the next candidate":
+    var registry: CommandRegistry
+    var invoked: seq[string]
+    let shortcut = Shortcut(keyCode: 12)
+    registry.register(Command(name: "fallback", shortcut: shortcut,
+      action: proc(): bool =
+      invoked.add("fallback")
+      true))
+    registry.register(Command(name: "editor", shortcut: shortcut,
+      whenClause: "Editor",
+      action: proc(): bool =
+      invoked.add("editor")
+      false))
+    check registry.dispatchShortcut(shortcut,
+      @[keyContext("Workspace"), keyContext("Editor")])
+    check invoked == @["editor", "fallback"]
 
   test "context stack resolves the same key from the focused dispatch path":
     var tree = newUiTree()

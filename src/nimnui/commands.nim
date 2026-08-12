@@ -15,10 +15,13 @@ type
     name*: string
     shortcut*: Shortcut
     whenClause*: string
-    action*: proc() {.closure.}
+    predicate*: KeyBindingContextPredicate
+    action*: proc(): bool {.closure.}
 
   CommandRegistry* = object
     commands*: seq[Command]
+
+var keyBindingPredicateParseCount* = 0
 
 const
   ## NSEventModifierFlags values used by AppKit. Keep this conversion at the
@@ -37,44 +40,53 @@ proc macOSModifiers*(flags: uint32): set[Modifier] =
   if (flags and macOSControlFlag) != 0: result.incl(controlModifier)
   if (flags and macOSShiftFlag) != 0: result.incl(shiftModifier)
 
-proc register*(registry: var CommandRegistry, command: Command) = registry.commands.add(command)
+proc parseCommandPredicate(source: string): KeyBindingContextPredicate =
+  inc keyBindingPredicateParseCount
+  parseKeyBindingContextPredicate(source)
+
+proc setWhenClause*(command: var Command, whenClause: string) =
+  command.whenClause = whenClause
+  command.predicate = parseCommandPredicate(whenClause)
+
+proc register*(registry: var CommandRegistry, command: Command) =
+  var registered = command
+  registered.predicate = parseCommandPredicate(registered.whenClause)
+  registry.commands.add(registered)
 
 proc matchingDepth(command: Command, contexts: openArray[KeyContext]): int =
   if command.whenClause.len == 0: return contexts.len
-  let predicate = parseKeyBindingContextPredicate(command.whenClause)
-  if predicate == nil: return -1
-  predicate.depthOf(contexts)
+  command.predicate.depthOf(contexts)
 
-proc resolve*(registry: CommandRegistry, shortcut: Shortcut,
-              contexts: openArray[KeyContext]): Command =
-  var bestDepth = -1
+proc bindingsForInput*(registry: CommandRegistry, shortcut: Shortcut,
+                       contexts: openArray[KeyContext]): seq[Command] =
+  var matches: seq[tuple[command: Command, depth: int, index: int]]
   for index in countdown(registry.commands.high, 0):
     let candidate = registry.commands[index]
     if candidate.shortcut.keyCode != shortcut.keyCode or
         candidate.shortcut.modifiers != shortcut.modifiers: continue
     let depth = candidate.matchingDepth(contexts)
-    if depth >= 0 and depth > bestDepth:
-      result = candidate
-      bestDepth = depth
+    if depth >= 0:
+      matches.add((candidate, depth, index))
+  matches.sort(proc(left, right: (typeof matches[0])): int =
+    if left.depth != right.depth: cmp(right.depth, left.depth)
+    else: cmp(right.index, left.index))
+  for match in matches:
+    result.add(match.command)
+
+proc resolve*(registry: CommandRegistry, shortcut: Shortcut,
+              contexts: openArray[KeyContext]): Command =
+  let bindings = registry.bindingsForInput(shortcut, contexts)
+  if bindings.len > 0: result = bindings[0]
 
 proc resolve*(registry: CommandRegistry, shortcut: Shortcut): Command =
   registry.resolve(shortcut, [])
 
 proc tryResolve*(registry: CommandRegistry, shortcut: Shortcut,
                  contexts: openArray[KeyContext], command: var Command): bool =
-  ## Resolve a shortcut without using an all-zero Command as a sentinel.
-  ## Keymap files are ordered; later bindings take precedence, matching Zed's
-  ## keymap loader and making layered settings deterministic.
-  var bestDepth = -1
-  for index in countdown(registry.commands.high, 0):
-    let candidate = registry.commands[index]
-    if candidate.shortcut.keyCode == shortcut.keyCode and
-        candidate.shortcut.modifiers == shortcut.modifiers:
-      let depth = candidate.matchingDepth(contexts)
-      if depth < 0 or depth <= bestDepth: continue
-      command = candidate
-      bestDepth = depth
-  bestDepth >= 0
+  let bindings = registry.bindingsForInput(shortcut, contexts)
+  if bindings.len == 0: return false
+  command = bindings[0]
+  true
 
 proc tryResolve*(registry: CommandRegistry, shortcut: Shortcut,
                  command: var Command): bool =
@@ -82,11 +94,9 @@ proc tryResolve*(registry: CommandRegistry, shortcut: Shortcut,
 
 proc dispatchShortcut*(registry: CommandRegistry, shortcut: Shortcut,
                        contexts: openArray[KeyContext]): bool =
-  ## Invoke exactly one registered command and report whether it was handled.
-  var command: Command
-  if not registry.tryResolve(shortcut, contexts, command): return false
-  if command.action != nil: command.action()
-  true
+  for command in registry.bindingsForInput(shortcut, contexts):
+    if command.action != nil and command.action(): return true
+  false
 
 proc dispatchShortcut*(registry: CommandRegistry, shortcut: Shortcut): bool =
   registry.dispatchShortcut(shortcut, [])
