@@ -3,6 +3,9 @@ import nimnui/ui_tree
 import nimnui/layout
 import nimnui/render
 
+export render.ScrollbarStyle, render.toPixels, render.scrollbarWidth,
+  render.scrollbarStrip
+
 type
   ControlKind* = enum
     label, button, scrollView, splitPane, tabBar, toolbar, statusBar, row, editor,
@@ -17,6 +20,102 @@ type
   ScrollModel* = object
     offset*, contentSize*, viewportSize*: Pixels
 
+  ## The setting is intentionally the same three-way choice as Zed's
+  ## ShowScrollbar setting.  `autohide` is resolved against the platform's
+  ## global preference by showBehavior below.
+  ShowBehavior* = enum
+    always, autohide, never
+
+  ## A track click centers the thumb on the pointer. A thumb drag preserves
+  ## the pointer's grab delta, which is why the two input cases are distinct.
+  ScrollbarEventKind* = enum
+    TrackClick, ThumbDrag
+
+  ScrollbarEvent* = object
+    kind*: ScrollbarEventKind
+    grabDelta*: Pixels
+
+  ScrollbarLayout* = object
+    track*, thumb*: Rect
+    visible*: bool
+
+proc trackClick*(): ScrollbarEvent =
+  ScrollbarEvent(kind: TrackClick, grabDelta: px(0))
+
+proc thumbDrag*(grabDelta: Pixels): ScrollbarEvent =
+  ScrollbarEvent(kind: ThumbDrag, grabDelta: grabDelta)
+
+proc showBehavior*(setting: ShowBehavior, osAutoHide: bool): ShowBehavior =
+  ## macOS reports the global preference independently from the application
+  ## setting.  Auto-hide only takes effect when that global preference also
+  ## requests it; Always and Never remain explicit overrides.
+  case setting
+  of always: return always
+  of autohide:
+    if osAutoHide: return autohide
+    return always
+  of never: return never
+
+proc fromSetting*(setting: ShowBehavior, osAutoHide: bool): ShowBehavior =
+  setting.showBehavior(osAutoHide)
+
+proc computeClickOffset*(eventPos, trackOrigin, viewportSize, thumbSize,
+                         maxOffset: Pixels, event: ScrollbarEvent): Pixels =
+  ## This is ScrollbarLayout::compute_click_offset from Zed: position the
+  ## thumb in track coordinates, clamp it to its travel, then map that
+  ## percentage onto the content offset.  A full-size thumb has no travel.
+  let viewport = float32(viewportSize)
+  let thumb = float32(thumbSize)
+  if viewport <= 0'f32 or thumb >= viewport:
+    return px(0)
+  let thumbOffset = if event.kind == TrackClick: thumb / 2'f32
+    else: float32(event.grabDelta)
+  let thumbStart = max(0'f32, min(viewport - thumb,
+    float32(eventPos) - float32(trackOrigin) - thumbOffset))
+  let percentage = thumbStart / (viewport - thumb)
+  px(-float32(maxOffset) * percentage)
+
+proc computeClickOffset*(eventPos, trackOrigin, viewportSize, thumbSize,
+                         maxOffset: Pixels, event: ScrollbarEventKind): Pixels =
+  ## Convenience overload for callers that only have the event kind. A drag
+  ## without a stored grab delta is equivalent to a zero-delta drag.
+  computeClickOffset(eventPos, trackOrigin, viewportSize, thumbSize, maxOffset,
+    ScrollbarEvent(kind: event, grabDelta: px(0)))
+
+proc scrollbarThumbSize*(model: ScrollModel, trackSize: Pixels): Pixels =
+  let track = max(0'f32, float32(trackSize))
+  let content = float32(model.contentSize)
+  let viewport = max(0'f32, float32(model.viewportSize))
+  if track <= 0'f32 or content <= viewport or content <= 0'f32 or viewport <= 0'f32:
+    return px(0)
+  px(min(track, track * viewport / content))
+
+proc scrollbarLayout*(model: ScrollModel, body: Rect,
+                      style: ScrollbarStyle = regular,
+                      behavior: ShowBehavior = always,
+                      osAutoHide = false, scrolling = false): ScrollbarLayout =
+  let strip = body.scrollbarStrip(style)
+  let thumbHeight = model.scrollbarThumbSize(strip.size.height)
+  let resolved = behavior.showBehavior(osAutoHide)
+  result.track = strip
+  result.visible = float32(thumbHeight) > 0'f32 and
+    (case resolved
+      of always: true
+      of autohide: scrolling
+      of never: false)
+  if result.visible:
+    let maximum = max(0'f32, float32(model.contentSize - model.viewportSize))
+    let offset = if maximum > 0'f32:
+      min(maximum, max(0'f32, float32(model.offset)))
+    else: 0'f32
+    let travel = max(0'f32, float32(strip.size.height) - float32(thumbHeight))
+    let percentage = if maximum > 0'f32: offset / maximum else: 0'f32
+    result.thumb = Rect(
+      origin: Point(x: strip.origin.x,
+        y: px(float32(strip.origin.y) + travel * percentage)),
+      size: Size(width: strip.size.width, height: thumbHeight))
+
+type
   SplitPaneModel* = object
     ratio*: float32
     dragging*: bool

@@ -212,6 +212,17 @@ static NSUInteger g_editor_gutter_debug_line_count = 0;
 static CGFloat g_editor_gutter_debug_width = -1.0;
 static CGFloat g_editor_gutter_debug_origin = -1.0;
 
+static BOOL nimculusPlatformShouldAutohideScrollbars(void) {
+  // AppleShowScrollBars is the same global preference AppKit uses for native
+  // scroll views.  The missing key means the system's overlay scroller
+  // default, which is an auto-hiding scrollbar on current macOS releases.
+  NSString *preference = [[NSUserDefaults standardUserDefaults]
+    stringForKey:@"AppleShowScrollBars"];
+  if ([preference isEqualToString:@"Always"]) return NO;
+  if ([preference isEqualToString:@"WhenScrolling"]) return YES;
+  return [NSScroller preferredScrollerStyle] == NSScrollerStyleOverlay;
+}
+
 void nimculus_platform_log_editor_scroll_debug(const char *pane, double widest,
                                                double viewport, double scroll_x,
                                                double track_x, double track_width,
@@ -9817,7 +9828,7 @@ static NimculusCursorStyle nimculusCursorStyleForLogicalPoint(NSPoint point) {
     outlineScroll.borderType = NSNoBorder;
     outlineScroll.drawsBackground = NO;
     outlineScroll.hasVerticalScroller = YES;
-    outlineScroll.autohidesScrollers = YES;
+    outlineScroll.autohidesScrollers = nimculusPlatformShouldAutohideScrollbars();
     outlineScroll.documentView = outline;
     [self addSubview:outlineScroll];
     [outlineScroll release];
