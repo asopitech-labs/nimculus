@@ -2,6 +2,22 @@ import std/math
 import nimnui/geometry
 
 type
+  Color* = object
+    red*, green*, blue*, alpha*: float32
+
+  ## British spelling is kept as an alias because the paint API describes
+  ## this as a colour payload while the rest of the renderer uses `Color`.
+  Colour* = Color
+
+  ElevationIndex* = enum
+    background, surface, editorSurface, elevatedSurface, modalSurface
+
+  BoxShadow* = object
+    offset*: Point
+    blurRadius*: Pixels
+    color*: Color
+    colour*: Color
+
   PaintKind* = enum
     rectangle, border, roundedRectangle, text, image, clip, transform,
     shadow, caret, selection, scrollbar,
@@ -25,6 +41,9 @@ type
     clip*: Rect
     text*: string
     radius*: Pixels
+    blurRadius*: Pixels
+    color*: Color
+    colour*: Color
     transform*: Transform2D
     imageId*: uint32
     ## Only populated for roundedSelection. Keeping the rows on the paint
@@ -168,7 +187,56 @@ proc popElementOffset*(paint: var PaintList) =
   if paint.elementOffsetStack.len > 0:
     paint.elementOffsetStack.setLen(paint.elementOffsetStack.len - 1)
 proc drawShadow*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: shadow,
-    bounds: bounds, clip: bounds))
+    bounds: bounds, clip: bounds, color: Color(red: 0, green: 0, blue: 0, alpha: 0.35),
+    colour: Color(red: 0, green: 0, blue: 0, alpha: 0.35)))
+proc drawShadow*(paint: var PaintList, bounds: Rect, offset: Point,
+                 blurRadius: Pixels, color: Color) =
+  ## `radius` and `imageId` mirror the two new shadow values through the
+  ## existing native command ABI. The typed fields remain the retained paint
+  ## representation and are what tests and non-native renderers consume.
+  let packedColor = proc(value: float32): uint32 =
+    uint32(max(0'f32, min(1'f32, value)) * 255'f32 + 0.5'f32)
+  let packed = packedColor(color.red) or
+    (packedColor(color.green) shl 8) or
+    (packedColor(color.blue) shl 16) or
+    (packedColor(color.alpha) shl 24)
+  let shadowColor = Color(red: color.red, green: color.green,
+    blue: color.blue, alpha: color.alpha)
+  paint.add(PaintCommand(kind: shadow, bounds: bounds.offset(offset.x, offset.y),
+    clip: bounds.offset(offset.x, offset.y), radius: blurRadius,
+    blurRadius: blurRadius, color: shadowColor, colour: shadowColor,
+    imageId: packed))
+
+proc shadows*(e: ElevationIndex, light: bool): seq[BoxShadow] =
+  let elevatedAmbientAlpha = if light: 0.03 else: 0.06
+  let modalFirstAlpha = if light: 0.06 else: 0.12
+  let modalSecondAlpha = if light: 0.06 else: 0.08
+  let modalLastAlpha = if light: 0.04 else: 0.12
+  case e
+  of background, surface, editorSurface:
+    discard
+  of elevatedSurface:
+    result = @[
+      BoxShadow(offset: Point(x: px(0), y: px(2)), blurRadius: px(3),
+        color: Color(red: 0, green: 0, blue: 0, alpha: 0.12),
+        colour: Color(red: 0, green: 0, blue: 0, alpha: 0.12)),
+      BoxShadow(offset: Point(x: px(0), y: px(1)), blurRadius: px(0),
+        color: Color(red: 0, green: 0, blue: 0, alpha: elevatedAmbientAlpha),
+        colour: Color(red: 0, green: 0, blue: 0, alpha: elevatedAmbientAlpha))]
+  of modalSurface:
+    result = @[
+      BoxShadow(offset: Point(x: px(0), y: px(2)), blurRadius: px(3),
+        color: Color(red: 0, green: 0, blue: 0, alpha: modalFirstAlpha),
+        colour: Color(red: 0, green: 0, blue: 0, alpha: modalFirstAlpha)),
+      BoxShadow(offset: Point(x: px(0), y: px(3)), blurRadius: px(6),
+        color: Color(red: 0, green: 0, blue: 0, alpha: modalSecondAlpha),
+        colour: Color(red: 0, green: 0, blue: 0, alpha: modalSecondAlpha)),
+      BoxShadow(offset: Point(x: px(0), y: px(6)), blurRadius: px(12),
+        color: Color(red: 0, green: 0, blue: 0, alpha: 0.04),
+        colour: Color(red: 0, green: 0, blue: 0, alpha: 0.04)),
+      BoxShadow(offset: Point(x: px(0), y: px(1)), blurRadius: px(0),
+        color: Color(red: 0, green: 0, blue: 0, alpha: modalLastAlpha),
+        colour: Color(red: 0, green: 0, blue: 0, alpha: modalLastAlpha))]
 proc drawCaret*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: caret,
     bounds: bounds, clip: bounds))
 proc drawSelection*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: selection,
