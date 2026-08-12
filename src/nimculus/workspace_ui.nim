@@ -6,7 +6,10 @@
 
 import nimnui/geometry
 import std/json
+import std/os
+import std/sequtils
 import nimculus/editor_app
+import nimculus/editor_view
 import nimculus/settings
 
 type
@@ -31,12 +34,17 @@ type
   PaneId* = distinct int
 
   PaneState* = object
-    ## Tab indices remain owned by EditorSession during the migration. This
-    ## makes the layout state useful now without duplicating document ownership.
+    ## A Pane owns its item list. `tabIndices` are stable within the current
+    ## workspace tree and are kept as a compact compatibility identity for
+    ## native callers; the item payload itself lives here, beside its view
+    ## state, activation history, and preview slot.
     id*: PaneId
+    tabs*: seq[EditorTab]
     tabIndices*: seq[int]
     activeTabIndex*: int
     pinnedCount*: int
+    activationHistory*: seq[tuple[tab: int, stamp: int]]
+    previewTab*: int
 
   PaneTreeKind* = enum
     paneLeaf, paneSplit
@@ -166,7 +174,7 @@ proc projectDockPresentationWidth*(logicalWidth, minimumPresenterWidth: float32)
 
 proc newPane(id: int, tabIndices: seq[int] = @[], activeTabIndex = -1): PaneTree =
   PaneTree(kind: paneLeaf, pane: PaneState(id: PaneId(id), tabIndices: tabIndices,
-    activeTabIndex: activeTabIndex, pinnedCount: 0))
+    activeTabIndex: activeTabIndex, pinnedCount: 0, previewTab: -1))
 
 proc splitFlexes(ratio: float32): seq[float32] =
   let normalized = normalizedRatio(ratio)
@@ -212,11 +220,13 @@ proc toJson*(t: PaneTree): JsonNode =
   if t.isNil: return newJNull()
   if t.kind == paneLeaf:
     var items = newJArray()
-    for tabIndex in t.pane.tabIndices:
+    for slot, tabIndex in t.pane.tabIndices:
       items.add(%*{"kind": "tab", "item_id": tabIndex,
-        "active": tabIndex == t.pane.activeTabIndex, "preview": false})
+        "active": tabIndex == t.pane.activeTabIndex,
+        "preview": slot == t.pane.previewTab})
     return %*{"kind": "pane", "active": t.pane.activeTabIndex,
-      "children": items, "pinnedCount": max(0, t.pane.pinnedCount)}
+      "children": items, "pinnedCount": max(0, t.pane.pinnedCount),
+      "previewTab": t.pane.previewTab}
   var children = newJArray()
   for child in t.children:
     children.add(toJson(child))
@@ -265,6 +275,8 @@ proc fromJsonImpl(node: JsonNode, nextPaneId: var int): PaneTree =
   if payload == nil or payload.kind != JObject: return nil
   var indices: seq[int]
   var active = paneJsonInt(payload, "active", -1)
+  var preview = paneJsonInt(payload, "previewTab",
+    paneJsonInt(payload, "preview_tab", -1))
   if payload.hasKey("children") and payload["children"].kind == JArray:
     for item in payload["children"]:
       if item.kind != JObject: continue
@@ -274,11 +286,18 @@ proc fromJsonImpl(node: JsonNode, nextPaneId: var int): PaneTree =
       if item.hasKey("active") and item["active"].kind == JBool and
           item["active"].getBool:
         active = itemId
+      if item.hasKey("preview") and item["preview"].kind == JBool and
+          item["preview"].getBool:
+        preview = indices.high
   let pinned = max(0, paneJsonInt(payload, "pinnedCount",
     paneJsonInt(payload, "pinned_count", 0)))
   result = newPane(nextPaneId, indices, active)
   inc nextPaneId
+  for _ in indices:
+    result.pane.tabs.add(EditorTab(document: newDocument(), title: "Untitled",
+      view: newEditorView(), secondaryView: newEditorView()))
   result.pane.pinnedCount = min(pinned, indices.len)
+  result.pane.previewTab = if preview >= 0 and preview < indices.len: preview else: -1
 
 proc fromJson*(node: JsonNode): PaneTree =
   var nextPaneId = 1
@@ -339,6 +358,13 @@ proc initWorkspaceUi*(tabCount = 0, activeTab = -1,
     activePanel: panelFiles,
     minimumSize: DefaultDockMinimumSize, entries: result.rightDock.entries)
   result.center = newPane(1, tabs, activeTab)
+  ## The count-only constructor is used by UI tests and by the early native
+  ## bootstrap, before a session has supplied real documents. Keep a matching
+  ## item payload so PaneState is complete even in that compatibility path.
+  for index in 0 ..< tabCount:
+    let document = newDocument()
+    result.center.pane.tabs.add(EditorTab(document: document,
+      title: "Untitled", view: newEditorView(), secondaryView: newEditorView()))
   for panel in PanelKind:
     result.panelLists[panel].selectedIndex = -1
   result.focusedRegion = regionCenter
@@ -409,6 +435,7 @@ proc paneTreeFromSession*(session: EditorSession): PaneTree =
   let pinned = session.pinnedTabCount()
   proc leaf(id: int, active: int): PaneTree =
     result = newPane(id, indices, active)
+    result.pane.tabs = session.tabs
     result.pane.pinnedCount = pinned
   if not session.split:
     return leaf(1, session.activeTab)
@@ -460,6 +487,21 @@ proc initWorkspaceUi*(session: EditorSession, settings: SettingsStore = nil,
   if session.workspacePaneTree == nil:
     result.center = paneTreeFromSession(session)
     result.nextPaneId = max(2, maxPaneId(result.center) + 1)
+  else:
+    ## Session JSON currently stores item identities rather than full editor
+    ## payloads in the pane tree. Rebind those identities to the session's
+    ## restored items without changing each pane's independent selection.
+    proc rebind(tree: PaneTree) =
+      if tree.isNil: return
+      if tree.kind == paneLeaf:
+        tree.pane.tabs.setLen(0)
+        for tabIndex in tree.pane.tabIndices:
+          if tabIndex >= 0 and tabIndex < session.tabs.len:
+            tree.pane.tabs.add(session.tabs[tabIndex])
+      else:
+        for child in tree.children:
+          rebind(child)
+    rebind(result.center)
   result.restoreStartsOpen(settings, hasFolder, restoredDocks)
 
 proc panelDockSide*(state: WorkspaceUiState, panel: PanelKind): DockSide =
@@ -1065,24 +1107,119 @@ proc focusPane*(state: var WorkspaceUiState, pane: PaneId): bool =
   state.focusedRegion = regionCenter
   true
 
-proc syncRootTabs*(state: var WorkspaceUiState, tabCount, activeTab: int) =
-  ## EditorSession remains the document store during the migration, while each
-  ## Pane owns which of those items it presents. Refresh availability without
-  ## overwriting a secondary pane's independent tab choice.
-  if state.center.isNil: state = initWorkspaceUi(tabCount, activeTab)
-  var indices: seq[int]
-  for index in 0 ..< tabCount: indices.add(index)
-  proc sync(tree: PaneTree) =
+proc paneNode(state: WorkspaceUiState, pane: PaneId): PaneTree =
+  if state.center.isNil: return nil
+  proc find(tree: PaneTree): PaneTree =
+    if tree.isNil: return nil
+    if tree.kind == paneLeaf:
+      return if tree.pane.id == pane: tree else: nil
+    for child in tree.children:
+      let found = find(child)
+      if not found.isNil: return found
+    nil
+  find(state.center)
+
+proc nextPaneTabId(state: WorkspaceUiState): int =
+  var nextId = 0
+  proc scan(tree: PaneTree) =
     if tree.isNil: return
     if tree.kind == paneLeaf:
-      tree.pane.tabIndices = indices
-      tree.pane.pinnedCount = min(tree.pane.pinnedCount, indices.len)
-      if tree.pane.activeTabIndex notin indices:
-        tree.pane.activeTabIndex = activeTab
+      for tabIndex in tree.pane.tabIndices:
+        nextId = max(nextId, tabIndex + 1)
     else:
       for child in tree.children:
-        sync(child)
-  sync(state.center)
+        scan(child)
+  scan(state.center)
+  nextId
+
+proc editorTabTitle(document: FileDocument): string =
+  if document.path.len > 0:
+    let parts = splitFile(document.path)
+    if parts.name.len > 0: return parts.name & parts.ext
+  "Untitled"
+
+proc refreshPaneTabIndices*(state: var WorkspaceUiState, tabCount,
+                            activeTab: int) =
+  ## Update only a pane that has not acquired its own item set yet. This is a
+  ## bootstrap helper for the native bridge; unlike the former root sync it
+  ## never replaces a live pane's list with another pane's list.
+  if state.center.isNil:
+    state = initWorkspaceUi(tabCount, activeTab)
+    return
+  proc refresh(tree: PaneTree) =
+    if tree.isNil: return
+    if tree.kind == paneLeaf:
+      if tree.pane.tabIndices.len == 0 and tabCount > 0:
+        for index in 0 ..< tabCount:
+          tree.pane.tabIndices.add(index)
+          tree.pane.tabs.add(EditorTab(document: newDocument(),
+            title: "Untitled", view: newEditorView(), secondaryView: newEditorView()))
+        tree.pane.activeTabIndex = activeTab
+      tree.pane.pinnedCount = min(tree.pane.pinnedCount,
+        tree.pane.tabIndices.len)
+    else:
+      for child in tree.children:
+        refresh(child)
+  refresh(state.center)
+
+proc openDocumentInPane*(state: var WorkspaceUiState, pane: PaneId,
+                         document: FileDocument, preview = true): int =
+  ## Add an item to exactly one Pane. A preview occupies one reusable slot until
+  ## explicitly activated, matching Zed's replace-preview behaviour.
+  let target = state.paneNode(pane)
+  if target.isNil: return -1
+  let tab = EditorTab(document: document, title: editorTabTitle(document),
+    view: newEditorView(), secondaryView: newEditorView())
+  if preview and target.pane.previewTab >= 0 and
+      target.pane.previewTab < target.pane.tabIndices.len:
+    let slot = target.pane.previewTab
+    while target.pane.tabs.len <= slot:
+      target.pane.tabs.add(EditorTab(document: newDocument(), title: "Untitled",
+        view: newEditorView(), secondaryView: newEditorView()))
+    target.pane.tabs[slot] = tab
+    target.pane.activeTabIndex = target.pane.tabIndices[slot]
+    var nextStamp = 1
+    for entry in target.pane.activationHistory:
+      nextStamp = max(nextStamp, entry.stamp + 1)
+    target.pane.activationHistory.add((target.pane.tabIndices[slot], nextStamp))
+    return target.pane.tabIndices[slot]
+  let tabId = state.nextPaneTabId()
+  target.pane.tabIndices.add(tabId)
+  target.pane.tabs.add(tab)
+  target.pane.activeTabIndex = tabId
+  target.pane.activationHistory.add((tabId, 1))
+  target.pane.previewTab = if preview: target.pane.tabIndices.high else: -1
+  if not preview:
+    target.pane.previewTab = -1
+  tabId
+
+proc attachTabToPane*(state: var WorkspaceUiState, pane: PaneId,
+                      tabIndex: int, tab: EditorTab): bool =
+  ## Attach an already-registered item to one Pane without making the sibling
+  ## panes inherit it. Native callers use the registry's identity here, while
+  ## `openDocumentInPane` allocates a fresh identity for standalone panes.
+  let target = state.paneNode(pane)
+  if target.isNil or tabIndex < 0 or tabIndex in target.pane.tabIndices:
+    return false
+  target.pane.tabIndices.add(tabIndex)
+  target.pane.tabs.add(tab)
+  target.pane.activeTabIndex = tabIndex
+  target.pane.previewTab = -1
+  var nextStamp = 1
+  for entry in target.pane.activationHistory:
+    nextStamp = max(nextStamp, entry.stamp + 1)
+  target.pane.activationHistory.add((tabIndex, nextStamp))
+  true
+
+proc selectPaneTab*(state: var WorkspaceUiState, pane: PaneId,
+                    tabIndex: int): bool
+
+proc activatePaneTab*(state: var WorkspaceUiState, pane: PaneId,
+                      tabIndex: int, preview = false): bool =
+  result = state.selectPaneTab(pane, tabIndex)
+  if result and not preview:
+    let target = state.paneNode(pane)
+    if not target.isNil: target.pane.previewTab = -1
 
 proc selectTab*(state: var WorkspaceUiState, tabIndex: int) =
   ## Selection is pane state, even while EditorSession is the transitional
@@ -1117,6 +1254,10 @@ proc selectPaneTab*(state: var WorkspaceUiState, pane: PaneId, tabIndex: int): b
     if tree.kind == paneLeaf:
       if tree.pane.id != pane or tabIndex notin tree.pane.tabIndices: return false
       tree.pane.activeTabIndex = tabIndex
+      var nextStamp = 1
+      for entry in tree.pane.activationHistory:
+        nextStamp = max(nextStamp, entry.stamp + 1)
+      tree.pane.activationHistory.add((tabIndex, nextStamp))
       return true
     for child in tree.children:
       if select(child): return true
@@ -1153,22 +1294,45 @@ proc cyclePaneTab*(state: var WorkspaceUiState, pane: PaneId, delta: int): int =
     state.focusedRegion = regionCenter
 
 proc removeTab*(state: var WorkspaceUiState, tabIndex: int) =
-  ## Keep every mirrored Pane's item indices aligned with EditorSession after
-  ## one shared document is closed. Each Pane retains its own selection where
-  ## possible, choosing the next item only when it owned the closed tab.
+  ## Remove an item from every Pane that owns it. When the active item closes,
+  ## activation history chooses the most recently used surviving item before
+  ## the index-successor fallback, which is the behavior Zed users expect.
   proc remove(tree: PaneTree) =
     if tree.isNil: return
     if tree.kind == paneLeaf:
       if tabIndex notin tree.pane.tabIndices: return
-      if tree.pane.tabIndices.find(tabIndex) < tree.pane.pinnedCount:
+      let removedSlot = tree.pane.tabIndices.find(tabIndex)
+      var mru = -1
+      var newestStamp = -1
+      for entry in tree.pane.activationHistory:
+        if entry.tab != tabIndex and entry.tab in tree.pane.tabIndices and
+            entry.stamp > newestStamp:
+          mru = entry.tab
+          newestStamp = entry.stamp
+      if removedSlot < tree.pane.pinnedCount:
         dec tree.pane.pinnedCount
-      tree.pane.tabIndices.delete(tree.pane.tabIndices.find(tabIndex))
+      tree.pane.tabIndices.delete(removedSlot)
+      if removedSlot < tree.pane.tabs.len:
+        tree.pane.tabs.delete(removedSlot)
       for index in 0 ..< tree.pane.tabIndices.len:
         if tree.pane.tabIndices[index] > tabIndex: dec tree.pane.tabIndices[index]
-      if tree.pane.activeTabIndex > tabIndex: dec tree.pane.activeTabIndex
+      for index in 0 ..< tree.pane.activationHistory.len:
+        if tree.pane.activationHistory[index].tab > tabIndex:
+          dec tree.pane.activationHistory[index].tab
+      tree.pane.activationHistory = tree.pane.activationHistory.filterIt(
+        it.tab != tabIndex)
+      if tree.pane.previewTab == removedSlot:
+        tree.pane.previewTab = -1
+      elif tree.pane.previewTab > removedSlot:
+        dec tree.pane.previewTab
+      if tree.pane.activeTabIndex > tabIndex:
+        dec tree.pane.activeTabIndex
       elif tree.pane.activeTabIndex == tabIndex:
-        tree.pane.activeTabIndex = if tree.pane.tabIndices.len == 0: -1
-          else: min(tabIndex, tree.pane.tabIndices.high)
+        if mru >= 0:
+          tree.pane.activeTabIndex = if mru > tabIndex: mru - 1 else: mru
+        else:
+          tree.pane.activeTabIndex = if tree.pane.tabIndices.len == 0: -1
+            else: min(tabIndex, tree.pane.tabIndices.high)
     else:
       for child in tree.children:
         remove(child)
@@ -1195,6 +1359,9 @@ proc splitPane*(state: var WorkspaceUiState, targetPane: PaneId, axis: PaneAxis,
       if child.kind == paneLeaf and child.pane.id == targetPane:
         let source = child.pane
         let sibling = newPane(newId, source.tabIndices, source.activeTabIndex)
+        sibling.pane.tabs = source.tabs
+        sibling.pane.activationHistory = source.activationHistory
+        sibling.pane.previewTab = source.previewTab
         sibling.pane.pinnedCount = source.pinnedCount
         if tree.axis == axis:
           tree.children.insert(sibling, index + 1)
@@ -1219,6 +1386,9 @@ proc splitPane*(state: var WorkspaceUiState, targetPane: PaneId, axis: PaneAxis,
     if state.center.pane.id != targetPane: return false
     let source = state.center.pane
     let sibling = newPane(newId, source.tabIndices, source.activeTabIndex)
+    sibling.pane.tabs = source.tabs
+    sibling.pane.activationHistory = source.activationHistory
+    sibling.pane.previewTab = source.previewTab
     sibling.pane.pinnedCount = source.pinnedCount
     state.center = newPaneSplit(axis, @[state.center, sibling], splitFlexes(ratio))
     didSplit = true

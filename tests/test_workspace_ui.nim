@@ -553,9 +553,56 @@ suite "workspace UI state":
     check state.selectPaneTab(secondary, 2)
     check state.paneTabIndex(primary) == 0
     check state.paneTabIndex(secondary) == 2
-    state.syncRootTabs(tabCount = 3, activeTab = 1)
+    state.refreshPaneTabIndices(tabCount = 3, activeTab = 1)
     check state.paneTabIndex(primary) == 0
     check state.paneTabIndex(secondary) == 2
+
+  test "closing the active tab follows pane activation history":
+    var state = initWorkspaceUi(tabCount = 3, activeTab = 0)
+    let pane = state.center.firstPane().id
+    check state.selectPaneTab(pane, 2)
+    check state.selectPaneTab(pane, 0)
+    check state.selectPaneTab(pane, 1)
+    state.removeTab(1)
+    check state.paneTabIndex(pane) == 0
+
+  test "preview item replacement does not grow a pane":
+    let root = getTempDir() / ("nimculus-preview-" & $getCurrentProcessId())
+    createDir(root)
+    let firstPath = root / "first.nim"
+    let secondPath = root / "second.nim"
+    writeFile(firstPath, "first")
+    writeFile(secondPath, "second")
+    var state = initWorkspaceUi()
+    let pane = state.center.firstPane().id
+    discard state.openDocumentInPane(pane, openDocument(firstPath))
+    let firstLength = state.center.firstPane().tabIndices.len
+    discard state.openDocumentInPane(pane, openDocument(secondPath))
+    check state.center.firstPane().tabIndices.len == firstLength
+    check state.center.firstPane().tabs[0].document.path == canonicalOpenPath(secondPath)
+    removeFile(firstPath)
+    removeFile(secondPath)
+    removeDir(root)
+
+  test "pane item ownership keeps split tab sets disjoint":
+    let root = getTempDir() / ("nimculus-pane-items-" & $getCurrentProcessId())
+    createDir(root)
+    let firstPath = root / "first.nim"
+    let secondPath = root / "second.nim"
+    writeFile(firstPath, "first")
+    writeFile(secondPath, "second")
+    var state = initWorkspaceUi()
+    check state.splitFocusedPane(paneVertical)
+    let first = state.center.first.pane.id
+    let second = state.center.second.pane.id
+    discard state.openDocumentInPane(first, openDocument(firstPath), preview = false)
+    discard state.openDocumentInPane(second, openDocument(secondPath), preview = false)
+    check state.paneTabIndex(first) != state.paneTabIndex(second)
+    for tabIndex in state.center.first.pane.tabIndices:
+      check tabIndex notin state.center.second.pane.tabIndices
+    removeFile(firstPath)
+    removeFile(secondPath)
+    removeDir(root)
 
   test "tab cycling changes only the focused pane selection":
     var state = initWorkspaceUi(tabCount = 3, activeTab = 0)
