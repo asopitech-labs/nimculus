@@ -24,11 +24,25 @@ type
   OverlayPlacement* = enum
     placeBelow, placeAbove
 
+  OverlayItemKind* = enum
+    separator, header, label, entry, customEntry, submenu
+
+  ToggleState* = enum
+    off, on, mixed
+
   OverlayItem* = object
+    ## The discriminator keeps menu data independent from its renderer. The
+    ## legacy fields remain common fields so old flat records still decode as
+    ## entries in itemKind below.
     label*: string
     command*: string
     enabled*: bool
+    toggled*: ToggleState
+    endSlot*: string
     separator*: bool
+    case kind*: OverlayItemKind
+    of separator, header, label, entry, customEntry, submenu:
+      discard
 
   OverlayKeyResult* = object
     handled*: bool
@@ -67,7 +81,30 @@ proc endDrag*(model: var SplitPaneModel) = model.dragging = false
 proc dragTo*(model: var SplitPaneModel, ratio: float32) =
   if model.dragging: model.ratio = min(1'f32, max(0'f32, ratio))
 
-proc selectable(item: OverlayItem): bool = item.enabled and not item.separator
+proc itemKind(item: OverlayItem): OverlayItemKind =
+  ## An omitted discriminator is the zero value (separator) in Nim object
+  ## construction. Treat old records with content as entries while keeping an
+  ## explicitly empty separator a separator.
+  if item.kind == separator and not item.separator and
+      (item.label.len > 0 or item.command.len > 0 or item.enabled):
+    entry
+  else:
+    item.kind
+
+proc selectable(item: OverlayItem): bool =
+  if item.separator: return false
+  case item.itemKind
+  of entry, customEntry, submenu:
+    item.enabled
+  of separator, header, label:
+    false
+
+proc rowHeight(model: OverlayModel, item: OverlayItem): Pixels =
+  case item.itemKind
+  of separator:
+    maxPx(px(1), model.itemHeight / px(2))
+  of header, label, entry, customEntry, submenu:
+    model.itemHeight
 
 proc firstSelectable(items: seq[OverlayItem]): int =
   for index, item in items:
@@ -75,8 +112,18 @@ proc firstSelectable(items: seq[OverlayItem]): int =
   -1
 
 proc overlayHeight(model: OverlayModel): Pixels =
-  let rows = if model.kind == tooltip: 1 else: max(1, model.items.len)
-  model.itemHeight * float32(rows)
+  if model.kind == tooltip: return model.itemHeight
+  if model.items.len == 0: return model.itemHeight
+  result = px(0)
+  for item in model.items:
+    result = result + model.rowHeight(item)
+
+func submenuVerticalOffset*(triggerBounds, menuBounds: Rect): Pixels =
+  ## Keep the submenu placement contract as a pure geometry operation.
+  triggerBounds.origin.y - menuBounds.origin.y
+
+func submenuOffset*(triggerBounds, menuBounds: Rect): Pixels =
+  submenuVerticalOffset(triggerBounds, menuBounds)
 
 proc clampOverlayBounds(anchor, viewport: Rect, size: Size,
                         placement: OverlayPlacement): Rect =
@@ -155,16 +202,22 @@ proc dismiss*(model: var OverlayModel) =
 
 proc rowBounds*(model: OverlayModel, index: int): Rect =
   if index < 0 or index >= model.items.len or not model.open: return Rect()
+  var y = model.bounds.origin.y
+  for preceding in 0 ..< index:
+    y = y + model.rowHeight(model.items[preceding])
   Rect(origin: Point(x: model.bounds.origin.x,
-                     y: model.bounds.origin.y + model.itemHeight * float32(index)),
-       size: Size(width: model.bounds.size.width, height: model.itemHeight))
+                     y: y),
+       size: Size(width: model.bounds.size.width,
+                  height: model.rowHeight(model.items[index])))
 
 proc itemAt*(model: OverlayModel, point: Point): int =
   if not model.open or model.kind == tooltip or not model.bounds.contains(point): return -1
-  let relative = float32(point.y) - float32(model.bounds.origin.y)
-  let index = int(relative / float32(model.itemHeight))
-  if index < 0 or index >= model.items.len or not model.items[index].selectable: return -1
-  index
+  for index in 0 ..< model.items.len:
+    let row = model.rowBounds(index)
+    if row.contains(point):
+      if model.items[index].selectable: return index
+      return -1
+  -1
 
 proc selectAt*(model: var OverlayModel, point: Point): bool =
   let index = model.itemAt(point)
@@ -257,12 +310,21 @@ proc paintOverlay*(paint: var PaintList, model: OverlayModel, light = true) =
   for index, item in model.items:
     let row = model.rowBounds(index)
     if index == model.selectedIndex: paint.drawRectangle(row)
-    if not item.separator and item.label.len > 0:
+    let kind = item.itemKind
+    if kind == separator:
+      paint.drawBorder(row.inset(EdgeInsets(top: px(3), right: px(8),
+        bottom: px(3), left: px(8))))
+    elif item.label.len > 0:
+      var text = item.label
+      if kind == entry:
+        case item.toggled
+        of on: text = "✓ " & text
+        of mixed: text = "− " & text
+        of off: discard
+      if item.endSlot.len > 0:
+        text = text & "  " & item.endSlot
       paint.drawText(row.inset(EdgeInsets(top: px(2), right: px(8),
-        bottom: px(2), left: px(8))), item.label)
-    elif item.separator:
-      paint.drawBorder(row.inset(EdgeInsets(top: px(11), right: px(8),
-        bottom: px(11), left: px(8))))
+        bottom: px(2), left: px(8))), text)
 
 proc makeControl*(tree: var UiTree, parent: NodeId, kind: ControlKind,
                   text = "", focusable = false): Control =
