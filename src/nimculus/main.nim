@@ -9753,7 +9753,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       changedShortcutModifiers: macOSModifiers(event.modifiers))
   of command:
     uiEvent = UiEvent(kind: kind, target: target, command: "")
-  discard demoTree.dispatch(uiEvent)
+  discard demoTree.dispatchWithHandlers(uiEvent)
 
 when isMainModule:
   platformDispatcher = newPlatformDispatcher()

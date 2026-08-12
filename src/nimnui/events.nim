@@ -8,7 +8,7 @@ type
     modifiersChanged, command
 
   EventPhase* = enum
-    capture, target, bubble
+    capture, bubble
 
   UiEvent* = object
     phase*: EventPhase
@@ -38,6 +38,24 @@ type
       command*: string
 
   EventHandler* = proc(event: var UiEvent) {.closure.}
+
+  ActionDispatchFrame = object
+    event: ptr UiEvent
+    propagated: bool
+
+var actionDispatchStack: seq[ActionDispatchFrame]
+
+proc propagate*() =
+  ## Allow the current action listener to continue to its parent.
+  if actionDispatchStack.len > 0:
+    actionDispatchStack[^1].propagated = true
+    actionDispatchStack[^1].event[].handled = false
+
+proc propagate*(event: var UiEvent) =
+  ## The event form is useful for action handlers adapted to EventHandler.
+  event.handled = false
+  if actionDispatchStack.len > 0 and actionDispatchStack[^1].event == addr event:
+    actionDispatchStack[^1].propagated = true
 
 proc nativeEventKind*(eventType: uint32): UiEventKind =
   ## NSEventType values used by the AppKit bridge. Keep drag and modifier
@@ -74,11 +92,20 @@ proc invokeNodeListeners(tree: var UiTree, id: NodeId, event: var UiEvent) =
   of modifiersChanged:
     for handler in tree.nodes[index].modifiersChangedListeners:
       handler(addr event)
-  of command:
-    for listener in tree.nodes[index].actionListeners:
-      if listener.action == event.command:
-        listener.handler(event.command)
   else: discard
+
+proc invokeActionListeners(tree: var UiTree, id: NodeId, event: var UiEvent) =
+  let index = tree.nodeIndex(id)
+  if index < 0: return
+  for listener in tree.nodes[index].actionListeners:
+    if listener.action != event.command: continue
+    event.handled = true
+    actionDispatchStack.add(ActionDispatchFrame(event: addr event))
+    listener.handler(event.command)
+    let frame = actionDispatchStack[^1]
+    actionDispatchStack.setLen(actionDispatchStack.len - 1)
+    if frame.propagated or not event.handled:
+      event.handled = false
 
 proc onKeyEvent*(tree: var UiTree, id: NodeId, handler: EventHandler) =
   let index = tree.nodeIndex(id)
@@ -104,6 +131,18 @@ proc onAction*(tree: var UiTree, id: NodeId, handler: ActionHandler,
                action: string) =
   tree.onAction(id, action, handler)
 
+proc onAction*(tree: var UiTree, id: NodeId, action: string,
+               handler: EventHandler) =
+  let index = tree.nodeIndex(id)
+  if index < 0 or handler == nil: return
+  tree.nodes[index].actionListeners.add((action, proc(_: string) =
+    if actionDispatchStack.len > 0:
+      handler(actionDispatchStack[^1].event[])))
+
+proc onAction*(tree: var UiTree, id: NodeId, handler: EventHandler,
+               action: string) =
+  tree.onAction(id, action, handler)
+
 proc dispatchWithHandlers*(tree: var UiTree,
                            event: var UiEvent): seq[EventPhase]
 
@@ -112,14 +151,26 @@ proc dispatch*(tree: var UiTree, event: var UiEvent): seq[EventPhase] =
 
 proc dispatchWithHandlers*(tree: var UiTree, event: var UiEvent): seq[EventPhase] =
   let path = ancestorPath(tree, event.target)
-  for index in 0 .. path.high:
+  if event.kind == command:
+    event.handled = false
+    for index in countdown(path.high, 0):
+      event.phase = bubble
+      result.add(bubble)
+      tree.invokeActionListeners(path[index], event)
+      if event.handled: return
+    return
+  if event.kind == modifiersChanged:
+    for index in countdown(path.high, 0):
+      event.phase = bubble
+      result.add(bubble)
+      tree.invokeNodeListeners(path[index], event)
+      if event.handled: return
+    return
+  for index in 0 ..< path.len:
     event.phase = capture
     result.add(capture)
     tree.invokeNodeListeners(path[index], event)
     if event.handled: return
-  event.phase = target
-  result.add(target)
-  if event.handled: return
   for index in countdown(path.high, 0):
     event.phase = bubble
     result.add(bubble)
