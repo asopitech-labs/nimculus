@@ -242,6 +242,27 @@ suite "M2 UI foundation":
     check registry.tryResolve(shortcut, @[keyContext("Editor")], resolved)
     check resolved.name == "legacy"
 
+  test "key binding sequences distinguish exact, pending, and non-matching input":
+    let binding = shortcutFromKeyBinding("cmd-k cmd-s")
+    let first = binding.keystrokes[0]
+    let second = binding.keystrokes[1]
+    check binding.matchKeystrokes(@[first]) == (matched: false, pending: true)
+    check binding.matchKeystrokes(@[first, second]) ==
+      (matched: true, pending: false)
+    check binding.matchKeystrokes(@[first, second, first]) ==
+      (matched: false, pending: false)
+    check binding.matchKeystrokes(@[second]) ==
+      (matched: false, pending: false)
+
+  test "key binding sequences accept Zed and legacy separators":
+    let chord = shortcutFromKeyBinding("cmd-k cmd-s")
+    check chord.keystrokes.len == 2
+    check chord.keystrokes[0].keyCode == 40
+    check chord.keystrokes[1].keyCode == 1
+    let legacy = shortcutFromKeyBinding("cmd+shift+p")
+    check legacy.keystrokes == @[
+      Keystroke(keyCode: 35, modifiers: {commandModifier, shiftModifier})]
+
   test "settings keymap recognizes standard macOS keys":
     check shortcutFromKeyBinding("cmd+left").keyCode == 123
     check shortcutFromKeyBinding("option+right").keyCode == 124
