@@ -12,6 +12,37 @@ import nimnui/commands
 import std/times
 
 suite "M12 settings foundation":
+  test "setting descriptors are the single typed default source":
+    let store = newSettingsStore("", "", "")
+    for descriptor in settingDescriptors:
+      case descriptor.kind
+      of settingBool:
+        check store.boolSetting(descriptor.key) == descriptor.default.getBool
+      of settingInt:
+        check store.intSetting(descriptor.key) == descriptor.default.getInt
+      of settingString:
+        check store.stringSetting(descriptor.key) == descriptor.default.getStr
+      of settingFloat:
+        check store.floatSetting(descriptor.key) ==
+          float32(descriptor.default.getFloat)
+    check settingDescriptor("statusBar.showActiveFile").default.getBool == false
+    check settingDescriptor("statusBar.activeLanguageButton").default.getBool
+    check settingDescriptor("statusBar.cursorPositionButton").default.getBool
+    check settingDescriptor("statusBar.lineEndingsButton").default.getBool == false
+    check settingDescriptor("statusBar.activeEncodingButton").default.getStr == "non_utf8"
+    check settingDescriptor("editor.fontSize").default.getInt == 15
+    check settingDescriptor("projectPanel.dock").default.getStr == "right"
+    check settingDescriptor("gitPanel.dock").default.getStr == "right"
+    check settingDescriptor("outlinePanel.dock").default.getStr == "right"
+    check settingDescriptor("terminal.dock").default.getStr == "bottom"
+    check settingDescriptor("debugger.dock").default.getStr == "bottom"
+    check settingDescriptor("agent.dock").default.getStr == "left"
+
+  test "unknown setting keys raise in debug builds":
+    let store = newSettingsStore("", "", "")
+    expect KeyError:
+      discard store.stringSetting("statusBar.showActivFile")
+
   test "editor font features and fallbacks parse in stable platform order":
     let root = getTempDir() / ("nimculus-font-settings-" & $getCurrentProcessId())
     createDir(root)
@@ -53,25 +84,28 @@ suite "M12 settings foundation":
     writeFile(globalPath, """{"editor":{"fontSize":14,"tabSize":2},"theme":"dark","languages":{"nim":{"editor":{"tabSize":4}}}}""")
     writeFile(workspacePath, """{"editor":{"fontSize":16},"themeColors":{"accent":"#ff00aa"}}""")
     let store = newSettingsStore(globalPath, workspacePath, "nim")
-    check store.intSetting("editor.fontSize", 0) == 16
-    check store.intSetting("editor.tabSize", 0) == 4
+    check store.intSetting("editor.fontSize") == 16
+    check store.intSetting("editor.tabSize") == 4
     check store.stringSetting("themeColors.accent") == "#ff00aa"
-    check store.softWrapMode() == DefaultSoftWrapMode
-    check store.editorScrollSensitivity(false) == DefaultScrollSensitivity
-    check store.editorScrollSensitivity(true) == DefaultFastScrollSensitivity
-    check store.terminalScrollMultiplier() == DefaultTerminalScrollMultiplier
+    check store.softWrapMode() == settingDescriptor("soft_wrap").default.getStr
+    check store.editorScrollSensitivity(false) ==
+      float32(settingDescriptor("scroll_sensitivity").default.getFloat)
+    check store.editorScrollSensitivity(true) ==
+      float32(settingDescriptor("fast_scroll_sensitivity").default.getFloat)
+    check store.terminalScrollMultiplier() ==
+      float32(settingDescriptor("terminal.scroll_multiplier").default.getFloat)
     removeFile(globalPath)
     removeFile(workspacePath)
     removeDir(root)
 
   test "panel dock settings match Zed defaults and read configured positions":
     let store = newSettingsStore("", "", "")
-    check store.projectPanelDock() == DefaultProjectPanelDock
-    check store.outlinePanelDock() == DefaultOutlinePanelDock
-    check store.gitPanelDock() == DefaultGitPanelDock
-    check store.agentDock() == DefaultAgentDock
-    check store.terminalDock() == DefaultTerminalDock
-    check store.debuggerDock() == DefaultDebuggerDock
+    check store.projectPanelDock() == settingDescriptor("projectPanel.dock").default.getStr
+    check store.outlinePanelDock() == settingDescriptor("outlinePanel.dock").default.getStr
+    check store.gitPanelDock() == settingDescriptor("gitPanel.dock").default.getStr
+    check store.agentDock() == settingDescriptor("agent.dock").default.getStr
+    check store.terminalDock() == settingDescriptor("terminal.dock").default.getStr
+    check store.debuggerDock() == settingDescriptor("debugger.dock").default.getStr
 
     let root = getTempDir() / ("nimculus-panel-dock-settings-" & $getCurrentProcessId())
     createDir(root)
@@ -103,8 +137,8 @@ suite "M12 settings foundation":
       "terminal":{"dock":"diagonal"}
     }""")
     let store = newSettingsStore(path, "", "")
-    check store.projectPanelDock() == DefaultProjectPanelDock
-    check store.terminalDock() == DefaultTerminalDock
+    check store.projectPanelDock() == settingDescriptor("projectPanel.dock").default.getStr
+    check store.terminalDock() == settingDescriptor("terminal.dock").default.getStr
     check store.diagnostics().len == 2
     removeFile(path)
     removeDir(root)
@@ -178,7 +212,7 @@ suite "M12 settings foundation":
     check not store.reload()
     writeFile(path, """{"editor":{"tabSize":8}}""")
     check store.reload()
-    check store.intSetting("editor.tabSize", 0) == 8
+    check store.intSetting("editor.tabSize") == 8
     removeFile(path)
     removeDir(root)
 
@@ -192,11 +226,11 @@ suite "M12 settings foundation":
     writeFile(firstPath, "{\"editor\":{\"fontSize\":16}}")
     writeFile(secondPath, "{\"editor\":{\"fontSize\":20}}")
     let store = newSettingsStore(globalPath, firstPath)
-    check store.intSetting("editor.fontSize", 0) == 16
+    check store.intSetting("editor.fontSize") == 16
     store.workspacePath = secondPath
     store.workspaceStamp = -1
     check store.reload()
-    check store.intSetting("editor.fontSize", 0) == 20
+    check store.intSetting("editor.fontSize") == 20
     removeFile(globalPath)
     removeFile(firstPath)
     removeFile(secondPath)
@@ -215,13 +249,13 @@ suite "M12 settings foundation":
       }
     }""")
     let store = newSettingsStore(path, "", "nim")
-    check store.intSetting("editor.tabSize", 0) == 4
+    check store.intSetting("editor.tabSize") == 4
     check store.setLanguageId("rust")
-    check store.intSetting("editor.tabSize", 0) == 8
+    check store.intSetting("editor.tabSize") == 8
     check store.setLanguageId("tsx")
-    check store.intSetting("editor.tabSize", 0) == 6
+    check store.intSetting("editor.tabSize") == 6
     check store.setLanguageId("")
-    check store.intSetting("editor.tabSize", 0) == 2
+    check store.intSetting("editor.tabSize") == 2
     check not store.setLanguageId("")
     removeFile(path)
     removeDir(root)
@@ -453,10 +487,10 @@ suite "M12 settings foundation":
     createDir(root)
     let path = root / "settings.json"
     let defaults = newSettingsStore(path, "", "")
-    check defaults.boolSetting("search.button", DefaultSearchButton)
+    check defaults.boolSetting("search.button")
     writeFile(path, "{\"search\":{\"button\":false}}")
     let hidden = newSettingsStore(path, "", "")
-    check not hidden.boolSetting("search.button", DefaultSearchButton)
+    check not hidden.boolSetting("search.button")
     check settingsSchema()["properties"]["search"]["properties"]["button"][
       "default"].getBool
     let diagnostics = validateSettings(parseJson("{\"search\":{\"button\":1}}"))
@@ -470,18 +504,24 @@ suite "M12 settings foundation":
     check defaults.gitInlineBlameEnabled()
     check defaults.gitInlineBlameLocation() == "inline"
     check not defaults.gitInlineBlameShowCommitSummary()
-    check defaults.gitInlineBlameDelayMs() == DefaultGitInlineBlameDelayMs
+    check defaults.gitInlineBlameDelayMs() ==
+      settingDescriptor("git.inlineBlame.delayMs").default.getInt
     check defaults.gitInlineBlameDelay().isNone
-    check defaults.gitInlineBlamePadding() == DefaultGitInlineBlamePadding
-    check defaults.gitInlineBlameMinColumn() == DefaultGitInlineBlameMinColumn
+    check defaults.gitInlineBlamePadding() ==
+      settingDescriptor("git.inlineBlame.padding").default.getInt
+    check defaults.gitInlineBlameMinColumn() ==
+      settingDescriptor("git.inlineBlame.minColumn").default.getInt
     let schema = settingsSchema()["properties"]["git"]["properties"]["inlineBlame"]["properties"]
     check schema["enabled"]["default"].getBool
     check schema["location"]["enum"].getElems.mapIt(it.getStr) == @["inline", "status_bar"]
     check schema["location"]["default"].getStr == "inline"
     check not schema["showCommitSummary"]["default"].getBool
-    check schema["delayMs"]["default"].getInt == DefaultGitInlineBlameDelayMs
-    check schema["padding"]["default"].getInt == DefaultGitInlineBlamePadding
-    check schema["minColumn"]["default"].getInt == DefaultGitInlineBlameMinColumn
+    check schema["delayMs"]["default"].getInt ==
+      settingDescriptor("git.inlineBlame.delayMs").default.getInt
+    check schema["padding"]["default"].getInt ==
+      settingDescriptor("git.inlineBlame.padding").default.getInt
+    check schema["minColumn"]["default"].getInt ==
+      settingDescriptor("git.inlineBlame.minColumn").default.getInt
     let configuredDiagnostics = validateSettings(parseJson(
       "{\"git\":{\"inlineBlame\":{\"delayMs\":-1,\"padding\":\"7\",\"minColumn\":1.5}}}"))
     check configuredDiagnostics.len == 3

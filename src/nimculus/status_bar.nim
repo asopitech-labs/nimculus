@@ -8,11 +8,6 @@ type
     text*: string
 
 const
-  DefaultStatusBarShowActiveFile* = false
-  DefaultStatusBarActiveLanguageButton* = true
-  DefaultStatusBarCursorPositionButton* = true
-  DefaultStatusBarLineEndingsButton* = false
-  DefaultStatusBarActiveEncodingButton* = "non_utf8"
   GitBlameMaxAuthorCharsDisplayed* = 20
 
 proc statusBarEncodingShouldShow*(displayOption: string; isUtf8, hasBom: bool): bool =
@@ -30,19 +25,11 @@ proc statusBarEncodingText*(encoding: string; hasBom: bool): string =
 proc statusBarFooter*(settings: SettingsStore; cursor, encoding, lineEnding,
     language, activeFile: string; isUtf8 = true; hasBom = false;
     gitBlameHash = ""; gitBlameText = ""): seq[StatusBarFooterItem] =
-  let showActiveFile = if settings == nil: DefaultStatusBarShowActiveFile
-    else: settings.boolSetting("statusBar.showActiveFile", DefaultStatusBarShowActiveFile)
-  let showLanguage = if settings == nil: DefaultStatusBarActiveLanguageButton
-    else: settings.boolSetting("statusBar.activeLanguageButton",
-      DefaultStatusBarActiveLanguageButton)
-  let showCursor = if settings == nil: DefaultStatusBarCursorPositionButton
-    else: settings.boolSetting("statusBar.cursorPositionButton",
-      DefaultStatusBarCursorPositionButton)
-  let showLineEndings = if settings == nil: DefaultStatusBarLineEndingsButton
-    else: settings.boolSetting("statusBar.lineEndingsButton", DefaultStatusBarLineEndingsButton)
-  let encodingOption = if settings == nil: DefaultStatusBarActiveEncodingButton
-    else: settings.stringSetting("statusBar.activeEncodingButton",
-      DefaultStatusBarActiveEncodingButton)
+  let showActiveFile = settings.boolSetting("statusBar.showActiveFile")
+  let showLanguage = settings.boolSetting("statusBar.activeLanguageButton")
+  let showCursor = settings.boolSetting("statusBar.cursorPositionButton")
+  let showLineEndings = settings.boolSetting("statusBar.lineEndingsButton")
+  let encodingOption = settings.stringSetting("statusBar.activeEncodingButton")
 
   if showCursor and cursor.len > 0:
     result.add(StatusBarFooterItem(kind: "cursor", text: cursor))
