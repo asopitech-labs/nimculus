@@ -343,6 +343,19 @@ suite "M12 settings foundation":
     check palette.find("\"syntax\"") >= 0
     check palette.find("#74ade8") >= 0
 
+  test "every semantic UI color resolves in both built-in themes":
+    let store = newSettingsStore("", "", "")
+    let light = store.themeRegistry["light"].colors
+    let dark = store.themeRegistry["dark"].colors
+    for token in UiColor:
+      let lightValue = color(token, light)
+      let darkValue = color(token, dark)
+      check lightValue.len == 7 or lightValue.len == 9
+      check darkValue.len == 7 or darkValue.len == 9
+      check lightValue[0] == '#'
+      check darkValue[0] == '#'
+    check color(uiElementHover, dark) == "#363c46"
+
   test "built-in One themes preserve Zed terminal ANSI tables":
     let store = newSettingsStore("", "", "")
     let dark = store.themeRegistry["dark"].colors.terminalPalette
