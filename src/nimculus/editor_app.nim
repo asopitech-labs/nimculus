@@ -3,6 +3,7 @@ import std/times
 import std/strutils
 import std/sequtils
 import std/json
+import std/tables
 import nimculus/editor_buffer
 import nimculus/atomic_io
 import nimculus/editor_view
@@ -46,6 +47,10 @@ type
     view*, secondaryView*: EditorViewState
   SplitDirection* = enum splitVertical, splitHorizontal
   EditorSession* = object
+    ## Path-keyed lookup for the document registry. `tabs` remains a source
+    ## compatible bridge for the native app while PaneState owns the live item
+    ## lists; all file identity lookups go through this canonical registry.
+    tabRegistry*: Table[string, int]
     tabs*: seq[EditorTab]
     closedTabs*: seq[ClosedEditorTab]
     activeTab*: int
@@ -206,6 +211,8 @@ proc addTab*(session: var EditorSession, document: FileDocument) =
   session.tabs.add(EditorTab(document: document, title: title, view: view,
     secondaryView: view))
   session.activeTab = session.tabs.high
+  if document.path.len > 0:
+    session.tabRegistry[canonicalOpenPath(document.path)] = session.activeTab
 
 proc addBackgroundTab*(session: var EditorSession, document: FileDocument): int =
   ## A secondary Pane can display a newly opened document without changing the
@@ -308,6 +315,9 @@ proc moveTab*(session: var EditorSession, source, destination: int): bool =
   session.tabs.insert(tab, destination)
   session.activeTab = remapTabIndex(session.activeTab, source, destination)
   session.splitSecondaryTab = remapTabIndex(session.splitSecondaryTab, source, destination)
+  for index, tab in session.tabs:
+    if tab.document.path.len > 0:
+      session.tabRegistry[canonicalOpenPath(tab.document.path)] = index
   true
 
 proc setTabPinned*(session: var EditorSession, index: int, pinned: bool): bool =
@@ -372,6 +382,11 @@ proc tabIndexForPath*(session: EditorSession, path: string): int =
   ## path aliases, rather than requiring every caller to normalize first.
   let identityPath = canonicalOpenPath(path)
   if identityPath.len == 0: return -1
+  if session.tabRegistry.hasKey(identityPath):
+    let registered = session.tabRegistry[identityPath]
+    if registered >= 0 and registered < session.tabs.len and
+        session.tabs[registered].document.path == identityPath:
+      return registered
   for index, tab in session.tabs:
     if tab.document.path == identityPath: return index
   -1
