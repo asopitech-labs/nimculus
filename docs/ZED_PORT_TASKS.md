@@ -144,7 +144,7 @@
 
 **一部のみ — 先に片付ける**
 
-- [ ] **KeyContext: the per-node context entry list** — Zed `crates/gpui/src/keymap/context.rs:10 (KeyContext), :14 (ContextEntry), :65 (parse), :117 (add), :126 (set), :137 (contains), :142 (get)`
+- [x] **KeyContext: the per-node context entry list** — Zed `crates/gpui/src/keymap/context.rs:10 (KeyContext), :14 (ContextEntry), :65 (parse), :117 (add), :126 (set), :137 (contains), :142 (get)`
 - [ ] **Keymap precedence resolution (bindings_for_input)** — Zed `crates/gpui/src/keymap.rs:164-242, sort at :187, binding_enabled at :245`
 - [x] **The DispatchTree: per-frame node tree of contexts, focus ids and listeners** — Zed `crates/gpui/src/key_dispatch.rs:71 (DispatchTree), :83 (DispatchNode), :166 (push_node), :215 (set_key_context), :220 (set_focus_id), :226 (set_view_id), :323/:327/:333 (on_key_event / on_modifiers_changed / on_action)`
 - [x] **dispatch_path / focus_path / focus_contains** — Zed `crates/gpui/src/key_dispatch.rs:563 (dispatch_path, root-to-focused), :574 (focus_path), :346 (focus_contains)`
@@ -182,7 +182,7 @@
 
 **一部のみ — 先に片付ける**
 
-- [ ] **Semantic colour token enum** — Zed `crates/ui/src/styles/color.rs:19 (enum), :90 (Color::color)`
+- [x] **Semantic colour token enum** — Zed `crates/ui/src/styles/color.rs:19 (enum), :90 (Color::color)`
 - [ ] **Size scale as a pure table** — Zed `crates/ui/src/components/button/button_like.rs:455 (ButtonSize), :465 (rems); crates/ui/src/components/icon.rs:54 (IconSize), :70 (rems), :86 (square_components); crates/ui/src/styles/typography.rs:93 (TextSize), :132 (rems/pixels); crates/ui/src/components/label/label_like.rs:7 (LabelSize)`
 - [ ] **Elevation -> shadow stack and background** — Zed `crates/ui/src/styles/elevation.rs:14 (ElevationIndex), :42 (shadow), :84 (bg), :95 (on_elevation_bg), :108 (darker_bg); crates/ui/src/traits/styled_ext.rs:6 (elevated), :45 elevation_1, :62 elevation_2, :83 elevation_3`
 - [ ] **Component-instance identity and state** — Zed `crates/ui/src/components/button/button_like.rs:484 (ElementId), :512 (focus_handle), :745 render; crates/ui/src/components/context_menu.rs:211 (ContextMenu as an Entity with focus_handle, selected_index, subscriptions)`
@@ -232,7 +232,7 @@
 - [ ] **PanelButtons (the status-bar dock toggles)** — Zed `crates/workspace/src/dock.rs:356, Render at dock.rs:1211, StatusItemView at dock.rs:1408`
 - [ ] **Item trait (what a tab knows how to be)** — Zed `crates/workspace/src/item.rs:170`
 - [ ] **Tab detail disambiguation** — Zed `crates/workspace/src/pane.rs:4910 tab_details, called from render_tab_bar at pane.rs:3453`
-- [ ] **Pane: item list, active index, activation history, pinned prefix, preview item** — Zed `crates/workspace/src/pane.rs:398`
+- [x] **Pane: item list, active index, activation history, pinned prefix, preview item** — Zed `crates/workspace/src/pane.rs:398`
 - [x] **Pane split tree (Member / PaneAxis with flexes)** — Zed `crates/workspace/src/pane_group.rs:294 Member, :640 PaneAxis, PaneAxis::split at pane_group.rs:694`
 - [ ] **Tab bar rendering (tabs, nav buttons, pinned row, drop targets)** — Zed `crates/workspace/src/pane.rs:3396 render_tab_bar, per-tab at pane.rs:2825 render_tab, drop target at pane.rs:3626`
 - [ ] **Item toolbar / breadcrumb slot** — Zed `crates/workspace/src/toolbar.rs:64 Toolbar, ToolbarItemLocation at toolbar.rs:56; Item side at item.rs:343 breadcrumb_location, :347 breadcrumbs`
