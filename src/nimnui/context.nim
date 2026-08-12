@@ -30,8 +30,10 @@ proc contextValue*(key, value: string): ContextEntry =
 proc keyContext*(entries: varargs[ContextEntry]): KeyContext =
   result.entries = @entries
 
+proc parseKeyContext*(source: string): KeyContext
+
 proc keyContext*(identifier: string): KeyContext =
-  result.entries = @[contextIdentifier(identifier)]
+  parseKeyContext(identifier)
 
 proc findEntry(context: KeyContext, key: string): int =
   for index, entry in context.entries:
