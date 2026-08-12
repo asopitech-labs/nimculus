@@ -906,42 +906,10 @@ static BOOL themeLooksLight(void) {
   return (0.2126 * red + 0.7152 * green + 0.0722 * blue) > 0.55;
 }
 
-static NSColor *themeTokenFallback(NSString *key, NSColor *fallback) {
-  const BOOL light = themeLooksLight();
-  NSDictionary *lightValues = @{
-    @"chromeBg": @"#dcdcdd", @"tabBar": @"#ebebec", @"tabActive": @"#fafafa",
-    @"surface": @"#ebebec", @"panel": @"#ebebec", @"elevated": @"#ebebec",
-    @"border": @"#c9c9ca", @"borderVariant": @"#dfdfe0", @"fgPrimary": @"#242529",
-    @"fgMuted": @"#58585a", @"accent": @"#5c78e2", @"textMuted": @"#58585a",
-    @"editor": @"#fafafa", @"editorForeground": @"#242529", @"gutter": @"#fafafa",
-    @"editorActiveLine": @"#ebebecbf",
-    @"scrollbarThumb": @"#383a414c", @"scrollbarHover": @"#dfdfe0",
-    @"lineNumber": @"#b4b4bb", @"activeLineNumber": @"#44454b", @"hoverLineNumber": @"#61616b",
-    @"caret": @"#5c78e2", @"statusBar": @"#dcdcdd", @"titleBar": @"#dcdcdd",
-    @"added": @"#27a657", @"modified": @"#d3b020", @"deleted": @"#e06c76",
-    @"hint": @"#7274a7",
-    @"ignored": @"#7e8086"
-  };
-  NSDictionary *darkValues = @{
-    @"chromeBg": @"#3b414d", @"tabBar": @"#2f343e", @"tabActive": @"#282c33",
-    @"surface": @"#2f343e", @"panel": @"#2f343e", @"elevated": @"#2f343e",
-    @"border": @"#464b57", @"borderVariant": @"#363c46", @"fgPrimary": @"#dce0e5",
-    @"fgMuted": @"#a9afbc", @"accent": @"#74ade8", @"textMuted": @"#a9afbc",
-    @"editor": @"#282c33", @"editorForeground": @"#acb2be", @"gutter": @"#282c33",
-    @"editorActiveLine": @"#2f343ebf",
-    @"scrollbarThumb": @"#c8ccd44c", @"scrollbarHover": @"#363c46",
-    @"lineNumber": @"#4e5a5f", @"activeLineNumber": @"#d0d4da", @"hoverLineNumber": @"#acb0b4",
-    @"caret": @"#74ade8", @"statusBar": @"#3b414d", @"titleBar": @"#3b414d",
-    @"added": @"#27a657", @"modified": @"#d3b020", @"deleted": @"#e06c76",
-    @"hint": @"#788ca6",
-    @"ignored": @"#878a98"
-  };
-  NSString *value = (light ? lightValues : darkValues)[key];
-  return value ? themeHexColor(value, fallback) : fallback;
-}
-
+// themeTokenFallback is intentionally absent; the Nim theme table is the
+// single source for semantic colors passed through the generated palette.
 static NSColor *themeRoleColor(NSString *key, NSColor *fallback) {
-  return themeHexColor(themeRole(key, nil), themeTokenFallback(key, fallback));
+  return themeHexColor(themeRole(key, nil), fallback);
 }
 
 // Workspace chrome controls are intentionally quiet until the pointer reaches

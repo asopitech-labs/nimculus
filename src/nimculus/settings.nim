@@ -81,6 +81,21 @@ type
     syntax*: JsonNode
     terminalPalette*: TerminalPalette
 
+  UiColor* = enum
+    ## Semantic colors consumed by the native UI. The three abbreviated arms
+    ## preserve the names used by the AppKit role aliases.
+    uiBackground, uiForeground, uiAccent, uiSelection, uiBorder, uiSurface,
+    uiElevated, uiPanel, uiElement, uiElementHover, uiElementActive,
+    uiElementSelected, uiTextMuted, uiTextPlaceholder, uiTextDisabled,
+    uiTextAccent, uiBorderVariant, uiBorderFocused, uiBorderSelected,
+    uiTitleBar, uiTitleBarInactive, uiToolbar, uiTabBar, uiTabActive,
+    uiTabInactive, uiStatusBar, uiEditor, uiEditorForeground, uiGutter,
+    uiEditorSubheader, uiEditorActiveLine, uiScrollbarThumb,
+    uiScrollbarTrackBorder, uiScrollbarHover, uiLineNumber, uiActiveLineNumber,
+    uiHoverLineNumber, uiCaret, uiTerminal, uiAdded, uiModified, uiDeleted,
+    uiIgnored, uiConflict, uiWarning, uiHint, uiError, uiInfo, uiSuccess,
+    uiChromeBg, uiFgPrimary, uiFgMuted
+
   ThemeDefinition* = object
     name*: string
     appearance*: string
@@ -114,6 +129,63 @@ type
     kind*: SettingKind
     default*: JsonNode
     title*: string
+
+proc color*(c: UiColor, theme: ThemeColors): string =
+  ## Resolve one semantic UI color from the selected theme.
+  ## Keep this case exhaustive: adding a UiColor requires a theme mapping.
+  case c
+  of uiBackground: theme.background
+  of uiForeground: theme.foreground
+  of uiAccent: theme.accent
+  of uiSelection: theme.selection
+  of uiBorder: theme.border
+  of uiSurface: theme.surface
+  of uiElevated: theme.elevated
+  of uiPanel: theme.panel
+  of uiElement: theme.element
+  of uiElementHover: theme.elementHover
+  of uiElementActive: theme.elementActive
+  of uiElementSelected: theme.elementSelected
+  of uiTextMuted: theme.textMuted
+  of uiTextPlaceholder: theme.textPlaceholder
+  of uiTextDisabled: theme.textDisabled
+  of uiTextAccent: theme.textAccent
+  of uiBorderVariant: theme.borderVariant
+  of uiBorderFocused: theme.borderFocused
+  of uiBorderSelected: theme.borderSelected
+  of uiTitleBar: theme.titleBar
+  of uiTitleBarInactive: theme.titleBarInactive
+  of uiToolbar: theme.toolbar
+  of uiTabBar: theme.tabBar
+  of uiTabActive: theme.tabActive
+  of uiTabInactive: theme.tabInactive
+  of uiStatusBar: theme.statusBar
+  of uiEditor: theme.editor
+  of uiEditorForeground: theme.editorForeground
+  of uiGutter: theme.gutter
+  of uiEditorSubheader: theme.editorSubheader
+  of uiEditorActiveLine: theme.editorActiveLine
+  of uiScrollbarThumb: theme.scrollbarThumb
+  of uiScrollbarTrackBorder: theme.scrollbarTrackBorder
+  of uiScrollbarHover: theme.scrollbarHover
+  of uiLineNumber: theme.lineNumber
+  of uiActiveLineNumber: theme.activeLineNumber
+  of uiHoverLineNumber: theme.hoverLineNumber
+  of uiCaret: theme.caret
+  of uiTerminal: theme.terminal
+  of uiAdded: theme.added
+  of uiModified: theme.modified
+  of uiDeleted: theme.deleted
+  of uiIgnored: theme.ignored
+  of uiConflict: theme.conflict
+  of uiWarning: theme.warning
+  of uiHint: theme.hint
+  of uiError: theme.error
+  of uiInfo: theme.info
+  of uiSuccess: theme.success
+  of uiChromeBg: theme.titleBar
+  of uiFgPrimary: theme.foreground
+  of uiFgMuted: theme.textMuted
 
 let settingDescriptors* = @[
   SettingDescriptor(key: "statusBar.showActiveFile", kind: settingBool,
