@@ -48,6 +48,56 @@ proc value*(context: KeyContext, key: string): tuple[found: bool, value: string]
   else:
     (false, "")
 
+proc add*(context: var KeyContext, entry: ContextEntry) =
+  if not context.contains(entry.key):
+    context.entries.add(entry)
+
+proc add*(context: var KeyContext, identifier: string) =
+  context.add(contextIdentifier(identifier))
+
+proc set*(context: var KeyContext, key, value: string) =
+  if not context.contains(key):
+    context.entries.add(contextValue(key, value))
+
+proc extend*(context: var KeyContext, other: KeyContext) =
+  for entry in other.entries:
+    context.add(entry)
+
+proc newKeyContextWithDefaults*(): KeyContext =
+  when defined(macosx):
+    result.set("os", "macos")
+
+proc contextToken(source: string, index: var int): string =
+  let start = index
+  while index < source.len and source[index] notin {
+      ' ', '\t', '\n', '\r', '\v', '\f', '='}:
+    inc index
+  if index == start: "" else: source[start ..< index]
+
+proc parseKeyContext*(source: string): KeyContext =
+  var index = 0
+  while true:
+    while index < source.len and source[index] in {
+        ' ', '\t', '\n', '\r', '\v', '\f'}:
+      inc index
+    if index >= source.len: break
+
+    let key = contextToken(source, index)
+    if key.len == 0: break
+    while index < source.len and source[index] in {
+        ' ', '\t', '\n', '\r', '\v', '\f'}:
+      inc index
+    if index < source.len and source[index] == '=':
+      inc index
+      while index < source.len and source[index] in {
+          ' ', '\t', '\n', '\r', '\v', '\f'}:
+        inc index
+      let value = contextToken(source, index)
+      if value.len > 0:
+        result.set(key, value)
+    else:
+      result.add(key)
+
 proc skipWhitespace(source: string): string =
   var index = 0
   while index < source.len and source[index] in {' ', '\t', '\n', '\r', '\v', '\f'}:
