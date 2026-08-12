@@ -247,7 +247,7 @@ proc paintOverlay*(paint: var PaintList, model: OverlayModel, light = true) =
   paint.invalidate(model.bounds)
   for boxShadow in shadows(model.elevation, light):
     paint.drawShadow(model.bounds, boxShadow.offset, boxShadow.blurRadius,
-      boxShadow.color)
+      boxShadow.colour)
   paint.drawRoundedRectangle(model.bounds, px(6))
   paint.drawBorder(model.bounds)
   if model.kind == tooltip:
