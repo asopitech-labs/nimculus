@@ -674,19 +674,25 @@ proc dispatchNativeShortcut(event: ptr NimculusInputEvent): bool {.cdecl.} =
     keyCode: event.keyCode,
     modifiers: macOSModifiers(modifiers)), demoTree.contextStack())
 
-proc nativeShortcutAction(name: string): proc() {.closure.} =
-  result = proc() = receiveNativeCommand(name.cstring)
+proc nativeShortcutAction(name: string): proc(): bool {.closure.} =
+  result = proc(): bool =
+    receiveNativeCommand(name.cstring)
+    true
 
 proc setupShortcutRegistry() =
   shortcutRegistry = CommandRegistry()
   shortcutRegistry.register(Command(
     name: "commandPalette",
     shortcut: Shortcut(keyCode: 35, modifiers: {commandModifier, shiftModifier}),
-    action: proc() = platformShowCommandPalette()))
+    action: proc(): bool =
+    platformShowCommandPalette()
+    true))
   shortcutRegistry.register(Command(
     name: "workspaceSearch",
     shortcut: Shortcut(keyCode: 3, modifiers: {commandModifier, shiftModifier}),
-    action: proc() = platformShowWorkspaceSearch()))
+    action: proc(): bool =
+    platformShowWorkspaceSearch()
+    true))
   # Match Zed's macOS workspace entry points. These forward through the same
   # palette dispatch used by the status-bar panel buttons, keeping keyboard
   # and pointer navigation on one panel-state path.
@@ -791,10 +797,12 @@ proc setupShortcutRegistry() =
       "foldAtLevel1", "foldAtLevel2", "foldAtLevel3", "foldAtLevel4",
       "foldAtLevel5", "foldAtLevel6", "foldAtLevel7", "foldAtLevel8",
       "foldAtLevel9"]:
-    var action: proc() {.closure.}
+    var action: proc(): bool {.closure.}
     if name == "openSettings":
       when defined(macosx):
-        action = proc() = receiveNativeCommand("openSettingsUI".cstring)
+        action = proc(): bool =
+          receiveNativeCommand("openSettingsUI".cstring)
+          true
       else:
         action = nativeShortcutAction(name)
     else:
@@ -813,7 +821,7 @@ proc applySettingsKeymap() =
       for index in 0 ..< shortcutRegistry.commands.len:
         if shortcutRegistry.commands[index].name == binding.command:
           shortcutRegistry.commands[index].shortcut = shortcut
-          shortcutRegistry.commands[index].whenClause = binding.whenClause
+          shortcutRegistry.commands[index].setWhenClause(binding.whenClause)
 
 when defined(macosx):
   proc resizeNativeTerminals()
