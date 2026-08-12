@@ -713,13 +713,24 @@ suite "M2 UI foundation":
     check tree.focusPrev() == first
     check tree.focusPrev() == third
 
-  test "event dispatch follows capture target bubble":
+  test "event dispatch follows capture and bubble":
     var tree = newUiTree()
     let root = tree.addNode()
     let child = tree.addNode(root)
-    var event = UiEvent(kind: pointerDown, target: child)
-    let phases = tree.dispatch(event)
-    check phases == @[capture, capture, target, bubble, bubble]
+    var phases: seq[EventPhase]
+    var rootInvocations = 0
+    var targetInvocations = 0
+    tree.onKeyEvent(root, proc(event: var UiEvent) =
+      inc rootInvocations
+      phases.add(event.phase))
+    tree.onKeyEvent(child, proc(event: var UiEvent) =
+      inc targetInvocations
+      phases.add(event.phase))
+    var event = UiEvent(kind: keyDown, target: child)
+    discard tree.dispatch(event)
+    check rootInvocations == 2
+    check targetInvocations == 2
+    check phases == @[capture, capture, bubble, bubble]
 
   test "node key listeners run once during capture and once during bubble":
     var tree = newUiTree()
@@ -732,6 +743,50 @@ suite "M2 UI foundation":
     var event = UiEvent(kind: keyDown, target: child)
     discard tree.dispatchWithHandlers(event)
     check invocations == 2
+
+  test "handled capture listener stops the target":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let child = tree.addNode(root)
+    var childInvocations = 0
+    tree.onKeyEvent(root, proc(event: var UiEvent) =
+      event.handled = true)
+    tree.onKeyEvent(child, proc(event: var UiEvent) =
+      inc childInvocations)
+    var event = UiEvent(kind: keyDown, target: child)
+    discard tree.dispatchWithHandlers(event)
+    check childInvocations == 0
+
+  test "actions are consumed unless explicitly propagated":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let child = tree.addNode(root)
+    var parentInvocations = 0
+    var shouldPropagate = false
+    tree.onAction(root, "save", proc(action: string) =
+      inc parentInvocations)
+    tree.onAction(child, "save", proc(action: string) =
+      if shouldPropagate: propagate())
+    var event = UiEvent(kind: command, target: child, command: "save")
+    discard tree.dispatchWithHandlers(event)
+    check parentInvocations == 0
+    shouldPropagate = true
+    event.handled = false
+    discard tree.dispatchWithHandlers(event)
+    check parentInvocations == 1
+
+  test "modifier changes bubble without capture":
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let child = tree.addNode(root)
+    var phases: seq[EventPhase]
+    tree.onModifiersChanged(root, proc(event: var UiEvent) =
+      phases.add(event.phase))
+    tree.onModifiersChanged(child, proc(event: var UiEvent) =
+      phases.add(event.phase))
+    var event = UiEvent(kind: modifiersChanged, target: child)
+    discard tree.dispatchWithHandlers(event)
+    check phases == @[bubble, bubble]
 
   test "context stack for a deep tree uses the node index":
     var tree = newUiTree()
