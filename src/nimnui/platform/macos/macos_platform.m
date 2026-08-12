@@ -4627,7 +4627,29 @@ static const CGFloat NimculusOutlinePickerRowHeight = 36.0;
 static const NSUInteger NimculusPickerVisibleRows = 10;
 static const CGFloat NimculusPickerCornerRadius = 8.0;
 
+typedef enum {
+  NimculusLabelTruncateEnd,
+  NimculusLabelTruncateStart,
+  NimculusLabelTruncateMiddle
+} NimculusLabelTruncation;
+
+typedef struct {
+  CGFloat leftPadding;
+  CGFloat rightPadding;
+  CGFloat shortcutGap;
+  NimculusLabelTruncation truncation;
+} NimculusPickerLabelSpec;
+
+static const NimculusPickerLabelSpec NimculusPickerLabel = {
+  .leftPadding = 16.0,
+  .rightPadding = 16.0,
+  .shortcutGap = 16.0,
+  .truncation = NimculusLabelTruncateEnd
+};
+
 static NSParagraphStyle *pickerParagraphStyle(NSTextAlignment alignment);
+static NSParagraphStyle *pickerParagraphStyleForTruncation(
+  NSTextAlignment alignment, NimculusLabelTruncation truncation);
 
 static NSArray<NSNumber *> *pickerMatchPositions(NSString *query, NSString *title) {
   NSMutableArray<NSNumber *> *positions = [NSMutableArray array];
@@ -4663,11 +4685,27 @@ static NSAttributedString *pickerHighlightedLabel(NSString *title, NSString *que
   return label;
 }
 
-static NSParagraphStyle *pickerParagraphStyle(NSTextAlignment alignment) {
+static NSParagraphStyle *pickerParagraphStyleForTruncation(
+    NSTextAlignment alignment, NimculusLabelTruncation truncation) {
   NSMutableParagraphStyle *style = [[[NSMutableParagraphStyle alloc] init] autorelease];
   style.alignment = alignment;
-  style.lineBreakMode = NSLineBreakByTruncatingTail;
+  switch (truncation) {
+    case NimculusLabelTruncateStart:
+      style.lineBreakMode = NSLineBreakByTruncatingHead;
+      break;
+    case NimculusLabelTruncateMiddle:
+      style.lineBreakMode = NSLineBreakByTruncatingMiddle;
+      break;
+    case NimculusLabelTruncateEnd:
+    default:
+      style.lineBreakMode = NSLineBreakByTruncatingTail;
+      break;
+  }
   return style;
+}
+
+static NSParagraphStyle *pickerParagraphStyle(NSTextAlignment alignment) {
+  return pickerParagraphStyleForTruncation(alignment, NimculusLabelTruncateEnd);
 }
 
 static NSString *commandShortcut(NSString *command) {
@@ -4744,13 +4782,17 @@ static NSString *commandShortcut(NSString *command) {
   NSColor *accent = themeRoleColor(@"textAccent", [NSColor controlAccentColor]);
   CGFloat shortcutWidth = self.shortcut.length > 0 ?
     [self.shortcut sizeWithAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:12.0]}].width : 0.0;
-  CGFloat textWidth = MAX(1.0, self.bounds.size.width - 32.0 - shortcutWidth -
-    (shortcutWidth > 0.0 ? 16.0 : 0.0));
-  NSRect titleRect = NSMakeRect(16.0, 0.0, textWidth, self.bounds.size.height);
+  const NimculusPickerLabelSpec labelSpec = NimculusPickerLabel;
+  CGFloat textWidth = MAX(1.0, self.bounds.size.width - labelSpec.leftPadding -
+    labelSpec.rightPadding - shortcutWidth -
+    (shortcutWidth > 0.0 ? labelSpec.shortcutGap : 0.0));
+  NSRect titleRect = NSMakeRect(labelSpec.leftPadding, 0.0, textWidth,
+    self.bounds.size.height);
   NSAttributedString *label = pickerHighlightedLabel(self.title ?: @"", self.query ?: @"", text, accent);
   [label drawInRect:titleRect];
   if (shortcutWidth > 0.0) {
-    NSRect shortcutRect = NSMakeRect(self.bounds.size.width - shortcutWidth - 16.0,
+    NSRect shortcutRect = NSMakeRect(self.bounds.size.width - shortcutWidth -
+      labelSpec.rightPadding,
       0.0, shortcutWidth, self.bounds.size.height);
     [self.shortcut drawInRect:shortcutRect withAttributes:@{
       NSFontAttributeName:[NSFont systemFontOfSize:12.0],
