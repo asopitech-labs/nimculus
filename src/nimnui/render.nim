@@ -186,26 +186,29 @@ proc pushAbsoluteElementOffset*(paint: var PaintList, offset: Point) =
 proc popElementOffset*(paint: var PaintList) =
   if paint.elementOffsetStack.len > 0:
     paint.elementOffsetStack.setLen(paint.elementOffsetStack.len - 1)
-proc drawShadow*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(kind: shadow,
-    bounds: bounds, clip: bounds, color: Color(red: 0, green: 0, blue: 0, alpha: 0.35),
-    colour: Color(red: 0, green: 0, blue: 0, alpha: 0.35)))
+proc packedShadowColour(colour: Colour): uint32 =
+  let packedColor = proc(value: float32): uint32 =
+    uint32(max(0'f32, min(1'f32, value)) * 255'f32 + 0.5'f32)
+  packedColor(colour.red) or
+    (packedColor(colour.green) shl 8) or
+    (packedColor(colour.blue) shl 16) or
+    (packedColor(colour.alpha) shl 24)
+
 proc drawShadow*(paint: var PaintList, bounds: Rect, offset: Point,
-                 blurRadius: Pixels, color: Color) =
+                 blurRadius: Pixels, colour: Colour)
+proc drawShadow*(paint: var PaintList, bounds: Rect) =
+  paint.drawShadow(bounds, Point(), px(0), Colour(red: 0, green: 0, blue: 0, alpha: 0.35))
+proc drawShadow*(paint: var PaintList, bounds: Rect, offset: Point,
+                 blurRadius: Pixels, colour: Colour) =
   ## `radius` and `imageId` mirror the two new shadow values through the
   ## existing native command ABI. The typed fields remain the retained paint
   ## representation and are what tests and non-native renderers consume.
-  let packedColor = proc(value: float32): uint32 =
-    uint32(max(0'f32, min(1'f32, value)) * 255'f32 + 0.5'f32)
-  let packed = packedColor(color.red) or
-    (packedColor(color.green) shl 8) or
-    (packedColor(color.blue) shl 16) or
-    (packedColor(color.alpha) shl 24)
-  let shadowColor = Color(red: color.red, green: color.green,
-    blue: color.blue, alpha: color.alpha)
+  let shadowColour = Colour(red: colour.red, green: colour.green,
+    blue: colour.blue, alpha: colour.alpha)
   paint.add(PaintCommand(kind: shadow, bounds: bounds.offset(offset.x, offset.y),
     clip: bounds.offset(offset.x, offset.y), radius: blurRadius,
-    blurRadius: blurRadius, color: shadowColor, colour: shadowColor,
-    imageId: packed))
+    blurRadius: blurRadius, color: shadowColour, colour: shadowColour,
+    imageId: packedShadowColour(shadowColour)))
 
 proc shadows*(e: ElevationIndex, light: bool): seq[BoxShadow] =
   let elevatedAmbientAlpha = if light: 0.03 else: 0.06
