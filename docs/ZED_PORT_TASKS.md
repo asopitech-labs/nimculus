@@ -194,7 +194,7 @@
 
 **無い**
 
-- [ ] **Style × state -> concrete style resolution** — Zed `crates/ui/src/components/button/button_like.rs:125 (ButtonStyle), :190 (ButtonLikeStyles), :210 enabled(), :257 hovered(), plus active()/disabled() through :448`
+- [x] **Style × state -> concrete style resolution** — Zed `crates/ui/src/components/button/button_like.rs:125 (ButtonStyle), :190 (ButtonLikeStyles), :210 enabled(), :257 hovered(), plus active()/disabled() through :448`
 - [ ] **Density-aware spacing scale** — Zed `crates/ui/src/styles/spacing.rs:29-44 (derive_dynamic_spacing! table), :52 (ui_density)`
 - [ ] **Builder traits shared across components** — Zed `crates/ui/src/traits/clickable.rs:4, disableable.rs:2, toggleable.rs:5, fixed.rs, visible_on_hover.rs; crates/ui/src/components/button/button_like.rs:12 (SelectableButton), :17 (ButtonCommon)`
 - [ ] **Icon source abstraction and square hit box** — Zed `crates/ui/src/components/icon.rs:131 (IconSource), :145 (Icon), :86 (square_components), :102 (square)`
