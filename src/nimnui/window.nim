@@ -98,15 +98,19 @@ proc prepaintTree*(window: var Window, tree: UiTree, root: NodeId,
   ## Record the same rows that the painter sees. `nodeClip` is passed as the
   ## mask explicitly because this retained tree's layout has already resolved
   ## its ancestor clips before prepaint begins.
-  proc visit(id: NodeId) =
+  ## Keep the traversal iterative: capturing `window` in a nested proc is not
+  ## memory-safe for a `var Window` parameter under ARC release compilation.
+  var pending = @[root]
+  while pending.len > 0:
+    let id = pending[^1]
+    pending.setLen(pending.len - 1)
     let index = tree.nodeIndex(id)
-    if index < 0: return
+    if index < 0: continue
     let node = tree.nodes[index]
     window.insertHitbox(node.id, node.bounds, behavior, node.nodeClip(),
       not tree.isDisabledPath(node.id))
-    for child in node.children:
-      visit(child)
-  visit(root)
+    for childIndex in countdown(node.children.high, 0):
+      pending.add(node.children[childIndex])
 
 proc hitTest*(window: Window, point: Point,
               kind: HitTestKind = hoverHitTest): HitTestResult =
