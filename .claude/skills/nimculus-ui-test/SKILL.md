@@ -93,6 +93,40 @@ rm -rf .nimcache/test_runner
 
 を先にやる。2026-08-12、16 個のマーカーが残った状態で 27/27 が出た。
 
+### `nim check` とランナーが通ってもリリースビルドが落ちることがある（2026-08-13）
+
+`nimble packageMacos` は `scripts/package_macos.sh` 経由で**別のフラグ**で
+ビルドする。`nim check` とテストランナーが通っても、ここだけ落ちる。
+
+実例:
+
+```
+window.nim(105, 5) Error: 'window' is of type <WindowInvalidator> which cannot
+be captured as it would violate memory safety
+```
+
+入れ子の `proc visit` が `window: var Window` を捕捉していた。
+`nim check main.nim` は通り、ランナーも **33/33** だった。
+
+**落ちても UI テストは走り、「失敗」ではなく「アプリが見つからない」と出る:**
+
+```
+The app representing com.asopitech.nimculus could not be found.
+Failing tests: testCaptureBothWindows(), testCaptureWorkspace(), ...
+```
+
+9 件全部が同じ理由で落ちるので、一見すると VM の問題に見える。
+**実体は古いアプリすら無い状態でテストが走っている。**
+
+したがって計測の前に**必ず終了コードを見る**:
+
+```bash
+NIMCULUS_ALLOW_ADHOC=1 nimble packageMacos || { echo "パッケージ失敗"; exit 1; }
+```
+
+`>/dev/null 2>&1` で出力を捨てるなら、`||` で受けること。
+捨てたうえに `;` で繋ぐと、**失敗したまま計測に進む。**
+
 ### `.nimcache/test_runner` を消すだけでは足りない（2026-08-13）
 
 **ランナーは各テストを `.nimcache/<テスト名>` で個別にビルドする**
