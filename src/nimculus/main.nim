@@ -567,6 +567,9 @@ proc setupDemoUi() =
       platformSetEditorLayout(true, nil, 0, nil, 0)
     editorLineLayoutCache.finishFrame()
     publishAccessibilityTree(document)
+  ## Prepaint records the interaction surface before paint changes phase. The
+  ## input bridge consumes this frame-owned list instead of re-walking nodes.
+  demoWindow.prepaintTree(demoTree, root)
   demoWindow.setPhase(dpPaint)
   var paint: PaintList
   paint.invalidate(viewport)
@@ -9620,7 +9623,9 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       of regionRightDock: editorWorkspaceUi.focusedRegion = regionRightDock
       of regionCenter: editorWorkspaceUi.focusCenter()
       of regionNone, regionStatus: discard
-  let hit = demoTree.hitTest(point)
+  let hitboxes = demoWindow.hitTest(point,
+    if kind == scroll: scrollHitTest else: hoverHitTest)
+  let hit = hitboxes.topmost
   let target = if kind in {keyDown, keyUp, modifiersChanged, command}:
     if demoTree.focused != NodeId(0): demoTree.focused else: hit
   else: hit

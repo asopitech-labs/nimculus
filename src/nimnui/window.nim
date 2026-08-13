@@ -10,10 +10,6 @@ type
   DrawPhase* = enum
     dpNone, dpPrepaint, dpPaint, dpFocus
 
-  Hitbox* = object
-    node*: NodeId
-    bounds*: Rect
-
   WindowInvalidator* = object
     ## Window-owned invalidation state. The platform owns scheduling and
     ## presentation; this state decides whether the Nim tree must compose.
@@ -87,9 +83,34 @@ proc draw*(window: var Window, prepaint, paint, focus: proc() {.closure.}) =
   finally:
     if window.phase != dpNone: window.setPhase(dpNone)
 
-proc insertHitbox*(window: var Window, id: NodeId, bounds: Rect) =
+proc insertHitbox*(window: var Window, id: NodeId, bounds: Rect,
+                   behavior = hitboxNormal, contentMask = Rect(), enabled = true) =
   doAssert window.phase == dpPrepaint, "hitboxes may only be inserted during prepaint"
-  window.hitboxes.add(Hitbox(node: id, bounds: bounds))
+  let mask = if float32(contentMask.size.width) == 0 and
+      float32(contentMask.size.height) == 0:
+    window.paint.currentContentMask(bounds)
+  else: contentMask
+  window.hitboxes.add(Hitbox(id: id, node: id, bounds: bounds,
+    contentMask: mask, behavior: behavior, enabled: enabled))
+
+proc prepaintTree*(window: var Window, tree: UiTree, root: NodeId,
+                   behavior = hitboxNormal) =
+  ## Record the same rows that the painter sees. `nodeClip` is passed as the
+  ## mask explicitly because this retained tree's layout has already resolved
+  ## its ancestor clips before prepaint begins.
+  proc visit(id: NodeId) =
+    let index = tree.nodeIndex(id)
+    if index < 0: return
+    let node = tree.nodes[index]
+    window.insertHitbox(node.id, node.bounds, behavior, node.nodeClip(),
+      not tree.isDisabledPath(node.id))
+    for child in node.children:
+      visit(child)
+  visit(root)
+
+proc hitTest*(window: Window, point: Point,
+              kind: HitTestKind = hoverHitTest): HitTestResult =
+  hitTestHitboxes(window.hitboxes, point, kind)
 
 proc debugAssertPrepaint*(window: Window) =
   doAssert window.phase == dpPrepaint, "expected prepaint phase"
