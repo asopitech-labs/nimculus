@@ -115,7 +115,7 @@
 
 **無い**
 
-- [ ] **The pooled LineWrapper** — Zed `crates/gpui/src/text_system.rs:307 (line_wrapper), :56 (wrapper_pool), :850 (LineWrapperHandle), crates/gpui/src/text_system/line_wrapper.rs`
+- [x] **The pooled LineWrapper** — Zed `crates/gpui/src/text_system.rs:307 (line_wrapper), :56 (wrapper_pool), :850 (LineWrapperHandle), crates/gpui/src/text_system/line_wrapper.rs`
 - [ ] **Draw order, the layer stack, and the BoundsTree** — Zed `crates/gpui/src/scene.rs:43-44, :75 (push_layer), :87 (insert_primitive), :151 (finish)`
 - [ ] **Batching: merging sorted streams into draw calls** — Zed `crates/gpui/src/scene.rs:172 (batches), :288-466 (BatchIterator)`
 - [ ] **Hsla and alpha derivation** — Zed `crates/gpui/src/color.rs:334 (Hsla), :424 (hsla), :525 (to_rgb), :580 (blend), :607 (fade_out), :637 (opacity), :667 (alpha), :677 (From<Rgba>)`
