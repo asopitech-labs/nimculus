@@ -558,13 +558,26 @@
 3. **1 つの条件で確認したものは、その条件でしか確認されていない。**
    単一ファイル・フォルダ・git リポジトリの 3 条件で見る
 
-### 指示書にあり台帳に無かった項目（2026-08-13 に追加）
+### 「台帳に無かった項目」は全て重複だった（2026-08-13 に訂正）
 
-10 のエージェントが別々に書いた指示書と、台帳の元になった構成図とで
-メカニズム名がずれていた 5 件。**台帳が更新されないまま同じ項目を 2 回投入していた**
-（`x` と `z` に同一の課題を渡した）。名前で照合する以上、両者は一致していなければならない。
+この位置に 5 件を「指示書にあり台帳に無かった」として追加したが、**5 件とも
+既に台帳にあった**。照合を項目名の完全一致で行ったため、次のずれを取りこぼしていた。
 
-- [ ] **Style x state -> concrete style resolution** — Zed `references/zed/crates/ui/src/components/button/button_like.rs:125 (ButtonStyle), :190 (ButtonLikeStyles {background, border_color, label_color, icon_color}), :210 enabled(), :257 hovered(), through :448 for active()/disabled()`
-- [x] **Platform input event vocabulary (PlatformInput / ClickEvent)** — Zed `references/zed/crates/gpui/src/interactive.rs:762 (PlatformInput enum), :25/:47/:62 (KeyDown/KeyUp/ModifiersChanged payloads), :139/:176/:485/:513 (mouse down/up/move/scroll), :279 (ClickEvent enum: Mouse | Keyboard | Touch), :762/:790 (mouse_event/keyboard_event partition)`
-- [ ] **NoAction / Unbind disable markers and predicate is_superset** — Zed `references/zed/crates/gpui/src/action.rs:425-458 (NoAction, Unbind), keymap.rs:29 (disabled_binding_matches_context), :40 (binding_is_unbound), :192-227 (the candidate loop that breaks on a user NoAction and skips unbound bindings), keymap/binding.rs:143 (KeyBindingMetaIndex), keymap/context.rs:328 (is_superset)`
-- [ ] **Entry identity: ProjectEntryId with inode-based rename detection** — Zed `crates/worktree/src/worktree.rs:3896 (struct Entry with id/inode/mtime/is_ignored/is_hidden/is_private/is_external), :292 (RemovedEntries with by_inode and by_path)`
+| 台帳の名前 | 指示書の名前 | ずれ |
+| --- | --- | --- |
+| KeyBinding: a keystroke *sequence* with prefix matching | KeyBinding: a keystroke sequence with prefix matching | 強調記号 |
+| Style × state -> concrete style resolution | Style x state -> concrete style resolution | × と x |
+| Platform input event vocabulary | Platform input event vocabulary (PlatformInput / ClickEvent) | 接尾辞 |
+| NoAction / Unbind disable markers | NoAction / Unbind disable markers and predicate is_superset | 接尾辞 |
+| Entry identity: ProjectEntryId, inode-based rename detection | Entry identity: ProjectEntryId with inode-based rename detection | , と with |
+
+5 件とも削除し、元の項目に一本化した。**名前一致による重複検出は
+この 5 種類のずれを全部すり抜ける。** 以後は Zed の参照（`file:line`）が
+2 件以上重なる組を探す:
+
+```python
+refs = 各項目の crates/....rs:NNN の集合
+if len(a.refs & b.refs) >= 2: 重複の疑い
+```
+
+この方法で 191 項目を突き合わせ、重複 0 件を確認した。
