@@ -241,10 +241,10 @@
 
 **無い**
 
-- [ ] **PanelHandle (object-safe erasure of Panel)** — Zed `crates/workspace/src/dock.rs:98`
+- [x] **PanelHandle (object-safe erasure of Panel)**（意図的な差異 / UI-157） — Zed `crates/workspace/src/dock.rs:98`
 - [ ] **Panel size persistence and dock zoom** — Zed `crates/workspace/src/dock.rs:375 PANEL_SIZE_STATE_KEY, dock.rs:564 set_panel_zoomed, workspace.rs:4163 toggle_dock`
 - [ ] **Nav history (back/forward across items)** — Zed `crates/workspace/src/pane.rs:471 NavHistory / :474 NavHistoryState, navigate_backward at pane.rs:929`
-- [ ] **Pane render policy hooks (should_display_tab_bar, render_tab_bar_buttons)** — Zed `crates/workspace/src/pane.rs:421-431`
+- [x] **Pane render policy hooks (should_display_tab_bar, render_tab_bar_buttons)**（意図的な差異 / UI-158） — Zed `crates/workspace/src/pane.rs:421-431`
 
 **移植済み**
 

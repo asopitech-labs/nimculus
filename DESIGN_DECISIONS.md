@@ -2,7 +2,7 @@
 
 ## 採番台帳
 
-**次に使う番号: UI-157**
+**次に使う番号: UI-159**
 
 新しい判断を追記するときは、この行の番号を使い、この行を 1 つ進める。
 本文の末尾に追記するだけでは番号が衝突する。実際 2026-08-10 まで
@@ -10618,3 +10618,50 @@ window root は platform が必要とする固定の Window node として frame
 TextRun は `editor.content` の synthetic child とし、本文の UTF-8 byte range、caret、
 selection を親の属性へコピーする。これで Metal renderer に NSView の子を追加せずに
 XCUITest と assistive technology の双方から本文構造を取得できる。
+
+## UI-157: PanelKind の列挙をそのまま `Arc<dyn PanelHandle>` の代替とする
+
+**Context.** Zed の `PanelHandle`（`crates/workspace/src/dock.rs:98`）は、
+`Panel` トレイト（`dock.rs:36`）が `Sized` に依存していて `Arc<dyn Panel>` として
+持てないために存在する。`Entity<T: Panel>` への包括 impl を挟むことで、`Dock` が
+`Arc<dyn PanelHandle>`（`dock.rs:350` `PanelEntry.panel`）として保持し、ジェネリクス
+無しで `position` / `size` / `icon` を呼べる。`to_any()`（`dock.rs:484`）は
+ダウンキャストで元の型に戻すためのもの。**つまり Rust のオブジェクト安全性の
+制約を回避するための機構であって、UI の挙動を決めるものではない。**
+
+**Decision.** Nimculus のパネルは閉じた列挙（`src/nimculus/workspace_ui.nim:16-19`
+の `PanelKind`）である。列挙の序数がそのまま型消去になっており、`case panel of ...`
+は動的ディスパッチが与えない網羅性検査まで付いてくる。`PanelHandle` に相当する
+ものは**移植しない**。
+
+**Rationale.** Nim には回避すべきオブジェクト安全性の制約が無い。ここで
+`RootObj` の継承階層を作っても、得られるものは何も無く、網羅性検査を失う。
+
+**再検討の条件.** 拡張が実行時にパネルを追加できるようになったとき。そのときは
+継承ではなく proc テーブル（`PanelVTable`）を入れる。列挙が閉じられなくなるのが
+判断の分かれ目であって、パリティのスクリーンショットではない。
+
+**これは移植漏れではなく、意図的な差異として閉じる。** [[UI-158]] と同じ性質。
+
+## UI-158: `shouldDisplayTabBar` は 2 つ目のペインホストが現れるまで bool のまま
+
+**Context.** Zed の `Pane` は `should_display_tab_bar` / `render_tab_bar_buttons` /
+`render_tab_bar` の 3 つを `Rc<dyn Fn>` として持つ（`crates/workspace/src/pane.rs:421-431`）。
+これは、ドックに置かれたペイン（ターミナル、エージェント）が中央ペインと違う
+タブ列を描くのを、サブクラス化せずに実現するためのもの。中央ペインの実装が
+`default_render_tab_bar_buttons`（`pane.rs:4193`）。
+
+**Decision.** Nimculus には**ドックに置かれたペインが存在しない**。パネルは
+`PanelKind` で選ばれるネイティブの AppKit ビューで、フッタ／ドックのプレゼンタが
+描いており、`Pane` ではない。したがってフックは実装がちょうど 1 つしか無い。
+`PaneState.shouldDisplayTabBar` は**単なる bool のまま置く**。proc フィールドを
+今足さない。
+
+**Rationale.** 実装が 1 つしか無いフックは、間接層のぶんだけ読みにくくなる。
+Zed がここを閉包にしているのは 2 つ目のホストがあるからで、その前提が無い。
+
+**再検討の条件.** 2 つ目のペインホストが現れたとき — ドックに置かれた
+ターミナル、またはエージェントの `Pane`。**パリティのスクリーンショットは
+判断材料にならない**（1 ホストしか無いあいだは差が出ないため）。
+
+**これは移植漏れではなく、意図的な差異として閉じる。** [[UI-157]] と同じ性質。
