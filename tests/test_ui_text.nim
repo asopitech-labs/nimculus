@@ -297,6 +297,85 @@ suite "M2 UI foundation":
     check binding.matchKeystrokes(@[second]) ==
       (matched: false, pending: false)
 
+  test "dispatchKey completes a pending chord exactly once":
+    var registry: CommandRegistry
+    var invoked = 0
+    registerTestAction("testPendingChord", proc(action: Action): bool =
+      discard action
+      inc invoked
+      true)
+    let binding = shortcutFromKeyBinding("cmd-k cmd-s")
+    registry.register(Command(name: "pending-chord", shortcut: binding,
+      action: buildAction("testPendingChord", nil)))
+    var pending = PendingInput(focus: NodeId(1))
+    let first = registry.dispatchKey(pending, binding.keystrokes[0], [])
+    check first.bindings.len == 0
+    check first.pending == @[binding.keystrokes[0]]
+    check pending.keystrokes.len == 1
+    let second = registry.dispatchKey(pending, binding.keystrokes[1], [])
+    check second.bindings.len == 1
+    for command in second.bindings:
+      discard command.action.dispatchAction()
+    check invoked == 1
+    check pending.keystrokes.len == 0
+
+  test "dispatchKey replays a failed chord in input order":
+    var registry: CommandRegistry
+    var invoked = 0
+    registerTestAction("testFailedChord", proc(action: Action): bool =
+      discard action
+      inc invoked
+      true)
+    let binding = shortcutFromKeyBinding("cmd-k cmd-s")
+    registry.register(Command(name: "failed-chord", shortcut: binding,
+      action: buildAction("testFailedChord", nil)))
+    var pending = PendingInput(focus: NodeId(1))
+    discard registry.dispatchKey(pending, binding.keystrokes[0], [])
+    let unmatched = Keystroke(keyCode: 6, modifiers: {commandModifier})
+    let result = registry.dispatchKey(pending, unmatched, [])
+    check invoked == 0
+    check result.toReplay == @[binding.keystrokes[0], unmatched]
+    check pending.keystrokes.len == 0
+
+  test "focus changes invalidate a pending chord before the next key":
+    var registry: CommandRegistry
+    var invoked = 0
+    registerTestAction("testFocusChord", proc(action: Action): bool =
+      discard action
+      inc invoked
+      true)
+    let binding = shortcutFromKeyBinding("cmd-k cmd-s")
+    registry.register(Command(name: "focus-chord", shortcut: binding,
+      action: buildAction("testFocusChord", nil)))
+    var pending = PendingInput(focus: NodeId(1))
+    discard registry.dispatchKey(pending, binding.keystrokes[0], [])
+    check pending.invalidatePendingInput(NodeId(2))
+    discard registry.dispatchKey(pending, binding.keystrokes[1], [])
+    check invoked == 0
+    check pending.keystrokes.len == 0
+
+  test "flushDispatch handles an exact binding hidden behind a prefix":
+    var registry: CommandRegistry
+    var invoked = 0
+    registerTestAction("testTimedChord", proc(action: Action): bool =
+      discard action
+      inc invoked
+      true)
+    let single = shortcutFromKeyBinding("cmd-k")
+    let chord = shortcutFromKeyBinding("cmd-k cmd-s")
+    registry.register(Command(name: "timed-single", shortcut: single,
+      action: buildAction("testTimedChord", nil)))
+    registry.register(Command(name: "timed-chord", shortcut: chord))
+    var pending = PendingInput(focus: NodeId(1))
+    let result = registry.dispatchKey(pending, chord.keystrokes[0], [])
+    check result.bindings.len == 0
+    check pending.needsTimeout
+    let flushed = registry.flushDispatch(pending, [])
+    check flushed.bindings.len == 1
+    discard flushed.bindings[0].action.dispatchAction()
+    check invoked == 1
+    check pending.keystrokes.len == 0
+
   test "key binding sequences accept Zed and legacy separators":
     let chord = shortcutFromKeyBinding("cmd-k cmd-s")
     check chord.keystrokes.len == 2
