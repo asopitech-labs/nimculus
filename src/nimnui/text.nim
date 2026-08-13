@@ -1,5 +1,7 @@
 import std/unicode
 import std/tables
+import std/options
+import std/hashes
 import graphemes
 import nimnui/geometry
 
@@ -69,6 +71,11 @@ type
 
   WrapBoundary* = object
     runIx*, glyphIx*: int
+    ## `offset` is a UTF-8 byte offset for the unshaped wrapper. Shaped
+    ## boundaries retain the same value from their source glyph.
+    offset*, byteOffset*: int
+    ## Number of leading spaces to add to this continuation row.
+    indent*: int
 
   WrappedLineLayout* = object
     unwrappedLayout*: ref LineLayout
@@ -180,6 +187,29 @@ type
     width*, ascent*, descent*: cdouble
     glyphCount*: uint32
 
+  FontIdWithSize* = object
+    fontId*: uint32
+    fontSize*: Pixels
+
+  LineWrapperWidthProc* = proc(ch: Rune): Pixels {.closure.}
+
+  LineWrapperMeasureProc* = proc(fontId: uint32, fontSize: Pixels,
+                                 ch: Rune): Pixels {.closure.}
+
+  LineWrapper* = object
+    fontId*: uint32
+    fontSize*: Pixels
+    asciiWidths*: array[128, Option[Pixels]]
+    otherWidths*: Table[Rune, Pixels]
+    widthProc: LineWrapperWidthProc
+
+  LineWrapperHandleObject = object
+    wrapper*: LineWrapper
+    poolKey: FontIdWithSize
+    active: bool
+
+  LineWrapperHandle* = ref LineWrapperHandleObject
+
 type FontCallback* = proc(name: cstring) {.cdecl.}
 
 const
@@ -191,6 +221,92 @@ const
   regular* = weightRegular
   medium* = weightMedium
   semibold* = weightSemibold
+
+const MaxIndent* = 256
+
+var wrapperPool*: Table[FontIdWithSize, seq[LineWrapper]] =
+  initTable[FontIdWithSize, seq[LineWrapper]]()
+
+proc hash*(key: FontIdWithSize): Hash =
+  result = hash(key.fontId)
+  result = result !& hash(float32(key.fontSize))
+  result = !$result
+
+proc defaultLineWrapperWidth(ch: Rune): Pixels =
+  ## The platform supplies the production callback. This deterministic
+  ## fallback keeps the wrapper useful in headless callers and tests.
+  discard ch
+  px(8)
+
+proc newLineWrapper(fontId: uint32, fontSize: Pixels,
+                   widthProc: LineWrapperWidthProc): LineWrapper =
+  result.fontId = fontId
+  result.fontSize = fontSize
+  result.otherWidths = initTable[Rune, Pixels]()
+  result.widthProc = if widthProc == nil: defaultLineWrapperWidth else: widthProc
+
+proc returnWrapper(handle: var LineWrapperHandleObject) =
+  if handle.active:
+    wrapperPool.mgetOrPut(handle.poolKey, @[]).add(handle.wrapper)
+    handle.active = false
+
+proc `=destroy`(handle: var LineWrapperHandleObject) =
+  handle.returnWrapper()
+
+proc lineWrapper*(fontId: uint32, fontSize: Pixels,
+                  widthProc: LineWrapperWidthProc = nil): LineWrapperHandle =
+  let key = FontIdWithSize(fontId: fontId, fontSize: fontSize)
+  var wrapper: LineWrapper
+  if wrapperPool.hasKey(key) and wrapperPool[key].len > 0:
+    wrapper = wrapperPool[key].pop()
+    wrapper.fontId = fontId
+    wrapper.fontSize = fontSize
+    if widthProc != nil:
+      wrapper.widthProc = widthProc
+  else:
+    wrapper = newLineWrapper(fontId, fontSize, widthProc)
+  new(result)
+  result.wrapper = wrapper
+  result.poolKey = key
+  result.active = true
+
+proc lineWrapper*(fontId: uint32, fontSize: Pixels,
+                  widthProc: LineWrapperMeasureProc): LineWrapperHandle =
+  lineWrapper(fontId, fontSize, proc(ch: Rune): Pixels =
+    widthProc(fontId, fontSize, ch))
+
+proc release*(handle: var LineWrapperHandle) =
+  ## Explicit release is useful at ownership boundaries; ARC also invokes
+  ## the same return path when the handle goes out of scope.
+  if handle != nil and handle.active:
+    handle[].returnWrapper()
+    handle = nil
+
+proc clearWrapperPool*() =
+  wrapperPool.clear()
+
+proc widthForChar*(wrapper: var LineWrapper, ch: Rune): Pixels =
+  let value = ch.int
+  if value >= 0 and value < 128:
+    if wrapper.asciiWidths[value].isSome:
+      return wrapper.asciiWidths[value].get
+    let measured = if wrapper.widthProc == nil: defaultLineWrapperWidth(ch) else:
+      wrapper.widthProc(ch)
+    wrapper.asciiWidths[value] = some(measured)
+    return measured
+  if wrapper.otherWidths.hasKey(ch):
+    return wrapper.otherWidths[ch]
+  let measured = if wrapper.widthProc == nil: defaultLineWrapperWidth(ch) else:
+    wrapper.widthProc(ch)
+  wrapper.otherWidths[ch] = measured
+  measured
+
+proc widthForChar*(handle: LineWrapperHandle, ch: Rune): Pixels =
+  handle.wrapper.widthForChar(ch)
+
+proc wrapperPoolLength*(fontId: uint32, fontSize: Pixels): int =
+  let key = FontIdWithSize(fontId: fontId, fontSize: fontSize)
+  if wrapperPool.hasKey(key): wrapperPool[key].len else: 0
 
 proc textSizePixels*(size: TextSize): Pixels =
   case size
@@ -216,6 +332,190 @@ when defined(macosx):
                               size: cdouble, metrics: ptr NativeTextMetrics)
                               {.importc: "nimculus_measure_text_utf8", cdecl.}
 
+proc wrapperRunes(text: string): tuple[offsets: seq[int], values: seq[Rune]] =
+  var byteOffset = 0
+  while byteOffset < text.len:
+    let ch = text.runeAt(byteOffset)
+    result.offsets.add(byteOffset)
+    result.values.add(ch)
+    byteOffset += ($ch).len
+
+proc leadingIndent(values: openArray[Rune]): int =
+  while result < values.len and values[result] == Rune(' '):
+    inc result
+  min(result, MaxIndent)
+
+proc isWordChar*(ch: Rune): bool
+
+proc wrapLine*(wrapper: var LineWrapper, text: string, wrapWidth: float32,
+               maxLines = 0): seq[WrapBoundary] =
+  ## Character-level counterpart to computeWrapBoundaries. Widths are cached
+  ## by the wrapper, so repeated lines do not invoke the platform measurer.
+  let input = wrapperRunes(text)
+  if input.values.len == 0 or wrapWidth <= 0: return
+  let indent = leadingIndent(input.values)
+  let indentWidth = wrapper.widthForChar(Rune(' ')) * float32(indent)
+  var lineStart = 0
+  var previous = Rune(0)
+  var haveFirst = false
+  while lineStart < input.values.len:
+    var lineWidth = if lineStart == 0: px(0) else: indentWidth
+    var candidate = -1
+    var index = lineStart
+    var wrapped = false
+    while index < input.values.len:
+      let ch = input.values[index]
+      if ch == Rune('\n'):
+        inc index
+        continue
+      let isCandidate = if isWordChar(ch):
+        previous == Rune(' ') and ch != Rune(' ') and haveFirst
+      else:
+        ch != Rune(' ') and haveFirst
+      if isCandidate and index > lineStart:
+        candidate = index
+      lineWidth = lineWidth + wrapper.widthForChar(ch)
+      if ch != Rune(' '):
+        haveFirst = true
+      if float32(lineWidth) > wrapWidth:
+        var breakAt = candidate
+        if breakAt <= lineStart:
+          breakAt = if index > lineStart: index else: index + 1
+        if breakAt > lineStart and breakAt <= input.values.len:
+          if maxLines > 0 and result.len >= maxLines - 1:
+            return
+          let offset = if breakAt < input.offsets.len:
+            input.offsets[breakAt]
+          else:
+            text.len
+          result.add(WrapBoundary(runIx: 0, glyphIx: breakAt,
+            offset: offset, byteOffset: offset, indent: indent))
+          lineStart = breakAt
+          wrapped = true
+        break
+      previous = ch
+      inc index
+    if not wrapped:
+      break
+
+proc wrapLine*(handle: LineWrapperHandle, text: string, wrapWidth: float32,
+               maxLines = 0): seq[WrapBoundary] =
+  handle.wrapper.wrapLine(text, wrapWidth, maxLines)
+
+proc wrapLine*(wrapper: var LineWrapper, text: string, wrapWidth: Pixels,
+               maxLines = 0): seq[WrapBoundary] =
+  wrapper.wrapLine(text, float32(wrapWidth), maxLines)
+
+proc wrapLine*(handle: LineWrapperHandle, text: string, wrapWidth: Pixels,
+               maxLines = 0): seq[WrapBoundary] =
+  handle.wrapper.wrapLine(text, float32(wrapWidth), maxLines)
+
+proc shouldTruncateLine*(wrapper: var LineWrapper, text: string,
+                         maxWidth: float32): bool =
+  var width = px(0)
+  for ch in text.runes:
+    width = width + wrapper.widthForChar(ch)
+  float32(width) > maxWidth
+
+proc shouldTruncateLine*(wrapper: var LineWrapper, text: string,
+                         maxWidth: Pixels): bool =
+  wrapper.shouldTruncateLine(text, float32(maxWidth))
+
+proc appendRunes(target: var string, values: openArray[Rune]) =
+  for ch in values:
+    target.add(ch.toUTF8)
+
+proc truncateLine*(wrapper: var LineWrapper, text: string, maxWidth: float32,
+                   mode = truncateEnd): string =
+  var source: seq[Rune]
+  for ch in text.runes:
+    source.add(ch)
+  if source.len == 0 or not wrapper.shouldTruncateLine(text, maxWidth):
+    return text
+  let ellipsis = Rune(0x2026)
+  let ellipsisWidth = float32(wrapper.widthForChar(ellipsis))
+  if maxWidth <= 0 or ellipsisWidth > maxWidth:
+    return ""
+  let remaining = maxWidth - ellipsisWidth
+  var kept: seq[Rune]
+  case mode
+  of truncateEnd:
+    var width = 0'f32
+    for ch in source:
+      let chWidth = float32(wrapper.widthForChar(ch))
+      if width + chWidth > remaining: break
+      kept.add(ch)
+      width += chWidth
+    result.appendRunes(kept)
+    result.add(ellipsis.toUTF8)
+  of truncateStart:
+    var width = 0'f32
+    var first = source.len
+    while first > 0:
+      let chWidth = float32(wrapper.widthForChar(source[first - 1]))
+      if width + chWidth > remaining: break
+      dec first
+      width += chWidth
+    result.add(ellipsis.toUTF8)
+    result.appendRunes(source[first ..< source.len])
+  of truncateMiddle:
+    var left = 0
+    var right = source.len
+    var leftWidth = 0'f32
+    var rightWidth = 0'f32
+    while left < right:
+      if leftWidth <= rightWidth:
+        let chWidth = float32(wrapper.widthForChar(source[left]))
+        if leftWidth + rightWidth + chWidth > remaining: break
+        leftWidth += chWidth
+        inc left
+      else:
+        let chWidth = float32(wrapper.widthForChar(source[right - 1]))
+        if leftWidth + rightWidth + chWidth > remaining: break
+        rightWidth += chWidth
+        dec right
+    result.appendRunes(source[0 ..< left])
+    result.add(ellipsis.toUTF8)
+    result.appendRunes(source[right ..< source.len])
+
+proc truncateLine*(handle: LineWrapperHandle, text: string, maxWidth: float32,
+                   mode = truncateEnd): string =
+  handle.wrapper.truncateLine(text, maxWidth, mode)
+
+proc truncateLine*(wrapper: var LineWrapper, text: string, maxWidth: Pixels,
+                   mode = truncateEnd): string =
+  wrapper.truncateLine(text, float32(maxWidth), mode)
+
+proc truncateLine*(handle: LineWrapperHandle, text: string, maxWidth: Pixels,
+                   mode = truncateEnd): string =
+  handle.wrapper.truncateLine(text, float32(maxWidth), mode)
+
+proc truncateWrappedLine*(wrapper: var LineWrapper, text: string,
+                          wrapWidth: float32, maxLines: int,
+                          mode = truncateEnd): string =
+  let boundaries = wrapper.wrapLine(text, wrapWidth)
+  if maxLines <= 0 or boundaries.len < maxLines:
+    return text
+  let lastStart = boundaries[maxLines - 1].offset
+  let prefix = text[0 ..< lastStart]
+  let suffix = text[lastStart .. ^1]
+  prefix & wrapper.truncateLine(suffix, wrapWidth, mode)
+
+proc truncateWrappedLine*(handle: LineWrapperHandle, text: string,
+                          wrapWidth: float32, maxLines: int,
+                          mode = truncateEnd): string =
+  handle.wrapper.truncateWrappedLine(text, wrapWidth, maxLines, mode)
+
+proc truncateWrappedLine*(wrapper: var LineWrapper, text: string,
+                          wrapWidth: Pixels, maxLines: int,
+                          mode = truncateEnd): string =
+  wrapper.truncateWrappedLine(text, float32(wrapWidth), maxLines, mode)
+
+proc truncateWrappedLine*(handle: LineWrapperHandle, text: string,
+                          wrapWidth: Pixels, maxLines: int,
+                          mode = truncateEnd): string =
+  handle.wrapper.truncateWrappedLine(text, float32(wrapWidth), maxLines, mode)
+
 proc textPositions*(text: string): seq[TextPosition] =
   result.add(TextPosition(byteOffset: 0, graphemeIndex: 0))
   var grapheme = 0
@@ -223,9 +523,11 @@ proc textPositions*(text: string): seq[TextPosition] =
     inc grapheme
     result.add(TextPosition(byteOffset: bounds.b + 1, graphemeIndex: grapheme))
 
-proc isWordChar(ch: Rune): bool =
+proc isWordChar*(ch: Rune): bool =
   let value = int(ch)
-  ch.isAlpha or (value >= ord('0') and value <= ord('9')) or
+  ((value >= ord('A') and value <= ord('Z')) or
+    (value >= ord('a') and value <= ord('z')) or
+    (value >= ord('0') and value <= ord('9'))) or
     value in 0x00C0 .. 0x00FF or value in 0x0100 .. 0x017F or
     value in 0x0180 .. 0x024F or value in 0x0300 .. 0x036F or
     value in 0x0400 .. 0x04FF or value in 0x0980 .. 0x09FF or
@@ -327,6 +629,7 @@ proc computeWrapBoundaries*(layout: LineLayout, text: string, wrapWidth: float32
   var lastCandidate: tuple[runIx, glyphIx: int]
   var haveCandidate = false
   var lastCandidateX = 0'f32
+  var lastCandidateOffset = 0
   var lastBoundary = WrapBoundary(runIx: 0, glyphIx: 0)
   var lastBoundaryX = 0'f32
   var previous = Rune(0)
@@ -341,11 +644,13 @@ proc computeWrapBoundaries*(layout: LineLayout, text: string, wrapWidth: float32
           lastCandidate = (boundary.runIx, boundary.glyphIx)
           haveCandidate = true
           lastCandidateX = x
+          lastCandidateOffset = glyph.index
       else:
         if ch != Rune(' ') and haveFirst:
           lastCandidate = (boundary.runIx, boundary.glyphIx)
           haveCandidate = true
           lastCandidateX = x
+          lastCandidateOffset = glyph.index
       if ch != Rune(' ') and not haveFirst:
         haveFirst = true
       var nextX = float32(layout.width)
@@ -364,11 +669,15 @@ proc computeWrapBoundaries*(layout: LineLayout, text: string, wrapWidth: float32
       if width > wrapWidth and afterLast:
         if maxLines > 0 and result.len >= maxLines - 1: break
         if haveCandidate:
-          lastBoundary = WrapBoundary(runIx: lastCandidate.runIx, glyphIx: lastCandidate.glyphIx)
+          lastBoundary = WrapBoundary(runIx: lastCandidate.runIx,
+            glyphIx: lastCandidate.glyphIx, offset: lastCandidateOffset,
+            byteOffset: lastCandidateOffset)
           lastBoundaryX = lastCandidateX
           haveCandidate = false
         else:
-          lastBoundary = boundary
+          lastBoundary = WrapBoundary(runIx: boundary.runIx,
+            glyphIx: boundary.glyphIx, offset: glyph.index,
+            byteOffset: glyph.index)
           lastBoundaryX = x
         result.add(lastBoundary)
       previous = ch
