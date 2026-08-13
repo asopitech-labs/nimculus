@@ -159,6 +159,8 @@ proc platformShowEditorTabContext*(paneIndex, tabIndex: uint32, isPinned,
     hasPinnedTabs: bool) {.importc: "nimculus_platform_show_editor_tab_context", cdecl.}
 proc platformRevealPath*(path: cstring) {.importc: "nimculus_platform_reveal_path", cdecl.}
 proc platformSetCommandCallback*(callback: CommandCallback) {.importc: "nimculus_platform_set_command_callback", cdecl.}
+proc platformSetCommandPaletteCommands*(commands: ptr cstring,
+    count: uint32) {.importc: "nimculus_platform_set_command_palette_commands", cdecl.}
 proc platformSetIdleCallback*(callback: IdleCallback) {.importc: "nimculus_platform_set_idle_callback", cdecl.}
 proc platformSetIdleForBlame*(requested: bool) {.importc: "nimculus_platform_set_idle_for_blame", cdecl.}
 proc platformSetFrameCallback*(callback: FrameCallback) {.importc: "nimculus_platform_set_frame_callback", cdecl.}
