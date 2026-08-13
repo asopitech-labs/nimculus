@@ -195,11 +195,6 @@ proc pushClip*(paint: var PaintList, bounds: Rect) =
   paint.clipStack.add(effective)
 proc popClip*(paint: var PaintList) =
   if paint.clipStack.len > 0: paint.clipStack.setLen(paint.clipStack.len - 1)
-
-proc currentContentMask*(paint: PaintList, fallback: Rect): Rect =
-  ## The mask active at prepaint insertion time. A caller outside a clip
-  ## region uses its own bounds as the finite fallback mask.
-  if paint.clipStack.len > 0: paint.clipStack[^1] else: fallback
 proc pushTransform*(paint: var PaintList, transform: Transform2D) =
   let current = if paint.transformStack.len > 0: paint.transformStack[^1] else: identityTransform()
   paint.transformStack.add(current * transform)

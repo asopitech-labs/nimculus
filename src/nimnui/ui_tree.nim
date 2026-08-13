@@ -7,32 +7,6 @@ import std/tables
 type
   NodeId* = distinct uint64
 
-  ## Hitboxes are recorded during prepaint, when the content mask is known.
-  ## Keeping the behavior on the recorded item makes hit testing independent
-  ## of the retained node tree and lets one point produce a propagation stack.
-  HitboxBehavior* = enum
-    hitboxNormal, hitboxBlockMouse, hitboxBlockMouseExceptScroll
-
-  HitTestKind* = enum
-    hoverHitTest, scrollHitTest
-
-  Hitbox* = object
-    id*: NodeId
-    ## `node` is retained as a source-compatible spelling for the first
-    ## Window hitbox API. New code should use `id`, matching GPUI's Hitbox.
-    node*: NodeId
-    bounds*: Rect
-    contentMask*: Rect
-    behavior*: HitboxBehavior
-    enabled*: bool
-
-  HitTestResult* = object
-    ## IDs are ordered topmost-first, just like Frame::hit_test's stack.
-    ids*: seq[NodeId]
-    ## Number of IDs eligible for hover dispatch. Scroll dispatch uses all
-    ## IDs in `ids`, including items behind BlockMouseExceptScroll.
-    hoverHitboxCount*: int
-
   LayoutDirtyHandler* = proc(id: NodeId) {.closure.}
 
   ## The public EventHandler is declared in events.nim because UiEvent depends
@@ -96,15 +70,6 @@ type
 
 proc `==`*(a, b: NodeId): bool = uint64(a) == uint64(b)
 
-proc topmost*(hitResult: HitTestResult): NodeId =
-  if hitResult.ids.len > 0: hitResult.ids[0] else: NodeId(0)
-
-proc hoverIds*(hitResult: HitTestResult): seq[NodeId] =
-  hitResult.ids[0 ..< min(hitResult.hoverHitboxCount, hitResult.ids.len)]
-
-proc `==`*(hitResult: HitTestResult, id: NodeId): bool = hitResult.topmost == id
-proc `==`*(id: NodeId, hitResult: HitTestResult): bool = hitResult == id
-
 proc a11yNodeId*(node: UiNode): uint64 =
   var value = uint64(node.id) xor (uint64(node.generation) * 0x9e3779b97f4a7c15'u64)
   value = (value xor (value shr 30)) * 0xbf58476d1ce4e5b9'u64
@@ -114,19 +79,12 @@ proc a11yNodeId*(node: UiNode): uint64 =
 proc newUiTree*(): UiTree = UiTree(nextId: 1, nextGeneration: 1,
                                    focused: NodeId(0), index: initTable[NodeId, int]())
 
-when defined(debug):
-  var nodeIndexCallCount* = 0
-
 proc nodeIndex*(tree: UiTree, id: NodeId): int =
-  when defined(debug): inc nodeIndexCallCount
   let index = tree.index.getOrDefault(id, -1)
   if index >= 0 and index < tree.nodes.len and tree.nodes[index].id == id:
     index
   else:
     -1
-
-when defined(debug):
-  proc resetNodeIndexCallCount*() = nodeIndexCallCount = 0
 
 proc dispatchPath*(tree: UiTree, target: NodeId): seq[NodeId]
 proc focusContains*(tree: UiTree, parent, child: NodeId): bool
@@ -290,77 +248,42 @@ proc setA11yState*(tree: var UiTree, id: NodeId, selected, expanded: bool) =
     tree.nodes[index].a11ySelected = selected
     tree.nodes[index].a11yExpanded = expanded
 
-proc intersectAxis(rect: var Rect, clip: Rect, clipX, clipY: bool) =
-  if clipX:
-    let left = max(float32(rect.origin.x), float32(clip.origin.x))
-    let right = min(float32(rect.origin.x + rect.size.width),
-      float32(clip.origin.x + clip.size.width))
-    rect.origin.x = px(left)
-    rect.size.width = px(max(0'f32, right - left))
-  if clipY:
-    let top = max(float32(rect.origin.y), float32(clip.origin.y))
-    let bottom = min(float32(rect.origin.y + rect.size.height),
-      float32(clip.origin.y + clip.size.height))
-    rect.origin.y = px(top)
-    rect.size.height = px(max(0'f32, bottom - top))
-
-proc treeHitboxes(tree: UiTree): seq[Hitbox] =
-  ## Compatibility prepaint for callers that only own a UiTree. The map is
-  ## built directly from the frame's nodes; hit testing itself never calls
-  ## nodeIndex, and the resulting items carry the already-computed mask.
-  var indices = initTable[NodeId, int]()
-  for index, node in tree.nodes:
-    indices[node.id] = index
-  for index, node in tree.nodes:
-    if node.id == NodeId(0): continue
-    var enabled = true
-    var mask = node.bounds
-    var descendantIndex = index
-    var parent = node.parent
-    while parent != NodeId(0):
-      let ancestorIndex = indices.getOrDefault(parent, -1)
-      if ancestorIndex < 0:
-        enabled = false
-        break
-      let ancestor = tree.nodes[ancestorIndex]
-      if ancestor.disabledState:
-        enabled = false
-        break
-      let descendantIsAbsolute = tree.nodes[descendantIndex].layoutSpec.position == absolute
-      if not ancestor.clipChildren and not descendantIsAbsolute:
-        intersectAxis(mask, ancestor.bounds, true, true)
-      elif ancestor.clipChildren:
-        intersectAxis(mask, ancestor.nodeClip(), ancestor.clipX, ancestor.clipY)
-      descendantIndex = ancestorIndex
-      parent = ancestor.parent
-    if node.disabledState: enabled = false
-    result.add(Hitbox(id: node.id, node: node.id, bounds: node.bounds,
-      contentMask: mask, behavior: hitboxNormal, enabled: enabled))
-
-proc hitTestHitboxes*(hitboxes: openArray[Hitbox], point: Point,
-                      kind: HitTestKind = hoverHitTest): HitTestResult =
-  ## Walk reverse insertion order, retaining every eligible hit. A normal
-  ## hitbox exposes items behind it; blocking behaviors stop only the query
-  ## they are defined to block.
-  for index in countdown(hitboxes.high, 0):
-    let hitbox = hitboxes[index]
-    if not hitbox.enabled or not hitbox.bounds.contains(point) or
-        not hitbox.contentMask.contains(point): continue
-    result.ids.add(if hitbox.id != NodeId(0): hitbox.id else: hitbox.node)
-    case hitbox.behavior
-    of hitboxNormal:
-      discard
-    of hitboxBlockMouse:
-      break
-    of hitboxBlockMouseExceptScroll:
-      result.hoverHitboxCount = result.ids.len
-      if kind == hoverHitTest: break
-  if result.hoverHitboxCount == 0:
-    result.hoverHitboxCount = result.ids.len
-
-proc hitTest*(tree: UiTree, point: Point,
-              kind: HitTestKind = hoverHitTest): HitTestResult =
-  hitTestHitboxes(tree.treeHitboxes(), point, kind)
+proc hitTest*(tree: UiTree, point: Point): NodeId =
+  ## Return the deepest/topmost node containing a point. A node is eligible
+  ## only while every clipping ancestor contains the point. `overflow: visible`
+  ## therefore allows an absolute child to receive input outside its parent,
+  ## while `overflow: hidden` matches the painting clip.
+  for index in countdown(tree.nodes.high, 0):
+    if tree.nodes[index].disabledState: continue
+    if not tree.nodes[index].bounds.contains(point): continue
+    let dispatchPath = tree.dispatchPath(tree.nodes[index].id)
+    if dispatchPath.len == 0: continue
+    var descendant = tree.nodes[index].id
+    var visible = true
+    if dispatchPath.len > 1:
+      for pathIndex in countdown(dispatchPath.high - 1, 0):
+        let ancestorIndex = tree.nodeIndex(dispatchPath[pathIndex])
+        if ancestorIndex < 0 or tree.nodes[ancestorIndex].disabledState:
+          visible = false
+          break
+        let ancestor = tree.nodes[ancestorIndex]
+        let descendantIndex = tree.nodeIndex(descendant)
+        let descendantIsAbsolute = descendantIndex >= 0 and
+          tree.nodes[descendantIndex].layoutSpec.position == absolute
+        let useLegacyBounds = not ancestor.clipChildren and not descendantIsAbsolute
+        let clip = ancestor.nodeClip()
+        if ((useLegacyBounds and not ancestor.bounds.contains(point)) or
+            (ancestor.clipChildren and ((ancestor.clipX and
+            (float32(point.x) < float32(clip.origin.x) or
+             float32(point.x) >= float32(clip.origin.x + clip.size.width))) or
+             (ancestor.clipY and
+            (float32(point.y) < float32(clip.origin.y) or
+             float32(point.y) >= float32(clip.origin.y + clip.size.height)))))):
+          visible = false
+          break
+        descendant = dispatchPath[pathIndex]
+    if visible: return tree.nodes[index].id
+  NodeId(0)
 
 proc handle*(tree: UiTree, id: NodeId): NodeHandle =
   let index = tree.nodeIndex(id)
