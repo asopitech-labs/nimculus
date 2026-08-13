@@ -273,7 +273,7 @@ type
     separator, header, label, entry, customEntry, submenu
 
   ToggleState* = enum
-    off, on, mixed
+    tsUnselected, tsIndeterminate, tsSelected
 
   OverlayItem* = object
     ## The discriminator keeps menu data independent from its renderer. The
@@ -334,6 +334,17 @@ type
     open*: bool
     grabsInput*: bool
     selectedIndex*: int
+
+proc inverse*(state: ToggleState): ToggleState =
+  case state
+  of tsUnselected: tsSelected
+  of tsIndeterminate: tsSelected
+  of tsSelected: tsUnselected
+
+proc fromAnyAndAll*(any, all: bool): ToggleState =
+  if all: tsSelected
+  elif any: tsIndeterminate
+  else: tsUnselected
 
 proc scrollBy*(model: var ScrollModel, delta: Pixels) =
   let maximum = maxPx(px(0), model.contentSize - model.viewportSize)
@@ -714,10 +725,12 @@ proc paintOverlay*(paint: var PaintList, model: OverlayModel, light = true) =
     elif item.label.len > 0:
       var text = item.label
       if kind == entry:
-        case item.toggled
-        of on: text = "✓ " & text
-        of mixed: text = "− " & text
-        of off: discard
+        let toggled = fromAnyAndAll(item.toggled != tsUnselected,
+          item.toggled == tsSelected)
+        case toggled
+        of tsSelected: text = "✓ " & text
+        of tsIndeterminate: text = "− " & text
+        of tsUnselected: discard
       if item.endSlot.len > 0:
         text = text & "  " & item.endSlot
       paint.drawText(row.inset(EdgeInsets(top: px(2), right: px(8),
