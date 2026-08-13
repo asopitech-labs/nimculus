@@ -937,6 +937,77 @@ __attribute__((weak)) int nimculus_chrome_button_state(uint64_t identity,
   return disabled ? 4 : (active ? 3 : (hovered ? 2 : 0));
 }
 
+@class NimculusChromeButton;
+
+typedef struct NimculusButtonColor {
+  float red;
+  float green;
+  float blue;
+  float alpha;
+} NimculusButtonColor;
+
+typedef struct NimculusButtonLikeStyles {
+  NimculusButtonColor background;
+  NimculusButtonColor borderColor;
+  NimculusButtonColor labelColor;
+  NimculusButtonColor iconColor;
+} NimculusButtonLikeStyles;
+
+extern void nimculus_button_styles(int style, int state, int elevation,
+  const char *foreground, const char *accent, const char *border,
+  const char *element, const char *elementHover, const char *elementActive,
+  const char *textDisabled, const char *borderVariant,
+  const char *borderFocused, NimculusButtonLikeStyles *styles);
+
+// Platform-only contract tests do not load the controls module. This weak
+// fallback keeps those test binaries linkable; the strong Nim export owns the
+// real style table in the application.
+__attribute__((weak)) void nimculus_button_styles(int style, int state,
+                                                   int elevation,
+                                                   const char *foreground,
+                                                   const char *accent,
+                                                   const char *border,
+                                                   const char *element,
+                                                   const char *elementHover,
+                                                   const char *elementActive,
+                                                   const char *textDisabled,
+                                                   const char *borderVariant,
+                                                   const char *borderFocused,
+                                                   NimculusButtonLikeStyles *styles) {
+  (void)style;
+  (void)elevation;
+  (void)foreground;
+  (void)accent;
+  (void)border;
+  (void)element;
+  (void)elementHover;
+  (void)elementActive;
+  (void)textDisabled;
+  (void)borderVariant;
+  (void)borderFocused;
+  if (!styles) return;
+  // This branch exists only for platform-contract binaries that do not load
+  // the Nim component module. Keep those presenters visibly distinct without
+  // duplicating the production alpha table above the bridge.
+  const NimculusButtonColor normalColor = {1.0, 1.0, 1.0, 1.0};
+  const NimculusButtonColor selectedColor = {0.30, 0.67, 1.0, 1.0};
+  const NimculusButtonColor clearColor = {0.0, 0.0, 0.0, 0.0};
+  *styles = (NimculusButtonLikeStyles){clearColor, clearColor, normalColor,
+    normalColor};
+  if (state == 3) {
+    styles->background = selectedColor;
+    styles->labelColor = selectedColor;
+    styles->iconColor = selectedColor;
+  } else if (state == 2) {
+    styles->background = normalColor;
+  }
+}
+
+static NSColor *nimculusButtonNSColor(NimculusButtonColor color) {
+  return [NSColor colorWithCalibratedRed:color.red green:color.green
+    blue:color.blue alpha:color.alpha];
+}
+
 // Workspace chrome controls are intentionally quiet until the pointer reaches
 // them. Tracking remains AppKit-owned, while interaction state is submitted
 // to the component UiTree before repainting.
@@ -945,33 +1016,40 @@ __attribute__((weak)) int nimculus_chrome_button_state(uint64_t identity,
 @property(nonatomic, retain) NSTrackingArea *chromeTrackingArea;
 @end
 
+static void resolveChromeButtonStyles(NimculusChromeButton *button,
+                                      BOOL hovered, BOOL active,
+                                      NimculusButtonLikeStyles *styles) {
+  if (!styles) return;
+  const int state = nimculus_chrome_button_state((uint64_t)button, hovered,
+    active, !button.enabled);
+  NSString *foreground = themeRole(@"foreground", g_theme_foreground);
+  NSString *accent = themeRole(@"accent", g_theme_accent);
+  NSString *border = themeRole(@"border", g_theme_border);
+  NSString *element = themeRole(@"element", foreground);
+  NSString *elementHover = themeRole(@"elementHover", element);
+  NSString *elementActive = themeRole(@"elementActive", elementHover);
+  NSString *textDisabled = themeRole(@"textDisabled", foreground);
+  NSString *borderVariant = themeRole(@"borderVariant", border);
+  NSString *borderFocused = themeRole(@"borderFocused", accent);
+  nimculus_button_styles(5, state, 0, [foreground UTF8String],
+    [accent UTF8String], [border UTF8String], [element UTF8String],
+    [elementHover UTF8String], [elementActive UTF8String],
+    [textDisabled UTF8String], [borderVariant UTF8String],
+    [borderFocused UTF8String], styles);
+}
+
 static void updateChromeButtonAppearance(NimculusChromeButton *button,
                                          BOOL hovered, BOOL active) {
   if (!button) return;
-  const int state = nimculus_chrome_button_state((uint64_t)button, hovered,
-    active, !button.enabled);
-  NSColor *foreground = themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
-    [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]));
-  NSColor *accent = themeRoleColor(@"accent", themeHexColor(g_theme_accent,
-    [NSColor controlAccentColor]));
-  NSColor *hoverSurface = themeRoleColor(@"elementHover",
-    themeRoleColor(@"element", foreground));
-  const BOOL resolvedDisabled = state == 4;
-  const BOOL resolvedActive = state == 3;
-  const BOOL resolvedHovered = state == 2;
-  NSColor *tint = resolvedDisabled ? themeRoleColor(@"textDisabled",
-    [foreground colorWithAlphaComponent:0.45]) :
-    (resolvedActive ? accent : [foreground colorWithAlphaComponent:0.78]);
-  NSColor *background = resolvedDisabled ? themeRoleColor(@"element",
-    [foreground colorWithAlphaComponent:0.12]) :
-    (resolvedActive ? [accent colorWithAlphaComponent:0.22] :
-      (resolvedHovered ? [hoverSurface colorWithAlphaComponent:0.10] : NSColor.clearColor));
+  NimculusButtonLikeStyles styles;
+  resolveChromeButtonStyles(button, hovered, active, &styles);
   button.wantsLayer = YES;
   button.layer.cornerRadius = NimculusSpace1;
   button.layer.borderWidth = 0.0;
   button.layer.borderColor = nil;
-  button.layer.backgroundColor = background.CGColor;
-  button.contentTintColor = tint;
+  button.layer.backgroundColor = nimculusButtonNSColor(styles.background).CGColor;
+  button.layer.borderColor = nimculusButtonNSColor(styles.borderColor).CGColor;
+  button.contentTintColor = nimculusButtonNSColor(styles.iconColor);
 }
 
 @implementation NimculusChromeButton
@@ -1011,29 +1089,27 @@ static void updateChromeButtonAppearance(NimculusChromeButton *button,
 static void styleWorkspaceNavigationButton(NSButton *button, BOOL active,
                                            BOOL imageOnly) {
   if (!button) return;
-  NSColor *foreground = themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
-    [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]));
-  NSColor *accent = themeRoleColor(@"accent", themeHexColor(g_theme_accent,
-    [NSColor controlAccentColor]));
-  NSColor *tint = active ? accent : [foreground colorWithAlphaComponent:0.78];
   button.bordered = NO;
   button.wantsLayer = YES;
   button.layer.cornerRadius = NimculusSpace1;
   button.layer.borderWidth = 0.0;
   button.layer.borderColor = nil;
-  button.contentTintColor = tint;
   if ([button isKindOfClass:[NimculusChromeButton class]]) {
     NimculusChromeButton *chromeButton = (NimculusChromeButton *)button;
     chromeButton.state = active ? NSControlStateValueOn : NSControlStateValueOff;
     chromeButton.chromeImageOnly = imageOnly;
     updateChromeButtonAppearance(chromeButton, NO, active);
   } else {
-    // Keep the helper safe for legacy/native buttons while all workspace
-    // navigation and sidebar-header controls use NimculusChromeButton.
-    button.layer.backgroundColor = NSColor.clearColor.CGColor;
+    NimculusButtonLikeStyles styles;
+    resolveChromeButtonStyles((NimculusChromeButton *)button, NO, active,
+      &styles);
+    button.layer.backgroundColor = nimculusButtonNSColor(styles.background).CGColor;
+    button.layer.borderColor = nimculusButtonNSColor(styles.borderColor).CGColor;
+    button.contentTintColor = nimculusButtonNSColor(styles.iconColor);
   }
   if (button.image) button.image.template = YES;
   if (!imageOnly) {
+    NSColor *tint = button.contentTintColor;
     button.attributedTitle = [[[NSAttributedString alloc] initWithString:button.title ?: @""
       attributes:@{NSForegroundColorAttributeName: tint,
         NSFontAttributeName: [NSFont systemFontOfSize:12.0
