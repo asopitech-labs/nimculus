@@ -868,6 +868,8 @@ proc setupShortcutRegistry() =
       "foldAtLevel5", "foldAtLevel6", "foldAtLevel7", "foldAtLevel8",
       "foldAtLevel9"]:
     shortcutRegistry.register(Command(name: name, action: nativeCommandAction(name)))
+  for index in 0 ..< shortcutRegistry.commands.len:
+    shortcutRegistry.commands[index].meta = defaultBindingMeta
 
 proc applySettingsKeymap() =
   when defined(macosx) or defined(windows):
@@ -881,10 +883,40 @@ proc applySettingsKeymap() =
       for keystroke in shortcut.keystrokes:
         if keystroke.keyCode == 0: validShortcut = false
       if not validShortcut: continue
-      for index in 0 ..< shortcutRegistry.commands.len:
-        if shortcutRegistry.commands[index].name == binding.command:
-          shortcutRegistry.commands[index].shortcut = shortcut
-          shortcutRegistry.commands[index].setWhenClause(binding.whenClause)
+      var action = nativeCommandAction(binding.command)
+      for candidate in shortcutRegistry.commands:
+        if candidate.name == binding.command:
+          action = candidate.action
+          break
+      shortcutRegistry.register(Command(name: binding.command,
+        shortcut: shortcut, whenClause: binding.whenClause,
+        action: action, meta: userBindingMeta))
+
+    # `SettingsStore.keyBindings` intentionally exposes only string commands.
+    # Read the raw keymap here as well so a JSON null can act as Zed's
+    # user-layer NoAction marker and remove a default binding.
+    let rawKeymap = appSettings.settings.values
+    if rawKeymap != nil and rawKeymap.kind == JObject and
+        rawKeymap.hasKey("keymap") and rawKeymap["keymap"].kind == JArray:
+      for item in rawKeymap["keymap"]:
+        if item.kind != JObject or not item.hasKey("key") or
+            item["key"].kind != JString:
+          continue
+        let actionNode = if item.hasKey("command"): item["command"]
+          elif item.hasKey("action"): item["action"]
+          else: nil
+        if actionNode == nil or actionNode.kind != JNull:
+          continue
+        let shortcut = shortcutFromKeyBinding(item["key"].getStr)
+        var validShortcut = shortcut.keystrokes.len > 0
+        for keystroke in shortcut.keystrokes:
+          if keystroke.keyCode == 0: validShortcut = false
+        if not validShortcut: continue
+        let whenClause = if item.hasKey("when") and item["when"].kind == JString:
+            item["when"].getStr else: ""
+        shortcutRegistry.register(Command(name: "__NoAction__",
+          shortcut: shortcut, whenClause: whenClause, action: noAction(),
+          meta: userBindingMeta))
 
 when defined(macosx):
   proc resizeNativeTerminals()
