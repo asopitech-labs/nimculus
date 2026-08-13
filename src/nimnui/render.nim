@@ -1,5 +1,6 @@
 import std/math
 import nimnui/geometry
+import nimculus/settings
 
 type
   Color* = object
@@ -18,6 +19,16 @@ type
   ScrollbarStyle* = enum
     regular, editor
 
+  ## Zed's Divider has three semantic color choices. The native renderer
+  ## resolves these names against the same theme palette as the rest of the
+  ## UI; keeping the choice on the retained command prevents all dividers
+  ## from collapsing into the workspace separator's default color.
+  DividerColor* = enum
+    dividerBorder, dividerBorderFaded, dividerBorderVariant
+
+  DividerStyle* = enum
+    dividerSolid, dividerDashed
+
   BoxShadow* = object
     offset*: Point
     blurRadius*: Pixels
@@ -32,7 +43,11 @@ type
     workspaceBackground, workspacePanel, workspaceSeparator, editorActiveLine, editorBackground,
     ## Zed rules the vertical scrollbar's inner edge in its own lighter role
     ## (`scrollbar.track.border`), distinct from the workspace `border`.
-    scrollbarTrack, editorDiagnostic, roundedSelection
+    scrollbarTrack, editorDiagnostic, roundedSelection,
+    ## A one-pixel path command. The macOS backend currently lowers this
+    ## small path vocabulary to pixel-aligned quads, which preserves the
+    ## retained paint ABI while supporting Zed's dashed divider.
+    strokedPath
 
   ## The two possible width changes at a row join are kept as data rather
   ## than exposed as path operations. The Metal backend consumes the row
@@ -48,10 +63,14 @@ type
     text*: string
     radius*: Pixels
     blurRadius*: Pixels
+    strokeWidth*: Pixels
     color*: Color
     colour*: Color
     transform*: Transform2D
     imageId*: uint32
+    dividerColor*: DividerColor
+    dividerStyle*: DividerStyle
+    dashArray*: seq[Pixels]
     ## Only populated for roundedSelection. Keeping the rows on the paint
     ## command lets the retained command stay one concrete shape instead of
     ## becoming one rounded rectangle per line.
@@ -296,8 +315,43 @@ proc drawWorkspaceBackground*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: workspaceBackground, bounds: bounds, clip: bounds))
 proc drawWorkspacePanel*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: workspacePanel, bounds: bounds, clip: bounds))
-proc drawWorkspaceSeparator*(paint: var PaintList, bounds: Rect) =
-  paint.add(PaintCommand(kind: workspaceSeparator, bounds: bounds, clip: bounds))
+
+proc dividerUiColor*(color: DividerColor): UiColor =
+  ## Resolve the Divider choice through the shared semantic UiColor table.
+  case color
+  of dividerBorder, dividerBorderFaded: uiBorder
+  of dividerBorderVariant: uiBorderVariant
+
+proc dividerUiColorRole*(color: DividerColor): string =
+  ## These are the serialized role keys consumed by the native theme resolver.
+  case color
+  of dividerBorder, dividerBorderFaded: "border"
+  of dividerBorderVariant: "borderVariant"
+
+proc dividerMetadata(color: DividerColor, style: DividerStyle): uint32 =
+  ## NativePaintCommand predates path/color payloads. Keep the wire contract
+  ## stable and use the otherwise-unused image slot for divider-only metadata.
+  uint32(1 + ord(color) * 2 + ord(style))
+
+proc drawDivider*(paint: var PaintList, bounds: Rect,
+                  color: DividerColor = dividerBorder,
+                  style: DividerStyle = dividerSolid) =
+  let dashArray = if style == dividerDashed: @[px(4), px(2)] else: @[]
+  paint.add(PaintCommand(kind: strokedPath, bounds: bounds, clip: bounds,
+    strokeWidth: px(1), dividerColor: color, dividerStyle: style,
+    dashArray: dashArray, imageId: dividerMetadata(color, style)))
+
+proc drawWorkspaceSeparator*(paint: var PaintList, bounds: Rect,
+                             color: DividerColor = dividerBorder,
+                             style: DividerStyle = dividerSolid) =
+  ## Preserve the existing semantic kind for solid workspace chrome while
+  ## allowing callers to request the full Divider path behavior.
+  if style == dividerDashed:
+    paint.drawDivider(bounds, color, style)
+  else:
+    paint.add(PaintCommand(kind: workspaceSeparator, bounds: bounds, clip: bounds,
+      strokeWidth: px(1), dividerColor: color, dividerStyle: style,
+      imageId: dividerMetadata(color, style)))
 proc drawEditorActiveLine*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: editorActiveLine, bounds: bounds, clip: bounds))
 proc drawEditorBackground*(paint: var PaintList, bounds: Rect) =
