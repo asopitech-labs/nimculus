@@ -249,9 +249,29 @@ codex exec "$(cat <指示書>)" < /dev/null > <ログ> 2>&1
 **計測が済んだものから `main` へ入れる。** 未計測のものを先に入れない。
 
 ```bash
-cd /Users/yoshinori/work/nimculus
-git merge --no-ff port/<課題>
+git -C /Users/yoshinori/work/nimculus merge --no-ff port/<課題>
 ```
+
+### `cd` とマージを 1 行にまとめると自分自身にマージする（2026-08-13 に踏んだ）
+
+```bash
+# 危険。cd 先はワークトリー = port/ad が checkout されている
+cd ../nimculus-wt-ad && git add -A && git commit -m "port/ad" && git merge port/ad
+```
+
+`port/ad` に `port/ad` をマージするので **no-op**。しかも `Already up to date`
+すら出さずに静かに通り、続く `nim check` も `27/27` も VM 計測も**全部成功する**。
+`main` には何も入っていないのに、統合できたようにしか見えない。
+
+気付けたのは `artifacts:` のパスが `nimculus-wt-ad/build/...` だったから。
+**統合は必ず `git -C <本体> merge` と書く。** 統合後に
+
+```bash
+git -C /Users/yoshinori/work/nimculus log --oneline -1
+git -C /Users/yoshinori/work/nimculus diff --stat port/<課題> -- src tests   # 空になること
+```
+
+の 2 つを確かめる。空なら、計測をやり直さずにその値を `main` の値として使える。
 
 順序の決め方:
 
