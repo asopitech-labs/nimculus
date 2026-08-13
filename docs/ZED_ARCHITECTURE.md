@@ -86,7 +86,7 @@ Zed のコード構成を層ごとに整理し、各メカニズムを Nim で�
 
 #### NSApplication bootstrap and app-delegate callbacks — 一部のみ
 
-Zed: `crates/gpui_macos/src/platform.rs:70 (build_classes), :488 (Platform::run), :1227 (did_finish_launching)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:12384 (nimculus_platform_run), :11036 NimculusAppDelegate, :11048-12229 its implementation`
+Zed: `crates/gpui_macos/src/platform.rs:70 (build_classes), :488 (Platform::run), :1274 (did_finish_launching)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:12384 (nimculus_platform_run), :11036 NimculusAppDelegate, :11048-12229 its implementation`
 
 Synthesizes GPUIApplication and GPUIApplicationDelegate at load time, stashes a MacPlatform back-pointer in an ivar, runs [NSApp run], and routes reopen/terminate/openURLs/keyboard-layout-change/thermal/wake notifications into stored Rust closures. A headless branch skips AppKit and calls CFRunLoopRun (:493).
 
@@ -102,7 +102,7 @@ One trait of ~60 methods is the entire surface between gpui and macOS: executors
 
 #### Per-window state behind a handle stored in an ObjC ivar — 無い
 
-Zed: `crates/gpui_macos/src/window.rs:77 (WINDOW_STATE_IVAR), :490 (MacWindowState), :1959 (get_window_state), :1969 (drop_window_state)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m uses file-scope globals throughout (g_editor_text, g_editor_rect, g_editor_scroll_line, g_active_view, ...)`
+Zed: `crates/gpui_macos/src/window.rs:77 (WINDOW_STATE_IVAR), :551 (MacWindowState), :2091 (get_window_state), :2101 (drop_window_state)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m uses file-scope globals throughout (g_editor_text, g_editor_rect, g_editor_scroll_line, g_active_view, ...)`
 
 Every NSWindow and NSView carries an `Arc<Mutex<MacWindowState>>` in an ivar. Callbacks recover it, take the lock, and — crucially — `take()` the callback closure out of the state and drop the lock before invoking it (:2664, :2676, :2875), so re-entrant AppKit callbacks cannot deadlock or double-borrow.
 
@@ -118,7 +118,7 @@ Declares exactly which selectors the view answers (36 of them: keyDown, performK
 
 #### Traffic-light repositioning for an app-drawn titlebar — 無い
 
-Zed: `crates/gpui_macos/src/window.rs:541 (move_traffic_light), :601 (capture_traffic_light_frames), :638 (restore_traffic_light)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:12120 sets titlebarAppearsTransparent/titleVisibility only; NimculusTitlebarView (:4140, :4152) draws its own titlebar but never touches standardWindowButton`
+Zed: `crates/gpui_macos/src/window.rs:552 (move_traffic_light), :612 (capture_traffic_light_frames), :649 (restore_traffic_light)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:12120 sets titlebarAppearsTransparent/titleVisibility only; NimculusTitlebarView (:4140, :4152) draws its own titlebar but never touches standardWindowButton`
 
 Captures the original frames of the close/minimize/zoom buttons and their container, then re-lays them out at a caller-specified point, resizes the titlebar container to button_height + 2*y, and calls updateTrackingAreas on all four. Restores originals on fullscreen. Re-run on every resize and screen change because AppKit recreates the buttons.
 
@@ -126,7 +126,7 @@ Captures the original frames of the close/minimize/zoom buttons and their contai
 
 #### Display-link frame pacing — 一部のみ
 
-Zed: `crates/gpui_macos/src/display_link.rs:65-226 (immortal per-display CVDisplayLink registry), :231 (WindowFrameSource), crates/gpui_macos/src/window.rs:659 (start_display_link), :2689 (step callback)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:9519 (displayLinkDidFire:), :9545 (startDisplayLinkIfNeeded), :9569 (stopDisplayLink), :9576 (restartDisplayLinkIfNeeded), :9529 (requestRedraw)`
+Zed: `crates/gpui_macos/src/display_link.rs:65-226 (immortal per-display CVDisplayLink registry), :231 (WindowFrameSource), crates/gpui_macos/src/window.rs:670 (start_display_link), :2689 (step callback)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:9519 (displayLinkDidFire:), :9545 (startDisplayLinkIfNeeded), :9569 (stopDisplayLink), :9576 (restartDisplayLinkIfNeeded), :9529 (requestRedraw)`
 
 One never-released CVDisplayLink per CGDirectDisplayID; each window subscribes with its own GCD data-add source. The link's io thread calls merge_data, which coalesces ticks onto the main queue and invokes step(view), which calls the window's request_frame callback. Links run iff they have subscribers. The header comment (:1-51) documents two shipped crash classes that this design exists to avoid: CVDisplayLinkStop does not wait for the last output callback, so releasing either the link or the dispatch source races it.
 
@@ -134,7 +134,7 @@ One never-released CVDisplayLink per CGDirectDisplayID; each window subscribes w
 
 #### presents-with-transaction during synchronous redraw — 無い
 
-Zed: `crates/gpui_macos/src/window.rs:2673 (display_layer), crates/gpui_macos/src/metal_renderer.rs:374 (set_presents_with_transaction), :492-499 (commit/wait_until_scheduled/present)` / Nimculus: `not found in src/nimnui/platform/macos/macos_platform.m (drawFrame at :10441 always uses presentDrawable at :10724)`
+Zed: `crates/gpui_macos/src/window.rs:2818 (display_layer), crates/gpui_macos/src/metal_renderer.rs:374 (set_presents_with_transaction), :482-499 (commit/wait_until_scheduled/present)` / Nimculus: `not found in src/nimnui/platform/macos/macos_platform.m (drawFrame at :10441 always uses presentDrawable at :10724)`
 
 When AppKit drives the frame (displayLayer:, i.e. live resize), the renderer switches the CAMetalLayer to presentsWithTransaction, stops the display link, draws synchronously, then switches back and restarts the link. Without this, resize tears because the drawable presents out of band with the layer transaction.
 
@@ -190,7 +190,7 @@ Three priorities onto global queues, a main-queue path, and dispatch_after. The 
 
 #### IME arbitration: who sees a key first, the keybinding matcher or the input context — 一部のみ
 
-Zed: `crates/gpui_macos/src/window.rs:2121 (handle_key_event), :2094 (is_ime_input_source_active), :2848 (do_command_by_selector)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:10737 (keyDown: -> interpretKeyEvents: unconditionally), :10897 (doCommandBySelector:, mapping 30 selectors to string commands), :4101-4104 (shortcut callback consulted inside logInput before the input callback)`
+Zed: `crates/gpui_macos/src/window.rs:2253 (handle_key_event), :2226 (is_ime_input_source_active), :2993 (do_command_by_selector)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:10737 (keyDown: -> interpretKeyEvents: unconditionally), :10897 (doCommandBySelector:, mapping 30 selectors to string commands), :4101-4104 (shortcut callback consulted inside logInput before the input callback)`
 
 The single hardest piece of this layer. A key goes to the IME first if composing, or if the current TIS source is a non-ASCII-capable keyboard *input mode* and the input handler wants printable keys, or if it is a non-printing key without control/fn/cmd. Otherwise keybindings match first. When the IME declines, it calls doCommandBySelector:, which re-dispatches the stashed keystroke as a KeyDown and records whether it was handled (:2851-2862). The 28-line comment at :2057-2083 enumerates the layouts this must be tested against.
 
@@ -198,7 +198,7 @@ The single hardest piece of this layer. A key goes to the IME first if composing
 
 #### Key-equivalent vs key-down de-duplication — 無い
 
-Zed: `crates/gpui_macos/src/window.rs:2045 (handle_key_equivalent), :2149-2153 (last_key_equivalent), :2243 (don't forward modified key equivalents)` / Nimculus: `NimculusMetalView implements no performKeyEquivalent: (checked across src/nimnui/platform/macos/macos_platform.m)`
+Zed: `crates/gpui_macos/src/window.rs:2177 (handle_key_equivalent), :2282-2153 (last_key_equivalent), :2243 (don't forward modified key equivalents)` / Nimculus: `NimculusMetalView implements no performKeyEquivalent: (checked across src/nimnui/platform/macos/macos_platform.m)`
 
 macOS dispatches performKeyEquivalent: before keyDown: for some keystrokes. GPUI treats both as one event, so it remembers the last key-equivalent and drops the matching key-down. It also refuses to hand modified key equivalents to the IME so cmd-` keeps working.
 
@@ -238,7 +238,7 @@ Enumerates CGDirectDisplayIDs, gives each a stable UUID for persisted window pla
 
 #### Cursor style ownership — 無い
 
-Zed: `crates/gpui_macos/src/window.rs:334 (set_active_window_cursor_style), :1994 (reset_cursor_rects), crates/gpui_macos/src/platform.rs:1039, :1045 (hide_cursor_until_mouse_moves)` / Nimculus: `no resetCursorRects or NSCursor use found in src/nimnui/platform/macos/macos_platform.m`
+Zed: `crates/gpui_macos/src/window.rs:334 (set_active_window_cursor_style), :2126 (reset_cursor_rects), crates/gpui_macos/src/platform.rs:1039, :1092 (hide_cursor_until_mouse_moves)` / Nimculus: `no resetCursorRects or NSCursor use found in src/nimnui/platform/macos/macos_platform.m`
 
 The platform stores the desired CursorStyle on the active window's state and invalidates its cursor rects; AppKit then calls resetCursorRects, where the style is actually applied. Cursor visibility is mirrored in an AtomicBool because AppKit does not expose setHiddenUntilMouseMoves state (platform.rs:190-191).
 
@@ -246,7 +246,7 @@ The platform stores the desired CursorStyle on the active window's state and inv
 
 #### Menu bar construction from a declarative menu tree with keystrokes from the keymap — 一部のみ
 
-Zed: `crates/gpui_macos/src/platform.rs:241 (create_menu_bar), :305 (create_menu_item), :1387 (handle_menu_item), :1404 (validate_menu_item)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:12140 (setupMainMenu), items carry representedObject strings dispatched via dispatchCommand: (see :10782-10786 for the same pattern in the editor context menu)`
+Zed: `crates/gpui_macos/src/platform.rs:241 (create_menu_bar), :305 (create_menu_item), :1434 (handle_menu_item), :1451 (validate_menu_item)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:12140 (setupMainMenu), items carry representedObject strings dispatched via dispatchCommand: (see :10782-10786 for the same pattern in the editor context menu)`
 
 Builds NSMenu from a Vec<Menu>, and for each action looks up its binding in the keymap to set the key equivalent and modifier mask. Actions are stored in a Vec and the index is the NSMenuItem tag, so the callback is a Vec lookup. validateMenuItem: asks the app whether the action is currently enabled; menuWillOpen: lets the app refresh state first.
 
@@ -254,7 +254,7 @@ Builds NSMenu from a Vec<Menu>, and for each action looks up its binding in the 
 
 #### Accessibility tree — 一部のみ
 
-Zed: `crates/gpui_macos/src/window.rs:1862 (a11y_init), :1881 (a11y_tree_update), :1893 (a11y_update_window_bounds), :535 (accesskit_macos::SubclassingAdapter field), :1898-1911 (activation and action handlers)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:95-205 (NimculusAXNode, a hand-written NSAccessibility element), contract at src/nimnui/platform/contracts.h:189-209, entry point nimculus_platform_set_accessibility_tree (platform.h:20), Nim side src/nimnui/accessibility.nim (114 lines)`
+Zed: `crates/gpui_macos/src/window.rs:1994 (a11y_init), :2013 (a11y_tree_update), :2025 (a11y_update_window_bounds), :546 (accesskit_macos::SubclassingAdapter field), :1898-1911 (activation and action handlers)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:95-205 (NimculusAXNode, a hand-written NSAccessibility element), contract at src/nimnui/platform/contracts.h:189-209, entry point nimculus_platform_set_accessibility_tree (platform.h:20), Nim side src/nimnui/accessibility.nim (114 lines)`
 
 Delegates entirely to accesskit: gpui pushes a TreeUpdate, and accesskit's SubclassingAdapter synthesizes the NSAccessibility element hierarchy on the real NSView. Action requests come back through a handler.
 
@@ -262,7 +262,7 @@ Delegates entirely to accesskit: gpui pushes a TreeUpdate, and accesskit's Subcl
 
 #### External file drag-and-drop onto the window — 無い
 
-Zed: `crates/gpui_macos/src/window.rs:2931 (dragging_entered), :2943 (dragging_updated), :2958 (perform_drag_operation), :2964 (external_paths_from_event), :3011 (send_file_drop_event)` / Nimculus: `no registerForDraggedTypes or draggingEntered: found in src/nimnui/platform/macos/macos_platform.m`
+Zed: `crates/gpui_macos/src/window.rs:3080 (dragging_entered), :3096 (dragging_updated), :3116 (perform_drag_operation), :3122 (external_paths_from_event), :3086 (send_file_drop_event)` / Nimculus: `no registerForDraggedTypes or draggingEntered: found in src/nimnui/platform/macos/macos_platform.m`
 
 The window registers for NSFilenamesPboardType (window.rs:870-874) and translates the four drag callbacks into FileDrop input events carrying the paths and the drag position.
 
@@ -270,7 +270,7 @@ The window registers for NSFilenamesPboardType (window.rs:870-874) and translate
 
 #### Backing scale and drawable resize — 移植済み
 
-Zed: `crates/gpui_macos/src/window.rs:2630 (view_did_change_backing_properties), :2635 (set_frame_size), :2479 (update_window_scale_factor), :1933 (get_scale_factor), crates/gpui_macos/src/metal_renderer.rs:381 (update_drawable_size)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:10431 (updateBackingScale from viewDidChangeBackingProperties), :10809 (also on viewDidMoveToWindow)`
+Zed: `crates/gpui_macos/src/window.rs:2775 (view_did_change_backing_properties), :2780 (set_frame_size), :2624 (update_window_scale_factor), :2065 (get_scale_factor), crates/gpui_macos/src/metal_renderer.rs:381 (update_drawable_size)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:10431 (updateBackingScale from viewDidChangeBackingProperties), :10809 (also on viewDidMoveToWindow)`
 
 On resize, compares old and new size, forwards to super, converts to device pixels with the current scale factor, resizes the Metal drawable and the path intermediate textures, then invokes the resize callback with the lock released.
 
@@ -278,15 +278,15 @@ On resize, compares old and new size, forwards to super, converts to device pixe
 
 #### Window blur / vibrancy background — 無い
 
-Zed: `crates/gpui_macos/src/window.rs:304 (BLURRED_VIEW_CLASS on NSVisualEffectView), :1525 (set_background_appearance), :3082 (blurred_view_update_layer), :3092 (remove_layer_background), :123 (CGSSetWindowBackgroundBlurRadius)` / Nimculus: `not present in src/nimnui/platform/macos/macos_platform.m`
+Zed: `crates/gpui_macos/src/window.rs:304 (BLURRED_VIEW_CLASS on NSVisualEffectView), :1537 (set_background_appearance), :3278 (blurred_view_update_layer), :3288 (remove_layer_background)` / Nimculus: `not present in src/nimnui/platform/macos/macos_platform.m`
 
-Three background modes (Opaque, Transparent, Blurred). Blurred inserts an NSVisualEffectView subview whose layer background is stripped, and may use the private CGSSetWindowBackgroundBlurRadius.
+Three background modes (Opaque, Transparent, Blurred). Blurred inserts an NSVisualEffectView subview whose layer background is stripped, Zed no longer calls the private CGSSetWindowBackgroundBlurRadius (removed upstream; grep 0 hits as of 6634c945). Do not reintroduce it.
 
 **Nim での再現:** Only relevant if a theme ever asks for a translucent window. Pure .m. The private CGS call should be skipped.
 
 #### Native window tabs — 無い
 
-Zed: `crates/gpui_macos/src/window.rs:448-471 (tab selectors), :1052-1080 (addTabbedWindow at open), :1141 (get_user_tabbing_preference), :1238-1294, :1707-1761` / Nimculus: `single window created at src/nimnui/platform/macos/macos_platform.m:12111; NimculusTabBarOverlay (:4460, :6638) is an app-drawn document tab bar, not NSWindow tabs`
+Zed: `crates/gpui_macos/src/window.rs:448-471 (tab selectors), :1052-1080 (addTabbedWindow at open), :1153 (get_user_tabbing_preference), :1238-1294, :1707-1761` / Nimculus: `single window created at src/nimnui/platform/macos/macos_platform.m:12111; NimculusTabBarOverlay (:4460, :6638) is an app-drawn document tab bar, not NSWindow tabs`
 
 Honours the AppleWindowTabbingMode user default, adds new windows as tabs of the main window, and surfaces merge-all/move-to-new-window/select-next/prev/toggle-tab-bar as callbacks.
 
@@ -324,7 +324,7 @@ The layering diverges in one decisive way, and it is not the one the brief antic
 | `/Users/yoshinori/work/nimculus/src/nimnui/render.nim` | 170 | PaintList: command seq, dirty-region merge, clip/transform stacks. Stands in for Scene + with_content_mask/with_element_offset. Single-buffered: no rendered/next frame pair, no element state, no hitbox list. |
 | `/Users/yoshinori/work/nimculus/src/nimnui/layout_types.nim` | 87 | LayoutSpec: direction/position/inset/size/margin/padding/gap/flexGrow/alignItems/justifyContent/overflow/scrollOffset/viewport, plus Length/LengthEdges. Covers the part of Zed's Style that layout consumes. |
 | `/Users/yoshinori/work/nimculus/src/nimnui/geometry.nim` | 84 | Pixels (distinct float32), Point/Size/Rect/EdgeInsets, Transform2D. A subset of geometry.rs: no ScaledPixels/DevicePixels/Rems, no Corners, no generics over unit, no Length family. |
-| `/Users/yoshinori/work/nimculus/src/nimnui/executor.nim` | 75 | BackgroundExecutor/ForegroundExecutor/Task[T]=Future[T] - the app.rs:1795-1843 executor+spawn surface. The one gpui-core mechanism ported deliberately and named after its Zed counterpart. |
+| `/Users/yoshinori/work/nimculus/src/nimnui/executor.nim` | 75 | BackgroundExecutor/ForegroundExecutor/Task[T]=Future[T] - the app.rs:1873-1843 executor+spawn surface. The one gpui-core mechanism ported deliberately and named after its Zed counterpart. |
 
 ### メカニズム
 
@@ -346,7 +346,7 @@ A &mut App plus the WeakEntity of the entity being updated, with Deref to App. E
 
 #### Effect queue + flush_effects re-entrancy guard — 無い
 
-Zed: `crates/gpui/src/app.rs:1516 push_effect, :1531 flush_effects, :1029 App::update, :1036 start_update, :1040 finish_update`
+Zed: `crates/gpui/src/app.rs:1593 push_effect, :1614 flush_effects, :1048 App::update, :1055 start_update, :1059 finish_update`
 
 Notifications, emits, defers, refreshes and entity-created callbacks are queued as Effect rather than delivered inline, and drained once at the end of the outermost update (pending_updates==1). Notify effects are deduplicated via pending_notifications before queueing, so N notifies of one entity collapse to one observer run. flush_effects loops until empty, since effects enqueue effects.
 
@@ -354,7 +354,7 @@ Notifications, emits, defers, refreshes and entity-created callbacks are queued 
 
 #### WindowInvalidator + DrawPhase state machine — 一部のみ
 
-Zed: `crates/gpui/src/window.rs:117 WindowInvalidatorInner, :140 impl, :153 invalidate_view, :180 set_phase, :1197 enum DrawPhase, :1891 Window::refresh` / Nimculus: `src/nimnui/ui_tree.nim:28-29 (layoutDirty/paintDirty per node), :192 markLayoutDirty (walks to root), :200 markPaintClean`
+Zed: `crates/gpui/src/window.rs:117 WindowInvalidatorInner, :140 impl, :158 invalidate_view, :217 set_phase, :1416 enum DrawPhase, :1891 Window::refresh` / Nimculus: `src/nimnui/ui_tree.nim:28-29 (layoutDirty/paintDirty per node), :192 markLayoutDirty (walks to root), :200 markPaintClean`
 
 Single source of truth for whether a window needs a frame. invalidate_view records the dirty entity and only marks the window dirty when draw_phase==None, so an invalidation raised during a draw does not restart the frame. debug_assert_prepaint/debug_assert_paint (window.rs:212-233) enforce that insert_hitbox is prepaint-only and paint_quad is paint-only.
 
@@ -362,7 +362,7 @@ Single source of truth for whether a window needs a frame. invalidate_view recor
 
 #### Double-buffered Frame with element-state carryover — 無い
 
-Zed: `crates/gpui/src/window.rs:824 struct Frame, :867 Frame::new, :884 Frame::clear, :965 Frame::finish, :1015-1016 rendered_frame/next_frame fields, :2737-2741 mem::swap in draw` / Nimculus: `src/nimnui/render.nim:34 PaintList (single buffer, no previous frame, no element state)`
+Zed: `crates/gpui/src/window.rs:944 struct Frame, :988 Frame::new, :1017 Frame::clear, :1089 Frame::finish, :1138-1016 rendered_frame/next_frame fields, :3040-2741 mem::swap in draw` / Nimculus: `src/nimnui/render.nim:34 PaintList (single buffer, no previous frame, no element state)`
 
 Each frame is built into next_frame; at the end of draw Frame::finish migrates only the element_states that were accessed this frame from the old frame, then the two frames are swapped and next_frame cleared. Anything not accessed is dropped - the automatic GC for per-element state.
 
@@ -370,7 +370,7 @@ Each frame is built into next_frame; at the end of draw Frame::finish migrates o
 
 #### Three-phase element pipeline: request_layout -> prepaint -> paint — 一部のみ
 
-Zed: `crates/gpui/src/window.rs:2853 draw_roots (Prepaint at :2854, root request_layout :2884, stretch_auto_size_to_fill :2885, prepaint_as_root :2889, Paint at :2923, root paint :2924), :4252 request_layout, :4301 compute_layout, :4318 layout_bounds, :3039 prepaint_deferred_draws, :3109 paint_deferred_draws` / Nimculus: `src/nimnui/layout.nim:113 layoutNodeRecursive, :277 layoutNode; paint emitted separately in src/nimculus/main.nim:498-596`
+Zed: `crates/gpui/src/window.rs:3174 draw_roots (Prepaint at :3175, root request_layout :3206, stretch_auto_size_to_fill :3210, prepaint_as_root :3211, Paint at :3244, root paint :2924), :4734 request_layout, :4783 compute_layout, :4800 layout_bounds, :3360 prepaint_deferred_draws, :3430 paint_deferred_draws` / Nimculus: `src/nimnui/layout.nim:113 layoutNodeRecursive, :277 layoutNode; paint emitted separately in src/nimculus/main.nim:498-596`
 
 Layout is requested bottom-up into a Taffy tree (request_layout returns a LayoutId), the root is stretched to the viewport, prepaint then resolves bounds and registers hitboxes/tooltips/deferred draws, and only then does paint emit primitives. Deferred draws let an element paint above later siblings - how overlays and menus escape their subtree.
 
@@ -378,7 +378,7 @@ Layout is requested bottom-up into a Taffy tree (request_layout returns a Layout
 
 #### Hitbox list + topmost hit testing with blocking behaviors — 一部のみ
 
-Zed: `crates/gpui/src/window.rs:678 struct Hitbox, :724 enum HitboxBehavior, :4338 insert_hitbox, :935 Frame::hit_test, :2919 (per-frame cache)` / Nimculus: `src/nimnui/ui_tree.nim:143 hitTest`
+Zed: `crates/gpui/src/window.rs:799 struct Hitbox, :724 enum HitboxBehavior, :4820 insert_hitbox, :1059 Frame::hit_test, :2919 (per-frame cache)` / Nimculus: `src/nimnui/ui_tree.nim:143 hitTest`
 
 Hit testing runs against the painted hitbox list in reverse paint order, intersected with each hitbox's content mask, stopping at a BlockMouse hitbox. hover_hitbox_count separates what blocks hover from what blocks clicks (BlockMouseExceptScroll). Computed once per frame and cached.
 
@@ -386,7 +386,7 @@ Hit testing runs against the painted hitbox list in reverse paint order, interse
 
 #### Content mask stack and element offset stack — 一部のみ
 
-Zed: `crates/gpui/src/window.rs:1793 ContentMask, :3323 with_content_mask, :3341 with_element_offset, :3360 with_absolute_element_offset, :3473 element_offset, :4325-4327 (layout_bounds applies snapped offset)` / Nimculus: `src/nimnui/render.nim:37-38 clipStack/transformStack, :110 pushClip, :118 popClip, :120 pushTransform, :124 popTransform; layout-side clipping at src/nimnui/layout.nim:24 clipRect, :39 childClipBounds, :120-133`
+Zed: `crates/gpui/src/window.rs:2075 ContentMask, :3644 with_content_mask, :3663 with_element_offset, :3681 with_absolute_element_offset, :3794 element_offset, :4800-4327 (layout_bounds applies snapped offset)` / Nimculus: `src/nimnui/render.nim:37-38 clipStack/transformStack, :110 pushClip, :118 popClip, :120 pushTransform, :124 popTransform; layout-side clipping at src/nimnui/layout.nim:24 clipRect, :39 childClipBounds, :120-133`
 
 Clipping and scroll translation are ambient stacks on Window, not parameters. layout_bounds adds the current pixel-snapped element offset to every returned rect, which is how scrolling works without any element knowing it is scrolled.
 
@@ -394,7 +394,7 @@ Clipping and scroll translation are ambient stacks on Window, not parameters. la
 
 #### Per-element retained state keyed by GlobalElementId — 無い
 
-Zed: `crates/gpui/src/window.rs:3562 with_element_state, :3517 use_keyed_state, :3546 use_state, :3505 with_element_namespace, :6157 enum ElementId`
+Zed: `crates/gpui/src/window.rs:3883 with_element_state, :3838 use_keyed_state, :3867 use_state, :3826 with_element_namespace, :6693 enum ElementId`
 
 Elements are rebuilt every frame but retain state (scroll position, open/closed, hover animation) under a stable path of ElementIds. use_state derives the key from the caller's source Location. Access marks the key live for the frame; unaccessed keys are dropped at Frame::finish.
 
@@ -404,7 +404,7 @@ Elements are rebuilt every frame but retain state (scroll position, open/closed,
 
 Zed: `crates/gpui/src/geometry.rs:2677 Pixels, :2781 impl (floor/round/ceil/scale/pow/abs), :2829 Pixels::scale, :2982 DevicePixels, :3075 ScaledPixels, :3131 ScaledPixels->DevicePixels, :3238 Rems, :3298 AbsoluteLength, :3460 DefiniteLength, :3611 Length, :3736 px()` / Nimculus: `src/nimnui/geometry.nim:2 Pixels (distinct float32), :17 px, :19-24 arithmetic`
 
-Three distinct units so a logical coordinate can never be silently handed to the GPU: Pixels.scale(factor)->ScaledPixels->DevicePixels. Rems plus AbsoluteLength are how rem_size scales the whole UI (window.rs:2466 rem_size, with an override stack for with_rem_size).
+Three distinct units so a logical coordinate can never be silently handed to the GPU: Pixels.scale(factor)->ScaledPixels->DevicePixels. Rems plus AbsoluteLength are how rem_size scales the whole UI (window.rs:2763 rem_size, with an override stack for with_rem_size).
 
 **Nim での再現:** distinct float32 is exactly Rust's newtype, so Pixels ported cleanly. Missing are the other two units and rems: add ScaledPixels* = distinct float32, DevicePixels* = distinct int32, Rems* = distinct float32 and proc scale(p: Pixels, f: float32): ScaledPixels. Nim's {.borrow.} pragma supplies the arithmetic operators without hand-writing them (geometry.nim:19-24 writes each by hand). Note a real defect: Nimculus defines / as Pixels/Pixels -> Pixels (geometry.nim:22) whereas Zed's Div for Pixels returns bare f32 (geometry.rs:2679); the Nim version makes dimensionally wrong expressions such as remaining / px(2) (layout.nim:109) compile silently. Length/DefiniteLength/AbsoluteLength are Rust payload enums -> Nim object variants; layout_types.nim:31-38 already does this for a two-case Length, so the pattern exists but is far narrower.
 
@@ -418,7 +418,7 @@ One geometry family parameterised by unit, so Bounds<Pixels> and Bounds<DevicePi
 
 #### Frame profiling: dirty-timestamp accumulation and present — 一部のみ
 
-Zed: `crates/gpui/src/window.rs:126 FrameDirtyAccumulator, :2681 take_frame_dirty, :2789 record_frame_timing, :2827 present, :2841 present_if_needed` / Nimculus: `src/nimculus/main.nim:96-116 (soak sampling reads platformGetFrameTimingStats / platformGetInputLatencyStats), main.nim:50 receiveNativeFrame`
+Zed: `crates/gpui/src/window.rs:126 FrameDirtyAccumulator, :2979 take_frame_dirty, :3096 record_frame_timing, :2827 present, :3156 present_if_needed` / Nimculus: `src/nimculus/main.nim:96-116 (soak sampling reads platformGetFrameTimingStats / platformGetInputLatencyStats), main.nim:50 receiveNativeFrame`
 
 Records when the frame first became dirty and how many invalidations coalesced into it, so frame time is measured from first invalidation to draw_end rather than from draw start. present() hands the finished scene to the platform window and clears needs_present.
 
@@ -426,11 +426,11 @@ Records when the frame first became dirty and how many invalidations coalesced i
 
 #### Window/App split: root view, viewport, scale factor, refresh — 無い
 
-Zed: `crates/gpui/src/window.rs:989 struct Window (root :1006, viewport_size :1004, layout_engine :1005, scale_factor :1029), :2347 viewport_size(), :2460 scale_factor(), :2466 rem_size(), app.rs:711 windows SlotMap, app.rs:1217 open_window, app.rs:1728 update_window_id` / Nimculus: `src/nimculus/main.nim - one implicit window; viewport read from platformGetMetrics at main.nim:378-383; scale factor never enters the Nim layer`
+Zed: `crates/gpui/src/window.rs:1044 struct Window (root :1006, viewport_size :1127, layout_engine :1128, scale_factor :1152), :2627 viewport_size(), :2750 scale_factor(), :2763 rem_size(), app.rs:704 windows SlotMap, app.rs:1236 open_window, app.rs:1805 update_window_id` / Nimculus: `src/nimculus/main.nim - one implicit window; viewport read from platformGetMetrics at main.nim:378-383; scale factor never enters the Nim layer`
 
 App holds N windows in a slot map; each Window owns its own layout engine, frames, focus, text system and platform window. update_window_id takes the window out of its slot for the duration of the callback - the same lease trick as entities, and the reason a window cannot re-enter itself.
 
-**Nim での再現:** A Window = ref object holding tree, frames, invalidator, viewportSize, scaleFactor, remSize, plus App = object windows: seq[Window], is straightforward Nim; the lease trick is unnecessary for the reason given under the Entity mechanism. The concrete gap that will bite first is scale factor: it is never surfaced Nim-side, so pixel snapping (window.rs:4326 pixel_snap_point) cannot be done in Nim and all Retina-dependent geometry parity is decided by the Metal backend alone.
+**Nim での再現:** A Window = ref object holding tree, frames, invalidator, viewportSize, scaleFactor, remSize, plus App = object windows: seq[Window], is straightforward Nim; the lease trick is unnecessary for the reason given under the Entity mechanism. The concrete gap that will bite first is scale factor: it is never surfaced Nim-side, so pixel snapping (window.rs:4810 pixel_snap_point) cannot be done in Nim and all Retina-dependent geometry parity is decided by the Metal backend alone.
 
 ### 層としての所見
 
@@ -532,7 +532,7 @@ A reusable per-(font,size) wrapper object handed out through an RAII handle that
 
 #### DecorationRun coalescing (style runs separated from font runs) — 一部のみ
 
-Zed: `crates/gpui/src/text_system.rs:409-427 (shape_line), :537-567 (shape_text), crates/gpui/src/text_system/line.rs:24 (DecorationRun)` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimnui/text.nim:47 (TextRun), :79 (CacheKey comment); /Users/yoshinori/work/nimculus/src/nimculus/editor_text_layout.nim:45 (fontRunsForLine), :60 (appendRun)`
+Zed: `crates/gpui/src/text_system.rs:397-427 (shape_line), :509-567 (shape_text), crates/gpui/src/text_system/line.rs:24 (DecorationRun)` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimnui/text.nim:47 (TextRun), :79 (CacheKey comment); /Users/yoshinori/work/nimculus/src/nimculus/editor_text_layout.nim:45 (fontRunsForLine), :60 (appendRun)`
 
 TextRuns carry both font identity and colour/underline/strikethrough/background. shape_line splits them: adjacent runs with identical decoration merge into one DecorationRun, and adjacent runs with the same FontId merge into one FontRun. Only the FontRuns enter the cache key, so a colour change never invalidates a shaped line.
 
@@ -556,7 +556,7 @@ Scales the glyph origin by the device scale, quantizes x into 4 subpixel variant
 
 #### Scene primitive set and per-kind streams — 一部のみ
 
-Zed: `crates/gpui/src/scene.rs:41 (Scene), :222 (Primitive), :501 (Quad), :521 (Underline), :540 (Shadow), :677 (MonochromeSprite), :696 (SubpixelSprite), :715 (PolychromeSprite), :755 (Path), :734 (PaintSurface)` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimnui/platform/macos/macos_platform.m:1393 (NimculusMonochromeSprite), :1403 (NimculusPolychromeSprite); /Users/yoshinui/... (n/a); /Users/yoshinori/work/nimculus/src/nimnui/render.nim:20 (PaintCommand)`
+Zed: `crates/gpui/src/scene.rs:41 (Scene), :222 (Primitive), :535 (Quad), :555 (Underline), :574 (Shadow), :711 (MonochromeSprite), :730 (SubpixelSprite), :749 (PolychromeSprite), :755 (Path), :768 (PaintSurface)` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimnui/platform/macos/macos_platform.m:1393 (NimculusMonochromeSprite), :1403 (NimculusPolychromeSprite); /Users/yoshinui/... (n/a); /Users/yoshinori/work/nimculus/src/nimnui/render.nim:20 (PaintCommand)`
 
 Eight #[repr(C)] primitive types, each accumulated in its own Vec so a whole stream can be handed to one shader as an instance buffer. Every primitive carries bounds, content_mask, and an order.
 
@@ -588,7 +588,7 @@ All colour in the scene is Hsla with components in 0..1. opacity(f) multiplies a
 
 #### Background: solid vs gradient vs pattern as one shader-visible tag — 無い
 
-Zed: `crates/gpui/src/color.rs:779 (Background), :759 (ColorSpace), :851 (solid_background), :865 (linear_gradient), :827 (pattern_slash), :841 (checkerboard); used by scene.rs:506 (Quad.background) and :761 (Path.color)`
+Zed: `crates/gpui/src/color.rs:779 (Background), :759 (ColorSpace), :851 (solid_background), :865 (linear_gradient), :827 (pattern_slash), :841 (checkerboard); used by scene.rs:535 (Quad.background) and :761 (Path.color)`
 
 A single repr(C) struct with a tag, a colour space (sRGB or Oklab), a solid colour, an angle-or-pattern-height float, and two colour stops — so a quad or path fill is one uniform-sized value the shader can branch on.
 
@@ -604,7 +604,7 @@ TextStyle is the resolved style; the derive generates TextStyleRefinement, an al
 
 #### UnderlineStyle / StrikethroughStyle and their snapped emission — 無い
 
-Zed: `crates/gpui/src/style.rs:824 (UnderlineStyle), :839 (StrikethroughStyle); crates/gpui/src/window.rs:3870 (paint_underline), :3905 (paint_strikethrough)`
+Zed: `crates/gpui/src/style.rs:824 (UnderlineStyle), :839 (StrikethroughStyle); crates/gpui/src/window.rs:4280 (paint_underline), :4315 (paint_strikethrough)`
 
 Both are (color: Option<Hsla>, thickness: Pixels) — underline adds `wavy: bool`, which triples the primitive height (window.rs:3880-3884) so the shader can draw the wave inside it. Both round the origin to device pixels and snap the stroke, and both become the *same* Underline primitive; strikethrough is just an Underline with wavy=false.
 
@@ -612,7 +612,7 @@ Both are (color: Option<Hsla>, thickness: Pixels) — underline adds `wavy: bool
 
 #### Pixels -> ScaledPixels boundary and device-pixel snapping — 一部のみ
 
-Zed: `crates/gpui/src/window.rs:3886 (round_to_device_pixel), :3952 (origin.scale(scale_factor)), :3964 (integer origin), scene.rs:787 (Path::scale)` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimnui/geometry.nim (Pixels/px); /Users/yoshinori/work/nimculus/src/nimnui/platform/macos/macos_platform.m:3810-3823 (scaledX and quantization)`
+Zed: `crates/gpui/src/window.rs:4296 (round_to_device_pixel), :4362 (origin.scale(scale_factor)), :4374 (integer origin), scene.rs:821 (Path::scale)` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimnui/geometry.nim (Pixels/px); /Users/yoshinori/work/nimculus/src/nimnui/platform/macos/macos_platform.m:3810-3823 (scaledX and quantization)`
 
 Element code works in logical Pixels; every paint_* entry point multiplies by the window scale factor and rounds, so the Scene is entirely in ScaledPixels and the renderer never has to think about DPI. The type system enforces the boundary — Bounds<Pixels> and Bounds<ScaledPixels> are distinct types.
 
@@ -666,7 +666,7 @@ Two caveats on what I did not read: line_wrapper.rs I saw only in declaration li
 | `/Users/yoshinori/work/nimculus/src/nimnui/commands.nim` | 228 | Two unrelated things: the command registry with single-keystroke shortcut resolution by context depth (a thin stand-in for keymap.rs + binding.rs + action.rs), and the tab-stop ordering (a faithful port of tab_stop.rs). |
 | `/Users/yoshinori/work/nimculus/src/nimnui/context.nim` | 196 | KeyContext data structure and the full context-predicate language (parser, evaluator, depthOf). Corresponds to keymap/context.rs minus is_superset, KeyContext::parse and new_with_defaults. |
 | `/Users/yoshinori/work/nimculus/src/nimnui/accessibility.nim` | 114 | Nothing from this layer. It reads focus/a11y fields off UiNode but has no dispatch, keymap or focus-traversal role. |
-| `/Users/yoshinori/work/nimculus/src/nimnui/events.nim` | 95 | The platform event vocabulary and the capture/bubble walk. Corresponds to interactive.rs plus window.rs:4999 dispatch_key_down_up_event. |
+| `/Users/yoshinori/work/nimculus/src/nimnui/events.nim` | 95 | The platform event vocabulary and the capture/bubble walk. Corresponds to interactive.rs plus window.rs:5527 dispatch_key_down_up_event. |
 
 ### メカニズム
 
@@ -776,7 +776,7 @@ Lets a keymap bind a tap of a bare modifier, and gives elements a separate liste
 
 #### FocusHandle / FocusId: refcounted, generation-safe focus identity — 一部のみ
 
-Zed: `crates/gpui/src/window.rs:267 (slotmap key FocusId), :383 (FocusHandle with tab_index and tab_stop), :404 (new, inserts into the FocusMap with a ref_count), :417 (for_id via atomic_incr_if_not_zero), :450 (downgrade to WeakFocusHandle), :457 (focus), :484 (dispatch_action from a handle)` / Nimculus: `src/nimnui/ui_tree.nim:47 (`focused: NodeId` on the tree), :262 (focus), :12 (NodeHandle = id + generation), :180 (handle), :185 (isValid), :252 (isDisabledPath), :227 (setDisabled clears focus when the focused subtree is disabled)`
+Zed: `crates/gpui/src/window.rs:304 (slotmap key FocusId), :469 (FocusHandle with tab_index and tab_stop), :466 (new, inserts into the FocusMap with a ref_count), :535 (for_id via atomic_incr_if_not_zero), :570 (downgrade to WeakFocusHandle), :457 (focus), :484 (dispatch_action from a handle)` / Nimculus: `src/nimnui/ui_tree.nim:47 (`focused: NodeId` on the tree), :262 (focus), :12 (NodeHandle = id + generation), :180 (handle), :185 (isValid), :252 (isDisabledPath), :227 (setDisabled clears focus when the focused subtree is disabled)`
 
 Focus is named by a process-wide slotmap key that outlives any one frame's dispatch tree, so focus survives re-renders. The handle carries the element's tab_index and tab_stop, and a weak variant exists so held references do not leak.
 
@@ -800,7 +800,7 @@ Answers "what can the user do right now" by looking at which action listeners ex
 
 #### Platform input event vocabulary — 一部のみ
 
-Zed: `crates/gpui/src/interactive.rs:735 (PlatformInput enum), :25/:47/:62 (KeyDown/KeyUp/ModifiersChanged), :139/:176/:485/:513 (mouse down/up/move/scroll), :281 (ClickEvent unifying mouse, keyboard and touch activation), :762/:780 (mouse_event/keyboard_event partition)` / Nimculus: `src/nimnui/events.nim:7 (UiEventKind), :14 (UiEvent — one flat object with keyCode, button, modifiers, deltaX/Y, command all present regardless of kind), :32 (nativeEventKind maps NSEventType), :48 (nativeEventButton)`
+Zed: `crates/gpui/src/interactive.rs:762 (PlatformInput enum), :25/:47/:62 (KeyDown/KeyUp/ModifiersChanged), :139/:176/:485/:513 (mouse down/up/move/scroll), :281 (ClickEvent unifying mouse, keyboard and touch activation), :762/:790 (mouse_event/keyboard_event partition)` / Nimculus: `src/nimnui/events.nim:7 (UiEventKind), :14 (UiEvent — one flat object with keyCode, button, modifiers, deltaX/Y, command all present regardless of kind), :32 (nativeEventKind maps NSEventType), :48 (nativeEventButton)`
 
 One closed enum of everything the platform can deliver, with per-variant payload structs, plus a derived ClickEvent that lets a listener treat Enter-on-a-focused-button and a mouse click identically.
 
@@ -901,7 +901,7 @@ Four parallel enums each with one match arm per variant returning a Rems value: 
 
 Zed: `crates/ui/src/styles/spacing.rs:29-44 (derive_dynamic_spacing! table), :52 (ui_density)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:438-441 (three fixed constants, no density dimension)`
 
-14 spacing steps, each a (compact, default, comfortable) pixel triple — e.g. Base04 = (2,4,6), Base06 = (3,6,8). A macro turns them into DynamicSpacing::BaseNN with .rems(cx)/.px(cx) accessors that read the user's ui_density setting. Every gap/padding in the crate goes through it (button gap Base04 at button_like.rs:797, ListItem px Base06 at list_item.rs:357).
+14 spacing steps, each a (compact, default, comfortable) pixel triple — e.g. Base04 = (2,4,6), Base06 = (3,6,8). A macro turns them into DynamicSpacing::BaseNN with .rems(cx)/.px(cx) accessors that read the user's ui_density setting. Every gap/padding in the crate goes through it (button gap Base04 at button_like.rs:797, ListItem px Base06 at list_item.rs:364).
 
 **Nim での再現:** Nim needs no macro here: a `const spacingTable: array[SpacingStep, array[Density, float32]]` plus `proc px(step: SpacingStep, d: Density): float32` covers it, and a compile-time `const` array is checked as thoroughly as Zed's derive. Nimculus has no density setting at all, so this would be additive; the harder part is that spacing is currently applied by absolute NSView frame arithmetic in ObjC, so there is no single choke point to route through.
 
@@ -939,7 +939,7 @@ One render applies: size -> text_ui{,_lg,_sm,_xs}; UiLabel line-height forces re
 
 #### Icon source abstraction and square hit box — 無い
 
-Zed: `crates/ui/src/components/icon.rs:117 (IconSource), :131 (Icon), :86 (square_components), :102 (square)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:1038 (applySidebarIconConfiguration — NSImageSymbolConfiguration at NimculusIconPointSize), :461 (NimculusControlHit = 24.0, a single global hit size)`
+Zed: `crates/ui/src/components/icon.rs:131 (IconSource), :145 (Icon), :86 (square_components), :102 (square)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:1038 (applySidebarIconConfiguration — NSImageSymbolConfiguration at NimculusIconPointSize), :461 (NimculusControlHit = 24.0, a single global hit size)`
 
 An icon is one of embedded-SVG-path / external raster (for icon themes) / raw SVG string; the renderer picks svg() or img() from that. square_components pairs the glyph size with a DynamicSpacing padding so the clickable square is derived from the size enum rather than set per call site.
 
@@ -947,7 +947,7 @@ An icon is one of embedded-SVG-path / external raster (for icon themes) / raw SV
 
 #### ListItem slot layout — 無い
 
-Zed: `crates/ui/src/components/list/list_item.rs:10 (ListItemSpacing), :26 (struct), :292 (render), :404 (disclosure at left:-1rem), :434 (EndSlotVisibility Always/OnHover/SwapOnHover)` / Nimculus: `src/nimnui/controls.nim:141 (rowBounds — uniform-height rows only, no slots, no indent); src/nimnui/platform/macos/macos_platform.m:4757 (picker row drawn by hand: title rect, then a right-aligned shortcut rect)`
+Zed: `crates/ui/src/components/list/list_item.rs:10 (ListItemSpacing), :26 (struct), :292 (render), :404 (disclosure at left:-1rem), :442 (EndSlotVisibility Always/OnHover/SwapOnHover)` / Nimculus: `src/nimnui/controls.nim:141 (rowBounds — uniform-height rows only, no slots, no indent); src/nimnui/platform/macos/macos_platform.m:4757 (picker row drawn by hand: title rect, then a right-aligned shortcut rect)`
 
 A row = optional disclosure toggle positioned absolutely at -1rem, a start slot, children, and an end slot whose visibility has three modes including SwapOnHover (hover slot painted normally, the resting slot absolutely overlaid and hidden via group_hover). Indent is indent_level × indent_step_size, applied on the *outer* element when inset and the *inner* one otherwise (list_item.rs:301 vs :401) — that is what makes inset rows draw their hover background inside the indent.
 
@@ -955,7 +955,7 @@ A row = optional disclosure toggle positioned absolutely at -1rem, a start slot,
 
 #### Menu item model separated from menu rendering — 一部のみ
 
-Zed: `crates/ui/src/components/context_menu.rs:46 (ContextMenuItem enum), :82 (ContextMenuEntry), :211 (ContextMenu state), :1449 (render_menu_item), :2180 (render, submenu offset + aside)` / Nimculus: `src/nimnui/controls.nim:27 (OverlayItem: label, command, enabled, separator), :85 (showOverlay), :122 showContextMenu, :141 rowBounds, :147 itemAt, :160 moveSelection, :184 handleKey, :217 paintOverlay`
+Zed: `crates/ui/src/components/context_menu.rs:46 (ContextMenuItem enum), :82 (ContextMenuEntry), :211 (ContextMenu state), :1459 (render_menu_item), :2180 (render, submenu offset + aside)` / Nimculus: `src/nimnui/controls.nim:27 (OverlayItem: label, command, enabled, separator), :85 (showOverlay), :122 showContextMenu, :141 rowBounds, :147 itemAt, :160 moveSelection, :184 handleKey, :217 paintOverlay`
 
 Items are data (Separator | Header | HeaderWithLink | Label | Entry | CustomEntry{render,handler} | Submenu{builder}); render_menu_item turns each into a ListItem/ListSeparator/ListSubHeader. Entries carry an optional Action, from which the KeyBinding element resolves and renders the shortcut (context_menu.rs:1838). Submenus compute their vertical offset from trigger bounds minus menu bounds (:2199) and can flip left.
 
@@ -963,7 +963,7 @@ Items are data (Separator | Header | HeaderWithLink | Label | Entry | CustomEntr
 
 #### Scrollbar geometry and visibility policy — 一部のみ
 
-Zed: `crates/ui/src/components/scrollbar.rs:352 (ScrollbarStyle), :358 to_pixels (Regular 6px / Editor 15px), :275 (ShowBehavior::Always/Autohide/Never from setting), :993 (ScrollableHandle trait), :1013 (ScrollbarLayout), :1023 compute_click_offset` / Nimculus: `src/nimnui/controls.nim:17 (ScrollModel: offset/contentSize/viewportSize), :50 (scrollBy with clamp to max(0, content-viewport)); src/nimnui/render.nim:154 drawScrollbar, :166 drawScrollbarTrack (the track-border role is already split out per the comment at render.nim:10-12)`
+Zed: `crates/ui/src/components/scrollbar.rs:352 (ScrollbarStyle), :373 to_pixels (Regular 6px / Editor 15px), :275 (ShowBehavior::Always/Autohide/Never from setting), :1000 (ScrollableHandle trait), :1039 (ScrollbarLayout), :1049 compute_click_offset` / Nimculus: `src/nimnui/controls.nim:17 (ScrollModel: offset/contentSize/viewportSize), :50 (scrollBy with clamp to max(0, content-viewport)); src/nimnui/render.nim:154 drawScrollbar, :166 drawScrollbarTrack (the track-border role is already split out per the comment at render.nim:10-12)`
 
 Width is a two-value table. ShowBehavior::from_setting folds the user setting plus the OS auto-hide global into three behaviours. ScrollableHandle abstracts three different scroll sources (ScrollHandle, UniformListScrollHandle, ListState) behind max_offset/set_offset/offset/viewport. compute_click_offset converts a track click or thumb drag into a scroll offset: clamp(pos - track_origin - thumb_offset, 0, viewport-thumb) / (viewport - thumb) × -max_offset — with the divide-by-zero guard when the thumb fills the track.
 
@@ -1049,7 +1049,7 @@ Defines everything a dock needs from its content without knowing the concrete ty
 
 Zed: `crates/workspace/src/dock.rs:98`
 
-A separate object-safe trait, blanket-implemented for every Entity<T: Panel> (dock.rs:148 onward), so the Dock can store Arc<dyn PanelHandle> and call position/size/icon/focus without generics. Also carries to_any() for downcasting back to the concrete panel (dock.rs:484 Dock::panel<T>).
+A separate object-safe trait, blanket-implemented for every Entity<T: Panel> (dock.rs:148 onward), so the Dock can store Arc<dyn PanelHandle> and call position/size/icon/focus without generics. Also carries to_any() for downcasting back to the concrete panel (dock.rs:501 Dock::panel<T>).
 
 **Nim での再現:** Not needed as long as panels are an enum: the enum ordinal IS the erasure. If panels become dynamic, the Nim equivalent is a `ref object` base with a method table (`PanelHandle = ref object of RootObj` + `method position(p: PanelHandle): DockSide {.base.}`), or an object holding proc pointers. Nim's `RootRef` + `of` downcast replaces `to_any().downcast()`. There is no borrow-checker cost to reproduce.
 
@@ -1057,7 +1057,7 @@ A separate object-safe trait, blanket-implemented for every Entity<T: Panel> (do
 
 Zed: `crates/workspace/src/dock.rs:269` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/workspace_ui.nim:51 DockState, :308 dock(), :319 toggleDock, :384 openPanel, :398 togglePanel`
 
-One Dock per edge holds Vec<PanelEntry> (dock.rs:350; each entry = panel + PanelSizeState + subscriptions), is_open, active_panel_index. visible_entry() (dock.rs:843) returns the active entry only when open — that single function is what makes the dock render nothing when closed while keeping the focus handle mounted. Size is per-panel, not per-dock (dock.rs:886 stored_panel_size, :904 set_panel_size_state), so switching panels in a dock changes its width.
+One Dock per edge holds Vec<PanelEntry> (dock.rs:350; each entry = panel + PanelSizeState + subscriptions), is_open, active_panel_index. visible_entry() (dock.rs:843) returns the active entry only when open — that single function is what makes the dock render nothing when closed while keeping the focus handle mounted. Size is per-panel, not per-dock (dock.rs:908 stored_panel_size, :904 set_panel_size_state), so switching panels in a dock changes its width.
 
 **Nim での再現:** DockState already has side/isOpen/activePanel/size/minimumSize. The divergence is that size lives on the dock, not on the panel: `size*: float32` at workspace_ui.nim:55 is shared by every panel on that edge, so switching Files->Git on the right dock keeps the wrong width. Fix in Nim by replacing `size` with `sizes*: array[PanelKind, float32]` (or a `panelSizes` field on WorkspaceUiState keyed by PanelKind), and by making `dock()` return the active panel's stored size. There is also no `panel_entries` ordering — Nimculus derives dock membership by scanning PanelKind (workspace_ui.nim:227 replacementPanel), which loses user-visible panel order; a `seq[PanelKind]` per dock would restore it.
 
@@ -1071,7 +1071,7 @@ Left/Bottom/Right, with axis() mapping Left|Right to Horizontal and Bottom to Ve
 
 #### Dock resize handle geometry and double-click reset — 一部のみ
 
-Zed: `crates/workspace/src/dock.rs:1091 (Render for Dock), handle placement at dock.rs:1124-1150` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/workspace_ui.nim:490 beginDockResize, :499 dockResizeDivider, :510 dockResizeRequest, :519 resetDockSize, :527 resizeDock`
+Zed: `crates/workspace/src/dock.rs:1132 (Render for Dock), handle placement at dock.rs:1124-1150` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/workspace_ui.nim:490 beginDockResize, :499 dockResizeDivider, :510 dockResizeRequest, :519 resetDockSize, :527 resizeDock`
 
 A deferred, occluding handle of RESIZE_HANDLE_SIZE centred on the dock edge: Left gets right(-SIZE/2) full height with col-resize cursor, Right gets left(-SIZE/2), Bottom gets top(-SIZE/2) full width with row-resize. Double-click (click_count == 2, dock.rs:1112) calls resize_active_panel(None, None) which resets to the panel's default size and re-serializes. The handle is suppressed while zoomed or a modal is up (resizable(), dock.rs:480).
 
@@ -1079,7 +1079,7 @@ A deferred, occluding handle of RESIZE_HANDLE_SIZE centred on the dock edge: Lef
 
 #### Panel size persistence and dock zoom — 無い
 
-Zed: `crates/workspace/src/dock.rs:361 PANEL_SIZE_STATE_KEY, dock.rs:547 set_panel_zoomed, workspace.rs:4163 toggle_dock`
+Zed: `crates/workspace/src/dock.rs:375 PANEL_SIZE_STATE_KEY, dock.rs:564 set_panel_zoomed, workspace.rs:4163 toggle_dock`
 
 Panel sizes are persisted per panel_key through a KVP store (workspace.persist_panel_size_state, deferred out of the dock update at dock.rs:973), separately from the per-workspace DockStructure. Zoom is a workspace-level singleton: Workspace.zoomed/zoomed_position (workspace.rs:1375-1377), set when a zoomed panel gains focus (dock.rs:428), and render_dock returns None for the zoomed position (workspace.rs:8073) so the other docks disappear.
 
@@ -1087,7 +1087,7 @@ Panel sizes are persisted per panel_key through a KVP store (workspace.persist_p
 
 #### PanelButtons (the status-bar dock toggles) — 一部のみ
 
-Zed: `crates/workspace/src/dock.rs:356, Render at dock.rs:1211, StatusItemView at dock.rs:1408` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/workspace_ui.nim:376 panelDockSideMask, consumed at /Users/yoshinori/work/nimculus/src/nimculus/main.nim:651 platformSetFooterPanelDockSides`
+Zed: `crates/workspace/src/dock.rs:356, Render at dock.rs:1252, StatusItemView at dock.rs:1449` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/workspace_ui.nim:376 panelDockSideMask, consumed at /Users/yoshinori/work/nimculus/src/nimculus/main.nim:651 platformSetFooterPanelDockSides`
 
 A status-bar item bound to one Dock that renders one button per enabled panel, using the panel's icon/icon_tooltip/toggle_action, ordered and filtered by enabled()/hide_button_setting().
 
@@ -1103,7 +1103,7 @@ tab_content/tab_content_text(detail) (item.rs:177,186), tab_icon (:194), tab_too
 
 #### Tab detail disambiguation — 一部のみ
 
-Zed: `crates/workspace/src/pane.rs:4910 tab_details, called from render_tab_bar at pane.rs:3453` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/editor_app.nim:210 visibleTabTitle, :219 displayTitle`
+Zed: `crates/workspace/src/pane.rs:4965 tab_details, called from render_tab_bar at pane.rs:3400` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/editor_app.nim:210 visibleTabTitle, :219 displayTitle`
 
 Before rendering, the whole item list is scanned and each tab gets a `detail: usize` — how many path components it must show to be unique among its siblings. That is why two open files named mod.rs show as `a/mod.rs` and `b/mod.rs` rather than two identical tabs.
 
@@ -1127,7 +1127,7 @@ A per-pane Arc<Mutex<NavHistoryState>> with backward/forward/closed stacks of Na
 
 #### Pane split tree (Member / PaneAxis with flexes) — 一部のみ
 
-Zed: `crates/workspace/src/pane_group.rs:294 Member, :640 PaneAxis, PaneAxis::split at pane_group.rs:694` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/workspace_ui.nim:42 PaneTree, :636 paneLayout, :804 splitFocusedPane, :819 setRootSplitRatio, :827 closeRootSplit`
+Zed: `crates/workspace/src/pane_group.rs:294 Member, :648 PaneAxis, PaneAxis::split at pane_group.rs:694` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/workspace_ui.nim:42 PaneTree, :636 paneLayout, :804 splitFocusedPane, :819 setRootSplitRatio, :827 closeRootSplit`
 
 An n-ary recursive tree: an Axis node holds Vec<Member> plus a parallel Vec<f32> of flexes (one per child, summing to len) and a cache of per-child bounding boxes used for pane_at_pixel_position and directional navigation. Splitting along the parent's own axis inserts a sibling in place; splitting across it replaces the member with a new 2-child axis (pane_group.rs:700-712). HANDLE_HITBOX_SIZE = 4.0, min sizes 80/100 (pane_group.rs:3-5).
 
@@ -1135,7 +1135,7 @@ An n-ary recursive tree: an Axis node holds Vec<Member> plus a parallel Vec<f32>
 
 #### Pane group layout: divider placement and per-pane floor — 移植済み
 
-Zed: `crates/workspace/src/pane_group.rs:640 PaneAxis (bounding_boxes), constants at pane_group.rs:3-5` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/workspace_ui.nim:636 paneLayout, :617 clampedRootSplitRatio, :604 minimumPaneExtent`
+Zed: `crates/workspace/src/pane_group.rs:648 PaneAxis (bounding_boxes), constants at pane_group.rs:3-5` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/workspace_ui.nim:636 paneLayout, :617 clampedRootSplitRatio, :604 minimumPaneExtent`
 
 Renders each child at flex-proportional size along the axis, records its bounds for hit testing, and interleaves resize handles of HANDLE_HITBOX_SIZE, clamped so no child falls below HORIZONTAL_MIN_SIZE (80) / VERTICAL_MIN_SIZE (100).
 
@@ -1147,7 +1147,7 @@ Zed: `crates/workspace/src/pane.rs:3396 render_tab_bar, per-tab at pane.rs:2825 
 
 Builds back/forward IconButtons wired to nav history, maps items+tab_details to Tab elements with TabPosition::First/Last, splits the strip at pinned_tab_count (optionally into two rows, pane.rs:3475), and renders a scrollable strip with a ScrollHandle plus drag-drop targets. Per tab: label from tab_content with TabContentParams (selected/preview/deemphasized), icon, close button on the configured side, and the dirty/conflict indicator.
 
-**Nim での再現:** This is the sharpest layering divergence. Zed's tab bar is Rust data-driven; Nimculus's is a native NSView that receives a single newline-joined string of titles plus an active index (main.nim:5330-5334). Everything Zed puts in TabContentParams — preview italics, deemphasized colour when the pane is unfocused (item.rs:141 text_color), per-tab icon, tooltip, diagnostic severity, git status colour — cannot cross that string boundary. Dirty state is smuggled in as a ' •' suffix appended to the title (main.nim:5329), which means the dot cannot be positioned or coloured like Zed's Indicator::dot (pane.rs:4916 uses Warning for conflict, Accent for dirty). The fix in Nim is a struct array across the FFI: `NativeTabItem {title: cstring; detail: uint32; flags: uint32; iconId: uint32; indicator: uint8}` passed as a pointer+count, exactly as platformSetEditorSelections already does at main.nim:5312. That is a small, mechanical change and it unblocks four separate parity items at once.
+**Nim での再現:** This is the sharpest layering divergence. Zed's tab bar is Rust data-driven; Nimculus's is a native NSView that receives a single newline-joined string of titles plus an active index (main.nim:5330-5334). Everything Zed puts in TabContentParams — preview italics, deemphasized colour when the pane is unfocused (item.rs:141 text_color), per-tab icon, tooltip, diagnostic severity, git status colour — cannot cross that string boundary. Dirty state is smuggled in as a ' •' suffix appended to the title (main.nim:5329), which means the dot cannot be positioned or coloured like Zed's Indicator::dot (pane.rs:4974 uses Warning for conflict, Accent for dirty). The fix in Nim is a struct array across the FFI: `NativeTabItem {title: cstring; detail: uint32; flags: uint32; iconId: uint32; indicator: uint8}` passed as a pointer+count, exactly as platformSetEditorSelections already does at main.nim:5312. That is a small, mechanical change and it unblocks four separate parity items at once.
 
 #### Pane render policy hooks (should_display_tab_bar, render_tab_bar_buttons) — 無い
 
@@ -1167,7 +1167,7 @@ Each Pane owns a Toolbar entity holding (item, location) pairs where location is
 
 #### Workspace root layout (titlebar / docks+center / status bar) — 移植済み
 
-Zed: `crates/workspace/src/workspace.rs:8984 Render for Workspace, dock wrapper at workspace.rs:8066 render_dock` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/workspace_ui.nim:541 layout(), :565 regionAt, :575 presentedRegionAt`
+Zed: `crates/workspace/src/workspace.rs:8984 Render for Workspace, dock wrapper at workspace.rs:8080 render_dock` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/workspace_ui.nim:541 layout(), :565 regionAt, :575 presentedRegionAt`
 
 A vertical flex: optional titlebar item, then a horizontal band containing left dock / (center PaneGroup over bottom dock) / right dock, then the status bar. Docks stay in the element tree when closed (so their focus handles remain mounted, workspace.rs:8113) but get no size. A canvas element captures the workspace bounds and clamps panel sizes on resize (workspace.rs:9108). The bottom dock spans only the center column by default.
 
@@ -1175,15 +1175,15 @@ A vertical flex: optional titlebar item, then a horizontal band containing left 
 
 #### Workspace serialization (DockStructure + pane tree + items) — 一部のみ
 
-Zed: `crates/workspace/src/persistence/model.rs:153 DockStructure, :203 DockData, :234 SerializedPaneGroup, :339 SerializedPane, :424 SerializedItem; writer at workspace.rs:7061 serialize_workspace_internal` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/workspace_ui.nim:297 saveWorkspaceUi, :206 initWorkspaceUi(session), :189 restoreDock; JSON at /Users/yoshinori/work/nimculus/src/nimculus/session.nim:87-103 (write) and :188-196 (read)`
+Zed: `crates/workspace/src/persistence/model.rs:153 DockStructure, :203 DockData, :234 SerializedPaneGroup, :339 SerializedPane, :424 SerializedItem; writer at workspace.rs:7075 serialize_workspace_internal` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/workspace_ui.nim:297 saveWorkspaceUi, :206 initWorkspaceUi(session), :189 restoreDock; JSON at /Users/yoshinori/work/nimculus/src/nimculus/session.nim:87-103 (write) and :188-196 (read)`
 
-DockStructure = {left, right, bottom}: DockData, each DockData = {visible, active_panel: Option<String>, zoom} — the active panel is stored by persistent_name string, not by index. The center is a recursive SerializedPaneGroup (Group{axis, flexes, children} | Pane), each SerializedPane = {active, children: Vec<SerializedItem>, pinned_count}, each SerializedItem = {kind, item_id, active, preview}. Items are restored by asking the registered deserializer for `kind` to rebuild from item_id (model.rs:254 deserialize). Writes are throttled (workspace.rs:7044 schedules after SERIALIZATION_THROTTLE_TIME).
+DockStructure = {left, right, bottom}: DockData, each DockData = {visible, active_panel: Option<String>, zoom} — the active panel is stored by persistent_name string, not by index. The center is a recursive SerializedPaneGroup (Group{axis, flexes, children} | Pane), each SerializedPane = {active, children: Vec<SerializedItem>, pinned_count}, each SerializedItem = {kind, item_id, active, preview}. Items are restored by asking the registered deserializer for `kind` to rebuild from item_id (model.rs:254 deserialize). Writes are throttled (workspace.rs:7063 schedules after SERIALIZATION_THROTTLE_TIME).
 
 **Nim での再現:** The dock half exists and is close to DockData: three open bits, three sizes, three active-panel ordinals (session.nim:95-103). Two real defects. (1) The active panel is persisted as an enum ORDINAL (workspace_ui.nim:304 `ord(state.leftDock.activePanel)`), guarded only by the comment at workspace_ui.nim:17 telling future authors to append; Zed persists the string persistent_name precisely so panel reordering cannot silently reinterpret a session. Change to the string from panelDockSettingKey — Nim's `parseEnum`/a `case` table makes this trivial and it removes a whole class of upgrade bug. (2) The center split is persisted as flat scalars on EditorSession (`split`, `splitDirection`, `splitRatio`, `splitSecondaryTab`, session.nim:87-91) rather than as a recursive tree, so the PaneTree that workspace_ui.nim builds cannot round-trip more than one split even after the tree is made recursive. The Nim fix is a recursive JSON encoder over PaneTree — `proc toJson(t: PaneTree): JsonNode` with a `case t.kind` — mirroring SerializedPaneGroup exactly. `zoom` and `pinned_count` are also missing from the persisted shape.
 
 #### Serialization throttle — 一部のみ
 
-Zed: `crates/workspace/src/workspace.rs:7044 serialize_workspace` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/persistence_scheduler.nim (module exists; not read in this pass)`
+Zed: `crates/workspace/src/workspace.rs:7058 serialize_workspace` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/persistence_scheduler.nim (module exists; not read in this pass)`
 
 Coalesces bursts of layout changes into one write by spawning a timer task and dropping further requests while one is pending, so dragging a dock divider does not write the DB on every frame.
 
@@ -1193,13 +1193,13 @@ Coalesces bursts of layout changes into one write by spawning a timer task and d
 
 Three structural divergences matter more than any individual gap.
 
-1. The tab bar crossed the FFI as a string. Zed's Pane hands the tab bar a list of typed items and TabContentParams (item.rs:130). Nimculus hands AppKit `tabsText` — titles joined by newlines, with dirty state encoded as a ' •' suffix (main.nim:5326-5334) — and the strip is drawn by NimculusTabBarOverlay (macos_platform.m:4460). The consequence is not stylistic: preview italics, the unfocused-pane deemphasis colour (item.rs:141), per-tab file icons, diagnostic severity, git status colour, and the dirty-vs-conflict indicator colour split (pane.rs:4916) have no channel to travel through. Widening that one FFI call to a struct array — the pattern platformSetEditorSelections already uses at main.nim:5312 — unblocks several parity items at once and is the single highest-leverage change in this layer.
+1. The tab bar crossed the FFI as a string. Zed's Pane hands the tab bar a list of typed items and TabContentParams (item.rs:130). Nimculus hands AppKit `tabsText` — titles joined by newlines, with dirty state encoded as a ' •' suffix (main.nim:5326-5334) — and the strip is drawn by NimculusTabBarOverlay (macos_platform.m:4460). The consequence is not stylistic: preview italics, the unfocused-pane deemphasis colour (item.rs:141), per-tab file icons, diagnostic severity, git status colour, and the dirty-vs-conflict indicator colour split (pane.rs:4974) have no channel to travel through. Widening that one FFI call to a struct array — the pattern platformSetEditorSelections already uses at main.nim:5312 — unblocks several parity items at once and is the single highest-leverage change in this layer.
 
 2. Item ownership is split between two objects, and Zed's is not. Zed's Pane owns `items: Vec<Box<dyn ItemHandle>>` (pane.rs:404). Nimculus keeps documents in `EditorSession.tabs` (editor_app.nim:48) and per-pane index lists in `PaneState.tabIndices` (workspace_ui.nim:36), with syncRootTabs (workspace_ui.nim:704) forcing every pane to mirror the same index set. The code says so itself at workspace_ui.nim:33-34 and :706-708. So splitFocusedPane (workspace_ui.nim:804) can only clone the same tab set, and it refuses anything but a root leaf split. Until `seq[EditorTab]` moves into PaneState and EditorSession becomes a path-keyed document registry, "two panes showing different files" is not reachable, and no amount of pane_group work will get there.
 
 3. Layering: workspace.nim is misnamed. It is the project/worktree layer (roots, ignore rules, file CRUD, search) — Zed's `project` crate. The genuine workspace layer is workspace_ui.nim, and it is the strongest module in this comparison: layout(), paneLayout(), minimumPaneExtent() and clampedRootSplitRatio() are faithful, testable ports with the pane floors (80/100) taken straight from pane_group.rs:4-5. What still lives in main.nim but belongs in the workspace layer: the breadcrumb assembly (main.nim:1283-1400, which is Item::breadcrumbs, item.rs:347), the tab-bar sync (main.nim:5326), and the split/panel command handlers (main.nim:4260, 6914, 8079-8191). Those are Pane and Item responsibilities in Zed and would be ~400 lines out of the 9845.
 
-Two things that are outright absent and should be named as such rather than assumed: zoom (no Workspace.zoomed / zoomed_position analogue anywhere; grep for zoom in main.nim returns nothing, so dock zoom, pane zoom, and the render_dock suppression at workspace.rs:8073 are all missing), and nav history (no NavHistory, no GoBack — pane.rs:471 and :929 have no counterpart).
+Two things that are outright absent and should be named as such rather than assumed: zoom (no Workspace.zoomed / zoomed_position analogue anywhere; grep for zoom in main.nim returns nothing, so dock zoom, pane zoom, and the render_dock suppression at workspace.rs:8080 are all missing), and nav history (no NavHistory, no GoBack — pane.rs:471 and :929 have no counterpart).
 
 One persistence hazard worth fixing before it bites: the active panel is stored as an enum ordinal (workspace_ui.nim:304, session.nim:194-196), defended only by a comment telling future authors to append to PanelKind. Zed stores DockData.active_panel as the persistent_name string (model.rs:203-205) specifically so that reordering panels cannot silently reinterpret an old session. Nimculus already has the string keys (panelDockSettingKey, workspace_ui.nim:330) — using them costs nothing.
 
@@ -1274,7 +1274,7 @@ Each layer owns a SumTree<Transform> with a TransformSummary of {input: TextSumm
 
 #### DisplayPoint / DisplayRow — the coordinate space the renderer paints in — 一部のみ
 
-Zed: `crates/editor/src/display_map.rs:2496 (DisplayPoint(BlockPoint)), :2526 (DisplayRow), :2646 (DisplayPointConverter)` / Nimculus: `src/nimculus/editor_text_layout.nim:12 (VisibleTextRow has both sourceLine and displayRow), :172 displayRowsBeforeLine, :205 sourceLineForDisplayRow`
+Zed: `crates/editor/src/display_map.rs:2525 (DisplayPoint(BlockPoint)), :2555 (DisplayRow), :2675 (DisplayPointConverter)` / Nimculus: `src/nimculus/editor_text_layout.nim:12 (VisibleTextRow has both sourceLine and displayRow), :172 displayRowsBeforeLine, :205 sourceLineForDisplayRow`
 
 A DisplayPoint is a BlockPoint, i.e. a row/column after inlays, folds, tab expansion, wrapping and blocks. Everything visual (cursor, selection paint, scroll top, gutter row) speaks DisplayPoint; conversion to buffer Point goes back down the chain.
 
@@ -1322,7 +1322,7 @@ Inserts rows that correspond to no buffer text — inline diagnostics, excerpt h
 
 #### SelectionsCollection: disjoint anchored selections plus a pending one — 一部のみ
 
-Zed: `crates/editor/src/selections_collection.rs:26 (SelectionsCollection), :20 (PendingSelection), :547 change_with, :978 move_with, :1027 move_heads_with` / Nimculus: `src/nimculus/editor_view.nim:13 (selection), :18 (additionalSelections), :97 selectionRanges, :283 clampSelectionToText`
+Zed: `crates/editor/src/selections_collection.rs:26 (SelectionsCollection), :20 (PendingSelection), :560 change_with, :992 move_with, :1041 move_heads_with` / Nimculus: `src/nimculus/editor_view.nim:13 (selection), :18 (additionalSelections), :97 selectionRanges, :283 clampSelectionToText`
 
 Selections are Selection<Anchor> with an id, a reversed flag and a SelectionGoal (the remembered column for vertical movement). `disjoint` is kept sorted and non-overlapping; the in-progress drag lives separately in `pending` so it may overlap. All mutation goes through change_with, which re-sorts, merges and re-resolves.
 
@@ -1330,7 +1330,7 @@ Selections are Selection<Anchor> with an id, a reversed flag and a SelectionGoal
 
 #### Anchor-based scroll position — 一部のみ
 
-Zed: `crates/editor/src/scroll.rs:38 (ScrollAnchor {anchor, offset}), :388 ScrollManager::scroll_position, :51 ScrollAnchor::scroll_position` / Nimculus: `src/nimculus/editor_view.nim:24 scrollYPixels, :19 scrollLine, :29 scrollDisplayPixels, :61 reconcileScrollPosition`
+Zed: `crates/editor/src/scroll.rs:38 (ScrollAnchor {anchor, offset}), :305 ScrollManager::scroll_position, :51 ScrollAnchor::scroll_position` / Nimculus: `src/nimculus/editor_view.nim:24 scrollYPixels, :19 scrollLine, :29 scrollDisplayPixels, :61 reconcileScrollPosition`
 
 The scroll top is stored as (Anchor, fractional offset), not as a row or a pixel count. Resolving it against the current DisplaySnapshot means an edit above the viewport, a fold, an inlay appearing, or a rewrap does not make the viewport jump — the anchored line stays put.
 
@@ -1338,7 +1338,7 @@ The scroll top is stored as (Anchor, fractional offset), not as a row or a pixel
 
 #### OngoingScroll axis locking — 移植済み
 
-Zed: `crates/editor/src/scroll.rs:68 (OngoingScroll), :132 (filter), SCROLL_EVENT_SEPARATION at :30` / Nimculus: `src/nimculus/editor_scroll.nim:33 (OngoingScroll), :49 filter, :22-24 (SCROLL_EVENT_SEPARATION, UNLOCK_PERCENT, UNLOCK_LOWER_BOUND)`
+Zed: `crates/editor/src/scroll.rs:16 (OngoingScroll), :297 (filter_scroll_delta), SCROLL_EVENT_SEPARATION moved to crates/gpui/src/gestures.rs:17` / Nimculus: `src/nimculus/editor_scroll.nim:33 (OngoingScroll), :49 filter, :22-24 (SCROLL_EVENT_SEPARATION, UNLOCK_PERCENT, UNLOCK_LOWER_BOUND)`
 
 Within 28ms of the previous scroll event, a trackpad gesture stays locked to the axis it started on unless the off-axis delta exceeds UNLOCK_PERCENT of the on-axis delta.
 
@@ -1346,7 +1346,7 @@ Within 28ms of the previous scroll event, a trackpad gesture stays locked to the
 
 #### Autoscroll strategies — 一部のみ
 
-Zed: `crates/editor/src/scroll/autoscroll.rs:16 (enum Autoscroll), :100 (AutoscrollStrategy), :127 autoscroll_vertically, :345 autoscroll_horizontally; request queued on ScrollManager at scroll.rs:214` / Nimculus: `src/nimculus/editor_app.nim:524 ensureCursorVisible`
+Zed: `crates/editor/src/scroll/autoscroll.rs:16 (enum Autoscroll), :100 (AutoscrollStrategy), :127 autoscroll_vertically, :345 autoscroll_horizontally; request queued on ScrollManager at scroll.rs:169` / Nimculus: `src/nimculus/editor_app.nim:524 ensureCursorVisible`
 
 A selection change does not scroll directly; it *requests* an autoscroll (Fit/Newest/Center/Top/Bottom/TopRelative/Focused), which is applied once during the next layout when the viewport size is actually known. vertical_scroll_margin keeps N rows of context around the cursor.
 
@@ -1362,7 +1362,7 @@ Normalizes every scroll-producing action to one of four units; a full page delib
 
 #### Scrollbar geometry and thumb state — 一部のみ
 
-Zed: `crates/editor/src/scroll.rs:181 (ScrollbarThumbState), :189 (ActiveScrollbarState), :522 show_scrollbars, SCROLLBAR_SHOW_INTERVAL at :31` / Nimculus: `src/nimculus/editor_scroll.nim:37 (EditorHorizontalScrollbar), :101 horizontalEditorScrollbar, :136 horizontalScrollbarScrollX`
+Zed: `crates/editor/src/scroll.rs:165 (ScrollbarThumbState), :161 (ActiveScrollbarState), :438 show_scrollbars, SCROLLBAR_SHOW_INTERVAL at :31` / Nimculus: `src/nimculus/editor_scroll.nim:37 (EditorHorizontalScrollbar), :101 horizontalEditorScrollbar, :136 horizontalScrollbarScrollX`
 
 Tracks per-axis hover/drag thumb state, auto-hide timing, and minimap thumb state as editor model state rather than element state.
 
@@ -1370,7 +1370,7 @@ Tracks per-axis hover/drag thumb state, auto-hide timing, and minimap thumb stat
 
 #### Edit transactions grouped with selection history — 一部のみ
 
-Zed: `crates/editor/src/editor.rs:8286 transact, :8299 start_transaction_at, :8321 end_transaction_at, :1394 SelectionHistory, :1297 SelectionHistoryMode` / Nimculus: `src/nimculus/editor_buffer.nim:18 (EditTransaction), :159 edit, :178 applyEdits, :209 undo, :222 redo`
+Zed: `crates/editor/src/editor.rs:8286 transact, :8392 start_transaction_at, :8414 end_transaction_at, :1394 SelectionHistory, :1297 SelectionHistoryMode` / Nimculus: `src/nimculus/editor_buffer.nim:18 (EditTransaction), :159 edit, :178 applyEdits, :209 undo, :222 redo`
 
 A transaction brackets buffer edits *and* records the selections before and after, so undo restores the caret positions, not just the text. Time-based grouping (start_transaction_at(now)) merges rapid typing into one undo step.
 
@@ -1378,7 +1378,7 @@ A transaction brackets buffer edits *and* records the selections before and afte
 
 #### Highlight layering on top of the transform chain — 一部のみ
 
-Zed: `crates/editor/src/display_map.rs:213 (text_highlights, inlay_highlights, semantic_token_highlights fields), :161 (HighlightKey), :334 (HighlightStyleInterner), :1408 (HighlightedChunk); custom_highlights.rs:30` / Nimculus: `src/nimculus/editor_text_layout.nim:8 (TextDecoration {startByte, endByte, kind}), :45 fontRunsForLine`
+Zed: `crates/editor/src/display_map.rs:229 (text_highlights, inlay_highlights, semantic_token_highlights fields), :161 (HighlightKey), :334 (HighlightStyleInterner), :1408 (HighlightedChunk); custom_highlights.rs:30` / Nimculus: `src/nimculus/editor_text_layout.nim:8 (TextDecoration {startByte, endByte, kind}), :45 fontRunsForLine`
 
 Highlights are keyed by an opaque HighlightKey (usually a TypeId of the feature that owns them) over anchor ranges, merged into the chunk iterator at the top of the chain, and styles are interned to a u32 id.
 
@@ -1454,7 +1454,7 @@ Not read, therefore unknown: editor.rs actions (actions.rs), movement.rs, the el
 
 #### GutterDimensions — the gutter geometry contract — 一部のみ
 
-Zed: `crates/editor/src/editor.rs:1246 (struct), crates/editor/src/editor.rs:11546 (EditorSnapshot::gutter_dimensions), crates/editor/src/fold.rs:5 (fold_area_width)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:2163 (struct NimculusEditorGutterMetrics), :2207 (editorGutterMetrics), :2244 (editorGutterWidth), :2250 (editorTextOriginX)`
+Zed: `crates/editor/src/editor.rs:1246 (struct), crates/editor/src/editor.rs:11562 (EditorSnapshot::gutter_dimensions), crates/editor/src/fold.rs:5 (fold_area_width)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:2163 (struct NimculusEditorGutterMetrics), :2207 (editorGutterMetrics), :2244 (editorGutterWidth), :2250 (editorTextOriginX)`
 
 Computes {left_padding, right_padding, width, margin, git_blame_entries_width} once per layout from ch_width/ch_advance of the buffer font and the gutter settings. line_gutter_width = max(measured widest line number, ch_advance * min_line_number_digits). left_padding is git_blame_entries_width + (4ch if multibuffer / 3ch if runnables|breakpoints|bookmarks / 2ch if git gutter AND line numbers / 1ch if either / 0). right_padding is 4ch when folds and line numbers are both shown. Everything downstream (text origin, hunk strip, line-number right alignment, crease toggles) is derived from this one struct.
 
@@ -1478,7 +1478,7 @@ Maps a DisplayDiffHunk to a Bounds in gutter coordinates. Folded hunks get exact
 
 #### Diff hunk painting: colour by kind, hollow for unstaged — 無い
 
-Zed: `crates/editor/src/element.rs:5202 (paint_gutter_diff_hunks), crates/editor/src/element.rs:6570 (diff_hunk_hollow)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:6483-6497 picks three hard-coded RGB triples at alpha 0.9 and always fills solid`
+Zed: `crates/editor/src/element.rs:5210 (paint_gutter_diff_hunks), crates/editor/src/element.rs:6596 (diff_hunk_hollow)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:6483-6497 picks three hard-coded RGB triples at alpha 0.9 and always fills solid`
 
 Colour comes from theme version_control_added/modified/deleted, blended onto editor_background so transparency cannot leak. Staged hunks are painted as a solid quad; unstaged hunks are painted hollow — fill at 0.3 opacity with a 1px solid border in the full colour. In a split diff, side overrides kind (left=deleted colour, right=added colour).
 
@@ -1494,7 +1494,7 @@ Per visible row: picks relative or absolute number (relative may be wrapped-awar
 
 #### LineWithInvisibles::from_chunks — the line shaping pipeline — 一部のみ
 
-Zed: `crates/editor/src/element.rs:7013 (struct), crates/editor/src/element.rs:7045 (from_chunks), crates/editor/src/element.rs:7021 (enum LineFragment)` / Nimculus: `src/nimculus/editor_text_layout.nim:45 (fontRunsForLine), :132 (buildVisibleEditorLayout), :103 (addWrappedRows)`
+Zed: `crates/editor/src/element.rs:7013 (struct), crates/editor/src/element.rs:7071 (from_chunks), crates/editor/src/element.rs:7047 (enum LineFragment)` / Nimculus: `src/nimculus/editor_text_layout.nim:45 (fontRunsForLine), :132 (buildVisibleEditorLayout), :103 (addWrappedRows)`
 
 Consumes an iterator of HighlightedChunk in document order and emits one LineWithInvisibles per display row. Accumulates TextRuns (font/colour/background/underline/strikethrough) while text is contiguous, flushes a shape_line call at every '\n' and at every inlay/replacement boundary, tracks a running width and byte length, truncates at MAX_LINE_LEN=1024 bytes on a char boundary, and records Invisible::Tab / Invisible::Whitespace positions (suppressing the fake padding whitespace that soft wrap inserts at the start of a wrapped row).
 
@@ -1534,7 +1534,7 @@ Converts buffer selections into per-player display-space SelectionLayouts, and s
 
 #### HighlightedRange::paint — the rounded multi-line selection shape — 移植済み
 
-Zed: `crates/editor/src/element.rs:10457 (struct), crates/editor/src/element.rs:10471 (impl), crates/editor/src/element.rs:10487 (paint_lines)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:1841 (buildRoundedSelectionBoundary), :2003 (drawRoundedSelectionWithTransform), paint kind 18 at :2578`
+Zed: `crates/editor/src/element.rs:10457 (struct), crates/editor/src/element.rs:10471 (impl), crates/editor/src/element.rs:10521 (paint_lines)` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:1841 (buildRoundedSelectionBoundary), :2003 (drawRoundedSelectionWithTransform), paint kind 18 at :2578`
 
 Turns a run of per-line start/end x pairs into a single rounded outline path rather than per-line rectangles, so a multi-line selection reads as one shape with correctly-curved inner corners.
 
@@ -1550,7 +1550,7 @@ Bar is 2px wide by line_height; Block and Hollow are block_width by line_height;
 
 #### ScrollbarLayout — thumb sizing and marker quads — 無い
 
-Zed: `crates/editor/src/element.rs:9787 (struct), crates/editor/src/element.rs:9870 (new_with_hitbox_and_track_length), crates/editor/src/element.rs:9931 (thumb_bounds), crates/editor/src/element.rs:9956 (marker_quads_for_ranges); layout at crates/editor/src/element.rs:1285, paint at :5755` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:2507 (paint kind 10 draws a thumb from a caller-supplied rect); :7555-7567 admits the horizontal thumb length is not tracked and spans the full text width`
+Zed: `crates/editor/src/element.rs:9787 (struct), crates/editor/src/element.rs:9904 (new_with_hitbox_and_track_length), crates/editor/src/element.rs:9931 (thumb_bounds), crates/editor/src/element.rs:9990 (marker_quads_for_ranges); layout at crates/editor/src/element.rs:1285, paint at :5755` / Nimculus: `src/nimnui/platform/macos/macos_platform.m:2507 (paint kind 10 draws a thumb from a caller-supplied rect); :7555-7567 admits the horizontal thumb length is not tracked and spans the full text width`
 
 thumb_size = clamp(track_length * (visible_text_units / total_text_units), MIN_THUMB_SIZE=25px, track_length). text_unit_size = (track_length - thumb_size) / (total_units - page_units), so the thumb reaches the track end exactly when the content does. The thumb is hidden entirely when content fits. Constants: BORDER_WIDTH 1px, LINE_MARKER_HEIGHT 2px, MIN_MARKER_HEIGHT 5px. marker_quads_for_ranges renders diagnostic/search/git markers into the track.
 
@@ -1566,7 +1566,7 @@ start_x = max(line_end + padding*em_width, content_origin.x + min_column_in_pixe
 
 #### layout_blame_entries — the gutter blame column — 無い
 
-Zed: `crates/editor/src/element.rs:2197; width reservation in crates/editor/src/editor.rs:11583-11598 (git_blame_entries_width)` / Nimculus: `src/nimculus/git_blame.nim provides the per-line data (entryAt, shouldShow) but nothing lays out a gutter column`
+Zed: `crates/editor/src/element.rs:2197; width reservation in crates/editor/src/editor.rs:11672-11598 (git_blame_entries_width)` / Nimculus: `src/nimculus/git_blame.nim provides the per-line data (entryAt, shouldShow) but nothing lays out a gutter column`
 
 When the blame gutter is on, renders one element per visible row at gutter_origin + (em_width, row*line_height - scroll), and reserves the horizontal space in GutterDimensions as ch_advance * (min(max_author_length, renderer max) + SHORT_SHA_LENGTH + len("2 years, 11 months ago") + 4 spacing chars). Consecutive rows from different commits are given different player colours (render_blame_entry, element.rs:6967, bumps the colour index when two adjacent SHAs would collide).
 
@@ -1582,7 +1582,7 @@ Holds blame as a SumTree of GitBlameEntry keyed by row count, so an edit shifts 
 
 #### BlameRenderer — blame presentation as an injectable global — 無い
 
-Zed: `crates/editor/src/git/blame.rs:88 (trait), :135 (unit impl returning None), :194 (GlobalBlameRenderer)`
+Zed: `crates/editor/src/git/blame.rs:88 (trait), :158 (unit impl returning None), :194 (GlobalBlameRenderer)`
 
 A trait with render_blame_entry / render_inline_blame_entry / render_blame_entry_popover / max_author_length / open_blame_commit, stored as a gpui global so the editor crate can lay out blame without depending on the git_ui crate. The default impl returns None everywhere, which is how the editor works in tests with no UI crate present.
 
@@ -1590,7 +1590,7 @@ A trait with render_blame_entry / render_inline_blame_entry / render_blame_entry
 
 #### DiffHunkDelegate — per-editor-kind hunk affordances — 無い
 
-Zed: `crates/editor/src/git.rs:23 (trait), :84 UncommittedDiffHunkDelegate, :164 RestoreOnlyDiffHunkDelegate, :201 RestoreOnlyUnstagedDiffHunkDelegate; render_hunk_as_staged at :79` / Nimculus: `src/nimculus/git_gutter.nim:5-33 hard-codes a two-case action (stage / unstage by modifier key)`
+Zed: `crates/editor/src/git.rs:23 (trait), :84 UncommittedDiffHunkDelegate, :164 RestoreOnlyDiffHunkDelegate, :211 RestoreOnlyUnstagedDiffHunkDelegate; render_hunk_as_staged at :79` / Nimculus: `src/nimculus/git_gutter.nim:5-33 hard-codes a two-case action (stage / unstage by modifier key)`
 
 Abstracts what a hunk's controls do (toggle / stage_or_unstage / restore) and how they render, so the same element code serves the project diff view, a single-file diff, and a read-only review. render_hunk_as_staged is the hook that decides whether paint_gutter_diff_hunks draws solid or hollow.
 
@@ -1598,7 +1598,7 @@ Abstracts what a hunk's controls do (toggle / stage_or_unstage / restore) and ho
 
 #### The prepaint→paint split and EditorLayout — 一部のみ
 
-Zed: `crates/editor/src/element.rs:7954 (prepaint), :9598 (struct EditorLayout), :9431 (paint)` / Nimculus: `src/nimculus/main.nim:4144-4182 builds the layout and ships it over FFI (platformSetEditorLayout); painting order is implicit in macos_platform.m's mix of Metal paint kinds and AppKit overlay views`
+Zed: `crates/editor/src/element.rs:7954 (prepaint), :9632 (struct EditorLayout), :9431 (paint)` / Nimculus: `src/nimculus/main.nim:4144-4182 builds the layout and ships it over FFI (platformSetEditorLayout); painting order is implicit in macos_platform.m's mix of Metal paint kinds and AppKit overlay views`
 
 prepaint runs every layout_* function once and stores ~45 fields of positioned, already-shaped state into EditorLayout; paint then walks that state in a fixed order and issues no measurement. The paint order is load-bearing: background, indent guides, blame gutter, line numbers, then paint_text (which itself is line backgrounds → highlights → document colours → glyphs → redactions → cursors → inline diagnostics → inline blame → code actions → hunk controls), then spacer blocks, gutter highlights, gutter indicators, blocks, sticky headers, minimap, scrollbars, popovers.
 
@@ -1614,7 +1614,7 @@ Fills gutter and text backgrounds separately, then coalesces consecutive active 
 
 #### items.rs tab_content — the tab label element — 一部のみ
 
-Zed: `crates/editor/src/items.rs:751; MAX_TAB_TITLE_LEN=24 at items.rs:66; entry_git_aware_label_color at items.rs:2200; entry_label_color at items.rs:2172` / Nimculus: `src/nimculus/editor_app.nim:210 (visibleTabTitle), :219 (displayTitle), :232 (tabDisplayLabel)`
+Zed: `crates/editor/src/items.rs:751; MAX_TAB_TITLE_LEN=24 at items.rs:66; entry_git_aware_label_color at items.rs:2205; entry_label_color at items.rs:2177` / Nimculus: `src/nimculus/editor_app.nim:210 (visibleTabTitle), :219 (displayTitle), :232 (tabDisplayLabel)`
 
 Label colour is derived from the file's git summary when ItemSettings.git_status is on: conflict > deleted > modified > added/untracked > ignored > default, where default is Muted unless the tab is selected. Title is truncated to 24 chars with a trailoff (or truncated in the middle when the pane asks). Preview tabs are italic; files deleted on disk are struck through. An optional smaller Muted description shows the disambiguating path suffix.
 
@@ -1622,7 +1622,7 @@ Label colour is derived from the file's git summary when ItemSettings.git_status
 
 #### path_for_buffer — detail-level path disambiguation — 無い
 
-Zed: `crates/editor/src/items.rs:2217 (path_for_buffer), :2227 (path_for_file)`
+Zed: `crates/editor/src/items.rs:2222 (path_for_buffer), :2227 (path_for_file)`
 
 Given a 'height' (how many ancestor directories to include, supplied by the pane when two tabs collide), walks up that many parents and returns either a relative suffix or the full path if the height exceeds the tree depth. This is the mechanism behind tabs showing 'src/main.rs' vs 'tests/main.rs'.
 
@@ -1630,7 +1630,7 @@ Given a 'height' (how many ancestor directories to include, supplied by the pane
 
 #### breadcrumbs — segments from the editor, rendering from the element — 一部のみ
 
-Zed: `crates/editor/src/items.rs:1069 (breadcrumb_location), :1078 (breadcrumbs), :1089 (breadcrumb_prefix); crates/editor/src/element.rs:6726 (render_breadcrumb_text), :6883 (apply_dirty_filename_style)` / Nimculus: `src/nimculus/main.nim:1360 (editorContextPayload), :1290 (breadcrumbSymbolsAtCursor), :1304 (markdownBreadcrumbHeadings)`
+Zed: `crates/editor/src/items.rs:1074 (breadcrumb_location), :1078 (breadcrumbs), :1094 (breadcrumb_prefix); crates/editor/src/element.rs:6752 (render_breadcrumb_text), :6909 (apply_dirty_filename_style)` / Nimculus: `src/nimculus/main.nim:1360 (editorContextPayload), :1290 (breadcrumbSymbolsAtCursor), :1304 (markdownBreadcrumbHeadings)`
 
 The Item impl returns just data — a Vec<HighlightedText> plus the buffer font — and only for singleton buffers (multibuffers put breadcrumbs on sticky file headers instead). render_breadcrumb_text does the presentation: caps at MAX_SEGMENTS=12 by replacing the middle with '⋯', joins with a Placeholder-coloured '›', newlines in a segment become spaces, and when the tab bar is hidden the first segment's filename is bolded in the default colour to signal dirtiness.
 
@@ -1638,7 +1638,7 @@ The Item impl returns just data — a Vec<HighlightedText> plus the buffer font 
 
 #### Editor blame lifecycle and inline-blame gating — 一部のみ
 
-Zed: `crates/editor/src/git.rs:503 (git_blame_inline_enabled), :541 (show_git_blame_gutter), :556 (toggle_git_blame), :571 (toggle_git_blame_inline), :589 (hide_blame_popover), :949 (show_blame_hover_popover), :2131 (start_git_blame)` / Nimculus: `src/nimculus/git_blame.nim:45 (shouldStart), :64 (shouldShow); visibility flags live in macos_platform.m:292-307`
+Zed: `crates/editor/src/git.rs:511 (git_blame_inline_enabled), :549 (show_git_blame_gutter), :564 (toggle_git_blame), :579 (toggle_git_blame_inline), :597 (hide_blame_popover), :949 (show_blame_hover_popover), :2148 (start_git_blame)` / Nimculus: `src/nimculus/git_blame.nim:45 (shouldStart), :64 (shouldShow); visibility flags live in macos_platform.m:292-307`
 
 Owns whether blame is showing at all (gutter vs inline are independent toggles), starts the GitBlame entity lazily, and manages the hover popover's delay and dismissal (including dismissing it when a workspace modal opens, items.rs:1108-1116).
 
@@ -1698,7 +1698,7 @@ Marked unknown rather than guessed: PositionMap::point_for_position has no count
 
 #### Store composition + event re-emission (Project as hub) — 無い
 
-Zed: `crates/project/src/project.rs:214 (struct Project), :335 (enum Event), :1201-1329 (cx.subscribe wiring), :3581 on_buffer_store_event, :3638 on_lsp_store_event, :3866 on_worktree_store_event` / Nimculus: `src/nimculus/main.nim:989-1034 (flat module-level vars: lspBridge, editorGitStatusJob, editorGitStatusEntries, editorGitBlameCache, ...)`
+Zed: `crates/project/src/project.rs:214 (struct Project), :335 (enum Event), :1201-1329 (cx.subscribe wiring), :3603 on_buffer_store_event, :3660 on_lsp_store_event, :3906 on_worktree_store_event` / Nimculus: `src/nimculus/main.nim:989-1034 (flat module-level vars: lspBridge, editorGitStatusJob, editorGitStatusEntries, editorGitBlameCache, ...)`
 
 Project holds Entity<WorktreeStore>, Entity<BufferStore>, Entity<LspStore>, Entity<GitStore> etc. Each store emits its own typed event enum; Project subscribes to all of them and translates into one project::Event that workspace/editor items observe. This is what lets a UI element say 'observe the project' without knowing which store produced the change.
 
@@ -1706,7 +1706,7 @@ Project holds Entity<WorktreeStore>, Entity<BufferStore>, Entity<LspStore>, Enti
 
 #### Worktree snapshot + background scanner with scan ids — 一部のみ
 
-Zed: `crates/worktree/src/worktree.rs:176 (Snapshot), :249 (LocalSnapshot), :270 (BackgroundScannerState), :410 (enum ScanState), :4267 (BackgroundScanner), :4288 (BackgroundScannerPhase)` / Nimculus: `src/nimculus/workspace.nim:62 (Workspace with `entries: Table[string, WorkspaceEntry]`), :842 startWatching, :805 changedPaths`
+Zed: `crates/worktree/src/worktree.rs:176 (Snapshot), :249 (LocalSnapshot), :270 (BackgroundScannerState), :410 (enum ScanState), :4295 (BackgroundScanner), :4304 (BackgroundScannerPhase)` / Nimculus: `src/nimculus/workspace.nim:62 (Workspace with `entries: Table[string, WorkspaceEntry]`), :842 startWatching, :805 changedPaths`
 
 A background task walks the fs and watches it, producing immutable versioned Snapshots. `scan_id` increments when a scan starts, `completed_scan_id` when all preceding scans finish (worktree.rs:186-207), so a consumer can tell whether the snapshot it holds is settled. Entries live in `entries_by_path: SumTree<Entry>` and `entries_by_id: SumTree<PathEntry>`.
 
@@ -1722,7 +1722,7 @@ Every file/dir gets a stable ProjectEntryId that survives renames: when the scan
 
 #### Repository as an entity with a snapshot + a serialized job queue — 一部のみ
 
-Zed: `crates/project/src/git_store.rs:476 (struct Repository), :401 (RepositorySnapshot), :607 (GitJob), :614 (enum GitJobKey), :498 (Deref<Target=RepositorySnapshot>)` / Nimculus: `src/nimculus/git_service.nim:68 (GitRepository = ref object with only `root: string`), :62 (GitJob wrapping one Process); state lives in main.nim:992-1034 as editorGitStatusJob / editorGitStatusSourceEntries / editorGitBranches / editorGitStatusGeneration`
+Zed: `crates/project/src/git_store.rs:505 (struct Repository), :430 (RepositorySnapshot), :636 (GitJob), :643 (enum GitJobKey), :527 (Deref<Target=RepositorySnapshot>)` / Nimculus: `src/nimculus/git_service.nim:68 (GitRepository = ref object with only `root: string`), :62 (GitJob wrapping one Process); state lives in main.nim:992-1034 as editorGitStatusJob / editorGitStatusSourceEntries / editorGitBranches / editorGitStatusGeneration`
 
 Repository owns a RepositorySnapshot (statuses_by_path SumTree, branch, branch_list, head_commit, merge details, stash, scan_id) and a single-consumer job queue. GitJobKey lets a newly queued job supersede a pending identical job (WriteIndex/RefreshStatuses/ReloadBufferDiffBases/ReloadGitState) so a burst of edits collapses into one status refresh.
 
@@ -1730,7 +1730,7 @@ Repository owns a RepositorySnapshot (statuses_by_path SumTree, branch, branch_l
 
 #### Per-buffer diff bases (head text / index text) and diff recalculation — 無い
 
-Zed: `crates/project/src/git_store.rs:120 (BufferGitState: head_text, index_text, head_text_buffer, index_text_buffer, head_changed, index_changed), :184 (DiffBasesChange), :195 (DiffKind), :4671 (recalculate_diffs)` / Nimculus: `src/nimculus/main.nim:3985 scheduleNativeGitHunks, :4019 pollNativeGitHunks (spawns `git diff` and parses the unified-diff text)`
+Zed: `crates/project/src/git_store.rs:170 (BufferGitState: head_text, index_text, head_text_buffer, index_text_buffer, head_changed, index_changed), :193 (DiffBasesChange), :204 (DiffKind), :4725 (recalculate_diffs)` / Nimculus: `src/nimculus/main.nim:3985 scheduleNativeGitHunks, :4019 pollNativeGitHunks (spawns `git diff` and parses the unified-diff text)`
 
 For each open buffer the store keeps the HEAD blob and the index blob as *buffers* (not strings), so the deleted side of a hunk can be syntax-highlighted. When either base or the buffer changes, recalculate_diffs re-derives the unstaged/staged/uncommitted BufferDiffs off-thread and settles them together, with a `recalculating_tx` watch channel consumers can await.
 
@@ -1738,7 +1738,7 @@ For each open buffer the store keeps the HEAD blob and the index blob as *buffer
 
 #### Anchored diff hunks with secondary (staged) status — 一部のみ
 
-Zed: `crates/buffer_diff/src/buffer_diff.rs:100 (DiffHunk: range as Points, buffer_range as Anchors, diff_base_byte_range, secondary_status, word diffs), :70 (DiffHunkStatus), :85 (DiffHunkSecondaryStatus with the 5 states incl. the two Pending ones), :125 (PendingHunk), :423 hunks_in_row_range` / Nimculus: `src/nimculus/git_service.nim:56 (GitDiffHunk: oldStart/oldCount/newStart/newCount/kind/patchText), src/nimculus/git_gutter.nim:5 (GitGutterActionKind: none/stage/unstage)`
+Zed: `crates/buffer_diff/src/buffer_diff.rs:117 (DiffHunk: range as Points, buffer_range as Anchors, diff_base_byte_range, secondary_status, word diffs), :87 (DiffHunkStatus), :85 (DiffHunkSecondaryStatus with the 5 states incl. the two Pending ones), :142 (PendingHunk), :440 hunks_in_row_range` / Nimculus: `src/nimculus/git_service.nim:56 (GitDiffHunk: oldStart/oldCount/newStart/newCount/kind/patchText), src/nimculus/git_gutter.nim:5 (GitGutterActionKind: none/stage/unstage)`
 
 A hunk is anchored, so it tracks edits rather than being invalidated. secondary_status drives the gutter's staged/unstaged/partially-staged rendering, and the two Pending variants make the gutter respond optimistically the instant the user clicks, before git returns.
 
@@ -1746,7 +1746,7 @@ A hunk is anchored, so it tracks edits rather than being invalidated. secondary_
 
 #### Git status scan → panel projection (staged / unstaged / conflicts) — 一部のみ
 
-Zed: `crates/project/src/git_store.rs:317 (StatusEntry), :366 (impl sum_tree::Item so statuses roll up per directory), crates/git/src/status.rs:10 (FileStatus), :31 (TrackedStatus: index_status + worktree_status), :351 (GitSummary)` / Nimculus: `src/nimculus/git_service.nim:26 (GitStatusEntry: indexStatus, worktreeStatus, path, originalPath, conflict), :307 parseStatus, src/nimculus/main.nim:953 (GitStatusProjection), :2591-2709 (section building), :1138-1141 (per-file-tree status lookup by linear scan)`
+Zed: `crates/project/src/git_store.rs:326 (StatusEntry), :395 (impl sum_tree::Item so statuses roll up per directory), crates/git/src/status.rs:10 (FileStatus), :31 (TrackedStatus: index_status + worktree_status), :351 (GitSummary)` / Nimculus: `src/nimculus/git_service.nim:26 (GitStatusEntry: indexStatus, worktreeStatus, path, originalPath, conflict), :307 parseStatus, src/nimculus/main.nim:953 (GitStatusProjection), :2591-2709 (section building), :1138-1141 (per-file-tree status lookup by linear scan)`
 
 Status is stored per repo path in a SumTree whose summary is a GitSummary, so any directory node can report its aggregate status in O(log n) — that is what colors folder names in the project panel. Each entry carries both index_status and worktree_status, which is what lets a file appear in both the staged and unstaged sections.
 
@@ -1754,7 +1754,7 @@ Status is stored per repo path in a SumTree whose summary is a GitSummary, so an
 
 #### Blame: entries by line range, plus batch commit-message fetch — 一部のみ
 
-Zed: `crates/git/src/blame.rs:17 (struct Blame: entries, messages by Oid, tag_names by Oid), :164 (BlameEntry: sha, range: Range<u32>, original_line_number, author/committer fields, summary), :29-58 (unique SHAs then one batched get_messages/get_tag_names); crates/project/src/git_store.rs:1880 blame_buffer` / Nimculus: `src/nimculus/git_service.nim:43 (GitBlameLine: hash, author, authorTime, summary, line, text) and :538 parseBlame/:561 blame; src/nimculus/git_blame.nim:11 (GitBlameCache keyed by repositoryRoot+documentPath+documentVersion), src/nimculus/status_bar.nim:78 gitBlameStatusText`
+Zed: `crates/git/src/blame.rs:17 (struct Blame: entries, messages by Oid, tag_names by Oid), :164 (BlameEntry: sha, range: Range<u32>, original_line_number, author/committer fields, summary), :29-58 (unique SHAs then one batched get_messages/get_tag_names); crates/project/src/git_store.rs:1967 blame_buffer` / Nimculus: `src/nimculus/git_service.nim:43 (GitBlameLine: hash, author, authorTime, summary, line, text) and :538 parseBlame/:561 blame; src/nimculus/git_blame.nim:11 (GitBlameCache keyed by repositoryRoot+documentPath+documentVersion), src/nimculus/status_bar.nim:78 gitBlameStatusText`
 
 Blame is computed against the *current buffer content* (git_store.rs:1908 passes the rope and line ending to `git blame --contents -`), so it stays correct on an unsaved buffer. Entries cover line ranges, not lines, and commit metadata is deduplicated by SHA and fetched in one batch.
 
@@ -1770,7 +1770,7 @@ One buffer per ProjectPath, guaranteed. Concurrent opens of the same path share 
 
 #### Language server lifecycle: Starting/Running state and the seed key that decides identity — 無い
 
-Zed: `crates/project/src/lsp_store.rs:14783 (enum LanguageServerState Starting{startup task, pending_workspace_folders} / Running{adapter, server, ...}), :267 (LanguageServerSeed: worktree_id + name + toolchain + settings), :251 (UnifiedLanguageServer with project_roots), :350 get_or_insert_language_server` / Nimculus: `src/nimculus/main.nim:989 (`var lspBridge: LspEditorBridge`) — one global bridge, one server, for the whole app; src/nimculus/lsp.nim:135 (LspSessionState: initializing/ready/stopped/failed)`
+Zed: `crates/project/src/lsp_store.rs:14312 (enum LanguageServerState Starting{startup task, pending_workspace_folders} / Running{adapter, server, ...}), :267 (LanguageServerSeed: worktree_id + name + toolchain + settings), :261 (UnifiedLanguageServer with project_roots), :367 get_or_insert_language_server` / Nimculus: `src/nimculus/main.nim:989 (`var lspBridge: LspEditorBridge`) — one global bridge, one server, for the whole app; src/nimculus/lsp.nim:135 (LspSessionState: initializing/ready/stopped/failed)`
 
 Server identity is a hash key (worktree, name, toolchain, binary+init options) — two buffers under the same key share one process, and its project_roots set grows. Deliberately excludes dynamic settings (comment at lsp_store.rs:262) so a settings change that can be pushed via didChangeConfiguration does not restart the server. Requests issued while a server is Starting queue into pending_workspace_folders instead of failing.
 
@@ -1778,7 +1778,7 @@ Server identity is a hash key (worktree, name, toolchain, binary+init options) �
 
 #### Per-buffer LSP request keying and cancellation — 一部のみ
 
-Zed: `crates/project/src/lsp_store.rs:4140 (BufferLspData: buffer_version, per-feature caches, lsp_requests: HashMap<LspKey, HashMap<LspRequestId, Task<()>>>), :4154 (LspKey = request TypeId + server id), :4172-4208 remove_server_data` / Nimculus: `src/nimculus/lsp_editor_bridge.nim:18-79 (one `<feature>RequestId: int` field per feature), :350 cancelDocumentFeatureRequests, :310 requestInlayHintsForPath (guards with inlayHintsRequestVersion)`
+Zed: `crates/project/src/lsp_store.rs:4098 (BufferLspData: buffer_version, per-feature caches, lsp_requests: HashMap<LspKey, HashMap<LspRequestId, Task<()>>>), :4265 (LspKey = request TypeId + server id), :4291-4208 remove_server_data` / Nimculus: `src/nimculus/lsp_editor_bridge.nim:18-79 (one `<feature>RequestId: int` field per feature), :350 cancelDocumentFeatureRequests, :310 requestInlayHintsForPath (guards with inlayHintsRequestVersion)`
 
 Every in-flight LSP request is keyed by (request type, server) so a new request of the same type cancels the old one by dropping its Task, and all of a server's cached data can be evicted in one call when the server dies. buffer_version gates whether cached results are still valid.
 
@@ -1786,7 +1786,7 @@ Every in-flight LSP request is keyed by (request type, server) so a new request 
 
 #### Buffer→server document synchronization with snapshot history for incremental didChange — 一部のみ
 
-Zed: `crates/project/src/lsp_store.rs:8431 on_buffer_edited (:8452-8470 builds incremental changes from edits_since against the last snapshot), :331 (buffer_snapshots: buffer_id → server_id → Vec<LspBufferSnapshot>), :14647 (LspBufferSnapshot), :236 (OpenLspBufferHandle — refcounted 'this buffer is open in servers'), :328 (registered_buffers: BufferId → count)` / Nimculus: `src/nimculus/lsp_editor_bridge.nim:9 (LspDocumentState keeps `lastText`), :539 syncDocument, :587 updateDocument, :80 (documents: Table[string, LspDocumentState]); src/nimculus/lsp.nim:321 didChangeNotification (full-text form only)`
+Zed: `crates/project/src/lsp_store.rs:8534 on_buffer_edited (:8568-8470 builds incremental changes from edits_since against the last snapshot), :331 (buffer_snapshots: buffer_id → server_id → Vec<LspBufferSnapshot>), :14165 (LspBufferSnapshot), :246 (OpenLspBufferHandle — refcounted 'this buffer is open in servers'), :328 (registered_buffers: BufferId → count)` / Nimculus: `src/nimculus/lsp_editor_bridge.nim:9 (LspDocumentState keeps `lastText`), :539 syncDocument, :587 updateDocument, :80 (documents: Table[string, LspDocumentState]); src/nimculus/lsp.nim:321 didChangeNotification (full-text form only)`
 
 Each server keeps a history of the buffer versions it has been told about, so didChange can send *ranges* rather than the whole document. Refcounted OpenLspBufferHandle means the buffer stays open in the server while any UI holds a handle, and didClose fires exactly when the last one drops.
 
@@ -1794,7 +1794,7 @@ Each server keeps a history of the buffer versions it has been told about, so di
 
 #### Diagnostics storage, per-path grouping and per-worktree summaries — 一部のみ
 
-Zed: `crates/project/src/lsp_store.rs:320-330 (LocalLspStore.diagnostics: WorktreeId → RelPath → Vec<(server_id, entries)>), :4131 (LspStore.diagnostic_summaries same shape → DiagnosticSummary), :14850 (DiagnosticSummary::new counts only is_primary entries), :4234 (LspStoreEvent::DiagnosticsUpdated{server_id, paths})` / Nimculus: `src/nimculus/lsp.nim:171 (`diagnostics: Table[string, seq[LspDiagnostic]]` keyed by URI, single server), src/nimculus/lsp_editor_bridge.nim:735 diagnosticsForPath, src/nimculus/editor_diagnostics.nim:13 resolveDiagnostics`
+Zed: `crates/project/src/lsp_store.rs:320-330 (LocalLspStore.diagnostics: WorktreeId → RelPath → Vec<(server_id, entries)>), :4181 (LspStore.diagnostic_summaries same shape → DiagnosticSummary), :14835 (DiagnosticSummary::new counts only is_primary entries), :4166 (LspStoreEvent::DiagnosticsUpdated{server_id, paths})` / Nimculus: `src/nimculus/lsp.nim:171 (`diagnostics: Table[string, seq[LspDiagnostic]]` keyed by URI, single server), src/nimculus/lsp_editor_bridge.nim:735 diagnosticsForPath, src/nimculus/editor_diagnostics.nim:13 resolveDiagnostics`
 
 Diagnostics are stored per worktree-relative path *and per server*, so one server's publish never clobbers another's, and a rolled-up error/warning count per path feeds the project panel and status bar without re-walking the entries. Only primary diagnostics count toward the summary, so a multi-span rust error counts once.
 
@@ -1802,7 +1802,7 @@ Diagnostics are stored per worktree-relative path *and per server*, so one serve
 
 #### Work-done progress aggregation into a single activity string — 移植済み
 
-Zed: `crates/project/src/lsp_store.rs:14839 (LanguageServerProgress: is_disk_based_diagnostics_progress, title, message, percentage, last_update_at), :4258 (LanguageServerStatus.pending_work: BTreeMap<ProgressToken, ...>), :178 (enum ProgressToken)` / Nimculus: `src/nimculus/lsp.nim:141-160 (LspProgressToken as an object variant over number|string, LspProgress), :488 registerProgressToken, :531 activityProgressText, :576 handleWorkDoneProgress; surfaced at main.nim:5126`
+Zed: `crates/project/src/lsp_store.rs:14368 (LanguageServerProgress: is_disk_based_diagnostics_progress, title, message, percentage, last_update_at), :4242 (LanguageServerStatus.pending_work: BTreeMap<ProgressToken, ...>), :188 (enum ProgressToken)` / Nimculus: `src/nimculus/lsp.nim:141-160 (LspProgressToken as an object variant over number|string, LspProgress), :488 registerProgressToken, :531 activityProgressText, :576 handleWorkDoneProgress; surfaced at main.nim:5126`
 
 Every server's $/progress tokens are kept in an ordered map per server, and the status bar picks the most relevant one to display. Disk-based diagnostics progress is flagged so 'checking project' can be distinguished from ordinary work.
 
@@ -1810,7 +1810,7 @@ Every server's $/progress tokens are kept in an ordered map per server, and the 
 
 #### Multi-root workspace with per-root ignore stacks — 一部のみ
 
-Zed: `crates/project/src/worktree_store.rs:352 worktrees / :359 visible_worktrees / :700 create_worktree; crates/worktree/src/worktree.rs:255 (ignores_by_parent_abs_path), :208 (enum WorkDirectory InProject/AboveProject)` / Nimculus: `src/nimculus/workspace.nim:62 (roots: seq[string], ignoreStacksByRoot: Table[string, IgnoreStack]), :110 addRoot, :118 reloadIgnoreRules, :89 canonicalWorkspaceRoot`
+Zed: `crates/project/src/worktree_store.rs:352 worktrees / :432 visible_worktrees / :773 create_worktree; crates/worktree/src/worktree.rs:255 (ignores_by_parent_abs_path), :208 (enum WorkDirectory InProject/AboveProject)` / Nimculus: `src/nimculus/workspace.nim:62 (roots: seq[string], ignoreStacksByRoot: Table[string, IgnoreStack]), :110 addRoot, :118 reloadIgnoreRules, :89 canonicalWorkspaceRoot`
 
 Several roots coexist as ordered Worktrees; gitignore state is per parent directory so a nested .gitignore applies only below itself; WorkDirectory::AboveProject handles the case where the user opened a subdirectory of a repo.
 
@@ -1830,7 +1830,7 @@ The layering divergence is sharper here than the file list suggests. Zed's proje
 
 First, ownership: there is no object that owns a repository's state, so cancellation and supersession are hand-written per concern (main.nim:2491-2493 for the branch job, :3905-3907 for the status job) and generation counters stand in for scan ids (editorGitStatusGeneration, main.nim:1031). Zed's GitJobKey (git_store.rs:614) does this once for all job kinds. What belongs where: a `GitStore` module holding `repositories: Table[string, GitRepository]`, each with a snapshot and a keyed job deque, would move roughly 200 lines out of main.nim and make the supersession rule stateable in one place.
 
-Second, the diff-base gap is the largest single functional divergence in this layer. Zed keeps HEAD and index text as buffers per open document and re-diffs against the live buffer (git_store.rs:120, :4671). Nimculus shells out to `git diff` and parses the unified diff (main.nim:4019 → git_service.nim:350), so the gutter shows the *saved file's* hunks and cannot distinguish staged from unstaged. DiffHunkSecondaryStatus (buffer_diff.rs:85) has no representation at all, including its two optimistic Pending states — which is why the Nimculus gutter click path has to wait for `git apply` (main.nim:2759-2788) where Zed repaints immediately.
+Second, the diff-base gap is the largest single functional divergence in this layer. Zed keeps HEAD and index text as buffers per open document and re-diffs against the live buffer (git_store.rs:120, :4725). Nimculus shells out to `git diff` and parses the unified diff (main.nim:4019 → git_service.nim:350), so the gutter shows the *saved file's* hunks and cannot distinguish staged from unstaged. DiffHunkSecondaryStatus (buffer_diff.rs:85) has no representation at all, including its two optimistic Pending states — which is why the Nimculus gutter click path has to wait for `git apply` (main.nim:2759-2788) where Zed repaints immediately.
 
 Third, single-server LSP is a structural ceiling, not a missing feature. `var lspBridge: LspEditorBridge` (main.nim:989) is referenced from ~30 sites that each assume one server and one in-flight request per feature. Zed's identity key (LanguageServerSeed, lsp_store.rs:267) and its deliberate exclusion of dynamic settings from that key are the design worth copying before the call sites multiply further.
 
@@ -1916,7 +1916,7 @@ Every feature is a crate exposing `pub fn init(cx: &mut App)`; the binary calls 
 
 #### Panel trait / dock contract — 一部のみ
 
-Zed: `crates/workspace/src/dock.rs:36 (trait Panel), :98 (PanelHandle), :290 (DockPosition)` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/workspace_ui.nim:16 (PanelKind), :21 (DockSide), :51 (DockState), :358 panelPositionIsValid, :384 openPanel`
+Zed: `crates/workspace/src/dock.rs:36 (trait Panel), :106 (PanelHandle), :284 (DockPosition)` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/workspace_ui.nim:16 (PanelKind), :21 (DockSide), :51 (DockState), :358 panelPositionIsValid, :384 openPanel`
 
 A single trait a feature crate implements — position, position_is_valid, set_active, persistent_name — that lets the workspace host any panel without knowing its type; PanelHandle is the object-safe erasure used for storage in a Dock.
 
@@ -1956,7 +1956,7 @@ Tree of document symbols / search results, driven by LSP and syntax outlines.
 
 #### Terminal (model) and terminal panel (view) — 移植済み
 
-Zed: `crates/terminal/src/terminal.rs (4947 lines, model), crates/terminal_view/src/terminal_panel.rs:55 init, :1529 impl Panel` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/terminal.nim (1289 lines; TerminalScreen/TerminalCell, style interning at :147, hyperlink cells at :172), /Users/yoshinori/work/nimculus/src/nimculus/windows_terminal.nim`
+Zed: `crates/terminal/src/terminal.rs (4947 lines, model), crates/terminal_view/src/terminal_panel.rs:55 init, :1544 impl Panel` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/terminal.nim (1289 lines; TerminalScreen/TerminalCell, style interning at :147, hyperlink cells at :172), /Users/yoshinori/work/nimculus/src/nimculus/windows_terminal.nim`
 
 Zed splits the PTY/grid model from the docked view with its own tab strip; the model crate has no GPUI view types.
 
@@ -1964,7 +1964,7 @@ Zed splits the PTY/grid model from the docked view with its own tab strip; the m
 
 #### Git panel / git integration — 一部のみ
 
-Zed: `crates/git_ui/src/git_panel.rs:8064 impl Panel (crate is 44979 lines over 32 files)` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/git_service.nim (567 lines, subprocess job model), /Users/yoshinori/work/nimculus/src/nimculus/git_blame.nim:19 begin/:51 finish cache, /Users/yoshinori/work/nimculus/src/nimculus/git_gutter.nim:14 gitGutterContains/:20 gitGutterActionAt`
+Zed: `crates/git_ui/src/git_panel.rs:8267 impl Panel (crate is 44979 lines over 32 files)` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/git_service.nim (567 lines, subprocess job model), /Users/yoshinori/work/nimculus/src/nimculus/git_blame.nim:19 begin/:51 finish cache, /Users/yoshinori/work/nimculus/src/nimculus/git_gutter.nim:14 gitGutterContains/:20 gitGutterActionAt`
 
 Status list, staging, commit composition, branch picker, blame and diff hunk UI.
 
@@ -1972,7 +1972,7 @@ Status list, staging, commit composition, branch picker, blame and diff hunk UI.
 
 #### Agent panel / agent runtime — 一部のみ
 
-Zed: `crates/agent_ui/src/agent_panel.rs:371 init, :4954 impl Panel; crates/agent (85010 lines, 56 files)` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/agent_service.nim:186 newAgentSession, :113 resolveAgentLaunchSpec, :150 appendBoundedAgentOutput`
+Zed: `crates/agent_ui/src/agent_panel.rs:371 init, :4946 impl Panel; crates/agent (85010 lines, 56 files)` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/agent_service.nim:186 newAgentSession, :113 resolveAgentLaunchSpec, :150 appendBoundedAgentOutput`
 
 AI threads, tool calls, edit review; agent is the largest non-editor crate in the tree.
 
@@ -1980,7 +1980,7 @@ AI threads, tool calls, edit review; agent is the largest non-editor crate in th
 
 #### Debugger panel / DAP client — 一部のみ
 
-Zed: `crates/debugger_ui/src/debugger_panel.rs:1541 impl Panel; crates/dap (2800 lines), initialised at crates/zed/src/main.rs:593` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/dap.nim:88 encodeDapMessage, :108 DapFrameDecoder.feed, :133 DapRequestTracker`
+Zed: `crates/debugger_ui/src/debugger_panel.rs:1472 impl Panel; crates/dap (2800 lines), initialised at crates/zed/src/main.rs:593` / Nimculus: `/Users/yoshinori/work/nimculus/src/nimculus/dap.nim:88 encodeDapMessage, :108 DapFrameDecoder.feed, :133 DapRequestTracker`
 
 DAP session lifecycle, stack/variables/breakpoints panel, adapter discovery via dap_adapters and debug_adapter_extension.
 
@@ -2092,4 +2092,4 @@ A large newer container crate that appears to sit alongside the dock/Panel mecha
 
 ### 層としての所見
 
-Census result in one line: of Zed's ~25 user-facing feature families, Nimculus has model-level coverage for about nine (project panel, terminal, git, search, tasks, dap, agent, extensions, auto-update), UI-level coverage for roughly three, and nothing at all for vim, collab, repl/notebook, settings_ui, and the auxiliary viewers.\n\nThe layering diverges in three specific, nameable ways.\n\n(1) Zed's unit of a feature is a crate that owns BOTH its model and its view and registers itself via `init(cx)` (crates/zed/src/main.rs:491-771). Nimculus's unit of a feature is a *model* module in src/nimculus/ with its view amputated and re-attached inside main.nim. git_service.nim (567 lines) has no git panel; task_service.nim (195) has no tasks UI; dap.nim (400) has no debugger panel; search.nim (54) has its UI at main.nim:4663. The consequence is not aesthetic: because views live in one 9845-line file, adding a feature means editing that file, so there is no seam at which a feature can be added or removed. Zed's `Panel` trait plus `init()` is exactly the seam that avoids this, and the Nim translation is available — a proc-table `PanelVTable` plus an explicit `initFeatures()` — but unbuilt.\n\n(2) Nimculus made panels a closed enum where Zed made them an open trait. `PanelKind` (workspace_ui.nim:16) with `array[PanelKind, DockSide]` (:84) is idiomatic Nim and is fine while the panel set is fixed, but it forecloses extension-contributed panels, which is a stated Zed capability (extension_host proxies at crates/zed/src/main.rs:563, :673). It also produced a real defect: panel ordinals are persisted (workspace_ui.nim:17-19 says so explicitly), where Zed persists `persistent_name` strings (project_panel.rs:7607). Reordering the enum breaks saved sessions.\n\n(3) The Picker layer is missing entirely, and that is why Nimculus's modal features feel expensive. In Zed, ten features (command palette, file finder, tab switcher, outline, project symbols, theme/language/toolchain selector, recent projects, go to line) are Picker delegates of 600-2300 lines each because picker.rs:1-1898 does the work. Nimculus instead carries a boolean per modal on EditorViewState (editor_view.nim:40) and a bespoke render proc per modal (main.nim:4663 renderWorkspaceSearch, :4707 renderQuickOpen). Building one `PickerDelegate` object-of-procs would be the single highest-leverage structural change in this layer.\n\nTwo things Nimculus does that are genuinely well-adapted rather than merely reduced: the terminal keeps Zed's model/view split and improves on it for a value-type language by interning styles to `uint32` ids (terminal.nim:147); and every subprocess-backed feature (git, tasks, agent, wasm, update) uses the same polled-job-plus-CancelToken pattern (workspace.nim:86, git_service.nim:123, task_service.nim:166), which is the correct Nim answer to Rust's spawned `Task` and is applied consistently.\n\nUnread and therefore unknown: crates/sidebar (8441 lines in sidebar.rs) — I measured it but did not open it, so its relationship to the Dock/Panel mechanism, and whether Nimculus's native-sidebar handling at main.nim:401-406 corresponds to it, is not something I can state. I also did not read the individual selector crates, vim's operator files, or any collab crate beyond the entry point.
+Census result in one line: of Zed's ~25 user-facing feature families, Nimculus has model-level coverage for about nine (project panel, terminal, git, search, tasks, dap, agent, extensions, auto-update), UI-level coverage for roughly three, and nothing at all for vim, collab, repl/notebook, settings_ui, and the auxiliary viewers.\n\nThe layering diverges in three specific, nameable ways.\n\n(1) Zed's unit of a feature is a crate that owns BOTH its model and its view and registers itself via `init(cx)` (crates/zed/src/main.rs:491-771). Nimculus's unit of a feature is a *model* module in src/nimculus/ with its view amputated and re-attached inside main.nim. git_service.nim (567 lines) has no git panel; task_service.nim (195) has no tasks UI; dap.nim (400) has no debugger panel; search.nim (54) has its UI at main.nim:4663. The consequence is not aesthetic: because views live in one 9845-line file, adding a feature means editing that file, so there is no seam at which a feature can be added or removed. Zed's `Panel` trait plus `init()` is exactly the seam that avoids this, and the Nim translation is available — a proc-table `PanelVTable` plus an explicit `initFeatures()` — but unbuilt.\n\n(2) Nimculus made panels a closed enum where Zed made them an open trait. `PanelKind` (workspace_ui.nim:16) with `array[PanelKind, DockSide]` (:84) is idiomatic Nim and is fine while the panel set is fixed, but it forecloses extension-contributed panels, which is a stated Zed capability (extension_host proxies at crates/zed/src/main.rs:660, :673). It also produced a real defect: panel ordinals are persisted (workspace_ui.nim:17-19 says so explicitly), where Zed persists `persistent_name` strings (project_panel.rs:7607). Reordering the enum breaks saved sessions.\n\n(3) The Picker layer is missing entirely, and that is why Nimculus's modal features feel expensive. In Zed, ten features (command palette, file finder, tab switcher, outline, project symbols, theme/language/toolchain selector, recent projects, go to line) are Picker delegates of 600-2300 lines each because picker.rs:1-1898 does the work. Nimculus instead carries a boolean per modal on EditorViewState (editor_view.nim:40) and a bespoke render proc per modal (main.nim:4663 renderWorkspaceSearch, :4707 renderQuickOpen). Building one `PickerDelegate` object-of-procs would be the single highest-leverage structural change in this layer.\n\nTwo things Nimculus does that are genuinely well-adapted rather than merely reduced: the terminal keeps Zed's model/view split and improves on it for a value-type language by interning styles to `uint32` ids (terminal.nim:147); and every subprocess-backed feature (git, tasks, agent, wasm, update) uses the same polled-job-plus-CancelToken pattern (workspace.nim:86, git_service.nim:123, task_service.nim:166), which is the correct Nim answer to Rust's spawned `Task` and is applied consistently.\n\nUnread and therefore unknown: crates/sidebar (8441 lines in sidebar.rs) — I measured it but did not open it, so its relationship to the Dock/Panel mechanism, and whether Nimculus's native-sidebar handling at main.nim:401-406 corresponds to it, is not something I can state. I also did not read the individual selector crates, vim's operator files, or any collab crate beyond the entry point.

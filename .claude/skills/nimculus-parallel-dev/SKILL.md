@@ -59,6 +59,11 @@ ln -s /Users/yoshinori/work/nimculus/references/zed references/zed
 # リンクが無視されることを必ず確かめる（下記の事故）
 git check-ignore -v references/zed || echo "危険: 追跡される。中止すること"
 
+# サブモジュールが全部揃ったことを必ず確かめる（2026-08-13 の事故）
+for d in references/tree-sitter*; do
+  [ -e "$d/.git" ] && [ "$(ls "$d" | wc -l)" -gt 1 ] || echo "空: $d"
+done
+
 # 一覧
 git worktree list
 
@@ -86,6 +91,31 @@ git branch -d port/<課題>
 どちらも無いので、codex は「参照先が無い」と報告して止まる。
 
 `zed` は 148 万行あるのでコピーしない。読むだけなのでシンボリックリンクで共有する。
+
+### `submodule update` は途中で落ちても 0 個しか報告しない（2026-08-13 に踏んだ）
+
+`git submodule update --init --recursive` が
+
+```
+fatal: Unable to find current revision in submodule path 'references/tree-sitter-typescript'
+```
+
+で止まる。本体側のサブモジュールが **shallow クローン**なので、ワークトリー用の
+git dir に該当リビジョンを取り直せない。**アルファベット順で typescript より後ろの
+サブモジュールは空のまま残る。**
+
+空のまま気付かずに走らせると `tree_sitter_tsx.c` のコンパイルが落ち、
+**ランナーが `実行: 27 / 成功: 19 / 失敗: 8` を出す。**
+codex の変更のせいに見えるが、環境の穴である。上の for ループで
+**空ディレクトリが 0 件**であることを作成直後に確かめること。
+
+空だったら、本体側のサブモジュールから直接持ってくる:
+
+```bash
+cd ../nimculus-wt-<課題>/references/tree-sitter-typescript
+git fetch /Users/yoshinori/work/nimculus/references/tree-sitter-typescript
+git checkout $(git -C /Users/yoshinori/work/nimculus/references/tree-sitter-typescript rev-parse HEAD)
+```
 
 ### そのリンクで参照実装を全部消した（2026-08-10）
 
