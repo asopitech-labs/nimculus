@@ -1085,6 +1085,44 @@ var documentSearchReplaceEnabled = false
 var documentSearchMatches: seq[search.SearchMatch]
 var documentSearchMatchIndex = -1
 
+type WorkspaceReplaceResult* = object
+  count*: int
+  usedOpenTab*: bool
+
+proc applyWorkspaceReplacement*(session: var EditorSession, path, query, replacement: string,
+                                options: SearchOptions, matchOffset = -1): WorkspaceReplaceResult =
+  ## Apply workspace edits to the session's live buffer when the file is open.
+  ## Zed's project search replaces the existing searchable buffer in memory;
+  ## saving is a separate user action, so an open tab must remain unsaved.
+  let tabIndex = session.tabIndexForPath(path)
+  result.usedOpenTab = tabIndex >= 0
+  if tabIndex >= 0:
+    let matches = session.tabs[tabIndex].document.search(query, options)
+    if matchOffset >= 0:
+      for match in matches:
+        if match.startByte == matchOffset:
+          session.tabs[tabIndex].document.buffer.applyEdits(@[Edit(
+            startByte: match.startByte, endByte: match.endByte, text: replacement)])
+          result.count = 1
+          break
+    else:
+      result.count = session.tabs[tabIndex].document.replaceAll(query, replacement, options)
+    return
+
+  var target = openDocument(path)
+  if matchOffset >= 0:
+    let matches = target.search(query, options)
+    for match in matches:
+      if match.startByte == matchOffset:
+        target.buffer.applyEdits(@[Edit(
+          startByte: match.startByte, endByte: match.endByte, text: replacement)])
+        result.count = 1
+        break
+  else:
+    result.count = target.replaceAll(query, replacement, options)
+  if result.count > 0:
+    target.save()
+
 proc searchOptionBits(options: SearchOptions): uint32 =
   if options.caseSensitive: result = result or 1'u32
   if options.wholeWord: result = result or 2'u32
@@ -9288,16 +9326,16 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     if selected >= 0 and selected < workspaceSearchResults.len:
       let match = workspaceSearchResults[selected]
       try:
-        var target = openDocument(match.path)
-        let lineStart = target.buffer.byteOffsetAtLineColumn(max(0, match.line - 1), 0)
-        let offset = min(target.buffer.toString().len, lineStart + max(0, match.column - 1))
-        let matches = target.search(query, workspaceSearchOptions)
-        for candidate in matches:
-          if candidate.startByte == offset:
-            target.buffer.applyEdits(@[Edit(startByte: candidate.startByte,
-              endByte: candidate.endByte, text: replacement)])
-            target.save()
-            break
+        let tabIndex = editorSession.tabIndexForPath(match.path)
+        let source = if tabIndex >= 0: editorSession.tabs[tabIndex].document
+          else: openDocument(match.path)
+        let lineStart = source.buffer.byteOffsetAtLineColumn(max(0, match.line - 1), 0)
+        let offset = min(source.buffer.toString().len, lineStart + max(0, match.column - 1))
+        let replaced = editorSession.applyWorkspaceReplacement(match.path, query, replacement,
+          workspaceSearchOptions, offset)
+        if replaced.count > 0:
+          editorViewState.statusMessage = if replaced.usedOpenTab:
+            "Replaced next match in open tab (unsaved)" else: "Replaced next workspace match"
         restartWorkspaceSearch()
       except CatchableError as error:
         editorViewState.statusMessage = "Replace failed: " & error.msg
@@ -9308,17 +9346,19 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     let query = payload[0 ..< separator]
     let replacement = if separator + 1 < payload.len: payload[separator + 1 .. ^1] else: ""
     var count = 0
+    var openTabCount = 0
     for entry in activeWorkspace.enumerateFiles(includeIgnored = workspaceSearchOptions.includeIgnored):
       if not searchEntryIncluded(entry, workspaceSearchOptions): continue
       try:
-        var target = openDocument(entry.path)
-        let replaced = target.replaceAll(query, replacement, workspaceSearchOptions)
-        if replaced > 0:
-          target.save()
-          count += replaced
+        let replaced = editorSession.applyWorkspaceReplacement(entry.path, query, replacement,
+          workspaceSearchOptions)
+        if replaced.count > 0:
+          count += replaced.count
+          if replaced.usedOpenTab: inc openTabCount
       except CatchableError:
         discard
-    editorViewState.statusMessage = "Replaced " & $count & " workspace matches"
+    editorViewState.statusMessage = "Replaced " & $count & " workspace matches" &
+      (if openTabCount > 0: "; open tab changes remain unsaved" else: "")
     restartWorkspaceSearch()
   elif name.startsWith("replaceDocument:") and document != nil:
     let prefix = "replaceDocument:"
