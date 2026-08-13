@@ -188,7 +188,7 @@
 - [ ] **Component-instance identity and state** — Zed `crates/ui/src/components/button/button_like.rs:484 (ElementId), :512 (focus_handle), :745 render; crates/ui/src/components/context_menu.rs:211 (ContextMenu as an Entity with focus_handle, selected_index, subscriptions)`
 - [x] **Label rendering: size, weight, truncation mode** — Zed `crates/ui/src/components/label/label_like.rs:7 (LabelSize), :23 (LineHeightStyle), :34 (LabelCommon), :233 (render)`
 - [x] **Menu item model separated from menu rendering** — Zed `crates/ui/src/components/context_menu.rs:46 (ContextMenuItem enum), :82 (ContextMenuEntry), :211 (ContextMenu state), :1449 (render_menu_item), :2180 (render, submenu offset + aside)`
-- [ ] **Scrollbar geometry and visibility policy** — Zed `crates/ui/src/components/scrollbar.rs:352 (ScrollbarStyle), :358 to_pixels (Regular 6px / Editor 15px), :275 (ShowBehavior::Always/Autohide/Never from setting), :993 (ScrollableHandle trait), :1013 (ScrollbarLayout), :1023 compute_click_offset`
+- [x] **Scrollbar geometry and visibility policy** — Zed `crates/ui/src/components/scrollbar.rs:352 (ScrollbarStyle), :358 to_pixels (Regular 6px / Editor 15px), :275 (ShowBehavior::Always/Autohide/Never from setting), :993 (ScrollableHandle trait), :1013 (ScrollbarLayout), :1023 compute_click_offset`
 - [ ] **Divider** — Zed `crates/ui/src/components/divider.rs:19 (DividerColor), :37 (struct), :96 render_solid, :100 render_dashed`
 - [ ] **Tooltip container as shared chrome** — Zed `crates/ui/src/components/tooltip.rs:216 (tooltip_container), :194 (Tooltip::render), :9 (struct: title, meta, key_binding)`
 
