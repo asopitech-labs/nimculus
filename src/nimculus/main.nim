@@ -10,7 +10,6 @@ import std/times
 import std/unicode except splitWhitespace
 import nimnui/nimnui
 import nimnui/render
-import nimnui/window
 import nimculus/editor_app
 import nimculus/search
 import nimculus/editor_buffer
@@ -49,10 +48,8 @@ var backgroundExecutor: BackgroundExecutor
 var pendingGitRepository: Future[GitRepository]
 var pendingGitRepositoryRoot = ""
 var pendingShortcutTimeoutGeneration: Atomic[uint64]
-var demoWindow = newWindow()
 
 proc flushPendingShortcut(expectedGeneration: uint64)
-proc renderDemoUi()
 
 proc receiveNativeFrame() {.cdecl.} =
   ## One non-blocking async tick per live display frame.
@@ -61,8 +58,6 @@ proc receiveNativeFrame() {.cdecl.} =
     pendingShortcutTimeoutGeneration.store(0)
     flushPendingShortcut(timeoutGeneration)
   pollAsyncDispatchTick()
-  if demoWindow.dirty:
-    renderDemoUi()
 
 when defined(windows):
   var windowsTaskJob: TaskJob
@@ -168,9 +163,6 @@ when defined(macosx):
 var demoSplitRatio = 0.5'f32
 var demoSplitDragging = false
 var demoSplitEnabled = false
-
-proc invalidateDemoUi() =
-  discard demoWindow.markLayoutDirty(NodeId(0))
 
 when defined(macosx):
   proc commandPaletteLabel(actionName: string): string =
@@ -390,7 +382,7 @@ when defined(macosx):
       paint.drawEditorDiagnostic(Rect(origin: Point(x: px(x), y: px(y)),
         size: Size(width: px(width), height: px(1.5'f32))), diagnostic.severity)
 
-proc renderDemoUiBody() =
+proc setupDemoUi() =
   ## Keep rendering state synchronized with the document session at the
   ## composition boundary. Pane ownership remains independent: a split
   ## duplicates a viewport, never a document buffer.
@@ -554,7 +546,6 @@ proc renderDemoUiBody() =
       platformSetEditorLayout(true, nil, 0, nil, 0)
     editorLineLayoutCache.finishFrame()
     publishAccessibilityTree(document)
-  demoWindow.setPhase(dpPaint)
   var paint: PaintList
   paint.invalidate(viewport)
   # The native text overlays remain transitional content presenters, but their
@@ -714,14 +705,6 @@ proc renderDemoUiBody() =
       float64(float32(demoBottomDockBounds.size.width)),
       float64(float32(demoBottomDockBounds.size.height)))
     syncCommandPaletteActions()
-
-proc renderDemoUi() =
-  if not demoWindow.dirty: return
-  demoWindow.draw(proc() = renderDemoUiBody())
-
-proc setupDemoUi() =
-  ## Compatibility entry point for callers outside the frame callback.
-  renderDemoUi()
 
 proc receiveNativeCommand(command: cstring) {.cdecl.}
 proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.}
@@ -1670,7 +1653,7 @@ when defined(macosx):
       platformSetTaskOutputVisible(true)
       platformSetTaskOutputCancellable(true)
       editorWorkspaceUi.openPanel(panelTasks)
-      invalidateDemoUi()
+      setupDemoUi()
       platformSetTaskOutputTitle("Agent".cstring, uint32("Agent".len))
       platformSetTaskOutputText(editorAgentOutput.cstring, uint32(editorAgentOutput.len))
       editorViewState.statusMessage = launch.displayName &
@@ -1808,7 +1791,7 @@ when defined(macosx):
     platformSetTaskOutputVisible(true)
     platformSetTaskOutputCancellable(true)
     editorWorkspaceUi.openPanel(panelTasks)
-    invalidateDemoUi()
+    setupDemoUi()
     let title = "Extension Catalog"
     platformSetTaskOutputTitle(title.cstring, uint32(title.len))
     editorTaskJob = startTask(TaskSpec(command: "curl", args: @[
@@ -1950,7 +1933,7 @@ when defined(macosx):
     platformSetTaskOutputVisible(true)
     platformSetTaskOutputCancellable(true)
     editorWorkspaceUi.openPanel(panelTasks)
-    invalidateDemoUi()
+    setupDemoUi()
     let title = "WASM Component — " & manifest.name
     platformSetTaskOutputTitle(title.cstring, uint32(title.len))
     editorViewState.statusMessage = "WASM component running: " & manifest.id
@@ -1983,7 +1966,7 @@ when defined(macosx):
     platformSetTaskOutputVisible(true)
     platformSetTaskOutputCancellable(true)
     editorWorkspaceUi.openPanel(panelTasks)
-    invalidateDemoUi()
+    setupDemoUi()
     let title = "Extension — " & manifest.name
     platformSetTaskOutputTitle(title.cstring, uint32(title.len))
     editorTaskJob = startTask(TaskSpec(command: commandParts[0],
@@ -2037,7 +2020,7 @@ when defined(macosx):
       platformSetTaskOutputVisible(true)
       platformSetTaskOutputCancellable(true)
       editorWorkspaceUi.openPanel(panelTasks)
-      invalidateDemoUi()
+      setupDemoUi()
       let title = "WASM — " & selected.name
       platformSetTaskOutputTitle(title.cstring, uint32(title.len))
       ## Direct argv execution is deliberate: no shell, no inherited cwd
@@ -2724,7 +2707,7 @@ when defined(macosx):
   proc renderNativeGitHistory(commits: seq[GitCommit], title = "Git History",
                               path = "") =
     editorWorkspaceUi.openPanel(panelGit)
-    invalidateDemoUi()
+    setupDemoUi()
     editorSidebarMode = sidebarGitHistory
     editorGitHistory = commits
     editorGitHistoryPath = path
@@ -2747,7 +2730,7 @@ when defined(macosx):
     ## Empty transition rather than retaining whatever sidebar happened to be
     ## visible before the asynchronous Git job started.
     editorWorkspaceUi.openPanel(panelGit)
-    invalidateDemoUi()
+    setupDemoUi()
     editorSidebarMode = sidebarGitHistory
     editorGitHistory.setLen(0)
     editorGitHistoryPath = path
@@ -2762,7 +2745,7 @@ when defined(macosx):
     ## The sidebar owns the primary next action instead of leaving a stale
     ## Files/Outline list visible behind a status-bar-only error.
     editorWorkspaceUi.openPanel(panelGit)
-    invalidateDemoUi()
+    setupDemoUi()
     editorSidebarMode = sidebarGitStatus
     editorGitRepository = nil
     editorGitStatusSourceEntries.setLen(0)
@@ -2821,7 +2804,7 @@ when defined(macosx):
 
   proc renderNativeGitStatus(entries: seq[GitStatusEntry]) =
     editorWorkspaceUi.openPanel(panelGit)
-    invalidateDemoUi()
+    setupDemoUi()
     ## Keep conflicts explicit and ahead of ordinary changes. As in Zed's
     ## separate conflict section, this is informational only: bulk stage or
     ## unstage actions must not silently resolve or discard an unmerged file.
@@ -2894,7 +2877,7 @@ when defined(macosx):
 
   proc renderNativeGitBranches(branches: seq[GitBranch]) =
     editorWorkspaceUi.openPanel(panelGit)
-    invalidateDemoUi()
+    setupDemoUi()
     editorSidebarMode = sidebarGitBranches
     editorGitBranches = branches
     var lines = @["Git Branches", "────────"]
@@ -3125,7 +3108,7 @@ when defined(macosx):
     platformSetTaskOutputVisible(true)
     platformSetTaskOutputCancellable(true)
     editorWorkspaceUi.openPanel(panelTasks)
-    invalidateDemoUi()
+    setupDemoUi()
     let title = "Task — " & command
     platformSetTaskOutputTitle(title.cstring, uint32(title.len))
     editorTaskJob = startTask(TaskSpec(command: "/bin/zsh",
@@ -4492,7 +4475,7 @@ proc openActiveWorkspace(path: string) =
       # visible project, but keyboard focus remains in the center editor.
       editorWorkspaceUi.openPanel(panelFiles)
       editorWorkspaceUi.focusedRegion = regionCenter
-      invalidateDemoUi()
+      setupDemoUi()
 
 proc refreshWorkspacePreview() =
   when defined(macosx) or defined(windows):
@@ -4869,7 +4852,7 @@ proc renderWorkspaceSearch() =
         uint32(visibleCount), uint32(sidebarWorkspaceSearch))
       syncNativeSidebarSelection()
       syncWorkspaceSearchUi()
-      invalidateDemoUi()
+      setupDemoUi()
     else:
       workspacePreviewEntries.setLen(0)
       platformSetEditorHighlights(nil, 0)
@@ -4909,7 +4892,7 @@ proc renderQuickOpen() =
       platformSetEditorSidebar(text.cstring, uint32(text.len),
         uint32(visibleCount), uint32(sidebarFiles))
       syncNativeSidebarSelection()
-      invalidateDemoUi()
+      setupDemoUi()
     else:
       platformSetEditorHighlights(nil, 0)
       platformSetEditorComposition("".cstring)
@@ -5508,7 +5491,7 @@ proc syncEditorCursor(ensureCursor = true) =
     # Rebuild the retained paint list after state synchronization so the
     # horizontal thumb is present and reflects the clamped offset in the same
     # render/sync turn as the native text.
-    invalidateDemoUi()
+    setupDemoUi()
   elif defined(windows):
     let document = activeDocument()
     if document != nil:
@@ -5856,7 +5839,7 @@ proc refreshEditorSyntax() =
       # The native measurement is now current. Recompose the Nim paint list
       # so a newly overflowing line can publish its horizontal thumb in this
       # redraw, rather than waiting for an unrelated layout event.
-      invalidateDemoUi()
+      setupDemoUi()
     when defined(windows):
       platformSetEditorHighlights(nil, 0)
       let text = document[].buffer.toString()
@@ -5907,7 +5890,7 @@ proc refreshEditorSyntax() =
     # Text, wrap mode, and the native viewport are synchronized before the
     # scrollbar geometry is measured. This keeps the live paint list aligned
     # with the renderer's actual clipping state.
-    invalidateDemoUi()
+    setupDemoUi()
   when defined(windows):
     let highlights = if syntaxState == nil: @[] else:
       let visibleLines = max(1, int(float32(demoEditorBounds.size.height) /
@@ -6078,7 +6061,7 @@ when defined(macosx):
       pendingGitRepository = nil
       pendingGitRepositoryRoot = ""
       refreshWorkspacePreview()
-      invalidateDemoUi()
+      setupDemoUi()
     pollNativeGitAction()
     pollNativeTask()
     pollNativeUpdate()
@@ -6464,7 +6447,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
         when defined(macosx): editorLspSignatureText = ""
         editorSession.recordRecent(filePath)
         syncRecentFiles()
-        invalidateDemoUi()
+        setupDemoUi()
         revealActiveDocumentInWorkspace()
         syncEditorCursor()
         # Opening an item from Files/Quick Open must return keyboard focus to
@@ -6486,7 +6469,7 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       if document != nil: editorViewState.moveCursor(0)
       editorSession.recordRecent(filePath)
       syncRecentFiles()
-      invalidateDemoUi()
+      setupDemoUi()
       revealActiveDocumentInWorkspace()
       syncEditorCursor()
       when defined(macosx): platformFocusEditor()
@@ -7070,7 +7053,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "unfoldAll":
     when defined(macosx): toggleNativeFold(true, all = true)
   elif name == "windowResized":
-    invalidateDemoUi()
+    setupDemoUi()
     when defined(macosx): resizeNativeTerminals()
     if activeDocument() != nil: refreshEditorSyntax()
   elif name == "windowFocusLost":
@@ -7096,7 +7079,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       demoSplitDirection = editorSession.splitDirection
       editorViewState.statusMessage = if direction == splitHorizontal:
         "Editor split horizontally" else: "Editor split vertically"
-      invalidateDemoUi()
+      setupDemoUi()
       syncEditorCursor()
       persistSession()
   elif name == "closeSplit":
@@ -7108,7 +7091,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       editorPointerPane = 0
       editorPointerDragging = false
       editorViewState.statusMessage = "Split closed"
-      invalidateDemoUi()
+      setupDemoUi()
       syncEditorCursor()
       persistSession()
   elif name == "quitRequest":
@@ -7690,7 +7673,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   elif name == "resetWorkspaceSidebarWidth":
     when defined(macosx):
       editorWorkspaceUi.resetDockSize(editorWorkspaceUi.panelDockSide(panelFiles))
-      invalidateDemoUi()
+      setupDemoUi()
       persistSession()
   elif name == "extensionPermissions:allow":
     let action = pendingExtensionPermissionAction
@@ -8191,20 +8174,20 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           platformFocusEditor()
         elif editorTaskOutputVisible: editorWorkspaceUi.openPanel(panelTasks)
         else: editorWorkspaceUi.bottomDock.isOpen = false
-        invalidateDemoUi()
+        setupDemoUi()
         resizeNativeTerminals()
     of "__new_terminal__":
       when defined(macosx):
         newNativeTerminal()
         if editorTerminalVisible: editorWorkspaceUi.openPanel(panelTerminal)
-        invalidateDemoUi()
+        setupDemoUi()
         resizeNativeTerminals()
     of "__close_terminal__":
       when defined(macosx):
         closeNativeTerminal()
         if not editorTerminalVisible and not editorTaskOutputVisible:
           editorWorkspaceUi.bottomDock.isOpen = false
-        invalidateDemoUi()
+        setupDemoUi()
     of "__next_terminal__":
       when defined(macosx): switchNativeTerminal(1)
     of "__previous_terminal__":
@@ -8215,7 +8198,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         if editorTaskOutputVisible: editorWorkspaceUi.openPanel(panelTasks)
         elif editorTerminalVisible: editorWorkspaceUi.openPanel(panelTerminal)
         else: editorWorkspaceUi.bottomDock.isOpen = false
-        invalidateDemoUi()
+        setupDemoUi()
         resizeNativeTerminals()
       when defined(windows): toggleWindowsTaskOutput()
     of "__workspace_search__":
@@ -8237,7 +8220,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "__show_files__":
       when defined(macosx):
         editorWorkspaceUi.openPanel(panelFiles)
-        invalidateDemoUi()
+        setupDemoUi()
         if activeWorkspace == nil:
           editorSidebarMode = sidebarFiles
           let emptyPanel = "Files\n────────\nOpen a folder to start a workspace."
@@ -8253,7 +8236,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         let didFocusPanel = editorWorkspaceUi.togglePanelFocus(panelFiles)
         if didFocusPanel:
           editorSidebarMode = sidebarFiles
-        invalidateDemoUi()
+        setupDemoUi()
         if didFocusPanel and activeWorkspace == nil:
           let emptyPanel = "Files\n────────\nOpen a folder to start a workspace."
           editorWorkspaceUi.replacePanelItems(panelFiles, @[])
@@ -8272,7 +8255,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         # the existing View/Agent/Debug/Search affordances retain panel
         # selection. Do not reset the selected panel when the dock is hidden.
         editorWorkspaceUi.toggleDock(editorWorkspaceUi.panelDockSide(panelFiles))
-        invalidateDemoUi()
+        setupDemoUi()
         if editorWorkspaceUi.dock(editorWorkspaceUi.panelDockSide(panelFiles)).isOpen:
           platformFocusEditorSidebar()
         else: platformFocusEditor()
@@ -8284,7 +8267,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "__show_outline__":
       when defined(macosx):
         editorWorkspaceUi.openPanel(panelOutline)
-        invalidateDemoUi()
+        setupDemoUi()
         editorSidebarMode = sidebarOutline
         syncNativeSymbolTree()
     of "__show_problems__":
@@ -8307,7 +8290,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "__toggle_outline__":
       when defined(macosx):
         let didFocusPanel = editorWorkspaceUi.togglePanelFocus(panelOutline)
-        invalidateDemoUi()
+        setupDemoUi()
         if didFocusPanel:
           editorSidebarMode = sidebarOutline
           syncNativeSymbolTree()
@@ -8363,7 +8346,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         let wasActive = editorWorkspaceUi.panelIsActive(panelGit)
         if wasActive:
           let didFocusPanel = editorWorkspaceUi.togglePanelFocus(panelGit)
-          invalidateDemoUi()
+          setupDemoUi()
           if didFocusPanel: platformFocusEditorSidebar()
           else: platformFocusEditor()
         else:
@@ -8379,7 +8362,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         # Files projection in place made a slow repository look as if the Git
         # command had not been received at all.
         editorSidebarMode = sidebarGitStatus
-        invalidateDemoUi()
+        setupDemoUi()
         let loadingPanel = "Git Status\n────────\nLoading changes…"
         platformSetEditorSidebar(loadingPanel.cstring, uint32(loadingPanel.len), 0,
           uint32(sidebarGitStatus))
@@ -9159,7 +9142,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       else:
         newNativeTerminal(cwd)
         if editorTerminalVisible: editorWorkspaceUi.openPanel(panelTerminal)
-        invalidateDemoUi()
+        setupDemoUi()
         resizeNativeTerminals()
   elif name.startsWith("workspaceCopyPath:"):
     let path = name["workspaceCopyPath:".len .. ^1]
@@ -9540,7 +9523,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
         else:
           editorWorkspaceUi.resizeDock(dockBottom,
             viewportHeight - uiY - DefaultStatusHeight, viewportHeight)
-        invalidateDemoUi()
+        setupDemoUi()
         return
       elif kind == pointerUp:
         editorWorkspaceUi.endDockResize()
@@ -9740,7 +9723,7 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       editorSession.setSplitRatio(constrainedRatio)
       demoSplitRatio = editorSession.effectiveSplitRatio
       discard editorWorkspaceUi.setRootSplitRatio(demoSplitRatio)
-      invalidateDemoUi()
+      setupDemoUi()
       splitPointerHandled = true
     elif demoSplitDragging and kind == pointerUp:
       demoSplitDragging = false
@@ -9931,7 +9914,7 @@ when isMainModule:
     setupShortcutRegistry()
     restoreSession()
     syncRecentFiles()
-    invalidateDemoUi()
+    setupDemoUi()
     let restoredRoot = if editorSession.workspaceRoots.len > 0 and
         dirExists(editorSession.workspaceRoots[0]): editorSession.workspaceRoots[0] else: ""
     let initialRoot = if restoredRoot.len > 0: restoredRoot else: getHomeDir()
@@ -9953,7 +9936,7 @@ when isMainModule:
       # Treating it as a project would enumerate the entire machine. Leave the
       # docks closed until the user opens one explicitly.
       editorWorkspaceUi.focusedRegion = regionCenter
-      invalidateDemoUi()
+      setupDemoUi()
     if activeWorkspace != nil and editorSession.workspaceRoots.len > 1:
       for root in editorSession.workspaceRoots[1 .. ^1]:
         if dirExists(root): activeWorkspace.addRoot(root)
@@ -10018,7 +10001,7 @@ when isMainModule:
       workspaceRoot / ".nimculus" / "settings.json")
     applySettingsTheme()
     registerWindowsDemoImage()
-    invalidateDemoUi()
+    setupDemoUi()
     openActiveWorkspace(workspaceRoot)
     platformSetTextCallback(receiveNativeText)
     platformSetInputCallback(receiveNativeInput)
