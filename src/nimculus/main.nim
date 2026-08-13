@@ -163,6 +163,47 @@ when defined(macosx):
 var demoSplitRatio = 0.5'f32
 var demoSplitDragging = false
 var demoSplitEnabled = false
+
+when defined(macosx):
+  proc commandPaletteLabel(actionName: string): string =
+    case actionName
+    of "commandPalette": "command palette"
+    of "workspaceSearch": "workspace search"
+    of "toggleFiles": "toggle files"
+    of "toggleOutline": "toggle outline"
+    of "outlinePicker": "show outline"
+    of "expandSyntaxSelection": "expand selection"
+    of "shrinkSyntaxSelection": "shrink selection"
+    of "selectPreviousSyntaxNode": "select previous syntax node"
+    of "selectNextSyntaxNode": "select next syntax node"
+    of "moveToEnclosingBracket", "moveToEnclosingBracketControlM":
+      "move to enclosing bracket"
+    of "toggleGit": "toggle git"
+    of "toggleTerminal": "toggle terminal"
+    of "selectNext": "select next"
+    of "selectAllMatches": "select all matches"
+    of "addSelectionAbove": "add selection above"
+    of "addSelectionBelow": "add selection below"
+    of "newDocument": "new"
+    of "reopenClosedTab": "reopen closed tab"
+    of "openSettings": "open settings"
+    of "splitEditor": "split editor"
+    of "splitEditorHorizontal": "split editor horizontally"
+    of "closeSplit": "close split"
+    of "toggleSoftWrap": "toggle soft wrap"
+    else: actionName
+
+  proc syncCommandPaletteActions() =
+    let actions = shortcutRegistry.availableActions(demoTree.contextStack())
+    var owned = newSeq[string](actions.len)
+    var labels = newSeq[cstring](actions.len)
+    for index, action in actions:
+      owned[index] = commandPaletteLabel(action)
+      labels[index] = owned[index].cstring
+    if labels.len > 0:
+      platformSetCommandPaletteCommands(addr labels[0], uint32(labels.len))
+    else:
+      platformSetCommandPaletteCommands(nil, 0)
 var demoSplitDirection = splitVertical
 var activePointerNode = NodeId(0)
 var demoEditorBounds = Rect(size: Size(width: px(0), height: px(0)))
@@ -663,6 +704,7 @@ proc setupDemoUi() =
       float64(float32(demoBottomDockBounds.origin.y)),
       float64(float32(demoBottomDockBounds.size.width)),
       float64(float32(demoBottomDockBounds.size.height)))
+    syncCommandPaletteActions()
 
 proc receiveNativeCommand(command: cstring) {.cdecl.}
 proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.}
@@ -735,6 +777,8 @@ proc registerShortcutActions() =
   registerAction("showCommandPalette", actionBuilder("showCommandPalette"))
   registerActionHandler("showCommandPalette", proc(action: Action): bool =
     discard action
+    when defined(macosx):
+      syncCommandPaletteActions()
     platformShowCommandPalette()
     true)
   registerAction("showWorkspaceSearch", actionBuilder("showWorkspaceSearch"))
@@ -868,8 +912,12 @@ proc setupShortcutRegistry() =
       "foldAtLevel5", "foldAtLevel6", "foldAtLevel7", "foldAtLevel8",
       "foldAtLevel9"]:
     shortcutRegistry.register(Command(name: name, action: nativeCommandAction(name)))
+  for name in commandPaletteRequiredActions:
+    shortcutRegistry.register(Command(name: name, action: nativeCommandAction(name)))
   for index in 0 ..< shortcutRegistry.commands.len:
     shortcutRegistry.commands[index].meta = defaultBindingMeta
+  when defined(macosx):
+    syncCommandPaletteActions()
 
 proc applySettingsKeymap() =
   when defined(macosx) or defined(windows):
@@ -6868,6 +6916,11 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
   # alias. Resolve it at the command boundary so startup does not expose an
   # "Unknown command" status for a valid settings action.
   let name = if $command == "settings": "openSettings" else: $command
+  when defined(macosx):
+    if name == "showCommandPalette":
+      syncCommandPaletteActions()
+      platformShowCommandPalette()
+      return
   when defined(windows):
     case name
     of "toggleFullscreen":
@@ -9821,7 +9874,9 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
         editorLspSignatureText = ""
         syncNativeHover()
   elif kind == pointerDown and hit != NodeId(0):
-    if demoTree.node(hit).focusable: discard demoTree.focus(hit)
+    if demoTree.node(hit).focusable and demoTree.focus(hit):
+      when defined(macosx):
+        syncCommandPaletteActions()
     demoTree.setActive(hit, true)
     activePointerNode = hit
   if kind == pointerUp and activePointerNode != NodeId(0):

@@ -71,6 +71,31 @@ const
   baseBindingMeta* = 2'u32
   defaultBindingMeta* = 3'u32
 
+  ## Command names exposed by the editor command palette. The native macOS
+  ## picker receives this list from the Nim action registry; it must not own
+  ## a second, platform-specific catalogue.
+  commandPaletteRequiredActions* = [
+    "save as", "replace", "go to line", "quick open", "workspace search",
+    "show files", "show outline", "fold recursively", "git stage hunk",
+    "git commit", "cancel git", "toggle terminal", "cancel task",
+    "duplicate workspace entry", "copy workspace entry", "cut workspace entry",
+    "paste workspace entry", "move workspace entry to trash",
+    "delete workspace entry permanently", "open selected workspace entry with system",
+    "find in selected folder",
+    "debug start", "debug attach", "debug stop", "debug continue", "debug pause",
+    "debug step over", "debug step into", "debug step out",
+    "debug toggle breakpoint", "debug watch", "debug clear watches",
+    "debug variables", "debug threads",
+    "agent start", "agent start codex", "agent start claude code",
+    "agent start opencode", "agent start worktree", "agent stop", "agent send",
+    "agent next", "agent previous", "agent review diff",
+    "agent approve", "agent reject", "agent apply patch",
+    "extensions install", "extensions reload", "extensions list",
+    "extensions catalog", "extensions runtime", "extensions run",
+    "go to definition", "find references", "code actions", "signature help",
+    "inlay hints", "semantic tokens", "format document", "check for updates"
+  ]
+
 proc noAction*(): Action =
   Action(name: "NoAction", kind: actionNoAction)
 
@@ -167,6 +192,26 @@ proc register*(registry: var CommandRegistry, command: Command) =
 proc matchingDepth(command: Command, contexts: openArray[KeyContext]): int =
   let depth = command.predicate.depthOf(contexts)
   if depth.matched: depth.depth else: -1
+
+proc availableActions*(registry: CommandRegistry,
+                       contexts: openArray[KeyContext]): seq[string] =
+  ## Return the registered command names whose predicates match the current
+  ## dispatch path. A command can be registered more than once (for example
+  ## when a user binding overrides a default), so names are deduplicated.
+  var seen = initTable[string, bool]()
+  for command in registry.commands:
+    if command.matchingDepth(contexts) >= 0 and not seen.hasKey(command.name):
+      seen[command.name] = true
+      result.add(command.name)
+  result.sort()
+
+proc isActionAvailable*(registry: CommandRegistry, name: string,
+                        contexts: openArray[KeyContext]): bool =
+  ## Keep the single-name query equivalent to membership in availableActions.
+  for command in registry.commands:
+    if command.name == name and command.matchingDepth(contexts) >= 0:
+      return true
+  false
 
 proc disabledBindingMatchesContext(disabledBinding, binding: Command): bool =
   if disabledBinding.predicate == nil: return true

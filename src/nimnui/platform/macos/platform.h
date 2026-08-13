@@ -130,6 +130,8 @@ void nimculus_platform_show_git_status_context(uint32_t item_index,
                                                uint32_t projection);
 void nimculus_platform_show_git_history_context(uint32_t item_index);
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback);
+void nimculus_platform_set_command_palette_commands(const char *const *commands,
+                                                    uint32_t count);
 void nimculus_platform_set_idle_callback(NimculusIdleCallback callback);
 void nimculus_platform_set_idle_for_blame(bool requested);
 void nimculus_platform_set_cursor_style(NimculusCursorStyle style);

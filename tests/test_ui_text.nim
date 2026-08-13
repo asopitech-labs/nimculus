@@ -178,6 +178,67 @@ suite "M2 UI foundation":
     check bindings[1].name == "global"
     check bindings[2].name == "editor"
 
+  test "available actions are context-aware, sorted, and deduplicated":
+    var registry: CommandRegistry
+    registry.register(Command(name: "global"))
+    registry.register(Command(name: "editor", whenClause: "Editor"))
+    registry.register(Command(name: "editor", whenClause: "Editor > Tab"))
+    registry.register(Command(name: "sidebar", whenClause: "Sidebar"))
+    let workspaceSidebar = @[keyContext("Workspace"), keyContext("Sidebar")]
+    let workspaceEditor = @[keyContext("Workspace"), keyContext("Editor")]
+
+    check registry.availableActions(workspaceSidebar) == @[
+      "global", "sidebar"]
+    check registry.availableActions(workspaceEditor) == @[
+      "editor", "global"]
+    check "editor" notin registry.availableActions(workspaceSidebar)
+    check "editor" in registry.availableActions(workspaceEditor)
+
+  test "isActionAvailable agrees with availableActions for each command":
+    var registry: CommandRegistry
+    for name in ["commandPalette", "workspaceSearch", "toggleFiles",
+        "toggleOutline", "outlinePicker", "save", "splitEditor",
+        "closeSplit", "undo", "redo", "cut", "copy", "paste",
+        "selectAll", "previousTab", "nextTab", "moveLeft", "moveRight",
+        "moveUp", "moveDown", "selectLeft", "selectRight", "fold",
+        "unfold", "toggleSoftWrap", "selectNext", "selectAllMatches",
+        "addSelectionAbove", "addSelectionBelow", "sidebarAction"]:
+      let whenClause = if name == "sidebarAction": "Sidebar"
+        elif name in ["fold", "unfold", "toggleSoftWrap", "selectNext",
+            "selectAllMatches", "addSelectionAbove", "addSelectionBelow"]:
+          "Editor"
+        else: ""
+      registry.register(Command(name: name, whenClause: whenClause))
+
+    var tree = newUiTree()
+    let root = tree.addNode()
+    let editor = tree.addNode(root, focusable = true)
+    let sidebar = tree.addNode(root, focusable = true)
+    tree.setContext(root, keyContext("Workspace"))
+    tree.setContext(editor, keyContext("Editor"))
+    tree.setContext(sidebar, keyContext("Sidebar"))
+    check tree.focus(editor)
+    let editorContexts = tree.contextStack()
+    check tree.focus(sidebar)
+    let sidebarContexts = tree.contextStack()
+
+    for contexts in [editorContexts, sidebarContexts]:
+      let available = registry.availableActions(contexts)
+      for command in registry.commands:
+        check registry.isActionAvailable(command.name, contexts) ==
+          (command.name in available)
+
+  test "the command palette action set comes from availableActions":
+    var registry: CommandRegistry
+    for name in commandPaletteRequiredActions:
+      registry.register(Command(name: name))
+    let contexts = @[keyContext("Workspace"), keyContext("Editor"),
+      keyContext("Tab")]
+    let available = registry.availableActions(contexts)
+    for name in commandPaletteRequiredActions:
+      check name in available
+    check available.len == commandPaletteRequiredActions.len
+
   test "command predicates are parsed at registration, not dispatch":
     let previousParseCount = keyBindingPredicateParseCount
     var registry: CommandRegistry

@@ -43,6 +43,7 @@ static NimculusFileCallback g_file_callback = NULL;
 // workspace or document.
 static NSMutableArray<NSString *> *g_pending_file_open_paths = nil;
 static NimculusCommandCallback g_command_callback = NULL;
+static NSArray<NSString *> *g_command_palette_commands = nil;
 static NimculusIdleCallback g_idle_callback = NULL;
 static BOOL g_idle_for_blame_requested = NO;
 static NimculusFrameCallback g_frame_callback = NULL;
@@ -1547,6 +1548,7 @@ static void releasePlatformResources(void) {
   [g_secondary_editor_annotation_texts release]; g_secondary_editor_annotation_texts = nil;
   [g_editor_tab_titles release]; g_editor_tab_titles = nil;
   [g_secondary_editor_tab_titles release]; g_secondary_editor_tab_titles = nil;
+  [g_command_palette_commands release]; g_command_palette_commands = nil;
   [g_recent_files release]; g_recent_files = nil;
   [g_workspace_context_path release]; g_workspace_context_path = nil;
   g_workspace_context_is_directory = NO;
@@ -4974,41 +4976,7 @@ static NSString *commandShortcut(NSString *command) {
   self.pickerList.confirmAction = @selector(confirmIndex:);
   [self addSubview:self.pickerList];
   [self addSubview:self.field];
-  self.commands = @[
-    @"new", @"save", @"save as", @"find", @"replace", @"go to line",
-    @"quick open", @"workspace search", @"cancel search", @"reopen closed tab",
-    @"show files", @"toggle files", @"reveal active file", @"collapse all files",
-    @"expand all files", @"duplicate workspace entry", @"copy workspace entry",
-    @"cut workspace entry", @"paste workspace entry", @"move workspace entry to trash",
-    @"delete workspace entry permanently", @"reveal selected workspace entry",
-    @"open selected workspace entry with system", @"find in selected folder",
-    @"show outline", @"toggle outline", @"split editor", @"split editor horizontally",
-    @"close split", @"toggle soft wrap", @"expand selection", @"shrink selection",
-    @"select previous syntax node", @"select next syntax node",
-    @"move to enclosing bracket", @"fold", @"unfold", @"toggle fold", @"fold all",
-    @"unfold all", @"fold recursively", @"unfold recursively", @"fold at level 1",
-    @"fold at level 2", @"fold at level 3", @"fold at level 4", @"fold at level 5",
-    @"fold at level 6", @"fold at level 7", @"fold at level 8", @"fold at level 9",
-    @"toggle git", @"git status", @"git stage all", @"git unstage all",
-    @"git stage hunk", @"git unstage hunk", @"git commit", @"git log",
-    @"git branches", @"git file history", @"git blame", @"cancel git",
-    @"toggle terminal", @"new terminal", @"close terminal", @"next terminal",
-    @"previous terminal", @"toggle task output", @"run task", @"cancel task",
-    @"debug start", @"debug attach", @"debug stop", @"debug continue", @"debug pause",
-    @"debug step over", @"debug step into", @"debug step out",
-    @"debug toggle breakpoint", @"debug evaluate", @"debug watch",
-    @"debug clear watches", @"debug variables", @"debug threads",
-    @"agent start", @"agent start codex", @"agent start claude code",
-    @"agent start opencode", @"agent start worktree", @"agent stop", @"agent send",
-    @"agent next", @"agent previous", @"agent review diff",
-    @"agent approve", @"agent reject", @"agent apply patch",
-    @"extensions install", @"extensions reload", @"extensions list",
-    @"extensions catalog",
-    @"extensions runtime", @"extensions run",
-    @"go to definition", @"find references", @"document symbols", @"code actions",
-    @"signature help", @"inlay hints", @"semantic tokens", @"format document",
-    @"open settings", @"check for updates"
-  ];
+  self.commands = g_command_palette_commands ?: @[];
   self.visibleCommands = self.commands;
   [self refreshCandidatesForQuery:@""];
   return self;
@@ -5075,14 +5043,6 @@ static NSString *commandShortcut(NSString *command) {
     if (leftPrefix != rightPrefix) return leftPrefix < rightPrefix ? NSOrderedAscending : NSOrderedDescending;
     return [left localizedCaseInsensitiveCompare:right];
   }];
-  // A completed short command should remain a single, stable picker result
-  // while its longer argument-bearing variants stay discoverable by typing
-  // the full command name (for example, `sav` resolves to Save).
-  if (sorted.count > 1 && [sorted[0] hasPrefix:needle] &&
-      [sorted[0] rangeOfString:@" "].location == NSNotFound &&
-      sorted[0].length == needle.length + 1) {
-    return @[sorted[0]];
-  }
   return sorted;
 }
 
@@ -11515,8 +11475,9 @@ static NimculusCursorStyle nimculusCursorStyleForLogicalPoint(NSPoint point) {
   goToLine.keyEquivalentModifierMask = NSEventModifierFlagCommand;
   [editMenu addItem:goToLine];
   NSMenuItem *commandPalette = [[NSMenuItem alloc] initWithTitle:@"Command Palette…"
-    action:@selector(openCommandPalette:) keyEquivalent:@"p"];
+    action:@selector(dispatchCommand:) keyEquivalent:@"p"];
   commandPalette.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
+  commandPalette.representedObject = @"showCommandPalette";
   [editMenu addItem:commandPalette];
   NSMenuItem *workspaceSearch = [[NSMenuItem alloc] initWithTitle:@"Find in Workspace…"
     action:@selector(findInWorkspace:) keyEquivalent:@"f"];
@@ -13435,41 +13396,24 @@ bool nimculus_platform_validate_main_menu(void) {
 bool nimculus_platform_validate_command_palette(void) {
   @autoreleasepool {
     NimculusCommandCallback previousCallback = g_command_callback;
+    NSArray<NSString *> *previousCommands = [g_command_palette_commands retain];
+    const char *knownCommands[] = {"save", "save as", "replace"};
+    nimculus_platform_set_command_palette_commands(knownCommands, 3);
     NimculusCommandPaletteOverlay *palette = [[NimculusCommandPaletteOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 48.0)];
-    NSArray<NSString *> *required = @[
-      @"save as", @"replace", @"go to line", @"quick open", @"workspace search",
-      @"show files", @"show outline", @"fold recursively", @"git stage hunk",
-      @"git commit", @"cancel git", @"toggle terminal", @"cancel task",
-      @"duplicate workspace entry", @"copy workspace entry", @"cut workspace entry",
-      @"paste workspace entry", @"move workspace entry to trash",
-      @"delete workspace entry permanently", @"open selected workspace entry with system",
-      @"find in selected folder",
-      @"debug start", @"debug attach", @"debug stop", @"debug continue", @"debug pause",
-      @"debug step over", @"debug step into", @"debug step out",
-      @"debug toggle breakpoint", @"debug watch", @"debug clear watches",
-      @"debug variables", @"debug threads",
-      @"agent start", @"agent start codex", @"agent start claude code",
-      @"agent start opencode", @"agent start worktree", @"agent stop", @"agent send",
-      @"agent next", @"agent previous", @"agent review diff",
-      @"agent approve", @"agent reject", @"agent apply patch",
-    @"extensions install", @"extensions reload", @"extensions list",
-    @"extensions catalog",
-      @"extensions runtime", @"extensions run",
-      @"go to definition", @"find references", @"code actions", @"signature help",
-      @"inlay hints", @"semantic tokens", @"format document", @"check for updates"
-    ];
-    BOOL valid = palette != nil && palette.commands.count >= required.count;
-    for (NSString *command in required) {
-      if (![palette.commands containsObject:command]) valid = NO;
-    }
+    BOOL valid = palette != nil && palette.commands.count == 3 &&
+      [palette.commands containsObject:@"save"] &&
+      [palette.commands containsObject:@"save as"] &&
+      [palette.commands containsObject:@"replace"];
     g_command_callback = validationCommandCallback;
     g_validation_command[0] = '\0';
     palette.field.stringValue = @"sav";
     [palette refreshCandidatesForQuery:palette.field.stringValue];
     NimculusPickerRow *paletteRow = palette.pickerList.subviews.count > 0
       ? (NimculusPickerRow *)palette.pickerList.subviews[0] : nil;
-    BOOL pickerSurface = palette.pickerList.items.count == 1 && paletteRow != nil &&
+    BOOL pickerSurface = palette.pickerList.items.count == 2 &&
+      [palette.pickerList.items containsObject:@"save"] &&
+      [palette.pickerList.items containsObject:@"save as"] && paletteRow != nil &&
       paletteRow.selected && [paletteRow.title isEqualToString:@"save"] &&
       [paletteRow.shortcut isEqualToString:@"⌘S"] &&
       palette.layer.backgroundColor != nil && palette.layer.shadowRadius == 12.0;
@@ -13484,6 +13428,8 @@ bool nimculus_platform_validate_command_palette(void) {
     valid = valid && pickerSurface && fuzzySelection && argumentPreserved;
     g_command_callback = previousCallback;
     [palette release];
+    [g_command_palette_commands release];
+    g_command_palette_commands = previousCommands;
     return valid;
   }
 }
@@ -16066,6 +16012,27 @@ void nimculus_platform_show_git_commit_sheet(void) {
   if (delegate) [delegate presentGitCommitSheet];
 }
 void nimculus_platform_set_command_callback(NimculusCommandCallback callback) { g_command_callback = callback; }
+void nimculus_platform_set_command_palette_commands(const char *const *commands,
+                                                    uint32_t count) {
+  NSMutableArray<NSString *> *names = [NSMutableArray arrayWithCapacity:count];
+  for (uint32_t index = 0; index < count; index++) {
+    const char *command = commands ? commands[index] : NULL;
+    if (!command || command[0] == '\0') continue;
+    NSString *name = [NSString stringWithUTF8String:command];
+    if (name.length > 0 && ![names containsObject:name]) [names addObject:name];
+  }
+  [g_command_palette_commands release];
+  g_command_palette_commands = [names copy];
+  NimculusMetalView *view = (NimculusMetalView *)g_active_view;
+  if (!view) return;
+  for (NSView *subview in view.subviews) {
+    if (![subview isKindOfClass:[NimculusCommandPaletteOverlay class]]) continue;
+    NimculusCommandPaletteOverlay *palette = (NimculusCommandPaletteOverlay *)subview;
+    palette.commands = g_command_palette_commands;
+    [palette refreshCandidatesForQuery:palette.field.stringValue ?: @""];
+    break;
+  }
+}
 void nimculus_platform_set_idle_callback(NimculusIdleCallback callback) { g_idle_callback = callback; }
 void nimculus_platform_set_idle_for_blame(bool requested) { g_idle_for_blame_requested = requested ? YES : NO; }
 void nimculus_platform_set_frame_callback(NimculusFrameCallback callback) { g_frame_callback = callback; }
