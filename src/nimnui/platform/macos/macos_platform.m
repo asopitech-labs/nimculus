@@ -1170,6 +1170,12 @@ static uint32_t sidebarFlagsFromLineValue(int32_t value) {
   return ((uint32_t)value >> 24) & 0x0fu;
 }
 
+static NSControlStateValue gitCheckboxStateFromAnyAndAll(BOOL any, BOOL all) {
+  if (all) return NSControlStateValueOn;
+  if (any) return NSControlStateValueMixed;
+  return NSControlStateValueOff;
+}
+
 static uint32_t sidebarFlagsForContentLine(NSUInteger line) {
   NSUInteger originalLine = line + NimculusSidebarHeaderLineCount;
   if (!g_editor_sidebar_line_items || originalLine >= g_editor_sidebar_line_item_count) {
@@ -4596,6 +4602,7 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
 @property(nonatomic) BOOL suppressMouseUpOpen;
 @property(nonatomic, retain) NSTrackingArea *sidebarTrackingArea;
 @property(nonatomic, retain) NSMutableArray<NSButton *> *gitCheckboxes;
+@property(nonatomic, retain) NSButton *gitParentCheckbox;
 - (void)controlTextDidChange:(NSNotification *)notification;
 - (NSUInteger)sidebarItemForLine:(NSUInteger)line;
 - (void)refreshGitCheckboxes;
@@ -6212,6 +6219,7 @@ static NSString * const NimculusSearchRegexSVG =
 - (void)dealloc {
   [_sidebarTrackingArea release];
   [_gitCheckboxes release];
+  [_gitParentCheckbox release];
   [super dealloc];
 }
 - (void)toggleGitCheckbox:(NSButton *)sender {
@@ -6219,15 +6227,26 @@ static NSString * const NimculusSearchRegexSVG =
   NSString *command = [NSString stringWithFormat:@"sidebarStageToggle:%ld", (long)sender.tag];
   g_command_callback(command.UTF8String);
 }
+- (void)toggleGitParentCheckbox:(NSButton *)sender {
+  if (!sender || !g_command_callback || g_editor_sidebar_mode != 3) return;
+  g_command_callback(sender.state == NSControlStateValueOn ?
+    "commandPalette:git stage all" : "commandPalette:git unstage all");
+}
 - (void)refreshGitCheckboxes {
   if (!self.gitCheckboxes) self.gitCheckboxes = [NSMutableArray array];
   for (NSButton *checkbox in self.gitCheckboxes) [checkbox removeFromSuperview];
   [self.gitCheckboxes removeAllObjects];
+  [self.gitParentCheckbox removeFromSuperview];
+  self.gitParentCheckbox = nil;
   if (g_editor_sidebar_mode != 3 || !g_editor_sidebar_line_items ||
       g_editor_sidebar_line_item_count <= NimculusSidebarHeaderLineCount) {
     return;
   }
   NSArray<NSString *> *lines = [self.string componentsSeparatedByString:@"\n"];
+  BOOL anyStaged = NO;
+  BOOL allStaged = YES;
+  NSRect firstRow = NSZeroRect;
+  BOOL hasGitCheckbox = NO;
   for (NSUInteger contentLine = 0; contentLine + NimculusSidebarHeaderLineCount <
        g_editor_sidebar_line_item_count; contentLine++) {
     const NSUInteger originalLine = contentLine + NimculusSidebarHeaderLineCount;
@@ -6248,6 +6267,10 @@ static NSString * const NimculusSearchRegexSVG =
     NSRange effectiveRange = NSMakeRange(0, 0);
     NSRect row = [self.layoutManager lineFragmentRectForGlyphAtIndex:glyph
       effectiveRange:&effectiveRange];
+    if (!hasGitCheckbox) firstRow = row;
+    hasGitCheckbox = YES;
+    if (flags == 1u) anyStaged = YES;
+    else allStaged = NO;
     NSButton *checkbox = [NSButton buttonWithTitle:@"" target:self
       action:@selector(toggleGitCheckbox:)];
     checkbox.tag = (NSInteger)item;
@@ -6263,9 +6286,31 @@ static NSString * const NimculusSearchRegexSVG =
     [self addSubview:checkbox positioned:NSWindowAbove relativeTo:nil];
     [self.gitCheckboxes addObject:checkbox];
   }
+  if (hasGitCheckbox) {
+    NSButton *parent = [NSButton buttonWithTitle:@"" target:self
+      action:@selector(toggleGitParentCheckbox:)];
+    parent.tag = -1;
+    parent.buttonType = NSButtonTypeSwitch;
+    parent.allowsMixedState = YES;
+    parent.state = gitCheckboxStateFromAnyAndAll(anyStaged, allStaged);
+    parent.title = @"";
+    parent.bezelStyle = NSBezelStyleRegularSquare;
+    parent.controlSize = NSControlSizeSmall;
+    parent.accessibilityLabel = @"Stage all changes";
+    parent.frame = NSMakeRect(MAX(4.0, self.bounds.size.width - 24.0),
+      MAX(0.0, firstRow.origin.y - 24.0) +
+      MAX(1.0, (firstRow.size.height - 18.0) / 2.0), 20.0, 18.0);
+    [self addSubview:parent positioned:NSWindowAbove relativeTo:nil];
+    parent.state = gitCheckboxStateFromAnyAndAll(anyStaged, allStaged);
+    self.gitParentCheckbox = parent;
+  }
 }
 - (BOOL)acceptsFirstResponder { return YES; }
 - (NSView *)hitTest:(NSPoint)point {
+  if (self.gitParentCheckbox) {
+    NSPoint checkboxPoint = [self convertPoint:point toView:self.gitParentCheckbox];
+    if (NSPointInRect(checkboxPoint, self.gitParentCheckbox.bounds)) return self.gitParentCheckbox;
+  }
   for (NSButton *checkbox in self.gitCheckboxes) {
     NSPoint checkboxPoint = [self convertPoint:point toView:checkbox];
     if (NSPointInRect(checkboxPoint, checkbox.bounds)) return checkbox;
