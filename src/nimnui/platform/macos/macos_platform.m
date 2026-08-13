@@ -1678,6 +1678,41 @@ static void drawColoredRectangle(id<MTLRenderCommandEncoder> encoder,
     red, green, blue, alpha, identityAffine());
 }
 
+static void drawDividerWithTransform(id<MTLRenderCommandEncoder> encoder,
+                                     id<MTLDevice> device, CGSize logicalSize,
+                                     double x, double y, double width, double height,
+                                     float red, float green, float blue, float alpha,
+                                     BOOL dashed, NimculusAffine transform) {
+  if (logicalSize.width <= 0 || logicalSize.height <= 0 || width <= 0 || height <= 0) return;
+  // Zed's path is one logical pixel wide and is shifted by +0.5pt in the
+  // cross-axis. A filled quad from the integer origin to origin+1 is the
+  // exact raster equivalent of that centered stroke: on a 2x drawable it
+  // covers two whole device rows/columns, without antialiased edge pixels.
+  const BOOL vertical = height > width;
+  const double length = vertical ? height : width;
+  const double strokeCenterOffset = 0.5;
+  const double strokeCenterX = vertical ? x + strokeCenterOffset : x;
+  const double strokeCenterY = vertical ? y : y + strokeCenterOffset;
+  const double dashOn = 4.0;
+  const double dashOff = 2.0;
+  if (!dashed) {
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      strokeCenterX - strokeCenterOffset, strokeCenterY - strokeCenterOffset,
+      vertical ? 1.0 : width, vertical ? height : 1.0,
+      red, green, blue, alpha, transform);
+    return;
+  }
+  for (double offset = 0.0; offset < length; offset += dashOn + dashOff) {
+    const double onLength = MIN(dashOn, length - offset);
+    if (onLength <= 0.0) break;
+    drawColoredRectangleWithTransform(encoder, device, logicalSize,
+      vertical ? strokeCenterX - strokeCenterOffset : x + offset,
+      vertical ? y + offset : strokeCenterY - strokeCenterOffset,
+      vertical ? 1.0 : onLength, vertical ? onLength : 1.0,
+      red, green, blue, alpha, transform);
+  }
+}
+
 static void drawImageTexture(id<MTLRenderCommandEncoder> encoder,
                              id<MTLDevice> device, CGSize logicalSize,
                              double x, double y, double width, double height,
@@ -2527,13 +2562,18 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
     drawColoredRectangleWithTransform(encoder, device, logicalSize,
       x, y, width, height, themeRed, themeGreen, themeBlue, 0.96f, transform);
   } else if (paint.kind == 13) { // workspace separator
-    // Zed rules workspace edges with `border` at full strength; the matching
-    // One Light capture measures the dock/editor rule as #c9c9ca.
-    themeRGB(themeRole(@"border", g_theme_border),
+    // Divider metadata is carried in image_id to preserve the existing native
+    // command layout. Zero is the legacy workspace separator: border/solid.
+    const uint32_t metadata = paint.image_id == 0 ? 1 : paint.image_id;
+    const uint32_t colorIndex = (metadata - 1) / 2;
+    const BOOL faded = colorIndex == 1;
+    NSString *role = colorIndex == 2 ? @"borderVariant" : @"border";
+    themeRGB(themeRole(role, g_theme_border),
       [NSColor colorWithCalibratedRed:0.20 green:0.23 blue:0.29 alpha:1.0],
       &themeRed, &themeGreen, &themeBlue);
-    drawColoredRectangleWithTransform(encoder, device, logicalSize,
-      x, y, width, height, themeRed, themeGreen, themeBlue, 1.0f, transform);
+    drawDividerWithTransform(encoder, device, logicalSize, x, y, width, height,
+      themeRed, themeGreen, themeBlue, faded ? 0.6f : 1.0f,
+      (metadata & 1u) == 0, transform);
   } else if (paint.kind == 14) { // editor active line
     themeRGB(themeRole(@"editorActiveLine", themeRole(@"editor", g_theme_background)),
       [NSColor colorWithCalibratedWhite:0.18 alpha:1.0],
@@ -2579,6 +2619,17 @@ static void drawPaintCommand(id<MTLRenderCommandEncoder> encoder,
         &g_paint_selection_rows[paint.selection_row_start], paint.selection_row_count,
         paint.radius, themeRed, themeGreen, themeBlue, 0.45f, transform);
     }
+  } else if (paint.kind == 19) { // Divider's stroked path
+    const uint32_t metadata = paint.image_id == 0 ? 1 : paint.image_id;
+    const uint32_t colorIndex = (metadata - 1) / 2;
+    const BOOL faded = colorIndex == 1;
+    NSString *role = colorIndex == 2 ? @"borderVariant" : @"border";
+    themeRGB(themeRole(role, g_theme_border),
+      [NSColor colorWithCalibratedRed:0.20 green:0.23 blue:0.29 alpha:1.0],
+      &themeRed, &themeGreen, &themeBlue);
+    drawDividerWithTransform(encoder, device, logicalSize, x, y, width, height,
+      themeRed, themeGreen, themeBlue, faded ? 0.6f : 1.0f,
+      (metadata & 1u) == 0, transform);
   }
 }
 
