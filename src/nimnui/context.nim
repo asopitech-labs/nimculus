@@ -21,6 +21,8 @@ type
     left*: KeyBindingContextPredicate
     right*: KeyBindingContextPredicate
 
+  PredicateDepth* = tuple[matched: bool, depth: int]
+
 proc contextIdentifier*(name: string): ContextEntry =
   ContextEntry(key: name)
 
@@ -237,11 +239,57 @@ proc evalInner(predicate: KeyBindingContextPredicate, contexts,
       predicate.right.evalInner(contexts, allContexts)
 
 proc depthOf*(predicate: KeyBindingContextPredicate,
-              contexts: openArray[KeyContext]): int =
-  if predicate == nil: return -1
+              contexts: openArray[KeyContext]): PredicateDepth =
+  ## An absent predicate is an unconditional binding, not a failed match.
+  ## Keep that distinction at the context boundary so callers do not need to
+  ## infer it from a sentinel depth.
+  if predicate == nil: return (true, contexts.len)
   for depth in countdown(contexts.len, 1):
-    if predicate.evalInner(contexts[0 ..< depth], contexts): return depth
-  -1
+    if predicate.evalInner(contexts[0 ..< depth], contexts):
+      return (true, depth)
+  (false, -1)
+
+proc `>=`*(value: PredicateDepth, threshold: int): bool =
+  ## Source compatibility for callers that used the old integer sentinel.
+  value.matched and value.depth >= threshold
+
+proc `<`*(value: PredicateDepth, threshold: int): bool =
+  not value.matched or value.depth < threshold
+
+proc `==`*(value: PredicateDepth, threshold: int): bool =
+  value.matched and value.depth == threshold
+
+proc predicatesEqual(left, right: KeyBindingContextPredicate): bool =
+  if left == nil or right == nil: return left == right
+  if left.kind != right.kind: return false
+  case left.kind
+  of predicateIdentifier:
+    left.identifier == right.identifier
+  of predicateEqual, predicateNotEqual:
+    left.leftKey == right.leftKey and left.rightValue == right.rightValue
+  of predicateAnd, predicateOr, predicateDescendant:
+    left.left.predicatesEqual(right.left) and left.right.predicatesEqual(right.right)
+  of predicateNot:
+    left.left.predicatesEqual(right.left)
+
+proc isSuperset*(a, b: KeyBindingContextPredicate): bool =
+  ## Return whether every context matched by `b` is also matched by `a`.
+  ## This is the structural relation used by Zed when a disabled binding
+  ## applies to another binding with a more specific context.
+  if a == nil or b == nil: return a == nil and b == nil
+  if a.predicatesEqual(b): return true
+
+  if a.kind == predicateOr:
+    return a.left.isSuperset(b) or a.right.isSuperset(b)
+
+  case b.kind
+  of predicateDescendant:
+    a.isSuperset(b.right)
+  of predicateAnd:
+    a.isSuperset(b.left) or a.isSuperset(b.right)
+  of predicateIdentifier, predicateEqual, predicateNotEqual, predicateNot,
+      predicateOr:
+    false
 
 proc eval*(predicate: KeyBindingContextPredicate,
            contexts: openArray[KeyContext]): bool =

@@ -1,5 +1,6 @@
 import std/unittest
 import std/json
+import std/os
 import std/unicode
 import std/options
 import nimnui/nimnui
@@ -260,6 +261,117 @@ suite "M2 UI foundation":
     check parseKeyBindingContextPredicate("Editor > Workspace").depthOf(contexts) < 0
     check parseKeyBindingContextPredicate("Workspace > Editor").depthOf(contexts) == 2
     check parseKeyBindingContextPredicate("!(Editor)").depthOf(contexts) < 0
+
+  test "context predicate supersets cover compound and descendant bindings":
+    let cases = [
+      ("Editor", "Editor && mode == full", true),
+      ("Editor && mode == full", "Editor", false),
+      ("Editor || Terminal", "Editor", true),
+      ("Editor", "Editor || Terminal", false),
+      ("Editor", "Workspace > Editor", true),
+      ("Workspace > Editor", "Workspace", false),
+      ("!Editor", "!Editor", true),
+      ("!Editor", "Editor", false)]
+    for item in cases:
+      let a = parseKeyBindingContextPredicate(item[0])
+      let b = parseKeyBindingContextPredicate(item[1])
+      check a.isSuperset(b) == item[2]
+
+  test "predicate depth distinguishes no predicate from a mismatch":
+    let contexts = @[keyContext("Workspace"), keyContext("Editor")]
+    let noPredicate: KeyBindingContextPredicate = nil
+    let noPredicateDepth = noPredicate.depthOf(contexts)
+    let mismatchDepth = parseKeyBindingContextPredicate("Terminal").depthOf(contexts)
+    check noPredicateDepth.matched
+    check noPredicateDepth.depth == contexts.len
+    check not mismatchDepth.matched
+    check mismatchDepth.depth == -1
+
+  test "binding metadata preserves the User, Vim, Base, Default order":
+    check userBindingMeta < vimBindingMeta
+    check vimBindingMeta < baseBindingMeta
+    check baseBindingMeta < defaultBindingMeta
+
+  test "a user NoAction at meta zero stops lower-priority bindings":
+    var registry: CommandRegistry
+    var invoked = 0
+    let shortcut = shortcutFromKeyBinding("cmd+s")
+    registerTestAction("testUserNoActionStop", proc(action: Action): bool =
+      discard action
+      inc invoked
+      true)
+    registry.register(Command(name: "default-save", shortcut: shortcut,
+      action: buildAction("testUserNoActionStop", nil), meta: defaultBindingMeta))
+    registry.register(Command(name: "user-no-action", shortcut: shortcut,
+      action: noAction(), meta: userBindingMeta))
+    check registry.bindingsForInput(shortcut, []).len == 0
+    check not registry.dispatchShortcut(shortcut)
+    check invoked == 0
+
+  test "a Base NoAction leaves higher-priority user bindings available":
+    var registry: CommandRegistry
+    var invoked = 0
+    let shortcut = shortcutFromKeyBinding("cmd+shift+s")
+    registerTestAction("testBaseNoActionFallthrough", proc(action: Action): bool =
+      discard action
+      inc invoked
+      true)
+    registry.register(Command(name: "default-save", shortcut: shortcut,
+      action: buildAction("testBaseNoActionFallthrough", nil), meta: defaultBindingMeta))
+    registry.register(Command(name: "user-save", shortcut: shortcut,
+      action: buildAction("testBaseNoActionFallthrough", nil), meta: userBindingMeta))
+    registry.register(Command(name: "base-no-action", shortcut: shortcut,
+      action: noAction(), meta: baseBindingMeta))
+    let bindings = registry.bindingsForInput(shortcut, [])
+    check bindings.len == 1
+    check bindings[0].name == "user-save"
+    check registry.dispatchShortcut(shortcut)
+    check invoked == 1
+
+  test "a null action settings entry removes the default shortcut":
+    let path = getTempDir() / ("nimculus-null-action-keymap-" &
+      $getCurrentProcessId() & ".json")
+    writeFile(path, """{"keymap":[{"key":"cmd+s","action":null}]}""")
+    let settings = newSettingsStore(path, "", "")
+    let entry = settings.settings.values["keymap"][0]
+    check entry["action"].kind == JNull
+
+    var registry: CommandRegistry
+    var invoked = 0
+    let shortcut = shortcutFromKeyBinding(entry["key"].getStr)
+    registerTestAction("testNullActionDefault", proc(action: Action): bool =
+      discard action
+      inc invoked
+      true)
+    registry.register(Command(name: "save", shortcut: shortcut,
+      action: buildAction("testNullActionDefault", nil), meta: defaultBindingMeta))
+    registry.register(Command(name: "settings-null-action", shortcut: shortcut,
+      action: noAction(), meta: userBindingMeta))
+    check not registry.dispatchShortcut(shortcut)
+    check invoked == 0
+    removeFile(path)
+
+  test "a settings binding adds a shortcut to a command without a default":
+    let path = getTempDir() / ("nimculus-custom-keymap-" &
+      $getCurrentProcessId() & ".json")
+    writeFile(path, """{"keymap":[{"key":"cmd+shift+x","command":"testSettingsCommand"}]}""")
+    let settings = newSettingsStore(path, "", "")
+    let configured = settings.keyBindings()
+    check configured.len == 1
+
+    var registry: CommandRegistry
+    var invoked = 0
+    registerTestAction("testSettingsCommand", proc(action: Action): bool =
+      discard action
+      inc invoked
+      true)
+    let shortcut = shortcutFromKeyBinding(configured[0].key)
+    check registry.bindingsForInput(shortcut, []).len == 0
+    registry.register(Command(name: configured[0].command, shortcut: shortcut,
+      action: buildAction(configured[0].command, nil), meta: userBindingMeta))
+    check registry.dispatchShortcut(shortcut)
+    check invoked == 1
+    removeFile(path)
 
   test "a mismatched contextual binding falls back to the outer binding":
     var tree = newUiTree()

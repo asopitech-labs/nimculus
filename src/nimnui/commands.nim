@@ -6,11 +6,16 @@ import std/strutils
 import std/tables
 
 type
+  ActionKind* = enum
+    actionCommand, actionNoAction, actionUnbind
+
   Action* = object
     ## A type-erased command value. The name identifies its registered
     ## handler, while the payload carries the invocation-specific data.
     name*: string
     payload*: JsonNode
+    kind*: ActionKind
+    unbindTarget*: string
 
   ActionBuilder* = proc(payload: JsonNode): Action {.closure.}
   CommandActionHandler* = proc(action: Action): bool {.closure.}
@@ -41,6 +46,8 @@ type
     whenClause*: string
     predicate*: KeyBindingContextPredicate
     action*: Action
+    ## Source layer: User 0 < Vim 1 < Base 2 < Default 3.
+    meta*: uint32
 
   CommandRegistry* = object
     commands*: seq[Command]
@@ -57,6 +64,33 @@ var keyBindingPredicateParseCount* = 0
 var actionRegistry*: Table[string, ActionBuilder] = initTable[string, ActionBuilder]()
 var actionHandlers*: Table[string, CommandActionHandler] =
   initTable[string, CommandActionHandler]()
+
+const
+  userBindingMeta* = 0'u32
+  vimBindingMeta* = 1'u32
+  baseBindingMeta* = 2'u32
+  defaultBindingMeta* = 3'u32
+
+proc noAction*(): Action =
+  Action(name: "NoAction", kind: actionNoAction)
+
+proc unbind*(actionName: string): Action =
+  Action(name: "Unbind", kind: actionUnbind, unbindTarget: actionName)
+
+proc isNoAction*(action: Action): bool =
+  action.kind == actionNoAction or action.name in ["NoAction", "zed::NoAction"]
+
+proc isUnbind*(action: Action): bool =
+  action.kind == actionUnbind or action.name in ["Unbind", "zed::Unbind"]
+
+proc unbindTargetName(action: Action): string =
+  if action.unbindTarget.len > 0: return action.unbindTarget
+  if action.payload == nil: return ""
+  if action.payload.kind == JString: return action.payload.getStr
+  if action.payload.kind == JArray and action.payload.len > 1 and
+      action.payload[1].kind == JString:
+    return action.payload[1].getStr
+  ""
 
 proc registerAction*(name: string, builder: ActionBuilder) =
   if name.len == 0:
@@ -79,7 +113,8 @@ proc registerActionHandler*(name: string, handler: CommandActionHandler) =
   actionHandlers[name] = handler
 
 proc actionAvailable*(action: Action): bool =
-  actionHandlers.hasKey(action.name) and actionHandlers[action.name] != nil
+  not action.isNoAction and not action.isUnbind and
+    actionHandlers.hasKey(action.name) and actionHandlers[action.name] != nil
 
 proc dispatchAction*(action: Action): bool =
   if not action.actionAvailable(): return false
@@ -130,12 +165,57 @@ proc register*(registry: var CommandRegistry, command: Command) =
   registry.commands.add(registered)
 
 proc matchingDepth(command: Command, contexts: openArray[KeyContext]): int =
-  if command.whenClause.len == 0: return contexts.len
-  command.predicate.depthOf(contexts)
+  let depth = command.predicate.depthOf(contexts)
+  if depth.matched: depth.depth else: -1
+
+proc disabledBindingMatchesContext(disabledBinding, binding: Command): bool =
+  if disabledBinding.predicate == nil: return true
+  if binding.predicate == nil: return false
+  disabledBinding.predicate.isSuperset(binding.predicate)
+
+proc bindingIsUnbound(disabledBinding, binding: Command): bool =
+  disabledBinding.shortcut.effectiveKeystrokes() == binding.shortcut.effectiveKeystrokes() and
+    disabledBinding.action.isUnbind and
+    disabledBinding.action.unbindTargetName() == binding.action.name
+
+type MatchingCommand = tuple[command: Command, depth: int, index: int]
+
+proc sortMatchingCommands(matches: var seq[MatchingCommand]) =
+  matches.sort(proc(left, right: MatchingCommand): int =
+    if left.depth != right.depth: cmp(right.depth, left.depth)
+    else: cmp(right.index, left.index))
+
+proc applyBindingMarkers(matches: seq[MatchingCommand]): seq[Command] =
+  ## Match Zed's candidate loop: NoAction blocks candidates from its layer
+  ## downward, while Unbind removes only a named action.
+  var noActionMeta = high(uint32)
+  var hasNoAction = false
+  for match in matches:
+    if match.command.action.isNoAction:
+      hasNoAction = true
+      noActionMeta = min(noActionMeta, match.command.meta)
+
+  var unbound: seq[Command]
+  for match in matches:
+    let candidate = match.command
+    if candidate.action.isNoAction: continue
+    if hasNoAction and candidate.meta >= noActionMeta: continue
+    if candidate.action.isUnbind:
+      unbound.add(candidate)
+      continue
+    var isUnboundMatch = false
+    for disabled in unbound:
+      if disabledBindingMatchesContext(disabled, candidate) and
+          bindingIsUnbound(disabled, candidate):
+        isUnboundMatch = true
+        break
+    if isUnboundMatch:
+      continue
+    result.add(candidate)
 
 proc bindingsForInput*(registry: CommandRegistry, shortcut: Shortcut,
                        contexts: openArray[KeyContext]): seq[Command] =
-  var matches: seq[tuple[command: Command, depth: int, index: int]]
+  var matches: seq[MatchingCommand]
   for index in countdown(registry.commands.high, 0):
     let candidate = registry.commands[index]
     if candidate.shortcut.matchKeystrokes(shortcut.effectiveKeystrokes()) !=
@@ -143,29 +223,23 @@ proc bindingsForInput*(registry: CommandRegistry, shortcut: Shortcut,
     let depth = candidate.matchingDepth(contexts)
     if depth >= 0:
       matches.add((candidate, depth, index))
-  matches.sort(proc(left, right: (typeof matches[0])): int =
-    if left.depth != right.depth: cmp(right.depth, left.depth)
-    else: cmp(right.index, left.index))
-  for match in matches:
-    result.add(match.command)
+  matches.sortMatchingCommands()
+  matches.applyBindingMarkers()
 
 proc bindingsForPrefix(registry: CommandRegistry,
                        typed: openArray[Keystroke],
                        contexts: openArray[KeyContext]): seq[Command] =
   ## Return bindings for which `typed` is a strict prefix. Keep the same
   ## context and registration precedence as exact key dispatch.
-  var matches: seq[tuple[command: Command, depth: int, index: int]]
+  var matches: seq[MatchingCommand]
   for index in countdown(registry.commands.high, 0):
     let candidate = registry.commands[index]
     if candidate.shortcut.matchKeystrokes(typed) != (false, true): continue
     let depth = candidate.matchingDepth(contexts)
     if depth >= 0:
       matches.add((candidate, depth, index))
-  matches.sort(proc(left, right: (typeof matches[0])): int =
-    if left.depth != right.depth: cmp(right.depth, left.depth)
-    else: cmp(right.index, left.index))
-  for match in matches:
-    result.add(match.command)
+  matches.sortMatchingCommands()
+  matches.applyBindingMarkers()
 
 proc dispatchKey*(registry: CommandRegistry, pending: var PendingInput,
                   keystroke: Keystroke,
