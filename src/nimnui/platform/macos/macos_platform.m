@@ -4233,7 +4233,6 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
   styleWorkspaceNavigationButton(self.branchButton, NO, NO);
   self.branchButton.alignment = NSTextAlignmentLeft;
   self.branchButton.imageHugsTitle = YES;
-  self.branchButton.toolTip = @"Git branch — click to open Branches";
   self.branchButton.accessibilityLabel = @"Git branch, open branch picker";
   [self updateBranchButton];
   return self;
@@ -4313,8 +4312,6 @@ static BOOL logInput(NSString *kind, NSEvent *event) {
       NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightMedium]}]
     autorelease];
   self.branchButton.contentTintColor = foreground;
-  self.branchButton.toolTip = [NSString stringWithFormat:
-    @"Git branch: %@ — click to open Branches", branch];
   self.branchButton.accessibilityLabel = [NSString stringWithFormat:
     @"Git branch %@, open branch picker", branch];
   [self setNeedsLayout:YES];
@@ -4977,7 +4974,6 @@ static NSString *commandShortcut(NSString *command) {
   self.pickerList.confirmAction = @selector(confirmIndex:);
   [self addSubview:self.pickerList];
   [self addSubview:self.field];
-  self.toolTip = @"Command Palette";
   self.commands = @[
     @"new", @"save", @"save as", @"find", @"replace", @"go to line",
     @"quick open", @"workspace search", @"cancel search", @"reopen closed tab",
@@ -5192,12 +5188,10 @@ static NSString *commandShortcut(NSString *command) {
   [self addSubview:self.messageField];
   self.commitButton = [NSButton buttonWithTitle:@"Commit" target:self action:@selector(commit:)];
   styleSidebarActionButton(self.commitButton);
-  self.commitButton.toolTip = @"Commit staged changes";
   self.commitButton.accessibilityLabel = @"Commit staged changes";
   self.closeButton = [NSButton buttonWithTitle:@"×" target:self action:@selector(close:)];
   styleWorkspaceNavigationButton(self.closeButton, NO, YES);
   self.closeButton.accessibilityLabel = @"Close commit message editor";
-  self.closeButton.toolTip = @"Close Commit Message (Esc)";
   [self addSubview:self.commitButton];
   [self addSubview:self.closeButton];
   return self;
@@ -5287,7 +5281,6 @@ static NSString *commandShortcut(NSString *command) {
   self.closeButton.bezelStyle = NSBezelStyleTexturedRounded;
   [self addSubview:self.applyButton];
   [self addSubview:self.closeButton];
-  self.toolTip = @"Nimculus Settings";
   return self;
 }
 
@@ -5367,7 +5360,6 @@ static NimculusChromeButton *searchIconButton(id target, SEL action,
     button.image = image;
   }
   button.accessibilityLabel = label;
-  button.toolTip = label;
   styleWorkspaceNavigationButton(button, NO, YES);
   return button;
 }
@@ -5487,7 +5479,6 @@ static NSString * const NimculusSearchRegexSVG =
       applySidebarIconConfiguration(button);
   }
   self.closeButton.accessibilityLabel = @"Close Find Bar";
-  self.closeButton.toolTip = @"Close Find Bar";
   self.previousButton.accessibilityLabel = @"Select Previous Match";
   self.nextButton.accessibilityLabel = @"Select Next Match";
   self.replaceNextButton.accessibilityLabel = @"Replace Next Match";
@@ -5495,7 +5486,6 @@ static NSString * const NimculusSearchRegexSVG =
   for (NSButton *button in @[self.caseButton, self.wordButton, self.regexButton,
                              self.replaceToggleButton, self.filtersButton, self.ignoredButton])
     [self addSubview:button];
-  self.toolTip = @"Find in document (Esc to close)";
   return self;
 }
 
@@ -6043,14 +6033,12 @@ static NSString * const NimculusSearchRegexSVG =
     [NSColor colorWithCalibratedRed:0.045 green:0.055 blue:0.075 alpha:1.0]) CGColor];
   self.sessionPicker = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
   self.sessionPicker.bezelStyle = NSBezelStyleTexturedRounded;
-  self.sessionPicker.toolTip = @"Terminal sessions";
   self.sessionPicker.accessibilityLabel = @"Terminal sessions";
   self.sessionPicker.target = self;
   self.sessionPicker.action = @selector(selectSession:);
   [self addSubview:self.sessionPicker];
   self.newButton = [[NSButton alloc] initWithFrame:NSZeroRect];
   self.newButton.title = @"+";
-  self.newButton.toolTip = @"New Terminal";
   self.newButton.accessibilityLabel = @"New Terminal";
   self.newButton.bezelStyle = NSBezelStyleTexturedRounded;
   self.newButton.target = self;
@@ -6058,7 +6046,6 @@ static NSString * const NimculusSearchRegexSVG =
   [self addSubview:self.newButton];
   self.closeButton = [[NSButton alloc] initWithFrame:NSZeroRect];
   self.closeButton.title = @"×";
-  self.closeButton.toolTip = @"Close Terminal";
   self.closeButton.accessibilityLabel = @"Close Terminal";
   self.closeButton.bezelStyle = NSBezelStyleTexturedRounded;
   self.closeButton.target = self;
@@ -6137,7 +6124,6 @@ static NSString * const NimculusSearchRegexSVG =
   self.stopButton = [[NSButton alloc] initWithFrame:NSZeroRect];
   self.stopButton.image = [NSImage imageWithSystemSymbolName:@"stop.fill"
     accessibilityDescription:@"Cancel running task"];
-  self.stopButton.toolTip = @"Cancel running task";
   self.stopButton.accessibilityLabel = @"Cancel running task";
   self.stopButton.bezelStyle = NSBezelStyleTexturedRounded;
   self.stopButton.target = self;
@@ -6145,7 +6131,6 @@ static NSString * const NimculusSearchRegexSVG =
   [self addSubview:self.stopButton];
   self.closeButton = [[NSButton alloc] initWithFrame:NSZeroRect];
   self.closeButton.title = @"×";
-  self.closeButton.toolTip = @"Close Output Panel";
   self.closeButton.accessibilityLabel = @"Close Output Panel";
   self.closeButton.bezelStyle = NSBezelStyleTexturedRounded;
   self.closeButton.target = self;
@@ -6235,7 +6220,6 @@ static NSString * const NimculusSearchRegexSVG =
     checkbox.title = @"";
     checkbox.bezelStyle = NSBezelStyleRegularSquare;
     checkbox.controlSize = NSControlSizeSmall;
-    checkbox.toolTip = flags == 1u ? @"Unstage change" : @"Stage change";
     checkbox.accessibilityLabel = [NSString stringWithFormat:@"%@ change %@",
       flags == 1u ? @"Unstage" : @"Stage", lines[contentLine]];
     checkbox.frame = NSMakeRect(4.0, row.origin.y + MAX(1.0, (row.size.height - 18.0) / 2.0),
@@ -6810,7 +6794,6 @@ static NSColor *activeTabSurfaceColor(void) {
       accessibilityDescription:label];
     button.imagePosition = NSImageOnly;
   }
-  button.toolTip = label;
   button.accessibilityLabel = label;
   styleWorkspaceNavigationButton(button, NO, YES);
   return button;
@@ -7272,7 +7255,6 @@ static NSColor *activeTabSurfaceColor(void) {
 }
 - (void)setTitle:(NSString *)title {
   self.titleLabel.stringValue = title.length > 0 ? title : @"Panel";
-  self.titleLabel.toolTip = self.titleLabel.stringValue;
   self.titleLabel.accessibilityLabel = self.titleLabel.stringValue;
   self.titleIcon.hidden = g_editor_sidebar_mode != 1;
   if (!self.titleIcon.hidden && @available(macOS 11.0, *)) {
@@ -7319,7 +7301,6 @@ static NSColor *activeTabSurfaceColor(void) {
     NSButton *button = [NimculusChromeButton buttonWithTitle:labels[index] target:self
       action:@selector(selectMode:)];
     button.tag = (NSInteger)index;
-    button.toolTip = labels[index];
     [self addSubview:button];
     [buttons addObject:button];
   }
@@ -7353,8 +7334,6 @@ static NSColor *activeTabSurfaceColor(void) {
       attributes:@{NSForegroundColorAttributeName: tint,
         NSFontAttributeName: [NSFont systemFontOfSize:10.5
           weight:button.tag == _selectedMode ? NSFontWeightSemibold : NSFontWeightMedium]}] autorelease];
-    button.toolTip = button.tag == _selectedMode ?
-      [NSString stringWithFormat:@"%@ (active)", button.title] : button.title;
   }
 }
 - (void)selectMode:(NSButton *)sender {
@@ -7386,7 +7365,6 @@ static NSColor *activeTabSurfaceColor(void) {
   // control with its full accessible name and tooltip, then expands again as
   // soon as the dock has room for all four text labels.
   self.title = compact ? @"✓" : @"Commit…";
-  self.toolTip = @"Commit staged changes";
   self.accessibilityLabel = @"Commit staged changes";
   styleWorkspaceNavigationButton(self, NO, compact);
   [self.heightAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
@@ -7407,7 +7385,6 @@ static NSColor *activeTabSurfaceColor(void) {
   if (!self) return nil;
   self.bezelStyle = NSBezelStyleTexturedRounded;
   self.title = @"↻";
-  self.toolTip = @"Refresh Git panel";
   self.accessibilityLabel = @"Refresh Git panel";
   if (@available(macOS 11.0, *)) {
     self.image = [NSImage imageWithSystemSymbolName:@"arrow.clockwise"
@@ -7457,7 +7434,6 @@ static NSColor *activeTabSurfaceColor(void) {
       button.imagePosition = NSImageOnly;
     }
     styleSidebarActionButton(button);
-    button.toolTip = entry[2];
     button.accessibilityLabel = entry[2];
     [button.widthAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
     [button.heightAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
@@ -7514,7 +7490,6 @@ static NSColor *activeTabSurfaceColor(void) {
       button.imagePosition = g_workspace_open ? NSImageOnly : NSImageLeft;
     }
     styleSidebarActionButton(button);
-    button.toolTip = entry[0];
     button.accessibilityLabel = entry[0];
     button.identifier = entry[2];
     [button.widthAnchor constraintEqualToConstant:g_workspace_open ?
@@ -7566,7 +7541,6 @@ static NSColor *activeTabSurfaceColor(void) {
       button.imagePosition = NSImageOnly;
     }
     styleSidebarActionButton(button);
-    button.toolTip = entry[2];
     button.accessibilityLabel = entry[2];
     [button.widthAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
     [button.heightAnchor constraintEqualToConstant:NimculusControlHit].active = YES;
@@ -7630,7 +7604,6 @@ static NSColor *activeTabSurfaceColor(void) {
       const BOOL split = g_secondary_editor_visible;
       button.title = split ? @"Close Split" : @"Split";
       button.identifier = split ? @"closeSplit" : @"splitEditor";
-      button.toolTip = split ? @"Close the secondary editor pane" : @"Split the editor pane";
       command = button.identifier;
     }
     BOOL active = [command isEqualToString:@"commandPalette:show files"] ?
@@ -7643,8 +7616,6 @@ static NSColor *activeTabSurfaceColor(void) {
         g_editor_sidebar_visible && g_editor_sidebar_mode >= 2 && g_editor_sidebar_mode <= 4 :
       [command isEqualToString:@"commandPalette:toggle terminal"] ? g_terminal_visible : NO;
     styleWorkspaceNavigationButton(button, active, NO);
-    button.toolTip = active ? [NSString stringWithFormat:@"%@ (active)", button.title] :
-      button.title;
   }
 }
 - (void)dispatchWorkspaceCommand:(NSButton *)sender {
@@ -7786,7 +7757,6 @@ static NimculusFooterStatusButton *newFooterButton(NimculusFooterOverlay *owner,
     target:owner action:@selector(dispatchStatusItem:)];
   button.footerOwner = owner;
   button.tag = action;
-  button.toolTip = label;
   button.accessibilityLabel = label;
   // Footer clusters are NSStackView-managed.  Disable the button's initial
   // zero-sized autoresizing-mask constraints before adding the required
@@ -8308,7 +8278,6 @@ bool nimculus_platform_validate_editor_activity_indicator(void) {
     BOOL valid = activity != nil && spinner != nil &&
       [spinner isKindOfClass:[NSProgressIndicator class]] &&
       ((NSProgressIndicator *)spinner).style == NSProgressIndicatorStyleSpinning &&
-      [activity.toolTip isEqualToString:fullMessage] &&
       [((NSTextField *)label).stringValue isEqualToString:expected];
     nimculus_platform_set_activity_progress("");
     [footer reloadStatusItems];
@@ -8518,7 +8487,6 @@ bool nimculus_platform_validate_editor_search_button(void) {
     NSButton *search = searchButtonInFooter(left);
     BOOL valid = search != nil &&
       [search.accessibilityLabel isEqualToString:@"Project Search"] &&
-      [search.toolTip isEqualToString:@"Project Search"] &&
       search.tag == NimculusFooterActionWorkspaceSearch;
     NSUInteger agentIndex = NSNotFound;
     NSUInteger searchIndex = NSNotFound;
@@ -8779,7 +8747,6 @@ static CGFloat footerClusterWidth(NSStackView *cluster) {
       weight:NSFontWeightMedium];
     button.image = [button.image imageWithSymbolConfiguration:configuration];
   }
-  button.toolTip = label;
   button.accessibilityLabel = label;
   styleWorkspaceNavigationButton(button, NO, YES);
   return button;
@@ -9913,7 +9880,6 @@ static NimculusCursorStyle nimculusCursorStyleForLogicalPoint(NSPoint point) {
     outlineFilter.outline = outline;
     outlineFilter.placeholderString = @"Search buffer symbols…";
     outlineFilter.accessibilityLabel = @"Filter buffer symbols";
-    outlineFilter.toolTip = @"Filter buffer symbols (Esc clears)";
     outlineFilter.delegate = outline;
     outlineFilter.font = editorUiFontWithWeight(NSFontWeightRegular);
     [self addSubview:outlineFilter];
@@ -9980,7 +9946,6 @@ static NimculusCursorStyle nimculusCursorStyleForLogicalPoint(NSPoint point) {
     context.textColor = [themeRoleColor(@"textMuted", themeHexColor(g_theme_foreground,
       [NSColor colorWithCalibratedRed:0.72 green:0.76 blue:0.82 alpha:1.0]))
       colorWithAlphaComponent:0.72];
-    context.toolTip = @"Current document";
     [context updateBreadcrumbPresentation];
     [self addSubview:context];
     [context release];
@@ -13893,7 +13858,6 @@ bool nimculus_platform_validate_output_panel_bar(void) {
     [bar cancelTask:bar.stopButton];
     BOOL cancel = strcmp(g_validation_command, "cancelTask") == 0;
     BOOL presentation = [bar.titleLabel.stringValue isEqualToString:@"Git Commit"] &&
-      [bar.closeButton.toolTip isEqualToString:@"Close Output Panel"] &&
       !bar.stopButton.hidden && bar.stopButton.enabled &&
       [bar.stopButton.accessibilityLabel isEqualToString:@"Cancel running task"];
     [bar release];
@@ -14142,8 +14106,6 @@ bool nimculus_platform_validate_editor_context_header(void) {
       [context.previewButton.accessibilityLabel isEqualToString:@"Preview document"] &&
       [context.searchButton.accessibilityLabel isEqualToString:@"Find in file"] &&
       [context.formatButton.accessibilityLabel isEqualToString:@"Format buffer"] &&
-      [context.searchButton.toolTip isEqualToString:@"Find in file"] &&
-      [context.formatButton.toolTip isEqualToString:@"Format buffer"] &&
       [context.searchButton.image.accessibilityDescription isEqualToString:@"Find in file"] &&
       [context.formatButton.image.accessibilityDescription isEqualToString:@"Format buffer"] &&
       context.previewButton.frame.size.width == NimculusControlHit &&
@@ -14531,14 +14493,13 @@ bool nimculus_platform_validate_git_sidebar_tabs(void) {
     [commit requestCommit:commit];
     BOOL commitAction = strcmp(g_validation_command, "gitCommitPrompt") == 0;
     BOOL commitPresentation = [commit.title isEqualToString:@"Commit…"] &&
-      [commit.toolTip isEqualToString:@"Commit staged changes"];
+      [commit.accessibilityLabel isEqualToString:@"Commit staged changes"];
     [commit release];
     NimculusGitRefreshButton *refresh = [[NimculusGitRefreshButton alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 28.0, 24.0)];
     [refresh refreshGit:refresh];
     BOOL refreshAction = strcmp(g_validation_command, "gitRefreshPanel") == 0;
-    BOOL refreshPresentation = [refresh.toolTip isEqualToString:@"Refresh Git panel"] &&
-      [refresh.accessibilityLabel isEqualToString:@"Refresh Git panel"];
+    BOOL refreshPresentation = [refresh.accessibilityLabel isEqualToString:@"Refresh Git panel"];
     [refresh release];
     NimculusGitChangesActions *changesActions = [[NimculusGitChangesActions alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 56.0, 24.0)];
@@ -14714,7 +14675,7 @@ bool nimculus_platform_validate_panel_buttons(void) {
     for (NSString *label in labels) {
       NSButton *button = buttons[label];
       presentation = presentation && button != nil && !button.bordered &&
-        button.toolTip.length > 0 && button.layer.backgroundColor != nil;
+        button.layer.backgroundColor != nil;
     }
     NSStackView *left = nil;
     for (NSView *cluster in footer.subviews) {
@@ -14726,8 +14687,7 @@ bool nimculus_platform_validate_panel_buttons(void) {
     NSButton *dock = buttons[@"Toggle Panel Dock"];
     NSButton *terminalButton = buttons[@"Toggle Terminal"];
     BOOL leftClusterActions = dock != nil && terminalButton != nil &&
-      terminalButton.toolTip.length > 0 &&
-      [terminalButton.toolTip isEqualToString:@"Toggle Terminal"];
+      [terminalButton.accessibilityLabel isEqualToString:@"Toggle Terminal"];
     BOOL noDuplicateSearch = buttons[@"Search"] == nil && buttons[@"Project Search"] != nil;
     [(NimculusFooterStatusButton *)dock performClick:nil];
     BOOL dockToggle = strcmp(g_validation_command,

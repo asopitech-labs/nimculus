@@ -2,6 +2,7 @@ import nimnui/geometry
 import nimnui/ui_tree
 import nimnui/layout
 import nimnui/render
+import nimnui/text
 import nimculus/settings
 import std/[strutils, tables]
 
@@ -257,6 +258,21 @@ type
     of separator, header, label, entry, customEntry, submenu:
       discard
 
+  Tooltip* = object
+    ## The semantic content of a tooltip. Keeping the key binding separate
+    ## from the title lets the container reserve a right-hand slot instead of
+    ## baking keyboard chrome into the title string.
+    title*, meta*, keyBinding*: string
+
+  TooltipContainer* = object
+    ## All tooltip chrome is resolved here. Paint code consumes these rects;
+    ## it does not repeat the spacing, elevation, or typography decisions.
+    bounds*, contentBounds*, titleBounds*, metaBounds*, keyBindingBounds*: Rect
+    outerOffset*, padding*: EdgeInsets
+    cornerRadius*: Pixels
+    elevation*: ElevationIndex
+    fontSize*: TextSize
+
   OverlayKeyResult* = object
     handled*: bool
     command*: string
@@ -279,6 +295,9 @@ type
     viewport*: Rect
     items*: seq[OverlayItem]
     contentText*: string
+    tooltip*: Tooltip
+    tooltipHoverStartedAtMs*: int64
+    tooltipWaiting*: bool
     itemHeight*: Pixels
     elevation*: ElevationIndex
     open*: bool
@@ -331,6 +350,87 @@ proc overlayHeight(model: OverlayModel): Pixels =
   for item in model.items:
     result = result + model.rowHeight(item)
 
+const
+  ## Zed's `pl_2` / `pt_2p5` are 8pt / 10pt at the 16pt rem scale.
+  tooltipOuterLeft* = 8'f32
+  tooltipOuterTop* = 10'f32
+  ## Zed's `px_2` / `py_1` are 8pt / 4pt at the same scale.
+  tooltipInnerHorizontal* = 8'f32
+  tooltipInnerVertical* = 4'f32
+  ## `max_w_72` at the 16pt rem scale.
+  tooltipMaxWidth* = 288'f32
+  ## Zed's default tooltip delay for ordinary (non-hoverable) tooltips.
+  tooltipShowDelayMs* = 500'i64
+  ## Kept as a named contract for the hoverable-tooltip variant. Nimculus
+  ## tooltips are passive, so they dismiss immediately on anchor exit.
+  tooltipHideDelayMs* = 500'i64
+  tooltipUiLineHeight = 20'f32
+  tooltipKeyBindingWidth = 72'f32
+  tooltipKeyBindingGap = 8'f32
+
+proc tooltipContainer*(anchor, viewport: Rect, tooltip: Tooltip,
+                       preferredWidth = px(tooltipMaxWidth)): TooltipContainer =
+  ## This is the single source of truth for tooltip chrome. The returned
+  ## bounds are the visible container, so its top-left is deliberately
+  ## anchor + (8, 10), rather than the generic overlay's anchor-bottom
+  ## placement. Viewport clamping only applies when that offset would leave
+  ## the window.
+  result.outerOffset = EdgeInsets(left: px(tooltipOuterLeft), top: px(tooltipOuterTop))
+  result.padding = EdgeInsets(top: px(tooltipInnerVertical),
+    right: px(tooltipInnerHorizontal), bottom: px(tooltipInnerVertical),
+    left: px(tooltipInnerHorizontal))
+  result.cornerRadius = px(6)
+  result.elevation = elevatedSurface # Zed elevation_2
+  result.fontSize = textDefault # UI font at TextSize.default
+
+  if float32(viewport.size.width) <= 0 or float32(viewport.size.height) <= 0:
+    return
+
+  let width = minPx(maxPx(px(1), preferredWidth),
+    minPx(px(tooltipMaxWidth), viewport.size.width))
+  let hasSecondary = tooltip.meta.len > 0 or tooltip.keyBinding.len > 0
+  let lineCount = if hasSecondary: 2'f32 else: 1'f32
+  let height = minPx(px(tooltipInnerVertical * 2'f32 + tooltipUiLineHeight * lineCount),
+    viewport.size.height)
+  let initialX = anchor.origin.x + result.outerOffset.left
+  let initialY = anchor.origin.y + result.outerOffset.top
+  let right = viewport.origin.x + viewport.size.width
+  let bottom = viewport.origin.y + viewport.size.height
+  ## Match Zed's tooltip prepaint: try the offset side first, flip to the
+  ## opposite side at an edge, then clamp when neither side can fit.
+  var x = initialX
+  if float32(initialX + width) > float32(right):
+    let flippedX = anchor.origin.x - result.outerOffset.left - width
+    x = if float32(flippedX) >= float32(viewport.origin.x): flippedX
+        else: viewport.origin.x
+  x = maxPx(viewport.origin.x, x)
+  var y = initialY
+  if float32(initialY + height) > float32(bottom):
+    let flippedY = anchor.origin.y - result.outerOffset.top - height
+    y = if float32(flippedY) >= float32(viewport.origin.y): flippedY
+        else: viewport.origin.y
+  y = maxPx(viewport.origin.y, y)
+  result.bounds = Rect(origin: Point(x: x, y: y),
+    size: Size(width: width, height: height))
+  result.contentBounds = result.bounds.inset(result.padding)
+  result.titleBounds = Rect(origin: result.contentBounds.origin,
+    size: Size(width: result.contentBounds.size.width,
+      height: px(tooltipUiLineHeight)))
+  if hasSecondary:
+    let secondaryOrigin = Point(x: result.contentBounds.origin.x,
+      y: result.contentBounds.origin.y + px(tooltipUiLineHeight))
+    let keyWidth = if tooltip.keyBinding.len > 0:
+      minPx(px(tooltipKeyBindingWidth), result.contentBounds.size.width)
+    else:
+      px(0)
+    let keyX = result.contentBounds.origin.x + result.contentBounds.size.width - keyWidth
+    result.keyBindingBounds = Rect(origin: Point(x: keyX, y: secondaryOrigin.y),
+      size: Size(width: keyWidth, height: px(tooltipUiLineHeight)))
+    let metaWidth = maxPx(px(0), result.contentBounds.size.width - keyWidth -
+      (if float32(keyWidth) > 0'f32: px(tooltipKeyBindingGap) else: px(0)))
+    result.metaBounds = Rect(origin: secondaryOrigin,
+      size: Size(width: metaWidth, height: px(tooltipUiLineHeight)))
+
 func submenuVerticalOffset*(triggerBounds, menuBounds: Rect): Pixels =
   ## Keep the submenu placement contract as a pure geometry operation.
   triggerBounds.origin.y - menuBounds.origin.y
@@ -370,6 +470,20 @@ proc showOverlay*(model: var OverlayModel, kind: ControlKind, owner: NodeId,
     model.items[index] = item
   model.contentText = contentText
   model.itemHeight = maxPx(px(1), itemHeight)
+  if kind == tooltip:
+    if model.tooltip.title.len == 0:
+      model.tooltip.title = contentText
+    let container = tooltipContainer(anchor, viewport, model.tooltip,
+      preferredWidth)
+    model.contentText = model.tooltip.title
+    model.elevation = container.elevation
+    model.bounds = container.bounds
+    model.itemHeight = container.bounds.size.height
+    model.selectedIndex = -1
+    model.grabsInput = false
+    model.tooltipWaiting = true
+    model.open = false
+    return
   model.elevation = if kind == contextMenu or kind == popup or kind == tooltip:
     elevatedSurface
   else:
@@ -404,13 +518,41 @@ proc showPopup*(model: var OverlayModel, owner: NodeId, anchor, viewport: Rect,
   model.showOverlay(popup, owner, anchor, viewport, items,
     preferredWidth = preferredWidth, grabsInput = true)
 
-proc showTooltip*(model: var OverlayModel, owner: NodeId, anchor, viewport: Rect,
-                  text: string, preferredWidth = px(320'f32)) =
+proc showTooltipAt*(model: var OverlayModel, owner: NodeId, anchor, viewport: Rect,
+                    text: string, startedAtMs: int64,
+                    preferredWidth = px(tooltipMaxWidth),
+                    meta = "", keyBinding = "") =
+  model.tooltip = Tooltip(title: text, meta: meta, keyBinding: keyBinding)
   model.showOverlay(tooltip, owner, anchor, viewport, [], contentText = text,
     preferredWidth = preferredWidth, grabsInput = false)
+  model.tooltipHoverStartedAtMs = startedAtMs
+
+proc showTooltip*(model: var OverlayModel, owner: NodeId, anchor, viewport: Rect,
+                  text: string, preferredWidth = px(tooltipMaxWidth),
+                  meta = "", keyBinding = "", startedAtMs = 0'i64) =
+  model.showTooltipAt(owner, anchor, viewport, text, startedAtMs,
+    preferredWidth, meta, keyBinding)
+
+proc showTooltip*(model: var OverlayModel, owner: NodeId, anchor, viewport: Rect,
+                  value: Tooltip, preferredWidth = px(tooltipMaxWidth)) =
+  model.tooltip = value
+  model.showOverlay(tooltip, owner, anchor, viewport, [],
+    contentText = value.title, preferredWidth = preferredWidth, grabsInput = false)
+
+proc advanceTooltip*(model: var OverlayModel, nowMs: int64): bool =
+  ## Complete Zed's delayed show transition. Call this from the platform's
+  ## event/display tick; keeping the timestamp explicit makes the transition
+  ## deterministic in tests and leaves AppKit out of tooltip ownership.
+  if model.kind != tooltip or not model.tooltipWaiting: return false
+  if nowMs - model.tooltipHoverStartedAtMs < tooltipShowDelayMs: return false
+  model.tooltipWaiting = false
+  model.open = float32(model.bounds.size.width) > 0 and
+    float32(model.bounds.size.height) > 0
+  true
 
 proc dismiss*(model: var OverlayModel) =
   model.open = false
+  model.tooltipWaiting = false
   model.selectedIndex = -1
 
 proc rowBounds*(model: OverlayModel, index: int): Rect =
@@ -497,12 +639,12 @@ proc handlePointerDown*(model: var OverlayModel, point: Point): OverlayKeyResult
   model.activate(ClickEvent(kind: mouse, position: point))
 
 proc handlePointerMove*(model: var OverlayModel, point: Point): bool =
-  if not model.open: return false
   if model.kind == tooltip:
-    if not model.anchor.contains(point):
+    if (model.tooltipWaiting or model.open) and not model.anchor.contains(point):
       model.dismiss()
       return true
     return false
+  if not model.open: return false
   model.selectAt(point)
 
 proc paintOverlay*(paint: var PaintList, model: OverlayModel, light = true) =
@@ -510,16 +652,27 @@ proc paintOverlay*(paint: var PaintList, model: OverlayModel, light = true) =
   ## responsibility, but the control now has a real paint path rather than an
   ## enum-only placeholder.
   if not model.open: return
+  if model.kind == tooltip:
+    let container = tooltipContainer(model.anchor, model.viewport,
+      model.tooltip, model.bounds.size.width)
+    paint.invalidate(container.bounds)
+    for boxShadow in shadows(container.elevation, light):
+      paint.drawShadow(container.bounds, boxShadow.offset, boxShadow.blurRadius,
+        boxShadow.colour)
+    paint.drawRoundedRectangle(container.bounds, container.cornerRadius)
+    paint.drawBorder(container.bounds)
+    paint.drawText(container.titleBounds, model.tooltip.title)
+    if model.tooltip.meta.len > 0:
+      paint.drawText(container.metaBounds, model.tooltip.meta)
+    if model.tooltip.keyBinding.len > 0:
+      paint.drawText(container.keyBindingBounds, model.tooltip.keyBinding)
+    return
   paint.invalidate(model.bounds)
   for boxShadow in shadows(model.elevation, light):
     paint.drawShadow(model.bounds, boxShadow.offset, boxShadow.blurRadius,
       boxShadow.colour)
   paint.drawRoundedRectangle(model.bounds, px(6))
   paint.drawBorder(model.bounds)
-  if model.kind == tooltip:
-    paint.drawText(model.bounds.inset(EdgeInsets(top: px(4), right: px(8),
-      bottom: px(4), left: px(8))), model.contentText)
-    return
   for index, item in model.items:
     let row = model.rowBounds(index)
     if index == model.selectedIndex: paint.drawRectangle(row)

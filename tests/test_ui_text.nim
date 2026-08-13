@@ -1310,11 +1310,48 @@ suite "M3 text foundation":
     check outside.command.len == 0
     check not overlay.open
 
-  test "tooltip is passive and emits a paint path":
+  test "tooltip container follows Zed chrome and edge placement":
+    let viewport = Rect(size: Size(width: px(400), height: px(180)))
+    let tooltip = Tooltip(title: "Helpful text")
+    let container = tooltipContainer(
+      Rect(origin: Point(x: px(380), y: px(150)), size: Size()),
+      viewport, tooltip, px(320))
+    check tooltipOuterLeft == 8'f32
+    check tooltipOuterTop == 10'f32
+    check tooltipInnerHorizontal == 8'f32
+    check tooltipInnerVertical == 4'f32
+    check tooltipMaxWidth == 288'f32
+    check float32(container.outerOffset.left) == 8'f32
+    check float32(container.outerOffset.top) == 10'f32
+    check float32(container.padding.left) == 8'f32
+    check float32(container.padding.right) == 8'f32
+    check float32(container.padding.top) == 4'f32
+    check float32(container.padding.bottom) == 4'f32
+    check float32(container.bounds.size.width) == 288'f32
+    ## The preferred side overflows right/bottom, so Zed flips both axes.
+    check float32(container.bounds.origin.x) == 84'f32
+    check float32(container.bounds.origin.y) == 112'f32
+
+    let clamped = tooltipContainer(
+      Rect(origin: Point(x: px(0), y: px(0)), size: Size()),
+      Rect(size: Size(width: px(100), height: px(20))), tooltip, px(320))
+    check float32(clamped.bounds.origin.x) == 0'f32
+    check float32(clamped.bounds.origin.y) == 0'f32
+    check float32(clamped.bounds.size.width) == 100'f32
+    check float32(clamped.bounds.size.height) == 20'f32
+
+  test "tooltip delay, anchor exit, and paint use the container bounds":
     var overlay: OverlayModel
     let viewport = Rect(size: Size(width: px(300), height: px(160)))
-    overlay.showTooltip(NodeId(3), Rect(origin: Point(x: px(100), y: px(40)),
-      size: Size(width: px(20), height: px(20))), viewport, "Helpful text")
+    let anchor = Rect(origin: Point(x: px(100), y: px(40)),
+      size: Size(width: px(20), height: px(20)))
+    overlay.showTooltipAt(NodeId(3), anchor, viewport, "Helpful text", 1000)
+    check tooltipShowDelayMs == 500'i64
+    check not overlay.open
+    check overlay.tooltipWaiting
+    check not overlay.advanceTooltip(1499)
+    check not overlay.open
+    check overlay.advanceTooltip(1500)
     check overlay.open
     check overlay.selectedIndex == -1
     check not overlay.grabsInput
@@ -1323,12 +1360,30 @@ suite "M3 text foundation":
     check overlay.open
     check overlay.handlePointerMove(Point(x: px(10), y: px(10)))
     check not overlay.open
-    overlay.showTooltip(NodeId(3), Rect(origin: Point(x: px(100), y: px(40)),
-      size: Size(width: px(20), height: px(20))), viewport, "Helpful text")
+    overlay.showTooltipAt(NodeId(3), anchor, viewport, "Helpful text", 2000)
+    check not overlay.open
+    ## Leaving during Zed's show delay cancels the pending tooltip.
+    check overlay.handlePointerMove(Point(x: px(10), y: px(10)))
+    check not overlay.tooltipWaiting
+    check not overlay.advanceTooltip(2500)
+
+    overlay.showTooltipAt(NodeId(3), anchor, viewport, "Helpful text", 3000)
+    check overlay.advanceTooltip(3500)
     var paint: PaintList
     paint.invalidate(viewport)
     paint.paintOverlay(overlay)
     check paint.commands.len >= 3
+    let expected = tooltipContainer(anchor, viewport, overlay.tooltip,
+      overlay.bounds.size.width)
+    var paintedContainer = false
+    for command in paint.commands:
+      if command.kind == roundedRectangle and command.bounds == expected.bounds:
+        paintedContainer = true
+    check paintedContainer
+    ## Nimculus tooltips are ordinary, non-hoverable Zed tooltips: leaving the
+    ## anchor hides them immediately.
+    check overlay.handlePointerMove(Point(x: px(10), y: px(10)))
+    check not overlay.open
 
   test "scroll deltas match Zed pixel and line conversion":
     var remainder = 0'f32
