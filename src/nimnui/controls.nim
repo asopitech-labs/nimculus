@@ -48,7 +48,7 @@ type
   ButtonStyle* = enum
     filled, tinted, outlined, outlinedGhost, subtle, transparent
 
-  ButtonLikeStyles* = object
+  ButtonLikeStyles* {.bycopy.} = object
     background*, borderColor*, labelColor*, iconColor*: Color
 
 proc themeColor(value: string, fallback: Color): Color =
@@ -79,24 +79,26 @@ proc visualState*(node: NodeId, tree: UiTree): UiState =
   let index = tree.nodeIndex(node)
   if index >= 0: tree.nodes[index].state else: normal
 
-proc buttonStyles*(node: NodeId, tree: UiTree, style: ButtonStyle,
+proc buttonStyles*(style: ButtonStyle, state: UiState, elevation: ElevationIndex,
                    theme: ThemeColors): ButtonLikeStyles =
-  ## Resolve ButtonStyle × UiState in one place.  In particular, disabled is
-  ## resolved last by UiTree's precedence and cannot be accidentally painted
-  ## as hovered or active by a platform event path.
+  ## Resolve the complete ButtonStyle × UiState table in one pure function.
+  ## Native presenters consume this result; they never select a colour based
+  ## on their own copy of the interaction state.
   let foreground = themeColor(theme.foreground,
     Color(red: 1, green: 1, blue: 1, alpha: 1))
   let accent = themeColor(theme.accent, foreground)
   let border = themeColor(theme.border, foreground.withAlpha(0.5'f32))
-  let element = themeColor(theme.element, clearColor())
+  let element = case elevation
+    of background, surface, editorSurface:
+      themeColor(theme.element, clearColor())
+    of elevatedSurface, modalSurface:
+      themeColor(theme.elevated, themeColor(theme.element, clearColor()))
   let hover = themeColor(theme.elementHover, element)
   let activeColor = themeColor(theme.elementActive, hover)
   let disabledText = themeColor(theme.textDisabled,
     foreground.withAlpha(0.45'f32))
   let disabledBackground = element.withAlpha(0.5'f32)
   let disabledBorder = themeColor(theme.borderVariant, border)
-  let state = node.visualState(tree)
-
   result = case style
     of filled:
       ButtonLikeStyles(background: accent, borderColor: accent,
@@ -115,22 +117,51 @@ proc buttonStyles*(node: NodeId, tree: UiTree, style: ButtonStyle,
         labelColor: foreground, iconColor: foreground)
     of transparent:
       ButtonLikeStyles(background: clearColor(), borderColor: clearColor(),
-        labelColor: foreground, iconColor: foreground)
+        labelColor: foreground.withAlpha(0.78'f32),
+        iconColor: foreground.withAlpha(0.78'f32))
 
   case state
   of normal: discard
   of focused:
     result.borderColor = themeColor(theme.borderFocused, accent)
   of hovered:
-    result.background = hover
+    result.background = if style == transparent: hover.withAlpha(0.10'f32) else: hover
   of active:
-    result.background = if style == filled: accent else: activeColor
+    result.background = if style == filled: accent
+      elif style == transparent: accent.withAlpha(0.22'f32)
+      else: activeColor
     if style in {outlined, outlinedGhost}: result.borderColor = accent
   of disabled:
     result.background = disabledBackground
     result.borderColor = disabledBorder
     result.labelColor = disabledText
     result.iconColor = disabledText
+
+proc buttonStyles*(node: NodeId, tree: UiTree, style: ButtonStyle,
+                   theme: ThemeColors): ButtonLikeStyles =
+  ## Compatibility adapter for retained-tree callers. State resolution still
+  ## happens once, in the pure style table above.
+  buttonStyles(style, node.visualState(tree), background, theme)
+
+type
+  NativeButtonLikeStyles* {.bycopy.} = ButtonLikeStyles
+
+proc nimculus_button_styles*(style, state, elevation: cint,
+                             foreground, accent, border, element, elementHover,
+                             elementActive, textDisabled, borderVariant,
+                             borderFocused: cstring,
+                             styles: ptr NativeButtonLikeStyles) {.exportc,
+                             cdecl.} =
+  ## C bridge for platform presenters. The palette is supplied by the native
+  ## host, but all style/state colour decisions remain in buttonStyles.
+  if styles == nil: return
+  var theme = ThemeColors(
+    foreground: $foreground, accent: $accent, border: $border,
+    element: $element, elementHover: $elementHover,
+    elementActive: $elementActive, textDisabled: $textDisabled,
+    borderVariant: $borderVariant, borderFocused: $borderFocused)
+  styles[] = buttonStyles(ButtonStyle(style), UiState(state),
+    ElevationIndex(elevation), theme)
 
 ## Native AppKit chrome buttons use this small retained tree because their
 ## views are owned by the platform layer rather than by the demo UiTree.  The
