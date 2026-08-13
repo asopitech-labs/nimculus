@@ -161,7 +161,7 @@
 - [ ] **Binding source metadata (user > vim > base > default)** — Zed `crates/gpui/src/keymap/binding.rs:143 (KeyBindingMetaIndex), crates/gpui/src/keymap.rs:199 (NoAction only breaks for user-sourced bindings), keymap.rs:831 (test documenting User 0 > Vim 1 > Base 2 > Default 3)`
 - [ ] **Reverse lookup: bindings_for_action, with shadow filtering** — Zed `crates/gpui/src/keymap.rs:95 (bindings_for_action), crates/gpui/src/key_dispatch.rs:401 (bindings_for_action), :420 (highest_precedence_binding_for_action), :435 (binding_matches_predicate_and_not_shadowed)`
 - [x] **Multi-keystroke pending state and replay** — Zed `crates/gpui/src/key_dispatch.rs:116 (Replay), :121 (DispatchResult with pending / pending_has_binding / bindings / to_replay), :483 (dispatch_key), :523 (flush_dispatch), :538 (replay_prefix); crates/gpui/src/window.rs:4868-4933 (pending buffer, focus invalidation, timeout)`
-- [ ] **available_actions / is_action_available for the command palette** — Zed `crates/gpui/src/key_dispatch.rs:363 (available_actions, walks the dispatch path collecting listener action types and building a default instance of each), :382 (is_action_available)`
+- [x] **available_actions / is_action_available for the command palette** — Zed `crates/gpui/src/key_dispatch.rs:363 (available_actions, walks the dispatch path collecting listener action types and building a default instance of each), :382 (is_action_available)`
 
 **移植済み**
 
