@@ -1,9 +1,20 @@
 import nimnui/ui_tree
 import nimnui/context
 import std/algorithm
+import std/json
 import std/strutils
+import std/tables
 
 type
+  Action* = object
+    ## A type-erased command value. The name identifies its registered
+    ## handler, while the payload carries the invocation-specific data.
+    name*: string
+    payload*: JsonNode
+
+  ActionBuilder* = proc(payload: JsonNode): Action {.closure.}
+  CommandActionHandler* = proc(action: Action): bool {.closure.}
+
   Modifier* = enum
     commandModifier, optionModifier, controlModifier, shiftModifier
 
@@ -22,12 +33,42 @@ type
     shortcut*: Shortcut
     whenClause*: string
     predicate*: KeyBindingContextPredicate
-    action*: proc(): bool {.closure.}
+    action*: Action
 
   CommandRegistry* = object
     commands*: seq[Command]
 
 var keyBindingPredicateParseCount* = 0
+var actionRegistry*: Table[string, ActionBuilder] = initTable[string, ActionBuilder]()
+var actionHandlers*: Table[string, CommandActionHandler] =
+  initTable[string, CommandActionHandler]()
+
+proc registerAction*(name: string, builder: ActionBuilder) =
+  if name.len == 0:
+    raise newException(ValueError, "Cannot register an action without a name")
+  if builder == nil:
+    raise newException(ValueError, "Cannot register a nil builder for action: " & name)
+  actionRegistry[name] = builder
+
+proc buildAction*(name: string, payload: JsonNode): Action =
+  if not actionRegistry.hasKey(name):
+    raise newException(ValueError, "Unregistered action: " & name)
+  result = actionRegistry[name](payload)
+  result.name = name
+
+proc registerActionHandler*(name: string, handler: CommandActionHandler) =
+  if name.len == 0:
+    raise newException(ValueError, "Cannot register a handler without an action name")
+  if handler == nil:
+    raise newException(ValueError, "Cannot register a nil handler for action: " & name)
+  actionHandlers[name] = handler
+
+proc actionAvailable*(action: Action): bool =
+  actionHandlers.hasKey(action.name) and actionHandlers[action.name] != nil
+
+proc dispatchAction*(action: Action): bool =
+  if not action.actionAvailable(): return false
+  actionHandlers[action.name](action)
 
 proc effectiveKeystrokes(shortcut: Shortcut): seq[Keystroke] =
   if shortcut.keystrokes.len > 0:
@@ -115,7 +156,7 @@ proc tryResolve*(registry: CommandRegistry, shortcut: Shortcut,
 proc dispatchShortcut*(registry: CommandRegistry, shortcut: Shortcut,
                        contexts: openArray[KeyContext]): bool =
   for command in registry.bindingsForInput(shortcut, contexts):
-    if command.action != nil and command.action(): return true
+    if command.action.dispatchAction(): return true
   false
 
 proc dispatchShortcut*(registry: CommandRegistry, shortcut: Shortcut): bool =

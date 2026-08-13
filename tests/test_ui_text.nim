@@ -1,4 +1,5 @@
 import std/unittest
+import std/json
 import std/unicode
 import std/options
 import nimnui/nimnui
@@ -24,6 +25,12 @@ proc testShaper(text: string, fontSize: Pixels,
     x += 8
     index += ($rune).len
   result.runs = @[shaped]
+
+proc registerTestAction(name: string,
+                        handler: proc(action: Action): bool {.closure.}) =
+  registerAction(name, proc(payload: JsonNode): Action =
+    Action(name: name, payload: payload))
+  registerActionHandler(name, handler)
 
 suite "M2 UI foundation":
   test "line layout cache transfers the previous frame without rebuilding":
@@ -88,14 +95,42 @@ suite "M2 UI foundation":
     check nativeEventButton(3) == 1
     check nativeEventButton(25) == 2
 
+  test "unregistered actions fail instead of becoming empty values":
+    expect ValueError:
+      discard buildAction("missing-test-action", nil)
+
+  test "actions retain their registered name and JSON payload":
+    registerTestAction("testPayloadAction", proc(action: Action): bool =
+      true)
+    let payload = %*{"path": "one.txt"}
+    let action = buildAction("testPayloadAction", payload)
+    check action.name == "testPayloadAction"
+    check action.payload["path"].getStr == "one.txt"
+
+  test "two commands dispatch the same action name with distinct payloads":
+    var received: seq[string]
+    registerTestAction("testSharedAction", proc(action: Action): bool =
+      received.add(action.payload["value"].getStr)
+      true)
+    var registry: CommandRegistry
+    registry.register(Command(name: "first", shortcut: Shortcut(keyCode: 31),
+      action: buildAction("testSharedAction", %*{"value": "first"})))
+    registry.register(Command(name: "second", shortcut: Shortcut(keyCode: 32),
+      action: buildAction("testSharedAction", %*{"value": "second"})))
+    check registry.dispatchShortcut(Shortcut(keyCode: 31))
+    check registry.dispatchShortcut(Shortcut(keyCode: 32))
+    check received == @["first", "second"]
+
   test "command registry resolves exact macOS-style modifiers":
     var registry: CommandRegistry
     var invoked = false
+    registerTestAction("testSave", proc(action: Action): bool =
+      discard action
+      invoked = true
+      true)
     registry.register(Command(name: "save",
       shortcut: Shortcut(keyCode: 1, modifiers: {commandModifier, shiftModifier}),
-      action: proc(): bool =
-      invoked = true
-      true))
+      action: buildAction("testSave", nil)))
     var resolved: Command
     check registry.tryResolve(Shortcut(keyCode: 1,
       modifiers: {commandModifier, shiftModifier}), resolved)
@@ -110,14 +145,18 @@ suite "M2 UI foundation":
     var registry: CommandRegistry
     var invoked = ""
     let shortcut = Shortcut(keyCode: 0, modifiers: {commandModifier})
-    registry.register(Command(name: "first", shortcut: shortcut,
-      action: proc(): bool =
+    registerTestAction("testFirst", proc(action: Action): bool =
+      discard action
       invoked = "first"
-      true))
-    registry.register(Command(name: "second", shortcut: shortcut,
-      action: proc(): bool =
+      true)
+    registerTestAction("testSecond", proc(action: Action): bool =
+      discard action
       invoked = "second"
-      true))
+      true)
+    registry.register(Command(name: "first", shortcut: shortcut,
+      action: buildAction("testFirst", nil)))
+    registry.register(Command(name: "second", shortcut: shortcut,
+      action: buildAction("testSecond", nil)))
     check registry.dispatchShortcut(shortcut)
     check invoked == "second"
 
@@ -153,15 +192,19 @@ suite "M2 UI foundation":
     var registry: CommandRegistry
     var invoked: seq[string]
     let shortcut = Shortcut(keyCode: 12)
-    registry.register(Command(name: "fallback", shortcut: shortcut,
-      action: proc(): bool =
+    registerTestAction("testFallback", proc(action: Action): bool =
+      discard action
       invoked.add("fallback")
-      true))
+      true)
+    registerTestAction("testEditor", proc(action: Action): bool =
+      discard action
+      invoked.add("editor")
+      false)
+    registry.register(Command(name: "fallback", shortcut: shortcut,
+      action: buildAction("testFallback", nil)))
     registry.register(Command(name: "editor", shortcut: shortcut,
       whenClause: "Editor",
-      action: proc(): bool =
-      invoked.add("editor")
-      false))
+      action: buildAction("testEditor", nil)))
     check registry.dispatchShortcut(shortcut,
       @[keyContext("Workspace"), keyContext("Editor")])
     check invoked == @["editor", "fallback"]
