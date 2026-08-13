@@ -75,7 +75,7 @@
 
 **一部のみ — 先に片付ける**
 
-- [ ] **WindowInvalidator + DrawPhase state machine** — Zed `crates/gpui/src/window.rs:117 WindowInvalidatorInner, :140 impl, :158 invalidate_view, :217 set_phase, :1416 enum DrawPhase, :1891 Window::refresh`
+- [x] **WindowInvalidator + DrawPhase state machine** — Zed `crates/gpui/src/window.rs:117 WindowInvalidatorInner, :140 impl, :158 invalidate_view, :217 set_phase, :1416 enum DrawPhase, :1891 Window::refresh`
 - [ ] **Three-phase element pipeline: request_layout -> prepaint -> paint** — Zed `crates/gpui/src/window.rs:3174 draw_roots (Prepaint at :3175, root request_layout :3206, stretch_auto_size_to_fill :3210, prepaint_as_root :3211, Paint at :3244, root paint :2924), :4734 request_layout, :4783 compute_layout, :4800 layout_bounds, :3360 prepaint_deferred_draws, :3430 paint_deferred_draws`
 - [ ] **Hitbox list + topmost hit testing with blocking behaviors** — Zed `crates/gpui/src/window.rs:799 struct Hitbox, :724 enum HitboxBehavior, :4820 insert_hitbox, :1059 Frame::hit_test, :2919 (per-frame cache)`
 - [x] **Content mask stack and element offset stack** — Zed `crates/gpui/src/window.rs:2075 ContentMask, :3644 with_content_mask, :3663 with_element_offset, :3681 with_absolute_element_offset, :3794 element_offset, :4800-4327 (layout_bounds applies snapped offset)`
