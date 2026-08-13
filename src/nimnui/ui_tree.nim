@@ -7,6 +7,8 @@ import std/tables
 type
   NodeId* = distinct uint64
 
+  LayoutDirtyHandler* = proc(id: NodeId) {.closure.}
+
   ## The public EventHandler is declared in events.nim because UiEvent depends
   ## on the command module.  This private bridge is stored on a node;
   ## events.nim adapts the public handler to it without introducing an import
@@ -64,6 +66,7 @@ type
     nextGeneration*: uint32
     recycledIds: seq[NodeId]
     reservedFocusHandles: seq[NodeHandle]
+    onLayoutDirty*: LayoutDirtyHandler
 
 proc `==`*(a, b: NodeId): bool = uint64(a) == uint64(b)
 
@@ -187,6 +190,7 @@ proc removeNode*(tree: var UiTree, id: NodeId): bool =
     tree.index[node.id] = nodeIndex
   true
 
+proc markLayoutDirtyInternal(tree: var UiTree, id: NodeId)
 proc markLayoutDirty*(tree: var UiTree, id: NodeId)
 
 proc updateVisualState(tree: var UiTree, index: int) =
@@ -312,13 +316,19 @@ proc nodeClip*(node: UiNode): Rect =
     size: Size(width: px(max(0'f32, right - left)),
       height: px(max(0'f32, bottom - top))))
 
-proc markLayoutDirty*(tree: var UiTree, id: NodeId) =
+proc markLayoutDirtyInternal(tree: var UiTree, id: NodeId) =
   let index = nodeIndex(tree, id)
   if index < 0: return
   tree.nodes[index].layoutDirty = true
   tree.nodes[index].paintDirty = true
   let parent = tree.nodes[index].parent
-  if parent != NodeId(0): tree.markLayoutDirty(parent)
+  if parent != NodeId(0): tree.markLayoutDirtyInternal(parent)
+
+proc markLayoutDirty*(tree: var UiTree, id: NodeId) =
+  let index = nodeIndex(tree, id)
+  if index < 0: return
+  if tree.onLayoutDirty != nil: tree.onLayoutDirty(id)
+  tree.markLayoutDirtyInternal(id)
 
 proc markPaintClean*(tree: var UiTree, id: NodeId) =
   let index = nodeIndex(tree, id)
