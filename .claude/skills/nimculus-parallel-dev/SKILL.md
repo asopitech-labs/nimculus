@@ -198,6 +198,15 @@ Nimculus は Zed のような層分割が済んでおらず、実装が 2 ファ
 | B | `src/nimculus/settings.nim`, `syntax.nim`, `tests/test_settings.nim` |
 | C | `src/nimnui/text.nim`, `tests/test_ui_text.nim` |
 
+### ObjC を触ったら `.nimcache` を丸ごと消してから検証する（2026-08-13）
+
+ランナーは各テストを `.nimcache/<テスト名>` で個別にビルドするので、
+`rm -rf .nimcache/test_runner` では **ObjC の変更が各テストのキャッシュに
+反映されない**。古い `macos_platform.o` がリンクされ、テストが通ってしまう。
+
+`macos_platform.m` を所有するタスクは**常に 1 本だけ**という制約と合わせて、
+そのタスクの検証では `rm -rf .nimcache` を使う。詳細は [nimculus-ui-test]。
+
 ### 受け入れ条件のテストは指示書で明示しないと残らない（2026-08-13）
 
 codex は「hover→disabled のテスト：成功」のように**その場で確かめて報告し、

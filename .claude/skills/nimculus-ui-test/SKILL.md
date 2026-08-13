@@ -93,6 +93,31 @@ rm -rf .nimcache/test_runner
 
 を先にやる。2026-08-12、16 個のマーカーが残った状態で 27/27 が出た。
 
+### `.nimcache/test_runner` を消すだけでは足りない（2026-08-13）
+
+**ランナーは各テストを `.nimcache/<テスト名>` で個別にビルドする**
+（`tests/test_runner.nim:33`）。`.nimcache/test_runner` はランナー自身のぶんでしかない。
+
+`macos_platform.m` を変えたとき、Nim は**各テストのキャッシュにある古い
+`macos_platform.o` をそのままリンクする**。ObjC の変更が見えないまま
+テストが走り、**通る**。
+
+2026-08-13 の実例: コマンドパレットの候補配列を ObjC から削除したのに
+ランナーは `実行: 27 / 成功: 27 / 失敗: 0` を出した。
+`tests/test_platform_contract` を単体で走らせると
+`[FAILED] command palette exposes the editor's major actions` で落ちる。
+`.nimcache` を**丸ごと**消して測り直すと `26/27` になった。
+
+**ObjC を触ったタスクの検証は、必ず `.nimcache` を丸ごと消す。**
+
+```bash
+rm -rf .nimcache          # test_runner だけではない
+nim c --mm:arc --nimcache:.nimcache/test_runner -r --path:src tests/test_runner.nim
+```
+
+Nim だけの変更ならランナーのキャッシュ削除で足りる（`.nim` の依存は追える）。
+判断に迷ったら丸ごと消す。全ビルドで 10 分ほど。
+
 
 ## 1. 必須テスト種別
 
