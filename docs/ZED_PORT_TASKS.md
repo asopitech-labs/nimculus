@@ -155,7 +155,7 @@
 
 **無い**
 
-- [ ] **Action as a type-erased, registered value** — Zed `crates/gpui/src/action.rs:117 (trait Action), :233 (ActionRegistry), :293 (insert_action), :351 (build_action)`
+- [x] **Action as a type-erased, registered value** — Zed `crates/gpui/src/action.rs:117 (trait Action), :233 (ActionRegistry), :293 (insert_action), :351 (build_action)`
 - [ ] **NoAction / Unbind disable markers** — Zed `crates/gpui/src/action.rs:425-458, crates/gpui/src/keymap.rs:29 (disabled_binding_matches_context), :40 (binding_is_unbound), :195-225`
 - [ ] **KeyBinding: a keystroke *sequence* with prefix matching** — Zed `crates/gpui/src/keymap/binding.rs:10 (struct), :48 (load, splits on whitespace), :89 (match_keystrokes returning Option<bool> where the bool means "pending")`
 - [ ] **Binding source metadata (user > vim > base > default)** — Zed `crates/gpui/src/keymap/binding.rs:143 (KeyBindingMetaIndex), crates/gpui/src/keymap.rs:199 (NoAction only breaks for user-sourced bindings), keymap.rs:831 (test documenting User 0 > Vim 1 > Base 2 > Default 3)`
@@ -189,7 +189,7 @@
 - [x] **Label rendering: size, weight, truncation mode** — Zed `crates/ui/src/components/label/label_like.rs:7 (LabelSize), :23 (LineHeightStyle), :34 (LabelCommon), :233 (render)`
 - [x] **Menu item model separated from menu rendering** — Zed `crates/ui/src/components/context_menu.rs:46 (ContextMenuItem enum), :82 (ContextMenuEntry), :211 (ContextMenu state), :1449 (render_menu_item), :2180 (render, submenu offset + aside)`
 - [x] **Scrollbar geometry and visibility policy** — Zed `crates/ui/src/components/scrollbar.rs:352 (ScrollbarStyle), :358 to_pixels (Regular 6px / Editor 15px), :275 (ShowBehavior::Always/Autohide/Never from setting), :993 (ScrollableHandle trait), :1013 (ScrollbarLayout), :1023 compute_click_offset`
-- [ ] **Divider** — Zed `crates/ui/src/components/divider.rs:19 (DividerColor), :37 (struct), :96 render_solid, :100 render_dashed`
+- [x] **Divider** — Zed `crates/ui/src/components/divider.rs:19 (DividerColor), :37 (struct), :96 render_solid, :100 render_dashed`
 - [ ] **Tooltip container as shared chrome** — Zed `crates/ui/src/components/tooltip.rs:216 (tooltip_container), :194 (Tooltip::render), :9 (struct: title, meta, key_binding)`
 
 **無い**
