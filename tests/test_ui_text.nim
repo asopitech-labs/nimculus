@@ -5,6 +5,7 @@ import std/options
 import nimnui/nimnui
 import nimnui/text
 import nimculus/editor_view
+import nimculus/settings
 
 proc testShaper(text: string, fontSize: Pixels,
                 runs: openArray[FontRun]): LineLayout =
@@ -614,6 +615,18 @@ suite "M2 UI foundation":
     check tree.hitTest(Point(x: px(10), y: px(10))) != button
     tree.setDisabled(root, true)
     check tree.hitTest(Point(x: px(10), y: px(10))) == NodeId(0)
+
+  test "disabled button styles take precedence over hover":
+    var tree = newUiTree()
+    let button = tree.addNode(focusable = true)
+    tree.setHovered(button, true)
+    tree.setDisabled(button, true)
+
+    check tree.node(button).state == disabled
+    check visualState(button, tree) == disabled
+    let theme = ThemeColors(element: "#000000", elementHover: "#39424f")
+    let styles = buttonStyles(button, tree, subtle, theme)
+    check styles.background == Color(red: 0, green: 0, blue: 0, alpha: 0.5'f32)
 
   test "disabling a focused ancestor clears descendant focus":
     var tree = newUiTree()

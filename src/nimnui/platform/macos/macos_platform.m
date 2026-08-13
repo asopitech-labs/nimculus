@@ -923,28 +923,48 @@ static NSColor *themeRoleColor(NSString *key, NSColor *fallback) {
   return themeHexColor(themeRole(key, nil), fallback);
 }
 
+// Implemented by nimnui/controls.nim. Native buttons submit interaction flags
+// to the component UiTree and consume only its precedence-resolved state.
+// Platform-only contract tests do not load the controls module. This weak
+// fallback keeps those test binaries linkable; the strong Nim export below
+// wins in the application and owns the real UiTree state.
+__attribute__((weak)) int nimculus_chrome_button_state(uint64_t identity,
+                                                       bool hovered,
+                                                       bool active,
+                                                       bool disabled) {
+  (void)identity;
+  return disabled ? 4 : (active ? 3 : (hovered ? 2 : 0));
+}
+
 // Workspace chrome controls are intentionally quiet until the pointer reaches
-// them.  Keeping hover state in the native button means tracking, repainting,
-// tooltips, accessibility, and command dispatch remain independent of the
-// Metal scene and of the sidebar's content model.
+// them. Tracking remains AppKit-owned, while interaction state is submitted
+// to the component UiTree before repainting.
 @interface NimculusChromeButton : NSButton
-@property(nonatomic) BOOL chromeActive;
-@property(nonatomic) BOOL chromeHovering;
 @property(nonatomic) BOOL chromeImageOnly;
 @property(nonatomic, retain) NSTrackingArea *chromeTrackingArea;
 @end
 
-static void updateChromeButtonAppearance(NimculusChromeButton *button) {
+static void updateChromeButtonAppearance(NimculusChromeButton *button,
+                                         BOOL hovered, BOOL active) {
   if (!button) return;
+  const int state = nimculus_chrome_button_state((uint64_t)button, hovered,
+    active, !button.enabled);
   NSColor *foreground = themeRoleColor(@"fgPrimary", themeHexColor(g_theme_foreground,
     [NSColor colorWithCalibratedWhite:0.90 alpha:1.0]));
   NSColor *accent = themeRoleColor(@"accent", themeHexColor(g_theme_accent,
     [NSColor controlAccentColor]));
   NSColor *hoverSurface = themeRoleColor(@"elementHover",
     themeRoleColor(@"element", foreground));
-  NSColor *tint = button.chromeActive ? accent : [foreground colorWithAlphaComponent:0.78];
-  NSColor *background = button.chromeActive ? [accent colorWithAlphaComponent:0.22] :
-    (button.chromeHovering ? [hoverSurface colorWithAlphaComponent:0.10] : NSColor.clearColor);
+  const BOOL resolvedDisabled = state == 4;
+  const BOOL resolvedActive = state == 3;
+  const BOOL resolvedHovered = state == 2;
+  NSColor *tint = resolvedDisabled ? themeRoleColor(@"textDisabled",
+    [foreground colorWithAlphaComponent:0.45]) :
+    (resolvedActive ? accent : [foreground colorWithAlphaComponent:0.78]);
+  NSColor *background = resolvedDisabled ? themeRoleColor(@"element",
+    [foreground colorWithAlphaComponent:0.12]) :
+    (resolvedActive ? [accent colorWithAlphaComponent:0.22] :
+      (resolvedHovered ? [hoverSurface colorWithAlphaComponent:0.10] : NSColor.clearColor));
   button.wantsLayer = YES;
   button.layer.cornerRadius = NimculusSpace1;
   button.layer.borderWidth = 0.0;
@@ -972,13 +992,18 @@ static void updateChromeButtonAppearance(NimculusChromeButton *button) {
 }
 - (void)mouseEntered:(NSEvent *)event {
   (void)event;
-  self.chromeHovering = YES;
-  updateChromeButtonAppearance(self);
+  updateChromeButtonAppearance(self, YES, self.state == NSControlStateValueOn);
 }
 - (void)mouseExited:(NSEvent *)event {
   (void)event;
-  self.chromeHovering = NO;
-  updateChromeButtonAppearance(self);
+  updateChromeButtonAppearance(self, NO, self.state == NSControlStateValueOn);
+}
+- (void)mouseDown:(NSEvent *)event {
+  // AppKit's tracking state is transient; the pressed flag is committed to
+  // UiTree for the duration of the native click and is resolved there.
+  updateChromeButtonAppearance(self, YES, YES);
+  [super mouseDown:event];
+  updateChromeButtonAppearance(self, YES, self.state == NSControlStateValueOn);
 }
 @end
 
@@ -998,9 +1023,9 @@ static void styleWorkspaceNavigationButton(NSButton *button, BOOL active,
   button.contentTintColor = tint;
   if ([button isKindOfClass:[NimculusChromeButton class]]) {
     NimculusChromeButton *chromeButton = (NimculusChromeButton *)button;
-    chromeButton.chromeActive = active;
+    chromeButton.state = active ? NSControlStateValueOn : NSControlStateValueOff;
     chromeButton.chromeImageOnly = imageOnly;
-    updateChromeButtonAppearance(chromeButton);
+    updateChromeButtonAppearance(chromeButton, NO, active);
   } else {
     // Keep the helper safe for legacy/native buttons while all workspace
     // navigation and sidebar-header controls use NimculusChromeButton.
@@ -14704,7 +14729,6 @@ bool nimculus_platform_validate_panel_buttons(void) {
       terminalButton.toolTip.length > 0 &&
       [terminalButton.toolTip isEqualToString:@"Toggle Terminal"];
     BOOL noDuplicateSearch = buttons[@"Search"] == nil && buttons[@"Project Search"] != nil;
-    BOOL active = dock && [(NimculusChromeButton *)dock chromeActive];
     [(NimculusFooterStatusButton *)dock performClick:nil];
     BOOL dockToggle = strcmp(g_validation_command,
       "commandPalette:toggle workspace dock") == 0;

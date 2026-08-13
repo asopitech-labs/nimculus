@@ -2,6 +2,8 @@ import nimnui/geometry
 import nimnui/ui_tree
 import nimnui/layout
 import nimnui/render
+import nimculus/settings
+import std/[strutils, tables]
 
 export render.ScrollbarStyle, render.toPixels, render.scrollbarWidth,
   render.scrollbarStrip
@@ -38,6 +40,118 @@ type
   ScrollbarLayout* = object
     track*, thumb*: Rect
     visible*: bool
+
+  ## The semantic button variants used by Zed's ButtonLike component.  The
+  ## component owns the state-to-colour table; platform controls only consume
+  ## the resolved result.
+  ButtonStyle* = enum
+    filled, tinted, outlined, outlinedGhost, subtle, transparent
+
+  ButtonLikeStyles* = object
+    background*, borderColor*, labelColor*, iconColor*: Color
+
+proc themeColor(value: string, fallback: Color): Color =
+  ## ThemeColors stores the same #RRGGBB[AA] tokens sent to native backends.
+  ## Keep parsing here so button style resolution remains pure and testable.
+  var token = value.strip
+  if token.len == 0: return fallback
+  if token[0] == '#': token = token[1 .. ^1]
+  if token.len notin {6, 8}: return fallback
+  try:
+    let rgb = parseHexInt(token[0 .. 5])
+    let alpha = if token.len == 8: parseHexInt(token[6 .. 7]) else: 255
+    Color(red: float32((rgb shr 16) and 0xff) / 255'f32,
+          green: float32((rgb shr 8) and 0xff) / 255'f32,
+          blue: float32(rgb and 0xff) / 255'f32,
+          alpha: float32(alpha) / 255'f32)
+  except ValueError:
+    fallback
+
+proc withAlpha(color: Color, alpha: float32): Color =
+  Color(red: color.red, green: color.green, blue: color.blue,
+    alpha: max(0'f32, min(1'f32, alpha)))
+
+proc clearColor(): Color = Color(red: 0, green: 0, blue: 0, alpha: 0)
+
+proc visualState*(node: NodeId, tree: UiTree): UiState =
+  ## Reading through UiTree is the only state access used by components.
+  let index = tree.nodeIndex(node)
+  if index >= 0: tree.nodes[index].state else: normal
+
+proc buttonStyles*(node: NodeId, tree: UiTree, style: ButtonStyle,
+                   theme: ThemeColors): ButtonLikeStyles =
+  ## Resolve ButtonStyle × UiState in one place.  In particular, disabled is
+  ## resolved last by UiTree's precedence and cannot be accidentally painted
+  ## as hovered or active by a platform event path.
+  let foreground = themeColor(theme.foreground,
+    Color(red: 1, green: 1, blue: 1, alpha: 1))
+  let accent = themeColor(theme.accent, foreground)
+  let border = themeColor(theme.border, foreground.withAlpha(0.5'f32))
+  let element = themeColor(theme.element, clearColor())
+  let hover = themeColor(theme.elementHover, element)
+  let activeColor = themeColor(theme.elementActive, hover)
+  let disabledText = themeColor(theme.textDisabled,
+    foreground.withAlpha(0.45'f32))
+  let disabledBackground = element.withAlpha(0.5'f32)
+  let disabledBorder = themeColor(theme.borderVariant, border)
+  let state = node.visualState(tree)
+
+  result = case style
+    of filled:
+      ButtonLikeStyles(background: accent, borderColor: accent,
+        labelColor: foreground, iconColor: foreground)
+    of tinted:
+      ButtonLikeStyles(background: accent.withAlpha(0.16'f32),
+        borderColor: clearColor(), labelColor: accent, iconColor: accent)
+    of outlined:
+      ButtonLikeStyles(background: clearColor(), borderColor: border,
+        labelColor: foreground, iconColor: foreground)
+    of outlinedGhost:
+      ButtonLikeStyles(background: clearColor(), borderColor: clearColor(),
+        labelColor: foreground, iconColor: foreground)
+    of subtle:
+      ButtonLikeStyles(background: element, borderColor: clearColor(),
+        labelColor: foreground, iconColor: foreground)
+    of transparent:
+      ButtonLikeStyles(background: clearColor(), borderColor: clearColor(),
+        labelColor: foreground, iconColor: foreground)
+
+  case state
+  of normal: discard
+  of focused:
+    result.borderColor = themeColor(theme.borderFocused, accent)
+  of hovered:
+    result.background = hover
+  of active:
+    result.background = if style == filled: accent else: activeColor
+    if style in {outlined, outlinedGhost}: result.borderColor = accent
+  of disabled:
+    result.background = disabledBackground
+    result.borderColor = disabledBorder
+    result.labelColor = disabledText
+    result.iconColor = disabledText
+
+## Native AppKit chrome buttons use this small retained tree because their
+## views are owned by the platform layer rather than by the demo UiTree.  The
+## tree is still the source of truth: callers push flags here and receive the
+## precedence-resolved UiState, never a second BOOL state machine.
+var chromeButtonTree = newUiTree()
+var chromeButtonNodes = initTable[uint64, NodeId]()
+
+proc chromeButtonNode(identity: uint64): NodeId =
+  if chromeButtonNodes.hasKey(identity): return chromeButtonNodes[identity]
+  let node = chromeButtonTree.addNode(focusable = true)
+  chromeButtonNodes[identity] = node
+  node
+
+proc nimculus_chrome_button_state*(identity: uint64, hovered, active,
+                                  disabled: bool): cint {.exportc,
+                                  cdecl.} =
+  let node = chromeButtonNode(identity)
+  chromeButtonTree.setHovered(node, hovered)
+  chromeButtonTree.setActive(node, active)
+  chromeButtonTree.setDisabled(node, disabled)
+  cint(ord(chromeButtonTree.node(node).state))
 
 proc trackClick*(): ScrollbarEvent =
   ScrollbarEvent(kind: TrackClick, grabDelta: px(0))
