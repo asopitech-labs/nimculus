@@ -22,6 +22,13 @@ type
     keyCode*: uint32
     modifiers*: set[Modifier]
 
+  PendingInput* = object
+    ## Key strokes that are waiting for a longer binding to become complete.
+    ## The focus snapshot is owned by the window/app input boundary.
+    keystrokes*: seq[Keystroke]
+    focus*: NodeId
+    needsTimeout*: bool
+
   Shortcut* = object
     keystrokes*: seq[Keystroke]
     ## Deprecated single-keystroke fields retained for source compatibility.
@@ -37,6 +44,14 @@ type
 
   CommandRegistry* = object
     commands*: seq[Command]
+
+  DispatchResult* = object
+    ## Commands are returned for the caller to invoke on its UI thread. A
+    ## replay is deliberately data-only: the caller decides how the original
+    ## input event should continue through its normal event path.
+    bindings*: seq[Command]
+    pending*: seq[Keystroke]
+    toReplay*: seq[Keystroke]
 
 var keyBindingPredicateParseCount* = 0
 var actionRegistry*: Table[string, ActionBuilder] = initTable[string, ActionBuilder]()
@@ -133,6 +148,74 @@ proc bindingsForInput*(registry: CommandRegistry, shortcut: Shortcut,
     else: cmp(right.index, left.index))
   for match in matches:
     result.add(match.command)
+
+proc bindingsForPrefix(registry: CommandRegistry,
+                       typed: openArray[Keystroke],
+                       contexts: openArray[KeyContext]): seq[Command] =
+  ## Return bindings for which `typed` is a strict prefix. Keep the same
+  ## context and registration precedence as exact key dispatch.
+  var matches: seq[tuple[command: Command, depth: int, index: int]]
+  for index in countdown(registry.commands.high, 0):
+    let candidate = registry.commands[index]
+    if candidate.shortcut.matchKeystrokes(typed) != (false, true): continue
+    let depth = candidate.matchingDepth(contexts)
+    if depth >= 0:
+      matches.add((candidate, depth, index))
+  matches.sort(proc(left, right: (typeof matches[0])): int =
+    if left.depth != right.depth: cmp(right.depth, left.depth)
+    else: cmp(right.index, left.index))
+  for match in matches:
+    result.add(match.command)
+
+proc dispatchKey*(registry: CommandRegistry, pending: var PendingInput,
+                  keystroke: Keystroke,
+                  contexts: openArray[KeyContext]): DispatchResult =
+  ## Resolve one physical key against the current pending sequence.
+  ##
+  ## An exact binding is delayed when it is also a prefix of a longer binding;
+  ## this is the same ambiguity that Zed resolves with its one-second flush.
+  ## If the sequence stops matching, the whole sequence is returned in input
+  ## order for replay and no delayed exact binding is invoked here.
+  var typed = pending.keystrokes
+  typed.add(keystroke)
+  let exact = registry.bindingsForInput(
+    Shortcut(keystrokes: typed), contexts)
+  let prefix = registry.bindingsForPrefix(typed, contexts)
+
+  if prefix.len > 0:
+    pending.keystrokes = typed
+    pending.needsTimeout = exact.len > 0
+    result.pending = typed
+    return
+
+  if exact.len > 0:
+    result.bindings = exact
+  elif pending.keystrokes.len > 0:
+    result.toReplay = typed
+  else:
+    result.toReplay = @[keystroke]
+  pending = PendingInput()
+  result.pending = pending.keystrokes
+
+proc invalidatePendingInput*(pending: var PendingInput,
+                             focused: NodeId): bool =
+  ## Focus changes invalidate the sequence before the next key is resolved.
+  if pending.keystrokes.len == 0 or pending.focus == focused:
+    return false
+  pending = PendingInput()
+  true
+
+proc flushDispatch*(registry: CommandRegistry, pending: var PendingInput,
+                    contexts: openArray[KeyContext]): DispatchResult =
+  ## Flush a pending sequence whose exact binding was held behind a longer
+  ## prefix. The caller invokes the returned commands, then continues with an
+  ## empty pending state.
+  if pending.keystrokes.len == 0:
+    return
+  result.bindings = registry.bindingsForInput(
+    Shortcut(keystrokes: pending.keystrokes), contexts)
+  pending = PendingInput()
+  result.pending = pending.keystrokes
 
 proc resolve*(registry: CommandRegistry, shortcut: Shortcut,
               contexts: openArray[KeyContext]): Command =

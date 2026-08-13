@@ -1,4 +1,5 @@
 import std/algorithm
+import std/atomics
 import std/json
 import std/math
 import std/os
@@ -46,9 +47,16 @@ var platformDispatcher: PlatformDispatcher
 var backgroundExecutor: BackgroundExecutor
 var pendingGitRepository: Future[GitRepository]
 var pendingGitRepositoryRoot = ""
+var pendingShortcutTimeoutGeneration: Atomic[uint64]
+
+proc flushPendingShortcut(expectedGeneration: uint64)
 
 proc receiveNativeFrame() {.cdecl.} =
   ## One non-blocking async tick per live display frame.
+  let timeoutGeneration = pendingShortcutTimeoutGeneration.load()
+  if timeoutGeneration != 0:
+    pendingShortcutTimeoutGeneration.store(0)
+    flushPendingShortcut(timeoutGeneration)
   pollAsyncDispatchTick()
 
 when defined(windows):
@@ -141,6 +149,8 @@ proc persistSession()
 
 var demoTree = newUiTree()
 var shortcutRegistry: CommandRegistry
+var pendingInput: PendingInput
+var pendingShortcutGeneration: uint64
 var demoButton = NodeId(0)
 var demoSplitNode = NodeId(0)
 var demoScrollNode = NodeId(0)
@@ -660,6 +670,29 @@ when defined(macosx):
   proc navigateToDefinition()
   proc applyPendingFormatting()
 
+proc dispatchShortcutBindings(bindings: openArray[Command]): bool =
+  for command in bindings:
+    if command.action.dispatchAction(): return true
+  false
+
+proc flushPendingShortcut(expectedGeneration: uint64) =
+  if expectedGeneration != pendingShortcutGeneration or
+      pendingInput.keystrokes.len == 0:
+    return
+  if pendingInput.invalidatePendingInput(demoTree.focused):
+    inc pendingShortcutGeneration
+    return
+  let result = shortcutRegistry.flushDispatch(pendingInput,
+    demoTree.contextStack())
+  inc pendingShortcutGeneration
+  discard dispatchShortcutBindings(result.bindings)
+
+proc schedulePendingShortcutTimeout(generation: uint64) =
+  if platformDispatcher == nil: return
+  platformDispatcher.dispatchAfter(1_000_000_000'u64,
+    proc() {.gcsafe.} =
+    pendingShortcutTimeoutGeneration.store(generation))
+
 proc dispatchNativeShortcut(event: ptr NimculusInputEvent): bool {.cdecl.} =
   if event == nil: return false
   when defined(macosx):
@@ -670,9 +703,23 @@ proc dispatchNativeShortcut(event: ptr NimculusInputEvent): bool {.cdecl.} =
     # Keep the registry's platform-neutral command bindings usable on Win32.
     if (modifiers and (1'u32 shl 18)) != 0:
       modifiers = (modifiers or (1'u32 shl 20)) and not (1'u32 shl 18)
-  shortcutRegistry.dispatchShortcut(Shortcut(keystrokes: @[
-    Keystroke(keyCode: event.keyCode, modifiers: macOSModifiers(modifiers))]),
+  if pendingInput.invalidatePendingInput(demoTree.focused):
+    inc pendingShortcutGeneration
+  if pendingInput.keystrokes.len == 0:
+    pendingInput.focus = demoTree.focused
+  let dispatchResult = shortcutRegistry.dispatchKey(pendingInput,
+    Keystroke(keyCode: event.keyCode, modifiers: macOSModifiers(modifiers)),
     demoTree.contextStack())
+  inc pendingShortcutGeneration
+  if pendingInput.needsTimeout:
+    schedulePendingShortcutTimeout(pendingShortcutGeneration)
+  if dispatchResult.bindings.len > 0:
+    return dispatchShortcutBindings(dispatchResult.bindings)
+  # A replay is returned to the normal input path. The platform callback only
+  # receives the current physical event, so returning false lets that event
+  # continue while the preceding sequence remains available in the result for
+  # a richer window event path.
+  dispatchResult.toReplay.len == 0 and dispatchResult.pending.len > 0
 
 proc actionBuilder(name: string): ActionBuilder =
   result = proc(payload: JsonNode): Action =
