@@ -31,7 +31,7 @@
 **一部のみ — 先に片付ける**
 
 - [ ] **NSApplication bootstrap and app-delegate callbacks** — Zed `crates/gpui_macos/src/platform.rs:70 (build_classes), :488 (Platform::run), :1274 (did_finish_launching)`
-- [ ] **Runtime NSView/NSWindow subclass synthesis with a fixed selector set** — Zed `crates/gpui_macos/src/window.rs:131-303 (VIEW_CLASS), :365-474 (build_window_class)`
+- [x] **Runtime NSView/NSWindow subclass synthesis with a fixed selector set** — Zed `crates/gpui_macos/src/window.rs:131-303 (VIEW_CLASS), :365-474 (build_window_class)`
 - [x] **Display-link frame pacing** — Zed `crates/gpui_macos/src/display_link.rs:65-226 (immortal per-display CVDisplayLink registry), :231 (WindowFrameSource), crates/gpui_macos/src/window.rs:670 (start_display_link), :2689 (step callback)`
 - [ ] **Metal renderer: pipeline states per primitive kind and a pooled instance buffer** — Zed `crates/gpui_macos/src/metal_renderer.rs:111-140 (MetalRenderer fields), :56-109 (InstanceBufferPool), :446 (draw), :1047-1568 (draw_shadows/quads/paths/underlines/mono+poly sprites/surfaces)`
 - [ ] **Sprite atlas with shelf packing and keyed tiles** — Zed `crates/gpui_macos/src/metal_atlas.rs:13 (MetalAtlas), :40 (get_or_insert_with), :96 (allocate), :121 (push_texture), :62/:250 (remove + refcount)`
