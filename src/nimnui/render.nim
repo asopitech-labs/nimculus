@@ -119,12 +119,13 @@ proc effectiveScaleFactor(paint: PaintList): float32 =
   if paint.scaleFactor > 0: paint.scaleFactor else: 1.0'f32
 
 proc pixelSnap*(value: Pixels, scaleFactor: float32): Pixels =
-  ## Snap an ambient offset without making a half-pixel scroll move a full
-  ## logical pixel on a 1x display. Truncation toward zero is intentional:
-  ## the offset is a prepaint delta, not an absolute layout coordinate.
+  ## Snap an ambient offset to the nearest device pixel. Midpoint ties use
+  ## Zed's round-half-toward-zero rule: 0.5 becomes 0, while 0.5001 becomes
+  ## 1 (and the negative values mirror those results).
   let scale = if scaleFactor > 0: scaleFactor else: 1.0'f32
   let scaled = float32(value) * scale
-  let snapped = if scaled >= 0: floor(scaled) else: ceil(scaled)
+  let magnitude = ceil(abs(scaled) - 0.5'f32)
+  let snapped = if scaled < 0: -magnitude else: magnitude
   px(snapped / scale)
 
 proc pixelSnapPoint*(point: Point, scaleFactor: float32): Point =

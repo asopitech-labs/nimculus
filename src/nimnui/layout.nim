@@ -106,7 +106,7 @@ proc alignCross(origin, available, extent, leading, trailing: Pixels,
                 alignment: Alignment): Pixels =
   let free = maxPx(px(0), available - leading - trailing - extent)
   case alignment
-  of alignCenter: origin + leading + free / px(2)
+  of alignCenter: origin + leading + px(float32(free) / 2'f32)
   of alignEnd: origin + available - trailing - extent
   else: origin + leading
 
@@ -202,7 +202,7 @@ proc layoutNodeRecursive(tree: var UiTree, id: NodeId, bounds: Rect,
     for index in 0 ..< children.len: baseTotal = baseTotal + extents[index] + mainMargins[index]
     remaining = maxPx(px(0), available - gapTotal - baseTotal)
   elif flowCount > 0 and baseTotal == px(0):
-    let equalExtent = maxPx(px(0), (available - gapTotal) / px(float32(flowCount)))
+    let equalExtent = maxPx(px(0), px(float32(available - gapTotal) / float32(flowCount)))
     for index, child in children:
       if tree.nodes[tree.nodeIndex(child)].layoutSpec.position != absolute: extents[
           index] = equalExtent
@@ -216,16 +216,17 @@ proc layoutNodeRecursive(tree: var UiTree, id: NodeId, bounds: Rect,
   var distributedGap = spec.gap
   case mainAlignment
   of alignEnd: cursor = cursor + remaining
-  of alignCenter: cursor = cursor + remaining / px(2)
+  of alignCenter: cursor = cursor + px(float32(remaining) / 2'f32)
   of alignSpaceBetween:
-    if flowCount > 1: distributedGap = distributedGap + remaining / px(float32(flowCount - 1))
+    if flowCount > 1: distributedGap = distributedGap +
+      px(float32(remaining) / float32(flowCount - 1))
   of alignSpaceEvenly:
-    distributedGap = distributedGap + remaining / px(float32(flowCount + 1))
-    cursor = cursor + remaining / px(float32(flowCount + 1))
+    distributedGap = distributedGap + px(float32(remaining) / float32(flowCount + 1))
+    cursor = cursor + px(float32(remaining) / float32(flowCount + 1))
   of alignSpaceAround:
     if flowCount > 0:
-      distributedGap = distributedGap + remaining / px(float32(flowCount))
-      cursor = cursor + remaining / px(float32(flowCount * 2))
+      distributedGap = distributedGap + px(float32(remaining) / float32(flowCount))
+      cursor = cursor + px(float32(remaining) / float32(flowCount * 2))
   else: discard
 
   for index, child in children:
