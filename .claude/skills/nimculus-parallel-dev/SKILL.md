@@ -225,6 +225,32 @@ Zed 側の絶対値も上がっていた（17.9ms → 20ms 台）ので**ホス�
 両方をやらないと、負荷のせいにして本当の後退を見逃すか、
 負荷を後退と誤判定するかのどちらかになる。
 
+### 画素が上がっても機能が壊れていることがある（2026-08-13、Sprite atlas）
+
+`Sprite atlas with shelf packing and keyed tiles`（`ar`）を統合後、
+**画素一致率は両方とも上昇**した（単一 90.68% -> 92.56%、
+WS 93.05% -> 93.25%）。良い変化に見えたが、run.log を最後まで読むと:
+
+```
+FAIL: scrolled 0px, expected at least 1px. The timing for this run is meaningless.
+（5 回連続）
+nimculus: no calibration step produced a usable shift
+```
+
+**nimculus 側でスクロールが物理的に動かなくなっていた。** グリフの
+再描画は直った（だから静止画の一致率は上がった）が、スクロール入力の
+キャリブレーションが 0px しか検出できず、スクロール比そのものが
+測定不能になっていた。`tools/ui_test.sh` の終了コードは xcodebuild が
+`** TEST SUCCEEDED **` を返す限り 0 になるので、**grep で拾う
+`ms per 100px` の行が片方（zed）しか出ていないことに気付かないと
+見逃す。**
+
+**`ms per 100px` を grep したとき、`nimculus:` と `zed:` の両方が
+出ているかを必ず確かめる。** 片方しか出ていなければ、run.log を
+最後まで読んで `FAIL:` 行を探すこと。画素が上がっていても
+安心しない — 静止画の比較とスクロールの実測は別の機構で、
+一方が良くなってももう一方が壊れることがある。
+
 ### 全テスト成功でも画面から機能が消えることがある（2026-08-13）
 
 `WindowInvalidator` と `DrawPhase` の移植は `nim check` 通過・**29/29 全テスト成功**・
