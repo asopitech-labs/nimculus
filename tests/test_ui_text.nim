@@ -35,6 +35,76 @@ proc registerTestAction(name: string,
   registerActionHandler(name, handler)
 
 suite "M2 UI foundation":
+  test "text style refinement changes only fields present in the refinement":
+    let base = TextStyle(
+      color: [0.1'f32, 0.2'f32, 0.3'f32, 0.9'f32],
+      fontFamily: "Menlo", fontFeatures: @["liga"],
+      fontFallbacks: @["monospace"], fontSize: rems(1.25'f32),
+      lineHeight: RelativeLength(value: 1.5'f32), fontWeight: 400,
+      fontStyle: fontStyleItalic,
+      backgroundColor: some([0.4'f32, 0.5'f32, 0.6'f32, 1'f32]),
+      underline: some(UnderlineStyle(thickness: 2'f32, wavy: true)),
+      strikethrough: some(StrikethroughStyle(thickness: 1'f32)),
+      whiteSpace: whiteSpacePre, textOverflow: textOverflowEllipsis,
+      textAlign: textAlignCenter, lineClamp: some(3))
+    let refined = base.refine(TextStyleRefinement(fontWeight: some(700)))
+    check refined.color == base.color
+    check refined.fontFamily == base.fontFamily
+    check refined.fontFeatures == base.fontFeatures
+    check refined.fontFallbacks == base.fontFallbacks
+    check refined.fontSize == base.fontSize
+    check refined.lineHeight == base.lineHeight
+    check refined.fontWeight == 700
+    check refined.fontStyle == base.fontStyle
+    check refined.backgroundColor == base.backgroundColor
+    check refined.underline == base.underline
+    check refined.strikethrough == base.strikethrough
+    check refined.whiteSpace == base.whiteSpace
+    check refined.textOverflow == base.textOverflow
+    check refined.textAlign == base.textAlign
+    check refined.lineClamp == base.lineClamp
+
+  test "default text style line height uses rems and rounds":
+    let style = defaultTextStyle()
+    check float32(style.lineHeightInPixels(16'f32)) == 26'f32
+    check float32(style.lineHeightInPixels(12'f32)) == 19'f32
+
+  test "text highlights blend colors and replace emphasis values":
+    let base = defaultTextStyle().refine(TextStyleRefinement(
+      color: some([1'f32, 0'f32, 0'f32, 1'f32])))
+    let highlighted = base.highlight(HighlightStyle(
+      color: some([0'f32, 0'f32, 1'f32, 0.5'f32]),
+      fontWeight: some(700)))
+    check abs(highlighted.color[0] - 0.5'f32) < 1e-6'f32
+    check abs(highlighted.color[1] - 0'f32) < 1e-6'f32
+    check abs(highlighted.color[2] - 0.5'f32) < 1e-6'f32
+    check highlighted.color[3] == 1'f32
+    check highlighted.fontWeight == 700
+    check base.highlight(HighlightStyle(
+      color: some([0'f32, 1'f32, 0'f32, 1'f32]))).color ==
+      [0'f32, 1'f32, 0'f32, 1'f32]
+    check base.highlight(HighlightStyle(
+      color: some([0'f32, 1'f32, 0'f32, 0'f32]))).color == base.color
+
+  test "fade out and highlight fade composition preserve Zed semantics":
+    let color: TextColor = [0.2'f32, 0.3'f32, 0.4'f32, 1'f32]
+    check abs(color.fadeOut(0.25'f32)[3] - 0.75'f32) < 1e-6'f32
+    let dest = HighlightStyle(fadeOut: some(0.5'f32))
+    let source = HighlightStyle(fadeOut: some(0.5'f32))
+    check abs(dest.highlight(source).fadeOut.get - 0.75'f32) < 1e-6'f32
+    let faded = defaultTextStyle().highlight(HighlightStyle(
+      fadeOut: some(0.25'f32)))
+    check abs(faded.color[3] - 0.75'f32) < 1e-6'f32
+
+  test "text runs use the resolved font from their style":
+    let style = defaultTextStyle().refine(TextStyleRefinement(
+      fontFamily: some("Menlo"), fontSize: some(rems(1.25'f32)),
+      fontWeight: some(600)))
+    let run = style.toRun(9)
+    check run.len == 9
+    check run.fontId == style.font.id
+    check run.color == style.color
+
   test "line layout cache transfers the previous frame without rebuilding":
     let cache = newTestLineLayoutCache(testShaper)
     let runs = @[FontRun(len: 7, fontId: 0)]

@@ -2,6 +2,7 @@ import std/unicode
 import std/tables
 import std/options
 import std/hashes
+import std/math
 import graphemes
 import nimnui/geometry
 
@@ -40,6 +41,98 @@ type
   TextPosition* = object
     byteOffset*: int
     graphemeIndex*: int
+
+  ## Text colors use the same RGBA channel order as TextRun.  Hsla and Rgba
+  ## are aliases here because the platform boundary only needs four channels;
+  ## keeping the value flat also makes refinement and run creation cheap.
+  TextColor* = array[4, float32]
+  Hsla* = TextColor
+  Rgba* = TextColor
+
+  LengthUnit* = enum
+    lengthRem, lengthPixels
+
+  AbsoluteLength* = object
+    value*: float32
+    unit*: LengthUnit
+
+  RelativeLength* = object
+    value*: float32
+
+  FontWeight* = int
+
+  FontStyle* = enum
+    fontStyleNormal, fontStyleItalic
+
+  WhiteSpace* = enum
+    whiteSpaceNormal, whiteSpacePre, whiteSpaceNoWrap
+
+  TextOverflow* = enum
+    textOverflowClip, textOverflowEllipsis
+
+  TextAlign* = enum
+    textAlignLeft, textAlignCenter, textAlignRight, textAlignJustify
+
+  ## These records intentionally contain only the values needed by the text
+  ## style layer. Painting-specific decoration details belong to later rows.
+  UnderlineStyle* = object
+    color*: Option[TextColor]
+    thickness*: float32
+    wavy*: bool
+
+  StrikethroughStyle* = object
+    color*: Option[TextColor]
+    thickness*: float32
+
+  TextStyle* = object
+    color*: TextColor
+    fontFamily*: string
+    fontFeatures*: seq[string]
+    fontFallbacks*: seq[string]
+    fontSize*: AbsoluteLength
+    lineHeight*: RelativeLength
+    fontWeight*: FontWeight
+    fontStyle*: FontStyle
+    backgroundColor*: Option[TextColor]
+    underline*: Option[UnderlineStyle]
+    strikethrough*: Option[StrikethroughStyle]
+    whiteSpace*: WhiteSpace
+    textOverflow*: TextOverflow
+    textAlign*: TextAlign
+    lineClamp*: Option[int]
+
+  TextStyleRefinement* = object
+    color*: Option[TextColor]
+    fontFamily*: Option[string]
+    fontFeatures*: Option[seq[string]]
+    fontFallbacks*: Option[seq[string]]
+    fontSize*: Option[AbsoluteLength]
+    lineHeight*: Option[RelativeLength]
+    fontWeight*: Option[FontWeight]
+    fontStyle*: Option[FontStyle]
+    backgroundColor*: Option[Option[TextColor]]
+    underline*: Option[Option[UnderlineStyle]]
+    strikethrough*: Option[Option[StrikethroughStyle]]
+    whiteSpace*: Option[WhiteSpace]
+    textOverflow*: Option[TextOverflow]
+    textAlign*: Option[TextAlign]
+    lineClamp*: Option[Option[int]]
+
+  HighlightStyle* = object
+    color*: Option[TextColor]
+    fontWeight*: Option[FontWeight]
+    fontStyle*: Option[FontStyle]
+    backgroundColor*: Option[TextColor]
+    underline*: Option[UnderlineStyle]
+    strikethrough*: Option[StrikethroughStyle]
+    fadeOut*: Option[float32]
+
+  Font* = object
+    id*: uint32
+    family*: string
+    size*: Pixels
+    weight*: FontWeight
+    style*: FontStyle
 
   FontRun* = object
     ## A contiguous UTF-8 span shaped with one platform font ID.
@@ -223,6 +316,113 @@ const
   semibold* = weightSemibold
 
 const MaxIndent* = 256
+
+proc rems*(value: float32): AbsoluteLength =
+  AbsoluteLength(value: value, unit: lengthRem)
+
+proc pixels*(value: float32): AbsoluteLength =
+  AbsoluteLength(value: value, unit: lengthPixels)
+
+proc phi*(): RelativeLength =
+  RelativeLength(value: 1.618'f32)
+
+proc defaultTextStyle*(): TextStyle =
+  TextStyle(
+    color: [0'f32, 0'f32, 0'f32, 1'f32],
+    fontFamily: "",
+    fontFeatures: @[],
+    fontFallbacks: @[],
+    fontSize: rems(1'f32),
+    lineHeight: phi(),
+    fontWeight: 400,
+    fontStyle: fontStyleNormal,
+    backgroundColor: none(TextColor),
+    underline: none(UnderlineStyle),
+    strikethrough: none(StrikethroughStyle),
+    whiteSpace: whiteSpaceNormal,
+    textOverflow: textOverflowClip,
+    textAlign: textAlignLeft,
+    lineClamp: none(int))
+
+proc refine*(base: TextStyle, over: TextStyleRefinement): TextStyle =
+  result = base
+  if over.color.isSome: result.color = over.color.get
+  if over.fontFamily.isSome: result.fontFamily = over.fontFamily.get
+  if over.fontFeatures.isSome: result.fontFeatures = over.fontFeatures.get
+  if over.fontFallbacks.isSome: result.fontFallbacks = over.fontFallbacks.get
+  if over.fontSize.isSome: result.fontSize = over.fontSize.get
+  if over.lineHeight.isSome: result.lineHeight = over.lineHeight.get
+  if over.fontWeight.isSome: result.fontWeight = over.fontWeight.get
+  if over.fontStyle.isSome: result.fontStyle = over.fontStyle.get
+  if over.backgroundColor.isSome: result.backgroundColor = over.backgroundColor.get
+  if over.underline.isSome: result.underline = over.underline.get
+  if over.strikethrough.isSome: result.strikethrough = over.strikethrough.get
+  if over.whiteSpace.isSome: result.whiteSpace = over.whiteSpace.get
+  if over.textOverflow.isSome: result.textOverflow = over.textOverflow.get
+  if over.textAlign.isSome: result.textAlign = over.textAlign.get
+  if over.lineClamp.isSome: result.lineClamp = over.lineClamp.get
+
+proc font*(style: TextStyle): Font =
+  ## Font IDs are stable for a style's face attributes. The size remains on
+  ## Font because callers use it when resolving a platform font instance.
+  var value = hash(style.fontFamily)
+  value = value !& hash(style.fontWeight)
+  value = value !& hash(ord(style.fontStyle))
+  result = Font(id: uint32(value), family: style.fontFamily,
+    size: px(if style.fontSize.unit == lengthPixels: style.fontSize.value else:
+      style.fontSize.value), weight: style.fontWeight, style: style.fontStyle)
+
+proc lineHeightInPixels*(style: TextStyle, remSize: float32): Pixels =
+  let fontSize = if style.fontSize.unit == lengthRem:
+      style.fontSize.value * remSize
+    else:
+      style.fontSize.value
+  px(float32(round(style.lineHeight.value * fontSize)))
+
+proc blend*(base, over: TextColor): TextColor =
+  let alpha = over[3]
+  if alpha <= 0'f32: return base
+  if alpha >= 1'f32: return over
+  for index in 0 .. 2:
+    result[index] = base[index] * (1'f32 - alpha) + over[index] * alpha
+  result[3] = base[3]
+
+proc fadeOut*(color: TextColor, factor: float32): TextColor =
+  result = color
+  result[3] *= 1'f32 - factor
+
+proc highlight*(base: TextStyle, over: HighlightStyle): TextStyle =
+  result = base
+  if over.color.isSome:
+    result.color = result.color.blend(over.color.get)
+  if over.fontWeight.isSome: result.fontWeight = over.fontWeight.get
+  if over.fontStyle.isSome: result.fontStyle = over.fontStyle.get
+  if over.backgroundColor.isSome: result.backgroundColor = some(over.backgroundColor.get)
+  if over.underline.isSome: result.underline = some(over.underline.get)
+  if over.strikethrough.isSome: result.strikethrough = some(over.strikethrough.get)
+  if over.fadeOut.isSome: result.color = result.color.fadeOut(over.fadeOut.get)
+
+proc highlight*(dest, source: HighlightStyle): HighlightStyle =
+  result = dest
+  if source.color.isSome:
+    if result.color.isSome:
+      result.color = some(result.color.get.blend(source.color.get))
+    else:
+      result.color = source.color
+  if source.fontWeight.isSome: result.fontWeight = source.fontWeight
+  if source.fontStyle.isSome: result.fontStyle = source.fontStyle
+  if source.backgroundColor.isSome: result.backgroundColor = source.backgroundColor
+  if source.underline.isSome: result.underline = source.underline
+  if source.strikethrough.isSome: result.strikethrough = source.strikethrough
+  if source.fadeOut.isSome:
+    if result.fadeOut.isSome:
+      let combined = result.fadeOut.get * (1'f32 + source.fadeOut.get)
+      result.fadeOut = some(max(0'f32, min(1'f32, combined)))
+    else:
+      result.fadeOut = source.fadeOut
+
+proc toRun*(style: TextStyle, len: int): TextRun =
+  TextRun(len: len, fontId: style.font.id, color: style.color)
 
 var wrapperPool*: Table[FontIdWithSize, seq[LineWrapper]] =
   initTable[FontIdWithSize, seq[LineWrapper]]()
