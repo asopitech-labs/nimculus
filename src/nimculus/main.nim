@@ -4,6 +4,7 @@ import std/json
 import std/math
 import std/os
 import std/osproc
+import std/options
 import std/sequtils
 import std/strutils
 import std/times
@@ -119,7 +120,11 @@ when defined(macosx) or defined(windows):
         var frameTiming: FrameTimingStats
         platformGetInputLatencyStats(addr latency)
         platformGetFrameTimingStats(addr frameTiming)
+        let dirtyToDraw = demoWindow.dirtyToDrawMs()
+        let dirtyToDrawLabel = if dirtyToDraw.isSome:
+          formatFloat(dirtyToDraw.get, ffDecimal, 3) else: "none"
         latencyDetails = "\tlast_frame_ms=" & formatFloat(metrics.lastFrameTimeMs, ffDecimal, 3) &
+          "\tdirty_to_draw_ms=" & dirtyToDrawLabel &
           "\tframe_samples=" & $frameTiming.sampleCount &
           "\tframe_p95_ms=" & formatFloat(frameTiming.p95Ms, ffDecimal, 3) &
           "\tframe_over_60hz_budget=" & $frameTiming.over60HzBudgetCount &
@@ -705,25 +710,28 @@ proc setupDemoUi() =
       transformTy: cfloat(command.transform.ty),
       imageId: command.imageId, selectionRowStart: rowStart,
       selectionRowCount: uint32(command.selectionRows.len))
-  if nativeCommands.len > 0:
-    platformSetPaintCommands(addr nativeCommands[0], uint32(nativeCommands.len))
-  else:
-    platformSetPaintCommands(nil, 0)
-  if nativeSelectionRows.len > 0:
-    platformSetPaintSelectionRows(addr nativeSelectionRows[0], uint32(nativeSelectionRows.len))
-  else:
-    platformSetPaintSelectionRows(nil, 0)
-  var nativeDirty = newSeq[NativePaintRegion](paint.dirty.len)
-  for index, dirty in paint.dirty:
-    nativeDirty[index] = NativePaintRegion(
-      x: cfloat(float32(dirty.origin.x)),
-      y: cfloat(float32(dirty.origin.y)),
-      width: cfloat(float32(dirty.size.width)),
-      height: cfloat(float32(dirty.size.height)))
-  if nativeDirty.len > 0:
-    platformSetPaintDirtyRegions(addr nativeDirty[0], uint32(nativeDirty.len))
-  else:
-    platformSetPaintDirtyRegions(nil, 0)
+  let paintPublished = demoWindow.publishPaint()
+  if paintPublished:
+    if nativeCommands.len > 0:
+      platformSetPaintCommands(addr nativeCommands[0], uint32(nativeCommands.len))
+    else:
+      platformSetPaintCommands(nil, 0)
+    if nativeSelectionRows.len > 0:
+      platformSetPaintSelectionRows(addr nativeSelectionRows[0], uint32(nativeSelectionRows.len))
+    else:
+      platformSetPaintSelectionRows(nil, 0)
+    var nativeDirty = newSeq[NativePaintRegion](paint.dirty.len)
+    for index, dirty in paint.dirty:
+      nativeDirty[index] = NativePaintRegion(
+        x: cfloat(float32(dirty.origin.x)),
+        y: cfloat(float32(dirty.origin.y)),
+        width: cfloat(float32(dirty.size.width)),
+        height: cfloat(float32(dirty.size.height)))
+    if nativeDirty.len > 0:
+      platformSetPaintDirtyRegions(addr nativeDirty[0], uint32(nativeDirty.len))
+    else:
+      platformSetPaintDirtyRegions(nil, 0)
+    discard demoWindow.presentIfNeeded()
   when defined(macosx):
     platformSetEditorSidebarVisible(sidebarCanPresent)
     platformSetEditorSidebarOnRight(sidebarOnRight)
