@@ -17,6 +17,7 @@ import nimnui/ime
 import nimnui/commands
 import nimnui/accessibility
 import nimnui/executor
+import nimnui/entity
 
 export platform
 export mock_renderer
@@ -26,6 +27,7 @@ export ime
 export commands
 export accessibility
 export executor
+export entity
 
 type
   RendererKind* = enum
