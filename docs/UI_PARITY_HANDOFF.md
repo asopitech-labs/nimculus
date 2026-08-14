@@ -1,6 +1,77 @@
 # Zed UI パリティ作業 引き継ぎメモ
 
-最終更新: 2026-08-07 / ブランチ `main`（`5031673` まで）
+最終更新: 2026-08-14 / ブランチ `main`（`f9aec35` まで、push 済み）
+
+## 0. セッション引き継ぎ（2026-08-14 時点）
+
+**次にやること**: `docs/ZED_PORT_TASKS.md` の `[ ]` から 2 件選び、
+[nimculus-parallel-dev] スキルの手順でワークトリーを作って `codex exec` に投げる。
+
+指示書の元データは **[`.claude/port-briefs/briefs.json`](../.claude/port-briefs/briefs.json)**
+に保存済み（174件、台帳の未着手130件のうち130件をカバー）。各エントリは
+`mechanism`（台帳の項目名と完全一致）/ `zed_reference` / `what_is_missing` /
+`files_to_touch` / `acceptance` / `verifiable_by` / `size` / `layer` を持つ。
+台帳の項目名で引いて `files_to_touch` と `acceptance` を指示書に流し込めば
+ゼロから調査し直さずに済む（スクラッチパスの一時ファイルは消えているので、
+これが唯一残る元データ）。テンプレート文言（ゲート4段の説明・逃げ道禁止・
+配線の証明を求める常設条項）は本メモの「§0 検証ゲート」と
+[nimculus-parallel-dev] を見て組み立て直すこと（テンプレート自体はスクラッチパス
+にあり失われている）。
+
+### 現在地
+
+- 台帳: **216 / 128**（`docs/ZED_PORT_TASKS.md`、`[x]` 216 / `[ ]` 128）
+- `main` は `git status` クリーン、push 済み、`.nimcache` 全消しで 38/38、
+  `nimble packageMacos` rc=0 を確認済み
+- 画素: 単一 90.69% / ワークスペース 93.05%（このセッション開始時 90.23%/93.05% から改善）
+- スクロール比（nimculus/zed の ms per 100px）: 直近の健全値は概ね 0.9〜1.0 帯
+
+### 未完了で残っている作業
+
+**ワークトリー `../nimculus-wt-ar` と `../nimculus-wt-as` が残存している。**
+どちらも一度 `main` にマージしてから実測で問題が見つかり **revert 済み**（`main` には
+入っていない）。中身は「もう一歩で完成」の実装なので、消さずに次の着手候補にする。
+
+| ワークトリー | 課題 | 何が起きたか | 次にやること |
+| --- | --- | --- | --- |
+| `../nimculus-wt-ar` | Sprite atlas with shelf packing and keyed tiles | 画素は**両方上昇**（単一 92.56%, WS 93.25%）したが、`run.log` 末尾に `scrolled 0px` が5回連続、`nimculus: no calibration step produced a usable shift`。**スクロール入力が物理的に効かなくなっていた** | グリフアトラス変更が入力イベント経路（マウス/スクロール座標変換）に干渉していないか確認してから再統合。3ゲート（`nim check`/ランナー/`packageMacos`）は通っていたので、**入力の実動作を確かめるテストが要る** |
+| `../nimculus-wt-as` | Double-buffered Frame with element-state carry | 3ゲートは通過、画素も維持。だが `tools/ui_test.sh parity` を**3回**回して比が毎回 1.03〜1.06（帯 0.85-1.02 の外）で安定。revert して同条件比較すると 0.978 に戻った | フレームスワップのどこかで毎フレーム余分なコストが乗っている。プロファイル計測（`tools/scroll_cost.sh` 等）で該当箇所を特定してから再実装 |
+
+どちらも「テストは全部通るのに実機で壊れている/遅い」系。統合前に必ず
+[nimculus-ui-test] の実測ゲートを踏むこと。
+
+### このセッションで固まった検証ゲート（次セッションでも必須）
+
+1. 衝突マーカー 0 件の確認
+2. `nim check --mm:arc --nimcache:.nimcache/chk --path:src src/nimculus/main.nim`
+3. テストランナー（`.nimcache` を**丸ごと**消してから。`macos_platform.m` を
+   触った回はこれを飛ばすと ObjC 変更が見えないまま「通った」ことになる）
+4. `NIMCULUS_ALLOW_ADHOC=1 nimble packageMacos` の**終了コード**（`nim check` と
+   ランナーが通ってもリリースビルドだけ落ちることがある。`;` で繋がず `||` で受ける）
+5. `tools/ui_test.sh parity` の画素一致率とスクロール比
+   - `grep "ms per 100px"` した結果に **`nimculus:` と `zed:` の両方**が
+     出ているか必ず確認する（片方だけならスクロール計測自体が失敗している）
+   - 比が帯から外れたら**同じ計測をもう一度**回し、2回とも同じ傾向なら
+     `revert` して同条件で比較する（ノイズと本物の後退を切り分ける）
+
+### 差し戻しからの復旧手順（踏んだ罠）
+
+`git revert` した項目を作り直して再統合するときは、**先に revert 自体を
+revert する**（`git revert <revert コミット>`）。そのまま `git merge port/X` すると
+git が「マージ済み」と判断し、修正差分だけが来て本体が来ず衝突する。
+
+マージ・revert・計測を 1 つのシェルコマンド列で `;` 連結しない。前段が
+失敗・衝突しても後段が実行され、「衝突マーカー入りで計測が完走した」
+「packageMacos が落ちたまま UI テストが走り、全部『アプリが見つからない』
+で落ちた」という事故を2回起こしている。各段は `&&` か `||｀ で明示的に
+受けること。
+
+詳しい罠と手順は [`.claude/skills/nimculus-parallel-dev/SKILL.md`](../.claude/skills/nimculus-parallel-dev/SKILL.md)
+と [`.claude/skills/nimculus-ui-test/SKILL.md`](../.claude/skills/nimculus-ui-test/SKILL.md) に
+逐次追記している。**作業前に必ず読むこと**（このセッションだけで10件以上の罠を追加した）。
+
+---
+
 
 ## 1. この作業のゴールと完了基準
 
