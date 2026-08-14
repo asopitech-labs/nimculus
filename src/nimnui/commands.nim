@@ -4,6 +4,7 @@ import std/algorithm
 import std/json
 import std/strutils
 import std/tables
+import std/unicode except splitWhitespace
 
 type
   ActionKind* = enum
@@ -64,6 +65,8 @@ var keyBindingPredicateParseCount* = 0
 var actionRegistry*: Table[string, ActionBuilder] = initTable[string, ActionBuilder]()
 var actionHandlers*: Table[string, CommandActionHandler] =
   initTable[string, CommandActionHandler]()
+var commandPaletteShortcuts = initTable[string, string]()
+var commandPaletteShortcutBuffer = ""
 
 const
   userBindingMeta* = 0'u32
@@ -193,6 +196,10 @@ proc matchingDepth(command: Command, contexts: openArray[KeyContext]): int =
   let depth = command.predicate.depthOf(contexts)
   if depth.matched: depth.depth else: -1
 
+proc rememberCommandPaletteShortcuts(registry: CommandRegistry,
+                                     actions: openArray[string],
+                                     contexts: openArray[KeyContext])
+
 proc availableActions*(registry: CommandRegistry,
                        contexts: openArray[KeyContext]): seq[string] =
   ## Return the registered command names whose predicates match the current
@@ -204,6 +211,7 @@ proc availableActions*(registry: CommandRegistry,
       seen[command.name] = true
       result.add(command.name)
   result.sort()
+  rememberCommandPaletteShortcuts(registry, result, contexts)
 
 proc isActionAvailable*(registry: CommandRegistry, name: string,
                         contexts: openArray[KeyContext]): bool =
@@ -212,6 +220,124 @@ proc isActionAvailable*(registry: CommandRegistry, name: string,
     if command.name == name and command.matchingDepth(contexts) >= 0:
       return true
   false
+
+proc highestPrecedenceBindingForAction(registry: CommandRegistry, name: string,
+                                       contexts: openArray[KeyContext]): Command =
+  ## This is the action-oriented counterpart to bindingsForInput. The picker
+  ## must show the same binding that dispatch would use after user bindings
+  ## have been appended to the registry.
+  var found = false
+  var bestDepth = -1
+  var bestIndex = -1
+  for index, candidate in registry.commands:
+    if candidate.name != name or candidate.action.isNoAction or
+        candidate.action.isUnbind or candidate.shortcut.effectiveKeystrokes().len == 0:
+      continue
+    let depth = candidate.matchingDepth(contexts)
+    if depth < 0: continue
+    if not found or depth > bestDepth or (depth == bestDepth and index > bestIndex):
+      result = candidate
+      bestDepth = depth
+      bestIndex = index
+      found = true
+
+proc shortcutDisplay*(shortcut: Shortcut): string
+
+proc normalizedPaletteName(name: string): string =
+  ## Main's palette labels turn camelCase action names into human labels for
+  ## most commands. Compare both forms without maintaining a second shortcut
+  ## catalogue in the platform layer.
+  for character in name:
+    if character.isAlphaNumeric:
+      result.add(character.toLowerAscii)
+
+proc rememberCommandPaletteShortcuts(registry: CommandRegistry,
+                                     actions: openArray[string],
+                                     contexts: openArray[KeyContext]) =
+  commandPaletteShortcuts.clear()
+  for action in actions:
+    let binding = registry.highestPrecedenceBindingForAction(action, contexts)
+    if binding.shortcut.effectiveKeystrokes().len > 0:
+      commandPaletteShortcuts[action] = binding.shortcut.shortcutDisplay()
+
+proc shortcutDisplay*(shortcut: Shortcut): string =
+  ## Render a macOS keybinding using the same compact glyphs as Zed's Key.
+  ## Chords are separated by a space so their boundaries remain visible.
+  let strokes = shortcut.effectiveKeystrokes()
+  for strokeIndex, stroke in strokes:
+    if strokeIndex > 0: result.add(" ")
+    if commandModifier in stroke.modifiers: result.add("⌘")
+    if optionModifier in stroke.modifiers: result.add("⌥")
+    if controlModifier in stroke.modifiers: result.add("⌃")
+    if shiftModifier in stroke.modifiers: result.add("⇧")
+    case stroke.keyCode
+    of 0: discard
+    of 36: result.add("↩")
+    of 48: result.add("⇥")
+    of 49: result.add("Space")
+    of 50: result.add("`")
+    of 51: result.add("⌫")
+    of 53: result.add("⎋")
+    of 115: result.add("↖")
+    of 116: result.add("⇞")
+    of 117: result.add("⌦")
+    of 119: result.add("↘")
+    of 120: result.add("F2")
+    of 121: result.add("⇟")
+    of 122: result.add("F1")
+    of 123: result.add("←")
+    of 124: result.add("→")
+    of 125: result.add("↓")
+    of 126: result.add("↑")
+    of 27: result.add("-")
+    of 30: result.add("]")
+    of 33: result.add("[")
+    of 41: result.add(";")
+    of 42: result.add("\\")
+    of 43: result.add(",")
+    of 44: result.add("/")
+    of 47: result.add(".")
+    else:
+      for letter in [('a', 0'u32), ('b', 11'u32), ('c', 8'u32),
+          ('d', 2'u32), ('e', 14'u32), ('f', 3'u32), ('g', 5'u32),
+          ('h', 4'u32), ('i', 34'u32), ('j', 38'u32), ('k', 40'u32),
+          ('l', 37'u32), ('m', 46'u32), ('n', 45'u32), ('o', 31'u32),
+          ('p', 35'u32), ('q', 12'u32), ('r', 15'u32), ('s', 1'u32),
+          ('t', 17'u32), ('u', 32'u32), ('v', 9'u32), ('w', 13'u32),
+          ('x', 7'u32), ('y', 16'u32), ('z', 6'u32)]:
+        if stroke.keyCode == letter[1]:
+          result.add(letter[0].toUpperAscii)
+          break
+
+proc shortcutDisplayAdvance*(display: string): int =
+  ## A single printable key occupies a fixed square, matching Zed's Key
+  ## element. Modifier glyphs keep their natural advance; only the final
+  ## single-character key is normalized for column alignment.
+  if display.len == 0: return 0
+  let key = display[^1]
+  if key in {'A'..'Z', 'a'..'z', '0'..'9'}:
+    return display[0 ..< display.len - 1].toRunes.len + 1
+  display.toRunes.len
+
+proc commandPaletteShortcutForAction*(registry: CommandRegistry, name: string,
+                                      contexts: openArray[KeyContext]): string =
+  let binding = registry.highestPrecedenceBindingForAction(name, contexts)
+  binding.shortcut.shortcutDisplay()
+
+proc commandPaletteShortcut*(name: string): string =
+  if commandPaletteShortcuts.hasKey(name):
+    return commandPaletteShortcuts[name]
+  let normalized = normalizedPaletteName(name)
+  for action, shortcut in commandPaletteShortcuts.pairs:
+    if shortcut.len > 0 and normalizedPaletteName(action) == normalized:
+      return shortcut
+
+proc nimculus_command_palette_shortcut(name: cstring): cstring
+    {.cdecl, exportc.} =
+  ## Called synchronously by the native picker while it rebuilds its rows.
+  ## The buffer remains valid until the next query; NSString copies it.
+  commandPaletteShortcutBuffer = commandPaletteShortcut($name)
+  commandPaletteShortcutBuffer.cstring
 
 proc disabledBindingMatchesContext(disabledBinding, binding: Command): bool =
   if disabledBinding.predicate == nil: return true

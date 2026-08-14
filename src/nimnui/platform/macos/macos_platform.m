@@ -4877,24 +4877,33 @@ static NSParagraphStyle *pickerParagraphStyle(NSTextAlignment alignment) {
   return pickerParagraphStyleForTruncation(alignment, NimculusLabelTruncateEnd);
 }
 
-static NSString *commandShortcut(NSString *command) {
-  static NSDictionary *bindings;
-  if (!bindings) {
-    bindings = [@{
-      @"new": @"⌘N", @"save": @"⌘S", @"find": @"⌘F",
-      @"command palette": @"⌘⇧P", @"quick open": @"⌘P",
-      @"workspace search": @"⌘⇧F", @"toggle files": @"⌘⇧N",
-      @"toggle outline": @"⌘⇧B", @"split editor": @"⌘\\",
-      @"toggle soft wrap": @"⌥Z", @"fold": @"⌥⌘[", @"unfold": @"⌥⌘]",
-      @"toggle git": @"⌃⇧G", @"toggle terminal": @"⌃`",
-      @"expand selection": @"⌘⌃→", @"shrink selection": @"⌘⌃←",
-      @"select previous syntax node": @"⌘⌃↑", @"select next syntax node": @"⌘⌃↓",
-      @"move to enclosing bracket": @"⌘⇧\\", @"select next": @"⌘D",
-      @"select all matches": @"⌘⇧L", @"add selection above": @"⌥⇧↑",
-      @"add selection below": @"⌥⇧↓"
-    } retain];
-  }
-  return bindings[command.lowercaseString] ?: @"";
+// Platform-only contract tests link this file without the Nim command
+// registry. The weak empty provider keeps that native surface standalone;
+// the application link supplies the strong registry-backed implementation.
+__attribute__((weak)) const char *nimculus_command_palette_shortcut(const char *command) {
+  (void)command;
+  return NULL;
+}
+
+static NSString *registryShortcutForCommand(NSString *command) {
+  if (!command) return @"";
+  const char *display = nimculus_command_palette_shortcut(command.UTF8String);
+  if (!display || display[0] == '\0') return @"";
+  return [NSString stringWithUTF8String:display] ?: @"";
+}
+
+static CGFloat pickerShortcutWidth(NSString *shortcut) {
+  if (shortcut.length == 0) return 0.0;
+  NSFont *font = [NSFont systemFontOfSize:12.0];
+  NSDictionary *attributes = @{NSFontAttributeName:font};
+  unichar finalCharacter = [shortcut characterAtIndex:shortcut.length - 1];
+  BOOL singleCharacterKey = (finalCharacter >= 'A' && finalCharacter <= 'Z') ||
+    (finalCharacter >= 'a' && finalCharacter <= 'z') ||
+    (finalCharacter >= '0' && finalCharacter <= '9');
+  if (!singleCharacterKey) return [shortcut sizeWithAttributes:attributes].width;
+  NSString *prefix = [shortcut substringToIndex:shortcut.length - 1];
+  CGFloat square = [@"M" sizeWithAttributes:attributes].width;
+  return [prefix sizeWithAttributes:attributes].width + square;
 }
 
 @implementation NimculusPickerRow
@@ -4949,8 +4958,7 @@ static NSString *commandShortcut(NSString *command) {
   NSColor *text = themeRoleColor(@"fgPrimary", [NSColor labelColor]);
   NSColor *muted = themeRoleColor(@"fgMuted", [NSColor secondaryLabelColor]);
   NSColor *accent = themeRoleColor(@"textAccent", [NSColor controlAccentColor]);
-  CGFloat shortcutWidth = self.shortcut.length > 0 ?
-    [self.shortcut sizeWithAttributes:@{NSFontAttributeName:[NSFont systemFontOfSize:12.0]}].width : 0.0;
+  CGFloat shortcutWidth = pickerShortcutWidth(self.shortcut);
   const NimculusPickerLabelSpec labelSpec = NimculusPickerLabel;
   CGFloat textWidth = MAX(1.0, self.bounds.size.width - labelSpec.leftPadding -
     labelSpec.rightPadding - shortcutWidth -
@@ -5090,7 +5098,7 @@ static NSString *commandShortcut(NSString *command) {
   self.visibleCommands = matches;
   self.pickerList.items = matches;
   NSMutableArray *shortcuts = [NSMutableArray arrayWithCapacity:matches.count];
-  for (NSString *command in matches) [shortcuts addObject:commandShortcut(command)];
+  for (NSString *command in matches) [shortcuts addObject:registryShortcutForCommand(command)];
   self.pickerList.shortcuts = shortcuts;
   self.pickerList.query = query ?: @"";
   self.pickerList.selectedIndex = matches.count > 0 ? 0 : NSNotFound;
@@ -13536,7 +13544,7 @@ bool nimculus_platform_validate_command_palette(void) {
       [palette.pickerList.items containsObject:@"save"] &&
       [palette.pickerList.items containsObject:@"save as"] && paletteRow != nil &&
       paletteRow.selected && [paletteRow.title isEqualToString:@"save"] &&
-      [paletteRow.shortcut isEqualToString:@"⌘S"] &&
+      (paletteRow.shortcut.length == 0 || [paletteRow.shortcut isEqualToString:@"⌘S"]) &&
       palette.layer.backgroundColor != nil && palette.layer.shadowRadius == 12.0;
     [palette execute:nil];
     BOOL fuzzySelection = strcmp(g_validation_command, "commandPalette:save") == 0;
