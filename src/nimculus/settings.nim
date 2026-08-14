@@ -107,9 +107,20 @@ type
     fileIcon*: string
     fileIcons*: Table[string, string]
 
+  Density* = enum
+    compact, default, comfortable
+
+  SpacingStep* = enum
+    Base00, Base01, Base02, Base03, Base04, Base06, Base08, Base12,
+    Base16, Base20, Base24, Base32, Base40, Base48
+
+  ## Zed's density-aware spacing values, in compact/default/comfortable order.
+  ## The single-value entries in Zed's table are already expanded here at the
+  ## default 16px rem size, which is the native UI's base size.
   NimculusSettings* = object
     values*: JsonNode
     diagnostics*: seq[SettingsDiagnostic]
+    uiDensity*: Density
 
   SettingsStore* = ref object
     globalPath*: string
@@ -129,6 +140,34 @@ type
     kind*: SettingKind
     default*: JsonNode
     title*: string
+
+const spacingTable*: array[SpacingStep, array[Density, float32]] = [
+  [0'f32, 0'f32, 0'f32],
+  [1'f32, 1'f32, 2'f32],
+  [1'f32, 2'f32, 4'f32],
+  [2'f32, 3'f32, 4'f32],
+  [2'f32, 4'f32, 6'f32],
+  [3'f32, 6'f32, 8'f32],
+  [4'f32, 8'f32, 10'f32],
+  [10'f32, 12'f32, 14'f32],
+  [14'f32, 16'f32, 18'f32],
+  [18'f32, 20'f32, 22'f32],
+  [20'f32, 24'f32, 28'f32],
+  [28'f32, 32'f32, 36'f32],
+  [36'f32, 40'f32, 44'f32],
+  [44'f32, 48'f32, 52'f32]
+]
+
+proc px*(step: SpacingStep, d: Density): float32 =
+  spacingTable[step][d]
+
+proc nimculus_spacing_px*(step, density: cint): cfloat {.exportc, dynlib, cdecl.} =
+  ## C bridge used by native presenters. The native side passes the Zed
+  ## density ordinal (compact/default/comfortable).
+  if step < 0 or step > cint(ord(SpacingStep.high)) or
+      density < 0 or density > cint(ord(Density.high)):
+    return 0'f32
+  cfloat(px(SpacingStep(step), Density(density)))
 
 proc color*(c: UiColor, theme: ThemeColors): string =
   ## Resolve one semantic UI color from the selected theme.
@@ -252,6 +291,8 @@ let settingDescriptors* = @[
     default: newJFloat(1.0), title: "Scroll Sensitivity"),
   SettingDescriptor(key: "fast_scroll_sensitivity", kind: settingFloat,
     default: newJFloat(4.0), title: "Fast Scroll Sensitivity"),
+  SettingDescriptor(key: "ui_density", kind: settingString,
+    default: newJString("default"), title: "UI Density"),
   SettingDescriptor(key: "theme", kind: settingString,
     default: newJString("dark"), title: "Theme"),
   SettingDescriptor(key: "iconTheme", kind: settingString,
@@ -319,6 +360,14 @@ proc nodeAt(root: JsonNode, path: string): JsonNode =
     if result == nil or result.kind != JObject or not result.hasKey(part): return nil
     result = result[part]
 
+proc densityAt(root: JsonNode): Density =
+  let node = nodeAt(root, "ui_density")
+  if node == nil or node.kind != JString: return Density.default
+  case node.getStr
+  of "compact": compact
+  of "comfortable": comfortable
+  else: Density.default
+
 proc jsonStringAt(root: JsonNode, path: string, fallback = ""): string =
   let node = nodeAt(root, path)
   if node != nil and node.kind == JString: return node.getStr
@@ -367,6 +416,11 @@ proc validateSettings*(root: JsonNode): seq[SettingsDiagnostic] =
     result.add(SettingsDiagnostic(path: "terminal.fontSize", message: "must be an integer"))
   elif terminalFontSize != nil and (terminalFontSize.getInt < 6 or terminalFontSize.getInt > 48):
     result.add(SettingsDiagnostic(path: "terminal.fontSize", message: "must be between 6 and 48"))
+  let uiDensity = nodeAt(root, "ui_density")
+  if uiDensity != nil and (uiDensity.kind != JString or
+      uiDensity.getStr notin ["compact", "default", "comfortable"]):
+    result.add(SettingsDiagnostic(path: "ui_density",
+      message: "must be one of: compact, default, comfortable"))
   for key in ["scroll_sensitivity", "fast_scroll_sensitivity", "terminal.scroll_multiplier"]:
     let value = nodeAt(root, key)
     if value != nil and value.kind notin {JInt, JFloat}:
@@ -543,6 +597,7 @@ proc settingsSchema*(): JsonNode =
     "soft_wrap": {"type": "string", "enum": ["none", "editor_width", "bounded"]},
     "scroll_sensitivity": {"type": "number"},
     "fast_scroll_sensitivity": {"type": "number"},
+    "ui_density": {"type": "string", "enum": ["compact", "default", "comfortable"]},
     "iconTheme": {"type": "string"},
     "themes": {"type": "object", "additionalProperties": {"type": "object"}},
     "iconThemes": {"type": "object", "additionalProperties": {"type": "object"}},
@@ -615,6 +670,7 @@ proc loadSettings*(globalPath, workspacePath: string; languageId = ""): Nimculus
     result.values = mergeJson(result.values, result.values["languages"][languageId])
   result.diagnostics = diagnostics
   result.diagnostics.add(validateSettings(result.values))
+  result.uiDensity = densityAt(result.values)
 
 proc newSettingsStore*(globalPath, workspacePath: string; languageId = ""): SettingsStore =
   new(result)
