@@ -2,13 +2,28 @@ import nimnui/geometry
 import nimnui/layout
 import nimnui/render
 import nimnui/ui_tree
+import std/options
 import std/sets
+import std/times
 
 type
   NodePainter* = proc(paint: var PaintList, node: UiNode) {.closure.}
 
   DrawPhase* = enum
     dpNone, dpPrepaint, dpPaint, dpFocus
+
+  FrameDirtyAccumulator* = object
+    ## The first invalidation starts the frame's dirty-to-drawn interval.
+    ## Later invalidations are coalesced into the same frame but retained as
+    ## a count, matching GPUI's FrameDirtyAccumulator.
+    dirtyAt*: Option[float64]
+    invalidations*: int
+
+  FrameTiming* = object
+    dirtyAt*: Option[float64]
+    invalidations*: int
+    drawStart*: float64
+    drawEnd*: float64
 
   WindowInvalidator* = object
     ## Window-owned invalidation state. The platform owns scheduling and
@@ -27,6 +42,13 @@ type
     ## per-frame content mask, invalidation state, and prepaint state.
     paint*: PaintList
     scaleFactor*: float32
+    frameDirty*: FrameDirtyAccumulator
+    activeFrameDirty*: FrameDirtyAccumulator
+    activeFrameDirtyAtDrawStart*: float64
+    lastFrameTiming*: Option[FrameTiming]
+    onFrameTiming*: proc(timing: FrameTiming) {.closure.}
+    needsPresent*: bool
+    presentCount*: uint64
 
   Window* = WindowInvalidator
 
@@ -40,8 +62,50 @@ proc newWindow*(scaleFactor: float32 = 1.0): Window =
 proc newWindowInvalidator*(scaleFactor: float32 = 1.0): WindowInvalidator =
   newWindow(scaleFactor)
 
+proc recordFrameDirty*(accumulator: var FrameDirtyAccumulator,
+                       dirtyAt = epochTime()) =
+  if accumulator.dirtyAt.isNone:
+    accumulator.dirtyAt = some(float64(dirtyAt))
+  inc accumulator.invalidations
+
+proc takeFrameDirty*(accumulator: var FrameDirtyAccumulator): FrameDirtyAccumulator =
+  result = accumulator
+  accumulator = FrameDirtyAccumulator()
+
+proc dirtyToDrawMs*(timing: FrameTiming): Option[float64] =
+  if timing.dirtyAt.isNone: return none(float64)
+  some((timing.drawEnd - timing.dirtyAt.get) * 1000.0)
+
+proc dirtyToDrawMs*(window: Window): Option[float64] =
+  if window.lastFrameTiming.isNone: return none(float64)
+  window.lastFrameTiming.get.dirtyToDrawMs()
+
+proc requestPresent*(window: var Window): bool =
+  ## Reserve one platform presentation for the current rendered paint list.
+  ## Re-publishing before the corresponding present is deliberately a no-op.
+  if window.needsPresent: return false
+  window.needsPresent = true
+  true
+
+proc publishPaint*(window: var Window): bool =
+  ## Reserve the paint-list publication that will be consumed by present.
+  window.requestPresent()
+
+proc markNeedsPresent*(window: var Window) =
+  discard window.requestPresent()
+
+proc presentIfNeeded*(window: var Window): bool =
+  if not window.needsPresent: return false
+  window.needsPresent = false
+  inc window.presentCount
+  true
+
+proc present*(window: var Window): bool =
+  window.presentIfNeeded()
+
 proc invalidateView*(window: var Window, id: NodeId, sidebar = false) =
   inc window.updateCount
+  window.frameDirty.recordFrameDirty()
   if window.phase == dpNone:
     window.dirty = true
     window.dirtyViews.incl(id)
@@ -61,15 +125,27 @@ proc setPhase*(window: var Window, phase: DrawPhase) =
 
 proc beginDraw*(window: var Window) =
   doAssert window.phase == dpNone, "a draw must begin in dpNone"
+  window.activeFrameDirty = window.frameDirty.takeFrameDirty()
+  window.lastFrameTiming = none(FrameTiming)
+  let drawStart = float64(epochTime())
   window.dirty = false
   window.dirtyViews.clear()
   window.sidebarRedrawRequested = false
   window.phaseHistory.setLen(0)
   window.hitboxes.setLen(0)
+  window.activeFrameDirtyAtDrawStart = drawStart
   window.setPhase(dpPrepaint)
 
 proc endDraw*(window: var Window) =
   doAssert window.phase == dpFocus, "a draw must finish from dpFocus"
+  let timing = FrameTiming(
+    dirtyAt: window.activeFrameDirty.dirtyAt,
+    invalidations: window.activeFrameDirty.invalidations,
+    drawStart: window.activeFrameDirtyAtDrawStart,
+    drawEnd: float64(epochTime()))
+  window.lastFrameTiming = some(timing)
+  if window.onFrameTiming != nil: window.onFrameTiming(timing)
+  window.activeFrameDirty = FrameDirtyAccumulator()
   window.setPhase(dpNone)
 
 proc draw*(window: var Window, prepaint, paint, focus: proc() {.closure.}) =
@@ -81,7 +157,8 @@ proc draw*(window: var Window, prepaint, paint, focus: proc() {.closure.}) =
     window.setPhase(dpFocus)
     if focus != nil: focus()
   finally:
-    if window.phase != dpNone: window.setPhase(dpNone)
+    if window.phase == dpFocus: window.endDraw()
+    elif window.phase != dpNone: window.setPhase(dpNone)
 
 proc insertHitbox*(window: var Window, id: NodeId, bounds: Rect,
                    behavior = hitboxNormal, contentMask = Rect(), enabled = true) =
