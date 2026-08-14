@@ -85,7 +85,7 @@
 
 **無い**
 
-- [ ] **Entity handle + type-erased entity store (lease discipline)** — Zed `crates/gpui/src/app/entity_map.rs:414 (Entity<T>), :114 reserve, :120 insert, :134 lease, :151 end_lease, :156 read`
+- [x] **Entity handle + type-erased entity store (lease discipline)** — Zed `crates/gpui/src/app/entity_map.rs:414 (Entity<T>), :114 reserve, :120 insert, :134 lease, :151 end_lease, :156 read`
 - [ ] **Context<'a,T> - entity-scoped view of App** — Zed `crates/gpui/src/app/context.rs:20 (struct), :50 entity(), :229 notify(), :765 emit()`
 - [ ] **Effect queue + flush_effects re-entrancy guard** — Zed `crates/gpui/src/app.rs:1593 push_effect, :1614 flush_effects, :1048 App::update, :1055 start_update, :1059 finish_update`
 - [ ] **Double-buffered Frame with element-state carryover** — Zed `crates/gpui/src/window.rs:944 struct Frame, :988 Frame::new, :1017 Frame::clear, :1089 Frame::finish, :1138-1016 rendered_frame/next_frame fields, :3040-2741 mem::swap in draw`
@@ -120,7 +120,7 @@
 - [ ] **Batching: merging sorted streams into draw calls** — Zed `crates/gpui/src/scene.rs:172 (batches), :288-466 (BatchIterator)`
 - [ ] **Hsla and alpha derivation** — Zed `crates/gpui/src/color.rs:334 (Hsla), :424 (hsla), :525 (to_rgb), :580 (blend), :607 (fade_out), :637 (opacity), :667 (alpha), :677 (From<Rgba>)`
 - [ ] **Background: solid vs gradient vs pattern as one shader-visible tag** — Zed `crates/gpui/src/color.rs:779 (Background), :759 (ColorSpace), :851 (solid_background), :865 (linear_gradient), :827 (pattern_slash), :841 (checkerboard); used by scene.rs:535 (Quad.background) and :761 (Path.color)`
-- [ ] **TextStyle and its refinement/highlight composition** — Zed `crates/gpui/src/style.rs:434 (TextStyle), :432 (#[derive(Refineable)]), :506 (highlight), :539 (font), :550 (line_height_in_pixels), :555 (to_run), :576 (HighlightStyle), :920 (HighlightStyle::highlight)`
+- [x] **TextStyle and its refinement/highlight composition** — Zed `crates/gpui/src/style.rs:434 (TextStyle), :432 (#[derive(Refineable)]), :506 (highlight), :539 (font), :550 (line_height_in_pixels), :555 (to_run), :576 (HighlightStyle), :920 (HighlightStyle::highlight)`
 - [ ] **UnderlineStyle / StrikethroughStyle and their snapped emission** — Zed `crates/gpui/src/style.rs:824 (UnderlineStyle), :839 (StrikethroughStyle); crates/gpui/src/window.rs:4280 (paint_underline), :4315 (paint_strikethrough)`
 
 **移植済み**
