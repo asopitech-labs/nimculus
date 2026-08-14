@@ -231,6 +231,10 @@ typedef enum NimculusPlatformPriority {
 
 typedef void (*NimculusPlatformRunnable)(void *context);
 
+// Native macOS contract used by the platform test runner to verify that the
+// concrete editor view exposes the selectors AppKit and Zed rely on.
+bool nimculus_platform_validate_view_selectors(void);
+
 // PlatformDispatcher's C ABI. The platform only chooses where a runnable is
 // executed; UI policy and Future ownership stay in the framework layer.
 bool nimculus_platform_is_main_thread(void);

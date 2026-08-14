@@ -9889,6 +9889,20 @@ static NimculusCursorStyle nimculusCursorStyleForLogicalPoint(NSPoint point) {
               cursor:[NSCursor arrowCursor]];
 }
 
+- (BOOL)acceptsFirstMouse:(NSEvent *)event {
+  (void)event;
+  // AppKit otherwise consumes the focusing click. Zed marks the first click
+  // as accepted so the same native event reaches the editor hit-test path.
+  return YES;
+}
+
+- (NSRect)_opaqueRectForWindowMoveWhenInTitlebar {
+  // The workspace owns the titlebar surface and its mouse handling. Claim the
+  // complete view so AppKit does not reinterpret a titlebar click as a window
+  // move or delay delivery while it disambiguates that gesture.
+  return self.bounds;
+}
+
 - (void)displayLinkDidFire:(CADisplayLink *)displayLink {
   (void)displayLink;
   if (g_frame_callback) g_frame_callback();
@@ -9967,6 +9981,7 @@ static NimculusCursorStyle nimculusCursorStyleForLogicalPoint(NSPoint point) {
   self = [super initWithFrame:frame];
   if (self) {
     self.wantsLayer = YES;
+    [self registerForDraggedTypes:@[NSFilenamesPboardType]];
     self.metalLayer = [CAMetalLayer layer];
     self.layer = self.metalLayer;
     self.metalLayer.device = MTLCreateSystemDefaultDevice();
@@ -11212,8 +11227,48 @@ static NimculusCursorStyle nimculusCursorStyleForLogicalPoint(NSPoint point) {
 - (void)otherMouseUp:(NSEvent *)event { logInput(@"otherMouseUp", event); }
 - (void)otherMouseDragged:(NSEvent *)event { logInput(@"otherMouseDragged", event); }
 - (void)scrollWheel:(NSEvent *)event { logInput(@"scrollWheel", event); }
+- (void)magnifyWithEvent:(NSEvent *)event { logInput(@"magnifyWithEvent", event); }
+- (void)swipeWithEvent:(NSEvent *)event { logInput(@"swipeWithEvent", event); }
+- (void)rotateWithEvent:(NSEvent *)event { logInput(@"rotateWithEvent", event); }
+- (void)pressureChangeWithEvent:(NSEvent *)event {
+  logInput(@"pressureChangeWithEvent", event);
+}
 - (void)mouseEntered:(NSEvent *)event { logInput(@"mouseEntered", event); }
 - (void)mouseExited:(NSEvent *)event { logInput(@"mouseExited", event); }
+
+- (NSArray<NSString *> *)filePathsFromDraggingInfo:(id<NSDraggingInfo>)draggingInfo {
+  NSPasteboard *pasteboard = draggingInfo.draggingPasteboard;
+  NSArray *paths = [pasteboard propertyListForType:NSFilenamesPboardType];
+  if (![paths isKindOfClass:[NSArray class]]) return nil;
+  NSMutableArray<NSString *> *validPaths = [NSMutableArray array];
+  for (id path in paths) {
+    if ([path isKindOfClass:[NSString class]] && [(NSString *)path length] > 0) {
+      [validPaths addObject:(NSString *)path];
+    }
+  }
+  return validPaths.count > 0 ? validPaths : nil;
+}
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)draggingInfo {
+  return [self filePathsFromDraggingInfo:draggingInfo] != nil
+    ? NSDragOperationCopy : NSDragOperationNone;
+}
+
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)draggingInfo {
+  return [self filePathsFromDraggingInfo:draggingInfo] != nil
+    ? NSDragOperationCopy : NSDragOperationNone;
+}
+
+- (void)draggingExited:(id<NSDraggingInfo>)draggingInfo {
+  (void)draggingInfo;
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)draggingInfo {
+  NSArray<NSString *> *paths = [self filePathsFromDraggingInfo:draggingInfo];
+  if (!paths || !g_file_callback) return NO;
+  for (NSString *path in paths) g_file_callback(path.UTF8String, false);
+  return YES;
+}
 - (BOOL)becomeFirstResponder {
   if (nimculusInputLogEnabled()) NSLog(@"Nimculus focus gained");
   return [super becomeFirstResponder];
@@ -13746,6 +13801,34 @@ bool nimculus_platform_validate_shortcut_dispatch(void) {
     g_command_callback = previousCommandCallback;
     [view release];
     return commandPValid && navigationValid && commandGraveValid;
+  }
+}
+
+bool nimculus_platform_validate_view_selectors(void) {
+  @autoreleasepool {
+    const SEL selectors[] = {
+      @selector(performKeyEquivalent:),
+      @selector(resetCursorRects),
+      @selector(magnifyWithEvent:),
+      @selector(swipeWithEvent:),
+      @selector(rotateWithEvent:),
+      @selector(pressureChangeWithEvent:),
+      @selector(acceptsFirstMouse:),
+      @selector(_opaqueRectForWindowMoveWhenInTitlebar),
+      @selector(draggingEntered:),
+      @selector(draggingUpdated:),
+      @selector(draggingExited:),
+      @selector(performDragOperation:)
+    };
+    const NSUInteger selectorCount = sizeof(selectors) / sizeof(selectors[0]);
+    for (NSUInteger index = 0; index < selectorCount; index++) {
+      if (![NimculusMetalView instancesRespondToSelector:selectors[index]]) return false;
+    }
+    NimculusMetalView *view = [[NimculusMetalView alloc]
+      initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 480.0)];
+    BOOL acceptsFirstMouse = view && [view acceptsFirstMouse:nil] == YES;
+    [view release];
+    return acceptsFirstMouse;
   }
 }
 
