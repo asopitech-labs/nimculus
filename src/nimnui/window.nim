@@ -37,11 +37,10 @@ type
     phaseHistory*: seq[DrawPhase]
     hitboxes*: seq[Hitbox]
     onInvalidate*: proc() {.closure.}
-    ## Zed keeps the last presented frame and the frame currently being
-    ## composed separate.  State is migrated from renderedFrame to
-    ## nextFrame only for elements accessed by the new frame.
-    renderedFrame*: Frame
-    nextFrame*: Frame
+    ## This is the retained UI-side part of a Zed window. Platform window
+    ## lifecycle remains in the platform modules; this object owns only the
+    ## per-frame content mask, invalidation state, and prepaint state.
+    paint*: PaintList
     scaleFactor*: float32
     frameDirty*: FrameDirtyAccumulator
     activeFrameDirty*: FrameDirtyAccumulator
@@ -57,11 +56,8 @@ proc newWindow*(scaleFactor: float32 = 1.0): Window =
   result.dirtyViews = initHashSet[NodeId]()
   result.sidebarViews = initHashSet[NodeId]()
   result.phase = dpNone
-  result.renderedFrame = newFrame()
-  result.nextFrame = newFrame()
   result.scaleFactor = if scaleFactor > 0: scaleFactor else: 1.0'f32
-  result.nextFrame.scaleFactor = result.scaleFactor
-  result.renderedFrame.scaleFactor = result.scaleFactor
+  result.paint.scaleFactor = result.scaleFactor
 
 proc newWindowInvalidator*(scaleFactor: float32 = 1.0): WindowInvalidator =
   newWindow(scaleFactor)
@@ -169,7 +165,7 @@ proc insertHitbox*(window: var Window, id: NodeId, bounds: Rect,
   doAssert window.phase == dpPrepaint, "hitboxes may only be inserted during prepaint"
   let mask = if float32(contentMask.size.width) == 0 and
       float32(contentMask.size.height) == 0:
-    window.nextFrame.currentContentMask(bounds)
+    window.paint.currentContentMask(bounds)
   else: contentMask
   window.hitboxes.add(Hitbox(id: id, node: id, bounds: bounds,
     contentMask: mask, behavior: behavior, enabled: enabled))
@@ -208,57 +204,46 @@ proc debugAssertPaintOrPrepaint*(window: Window) =
 
 proc setScaleFactor*(window: var Window, scaleFactor: float32) =
   window.scaleFactor = if scaleFactor > 0: scaleFactor else: 1.0'f32
-  window.nextFrame.scaleFactor = window.scaleFactor
-  window.renderedFrame.scaleFactor = window.scaleFactor
+  window.paint.scaleFactor = window.scaleFactor
 
 proc beginFrame*(window: var Window, dirty: Rect) =
-  window.nextFrame.clear()
-  window.nextFrame.scaleFactor = window.scaleFactor
-  window.nextFrame.invalidate(dirty)
-
-proc accessElementState*(window: var Window, key: string,
-                         defaultState = ElementState()): var ElementState =
-  window.nextFrame.accessElementState(window.renderedFrame, key, defaultState)
-
-proc finishFrame*(window: var Window) =
-  window.nextFrame.finishFrame(window.renderedFrame)
-
-proc swapFrames*(window: var Window) =
-  swap(window.renderedFrame, window.nextFrame)
+  window.paint.clear()
+  window.paint.scaleFactor = window.scaleFactor
+  window.paint.invalidate(dirty)
 
 proc withContentMask*(window: var Window, bounds: Rect, action: proc() {.closure.}) =
   ## Content masks intersect with the current mask in pushClip, exactly as
   ## Window::with_content_mask does in GPUI.
-  window.nextFrame.pushClip(bounds)
+  window.paint.pushClip(bounds)
   try:
     action()
   finally:
-    window.nextFrame.popClip()
+    window.paint.popClip()
 
 proc withElementOffset*(window: var Window, offset: Point,
                         action: proc() {.closure.}) =
-  window.nextFrame.pushElementOffset(offset)
+  window.paint.pushElementOffset(offset)
   try:
     action()
   finally:
-    window.nextFrame.popElementOffset()
+    window.paint.popElementOffset()
 
 proc withAbsoluteElementOffset*(window: var Window, offset: Point,
                                 action: proc() {.closure.}) =
-  window.nextFrame.pushAbsoluteElementOffset(offset)
+  window.paint.pushAbsoluteElementOffset(offset)
   try:
     action()
   finally:
-    window.nextFrame.popElementOffset()
+    window.paint.popElementOffset()
 
 proc paintNode*(window: var Window, node: UiNode, painter: NodePainter) =
   ## Every node enters the paint list with the same effective mask exposed by
   ## layout. This prevents input and paint from consulting different clips.
-  window.nextFrame.pushClip(node.nodeClip())
+  window.paint.pushClip(node.nodeClip())
   try:
-    painter(window.nextFrame, node)
+    painter(window.paint, node)
   finally:
-    window.nextFrame.popClip()
+    window.paint.popClip()
 
 proc paintNodeRecursive(window: var Window, tree: UiTree, id: NodeId,
                         painter: NodePainter) =
@@ -272,12 +257,12 @@ proc paintNodeRecursive(window: var Window, tree: UiTree, id: NodeId,
   let scroll = node.layoutSpec.scrollOffset
   let hasScroll = float32(scroll) != 0
   if hasScroll:
-    window.nextFrame.pushElementOffset(Point(x: px(0), y: px(-float32(scroll))))
+    window.paint.pushElementOffset(Point(x: px(0), y: px(-float32(scroll))))
   try:
     for child in node.children:
       window.paintNodeRecursive(tree, child, painter)
   finally:
-    if hasScroll: window.nextFrame.popElementOffset()
+    if hasScroll: window.paint.popElementOffset()
 
 proc paintTree*(window: var Window, tree: UiTree, root: NodeId,
                 painter: NodePainter) =
