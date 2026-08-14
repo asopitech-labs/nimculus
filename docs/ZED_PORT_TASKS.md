@@ -199,7 +199,7 @@
 - [ ] **Builder traits shared across components** — Zed `crates/ui/src/traits/clickable.rs:4, disableable.rs:2, toggleable.rs:5, fixed.rs, visible_on_hover.rs; crates/ui/src/components/button/button_like.rs:12 (SelectableButton), :17 (ButtonCommon)`
 - [ ] **Icon source abstraction and square hit box** — Zed `crates/ui/src/components/icon.rs:131 (IconSource), :145 (Icon), :86 (square_components), :102 (square)`
 - [ ] **ListItem slot layout** — Zed `crates/ui/src/components/list/list_item.rs:10 (ListItemSpacing), :26 (struct), :292 (render), :404 (disclosure at left:-1rem), :442 (EndSlotVisibility Always/OnHover/SwapOnHover)`
-- [ ] **Keybinding display** — Zed `crates/ui/src/components/keybinding.rs:46 (KeyBinding), :63 for_action, :200 render, :252 render_keybinding_keystroke, :411 (Key), :457 (KeyIcon)`
+- [x] **Keybinding display** — Zed `crates/ui/src/components/keybinding.rs:46 (KeyBinding), :63 for_action, :200 render, :252 render_keybinding_keystroke, :411 (Key), :457 (KeyIcon)`
 - [x] **Tri-state toggle** — Zed `crates/ui/src/traits/toggleable.rs:12 (ToggleState), :26 inverse, :34 from_any_and_all; crates/ui/src/components/toggle.rs:43 (Checkbox), :181 container_size, :338 (Switch), :328 (SwitchLabelPosition)`
 
 設計判断 13/14 済
