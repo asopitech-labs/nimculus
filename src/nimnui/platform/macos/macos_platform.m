@@ -15,6 +15,22 @@
 #include <dispatch/dispatch.h>
 #include "platform.h"
 
+// settings.nim owns the density-aware table. Keep this native-only fallback
+// weak so platform contract binaries that intentionally omit the Nim
+// application can still exercise the AppKit presenter; the application link
+// resolves the same symbol to the strong Nim implementation.
+__attribute__((weak)) float nimculus_spacing_px(int step, int density) {
+  (void)density;
+  switch (step) {
+    case 3: return 3.0f;
+    case 4: return 4.0f;
+    case 5: return 6.0f;
+    case 6: return 8.0f;
+    case 8: return 16.0f;
+    default: return 0.0f;
+  }
+}
+
 static uint64_t g_input_count = 0;
 static uint64_t g_first_input_time = 0;
 // Keep a bounded recent history rather than a process-lifetime unbounded
@@ -451,6 +467,27 @@ static NSDictionary *g_theme_palette = nil;
 static const CGFloat NimculusSpace1 = 4.0;
 static const CGFloat NimculusSpace2 = 8.0;
 static const CGFloat NimculusSpace3 = 12.0;
+enum {
+  NimculusSpacingBase03 = 3,
+  NimculusSpacingBase04 = 4,
+  NimculusSpacingBase06 = 5,
+  NimculusSpacingBase08 = 6,
+  NimculusSpacingBase16 = 8
+};
+static CGFloat nimculusPickerSpacing(int step) {
+  if (nimculus_spacing_px != NULL) {
+    return (CGFloat)nimculus_spacing_px(step, 1);
+  }
+  // Standalone native contract binaries have no Nim settings module.
+  switch (step) {
+    case NimculusSpacingBase03: return 3.0;
+    case NimculusSpacingBase04: return NimculusSpace1;
+    case NimculusSpacingBase06: return 6.0;
+    case NimculusSpacingBase08: return NimculusSpace2;
+    case NimculusSpacingBase16: return 16.0;
+    default: return 0.0;
+  }
+}
 static const CGFloat NimculusRowHeight = 28.0;
 static const CGFloat NimculusDefaultRemSize = 16.0;
 static const CGFloat NimculusDefaultEditorFontSize = 15.0;
@@ -4809,12 +4846,14 @@ typedef struct {
   NimculusLabelTruncation truncation;
 } NimculusPickerLabelSpec;
 
-static const NimculusPickerLabelSpec NimculusPickerLabel = {
-  .leftPadding = 16.0,
-  .rightPadding = 16.0,
-  .shortcutGap = 16.0,
-  .truncation = NimculusLabelTruncateEnd
-};
+static NimculusPickerLabelSpec nimculusPickerLabelSpec(void) {
+  return (NimculusPickerLabelSpec){
+    .leftPadding = nimculusPickerSpacing(NimculusSpacingBase16),
+    .rightPadding = nimculusPickerSpacing(NimculusSpacingBase16),
+    .shortcutGap = nimculusPickerSpacing(NimculusSpacingBase16),
+    .truncation = NimculusLabelTruncateEnd
+  };
+}
 
 static NSParagraphStyle *pickerParagraphStyle(NSTextAlignment alignment);
 static NSParagraphStyle *pickerParagraphStyleForTruncation(
@@ -4947,19 +4986,22 @@ static CGFloat pickerShortcutWidth(NSString *shortcut) {
 - (void)mouseDown:(NSEvent *)event { (void)event; [self.pickerList clickIndex:self.index]; }
 - (void)drawRect:(NSRect)dirtyRect {
   (void)dirtyRect;
-  NSRect rowRect = NSInsetRect(self.bounds, 8.0, 2.0);
+  NSRect rowRect = NSInsetRect(self.bounds,
+    nimculusPickerSpacing(NimculusSpacingBase08),
+    nimculusPickerSpacing(NimculusSpacingBase03));
   if (self.selected || self.hovered) {
     NSColor *color = self.selected ?
       themeRoleColor(@"elementSelected", themeRoleColor(@"element", [NSColor clearColor])) :
       themeRoleColor(@"elementHover", themeRoleColor(@"element", [NSColor clearColor]));
     [color setFill];
-    [[NSBezierPath bezierPathWithRoundedRect:rowRect xRadius:6.0 yRadius:6.0] fill];
+    CGFloat radius = nimculusPickerSpacing(NimculusSpacingBase06);
+    [[NSBezierPath bezierPathWithRoundedRect:rowRect xRadius:radius yRadius:radius] fill];
   }
   NSColor *text = themeRoleColor(@"fgPrimary", [NSColor labelColor]);
   NSColor *muted = themeRoleColor(@"fgMuted", [NSColor secondaryLabelColor]);
   NSColor *accent = themeRoleColor(@"textAccent", [NSColor controlAccentColor]);
   CGFloat shortcutWidth = pickerShortcutWidth(self.shortcut);
-  const NimculusPickerLabelSpec labelSpec = NimculusPickerLabel;
+  const NimculusPickerLabelSpec labelSpec = nimculusPickerLabelSpec();
   CGFloat textWidth = MAX(1.0, self.bounds.size.width - labelSpec.leftPadding -
     labelSpec.rightPadding - shortcutWidth -
     (shortcutWidth > 0.0 ? labelSpec.shortcutGap : 0.0));
