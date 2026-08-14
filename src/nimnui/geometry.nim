@@ -1,5 +1,9 @@
+import std/math
+
 type
   Pixels* = distinct float32
+  ScaledPixels* = distinct float32
+  DevicePixels* = distinct int32
 
   Point* = object
     x*, y*: Pixels
@@ -16,11 +20,25 @@ type
 
 proc px*(value: float32): Pixels = Pixels(value)
 proc `==`*(a, b: Pixels): bool = float32(a) == float32(b)
+proc `==`*(a, b: ScaledPixels): bool = float32(a) == float32(b)
+proc `==`*(a, b: DevicePixels): bool = int32(a) == int32(b)
 proc `+`*(a, b: Pixels): Pixels = Pixels(float32(a) + float32(b))
+proc `+`*(a: Pixels, b: float32): Pixels = a + px(b)
 proc `-`*(a, b: Pixels): Pixels = Pixels(float32(a) - float32(b))
 proc `*`*(a: Pixels, b: float32): Pixels = Pixels(float32(a) * b)
-proc `/`*(a: Pixels, b: Pixels): Pixels = Pixels(float32(a) / float32(b))
+proc `/`*(a: Pixels, b: Pixels): float32 = float32(a) / float32(b)
+proc scale*(value: Pixels, factor: float32): ScaledPixels =
+  ScaledPixels(float32(value) * factor)
+proc toDevicePixels*(value: ScaledPixels): DevicePixels =
+  DevicePixels(int32(ceil(float32(value))))
+proc toScaledPixels*(value: DevicePixels): ScaledPixels =
+  ScaledPixels(float32(value))
+proc toPixels*(value: DevicePixels, scaleFactor: float32): Pixels =
+  px(float32(value) / scaleFactor)
+proc toDevicePixels*(value: Pixels, scaleFactor: float32): DevicePixels =
+  value.scale(scaleFactor).toDevicePixels()
 proc maxPx*(a, b: Pixels): Pixels = (if float32(a) >= float32(b): a else: b)
+proc maxPx*(a: Pixels, b: float32): Pixels = maxPx(a, px(b))
 proc minPx*(a, b: Pixels): Pixels = (if float32(a) <= float32(b): a else: b)
 
 proc inset*(rect: Rect, padding: EdgeInsets): Rect =

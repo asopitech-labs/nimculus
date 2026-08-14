@@ -450,6 +450,8 @@ proc setupDemoUi() =
   demoScrollNode = scroll.node
   var metrics: PlatformMetrics
   platformGetMetrics(addr metrics)
+  doAssert metrics.scaleFactor > 0, "platform metrics must provide a scale factor"
+  demoWindow.setScaleFactor(float32(metrics.scaleFactor))
   let viewportWidth = if metrics.widthPoints > 0: float32(metrics.widthPoints) else: 960'f32
   let viewportHeight = if metrics.heightPoints > 0: float32(metrics.heightPoints) else: 640'f32
   let viewport = Rect(size: Size(width: px(viewportWidth), height: px(viewportHeight)))
@@ -572,6 +574,7 @@ proc setupDemoUi() =
   demoWindow.prepaintTree(demoTree, root)
   demoWindow.setPhase(dpPaint)
   var paint: PaintList
+  paint.scaleFactor = demoWindow.scaleFactor
   paint.invalidate(viewport)
   # The native text overlays remain transitional content presenters, but their
   # surface is composed by the same Metal scene as the editor.  Derive chrome
@@ -9983,6 +9986,10 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
 when isMainModule:
   platformDispatcher = newPlatformDispatcher()
   backgroundExecutor = newBackgroundExecutor(platformDispatcher)
+  var metrics: PlatformMetrics
+  platformGetMetrics(addr metrics)
+  doAssert metrics.scaleFactor > 0, "platform metrics must provide a scale factor"
+  demoWindow.setScaleFactor(float32(metrics.scaleFactor))
   when defined(macosx):
     setupPersistencePaths()
     platformInstallCrashHandler(crashReportPath.cstring)
