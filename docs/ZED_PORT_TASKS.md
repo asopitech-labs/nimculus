@@ -81,7 +81,7 @@
 - [x] **Content mask stack and element offset stack** — Zed `crates/gpui/src/window.rs:2075 ContentMask, :3644 with_content_mask, :3663 with_element_offset, :3681 with_absolute_element_offset, :3794 element_offset, :4800-4327 (layout_bounds applies snapped offset)`
 - [x] **Typed pixel units and the scale-factor ladder** — Zed `crates/gpui/src/geometry.rs:2677 Pixels, :2781 impl (floor/round/ceil/scale/pow/abs), :2829 Pixels::scale, :2982 DevicePixels, :3075 ScaledPixels, :3131 ScaledPixels->DevicePixels, :3238 Rems, :3298 AbsoluteLength, :3460 DefiniteLength, :3611 Length, :3736 px()`
 - [ ] **Bounds / Point / Size / Edges / Corners generic over unit** — Zed `crates/gpui/src/geometry.rs:85 Point<T>, :396 Size<T>, :723 Bounds<T>, :1750 Edges<T>, :2258 Corners<T>, :43 trait Along, :25 enum Axis, :1694 Bounds<Pixels>::scale, :1707 to_device_pixels`
-- [ ] **Frame profiling: dirty-timestamp accumulation and present** — Zed `crates/gpui/src/window.rs:126 FrameDirtyAccumulator, :2979 take_frame_dirty, :3096 record_frame_timing, :2827 present, :3156 present_if_needed`
+- [x] **Frame profiling: dirty-timestamp accumulation and present** — Zed `crates/gpui/src/window.rs:126 FrameDirtyAccumulator, :2979 take_frame_dirty, :3096 record_frame_timing, :2827 present, :3156 present_if_needed`
 
 **無い**
 
