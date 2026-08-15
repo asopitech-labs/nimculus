@@ -2,10 +2,38 @@ import nimnui/geometry
 import nimnui/layout_types
 import nimnui/context
 import std/algorithm
+import std/hashes
 import std/tables
 
 type
   NodeId* = distinct uint64
+
+  ## A stable identity assigned by an element rather than by the transient
+  ## node record.  The discriminant is deliberately explicit: code-location
+  ## IDs must not compare equal to integer or named IDs with the same payload.
+  ElementIdKind* = enum
+    elementInteger, elementName, elementNamedInteger, elementCodeLocation,
+    elementNamedChild
+
+  ElementId* = object
+    case kind*: ElementIdKind
+    of elementInteger:
+      integer*: int64
+    of elementName:
+      name*: string
+    of elementNamedInteger:
+      namedIntegerName*: string
+      namedInteger*: int64
+    of elementCodeLocation:
+      codeLocationFile*: string
+      codeLocationLine*: int
+      codeLocationColumn*: int
+    of elementNamedChild:
+      namedChildParent*: string
+      namedChildName*: string
+
+  ## The complete path from the root element namespace to a local element.
+  GlobalElementId* = seq[ElementId]
 
   ## Hitboxes are recorded during prepaint, when the content mask is known.
   ## Keeping the behavior on the recorded item makes hit testing independent
@@ -95,6 +123,67 @@ type
     onLayoutDirty*: LayoutDirtyHandler
 
 proc `==`*(a, b: NodeId): bool = uint64(a) == uint64(b)
+
+proc `==`*(a, b: ElementId): bool =
+  if a.kind != b.kind: return false
+  case a.kind
+  of elementInteger:
+    a.integer == b.integer
+  of elementName:
+    a.name == b.name
+  of elementNamedInteger:
+    a.namedIntegerName == b.namedIntegerName and
+      a.namedInteger == b.namedInteger
+  of elementCodeLocation:
+    a.codeLocationFile == b.codeLocationFile and
+      a.codeLocationLine == b.codeLocationLine and
+      a.codeLocationColumn == b.codeLocationColumn
+  of elementNamedChild:
+    a.namedChildParent == b.namedChildParent and
+      a.namedChildName == b.namedChildName
+
+proc integerElementId*(value: int64): ElementId =
+  ElementId(kind: elementInteger, integer: value)
+
+proc nameElementId*(value: string): ElementId =
+  ElementId(kind: elementName, name: value)
+
+proc namedIntegerElementId*(name: string, value: int64): ElementId =
+  ElementId(kind: elementNamedInteger, namedIntegerName: name,
+            namedInteger: value)
+
+proc codeLocationElementId*(file: string, line, column: int): ElementId =
+  ElementId(kind: elementCodeLocation, codeLocationFile: file,
+            codeLocationLine: line, codeLocationColumn: column)
+
+proc namedChildElementId*(parent, child: string): ElementId =
+  ElementId(kind: elementNamedChild, namedChildParent: parent,
+            namedChildName: child)
+
+proc hash*(id: ElementId): Hash =
+  var resultHash = hash(ord(id.kind))
+  case id.kind
+  of elementInteger:
+    resultHash = resultHash !& hash(id.integer)
+  of elementName:
+    resultHash = resultHash !& hash(id.name)
+  of elementNamedInteger:
+    resultHash = resultHash !& hash(id.namedIntegerName)
+    resultHash = resultHash !& hash(id.namedInteger)
+  of elementCodeLocation:
+    resultHash = resultHash !& hash(id.codeLocationFile)
+    resultHash = resultHash !& hash(id.codeLocationLine)
+    resultHash = resultHash !& hash(id.codeLocationColumn)
+  of elementNamedChild:
+    resultHash = resultHash !& hash(id.namedChildParent)
+    resultHash = resultHash !& hash(id.namedChildName)
+  !$resultHash
+
+proc hash*(id: GlobalElementId): Hash =
+  var resultHash = hash(id.len)
+  for part in id:
+    resultHash = resultHash !& hash(part)
+  !$resultHash
 
 proc topmost*(hitResult: HitTestResult): NodeId =
   if hitResult.ids.len > 0: hitResult.ids[0] else: NodeId(0)
