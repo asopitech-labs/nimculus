@@ -64,6 +64,8 @@ bool nimculus_platform_validate_input_latency_tracking(void);
 bool nimculus_platform_validate_frame_timing_tracking(void);
 bool nimculus_platform_validate_clipboard_roundtrip(void);
 bool nimculus_platform_validate_glyph_atlas(void);
+// Forces both atlas shelves through generation 1 and verifies that the old
+// generation remains a cache hit without incrementing the eviction counter.
 bool nimculus_platform_validate_glyph_atlas_eviction(void);
 bool nimculus_platform_validate_color_emoji_sprite_routing(void);
 bool nimculus_platform_validate_color_emoji_sequences(void);
