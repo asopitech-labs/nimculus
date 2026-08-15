@@ -1528,6 +1528,11 @@ typedef struct NimculusMonochromeSprite {
   NimculusGlyphRect tile;
   NimculusGlyphColor color;
   uint32_t atlas_generation;
+  // Metal rounds a struct containing float4 members up to its 16-byte
+  // alignment when it is indexed as an array. Keep the CPU array stride at
+  // the same 80 bytes as shader-side GS (68 bytes of fields plus 12 bytes of
+  // tail padding).
+  uint32_t metal_padding[3];
 } NimculusMonochromeSprite;
 
 // This is the macOS-side equivalent of Zed's PolychromeSprite. Keep the
@@ -1543,7 +1548,15 @@ typedef struct NimculusPolychromeSprite {
   NimculusGlyphRect corner_radii;
   NimculusGlyphRect tile;
   uint32_t atlas_generation;
+  // PGS has 84 bytes of fields, and Metal rounds its array stride to 96
+  // bytes because the struct contains float4 members.
+  uint32_t metal_padding[3];
 } NimculusPolychromeSprite;
+
+_Static_assert(sizeof(NimculusMonochromeSprite) == 80,
+  "NimculusMonochromeSprite must match Metal GS array stride");
+_Static_assert(sizeof(NimculusPolychromeSprite) == 96,
+  "NimculusPolychromeSprite must match Metal PGS array stride");
 
 static NimculusMonochromeSprite *g_glyph_sprites = NULL;
 static uint32_t g_glyph_sprite_count = 0;
