@@ -118,7 +118,7 @@
 - [x] **The pooled LineWrapper** — Zed `crates/gpui/src/text_system.rs:307 (line_wrapper), :56 (wrapper_pool), :850 (LineWrapperHandle), crates/gpui/src/text_system/line_wrapper.rs`
 - [ ] **Draw order, the layer stack, and the BoundsTree** — Zed `crates/gpui/src/scene.rs:43-44, :75 (push_layer), :87 (insert_primitive), :151 (finish)`
 - [x] **Batching: merging sorted streams into draw calls** — Zed `crates/gpui/src/scene.rs:172 (batches), :288-466 (BatchIterator)`
-- [ ] **Hsla and alpha derivation** — Zed `crates/gpui/src/color.rs:334 (Hsla), :424 (hsla), :525 (to_rgb), :580 (blend), :607 (fade_out), :637 (opacity), :667 (alpha), :677 (From<Rgba>)`
+- [x] **Hsla and alpha derivation** — Zed `crates/gpui/src/color.rs:334 (Hsla), :424 (hsla), :525 (to_rgb), :580 (blend), :607 (fade_out), :637 (opacity), :667 (alpha), :677 (From<Rgba>)`
 - [ ] **Background: solid vs gradient vs pattern as one shader-visible tag** — Zed `crates/gpui/src/color.rs:779 (Background), :759 (ColorSpace), :851 (solid_background), :865 (linear_gradient), :827 (pattern_slash), :841 (checkerboard); used by scene.rs:535 (Quad.background) and :761 (Path.color)`
 - [x] **TextStyle and its refinement/highlight composition** — Zed `crates/gpui/src/style.rs:434 (TextStyle), :432 (#[derive(Refineable)]), :506 (highlight), :539 (font), :550 (line_height_in_pixels), :555 (to_run), :576 (HighlightStyle), :920 (HighlightStyle::highlight)`
 - [ ] **UnderlineStyle / StrikethroughStyle and their snapped emission** — Zed `crates/gpui/src/style.rs:824 (UnderlineStyle), :839 (StrikethroughStyle); crates/gpui/src/window.rs:4280 (paint_underline), :4315 (paint_strikethrough)`
@@ -198,7 +198,7 @@
 - [x] **Density-aware spacing scale** — Zed `crates/ui/src/styles/spacing.rs:29-44 (derive_dynamic_spacing! table), :52 (ui_density)`
 - [x] **Builder traits shared across components** — Zed `crates/ui/src/traits/clickable.rs:4, disableable.rs:2, toggleable.rs:5, fixed.rs, visible_on_hover.rs; crates/ui/src/components/button/button_like.rs:12 (SelectableButton), :17 (ButtonCommon)`
 - [x] **Icon source abstraction and square hit box** — Zed `crates/ui/src/components/icon.rs:131 (IconSource), :145 (Icon), :86 (square_components), :102 (square)`
-- [ ] **ListItem slot layout** — Zed `crates/ui/src/components/list/list_item.rs:10 (ListItemSpacing), :26 (struct), :292 (render), :404 (disclosure at left:-1rem), :442 (EndSlotVisibility Always/OnHover/SwapOnHover)`
+- [x] **ListItem slot layout** — Zed `crates/ui/src/components/list/list_item.rs:10 (ListItemSpacing), :26 (struct), :292 (render), :404 (disclosure at left:-1rem), :442 (EndSlotVisibility Always/OnHover/SwapOnHover)`
 - [x] **Keybinding display** — Zed `crates/ui/src/components/keybinding.rs:46 (KeyBinding), :63 for_action, :200 render, :252 render_keybinding_keystroke, :411 (Key), :457 (KeyIcon)`
 - [x] **Tri-state toggle** — Zed `crates/ui/src/traits/toggleable.rs:12 (ToggleState), :26 inverse, :34 from_any_and_all; crates/ui/src/components/toggle.rs:43 (Checkbox), :181 container_size, :338 (Switch), :328 (SwitchLabelPosition)`
 
