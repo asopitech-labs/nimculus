@@ -66,6 +66,37 @@ suite "shared control builders":
     check visible.hoverGroup == ""
 
 suite "M2 UI foundation":
+  test "icon sizes, sources, and square hit boxes follow Zed metrics":
+    check fromPath("icons/sidebar.svg").source.kind == embedded
+    check fromPath("/tmp/sidebar.svg").source.kind == external
+    check rems(customIconSize(1.25'f32)) == 1.25'f32
+
+    check rems(iconIndicator) == 0.625'f32
+    check rems(iconXSmall) == 0.75'f32
+    check rems(iconSmall) == 0.875'f32
+    check rems(iconMedium) == 1.0'f32
+    check rems(iconXLarge) == 3.0'f32
+
+    let expectedSizes = [10'f32, 12'f32, 14'f32, 16'f32, 48'f32]
+    let expectedPadding = [0'f32, 2'f32, 2'f32, 2'f32, 2'f32]
+    let namedSizes = [IconSize(kind: iconIndicator),
+      IconSize(kind: iconXSmall), IconSize(kind: iconSmall),
+      IconSize(kind: iconMedium), IconSize(kind: iconXLarge)]
+    for index, size in namedSizes:
+      let components = size.squareComponents(16'f32, Density.default)
+      check float32(components.size) == expectedSizes[index]
+      check float32(components.padding) == expectedPadding[index]
+
+    check float32(square(IconSize(kind: iconIndicator))) == 10'f32
+    check float32(square(IconSize(kind: iconXSmall))) == 16'f32
+    check float32(square(IconSize(kind: iconSmall))) == 18'f32
+    check float32(square(IconSize(kind: iconMedium))) == 20'f32
+    check float32(square(IconSize(kind: iconXLarge))) == 52'f32
+
+    ## Padding is a px spacing token, so it does not scale with remSize.
+    check float32(square(IconSize(kind: iconSmall), 12'f32,
+      Density.default)) == 14.5'f32
+
   test "text style refinement changes only fields present in the refinement":
     let base = TextStyle(
       color: [0.1'f32, 0.2'f32, 0.3'f32, 0.9'f32],
