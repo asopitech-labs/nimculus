@@ -2379,6 +2379,15 @@ typedef struct NimculusEditorGutterMetrics {
   CGFloat margin;
 } NimculusEditorGutterMetrics;
 
+// Gutter geometry changes only when the primary document's line count or the
+// editor font changes. Scroll-only frames used to repeat two CTFont metric
+// queries and a CTLine construction just to obtain the same text origin.
+static NimculusEditorGutterMetrics g_editor_gutter_metrics_cache;
+static NSUInteger g_editor_gutter_metrics_line_count = 0;
+static uint64_t g_editor_gutter_metrics_font_generation = 0;
+static BOOL g_editor_gutter_metrics_had_font = NO;
+static BOOL g_editor_gutter_metrics_cache_valid = NO;
+
 static CGFloat editorGlyphTypographicWidth(CTFontRef font, UniChar character) {
   if (!font) return 0.0;
   CGGlyph glyph = 0;
@@ -2417,6 +2426,14 @@ static NimculusEditorGutterMetrics editorGutterMetrics(void) {
   NSArray<NSString *> *lines = editorLinesForText(g_editor_text);
   NSUInteger lineCount = MAX((NSUInteger)1, lines.count);
   CTFontRef font = editorFont();
+  const BOOL hasFont = font != NULL;
+  if (g_editor_gutter_metrics_cache_valid &&
+      g_editor_gutter_metrics_line_count == lineCount &&
+      g_editor_gutter_metrics_font_generation == g_editor_font_cache_generation &&
+      g_editor_gutter_metrics_had_font == hasFont) {
+    if (font) CFRelease(font);
+    return g_editor_gutter_metrics_cache;
+  }
   metrics.ch_width = editorGlyphTypographicWidth(font, '0');
   metrics.ch_advance = editorGlyphAdvance(font, '0');
   if (metrics.ch_width <= 0.0) metrics.ch_width = MAX(1.0, g_editor_font_size * 0.6);
@@ -2446,6 +2463,11 @@ static NimculusEditorGutterMetrics editorGutterMetrics(void) {
   // Zed's (measured: our first glyph at x=84.0pt against Zed's 91.5pt).
   metrics.margin = font ? CTFontGetDescent(font) : g_editor_font_size * 0.22;
   if (font) CFRelease(font);
+  g_editor_gutter_metrics_cache = metrics;
+  g_editor_gutter_metrics_line_count = lineCount;
+  g_editor_gutter_metrics_font_generation = g_editor_font_cache_generation;
+  g_editor_gutter_metrics_had_font = hasFont;
+  g_editor_gutter_metrics_cache_valid = YES;
   return metrics;
 }
 
@@ -3738,7 +3760,7 @@ static void ensureGlyphAtlas(id<MTLDevice> device, CGFloat scale) {
 
 static void appendGlyphSpriteTo(NimculusMonochromeSprite **target,
                                 uint32_t *count, uint32_t *capacityTarget,
-                                NimculusMonochromeSprite sprite) {
+                                const NimculusMonochromeSprite *sprite) {
   if (*count == *capacityTarget) {
     uint32_t capacity = *capacityTarget == 0 ? 1024 : *capacityTarget * 2;
     NimculusMonochromeSprite *sprites = realloc(*target,
@@ -3747,12 +3769,12 @@ static void appendGlyphSpriteTo(NimculusMonochromeSprite **target,
     *target = sprites;
     *capacityTarget = capacity;
   }
-  (*target)[(*count)++] = sprite;
+  (*target)[(*count)++] = *sprite;
 }
 
 static void appendPolychromeGlyphSpriteTo(NimculusPolychromeSprite **target,
                                           uint32_t *count, uint32_t *capacityTarget,
-                                          NimculusPolychromeSprite sprite) {
+                                          const NimculusPolychromeSprite *sprite) {
   if (*count == *capacityTarget) {
     uint32_t capacity = *capacityTarget == 0 ? 1024 : *capacityTarget * 2;
     NimculusPolychromeSprite *sprites = realloc(*target,
@@ -3761,10 +3783,10 @@ static void appendPolychromeGlyphSpriteTo(NimculusPolychromeSprite **target,
     *target = sprites;
     *capacityTarget = capacity;
   }
-  (*target)[(*count)++] = sprite;
+  (*target)[(*count)++] = *sprite;
 }
 
-static void appendGlyphSprite(NimculusMonochromeSprite sprite) {
+static void appendGlyphSprite(const NimculusMonochromeSprite *sprite) {
   if (g_rendering_secondary_editor) {
     appendGlyphSpriteTo(&g_secondary_glyph_sprites, &g_secondary_glyph_sprite_count,
       &g_secondary_glyph_sprite_capacity, sprite);
@@ -3774,7 +3796,7 @@ static void appendGlyphSprite(NimculusMonochromeSprite sprite) {
   }
 }
 
-static void appendPolychromeGlyphSprite(NimculusPolychromeSprite sprite) {
+static void appendPolychromeGlyphSprite(const NimculusPolychromeSprite *sprite) {
   if (g_rendering_secondary_editor) {
     appendPolychromeGlyphSpriteTo(&g_secondary_polychrome_glyph_sprites,
       &g_secondary_polychrome_glyph_sprite_count,
@@ -3800,31 +3822,31 @@ static void colorForGlyphRun(CTRunRef run, CGFloat *red, CGFloat *green,
   *alpha = rgb.alphaComponent;
 }
 
-static uint32_t floatBitsForGlyphKey(float value) {
-  uint32_t bits = 0;
-  memcpy(&bits, &value, sizeof(bits));
-  return bits;
+static inline uint32_t floatBitsForGlyphKey(float value) {
+  union {
+    float value;
+    uint32_t bits;
+  } representation = {value};
+  return representation.bits;
 }
 
-static uint32_t hashGlyphKey(const NimculusRenderGlyphParams *key) {
+static inline uint32_t hashGlyphKey(const NimculusRenderGlyphParams *key) {
   // FNV-1a over the same scalar fields used by RenderGlyphParams::Hash.
   uint32_t hash = 2166136261u;
-  const uint32_t values[] = {
-    key->font_id, key->glyph_id, floatBitsForGlyphKey(key->font_size),
-    (uint32_t)key->subpixel_variant_x | ((uint32_t)key->subpixel_variant_y << 8),
-    floatBitsForGlyphKey(key->scale_factor),
-    (uint32_t)key->is_emoji | ((uint32_t)key->subpixel_rendering << 8) |
-      ((uint32_t)key->dilation << 16)
-  };
-  for (NSUInteger index = 0; index < sizeof(values) / sizeof(values[0]); index++) {
-    hash ^= values[index];
-    hash *= 16777619u;
-  }
+  hash = (hash ^ key->font_id) * 16777619u;
+  hash = (hash ^ key->glyph_id) * 16777619u;
+  hash = (hash ^ floatBitsForGlyphKey(key->font_size)) * 16777619u;
+  hash = (hash ^ ((uint32_t)key->subpixel_variant_x |
+                  ((uint32_t)key->subpixel_variant_y << 8))) * 16777619u;
+  hash = (hash ^ floatBitsForGlyphKey(key->scale_factor)) * 16777619u;
+  hash = (hash ^ ((uint32_t)key->is_emoji |
+                  ((uint32_t)key->subpixel_rendering << 8) |
+                  ((uint32_t)key->dilation << 16))) * 16777619u;
   return hash;
 }
 
-static BOOL glyphKeysEqual(const NimculusRenderGlyphParams *left,
-                           const NimculusRenderGlyphParams *right) {
+static inline BOOL glyphKeysEqual(const NimculusRenderGlyphParams *left,
+                                  const NimculusRenderGlyphParams *right) {
   return left->font_id == right->font_id && left->glyph_id == right->glyph_id &&
     floatBitsForGlyphKey(left->font_size) == floatBitsForGlyphKey(right->font_size) &&
     left->subpixel_variant_x == right->subpixel_variant_x &&
@@ -3995,36 +4017,36 @@ atlas_done:
 static void appendEditorGlyphSprite(CGSize sceneSize, CGRect editorRect,
                                     NimculusPaintRegion contentMask,
                                     CGFloat textOriginX, CGFloat scrollX,
-                                    NimculusGlyphAtlasEntry entry, CGFloat glyphX,
+                                    const NimculusGlyphAtlasEntry *entry, CGFloat glyphX,
                                     CGFloat baselineY, CGFloat red, CGFloat green,
                                     CGFloat blue, CGFloat alpha, BOOL isEmoji) {
-  if (entry.width == 0 || entry.height == 0 || sceneSize.width <= 0 ||
+  if (!entry || entry->width == 0 || entry->height == 0 || sceneSize.width <= 0 ||
       sceneSize.height <= 0 || editorRect.size.width <= 0 ||
       editorRect.size.height <= 0 || contentMask.width <= 0 ||
       contentMask.height <= 0) return;
-  CGFloat x = editorRect.origin.x + textOriginX + glyphX + entry.bounds_x - scrollX;
-  CGFloat bottomOrigin = baselineY + entry.bounds_y;
+  CGFloat x = editorRect.origin.x + textOriginX + glyphX + entry->bounds_x - scrollX;
+  CGFloat bottomOrigin = baselineY + entry->bounds_y;
   CGFloat y = editorRect.origin.y + editorRect.size.height -
-    (bottomOrigin + entry.bounds_height);
+    (bottomOrigin + entry->bounds_height);
   if (glyphTextureKind(isEmoji) == NIMCULUS_GLYPH_TEXTURE_POLYCHROME) {
     NimculusPolychromeSprite sprite = {
       0, 0, 0, 1.0f,
-      { (float)x, (float)y, (float)entry.bounds_width, (float)entry.bounds_height },
+      { (float)x, (float)y, (float)entry->bounds_width, (float)entry->bounds_height },
       { contentMask.x, contentMask.y, contentMask.width, contentMask.height },
       { 0, 0, 0, 0 },
-      { (float)entry.x, (float)entry.y, (float)entry.width, (float)entry.height },
-      entry.generation
+      { (float)entry->x, (float)entry->y, (float)entry->width, (float)entry->height },
+      entry->generation
     };
-    appendPolychromeGlyphSprite(sprite);
+    appendPolychromeGlyphSprite(&sprite);
   } else {
     NimculusMonochromeSprite sprite = {
-      { (float)x, (float)y, (float)entry.bounds_width, (float)entry.bounds_height },
+      { (float)x, (float)y, (float)entry->bounds_width, (float)entry->bounds_height },
       { contentMask.x, contentMask.y, contentMask.width, contentMask.height },
-      { (float)entry.x, (float)entry.y, (float)entry.width, (float)entry.height },
+      { (float)entry->x, (float)entry->y, (float)entry->width, (float)entry->height },
       { red, green, blue, alpha },
-      entry.generation
+      entry->generation
     };
-    appendGlyphSprite(sprite);
+    appendGlyphSprite(&sprite);
   }
 }
 
@@ -4061,19 +4083,19 @@ static void updateEditorGlyphAtlasFromLayout(id<MTLDevice> device) {
                                  editorSize.width, editorSize.height);
   CGFloat lineHeight = editorLineHeight();
   for (uint32_t rowIndex = 0; rowIndex < rowCount; rowIndex++) {
-    NimculusEditorLayoutRow row = rows[rowIndex];
-    CGFloat fontSize = row.font_size > 0.0 ? row.font_size : g_editor_font_size;
-    CGFloat ascent = row.ascent > 0.0 ? row.ascent : lineHeight * 0.78;
-    CGFloat descent = row.descent > 0.0 ? row.descent : lineHeight * 0.22;
+    const NimculusEditorLayoutRow *row = &rows[rowIndex];
+    CGFloat fontSize = row->font_size > 0.0 ? row->font_size : g_editor_font_size;
+    CGFloat ascent = row->ascent > 0.0 ? row->ascent : lineHeight * 0.78;
+    CGFloat descent = row->descent > 0.0 ? row->descent : lineHeight * 0.22;
     CGFloat baseline = editorTextBaselineFromMetrics(editorSize.height, lineHeight,
-      ascent, descent, (CGFloat)row.display_row) - editorLayoutScrollYFraction();
-    uint32_t first = MIN(row.glyph_start, glyphCount);
-    uint32_t last = MIN(glyphCount, first + row.glyph_count);
+      ascent, descent, (CGFloat)row->display_row) - editorLayoutScrollYFraction();
+    uint32_t first = MIN(row->glyph_start, glyphCount);
+    uint32_t last = MIN(glyphCount, first + row->glyph_count);
     for (uint32_t glyphIndex = first; glyphIndex < last; glyphIndex++) {
-      NimculusEditorLayoutGlyph glyph = glyphs[glyphIndex];
-      uint32_t fontId = glyph.font_id;
-      CGFloat scaledX = glyph.x * scale;
-      CGFloat scaledY = (baseline + glyph.y) * scale;
+      const NimculusEditorLayoutGlyph *glyph = &glyphs[glyphIndex];
+      uint32_t fontId = glyph->font_id;
+      CGFloat scaledX = glyph->x * scale;
+      CGFloat scaledY = (baseline + glyph->y) * scale;
       CGFloat quantizedX = roundHalfTowardZero(scaledX * NIMCULUS_SUBPIXEL_VARIANTS_X) /
         (NIMCULUS_SUBPIXEL_VARIANTS_X * scale);
       CGFloat integerOriginY = roundHalfTowardZero(scaledY) / scale;
@@ -4082,11 +4104,11 @@ static void updateEditorGlyphAtlasFromLayout(id<MTLDevice> device) {
         MAX(0, (int)(fractionalX * NIMCULUS_SUBPIXEL_VARIANTS_X)));
       uint8_t variantY = 0;
       NimculusGlyphAtlasEntry entry;
-      if (atlasEntryForGlyph(device, NULL, (CGGlyph)glyph.glyph_id, fontId, fontSize, scale,
-          variantX, variantY, glyph.is_emoji, &entry)) {
+      if (atlasEntryForGlyph(device, NULL, (CGGlyph)glyph->glyph_id, fontId, fontSize, scale,
+          variantX, variantY, glyph->is_emoji, &entry)) {
         appendEditorGlyphSprite(sceneSize, editorRect, contentMask, textOriginX, scrollX,
-          entry, quantizedX, integerOriginY,
-          glyph.red, glyph.green, glyph.blue, glyph.alpha, glyph.is_emoji);
+          &entry, quantizedX, integerOriginY,
+          glyph->red, glyph->green, glyph->blue, glyph->alpha, glyph->is_emoji);
       }
     }
   }
@@ -4239,7 +4261,7 @@ static void updateEditorGlyphAtlas(id<MTLDevice> device, NSString *text) {
             scale,
             variantX, variantY, colorEmojiGlyph, &entry)) {
           appendEditorGlyphSprite(sceneSize, editorRect, contentMask, textOriginX, scrollX,
-            entry, quantizedX, integerOriginY, red, green, blue, alpha, colorEmojiGlyph);
+            &entry, quantizedX, integerOriginY, red, green, blue, alpha, colorEmojiGlyph);
         }
       }
       free(glyphs);
@@ -9711,13 +9733,13 @@ static NimculusPaintRegion terminalContentViewport(void) {
 
 static void appendTerminalGlyphSprite(NimculusMonochromeSprite sprite) {
   appendGlyphSpriteTo(&g_terminal_glyph_sprites, &g_terminal_glyph_sprite_count,
-    &g_terminal_glyph_sprite_capacity, sprite);
+    &g_terminal_glyph_sprite_capacity, &sprite);
 }
 
 static void appendTerminalPolychromeGlyphSprite(NimculusPolychromeSprite sprite) {
   appendPolychromeGlyphSpriteTo(&g_terminal_polychrome_glyph_sprites,
     &g_terminal_polychrome_glyph_sprite_count,
-    &g_terminal_polychrome_glyph_sprite_capacity, sprite);
+    &g_terminal_polychrome_glyph_sprite_capacity, &sprite);
 }
 
 static void appendTerminalGlyphSpriteForEntry(NimculusPaintRegion viewport,
