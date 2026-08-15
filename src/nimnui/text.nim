@@ -42,12 +42,15 @@ type
     byteOffset*: int
     graphemeIndex*: int
 
-  ## Text colors use the same RGBA channel order as TextRun.  Hsla and Rgba
-  ## are aliases here because the platform boundary only needs four channels;
-  ## keeping the value flat also makes refinement and run creation cheap.
+  ## Text colors use the same RGBA channel order as TextRun. Rgba remains a
+  ## flat platform payload; Hsla is a separate color space used for deriving
+  ## colors before they cross that boundary.
   TextColor* = array[4, float32]
-  Hsla* = TextColor
   Rgba* = TextColor
+
+  Hsla* = object
+    ## Hue, saturation, lightness, and alpha are all normalized to 0..1.
+    h*, s*, l*, a*: float32
 
   LengthUnit* = enum
     lengthRem, lengthPixels
@@ -378,6 +381,111 @@ proc lineHeightInPixels*(style: TextStyle, remSize: float32): Pixels =
     else:
       style.fontSize.value
   px(float32(round(style.lineHeight.value * fontSize)))
+
+proc clamp01(value: float32): float32 =
+  if value < 0'f32: 0'f32
+  elif value > 1'f32: 1'f32
+  else: value
+
+proc hsla*(h, s, l, a: float32): Hsla =
+  ## Construct an HSLA color, clamping every component like Zed's hsla().
+  Hsla(h: clamp01(h), s: clamp01(s), l: clamp01(l), a: clamp01(a))
+
+proc `==`*(left, right: Hsla): bool =
+  ## Compare the exact float bit patterns, including signed zero and NaNs.
+  cast[uint32](left.h) == cast[uint32](right.h) and
+    cast[uint32](left.s) == cast[uint32](right.s) and
+    cast[uint32](left.l) == cast[uint32](right.l) and
+    cast[uint32](left.a) == cast[uint32](right.a)
+
+proc hash*(color: Hsla): Hash =
+  ## Hash the same bit patterns used by `==`, so Hsla is safe as a Table key.
+  result = hash(cast[uint32](color.h))
+  result = result !& hash(cast[uint32](color.s))
+  result = result !& hash(cast[uint32](color.l))
+  result = result !& hash(cast[uint32](color.a))
+  result = !$result
+
+proc toRgba*(color: Hsla): Rgba =
+  ## Convert HSLA to RGBA using GPUI's HSL conversion formula.
+  let chroma = (1'f32 - abs(2'f32 * color.l - 1'f32)) * color.s
+  let hue = color.h * 6'f32
+  let hueModulo = hue - floor(hue / 2'f32) * 2'f32
+  let second = chroma * (1'f32 - abs(hueModulo - 1'f32))
+  let matchValue = color.l - chroma / 2'f32
+  let chromaValue = chroma + matchValue
+  let secondValue = second + matchValue
+
+  let sector = int(floor(hue))
+  var red, green, blue: float32
+  case sector
+  of 0, 6: (red, green, blue) = (chromaValue, secondValue, matchValue)
+  of 1: (red, green, blue) = (secondValue, chromaValue, matchValue)
+  of 2: (red, green, blue) = (matchValue, chromaValue, secondValue)
+  of 3: (red, green, blue) = (matchValue, secondValue, chromaValue)
+  of 4: (red, green, blue) = (secondValue, matchValue, chromaValue)
+  else: (red, green, blue) = (chromaValue, matchValue, secondValue)
+
+  [clamp01(red), clamp01(green), clamp01(blue), color.a]
+
+proc hslaFromRgba(color: Rgba): Hsla =
+  let red = color[0]
+  let green = color[1]
+  let blue = color[2]
+  let maximum = max(red, max(green, blue))
+  let minimum = min(red, min(green, blue))
+  let delta = maximum - minimum
+  let lightness = (maximum + minimum) / 2'f32
+
+  let saturation =
+    if lightness == 0'f32 or lightness == 1'f32:
+      0'f32
+    elif lightness < 0.5'f32:
+      delta / (2'f32 * lightness)
+    else:
+      delta / (2'f32 - 2'f32 * lightness)
+
+  var hue = 0'f32
+  if delta != 0'f32:
+    if maximum == red:
+      hue = (green - blue) / delta
+      if hue < 0'f32: hue += 6'f32
+    elif maximum == green:
+      hue = (blue - red) / delta + 2'f32
+    else:
+      hue = (red - green) / delta + 4'f32
+    hue /= 6'f32
+
+  Hsla(h: hue, s: saturation, l: lightness, a: color[3])
+
+proc blend*(base, over: Hsla): Hsla =
+  ## Blend `over` on top of `base`, matching Zed's alpha-weighted RGBA path.
+  if over.a >= 1'f32: return over
+  if over.a <= 0'f32: return base
+
+  let baseRgba = base.toRgba()
+  let overRgba = over.toRgba()
+  let alpha = over.a
+  let blended: Rgba = [
+    baseRgba[0] * (1'f32 - alpha) + overRgba[0] * alpha,
+    baseRgba[1] * (1'f32 - alpha) + overRgba[1] * alpha,
+    baseRgba[2] * (1'f32 - alpha) + overRgba[2] * alpha,
+    baseRgba[3]]
+  hslaFromRgba(blended)
+
+proc fadeOut*(color: Hsla, factor: float32): Hsla =
+  ## Fade out by a clamped factor; factor 1 makes the color transparent.
+  result = color
+  result.a *= 1'f32 - clamp01(factor)
+
+proc opacity*(color: Hsla, factor: float32): Hsla =
+  ## Multiply alpha by a clamped factor.
+  Hsla(h: color.h, s: color.s, l: color.l,
+    a: color.a * clamp01(factor))
+
+proc alpha*(color: Hsla, value: float32): Hsla =
+  ## Replace alpha with a clamped value.
+  Hsla(h: color.h, s: color.s, l: color.l, a: clamp01(value))
 
 proc blend*(base, over: TextColor): TextColor =
   let alpha = over[3]
