@@ -10909,40 +10909,6 @@ static void drawMonochromeGlyphSprites(id<MTLRenderCommandEncoder> encoder,
   if (!encoder || !device || !pipeline || !sprites || spriteCount == 0) return;
   float viewportSize[2] = {(float)logicalSize.width, (float)logicalSize.height};
   float atlasSize[2] = {2048.0f, 2048.0f};
-  // Most frames use one atlas texture. Keep that hot path free of CPU
-  // temporary allocations:
-  // display-link callbacks and scroll input share AppKit's main run loop, so
-  // partitioning a complete sprite batch here would turn every scroll frame
-  // into two scans plus a temporary copy for no rendering benefit.
-  if (g_glyph_atlas_texture_count == 1) {
-    id<MTLBuffer> buffer = [device newBufferWithBytes:sprites
-      length:sizeof(NimculusMonochromeSprite) * spriteCount
-      options:MTLResourceStorageModeShared];
-    if (!buffer) return;
-    [encoder setRenderPipelineState:pipeline];
-    [encoder setVertexBytes:g_glyph_unit_vertices length:sizeof(g_glyph_unit_vertices)
-      atIndex:0];
-    [encoder setVertexBuffer:buffer offset:0 atIndex:1];
-    [encoder setVertexBytes:viewportSize length:sizeof(viewportSize) atIndex:2];
-    [encoder setVertexBytes:atlasSize length:sizeof(atlasSize) atIndex:3];
-    [encoder setFragmentBuffer:buffer offset:0 atIndex:1];
-    [encoder setFragmentTexture:g_glyph_atlas_texture atIndex:0];
-    if (fullSceneRebuild) {
-      setScissorForRegion(encoder, clip, logicalSize, drawableSize);
-      [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6
-        instanceCount:spriteCount];
-    } else {
-      for (uint32_t index = 0; index < g_paint_dirty_count; index++) {
-        NimculusPaintRegion visible = intersectPaintRegions(g_paint_dirty_regions[index], clip);
-        if (visible.width <= 0 || visible.height <= 0) continue;
-        setScissorForRegion(encoder, visible, logicalSize, drawableSize);
-        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6
-          instanceCount:spriteCount];
-      }
-    }
-    [buffer release];
-    return;
-  }
   for (uint32_t generation = 0; generation < g_glyph_atlas_texture_count; generation++) {
     uint32_t generationCount = 0;
     for (uint32_t index = 0; index < spriteCount; index++) {
@@ -11003,35 +10969,6 @@ static void drawPolychromeGlyphSprites(id<MTLRenderCommandEncoder> encoder,
   if (!encoder || !device || !pipeline || !sprites || spriteCount == 0) return;
   float viewportSize[2] = {(float)logicalSize.width, (float)logicalSize.height};
   float atlasSize[2] = {2048.0f, 2048.0f};
-  if (g_color_glyph_atlas_texture_count == 1) {
-    id<MTLBuffer> buffer = [device newBufferWithBytes:sprites
-      length:sizeof(NimculusPolychromeSprite) * spriteCount
-      options:MTLResourceStorageModeShared];
-    if (!buffer) return;
-    [encoder setRenderPipelineState:pipeline];
-    [encoder setVertexBytes:g_glyph_unit_vertices length:sizeof(g_glyph_unit_vertices)
-      atIndex:0];
-    [encoder setVertexBuffer:buffer offset:0 atIndex:1];
-    [encoder setVertexBytes:viewportSize length:sizeof(viewportSize) atIndex:2];
-    [encoder setVertexBytes:atlasSize length:sizeof(atlasSize) atIndex:3];
-    [encoder setFragmentBuffer:buffer offset:0 atIndex:1];
-    [encoder setFragmentTexture:g_color_glyph_atlas_texture atIndex:0];
-    if (fullSceneRebuild) {
-      setScissorForRegion(encoder, clip, logicalSize, drawableSize);
-      [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6
-        instanceCount:spriteCount];
-    } else {
-      for (uint32_t index = 0; index < g_paint_dirty_count; index++) {
-        NimculusPaintRegion visible = intersectPaintRegions(g_paint_dirty_regions[index], clip);
-        if (visible.width <= 0 || visible.height <= 0) continue;
-        setScissorForRegion(encoder, visible, logicalSize, drawableSize);
-        [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6
-          instanceCount:spriteCount];
-      }
-    }
-    [buffer release];
-    return;
-  }
   for (uint32_t generation = 0; generation < g_color_glyph_atlas_texture_count; generation++) {
     uint32_t generationCount = 0;
     for (uint32_t index = 0; index < spriteCount; index++) {
