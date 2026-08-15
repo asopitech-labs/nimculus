@@ -88,7 +88,7 @@
 - [x] **Entity handle + type-erased entity store (lease discipline)** — Zed `crates/gpui/src/app/entity_map.rs:414 (Entity<T>), :114 reserve, :120 insert, :134 lease, :151 end_lease, :156 read`
 - [ ] **Context<'a,T> - entity-scoped view of App** — Zed `crates/gpui/src/app/context.rs:20 (struct), :50 entity(), :229 notify(), :765 emit()`
 - [ ] **Effect queue + flush_effects re-entrancy guard** — Zed `crates/gpui/src/app.rs:1593 push_effect, :1614 flush_effects, :1048 App::update, :1055 start_update, :1059 finish_update`
-- [ ] **Double-buffered Frame with element-state carryover** — Zed `crates/gpui/src/window.rs:944 struct Frame, :988 Frame::new, :1017 Frame::clear, :1089 Frame::finish, :1138-1016 rendered_frame/next_frame fields, :3040-2741 mem::swap in draw`
+- [x] **Double-buffered Frame with element-state carryover** — Zed `crates/gpui/src/window.rs:944 struct Frame, :988 Frame::new, :1017 Frame::clear, :1089 Frame::finish, :1138-1016 rendered_frame/next_frame fields, :3040-2741 mem::swap in draw`
 - [ ] **Per-element retained state keyed by GlobalElementId** — Zed `crates/gpui/src/window.rs:3883 with_element_state, :3838 use_keyed_state, :3867 use_state, :3826 with_element_namespace, :6693 enum ElementId`
 - [ ] **Window/App split: root view, viewport, scale factor, refresh** — Zed `crates/gpui/src/window.rs:1044 struct Window (root :1006, viewport_size :1127, layout_engine :1128, scale_factor :1152), :2627 viewport_size(), :2750 scale_factor(), :2763 rem_size(), app.rs:704 windows SlotMap, app.rs:1236 open_window, app.rs:1805 update_window_id`
 
