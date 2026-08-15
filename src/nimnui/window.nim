@@ -4,10 +4,23 @@ import nimnui/render
 import nimnui/ui_tree
 import std/options
 import std/sets
+import std/tables
 import std/times
+import std/typetraits
 
 type
   NodePainter* = proc(paint: var PaintList, node: UiNode) {.closure.}
+
+  ElementStateKey* = tuple[element: GlobalElementId, stateType: string]
+
+  Frame* = object
+    paint: PaintList
+    elementStates*: Table[(GlobalElementId, string), ref RootObj]
+    accessed*: seq[(GlobalElementId, string)]
+
+  StateBox = object of RootObj
+  TypedState[S] = ref object of StateBox
+    value: S
 
   DrawPhase* = enum
     dpNone, dpPrepaint, dpPaint, dpFocus
@@ -42,6 +55,8 @@ type
     ## nextFrame only for elements accessed by the new frame.
     renderedFrame*: Frame
     nextFrame*: Frame
+    elementIdStack*: seq[ElementId]
+    activeElementStates*: seq[ElementStateKey]
     scaleFactor*: float32
     frameDirty*: FrameDirtyAccumulator
     activeFrameDirty*: FrameDirtyAccumulator
@@ -53,12 +68,28 @@ type
 
   Window* = WindowInvalidator
 
+converter toPaintList*(frame: var Frame): var PaintList =
+  frame.paint
+
+template commands*(frame: Frame): untyped = frame.paint.commands
+template dirty*(frame: Frame): untyped = frame.paint.dirty
+template scaleFactor*(frame: Frame): untyped = frame.paint.scaleFactor
+
+proc newElementFrame(): Frame =
+  Frame(paint: newFrame(),
+        elementStates: initTable[(GlobalElementId, string), ref RootObj]())
+
+proc clear*(frame: var Frame) =
+  frame.paint.clear()
+  frame.elementStates.clear()
+  frame.accessed.setLen(0)
+
 proc newWindow*(scaleFactor: float32 = 1.0): Window =
   result.dirtyViews = initHashSet[NodeId]()
   result.sidebarViews = initHashSet[NodeId]()
   result.phase = dpNone
-  result.renderedFrame = newFrame()
-  result.nextFrame = newFrame()
+  result.renderedFrame = newElementFrame()
+  result.nextFrame = newElementFrame()
   result.scaleFactor = if scaleFactor > 0: scaleFactor else: 1.0'f32
   result.nextFrame.scaleFactor = result.scaleFactor
   result.renderedFrame.scaleFactor = result.scaleFactor
@@ -221,18 +252,157 @@ proc setScaleFactor*(window: var Window, scaleFactor: float32) =
 
 proc beginFrame*(window: var Window, dirty: Rect) =
   window.nextFrame.clear()
+  window.activeElementStates.setLen(0)
   window.nextFrame.scaleFactor = window.scaleFactor
   window.nextFrame.invalidate(dirty)
 
+proc stateTypeName[S](): string = name(S)
+
+proc statePath(window: Window, localId: ElementId): GlobalElementId =
+  result = window.elementIdStack
+  result.add(localId)
+
+proc stateKey(id: GlobalElementId, stateType: string): ElementStateKey =
+  (element: id, stateType: stateType)
+
+proc newTypedState[S](value: S): ref RootObj =
+  var state: TypedState[S]
+  new(state)
+  state.value = value
+  cast[ref RootObj](state)
+
+proc typedStateValue[S](state: ref RootObj): var S =
+  cast[TypedState[S]](state).value
+
+proc lookupElementState*(frame: var Frame, key: string): Option[ElementState] =
+  let stateKey = (@[nameElementId(key)], stateTypeName[ElementState]())
+  if not frame.elementStates.hasKey(stateKey):
+    return none(ElementState)
+  some(typedStateValue[ElementState](frame.elementStates[stateKey]))
+
+proc checkStateType(window: Window, id: GlobalElementId, requested: string) =
+  var foundInNext = false
+  for key in window.nextFrame.elementStates.keys:
+    if key[0] == id:
+      foundInNext = true
+      if key[1] != requested:
+        raise newException(Defect, "element state type mismatch: requested " &
+          requested & ", existing " & key[1])
+  if not foundInNext:
+    for key in window.renderedFrame.elementStates.keys:
+      if key[0] == id and key[1] != requested:
+        raise newException(Defect, "element state type mismatch: requested " &
+          requested & ", existing " & key[1])
+
+proc accessState[S](window: var Window, id: GlobalElementId,
+                    defaultState: S): var S =
+  let requested = stateTypeName[S]()
+  window.checkStateType(id, requested)
+  let key = stateKey(id, requested)
+  if not window.nextFrame.elementStates.hasKey(key):
+    if window.renderedFrame.elementStates.hasKey(key):
+      window.nextFrame.elementStates[key] = window.renderedFrame.elementStates[key]
+    else:
+      window.nextFrame.elementStates[key] = newTypedState(defaultState)
+  if key notin window.nextFrame.accessed:
+    window.nextFrame.accessed.add(key)
+  typedStateValue[S](window.nextFrame.elementStates[key])
+
 proc accessElementState*(window: var Window, key: string,
                          defaultState = ElementState()): var ElementState =
-  window.nextFrame.accessElementState(window.renderedFrame, key, defaultState)
+  ## Compatibility for the existing paint path. It now uses the same
+  ## per-element retained state machinery as the typed APIs.
+  let id = @[nameElementId(key)]
+  window.accessState(id, defaultState)
+
+proc withElementNamespace*(window: var Window, namespace: ElementId,
+                           action: proc() {.closure.}) =
+  window.elementIdStack.add(namespace)
+  try:
+    if action != nil: action()
+  finally:
+    window.elementIdStack.setLen(window.elementIdStack.len - 1)
+
+proc withElementNamespace*(window: var Window, namespace: GlobalElementId,
+                           action: proc() {.closure.}) =
+  let oldLength = window.elementIdStack.len
+  for part in namespace:
+    window.elementIdStack.add(part)
+  try:
+    if action != nil: action()
+  finally:
+    window.elementIdStack.setLen(oldLength)
+
+proc withElementNamespace*(window: var Window, namespace: string,
+                           action: proc() {.closure.}) =
+  window.withElementNamespace(nameElementId(namespace), action)
+
+proc withElementNamespace*(window: var Window, namespace: int64,
+                           action: proc() {.closure.}) =
+  window.withElementNamespace(integerElementId(namespace), action)
+
+proc useKeyedState*[S](window: var Window, id: ElementId,
+                       defaultState: S): var S =
+  window.accessState(window.statePath(id), defaultState)
+
+proc useKeyedState*[S](window: var Window, id: string,
+                       defaultState: S): var S =
+  window.useKeyedState(nameElementId(id), defaultState)
+
+proc useKeyedState*[S](window: var Window, id: int64,
+                       defaultState: S): var S =
+  window.useKeyedState(integerElementId(id), defaultState)
+
+proc withElementState*[S](window: var Window, id: ElementId,
+                          defaultState: S,
+                          action: proc(state: var S) {.closure.}) =
+  let key = stateKey(window.statePath(id), stateTypeName[S]())
+  if key in window.activeElementStates:
+    raise newException(Defect, "re-entrancy in withElementState")
+  window.activeElementStates.add(key)
+  try:
+    if action != nil: action(window.useKeyedState(id, defaultState))
+  finally:
+    window.activeElementStates.delete(window.activeElementStates.high)
+
+proc withElementState*[S](window: var Window, id: ElementId,
+                          action: proc(state: var S) {.closure.}) =
+  window.withElementState(id, default(S), action)
+
+proc withElementState*[S](window: var Window, id: string,
+                          defaultState: S,
+                          action: proc(state: var S) {.closure.}) =
+  window.withElementState(nameElementId(id), defaultState, action)
+
+proc withElementState*[S](window: var Window, id: string,
+                          action: proc(state: var S) {.closure.}) =
+  window.withElementState(nameElementId(id), default(S), action)
+
+proc useCodeLocationState[S](window: var Window, file: string, line,
+                             column: int, defaultState: S): var S =
+  window.accessState(window.statePath(codeLocationElementId(file, line, column)),
+    defaultState)
+
+template useState*[S](window: var Window, defaultState: S): var S =
+  let location = instantiationInfo()
+  useCodeLocationState[S](window, location.filename, location.line,
+    location.column, defaultState)
+
+template useState*[S](window: var Window): var S =
+  let location = instantiationInfo()
+  useCodeLocationState[S](window, location.filename, location.line,
+    location.column, default(S))
 
 proc finishFrame*(window: var Window) =
-  window.nextFrame.finishFrame(window.renderedFrame)
+  ## `accessState` inserts only visited keys into nextFrame.elementStates.
+  ## Swapping the two complete frames therefore drops every unvisited key in
+  ## exactly one frame.
+  system.swap(window.renderedFrame, window.nextFrame)
 
 proc swapFrames*(window: var Window) =
-  swap(window.renderedFrame, window.nextFrame)
+  ## Kept for callers written against the earlier two-step API. finishFrame
+  ## now performs the swap, matching the retained frame lifecycle.
+  discard window
 
 proc withContentMask*(window: var Window, bounds: Rect, action: proc() {.closure.}) =
   ## Content masks intersect with the current mask in pushClip, exactly as
