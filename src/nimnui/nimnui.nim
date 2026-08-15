@@ -19,6 +19,7 @@ import nimnui/accessibility
 import nimnui/executor
 import nimnui/entity
 import nimnui/entity_context
+import nimnui/effects
 
 export platform
 export mock_renderer
@@ -29,7 +30,8 @@ export commands
 export accessibility
 export executor
 export entity
-export entity_context
+export entity_context except Effect, EffectKind
+export effects
 
 type
   RendererKind* = enum
