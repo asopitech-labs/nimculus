@@ -1292,6 +1292,66 @@ suite "M2 UI foundation":
       check context.contains("DeepTree")
 
 suite "M3 text foundation":
+  test "ListItem layout ports inset, indent, spacing, and slots":
+    var spec = defaultListItemSpec()
+    check spec.indentStepSize == px(12)
+    check spec.selectable
+    spec.indentLevel = 2
+    spec.inset = false
+    spec.spacing = lsDense
+    let nonInset = listItemLayout(spec, px(240), 16'f32, Density.default)
+    check float32(nonInset.outerBounds.origin.x) == 0.0
+    check float32(nonInset.innerBounds.origin.x) == 24.0
+    check float32(nonInset.contentBounds.origin.x) == 32.0
+    check float32(nonInset.disclosureBounds.origin.x) == 8.0
+    check float32(nonInset.innerMarginLeft) == 24.0
+
+    spec.inset = true
+    let inset = listItemLayout(spec, px(240), 16'f32, Density.default)
+    check float32(inset.outerBounds.origin.x) == 24.0
+    check float32(inset.outerPadding.left) == 4.0
+    check float32(inset.innerMarginLeft) == 0.0
+    check float32(inset.innerBounds.origin.x) == 28.0
+    check float32(inset.contentBounds.origin.x) == 36.0
+
+  test "ListItem spacing changes the inner row height":
+    var spec = defaultListItemSpec()
+    for entry in [(lsDense, 24.0'f32), (lsExtraDense, 22.0'f32),
+                  (lsSparse, 32.0'f32)]:
+      spec.spacing = entry[0]
+      let layout = listItemLayout(spec, px(240), 16'f32, Density.default)
+      check float32(layout.innerBounds.size.height) == entry[1]
+
+  test "ListItem slot gaps and end-slot visibility are explicit":
+    var spec = defaultListItemSpec()
+    spec.startSlot = some("start")
+    spec.endSlot = some("end")
+    let withStart = listItemLayout(spec, px(240), 16'f32, Density.default)
+    check float32(withStart.contentBounds.origin.x -
+      (withStart.startSlotBounds.origin.x + withStart.startSlotBounds.size.width)) == 8.0
+    check float32(withStart.innerChildrenGap) == 4.0
+
+    spec.endSlotVisibility = esAlways
+    spec.hovered = false
+    let always = listItemLayout(spec, px(240), 16'f32, Density.default)
+    check float32(always.endSlotBounds.size.width) > 0.0
+
+    spec.endSlotVisibility = esOnHover
+    let resting = listItemLayout(spec, px(240), 16'f32, Density.default)
+    check float32(resting.endSlotBounds.size.width) == 0.0
+    spec.hovered = true
+    let hovered = listItemLayout(spec, px(240), 16'f32, Density.default)
+    check float32(hovered.endSlotBounds.size.width) > 0.0
+
+    spec.endSlotVisibility = esSwapOnHover
+    spec.hovered = false
+    let swapResting = listItemLayout(spec, px(240), 16'f32, Density.default)
+    spec.hovered = true
+    let swapHovered = listItemLayout(spec, px(240), 16'f32, Density.default)
+    check swapResting.endSlotBounds == swapResting.endSlotHoverBounds
+    check swapHovered.endSlotBounds == swapHovered.endSlotHoverBounds
+    check swapResting.endSlotBounds == swapHovered.endSlotBounds
+
   test "positions handle UTF-8 and combining marks":
     let positions = textPositions("Aé e\u0301")
     check positions[0].byteOffset == 0
