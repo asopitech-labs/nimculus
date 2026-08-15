@@ -86,7 +86,7 @@
 **無い**
 
 - [x] **Entity handle + type-erased entity store (lease discipline)** — Zed `crates/gpui/src/app/entity_map.rs:414 (Entity<T>), :114 reserve, :120 insert, :134 lease, :151 end_lease, :156 read`
-- [ ] **Context<'a,T> - entity-scoped view of App** — Zed `crates/gpui/src/app/context.rs:20 (struct), :50 entity(), :229 notify(), :765 emit()`
+- [x] **Context<'a,T> - entity-scoped view of App** — Zed `crates/gpui/src/app/context.rs:20 (struct), :50 entity(), :229 notify(), :765 emit()`
 - [ ] **Effect queue + flush_effects re-entrancy guard** — Zed `crates/gpui/src/app.rs:1593 push_effect, :1614 flush_effects, :1048 App::update, :1055 start_update, :1059 finish_update`
 - [x] **Double-buffered Frame with element-state carryover** — Zed `crates/gpui/src/window.rs:944 struct Frame, :988 Frame::new, :1017 Frame::clear, :1089 Frame::finish, :1138-1016 rendered_frame/next_frame fields, :3040-2741 mem::swap in draw`
 - [ ] **Per-element retained state keyed by GlobalElementId** — Zed `crates/gpui/src/window.rs:3883 with_element_state, :3838 use_keyed_state, :3867 use_state, :3826 with_element_namespace, :6693 enum ElementId`
@@ -117,7 +117,7 @@
 
 - [x] **The pooled LineWrapper** — Zed `crates/gpui/src/text_system.rs:307 (line_wrapper), :56 (wrapper_pool), :850 (LineWrapperHandle), crates/gpui/src/text_system/line_wrapper.rs`
 - [ ] **Draw order, the layer stack, and the BoundsTree** — Zed `crates/gpui/src/scene.rs:43-44, :75 (push_layer), :87 (insert_primitive), :151 (finish)`
-- [ ] **Batching: merging sorted streams into draw calls** — Zed `crates/gpui/src/scene.rs:172 (batches), :288-466 (BatchIterator)`
+- [x] **Batching: merging sorted streams into draw calls** — Zed `crates/gpui/src/scene.rs:172 (batches), :288-466 (BatchIterator)`
 - [ ] **Hsla and alpha derivation** — Zed `crates/gpui/src/color.rs:334 (Hsla), :424 (hsla), :525 (to_rgb), :580 (blend), :607 (fade_out), :637 (opacity), :667 (alpha), :677 (From<Rgba>)`
 - [ ] **Background: solid vs gradient vs pattern as one shader-visible tag** — Zed `crates/gpui/src/color.rs:779 (Background), :759 (ColorSpace), :851 (solid_background), :865 (linear_gradient), :827 (pattern_slash), :841 (checkerboard); used by scene.rs:535 (Quad.background) and :761 (Path.color)`
 - [x] **TextStyle and its refinement/highlight composition** — Zed `crates/gpui/src/style.rs:434 (TextStyle), :432 (#[derive(Refineable)]), :506 (highlight), :539 (font), :550 (line_height_in_pixels), :555 (to_run), :576 (HighlightStyle), :920 (HighlightStyle::highlight)`
@@ -196,7 +196,7 @@
 
 - [x] **Style × state -> concrete style resolution** — Zed `crates/ui/src/components/button/button_like.rs:125 (ButtonStyle), :190 (ButtonLikeStyles), :210 enabled(), :257 hovered(), plus active()/disabled() through :448`
 - [x] **Density-aware spacing scale** — Zed `crates/ui/src/styles/spacing.rs:29-44 (derive_dynamic_spacing! table), :52 (ui_density)`
-- [ ] **Builder traits shared across components** — Zed `crates/ui/src/traits/clickable.rs:4, disableable.rs:2, toggleable.rs:5, fixed.rs, visible_on_hover.rs; crates/ui/src/components/button/button_like.rs:12 (SelectableButton), :17 (ButtonCommon)`
+- [x] **Builder traits shared across components** — Zed `crates/ui/src/traits/clickable.rs:4, disableable.rs:2, toggleable.rs:5, fixed.rs, visible_on_hover.rs; crates/ui/src/components/button/button_like.rs:12 (SelectableButton), :17 (ButtonCommon)`
 - [ ] **Icon source abstraction and square hit box** — Zed `crates/ui/src/components/icon.rs:131 (IconSource), :145 (Icon), :86 (square_components), :102 (square)`
 - [ ] **ListItem slot layout** — Zed `crates/ui/src/components/list/list_item.rs:10 (ListItemSpacing), :26 (struct), :292 (render), :404 (disclosure at left:-1rem), :442 (EndSlotVisibility Always/OnHover/SwapOnHover)`
 - [x] **Keybinding display** — Zed `crates/ui/src/components/keybinding.rs:46 (KeyBinding), :63 for_action, :200 render, :252 render_keybinding_keystroke, :411 (Key), :457 (KeyIcon)`
