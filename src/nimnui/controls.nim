@@ -4,7 +4,7 @@ import nimnui/layout
 import nimnui/render
 import nimnui/text
 import nimculus/settings
-import std/[strutils, tables]
+import std/[options, strutils, tables]
 
 export render.ScrollbarStyle, render.toPixels, render.scrollbarWidth,
   render.scrollbarStrip
@@ -53,6 +53,42 @@ type
     fullWidth*: bool
     invisible*: bool
     hoverGroup*: string
+
+  ListItemSpacing* = enum
+    lsDense, lsExtraDense, lsSparse
+
+  EndSlotVisibility* = enum
+    esAlways, esOnHover, esSwapOnHover
+
+  ## The semantic inputs to a ListItem's geometry. Slots are represented by
+  ## strings until the renderer has an element type; their presence is all
+  ## the layout needs to reserve space for them.
+  ListItemSpec* = object
+    startSlot*: Option[string]
+    endSlot*: Option[string]
+    endSlotVisibility*: EndSlotVisibility
+    toggle*: Option[bool]
+    inset*: bool
+    indentLevel*: int
+    indentStepSize*: Pixels
+    selectable*: bool
+    alwaysShowDisclosureIcon*: bool
+    hovered*: bool
+    spacing*: ListItemSpacing
+
+  ListItemLayout* = object
+    outerBounds*: Rect
+    innerBounds*: Rect
+    disclosureBounds*: Rect
+    startSlotBounds*: Rect
+    contentBounds*: Rect
+    endSlotBounds*: Rect
+    endSlotHoverBounds*: Rect
+    outerPadding*: EdgeInsets
+    innerMarginLeft*: Pixels
+    slotGap*: Pixels
+    innerGap*: Pixels
+    innerChildrenGap*: Pixels
 
   Control* = object
     node*: NodeId
@@ -122,6 +158,103 @@ type
     color*: Color
     size*: IconSize
     transformation*: Transform2D
+
+proc defaultListItemSpec*(): ListItemSpec =
+  ## Defaults corresponding to ListItem's Rust Default implementation.
+  ListItemSpec(indentStepSize: px(12), selectable: true,
+    spacing: lsDense, endSlotVisibility: esAlways)
+
+proc listItemVerticalPadding(spacing: ListItemSpacing): float32 =
+  case spacing
+  of lsDense: 0'f32
+  of lsExtraDense: -1'f32
+  of lsSparse: 4'f32
+
+proc listItemBase06(density: Density): Pixels =
+  ## ListItem uses Zed's Base06 values (4, 8, 10).  The legacy settings
+  ## table predates this component and names a smaller Base06 scale.
+  case density
+  of compact: px(4)
+  of default: px(8)
+  of comfortable: px(10)
+
+proc listItemSlotWidth(slot: Option[string], remSize: float32): Pixels =
+  if slot.isNone: return px(0)
+  ## Text metrics are renderer-owned. Reserve at least one rem and enough
+  ## room for the simple text placeholder used by the current overlay path.
+  px(max(remSize, float32(slot.get.len) * 8'f32))
+
+proc listItemLayout*(spec: ListItemSpec, rowWidth: Pixels,
+                     remSize: float32, density: Density): ListItemLayout
+                     {.noSideEffect.} =
+  ## Purely resolve the ListItem geometry; no retained UI or renderer state is
+  ## consulted here. Coordinates are local to a row whose origin is (0, 0).
+  let width = maxPx(px(0), rowWidth)
+  let rem = max(0'f32, remSize)
+  let indentStep = if float32(spec.indentStepSize) > 0'f32:
+    spec.indentStepSize
+  else:
+    px(12)
+  let indent = px(float32(max(0, spec.indentLevel)) * float32(indentStep))
+  let base04 = px(px(Base04, density))
+  let base06 = listItemBase06(density)
+  let rowHeight = px(24)
+  let outerX = if spec.inset: indent else: px(0)
+  let outerWidth = if spec.inset: maxPx(px(0), width - indent) else: width
+  result.outerPadding = if spec.inset:
+    EdgeInsets(left: base04, right: base04)
+  else:
+    EdgeInsets()
+  result.outerBounds = Rect(origin: Point(x: outerX, y: px(0)),
+    size: Size(width: outerWidth, height: rowHeight))
+  result.innerMarginLeft = if spec.inset: px(0) else: indent
+  let innerX = outerX + result.outerPadding.left + result.innerMarginLeft
+  let innerWidth = maxPx(px(0), outerWidth - result.outerPadding.left -
+    result.outerPadding.right - result.innerMarginLeft)
+  let verticalPadding = listItemVerticalPadding(spec.spacing)
+  result.innerBounds = Rect(origin: Point(x: innerX, y: px(0)),
+    size: Size(width: innerWidth,
+      height: px(float32(rowHeight) + verticalPadding * 2'f32)))
+  result.slotGap = base06
+  result.innerGap = base04
+  result.innerChildrenGap = result.innerGap
+
+  if spec.alwaysShowDisclosureIcon or spec.indentLevel > 0:
+    result.disclosureBounds = Rect(
+      origin: Point(x: innerX - px(rem), y: px((24'f32 - rem) / 2'f32)),
+      size: Size(width: px(rem), height: px(rem)))
+
+  let contentX = innerX + base06
+  let innerRight = innerX + innerWidth
+  let endWidth = listItemSlotWidth(spec.endSlot, rem)
+  let reservesEndSlot = spec.endSlot.isSome
+  let endX = innerRight - (if reservesEndSlot: base06 + endWidth else: base06)
+  let startWidth = listItemSlotWidth(spec.startSlot, rem)
+  if spec.startSlot.isSome:
+    result.startSlotBounds = Rect(
+      origin: Point(x: contentX, y: px(0)),
+      size: Size(width: startWidth, height: result.innerBounds.size.height))
+  let contentOrigin = if spec.startSlot.isSome:
+    contentX + startWidth + result.slotGap
+  else:
+    contentX
+  let contentRight = if reservesEndSlot: endX else: innerRight - base06
+  result.contentBounds = Rect(
+    origin: Point(x: contentOrigin, y: px(0)),
+    size: Size(width: maxPx(px(0), contentRight - contentOrigin),
+      height: result.innerBounds.size.height))
+
+  if spec.endSlot.isSome:
+    let endRect = Rect(origin: Point(x: endX, y: px(0)),
+      size: Size(width: endWidth, height: result.innerBounds.size.height))
+    case spec.endSlotVisibility
+    of esAlways:
+      result.endSlotBounds = endRect
+    of esOnHover:
+      if spec.hovered: result.endSlotBounds = endRect
+    of esSwapOnHover:
+      result.endSlotBounds = endRect
+      result.endSlotHoverBounds = endRect
 
 const
   tsUnselected* = off
@@ -933,10 +1066,16 @@ proc paintOverlay*(paint: var PaintList, model: OverlayModel, light = true) =
   paint.drawBorder(model.bounds)
   for index, item in model.items:
     let row = model.rowBounds(index)
-    if index == model.selectedIndex: paint.drawRectangle(row)
+    let itemLayout = listItemLayout(ListItemSpec(
+      endSlot: if item.endSlot.len > 0: some(item.endSlot) else: none(string),
+      toggle: if item.itemKind == entry: some(item.toggled == tsSelected)
+        else: none(bool),
+      selectable: item.selectable), row.size.width, 16'f32, Density.default)
+    let outer = itemLayout.outerBounds.offset(row.origin.x, row.origin.y)
+    if index == model.selectedIndex: paint.drawRectangle(outer)
     let kind = item.itemKind
     if kind == separator:
-      paint.drawBorder(row.inset(EdgeInsets(top: px(3), right: px(8),
+      paint.drawBorder(outer.inset(EdgeInsets(top: px(3), right: px(8),
         bottom: px(3), left: px(8))))
     elif item.label.len > 0:
       var text = item.label
@@ -947,10 +1086,11 @@ proc paintOverlay*(paint: var PaintList, model: OverlayModel, light = true) =
         of tsSelected: text = "✓ " & text
         of tsIndeterminate: text = "− " & text
         of tsUnselected: discard
-      if item.endSlot.len > 0:
-        text = text & "  " & item.endSlot
-      paint.drawText(row.inset(EdgeInsets(top: px(2), right: px(8),
-        bottom: px(2), left: px(8))), text)
+      paint.drawText(itemLayout.contentBounds.offset(row.origin.x, row.origin.y),
+        text)
+      if float32(itemLayout.endSlotBounds.size.width) > 0'f32:
+        paint.drawText(itemLayout.endSlotBounds.offset(row.origin.x, row.origin.y),
+          item.endSlot)
 
 proc makeControl*(tree: var UiTree, parent: NodeId, kind: ControlKind,
                   text = "", focusable = false): Control =
