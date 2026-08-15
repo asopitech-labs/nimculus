@@ -1,5 +1,6 @@
 import std/math
 import std/options
+import std/sets
 import std/tables
 import nimnui/geometry
 import nimculus/settings
@@ -96,6 +97,7 @@ type
     elementOffsetStack*: seq[Point]
     scaleFactor*: float32
     elementStates*: Table[string, ElementState]
+    accessedElementStates*: HashSet[string]
 
   ## A Frame is the retained paint list plus the per-element state touched by
   ## that frame.  Keeping the alias preserves the existing paint API while
@@ -184,6 +186,14 @@ proc add*(paint: var PaintList, command: PaintCommand) =
 
 proc newFrame*(): Frame =
   result.elementStates = initTable[string, ElementState]()
+  result.accessedElementStates = initHashSet[string]()
+
+proc ensureElementStateTables(frame: var Frame) =
+  ## A zero-initialized Frame is still a useful public value, so lazily
+  ## initialize its reference-backed containers before first access.
+  if frame.elementStates.len == 0 and frame.accessedElementStates.len == 0:
+    frame.elementStates = initTable[string, ElementState]()
+    frame.accessedElementStates = initHashSet[string]()
 
 proc lookupElementState*(frame: Frame, key: string): Option[ElementState] =
   if frame.elementStates.hasKey(key): some(frame.elementStates[key])
@@ -191,13 +201,13 @@ proc lookupElementState*(frame: Frame, key: string): Option[ElementState] =
 
 proc accessElementState*(frame: var Frame, key: string,
                          defaultState = ElementState()): var ElementState =
-  ## mgetOrPut also initializes a zero-valued Table. Once initialized, the
-  ## Table storage is retained across frame reuse; an empty table is not
-  ## reinitialized on every access.
+  frame.ensureElementStateTables()
+  frame.accessedElementStates.incl(key)
   frame.elementStates.mgetOrPut(key, defaultState)
 
 proc accessElementState*(frame: var Frame, previous: Frame, key: string,
                          defaultState = ElementState()): var ElementState =
+  frame.ensureElementStateTables()
   if not frame.elementStates.hasKey(key):
     let carried = previous.lookupElementState(key)
     if carried.isSome:
@@ -205,12 +215,22 @@ proc accessElementState*(frame: var Frame, previous: Frame, key: string,
   frame.accessElementState(key, defaultState)
 
 proc finishFrame*(frame: var Frame, previous: var Frame) =
-  ## State is inserted into `frame` only through accessElementState, so the
-  ## frame table is already exactly the set of states touched by this frame.
-  ## Empty the old rendered frame in place before the swap. Table.clear keeps
-  ## its bucket storage, avoiding both a per-frame allocation and a later
-  ## rehash when the same element is accessed again.
+  ## Retain only state touched by this frame.  This is both Zed's
+  ## accessed-element-state migration and the automatic GC for stale keys.
+  frame.ensureElementStateTables()
+  var retained = initTable[string, ElementState]()
+  for key in frame.accessedElementStates:
+    if frame.elementStates.hasKey(key):
+      retained[key] = frame.elementStates[key]
+    elif previous.elementStates.hasKey(key):
+      retained[key] = previous.elementStates[key]
+  frame.elementStates = retained
+  frame.accessedElementStates.clear()
+  ## The previous frame is still drawable, but its state is no longer part of
+  ## the live element-state table once this frame has finished.  This makes
+  ## unaccessed state observable as collected before the buffer swap.
   previous.elementStates.clear()
+  previous.accessedElementStates.clear()
 
 proc clear*(paint: var PaintList) =
   paint.commands.setLen(0)
@@ -218,9 +238,10 @@ proc clear*(paint: var PaintList) =
   paint.clipStack.setLen(0)
   paint.transformStack.setLen(0)
   paint.elementOffsetStack.setLen(0)
-  ## Element state intentionally survives clear. finishFrame clears the old
-  ## rendered frame after the new frame has performed its carryover lookups;
-  ## retaining this table here preserves its bucket storage for the next use.
+  ## Element state intentionally survives clear: after the frame swap this
+  ## object becomes nextFrame, where the following finishFrame can retain or
+  ## collect each key based on whether it was accessed.
+  paint.accessedElementStates.clear()
 
 proc drawRectangle*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: rectangle, bounds: bounds, clip: bounds))

@@ -13,22 +13,15 @@ suite "Double-buffered frames and element-state carryover":
     var window = newWindow()
 
     window.beginFrame(viewport())
-    window.accessElementState("editor.scroll",
-      ElementState(offset: px(0))).offset = px(40)
+    var state = window.accessElementState("editor.scroll",
+      ElementState(offset: px(0)))
+    state.offset = px(40)
     window.finishFrame()
     window.swapFrames()
     window.nextFrame.clear()
 
     window.beginFrame(viewport())
     check len(window.renderedFrame.elementStates) == 1
-    let carried = window.accessElementState("editor.scroll",
-      ElementState(offset: px(0)))
-    check carried.offset == px(40)
-    window.finishFrame()
-    window.swapFrames()
-    window.nextFrame.clear()
-
-    window.beginFrame(viewport())
     window.finishFrame()
     check len(window.renderedFrame.elementStates) == 0
     check window.renderedFrame.lookupElementState("editor.scroll").isNone

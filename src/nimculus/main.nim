@@ -583,9 +583,9 @@ proc setupDemoUi() =
   ## existing painter call sites readable without introducing a per-frame
   ## PaintList copy that could bypass the double buffer.
   template paint: untyped = demoWindow.nextFrame
-  demoWindow.accessElementState("editor.scroll",
-    ElementState(offset: px(editorViewState.scrollYFraction))).offset =
-    px(editorViewState.scrollYFraction)
+  var editorScrollState = demoWindow.accessElementState("editor.scroll",
+    ElementState(offset: px(editorViewState.scrollYFraction)))
+  editorScrollState.offset = px(editorViewState.scrollYFraction)
   # The native text overlays remain transitional content presenters, but their
   # surface is composed by the same Metal scene as the editor.  Derive chrome
   # from WorkspaceUiState rather than drawing a disconnected demo card.
