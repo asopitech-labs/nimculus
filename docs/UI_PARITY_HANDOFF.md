@@ -1,44 +1,52 @@
 # Zed UI パリティ作業 引き継ぎメモ
 
-最終更新: 2026-08-14 / ブランチ `main`（`f9aec35` まで、push 済み）
+最終更新: 2026-08-15 / ブランチ `main`（未 push、直前は `f9aec35`）
 
-## 0. セッション引き継ぎ（2026-08-14 時点）
+## 0. セッション引き継ぎ（2026-08-15 時点）
 
-**次にやること**: `docs/ZED_PORT_TASKS.md` の `[ ]` から 2 件選び、
-[nimculus-parallel-dev] スキルの手順でワークトリーを作って `codex exec` に投げる。
-
-指示書の元データは **[`.claude/port-briefs/briefs.json`](../.claude/port-briefs/briefs.json)**
-に保存済み（174件、台帳の未着手130件のうち130件をカバー）。各エントリは
-`mechanism`（台帳の項目名と完全一致）/ `zed_reference` / `what_is_missing` /
-`files_to_touch` / `acceptance` / `verifiable_by` / `size` / `layer` を持つ。
-台帳の項目名で引いて `files_to_touch` と `acceptance` を指示書に流し込めば
-ゼロから調査し直さずに済む（スクラッチパスの一時ファイルは消えているので、
-これが唯一残る元データ）。テンプレート文言（ゲート4段の説明・逃げ道禁止・
-配線の証明を求める常設条項）は本メモの「§0 検証ゲート」と
-[nimculus-parallel-dev] を見て組み立て直すこと（テンプレート自体はスクラッチパス
-にあり失われている）。
+**次にやること**: `docs/ZED_PORT_TASKS.md` の `[ ]` から新規タスクを選ぶ前に、
+まず下の「`ar` の続き」を検討すること（グリフ描画の致命的バグは直っているので、
+残るのはスクロール性能のみ）。新規タスクは 2026-08-14 と同じ流れ
+（[nimculus-parallel-dev] スキル、`.claude/port-briefs/briefs.json` の指示書）。
 
 ### 現在地
 
-- 台帳: **216 / 128**（`docs/ZED_PORT_TASKS.md`、`[x]` 216 / `[ ]` 128）
-- `main` は `git status` クリーン、push 済み、`.nimcache` 全消しで 38/38、
-  `nimble packageMacos` rc=0 を確認済み
-- 画素: 単一 90.69% / ワークスペース 93.05%（このセッション開始時 90.23%/93.05% から改善）
-- スクロール比（nimculus/zed の ms per 100px）: 直近の健全値は概ね 0.9〜1.0 帯
+- 台帳: **219 / 125**（`docs/ZED_PORT_TASKS.md`、`[x]` 219 / `[ ]` 125）
+- `main` は `git status` クリーン。**push はまだ**。`.nimcache` 全消しで
+  テストランナー 39/39、`nimble packageMacos` rc=0 を確認済み
+- このセッションで `main` に入った項目（3件、いずれも VM 実測で確認済み）:
+  - Entity handle + type-erased entity store（`src/nimnui/entity.nim`、純フレームワーク、
+    unit-test 判定のため VM 計測は不要と判断）
+  - TextStyle and its refinement/highlight composition（`src/nimnui/text.nim`、同上）
+  - Double-buffered Frame with element-state carryover（下記参照。VM 3回計測 済み）
+- スクロール比（nimculus/zed の ms per 100px）の健全帯は概ね 0.85〜1.02
 
-### 未完了で残っている作業
+### `ar`（Sprite atlas with shelf packing and keyed tiles）の続き — 台帳は未着手のまま
 
-**ワークトリー `../nimculus-wt-ar` と `../nimculus-wt-as` が残存している。**
-どちらも一度 `main` にマージしてから実測で問題が見つかり **revert 済み**（`main` には
-入っていない）。中身は「もう一歩で完成」の実装なので、消さずに次の着手候補にする。
+**`../nimculus-wt-ar`（ブランチ `port/ar`、HEAD `e9e1b23`）に残置。`main` には
+入っていない（2回統合を試み、2回とも revert 済み）。**
 
-| ワークトリー | 課題 | 何が起きたか | 次にやること |
+1回目の統合と revert は前セッション以前の話。**このセッションで2回試した:**
+
+| ラウンド | やったこと | 実測結果 | 判定 |
 | --- | --- | --- | --- |
-| `../nimculus-wt-ar` | Sprite atlas with shelf packing and keyed tiles | 画素は**両方上昇**（単一 92.56%, WS 93.25%）したが、`run.log` 末尾に `scrolled 0px` が5回連続、`nimculus: no calibration step produced a usable shift`。**スクロール入力が物理的に効かなくなっていた** | グリフアトラス変更が入力イベント経路（マウス/スクロール座標変換）に干渉していないか確認してから再統合。3ゲート（`nim check`/ランナー/`packageMacos`）は通っていたので、**入力の実動作を確かめるテストが要る** |
-| `../nimculus-wt-as` | Double-buffered Frame with element-state carry | 3ゲートは通過、画素も維持。だが `tools/ui_test.sh parity` を**3回**回して比が毎回 1.03〜1.06（帯 0.85-1.02 の外）で安定。revert して同条件比較すると 0.978 に戻った | フレームスワップのどこかで毎フレーム余分なコストが乗っている。プロファイル計測（`tools/scroll_cost.sh` 等）で該当箇所を特定してから再実装 |
+| 1 | 「単一アトラスの高速描画パスに戻す」という仮説で修正 | VM 実測で **`scrolled 0px` が再現**（直っていなかった） | revert |
+| 2 | 画像を目視して発見: **グリフがほぼ描画されていない**（21行中数文字しか見えない）。 これがキャリブレーション失敗の真因と判明。原因は CPU 側 sprite 構造体（68/84 bytes）と Metal 配列 stride（`float4` 整列で 80/96 bytes に丸められる）の不一致。2個目以降の glyph instance が誤った bounds/UV を読んでいた | **グリフ描画は完全に復旧**（画像目視で確認、通常の文書と同じ密度）。キャリビレーションも成功（`FAIL` 行なし、`nimculus:`/`zed:` 両方出力）。 だがスクロール比を3回計測すると **1.082 / 1.054 / 1.187**（帯 0.85-1.02 の外、平均約1.1倍） | 正しさは直ったが性能が未達。revert |
 
-どちらも「テストは全部通るのに実機で壊れている/遅い」系。統合前に必ず
-[nimculus-ui-test] の実測ゲートを踏むこと。
+**次にやること:** stride バグの修正自体は正しく、次に再統合するときの土台になる
+（`git log --oneline port/ar` で 2 コミット: `Fix scroll input stall...` と
+`Fix CPU/GPU sprite array stride mismatch...`）。残っているのは
+**アトラス経路そのものの、旧（アトラス無し）実装に対する恒常的なオーバーヘッド**
+（画素値の誤検出ではなく、3回とも同じ傾向のスクロール比後退）。
+
+- `tools/scroll_cost.sh` 相当のプロファイル計測（[nimculus-ui-test] の `profile` モード、
+  `tools/hot_lines.py` でホット行を特定）で、shelf packing のアトラス割り当て/検索
+  （`allocate`, `push_texture`, generation 管理まわり）に毎フレームのコストが
+  乗っていないか特定すること
+- 統合手順は下記「差し戻しからの復旧手順」を必ず踏む（`port/ar` は revert 済みの
+  状態から再度作業するため、revert のrevertが要る）
+- 画素は before/after で誤検出しやすい（グリフが描画されていなくても背景一致で
+  スコアが上がることがある、このセッションで実例あり）。**必ず画像を目視すること**
 
 ### このセッションで固まった検証ゲート（次セッションでも必須）
 
@@ -53,6 +61,23 @@
      出ているか必ず確認する（片方だけならスクロール計測自体が失敗している）
    - 比が帯から外れたら**同じ計測をもう一度**回し、2回とも同じ傾向なら
      `revert` して同条件で比較する（ノイズと本物の後退を切り分ける）
+   - **画素の一致率だけで「改善」と判断しない。** グリフがほぼ描画されて
+     いなくても、背景色同士の一致で数値が上がることがある
+     （2026-08-15、`ar` で実例）。必ずスクリーンショットを目視すること
+6. **codex の「直った」報告は証拠にならない。** このセッションで `ar`/`as` とも
+   1回目の修正は「ローカルゲート通過・報告は完了」だったが、**VM実測では
+   直っていなかった**。ローカルゲートは自分で（`.nimcache` を消してから）
+   再実行し、VM 計測も自分で行うこと。codex のテストランナー実行結果と
+   自分の実行結果が食い違うことがある（サンドボックス環境依存のflaky）ので、
+   件数の食い違いが出たら疑わず自分で再実行する
+
+### unit-test 判定タスクは VM 計測を省略してよい
+
+`briefs.json` の `verifiable_by: unit-test` かつ `files_to_touch` に
+`macos_platform.m`/`main.nim` を含まない（=既存の描画・入力経路に未配線の
+純フレームワーク追加）タスクは、VM 実測を省略してよい。ただし
+「既存経路への配線を要求していないか」を acceptance 文面で必ず確認すること
+（配線を求めているのに省略すると「二重実装」の罠に落ちる）。
 
 ### 差し戻しからの復旧手順（踏んだ罠）
 
