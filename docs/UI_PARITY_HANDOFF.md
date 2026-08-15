@@ -1,20 +1,21 @@
 # Zed UI パリティ作業 引き継ぎメモ
 
-最終更新: 2026-08-15 / ブランチ `main`（push 済み、`3756a7c`）
+最終更新: 2026-08-15 / ブランチ `main`（push 済み、`5ba36f1`）
 
 ## 0. セッション引き継ぎ（2026-08-15 時点）
 
-**次にやること**: `docs/ZED_PORT_TASKS.md` の `[ ]` から新規タスクを選ぶ。
+**次にやること**: 下記「`platformtrait` の続き」を先に検討すること
+（`../nimculus-wt-platformtrait` に未完了のまま残置）。それ以外は
+`docs/ZED_PORT_TASKS.md` の `[ ]` から新規タスクを選ぶ。
 [nimculus-parallel-dev] スキルの手順でワークトリーを作り、
-`.claude/port-briefs/briefs.json` の指示書を使う（2026-08-14 と同じ流れ）。
-`ar`（sprite atlas）は完了しており、次に持ち越す未完了作業はない。
+`.claude/port-briefs/briefs.json` の指示書を使う。
 
 ### 現在地
 
-- 台帳: **223 / 121**（`docs/ZED_PORT_TASKS.md`、`[x]` 223 / `[ ]` 121）
+- 台帳: **228 / 116**（`docs/ZED_PORT_TASKS.md`、`[x]` 228 / `[ ]` 116）
 - `main` は `git status` クリーン、push 済み。`.nimcache` 全消しで
-  テストランナー 43/43、`nimble packageMacos` rc=0 を確認済み
-- このセッションで `main` に入った項目（7件、すべて実測で確認済み）:
+  テストランナー 45/45、`nimble packageMacos` rc=0 を確認済み
+- このセッションで `main` に入った項目（12件、すべて実測で確認済み）:
   - Entity handle + type-erased entity store（`src/nimnui/entity.nim`）
   - TextStyle and its refinement/highlight composition（`src/nimnui/text.nim`）
   - Double-buffered Frame with element-state carryover（2段階のバグ修正、VM 3回計測）
@@ -23,10 +24,43 @@
     Metal側の固定8パス削除＝Step2は別タスクとして残る）
   - Builder traits shared across components（`src/nimnui/controls.nim`）
   - **Sprite atlas with shelf packing and keyed tiles**（`ar`、下記参照。3ラウンド、VM計測5回）
+  - Effect queue + flush_effects re-entrancy guard（`src/nimnui/effects.nim`、entity 依存）
+  - Per-element retained state keyed by GlobalElementId（既存の double-buffered Frame と
+    同じ土台に統合。`test_frame_double_buffer.nim` が壊れていないことを個別確認済み）
+  - Icon source abstraction and square hit box（`src/nimnui/controls.nim`）
+  - Hsla and alpha derivation（`src/nimnui/text.nim`。色ラダー置換はフォローアップで別途残る）
+  - ListItem slot layout（`src/nimnui/controls.nim`。所有ファイル内の既存描画パス
+    `paintOverlay` に実配線済み。ObjC側の行描画はフォローアップ）
 - スクロール比（nimculus/zed の ms per 100px）の健全帯は概ね 0.85〜1.02
 - unit-test 判定かつ `macos_platform.m`/`main.nim` 未変更（既存経路に未配線の純フレームワーク
-  追加）のタスクは VM 計測を省略してよい、という判断基準を今回4件（entity/textstyle/
-  context/batching/buildertraits）に適用した
+  追加）のタスクは VM 計測を省略してよい、という判断基準を継続適用
+- **受け入れ条件が所有外のファイル（大抵 `macos_platform.m`）を要求している一文が
+  混じっていることがある**（`briefs.json` は自動生成のため）。指示書を作る前に
+  acceptance 全文を読み、所有外を要求する部分は明示的に「このタスクの範囲外」と
+  指示書に書いて除外すること（hsla・listitem・platformtrait で実施）
+
+### `platformtrait`（The Platform trait as the OS boundary）— 未完了・main 未統合
+
+`../nimculus-wt-platformtrait`（ブランチ `port/platformtrait`）にコミットせず残置。
+`nim check` は通り、テストランナーも壊れていないが、**acceptance の数値ゲートを
+満たしていない**と codex 自身が正直に報告して停止した。
+
+acceptance:「`Platform*` レコードを作り、6つのクロージャフィールド（dispatcher/
+clipboardGet/clipboardSet/promptForPaths/promptForNewPath/setCursorStyle）に
+まとめたら、`platform.nim` 内の `importc: "nimculus_platform_` の出現数が
+**最低6件減る**はず」。実際は既存の `clipboardGet`/`chooseOpenFile` 等の
+`importc` 宣言をそのまま残して `Platform` レコードから呼び出す形にしたため、
+新規に `platformSetCursorStyleNative` の importc が1件増え、**250→251件と
+逆に増加した**。数値ゲートを満たすには、既存の6つの `importc` 宣言そのものを
+どこかへ移すか消す必要があり、それは所有ファイル外（`dispatcher.nim` または
+`macos_platform.m`）に触れることになるため、指示書の制約により実施せず停止した。
+
+**次にやること**: acceptance の数値ゲートの意図を確認すること。おそらく
+「個別の `importc` 宣言を残したまま record でラップする」のではなく、
+「既存の `importc` 宣言自体を record 構築の内側だけに閉じ込め、`platform.nim`
+の外側（`main.nim` 等）からは record 経由でしか呼べなくする」ことを求めている。
+所有ファイルを広げて（`dispatcher.nim` を含める）再指示するか、数値ゲートを
+達成可能な形に指示書側で調整してから再着手すること。
 
 ### `ar`（Sprite atlas with shelf packing and keyed tiles）— 完了・main に統合済み
 
