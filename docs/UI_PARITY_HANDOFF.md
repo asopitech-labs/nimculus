@@ -1,52 +1,47 @@
 # Zed UI パリティ作業 引き継ぎメモ
 
-最終更新: 2026-08-15 / ブランチ `main`（未 push、直前は `f9aec35`）
+最終更新: 2026-08-15 / ブランチ `main`（push 済み、`3756a7c`）
 
 ## 0. セッション引き継ぎ（2026-08-15 時点）
 
-**次にやること**: `docs/ZED_PORT_TASKS.md` の `[ ]` から新規タスクを選ぶ前に、
-まず下の「`ar` の続き」を検討すること（グリフ描画の致命的バグは直っているので、
-残るのはスクロール性能のみ）。新規タスクは 2026-08-14 と同じ流れ
-（[nimculus-parallel-dev] スキル、`.claude/port-briefs/briefs.json` の指示書）。
+**次にやること**: `docs/ZED_PORT_TASKS.md` の `[ ]` から新規タスクを選ぶ。
+[nimculus-parallel-dev] スキルの手順でワークトリーを作り、
+`.claude/port-briefs/briefs.json` の指示書を使う（2026-08-14 と同じ流れ）。
+`ar`（sprite atlas）は完了しており、次に持ち越す未完了作業はない。
 
 ### 現在地
 
-- 台帳: **219 / 125**（`docs/ZED_PORT_TASKS.md`、`[x]` 219 / `[ ]` 125）
-- `main` は `git status` クリーン。**push はまだ**。`.nimcache` 全消しで
-  テストランナー 39/39、`nimble packageMacos` rc=0 を確認済み
-- このセッションで `main` に入った項目（3件、いずれも VM 実測で確認済み）:
-  - Entity handle + type-erased entity store（`src/nimnui/entity.nim`、純フレームワーク、
-    unit-test 判定のため VM 計測は不要と判断）
-  - TextStyle and its refinement/highlight composition（`src/nimnui/text.nim`、同上）
-  - Double-buffered Frame with element-state carryover（下記参照。VM 3回計測 済み）
+- 台帳: **223 / 121**（`docs/ZED_PORT_TASKS.md`、`[x]` 223 / `[ ]` 121）
+- `main` は `git status` クリーン、push 済み。`.nimcache` 全消しで
+  テストランナー 43/43、`nimble packageMacos` rc=0 を確認済み
+- このセッションで `main` に入った項目（7件、すべて実測で確認済み）:
+  - Entity handle + type-erased entity store（`src/nimnui/entity.nim`）
+  - TextStyle and its refinement/highlight composition（`src/nimnui/text.nim`）
+  - Double-buffered Frame with element-state carryover（2段階のバグ修正、VM 3回計測）
+  - Context<'a,T> - entity-scoped view of App（`src/nimnui/entity_context.nim`、entity 依存）
+  - Batching: merging sorted streams into draw calls（`src/nimnui/render.nim`、Step1のみ。
+    Metal側の固定8パス削除＝Step2は別タスクとして残る）
+  - Builder traits shared across components（`src/nimnui/controls.nim`）
+  - **Sprite atlas with shelf packing and keyed tiles**（`ar`、下記参照。3ラウンド、VM計測5回）
 - スクロール比（nimculus/zed の ms per 100px）の健全帯は概ね 0.85〜1.02
+- unit-test 判定かつ `macos_platform.m`/`main.nim` 未変更（既存経路に未配線の純フレームワーク
+  追加）のタスクは VM 計測を省略してよい、という判断基準を今回4件（entity/textstyle/
+  context/batching/buildertraits）に適用した
 
-### `ar`（Sprite atlas with shelf packing and keyed tiles）の続き — 台帳は未着手のまま
+### `ar`（Sprite atlas with shelf packing and keyed tiles）— 完了・main に統合済み
 
-**`../nimculus-wt-ar`（ブランチ `port/ar`、HEAD `e9e1b23`）に残置。`main` には
-入っていない（2回統合を試み、2回とも revert 済み）。**
-
-1回目の統合と revert は前セッション以前の話。**このセッションで2回試した:**
+3ラウンドかけて解決した。同種のタスク（VM実測でしか気付けない後退）に当たったときの
+参考として経緯を残す。
 
 | ラウンド | やったこと | 実測結果 | 判定 |
 | --- | --- | --- | --- |
 | 1 | 「単一アトラスの高速描画パスに戻す」という仮説で修正 | VM 実測で **`scrolled 0px` が再現**（直っていなかった） | revert |
-| 2 | 画像を目視して発見: **グリフがほぼ描画されていない**（21行中数文字しか見えない）。 これがキャリブレーション失敗の真因と判明。原因は CPU 側 sprite 構造体（68/84 bytes）と Metal 配列 stride（`float4` 整列で 80/96 bytes に丸められる）の不一致。2個目以降の glyph instance が誤った bounds/UV を読んでいた | **グリフ描画は完全に復旧**（画像目視で確認、通常の文書と同じ密度）。キャリビレーションも成功（`FAIL` 行なし、`nimculus:`/`zed:` 両方出力）。 だがスクロール比を3回計測すると **1.082 / 1.054 / 1.187**（帯 0.85-1.02 の外、平均約1.1倍） | 正しさは直ったが性能が未達。revert |
+| 2 | 画像を目視して発見: **グリフがほぼ描画されていない**（21行中数文字しか見えない）。原因は CPU 側 sprite 構造体（68/84 bytes）と Metal 配列 stride（`float4` 整列で 80/96 bytes に丸められる）の不一致 | グリフ描画は完全復旧。キャリブレーションも成功。だがスクロール比が3回とも帯外（1.082/1.054/1.187、平均約1.1倍） | 正しさは直ったが性能が未達。revert |
+| 3 | VM `profile` モード（1ms サンプリング）でホット行を特定 → `updateEditorGlyphAtlasFromLayout`+`atlasEntryForGlyph` が実働サンプルの約3割。ガター計測（`editorGutterMetrics`）が毎フレーム `CTFont`/`CTLine` を再構築していたのをキャッシュ化、per-glyph ホットパスの構造体値渡しをポインタ渡しに変更、ハッシュ関数をインライン化 | スクロール比3回とも帯内（1.017/0.982/1.020） | **統合。画素も目視で密なグリフ描画を確認** |
 
-**次にやること:** stride バグの修正自体は正しく、次に再統合するときの土台になる
-（`git log --oneline port/ar` で 2 コミット: `Fix scroll input stall...` と
-`Fix CPU/GPU sprite array stride mismatch...`）。残っているのは
-**アトラス経路そのものの、旧（アトラス無し）実装に対する恒常的なオーバーヘッド**
-（画素値の誤検出ではなく、3回とも同じ傾向のスクロール比後退）。
-
-- `tools/scroll_cost.sh` 相当のプロファイル計測（[nimculus-ui-test] の `profile` モード、
-  `tools/hot_lines.py` でホット行を特定）で、shelf packing のアトラス割り当て/検索
-  （`allocate`, `push_texture`, generation 管理まわり）に毎フレームのコストが
-  乗っていないか特定すること
-- 統合手順は下記「差し戻しからの復旧手順」を必ず踏む（`port/ar` は revert 済みの
-  状態から再度作業するため、revert のrevertが要る）
-- 画素は before/after で誤検出しやすい（グリフが描画されていなくても背景一致で
-  スコアが上がることがある、このセッションで実例あり）。**必ず画像を目視すること**
+**得られた教訓**: VM `profile` モード（[nimculus-ui-test] 参照、`tools/hot_lines.py` で
+ホット行を特定）は、比が帯外というだけでは分からない「どこが重いか」を具体的に示す。
+勘で仮説を立てて直すより先に、まずプロファイルを取ること。
 
 ### このセッションで固まった検証ゲート（次セッションでも必須）
 
