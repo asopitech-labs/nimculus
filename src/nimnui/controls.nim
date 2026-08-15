@@ -91,6 +91,38 @@ type
   ButtonLikeStyles* {.bycopy.} = object
     background*, borderColor*, labelColor*, iconColor*: Color
 
+  ## Icon sizes are rem-sized glyphs.  `iconCustom` carries the rem value
+  ## directly, matching Zed's `IconSize::Custom(Rems)` arm.
+  IconSizeKind* = enum
+    iconIndicator, iconXSmall, iconSmall, iconMedium, iconXLarge, iconCustom
+
+  IconSize* = object
+    case kind*: IconSizeKind
+    of iconCustom:
+      rems*: float32
+    else:
+      discard
+
+  IconSourceKind* = enum
+    embedded, external, externalSvg
+
+  ## Nimculus currently renders SF Symbols, so the external raster arm is
+  ## deliberately represented but not lowered by a renderer yet.
+  IconSource* = object
+    case kind*: IconSourceKind
+    of embedded:
+      embedded*: string
+    of external:
+      external*: string
+    of externalSvg:
+      externalSvg*: string
+
+  Icon* = object
+    source*: IconSource
+    color*: Color
+    size*: IconSize
+    transformation*: Transform2D
+
 const
   tsUnselected* = off
   tsIndeterminate* = mixed
@@ -99,6 +131,63 @@ const
   ## A named alias is useful at call sites that want a pointer cursor without
   ## depending on the representation of CursorStyle.
   pointerCursor* = cursorPointingHand
+
+proc defaultIconSize(): IconSize = IconSize(kind: iconMedium)
+
+proc newIcon*(source: IconSource, color = Color(red: 1'f32, green: 1'f32,
+                                                 blue: 1'f32, alpha: 1'f32),
+             size = defaultIconSize(),
+             transformation = identityTransform()): Icon =
+  Icon(source: source, color: color, size: size,
+       transformation: transformation)
+
+proc fromPath*(path: string): Icon =
+  ## `icons/` paths identify embedded assets; other paths are external.
+  if path.startsWith("icons/"):
+    newIcon(IconSource(kind: embedded, embedded: path))
+  else:
+    newIcon(IconSource(kind: external, external: path))
+
+proc fromExternalSvg*(svg: string): Icon =
+  newIcon(IconSource(kind: externalSvg, externalSvg: svg))
+
+proc customIconSize*(rems: float32): IconSize =
+  IconSize(kind: iconCustom, rems: rems)
+
+proc rems*(size: IconSize): float32 =
+  case size.kind
+  of iconIndicator: 0.625'f32
+  of iconXSmall: 0.75'f32
+  of iconSmall: 0.875'f32
+  of iconMedium: 1.0'f32
+  of iconXLarge: 3.0'f32
+  of iconCustom: size.rems
+
+proc rems*(kind: IconSizeKind): float32 =
+  rems(IconSize(kind: kind))
+
+proc squareComponents*(size: IconSize, remSize: float32,
+                       density: Density = Density.default): tuple[
+                         size, padding: Pixels] =
+  result.size = px(rems(size) * remSize)
+  let paddingStep = if size.kind == iconIndicator: Base00 else: Base02
+  ## Spacing is in px, independent of the rem scale.  This is important at
+  ## non-default rem sizes: Small at remSize 12 is 10.5px + 2px * 2.
+  result.padding = px(float32(px(paddingStep, density)))
+
+proc squareComponents*(kind: IconSizeKind, remSize: float32,
+                       density: Density = Density.default): tuple[
+                         size, padding: Pixels] =
+  squareComponents(IconSize(kind: kind), remSize, density)
+
+proc square*(size: IconSize, remSize: float32 = 16'f32,
+             density: Density = Density.default): Pixels =
+  let components = size.squareComponents(remSize, density)
+  components.size + float32(components.padding) * 2'f32
+
+proc square*(kind: IconSizeKind, remSize: float32 = 16'f32,
+             density: Density = Density.default): Pixels =
+  square(IconSize(kind: kind), remSize, density)
 
 proc applyOnClick(x: var ButtonSpec, h: ClickHandler) = x.clickHandler = h
 proc applyOnClick(x: var IconButtonSpec, h: ClickHandler) = x.clickHandler = h
