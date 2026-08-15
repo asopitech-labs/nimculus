@@ -576,11 +576,16 @@ proc setupDemoUi() =
     publishAccessibilityTree(document)
   ## Prepaint records the interaction surface before paint changes phase. The
   ## input bridge consumes this frame-owned list instead of re-walking nodes.
+  demoWindow.beginFrame(viewport)
   demoWindow.prepaintTree(demoTree, root)
   demoWindow.setPhase(dpPaint)
-  var paint: PaintList
-  paint.scaleFactor = demoWindow.scaleFactor
-  paint.invalidate(viewport)
+  ## All paint calls below target Window.nextFrame.  The template keeps the
+  ## existing painter call sites readable without introducing a per-frame
+  ## PaintList copy that could bypass the double buffer.
+  template paint: untyped = demoWindow.nextFrame
+  var editorScrollState = demoWindow.accessElementState("editor.scroll",
+    ElementState(offset: px(editorViewState.scrollYFraction)))
+  editorScrollState.offset = px(editorViewState.scrollYFraction)
   # The native text overlays remain transitional content presenters, but their
   # surface is composed by the same Metal scene as the editor.  Derive chrome
   # from WorkspaceUiState rather than drawing a disconnected demo card.
@@ -743,6 +748,9 @@ proc setupDemoUi() =
     syncCommandPaletteActions()
   demoWindow.setPhase(dpFocus)
   demoWindow.endDraw()
+  demoWindow.finishFrame()
+  demoWindow.swapFrames()
+  demoWindow.nextFrame.clear()
 
 proc renderDemoUi() =
   ## Keep setupDemoUi as the single composition implementation while routing

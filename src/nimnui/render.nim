@@ -1,4 +1,7 @@
 import std/math
+import std/options
+import std/sets
+import std/tables
 import nimnui/geometry
 import nimculus/settings
 
@@ -76,6 +79,13 @@ type
     ## becoming one rounded rectangle per line.
     selectionRows*: seq[Rect]
 
+  ## Per-element data that survives a frame only when the element is accessed
+  ## again.  The first retained field is the scroll offset used by the
+  ## editor; more element-local fields can be added without changing the
+  ## frame lifecycle.
+  ElementState* = object
+    offset*: Pixels
+
   PaintList* = object
     commands*: seq[PaintCommand]
     dirty*: seq[Rect]
@@ -86,6 +96,13 @@ type
     ## GPUI's `element_offset` rather than changing layout geometry.
     elementOffsetStack*: seq[Point]
     scaleFactor*: float32
+    elementStates*: Table[string, ElementState]
+    accessedElementStates*: HashSet[string]
+
+  ## A Frame is the retained paint list plus the per-element state touched by
+  ## that frame.  Keeping the alias preserves the existing paint API while
+  ## allowing Window to own two independently buffered frames.
+  Frame* = PaintList
 
 proc intersects*(a, b: Rect): bool =
   float32(a.origin.x) < float32(b.origin.x + b.size.width) and
@@ -167,12 +184,64 @@ proc add*(paint: var PaintList, command: PaintCommand) =
       clipped.transform = transform
       paint.commands.add(clipped)
 
+proc newFrame*(): Frame =
+  result.elementStates = initTable[string, ElementState]()
+  result.accessedElementStates = initHashSet[string]()
+
+proc ensureElementStateTables(frame: var Frame) =
+  ## A zero-initialized Frame is still a useful public value, so lazily
+  ## initialize its reference-backed containers before first access.
+  if frame.elementStates.len == 0 and frame.accessedElementStates.len == 0:
+    frame.elementStates = initTable[string, ElementState]()
+    frame.accessedElementStates = initHashSet[string]()
+
+proc lookupElementState*(frame: Frame, key: string): Option[ElementState] =
+  if frame.elementStates.hasKey(key): some(frame.elementStates[key])
+  else: none(ElementState)
+
+proc accessElementState*(frame: var Frame, key: string,
+                         defaultState = ElementState()): var ElementState =
+  frame.ensureElementStateTables()
+  frame.accessedElementStates.incl(key)
+  frame.elementStates.mgetOrPut(key, defaultState)
+
+proc accessElementState*(frame: var Frame, previous: Frame, key: string,
+                         defaultState = ElementState()): var ElementState =
+  frame.ensureElementStateTables()
+  if not frame.elementStates.hasKey(key):
+    let carried = previous.lookupElementState(key)
+    if carried.isSome:
+      frame.elementStates[key] = carried.get
+  frame.accessElementState(key, defaultState)
+
+proc finishFrame*(frame: var Frame, previous: var Frame) =
+  ## Retain only state touched by this frame.  This is both Zed's
+  ## accessed-element-state migration and the automatic GC for stale keys.
+  frame.ensureElementStateTables()
+  var retained = initTable[string, ElementState]()
+  for key in frame.accessedElementStates:
+    if frame.elementStates.hasKey(key):
+      retained[key] = frame.elementStates[key]
+    elif previous.elementStates.hasKey(key):
+      retained[key] = previous.elementStates[key]
+  frame.elementStates = retained
+  frame.accessedElementStates.clear()
+  ## The previous frame is still drawable, but its state is no longer part of
+  ## the live element-state table once this frame has finished.  This makes
+  ## unaccessed state observable as collected before the buffer swap.
+  previous.elementStates.clear()
+  previous.accessedElementStates.clear()
+
 proc clear*(paint: var PaintList) =
   paint.commands.setLen(0)
   paint.dirty.setLen(0)
   paint.clipStack.setLen(0)
   paint.transformStack.setLen(0)
   paint.elementOffsetStack.setLen(0)
+  ## Element state intentionally survives clear: after the frame swap this
+  ## object becomes nextFrame, where the following finishFrame can retain or
+  ## collect each key based on whether it was accessed.
+  paint.accessedElementStates.clear()
 
 proc drawRectangle*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: rectangle, bounds: bounds, clip: bounds))
