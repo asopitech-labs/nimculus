@@ -185,7 +185,9 @@ proc add*(paint: var PaintList, command: PaintCommand) =
 proc newFrame*(): Frame =
   result.elementStates = initTable[string, ElementState]()
 
-proc lookupElementState*(frame: Frame, key: string): Option[ElementState] =
+proc lookupElementState*(frame: var Frame, key: string): Option[ElementState] =
+  ## Frame is a value type containing command sequences and tables. Keep this
+  ## read-only lookup on a var parameter so callers do not deep-copy a frame.
   if frame.elementStates.hasKey(key): some(frame.elementStates[key])
   else: none(ElementState)
 
@@ -196,8 +198,10 @@ proc accessElementState*(frame: var Frame, key: string,
   ## reinitialized on every access.
   frame.elementStates.mgetOrPut(key, defaultState)
 
-proc accessElementState*(frame: var Frame, previous: Frame, key: string,
+proc accessElementState*(frame: var Frame, previous: var Frame, key: string,
                          defaultState = ElementState()): var ElementState =
+  ## `previous` must stay a var parameter: passing a Frame by value copies its
+  ## retained command storage before the element-state lookup runs.
   if not frame.elementStates.hasKey(key):
     let carried = previous.lookupElementState(key)
     if carried.isSome:

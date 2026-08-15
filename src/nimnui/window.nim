@@ -80,7 +80,7 @@ proc dirtyToDrawMs*(timing: FrameTiming): Option[float64] =
   if timing.dirtyAt.isNone: return none(float64)
   some((timing.drawEnd - timing.dirtyAt.get) * 1000.0)
 
-proc dirtyToDrawMs*(window: Window): Option[float64] =
+proc dirtyToDrawMs*(window: var Window): Option[float64] =
   if window.lastFrameTiming.isNone: return none(float64)
   window.lastFrameTiming.get.dirtyToDrawMs()
 
@@ -193,17 +193,25 @@ proc prepaintTree*(window: var Window, tree: UiTree, root: NodeId,
     for childIndex in countdown(node.children.high, 0):
       pending.add(node.children[childIndex])
 
-proc hitTest*(window: Window, point: Point,
+proc hitTest*(window: var Window, point: Point,
               kind: HitTestKind = hoverHitTest): HitTestResult =
+  ## Window now owns two Frames. Keep the live input path on the var overload;
+  ## a value parameter would copy both retained command lists on every event.
   hitTestHitboxes(window.hitboxes, point, kind)
 
-proc debugAssertPrepaint*(window: Window) =
+proc hitTest*(window: Window, point: Point,
+              kind: HitTestKind = hoverHitTest): HitTestResult =
+  ## Keep immutable call sites source-compatible. The var overload is selected
+  ## for the live Window, so the input hot path does not copy both Frames.
+  hitTestHitboxes(window.hitboxes, point, kind)
+
+proc debugAssertPrepaint*(window: var Window) =
   doAssert window.phase == dpPrepaint, "expected prepaint phase"
 
-proc debugAssertPaint*(window: Window) =
+proc debugAssertPaint*(window: var Window) =
   doAssert window.phase == dpPaint, "expected paint phase"
 
-proc debugAssertPaintOrPrepaint*(window: Window) =
+proc debugAssertPaintOrPrepaint*(window: var Window) =
   doAssert window.phase in {dpPrepaint, dpPaint}, "expected paint or prepaint phase"
 
 proc setScaleFactor*(window: var Window, scaleFactor: float32) =
@@ -283,7 +291,7 @@ proc paintTree*(window: var Window, tree: UiTree, root: NodeId,
                 painter: NodePainter) =
   window.paintNodeRecursive(tree, root, painter)
 
-proc layoutTree*(window: Window, tree: var UiTree, root: NodeId,
+proc layoutTree*(window: var Window, tree: var UiTree, root: NodeId,
                  bounds: Rect, spec: LayoutSpec) =
   ## Layout deliberately does not depend on the window's pixel scale. Scale
   ## is consulted only when ambient element offsets resolve during paint.
