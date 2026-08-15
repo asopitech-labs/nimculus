@@ -1,3 +1,4 @@
+import std/algorithm
 import std/math
 import std/options
 import std/tables
@@ -51,6 +52,13 @@ type
     ## retained paint ABI while supporting Zed's dashed divider.
     strokedPath
 
+  ## The draw-order streams mirror GPUI's scene primitive streams.  The
+  ## declaration order is intentional: it is the tie-break when two streams
+  ## have the same order.
+  PrimitiveKind* = enum
+    pkShadow, pkQuad, pkPath, pkUnderline,
+    pkMonochromeSprite, pkSubpixelSprite, pkPolychromeSprite, pkSurface
+
   ## The two possible width changes at a row join are kept as data rather
   ## than exposed as path operations. The Metal backend consumes the row
   ## rectangles and emits the concrete Zed-shaped selection directly.
@@ -59,6 +67,9 @@ type
 
   PaintCommand* = object
     kind*: PaintKind
+    ## Zed gets this from BoundsTree.  Nimculus uses a monotonically assigned
+    ## counter until BoundsTree is ported.
+    order*: uint32
     bounds*: Rect
     sourceBounds*: Rect
     clip*: Rect
@@ -70,6 +81,10 @@ type
     colour*: Color
     transform*: Transform2D
     imageId*: uint32
+    ## Sprite atlas identity used by batching.  imageId remains the native
+    ## command payload; these fields make the future atlas split explicit.
+    tileId*: uint32
+    textureId*: uint32
     dividerColor*: DividerColor
     dividerStyle*: DividerStyle
     dashArray*: seq[Pixels]
@@ -87,6 +102,15 @@ type
 
   PaintList* = object
     commands*: seq[PaintCommand]
+    ## Per-primitive streams are sorted by finish() and consumed by batches().
+    shadows*: seq[PaintCommand]
+    quads*: seq[PaintCommand]
+    paths*: seq[PaintCommand]
+    underlines*: seq[PaintCommand]
+    monochromeSprites*: seq[PaintCommand]
+    subpixelSprites*: seq[PaintCommand]
+    polychromeSprites*: seq[PaintCommand]
+    surfaces*: seq[PaintCommand]
     dirty*: seq[Rect]
     clipStack*: seq[Rect]
     transformStack*: seq[Transform2D]
@@ -96,6 +120,17 @@ type
     elementOffsetStack*: seq[Point]
     scaleFactor*: float32
     elementStates*: Table[string, ElementState]
+    nextOrder: uint32
+
+  ## A batch points into one of PaintList's sorted streams.  Sprite batches
+  ## additionally identify the atlas texture whose state must be bound.
+  PrimitiveBatch* = object
+    range*: HSlice[int, int]
+    case kind*: PrimitiveKind
+    of pkMonochromeSprite, pkSubpixelSprite, pkPolychromeSprite:
+      textureId*: uint32
+    else:
+      discard
 
   ## A Frame is the retained paint list plus the per-element state touched by
   ## that frame.  Keeping the alias preserves the existing paint API while
@@ -164,7 +199,48 @@ proc invalidate*(paint: var PaintList, rect: Rect) =
       inc index
   paint.dirty.add(merged)
 
-proc add*(paint: var PaintList, command: PaintCommand) =
+proc primitiveKindFor(kind: PaintKind): PrimitiveKind =
+  case kind
+  of shadow: pkShadow
+  of text: pkMonochromeSprite
+  of image: pkPolychromeSprite
+  of strokedPath: pkPath
+  else: pkQuad
+
+proc streamLen(paint: PaintList, kind: PrimitiveKind): int =
+  case kind
+  of pkShadow: paint.shadows.len
+  of pkQuad: paint.quads.len
+  of pkPath: paint.paths.len
+  of pkUnderline: paint.underlines.len
+  of pkMonochromeSprite: paint.monochromeSprites.len
+  of pkSubpixelSprite: paint.subpixelSprites.len
+  of pkPolychromeSprite: paint.polychromeSprites.len
+  of pkSurface: paint.surfaces.len
+
+proc streamCommand(paint: PaintList, kind: PrimitiveKind, index: int): PaintCommand =
+  case kind
+  of pkShadow: paint.shadows[index]
+  of pkQuad: paint.quads[index]
+  of pkPath: paint.paths[index]
+  of pkUnderline: paint.underlines[index]
+  of pkMonochromeSprite: paint.monochromeSprites[index]
+  of pkSubpixelSprite: paint.subpixelSprites[index]
+  of pkPolychromeSprite: paint.polychromeSprites[index]
+  of pkSurface: paint.surfaces[index]
+
+proc appendToStream(paint: var PaintList, command: PaintCommand) =
+  case primitiveKindFor(command.kind)
+  of pkShadow: paint.shadows.add(command)
+  of pkQuad: paint.quads.add(command)
+  of pkPath: paint.paths.add(command)
+  of pkUnderline: paint.underlines.add(command)
+  of pkMonochromeSprite: paint.monochromeSprites.add(command)
+  of pkSubpixelSprite: paint.subpixelSprites.add(command)
+  of pkPolychromeSprite: paint.polychromeSprites.add(command)
+  of pkSurface: paint.surfaces.add(command)
+
+proc appendCommand(paint: var PaintList, command: PaintCommand, order: uint32) =
   let transform = if paint.transformStack.len > 0: paint.transformStack[^1] else: identityTransform()
   let transformedBounds = paint.resolvedBounds(command.bounds, transform)
   var effectiveClip = transformedBounds
@@ -174,6 +250,7 @@ proc add*(paint: var PaintList, command: PaintCommand) =
     let visible = intersection(effectiveClip, dirty)
     if float32(visible.size.width) > 0 and float32(visible.size.height) > 0:
       var clipped = command
+      clipped.order = order
       clipped.sourceBounds = command.bounds
       clipped.bounds = transformedBounds
       ## Damage filtering decides whether a command is emitted; it is not a
@@ -181,6 +258,105 @@ proc add*(paint: var PaintList, command: PaintCommand) =
       clipped.clip = effectiveClip
       clipped.transform = transform
       paint.commands.add(clipped)
+      paint.appendToStream(clipped)
+
+proc add*(paint: var PaintList, command: PaintCommand) =
+  let order = paint.nextOrder
+  if paint.nextOrder < high(uint32): inc paint.nextOrder
+  paint.appendCommand(command, order)
+
+proc add*(paint: var PaintList, command: PaintCommand, order: uint32) =
+  ## Explicit order is used by callers that already have a shared layer order
+  ## (and by tests); ordinary insertion uses the counter overload above.
+  if order < high(uint32) and paint.nextOrder <= order:
+    paint.nextOrder = order + 1
+  paint.appendCommand(command, order)
+
+proc spriteTileId(command: PaintCommand): uint32 =
+  if command.tileId != 0: command.tileId else: command.imageId
+
+proc spriteTextureId(command: PaintCommand): uint32 =
+  if command.textureId != 0: command.textureId else: command.imageId
+
+proc compareOrder(left, right: PaintCommand): int = cmp(left.order, right.order)
+
+proc compareSpriteOrder(left, right: PaintCommand): int =
+  result = cmp(left.order, right.order)
+  if result == 0:
+    result = cmp(left.spriteTileId, right.spriteTileId)
+
+proc finish*(paint: var PaintList) =
+  ## Sort each stream exactly once before constructing the merge iterator.
+  ## Sprite tile order groups atlas tiles, while textureId remains the batch
+  ## break, matching GPUI's `(order, tile_id)` sort and texture check.
+  paint.shadows.sort(compareOrder)
+  paint.quads.sort(compareOrder)
+  paint.paths.sort(compareOrder)
+  paint.underlines.sort(compareOrder)
+  paint.monochromeSprites.sort(compareSpriteOrder)
+  paint.subpixelSprites.sort(compareSpriteOrder)
+  paint.polychromeSprites.sort(compareSpriteOrder)
+  paint.surfaces.sort(compareOrder)
+
+proc isSpriteKind(kind: PrimitiveKind): bool =
+  kind in {pkMonochromeSprite, pkSubpixelSprite, pkPolychromeSprite}
+
+proc before(leftOrder: uint32, leftKind: PrimitiveKind,
+            rightOrder: uint32, rightKind: PrimitiveKind): bool =
+  leftOrder < rightOrder or
+    (leftOrder == rightOrder and ord(leftKind) < ord(rightKind))
+
+type
+  BatchHead = object
+    valid: bool
+    order: uint32
+    kind: PrimitiveKind
+
+proc makeBatch(kind: PrimitiveKind, range: HSlice[int, int], textureId: uint32): PrimitiveBatch =
+  case kind
+  of pkMonochromeSprite, pkSubpixelSprite, pkPolychromeSprite:
+    PrimitiveBatch(range: range, kind: kind, textureId: textureId)
+  else:
+    PrimitiveBatch(range: range, kind: kind)
+
+proc len*(batch: PrimitiveBatch): int = batch.range.len
+
+iterator batches*(paint: PaintList): PrimitiveBatch =
+  ## Merge the eight sorted streams by `(order, PrimitiveKind)`.  The second
+  ## head is the exclusive upper bound for the current batch; sprite streams
+  ## also stop when their atlas texture changes.
+  var starts: array[PrimitiveKind, int]
+  while true:
+    var first = BatchHead(valid: false, order: high(uint32), kind: pkShadow)
+    var second = BatchHead(valid: false, order: high(uint32), kind: pkShadow)
+    for kind in PrimitiveKind:
+      let index = starts[kind]
+      if index >= paint.streamLen(kind): continue
+      let command = paint.streamCommand(kind, index)
+      let head = BatchHead(valid: true, order: command.order, kind: kind)
+      if not first.valid or head.order < first.order or
+          (head.order == first.order and ord(head.kind) < ord(first.kind)):
+        second = first
+        first = head
+      elif not second.valid or head.order < second.order or
+          (head.order == second.order and ord(head.kind) < ord(second.kind)):
+        second = head
+    if not first.valid: break
+
+    let maxOrder = if second.valid: second.order else: high(uint32)
+    let maxKind = if second.valid: second.kind else: pkShadow
+    let batchKind = first.kind
+    let batchStart = starts[batchKind]
+    var batchEnd = batchStart + 1
+    let firstCommand = paint.streamCommand(batchKind, batchStart)
+    let textureId = firstCommand.spriteTextureId
+    while batchEnd < paint.streamLen(batchKind):
+      let command = paint.streamCommand(batchKind, batchEnd)
+      if not before(command.order, batchKind, maxOrder, maxKind): break
+      if batchKind.isSpriteKind and command.spriteTextureId != textureId: break
+      inc batchEnd
+    starts[batchKind] = batchEnd
+    yield makeBatch(batchKind, batchStart ..< batchEnd, textureId)
 
 proc newFrame*(): Frame =
   result.elementStates = initTable[string, ElementState]()
@@ -218,10 +394,19 @@ proc finishFrame*(frame: var Frame, previous: var Frame) =
 
 proc clear*(paint: var PaintList) =
   paint.commands.setLen(0)
+  paint.shadows.setLen(0)
+  paint.quads.setLen(0)
+  paint.paths.setLen(0)
+  paint.underlines.setLen(0)
+  paint.monochromeSprites.setLen(0)
+  paint.subpixelSprites.setLen(0)
+  paint.polychromeSprites.setLen(0)
+  paint.surfaces.setLen(0)
   paint.dirty.setLen(0)
   paint.clipStack.setLen(0)
   paint.transformStack.setLen(0)
   paint.elementOffsetStack.setLen(0)
+  paint.nextOrder = 0
   ## Element state intentionally survives clear. finishFrame clears the old
   ## rendered frame after the new frame has performed its carryover lookups;
   ## retaining this table here preserves its bucket storage for the next use.
@@ -237,7 +422,8 @@ proc drawBorder*(paint: var PaintList, bounds: Rect) = paint.add(PaintCommand(ki
 proc drawRoundedRectangle*(paint: var PaintList, bounds: Rect, radius: Pixels) =
   paint.add(PaintCommand(kind: roundedRectangle, bounds: bounds, clip: bounds, radius: radius))
 proc drawImage*(paint: var PaintList, bounds: Rect, imageId: uint32 = 0) =
-  paint.add(PaintCommand(kind: image, bounds: bounds, clip: bounds, imageId: imageId))
+  paint.add(PaintCommand(kind: image, bounds: bounds, clip: bounds, imageId: imageId,
+    tileId: imageId, textureId: imageId))
 proc pushClip*(paint: var PaintList, bounds: Rect) =
   paint.add(PaintCommand(kind: clip, bounds: bounds, clip: bounds))
   let transform = if paint.transformStack.len > 0: paint.transformStack[^1] else: identityTransform()
