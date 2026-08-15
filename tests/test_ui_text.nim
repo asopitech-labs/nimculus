@@ -34,6 +34,37 @@ proc registerTestAction(name: string,
     Action(name: name, payload: payload))
   registerActionHandler(name, handler)
 
+suite "shared control builders":
+  test "the same builder chain configures buttons, icon buttons, and list items":
+    let handler: ClickHandler = proc() = discard
+    let button = ButtonSpec().disabled(true).toggleState(on).onClick(handler)
+    let iconButton = IconButtonSpec().disabled(true).toggleState(on).onClick(handler)
+    let listItem = ListItem().disabled(true).toggleState(on).onClick(handler)
+
+    check button.disabled
+    check button.toggleState == on
+    check button.clickHandler != nil
+    check iconButton.disabled
+    check iconButton.toggleState == on
+    check iconButton.clickHandler != nil
+    check listItem.disabled
+    check listItem.toggleState == on
+    check listItem.clickHandler != nil
+
+  test "toggle derivation and hover visibility match the shared trait semantics":
+    check inverse(off) == on
+    check inverse(mixed) == on
+    check inverse(on) == off
+    check fromAnyAndAll(true, true) == on
+    check fromAnyAndAll(false, false) == off
+    check fromAnyAndAll(true, false) == mixed
+    check fromAnyAndAll(false, true) == mixed
+    check not selected(mixed)
+
+    let visible = ButtonSpec().visibleOnHover("")
+    check visible.invisible
+    check visible.hoverGroup == ""
+
 suite "M2 UI foundation":
   test "text style refinement changes only fields present in the refinement":
     let base = TextStyle(

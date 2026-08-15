@@ -14,6 +14,46 @@ type
     label, button, scrollView, splitPane, tabBar, toolbar, statusBar, row, editor,
     contextMenu, popup, tooltip
 
+  ## The three states used by selectable controls and checkbox-like menu rows.
+  ToggleState* = enum
+    off, on, mixed
+
+  ## Compatibility names retained for existing overlay callers.
+  ClickHandler* = proc() {.closure.}
+
+  CursorStyle* = enum
+    cursorDefault, cursorPointingHand
+
+  ButtonSpec* = object
+    clickHandler*: ClickHandler
+    cursorStyle*: CursorStyle
+    disabled*: bool
+    toggleState*: ToggleState
+    width*: Pixels
+    fullWidth*: bool
+    invisible*: bool
+    hoverGroup*: string
+
+  IconButtonSpec* = object
+    clickHandler*: ClickHandler
+    cursorStyle*: CursorStyle
+    disabled*: bool
+    toggleState*: ToggleState
+    width*: Pixels
+    fullWidth*: bool
+    invisible*: bool
+    hoverGroup*: string
+
+  ListItem* = object
+    clickHandler*: ClickHandler
+    cursorStyle*: CursorStyle
+    disabled*: bool
+    toggleState*: ToggleState
+    width*: Pixels
+    fullWidth*: bool
+    invisible*: bool
+    hoverGroup*: string
+
   Control* = object
     node*: NodeId
     kind*: ControlKind
@@ -50,6 +90,93 @@ type
 
   ButtonLikeStyles* {.bycopy.} = object
     background*, borderColor*, labelColor*, iconColor*: Color
+
+const
+  tsUnselected* = off
+  tsIndeterminate* = mixed
+  tsSelected* = on
+
+  ## A named alias is useful at call sites that want a pointer cursor without
+  ## depending on the representation of CursorStyle.
+  pointerCursor* = cursorPointingHand
+
+proc applyOnClick(x: var ButtonSpec, h: ClickHandler) = x.clickHandler = h
+proc applyOnClick(x: var IconButtonSpec, h: ClickHandler) = x.clickHandler = h
+proc applyOnClick(x: var ListItem, h: ClickHandler) = x.clickHandler = h
+
+proc applyCursorStyle(x: var ButtonSpec, style: CursorStyle) =
+  x.cursorStyle = style
+proc applyCursorStyle(x: var IconButtonSpec, style: CursorStyle) =
+  x.cursorStyle = style
+proc applyCursorStyle(x: var ListItem, style: CursorStyle) =
+  x.cursorStyle = style
+
+proc applyDisabled(x: var ButtonSpec, value: bool) = x.disabled = value
+proc applyDisabled(x: var IconButtonSpec, value: bool) = x.disabled = value
+proc applyDisabled(x: var ListItem, value: bool) = x.disabled = value
+
+proc applyToggleState(x: var ButtonSpec, value: ToggleState) =
+  x.toggleState = value
+proc applyToggleState(x: var IconButtonSpec, value: ToggleState) =
+  x.toggleState = value
+proc applyToggleState(x: var ListItem, value: ToggleState) =
+  x.toggleState = value
+
+proc applyWidth(x: var ButtonSpec, value: Pixels) = x.width = value
+proc applyWidth(x: var IconButtonSpec, value: Pixels) = x.width = value
+proc applyWidth(x: var ListItem, value: Pixels) = x.width = value
+
+proc applyFullWidth(x: var ButtonSpec) = x.fullWidth = true
+proc applyFullWidth(x: var IconButtonSpec) = x.fullWidth = true
+proc applyFullWidth(x: var ListItem) = x.fullWidth = true
+
+proc applyVisibleOnHover(x: var ButtonSpec, group: string) =
+  x.invisible = true
+  x.hoverGroup = group
+proc applyVisibleOnHover(x: var IconButtonSpec, group: string) =
+  x.invisible = true
+  x.hoverGroup = group
+proc applyVisibleOnHover(x: var ListItem, group: string) =
+  x.invisible = true
+  x.hoverGroup = group
+
+proc onClick*[T](x: sink T, h: ClickHandler): T =
+  mixin applyOnClick
+  result = x
+  applyOnClick(result, h)
+
+proc cursorStyle*[T](x: sink T, style: CursorStyle): T =
+  mixin applyCursorStyle
+  result = x
+  applyCursorStyle(result, style)
+
+proc cursorStyle*[T](x: sink T): T =
+  x.cursorStyle(cursorPointingHand)
+
+proc disabled*[T](x: sink T, value: bool): T =
+  mixin applyDisabled
+  result = x
+  applyDisabled(result, value)
+
+proc toggleState*[T](x: sink T, value: ToggleState): T =
+  mixin applyToggleState
+  result = x
+  applyToggleState(result, value)
+
+proc width*[T](x: sink T, value: Pixels): T =
+  mixin applyWidth
+  result = x
+  applyWidth(result, value)
+
+proc fullWidth*[T](x: sink T): T =
+  mixin applyFullWidth
+  result = x
+  applyFullWidth(result)
+
+proc visibleOnHover*[T](x: sink T, group: string): T =
+  mixin applyVisibleOnHover
+  result = x
+  applyVisibleOnHover(result, group)
 
 proc themeColor(value: string, fallback: Color): Color =
   ## ThemeColors stores the same #RRGGBB[AA] tokens sent to native backends.
@@ -272,9 +399,6 @@ type
   OverlayItemKind* = enum
     separator, header, label, entry, customEntry, submenu
 
-  ToggleState* = enum
-    tsUnselected, tsIndeterminate, tsSelected
-
   OverlayItem* = object
     ## The discriminator keeps menu data independent from its renderer. The
     ## legacy fields remain common fields so old flat records still decode as
@@ -337,14 +461,17 @@ type
 
 proc inverse*(state: ToggleState): ToggleState =
   case state
-  of tsUnselected: tsSelected
-  of tsIndeterminate: tsSelected
-  of tsSelected: tsUnselected
+  of off: on
+  of mixed: on
+  of on: off
 
 proc fromAnyAndAll*(any, all: bool): ToggleState =
-  if all: tsSelected
-  elif any: tsIndeterminate
-  else: tsUnselected
+  if any and all: on
+  elif not any and not all: off
+  else: mixed
+
+proc selected*(state: ToggleState): bool =
+  state == on
 
 proc scrollBy*(model: var ScrollModel, delta: Pixels) =
   let maximum = maxPx(px(0), model.contentSize - model.viewportSize)
