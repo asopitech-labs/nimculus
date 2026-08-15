@@ -3,6 +3,7 @@ import std/json
 import std/os
 import std/unicode
 import std/options
+import std/tables
 import nimnui/nimnui
 import nimnui/text
 import nimculus/editor_view
@@ -130,6 +131,32 @@ suite "M2 UI foundation":
     let style = defaultTextStyle()
     check float32(style.lineHeightInPixels(16'f32)) == 26'f32
     check float32(style.lineHeightInPixels(12'f32)) == 19'f32
+
+  test "HSLA clamps, derives alpha states, converts, blends, and hashes":
+    let clamped = hsla(-0.5'f32, 1.5'f32, 0.5'f32, 2'f32)
+    check clamped == Hsla(h: 0'f32, s: 1'f32, l: 0.5'f32, a: 1'f32)
+    check clamped.opacity(0.5'f32).a == 0.5'f32
+    check clamped.alpha(0.3'f32).a == 0.3'f32
+    check hsla(0.7'f32, 0.8'f32, 0.4'f32, 0.8'f32).fadeOut(0.25'f32).a ==
+      0.6'f32
+
+    let gray = hsla(0'f32, 0'f32, 0.5'f32, 1'f32).toRgba()
+    for channel in 0 .. 2:
+      check abs(gray[channel] - 0.5'f32) < 1e-5'f32
+    check gray[3] == 1'f32
+
+    let blended = hsla(0'f32, 1'f32, 0.5'f32, 1'f32).blend(
+      hsla(2'f32 / 3'f32, 1'f32, 0.5'f32, 0.5'f32))
+    let blendedRgba = blended.toRgba()
+    check abs(blendedRgba[0] - 0.5'f32) < 1e-5'f32
+    check abs(blendedRgba[1] - 0'f32) < 1e-5'f32
+    check abs(blendedRgba[2] - 0.5'f32) < 1e-5'f32
+
+    var colors = initTable[Hsla, string]()
+    let key = hsla(0.1'f32, 0.2'f32, 0.3'f32, 0.4'f32)
+    colors[key] = "keyed"
+    check colors[key] == "keyed"
+    check hash(key) == hash(Hsla(h: key.h, s: key.s, l: key.l, a: key.a))
 
   test "text highlights blend colors and replace emphasis values":
     let base = defaultTextStyle().refine(TextStyleRefinement(
