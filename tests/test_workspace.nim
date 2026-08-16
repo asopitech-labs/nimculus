@@ -188,6 +188,119 @@ suite "M6 workspace":
     removeDir(root / "nested")
     removeDir(root)
 
+  test "workspace entries retain non-zero ids and filesystem inodes":
+    let root = getTempDir() / ("nimculus-m6-entry-identity-" & $getCurrentProcessId())
+    createDir(root)
+    defer:
+      for name in ["a.txt", "b.txt", "c.txt"]:
+        if fileExists(root / name): removeFile(root / name)
+      if dirExists(root): removeDir(root)
+    for name in ["a.txt", "b.txt", "c.txt"]:
+      writeFile(root / name, name)
+    let workspace = openWorkspace(root)
+    let entries = workspace.listChildrenAt(root)
+    check entries.len == 3
+    var ids = initTable[uint32, bool]()
+    for entry in entries:
+      check entry.id != 0
+      check entry.inode == uint64(getFileInfo(entry.path).id.file)
+      ids[entry.id] = true
+    check ids.len == 3
+
+  test "renames reuse the removed entry id without allocating":
+    let root = getTempDir() / ("nimculus-m6-entry-rename-" & $getCurrentProcessId())
+    createDir(root)
+    defer:
+      if fileExists(root / "a.txt"): removeFile(root / "a.txt")
+      if fileExists(root / "b.txt"): removeFile(root / "b.txt")
+      if dirExists(root): removeDir(root)
+    writeFile(root / "a.txt", "value")
+    let workspace = openWorkspace(root)
+    let original = workspace.listChildrenAt(root)[0]
+    let nextIdBefore = workspace.nextEntryId
+    discard workspace.renameEntryAt(root, "a.txt", "b.txt")
+    workspace.changes.add(root / "a.txt")
+    workspace.changes.add(root / "b.txt")
+    check workspace.changedPaths().len == 2
+    let refreshed = workspace.listChildrenAt(root)
+    let moved = refreshed.filterIt(it.relativePath == "b.txt")[0]
+    check moved.id == original.id
+    check workspace.nextEntryId == nextIdBefore
+
+  test "a replacement with a different inode gets a new entry id":
+    let root = getTempDir() / ("nimculus-m6-entry-replacement-" & $getCurrentProcessId())
+    createDir(root)
+    defer:
+      for name in ["a.txt", "replacement-0.txt", "replacement-1.txt", "replacement-2.txt"]:
+        if fileExists(root / name): removeFile(root / name)
+      if dirExists(root): removeDir(root)
+    writeFile(root / "a.txt", "old")
+    let workspace = openWorkspace(root)
+    let original = workspace.listChildrenAt(root)[0]
+    let nextIdBefore = workspace.nextEntryId
+    workspace.deleteEntryAt(root, "a.txt")
+    workspace.changes.add(root / "a.txt")
+    discard workspace.changedPaths()
+
+    var replacement = ""
+    var replacementInode: uint64
+    for attempt in 0 ..< 3:
+      let candidate = root / ("replacement-" & $attempt & ".txt")
+      writeFile(candidate, "new")
+      let candidateInode = uint64(getFileInfo(candidate).id.file)
+      if candidateInode != original.inode:
+        replacement = candidate
+        replacementInode = candidateInode
+        break
+      removeFile(candidate)
+    check replacement.len > 0
+    check replacementInode != original.inode
+    if replacement.len > 0:
+      discard workspace.renameEntryAt(root, replacement.extractFilename, "a.txt")
+      workspace.changes.add(root / "a.txt")
+      workspace.changes.add(replacement)
+      discard workspace.changedPaths()
+      let replacementEntry = workspace.listChildrenAt(root)[0]
+      check replacementEntry.id != original.id
+      check workspace.nextEntryId == nextIdBefore + 1
+
+  when defined(posix):
+    test "symlink aliases receive distinct entry ids":
+      let root = getTempDir() / ("nimculus-m6-entry-symlink-" & $getCurrentProcessId())
+      createDir(root)
+      defer:
+        if symlinkExists(root / "alias.txt"): removeFile(root / "alias.txt")
+        if fileExists(root / "target.txt"): removeFile(root / "target.txt")
+        if dirExists(root): removeDir(root)
+      writeFile(root / "target.txt", "target")
+      createSymlink(root / "target.txt", root / "alias.txt")
+      let workspace = openWorkspace(root)
+      let entries = workspace.listChildrenAt(root)
+      let target = entries.filterIt(it.relativePath == "target.txt")[0]
+      let alias = entries.filterIt(it.relativePath == "alias.txt")[0]
+      check target.inode == alias.inode
+      check target.id != 0
+      check alias.id != 0
+      check target.id != alias.id
+
+  test "an empty changed-path batch drains the prior rename window":
+    let root = getTempDir() / ("nimculus-m6-entry-drain-" & $getCurrentProcessId())
+    createDir(root)
+    defer:
+      if fileExists(root / "a.txt"): removeFile(root / "a.txt")
+      if dirExists(root): removeDir(root)
+    writeFile(root / "a.txt", "value")
+    let workspace = openWorkspace(root)
+    discard workspace.listChildrenAt(root)
+    workspace.deleteEntryAt(root, "a.txt")
+    workspace.changes.add(root / "a.txt")
+    discard workspace.changedPaths()
+    check workspace.removedEntries.byPath.len > 0
+    check workspace.changedPaths().len == 0
+    check workspace.changedPaths().len == 0
+    check workspace.removedEntries.byInode.len == 0
+    check workspace.removedEntries.byPath.len == 0
+
   test "fuzzy search yields bounded batches and can be cancelled":
     let root = getTempDir() / ("nimculus-m6-fuzzy-job-" & $getCurrentProcessId())
     createDir(root)
