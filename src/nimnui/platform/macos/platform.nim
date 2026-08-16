@@ -19,6 +19,9 @@ proc newPlatformDispatcher*(): PlatformDispatcher =
   newNativePlatformDispatcher(nativePlatformIsMainThread, nativePlatformDispatch,
     nativePlatformDispatchOnMain, nativePlatformDispatchAfter)
 
+proc platformSetCursorStyleNative(style: PlatformCursorStyle)
+    {.importc: "nimculus_platform_set_cursor_style", cdecl, gcsafe.}
+
 proc platformRun*(): bool {.importc: "nimculus_platform_run", cdecl.}
 proc platformValidateNative*(): bool {.importc: "nimculus_platform_validate_native", cdecl.}
 proc platformValidateTitlebarHeight*(): bool {.importc: "nimculus_platform_validate_titlebar_height", cdecl.}
@@ -357,3 +360,14 @@ proc clipboardGet*(): string =
   copyMem(addr result[0], bytes, length)
 proc chooseOpenFile*(): cstring {.importc: "nimculus_choose_open_file", cdecl.}
 proc chooseSaveFile*(): cstring {.importc: "nimculus_choose_save_file", cdecl.}
+
+proc newPlatform*(): Platform =
+  result = Platform()
+  result.dispatcher = newPlatformDispatcher()
+  result.clipboardGet = proc(): string {.gcsafe.} = clipboardGet()
+  result.clipboardSet = proc(text: cstring, length: uint32) {.gcsafe.} =
+    clipboardSet(text, length)
+  result.promptForPaths = proc(): cstring {.gcsafe.} = chooseOpenFile()
+  result.promptForNewPath = proc(): cstring {.gcsafe.} = chooseSaveFile()
+  result.setCursorStyle = proc(style: PlatformCursorStyle) {.gcsafe.} =
+    platformSetCursorStyleNative(style)

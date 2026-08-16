@@ -11,6 +11,7 @@ import nimnui/platform/dispatcher
 export contracts
 
 proc newPlatformDispatcher*(): PlatformDispatcher = newPortablePlatformDispatcher()
+
 when not defined(windows) or defined(nimculusPortableOnly):
   proc platformSetFrameCallback*(callback: FrameCallback) =
     if callback != nil: discard
@@ -180,3 +181,16 @@ when not defined(windows):
   proc clipboardGet*(): string = ""
   proc chooseOpenFile*(): cstring = ""
   proc chooseSaveFile*(): cstring = ""
+
+proc newPlatform*(): Platform =
+  result = Platform()
+  result.dispatcher = newPlatformDispatcher()
+  result.clipboardGet = proc(): string {.gcsafe.} = clipboardGet()
+  result.clipboardSet = proc(text: cstring, length: uint32) {.gcsafe.} =
+    clipboardSet(text, length)
+  result.promptForPaths = proc(): cstring {.gcsafe.} = chooseOpenFile()
+  result.promptForNewPath = proc(): cstring {.gcsafe.} = chooseSaveFile()
+  result.setCursorStyle = proc(style: PlatformCursorStyle) {.gcsafe.} =
+    discard style
+
+proc newHeadlessPlatform*(): Platform = newPlatform()
