@@ -25,6 +25,9 @@ type
     rootPath*: string
     kind*: WorkspaceFileKind
     ignored*: bool
+    id*: uint32
+    inode*: uint64
+    mtime*: times.Time
   SearchResult* = object
     path*: string
     rootPath*: string
@@ -63,6 +66,10 @@ type
     root*: string
     roots*: seq[string]
     entries*: Table[string, WorkspaceEntry]
+    nextEntryId*: uint32
+    removedEntries*: tuple[byInode: Table[uint64, WorkspaceEntry],
+      byPath: Table[string, WorkspaceEntry]]
+    activeInodes: Table[uint64, uint32]
     ignoreStacksByRoot: Table[string, IgnoreStack]
     watchers: seq[pointer]
     changes*: seq[string]
@@ -104,6 +111,12 @@ proc openWorkspace*(root: string): Workspace =
   result = Workspace(root: canonicalWorkspaceRoot(root))
   initLock(result.changesLock)
   result.roots = @[result.root]
+  result.entries = initTable[string, WorkspaceEntry]()
+  result.nextEntryId = 1
+  result.removedEntries = (
+    byInode: initTable[uint64, WorkspaceEntry](),
+    byPath: initTable[string, WorkspaceEntry]())
+  result.activeInodes = initTable[uint64, uint32]()
   result.ignoreStacksByRoot = initTable[string, IgnoreStack]()
   result.ignoreStacksByRoot[result.root] = newIgnoreStack(result.root)
 
@@ -156,17 +169,86 @@ proc boundaryPath(path: string): string =
   for index in countdown(missing.high, 0):
     result = result / missing[index]
 
+proc entryIdInUse(workspace: Workspace, id: uint32): bool =
+  for entry in workspace.entries.values:
+    if entry.id == id: return true
+  false
+
+proc inodeInUse(workspace: Workspace, inode: uint64): bool =
+  inode != 0 and inode in workspace.activeInodes
+
+proc addActiveInode(workspace: Workspace, inode: uint64) =
+  if inode == 0: return
+  if inode in workspace.activeInodes: inc workspace.activeInodes[inode]
+  else: workspace.activeInodes[inode] = 1
+
+proc removeActiveInode(workspace: Workspace, inode: uint64) =
+  if inode == 0 or inode notin workspace.activeInodes: return
+  if workspace.activeInodes[inode] <= 1: workspace.activeInodes.del(inode)
+  else: dec workspace.activeInodes[inode]
+
+proc allocateEntryId(workspace: Workspace): uint32 =
+  result = workspace.nextEntryId
+  if result == 0: result = 1
+  inc workspace.nextEntryId
+  if workspace.nextEntryId == 0: workspace.nextEntryId = 1
+
+proc takeRemovedEntry(workspace: Workspace, inode: uint64): tuple[found: bool,
+    entry: WorkspaceEntry] =
+  if inode == 0 or inode notin workspace.removedEntries.byInode: return
+  result.found = true
+  result.entry = workspace.removedEntries.byInode[inode]
+  workspace.removedEntries.byInode.del(inode)
+  let path = result.entry.path
+  if path in workspace.removedEntries.byPath and
+      workspace.removedEntries.byPath[path].id == result.entry.id:
+    workspace.removedEntries.byPath.del(path)
+
+proc entryForPath(workspace: Workspace, root, relativePath, path: string,
+                  kind: WorkspaceFileKind, ignored: bool): WorkspaceEntry =
+  let info = getFileInfo(path)
+  let cacheKey = root / relativePath
+  result = WorkspaceEntry(path: path, relativePath: relativePath, rootPath: root,
+    kind: kind, ignored: ignored, inode: uint64(info.id.file),
+    mtime: info.lastWriteTime)
+  if cacheKey in workspace.entries:
+    let previous = workspace.entries[cacheKey]
+    result.id = previous.id
+    if previous.inode != result.inode:
+      workspace.removeActiveInode(previous.inode)
+      workspace.addActiveInode(result.inode)
+    return
+
+  # A symlink and its target report the same inode, but they are two visible
+  # workspace entries and must never share an identity.
+  if result.inode != 0 and workspace.inodeInUse(result.inode):
+    result.id = workspace.allocateEntryId()
+    workspace.addActiveInode(result.inode)
+    return
+
+  let removed = workspace.takeRemovedEntry(result.inode)
+  if removed.found:
+    if (removed.entry.mtime == result.mtime or removed.entry.path == result.path) and
+        not workspace.entryIdInUse(removed.entry.id):
+      result.id = removed.entry.id
+      workspace.addActiveInode(result.inode)
+      return
+
+  result.id = workspace.allocateEntryId()
+  workspace.addActiveInode(result.inode)
+
 proc listChildrenAt*(workspace: Workspace, root: string; relative = "";
     includeIgnored = false): seq[WorkspaceEntry] =
-  let directory = root / relative
+  let registeredRoot = canonicalWorkspaceRoot(root)
+  let directory = registeredRoot / relative
   if not dirExists(directory): return
   for kind, path in walkDir(directory, relative = false):
     let relativePath = relative / path.extractFilename
-    let ignored = workspace.isIgnored(root, relativePath, kind == pcDir)
-    let entry = WorkspaceEntry(path: path, relativePath: relativePath, rootPath: root,
-      kind: if kind == pcDir: WorkspaceFileKind.directory else: WorkspaceFileKind.file,
-      ignored: ignored)
-    workspace.entries[root / relativePath] = entry
+    let ignored = workspace.isIgnored(registeredRoot, relativePath, kind == pcDir)
+    let entry = workspace.entryForPath(registeredRoot, relativePath, path,
+      if kind == pcDir: WorkspaceFileKind.directory else: WorkspaceFileKind.file,
+      ignored)
+    workspace.entries[registeredRoot / relativePath] = entry
     if includeIgnored or not ignored: result.add(entry)
 
 proc listChildren*(workspace: Workspace, relative = ""): seq[WorkspaceEntry] =
@@ -475,9 +557,8 @@ proc searchWorkspace*(workspace: Workspace, query: string,
                       options = SearchOptions()): seq[SearchResult]
 
 proc invalidateEntryCache(workspace: Workspace, path: string) =
-  ## Filesystem events are the invalidation boundary for the lazy entry cache.
-  ## Remove the changed path and descendants before a subsequent tree scan;
-  ## this handles deletes and renames where the path no longer exists.
+  ## Keep invalidated entries alive until the next tree scan. This is the
+  ## rename window: the old path may disappear before the new path is seen.
   if workspace == nil or workspace.entries.len == 0: return
   let normalized = boundaryPath(path)
   var stale: seq[string]
@@ -486,7 +567,20 @@ proc invalidateEntryCache(workspace: Workspace, path: string) =
     if candidate == normalized or candidate.startsWith(normalized & DirSep):
       stale.add(key)
   for key in stale:
+    let entry = workspace.entries[key]
+    workspace.removeActiveInode(entry.inode)
+    workspace.removedEntries.byPath[entry.path] = entry
+    if entry.inode != 0 and
+        (entry.inode notin workspace.removedEntries.byInode or
+         workspace.removedEntries.byInode[entry.inode].id < entry.id):
+      # Symlink aliases can collide on inode. Retain the higher id, matching
+      # Zed's RemovedEntries::insert behavior.
+      workspace.removedEntries.byInode[entry.inode] = entry
     workspace.entries.del(key)
+
+proc drainRemovedEntries(workspace: Workspace) =
+  workspace.removedEntries.byInode.clear()
+  workspace.removedEntries.byPath.clear()
 
 proc startSearch*(workspace: Workspace, query: string,
                   token: CancelToken = nil, scopePath = "",
@@ -804,6 +898,10 @@ proc searchWorkspace*(workspace: Workspace, query: string,
 
 proc changedPaths*(workspace: Workspace): seq[string] =
   if workspace == nil: return
+  # The previous changed-path batch has had one opportunity to rescan the
+  # affected tree. Anything still removed cannot participate in a later
+  # rename, so close that identity window before collecting this batch.
+  workspace.drainRemovedEntries()
   acquire(workspace.changesLock)
   try:
     # FSEvents may report the same path repeatedly in one burst. Expose the
