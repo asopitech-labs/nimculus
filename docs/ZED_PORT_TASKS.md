@@ -331,9 +331,9 @@
 
 **無い**
 
-- [ ] **MultiBuffer: N buffers presented as one text** — Zed `crates/multi_buffer/src/multi_buffer.rs:73 (struct MultiBuffer), :691 (MultiBufferSnapshot), :842 (ExcerptRange)`
+- [x] **MultiBuffer: N buffers presented as one text** — Zed `crates/multi_buffer/src/multi_buffer.rs:73 (struct MultiBuffer), :691 (MultiBufferSnapshot), :842 (ExcerptRange)`
 - [ ] **Anchor: an edit-surviving position** — Zed `crates/multi_buffer/src/anchor.rs:17 (ExcerptAnchor), :28 (enum Anchor {Min, Excerpt, Max})`
-- [ ] **The five-layer transform chain (inlay → fold → tab → wrap → block)** — Zed `crates/editor/src/display_map.rs:1 (module doc describing the contract), :213 (DisplayMap fields), :604 (snapshot() driving the chain)`
+- [x] **The five-layer transform chain (inlay → fold → tab → wrap → block)** — Zed `crates/editor/src/display_map.rs:1 (module doc describing the contract), :213 (DisplayMap fields), :604 (snapshot() driving the chain)`
 - [ ] **Tab expansion layer** — Zed `crates/editor/src/display_map/tab_map.rs:20 (TabMap), :197 (TabSnapshot with tab_size and max_expansion_column), :41 (sync)`
 - [ ] **Block layer: non-text rows and replacement blocks** — Zed `crates/editor/src/display_map/block_map.rs:38 (BlockMap), :75 (BlockSnapshot), :163 (BlockPlacement Above/Below/Near/Replace), :377 (enum Block: Custom, FoldedBuffer, ExcerptBoundary, BufferHeader, Spacer), :282 (BlockProperties), :303 (BlockStyle)`
 - [ ] **Invisible character rendering** — Zed `crates/editor/src/display_map/invisibles.rs:34 is_invisible, :49 replacement, :75 FORMAT, :100 OTHER, :114 PRESERVE`
@@ -434,7 +434,7 @@
 **無い**
 
 - [ ] **Store composition + event re-emission (Project as hub)** — Zed `crates/project/src/project.rs:214 (struct Project), :335 (enum Event), :1201-1329 (cx.subscribe wiring), :3603 on_buffer_store_event, :3660 on_lsp_store_event, :3906 on_worktree_store_event`
-- [ ] **Entry identity: ProjectEntryId, inode-based rename detection** — Zed `crates/worktree/src/worktree.rs:3896 (struct Entry, fields id/inode/mtime/is_ignored/is_hidden/is_private/is_external), :292 (RemovedEntries with by_inode and by_path)`
+- [x] **Entry identity: ProjectEntryId, inode-based rename detection** — Zed `crates/worktree/src/worktree.rs:3896 (struct Entry, fields id/inode/mtime/is_ignored/is_hidden/is_private/is_external), :292 (RemovedEntries with by_inode and by_path)`
 - [ ] **Per-buffer diff bases (head text / index text) and diff recalculation** — Zed `crates/project/src/git_store.rs:170 (BufferGitState: head_text, index_text, head_text_buffer, index_text_buffer, head_changed, index_changed), :193 (DiffBasesChange), :204 (DiffKind), :4725 (recalculate_diffs)`
 - [ ] **Language server lifecycle: Starting/Running state and the seed key that decides identity** — Zed `crates/project/src/lsp_store.rs:14312 (enum LanguageServerState Starting{startup task, pending_workspace_folders} / Running{adapter, server, ...}), :267 (LanguageServerSeed: worktree_id + name + toolchain + settings), :261 (UnifiedLanguageServer with project_roots), :367 get_or_insert_language_server`
 
