@@ -185,6 +185,88 @@ suite "M4 editor buffer":
     check buffer.redo()
     check buffer.toString() == "hello\nNimculus"
 
+  test "singleton multibuffer preserves piece table offsets and line columns":
+    var fixture = newStringOfCap(1_100_000)
+    for line in 0 ..< 10_000:
+      fixture.add(repeat("x", 99))
+      fixture.add('\n')
+    let buffer = initPieceTable(fixture)
+    let multiBuffer = initMultiBuffer(buffer)
+    let snapshot = multiBuffer.snapshot()
+    var samples = 0
+    var offset = 0
+    var mismatches = 0
+    while offset <= buffer.contentLength:
+      let location = snapshot.toBufferOffset(offset)
+      if snapshot.toMultiBufferOffset(location) != offset:
+        inc mismatches
+      if multiBuffer.lineColumn(offset) != buffer.lineColumn(offset):
+        inc mismatches
+      inc samples
+      offset += 997
+    check samples >= 1000
+    check mismatches == 0
+
+  test "three excerpts from two buffers form one exact offset space":
+    var multiBuffer = initMultiBuffer()
+    multiBuffer.addBuffer(1, initPieceTable("abcdefghij"))
+    multiBuffer.addBuffer(2, initPieceTable("0123456789"))
+    multiBuffer.addExcerpt(Excerpt(bufferId: 1, context: 1 .. 3, primary: 2 .. 2))
+    multiBuffer.addExcerpt(Excerpt(bufferId: 2, context: 4 .. 7, primary: 5 .. 6))
+    multiBuffer.addExcerpt(Excerpt(bufferId: 1, context: 6 .. 8, primary: 7 .. 7))
+    let snapshot = multiBuffer.snapshot()
+    check snapshot.contentLength == (snapshot.excerpts[0].context.b -
+      snapshot.excerpts[0].context.a + 1) +
+      (snapshot.excerpts[1].context.b - snapshot.excerpts[1].context.a + 1) +
+      (snapshot.excerpts[2].context.b - snapshot.excerpts[2].context.a + 1)
+    for index in 1 ..< snapshot.excerpts.len:
+      let boundary = snapshot.prefix[index]
+      let previous = snapshot.excerpts[index - 1]
+      let current = snapshot.excerpts[index]
+      check snapshot.toBufferOffset(boundary - 1) ==
+        (bufferId: previous.bufferId, offset: previous.context.b)
+      check snapshot.toBufferOffset(boundary) ==
+        (bufferId: current.bufferId, offset: current.context.a)
+      check snapshot.toBufferOffset(boundary + 1) ==
+        (bufferId: current.bufferId, offset: current.context.a + 1)
+
+  test "multibuffer snapshot counters track edits and trailing excerpts":
+    var multiBuffer = initMultiBuffer()
+    multiBuffer.addBuffer(1, initPieceTable("before excerpt after"))
+    multiBuffer.addExcerpt(Excerpt(bufferId: 1, context: 7 .. 13,
+      primary: 8 .. 11))
+    let beforeEdit = multiBuffer.snapshot()
+    multiBuffer.edit(1, Edit(startByte: 9, endByte: 10, text: "XX"))
+    let afterEdit = multiBuffer.snapshot()
+    check afterEdit.editCount == beforeEdit.editCount + 1
+    check afterEdit.nonTextStateUpdateCount == beforeEdit.nonTextStateUpdateCount
+    let beforeAppend = afterEdit.trailingExcerptUpdateCount
+    multiBuffer.addExcerpt(Excerpt(bufferId: 1, context: 15 .. 19,
+      primary: 16 .. 18))
+    check multiBuffer.snapshot().trailingExcerptUpdateCount == beforeAppend + 1
+
+  test "primary remains a strict search subrange after an earlier edit":
+    var multiBuffer = initMultiBuffer()
+    multiBuffer.addBuffer(7, initPieceTable("prefix search hit suffix"))
+    multiBuffer.addExcerpt(Excerpt(bufferId: 7, context: 0 .. 22,
+      primary: 7 .. 15))
+    let before = multiBuffer.snapshot()
+    let primaryBefore = before.excerpts[0].primary
+    check primaryBefore.a > before.excerpts[0].context.a
+    check primaryBefore.b < before.excerpts[0].context.b
+    multiBuffer.edit(7, Edit(startByte: 0, endByte: 0, text: "++"))
+    let after = multiBuffer.snapshot()
+    let primaryAfter = after.excerpts[0].primary
+    check primaryAfter.a == primaryBefore.a + 2
+    check primaryAfter.b == primaryBefore.b + 2
+    check primaryAfter.a > after.excerpts[0].context.a
+    check primaryAfter.b < after.excerpts[0].context.b
+    for location in [
+      (bufferId: 7, offset: primaryAfter.a),
+      (bufferId: 7, offset: primaryAfter.b + 1)]:
+      let aggregateOffset = after.toMultiBufferOffset(location)
+      check after.toBufferOffset(aggregateOffset) == location
+
   test "multi cursor edits are one transaction":
     var buffer = initPieceTable("a a a")
     buffer.applyEdits(@[

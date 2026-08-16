@@ -1,4 +1,6 @@
 import std/algorithm
+import std/sequtils
+import std/tables
 import std/unicode
 import nimnui/text
 
@@ -25,6 +27,31 @@ type
     undoStack*, redoStack*: seq[EditTransaction]
     savedVersion*, version*: uint64
     savedContentVersion, contentVersion, nextContentVersion: uint64
+  Excerpt* = object
+    ## Source ranges use Nim's inclusive Slice representation. The aggregate
+    ## offset space treats the end as `b + 1`, so context length is
+    ## `max(0, b - a + 1)`.
+    bufferId*: int
+    context*, primary*: Slice[int]
+  BufferOffset* = tuple[bufferId, offset: int]
+  MultiBuffer* = ref object
+    buffers*: Table[int, PieceTable]
+    excerpts*: seq[Excerpt]
+    ## Prefix boundaries are [0, context length, ... total length]. This
+    ## first-stage port intentionally uses a rebuilt seq instead of Zed's
+    ## SumTree; the linear excerpt list is the accepted singleton substitute.
+    prefix*: seq[int]
+    singleton*: bool
+    editCount*: int
+    nonTextStateUpdateCount*: int
+    trailingExcerptUpdateCount*: int
+  MultiBufferSnapshot* = object
+    editCount*, nonTextStateUpdateCount*, trailingExcerptUpdateCount*: int
+    ## Snapshot owns a value copy of the excerpt sequence, so later aggregate
+    ## edits or appends cannot mutate the snapshot's address space.
+    excerpts*: seq[Excerpt]
+    prefix*: seq[int]
+    singleton*: bool
 
 proc rebuildIndex*(table: var PieceTable)
 
@@ -324,3 +351,193 @@ proc graphemePosition*(table: PieceTable, byteOffset: int): TextPosition =
   let positions = textPositions(table.substring(start, lineEnd))
   for position in positions:
     if position.byteOffset <= location.column: result = position
+
+proc sliceLength(value: Slice[int]): int =
+  if value.b < value.a: 0 else: value.b - value.a + 1
+
+proc validateExcerpt(multiBuffer: MultiBuffer, excerpt: Excerpt) =
+  if not multiBuffer.buffers.hasKey(excerpt.bufferId):
+    raise newException(KeyError, "excerpt refers to an unknown buffer")
+  let length = multiBuffer.buffers[excerpt.bufferId].contentLength
+  if excerpt.context.a < 0 or excerpt.context.b >= length or
+      excerpt.context.b < excerpt.context.a:
+    raise newException(ValueError, "excerpt context is outside its buffer")
+  if excerpt.primary.a < excerpt.context.a or
+      excerpt.primary.b > excerpt.context.b or
+      excerpt.primary.b < excerpt.primary.a:
+    raise newException(ValueError, "excerpt primary is outside its context")
+
+proc refreshSingleton(multiBuffer: MultiBuffer) =
+  multiBuffer.singleton = false
+  if multiBuffer.buffers.len != 1 or multiBuffer.excerpts.len != 1: return
+  let excerpt = multiBuffer.excerpts[0]
+  let bufferId = toSeq(multiBuffer.buffers.keys)[0]
+  let length = multiBuffer.buffers[bufferId].contentLength
+  multiBuffer.singleton = excerpt.bufferId == bufferId and
+    excerpt.context.a == 0 and excerpt.context.b == length - 1 and
+    excerpt.primary == excerpt.context
+
+proc rebuildIndex*(multiBuffer: MultiBuffer) =
+  ## Rebuild the aggregate offset index after a structural or buffer edit.
+  ## This is deliberately the seq/prefix alternative to Zed's SumTree for
+  ## the first singleton-equivalent migration step.
+  multiBuffer.prefix = newSeq[int](multiBuffer.excerpts.len + 1)
+  for index, excerpt in multiBuffer.excerpts:
+    multiBuffer.prefix[index + 1] = multiBuffer.prefix[index] +
+      excerpt.context.sliceLength
+  multiBuffer.refreshSingleton()
+
+proc initMultiBuffer*(): MultiBuffer =
+  new(result)
+  result.buffers = initTable[int, PieceTable]()
+  result.prefix = @[0]
+
+proc initMultiBuffer*(buffer: PieceTable, bufferId = 0): MultiBuffer =
+  result = initMultiBuffer()
+  result.buffers[bufferId] = buffer
+  let fullRange = Slice[int](a: 0, b: buffer.contentLength - 1)
+  result.excerpts.add(Excerpt(bufferId: bufferId, context: fullRange,
+    primary: fullRange))
+  result.rebuildIndex()
+
+proc initMultiBuffer*(bufferId: int, buffer: PieceTable): MultiBuffer =
+  initMultiBuffer(buffer, bufferId)
+
+proc newMultiBuffer*(): MultiBuffer = initMultiBuffer()
+
+proc newMultiBuffer*(buffer: PieceTable, bufferId = 0): MultiBuffer =
+  initMultiBuffer(buffer, bufferId)
+
+proc addBuffer*(multiBuffer: MultiBuffer, bufferId: int, buffer: PieceTable) =
+  multiBuffer.buffers[bufferId] = buffer
+  multiBuffer.refreshSingleton()
+
+proc addExcerpt*(multiBuffer: MultiBuffer, excerpt: Excerpt) =
+  multiBuffer.validateExcerpt(excerpt)
+  multiBuffer.excerpts.add(excerpt)
+  multiBuffer.trailingExcerptUpdateCount.inc
+  multiBuffer.rebuildIndex()
+
+proc appendExcerpt*(multiBuffer: MultiBuffer, excerpt: Excerpt) =
+  multiBuffer.addExcerpt(excerpt)
+
+proc addExcerpt*(multiBuffer: MultiBuffer, bufferId: int, context: Slice[int],
+    primary: Slice[int]) =
+  multiBuffer.addExcerpt(Excerpt(bufferId: bufferId, context: context,
+    primary: primary))
+
+proc addExcerpt*(multiBuffer: MultiBuffer, bufferId: int, context: Slice[int]) =
+  multiBuffer.addExcerpt(bufferId, context, context)
+
+proc contentLength*(multiBuffer: MultiBuffer): int =
+  if multiBuffer.prefix.len > 0: result = multiBuffer.prefix[^1]
+
+proc snapshot*(multiBuffer: MultiBuffer): MultiBufferSnapshot =
+  result.editCount = multiBuffer.editCount
+  result.nonTextStateUpdateCount = multiBuffer.nonTextStateUpdateCount
+  result.trailingExcerptUpdateCount = multiBuffer.trailingExcerptUpdateCount
+  result.excerpts = newSeq[Excerpt](multiBuffer.excerpts.len)
+  for index, excerpt in multiBuffer.excerpts:
+    result.excerpts[index] = excerpt
+  result.prefix = newSeq[int](multiBuffer.prefix.len)
+  for index, value in multiBuffer.prefix:
+    result.prefix[index] = value
+  result.singleton = multiBuffer.singleton
+
+proc takeSnapshot*(multiBuffer: MultiBuffer): MultiBufferSnapshot =
+  multiBuffer.snapshot()
+
+proc contentLength*(snapshot: MultiBufferSnapshot): int =
+  if snapshot.prefix.len > 0: result = snapshot.prefix[^1]
+
+proc toBufferOffset*(snapshot: MultiBufferSnapshot, mbOffset: int): BufferOffset =
+  if snapshot.excerpts.len == 0:
+    return (bufferId: -1, offset: 0)
+  let aggregateOffset = max(0, min(mbOffset, snapshot.contentLength))
+  var excerptIndex = 0
+  while excerptIndex + 1 < snapshot.prefix.len and
+      snapshot.prefix[excerptIndex + 1] <= aggregateOffset:
+    inc excerptIndex
+  if excerptIndex >= snapshot.excerpts.len:
+    excerptIndex = snapshot.excerpts.high
+  let excerpt = snapshot.excerpts[excerptIndex]
+  let localOffset = if aggregateOffset == snapshot.contentLength:
+    excerpt.context.sliceLength
+  else:
+    aggregateOffset - snapshot.prefix[excerptIndex]
+  (bufferId: excerpt.bufferId, offset: excerpt.context.a + localOffset)
+
+proc toBufferOffset*(multiBuffer: MultiBuffer, mbOffset: int): BufferOffset =
+  multiBuffer.snapshot().toBufferOffset(mbOffset)
+
+proc toMultiBufferOffset*(snapshot: MultiBufferSnapshot, bufferId,
+    bufferOffset: int): int =
+  var nearest = high(int)
+  var nearestDistance = high(int)
+  for index, excerpt in snapshot.excerpts:
+    if excerpt.bufferId != bufferId: continue
+    let start = excerpt.context.a
+    let finish = excerpt.context.b + 1
+    let resolved = max(start, min(bufferOffset, finish))
+    let distance = abs(bufferOffset - resolved)
+    if distance < nearestDistance:
+      nearestDistance = distance
+      nearest = snapshot.prefix[index] + resolved - start
+  if nearest == high(int):
+    raise newException(KeyError, "offset refers to an unknown buffer excerpt")
+  nearest
+
+proc toMultiBufferOffset*(snapshot: MultiBufferSnapshot,
+    location: BufferOffset): int =
+  snapshot.toMultiBufferOffset(location.bufferId, location.offset)
+
+proc toMultiBufferOffset*(multiBuffer: MultiBuffer, bufferId,
+    bufferOffset: int): int =
+  multiBuffer.snapshot().toMultiBufferOffset(bufferId, bufferOffset)
+
+proc toMultiBufferOffset*(multiBuffer: MultiBuffer,
+    location: BufferOffset): int =
+  multiBuffer.snapshot().toMultiBufferOffset(location)
+
+proc lineColumn*(multiBuffer: MultiBuffer, mbOffset: int): tuple[line, column: int] =
+  let location = multiBuffer.toBufferOffset(mbOffset)
+  if location.bufferId < 0: return (line: 0, column: 0)
+  multiBuffer.buffers[location.bufferId].lineColumn(location.offset)
+
+proc transformBoundary(boundary, startByte, endByte, replacementLength: int): int =
+  if boundary < startByte: return boundary
+  if boundary >= endByte: return boundary + replacementLength - (endByte - startByte)
+  startByte + replacementLength
+
+proc transformExcerptRange(value: Slice[int], edit: Edit): Slice[int] =
+  let oldEnd = value.b + 1
+  let replacementLength = edit.text.len
+  let newStart = transformBoundary(value.a, edit.startByte, edit.endByte,
+    replacementLength)
+  let newEnd = transformBoundary(oldEnd, edit.startByte, edit.endByte,
+    replacementLength)
+  Slice[int](a: newStart, b: max(newStart, newEnd) - 1)
+
+proc edit*(multiBuffer: MultiBuffer, bufferId: int, edit: Edit) =
+  if not multiBuffer.buffers.hasKey(bufferId):
+    raise newException(KeyError, "edit refers to an unknown buffer")
+  var buffer = multiBuffer.buffers[bufferId]
+  buffer.edit(edit)
+  multiBuffer.buffers[bufferId] = buffer
+  for index in 0 ..< multiBuffer.excerpts.len:
+    if multiBuffer.excerpts[index].bufferId != bufferId: continue
+    multiBuffer.excerpts[index].context =
+      multiBuffer.excerpts[index].context.transformExcerptRange(edit)
+    multiBuffer.excerpts[index].primary =
+      multiBuffer.excerpts[index].primary.transformExcerptRange(edit)
+  multiBuffer.editCount.inc
+  multiBuffer.rebuildIndex()
+
+proc edit*(multiBuffer: MultiBuffer, edit: Edit) =
+  if multiBuffer.buffers.len != 1:
+    raise newException(ValueError, "bufferId is required for a multi-buffer edit")
+  let bufferId = toSeq(multiBuffer.buffers.keys)[0]
+  multiBuffer.edit(bufferId, edit)
+
+proc markNonTextStateUpdated*(multiBuffer: MultiBuffer) =
+  multiBuffer.nonTextStateUpdateCount.inc
