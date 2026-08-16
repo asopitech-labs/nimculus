@@ -43,7 +43,7 @@
 
 **無い**
 
-- [ ] **The Platform trait as the OS boundary** — Zed `crates/gpui_macos/src/platform.rs:475 (impl Platform for MacPlatform)`
+- [x] **The Platform trait as the OS boundary** — Zed `crates/gpui_macos/src/platform.rs:475 (impl Platform for MacPlatform)`
 - [ ] **Per-window state behind a handle stored in an ObjC ivar** — Zed `crates/gpui_macos/src/window.rs:77 (WINDOW_STATE_IVAR), :551 (MacWindowState), :2091 (get_window_state), :2101 (drop_window_state)`
 - [ ] **Traffic-light repositioning for an app-drawn titlebar** — Zed `crates/gpui_macos/src/window.rs:552 (move_traffic_light), :612 (capture_traffic_light_frames), :649 (restore_traffic_light)`
 - [ ] **presents-with-transaction during synchronous redraw** — Zed `crates/gpui_macos/src/window.rs:2818 (display_layer), crates/gpui_macos/src/metal_renderer.rs:374 (set_presents_with_transaction), :482-499 (commit/wait_until_scheduled/present)`
