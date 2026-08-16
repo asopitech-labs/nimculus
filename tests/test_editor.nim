@@ -21,6 +21,47 @@ import nimculus/persistence_scheduler
 import nimculus/poll_scheduler
 import nimnui/render
 
+static:
+  doAssert not compiles((block:
+    var row: WrapRow
+    row = tabPoint(1)))
+
+suite "display map tab coordinate layer":
+  test "tab expansion follows tab stops at size four":
+    let columns = expandedColumns("\ta\tbc\td", tabSize = 4)
+    check columns[1] == 4
+    check columns[2] == 5
+    check columns[3] == 8
+    check columns[5] == 10
+    check columns[6] == 12
+
+  test "tab expansion follows tab stops at size eight":
+    let columns = expandedColumns("\ta\tbc\td", tabSize = 8)
+    check columns[1] == 8
+    check columns[2] == 9
+    check columns[3] == 16
+    check columns[5] == 18
+    check columns[6] == 24
+
+  test "max expansion column limits only tab expansion":
+    let line = "\t".repeat(200)
+    let columns = expandedColumns(line, tabSize = 4, maxExpansionColumn = 64)
+    check columns[16] == 64
+    check expandedLength(line, tabSize = 4, maxExpansionColumn = 64) == 248
+
+  test "tab and fold points round trip across mixed lines":
+    let fold = initFoldSnapshot(" \talpha\n\t  beta\tgamma\n  \tdelta\n")
+    var map = initTabMap(tabSize = 4, maxExpansionColumn = 64)
+    let (snapshot, translatedEdits) = map.sync(fold, @[])
+    check translatedEdits.len == 0
+    var mismatches = 0
+    for sample in 0 ..< 1000:
+      let point = foldPoint(sample mod (fold.text.len + 1))
+      let tab = snapshot.foldPointToTabPoint(point)
+      if snapshot.tabPointToFoldPoint(tab) != point:
+        inc mismatches
+    check mismatches == 0
+
 suite "session persistence scheduling":
   test "inline blame padding uses typographic em width":
     let typographicMWidth = 5'f32

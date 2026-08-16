@@ -1,10 +1,54 @@
 import std/algorithm
+import std/strutils
 import nimculus/editor_buffer
 import nimculus/syntax
 import nimnui/text
 import nimnui/geometry
 
 type
+  ## Coordinate domains used by the display-map layers.  These are deliberately
+  ## distinct even though each one is represented by an integer at runtime.
+  SourceRow* = distinct int
+  FoldPoint* = distinct int
+  TabPoint* = distinct int
+  WrapRow* = distinct int
+  DisplayRow* = distinct int
+
+  ## The display-map edit type is separate from editor_buffer.Edit.  The latter
+  ## describes byte edits in the piece table; this type describes edits between
+  ## coordinate domains and is therefore generic over its coordinate type.
+  Edit[T] = object
+    start*, finish*: T
+    text*: string
+
+  TabEdit*[T] = Edit[T]
+
+  ## The first-stage implementation has no fold map yet.  FoldSnapshot is the
+  ## stable boundary that the tab map consumes, and can be populated directly
+  ## by the future fold layer.
+  FoldSnapshot* = object
+    text*: string
+    lines*: seq[string]
+    version*: uint64
+
+  TabLineSnapshot = object
+    foldToTab: seq[int]
+    tabToFold: seq[int]
+    expandedText: string
+
+  TabSnapshot* = object
+    tabSize*: int
+    maxExpansionColumn*: int
+    lines*: seq[TabLineSnapshot]
+    foldToTab: seq[int]
+    tabToFold: seq[int]
+    version*: uint64
+
+  TabMap* = object
+    tabSize*: int
+    maxExpansionColumn*: int
+    snapshot*: TabSnapshot
+
   TextDecoration* = object
     startByte*, endByte*: int
     kind*: int
@@ -23,6 +67,198 @@ type
     rows*: seq[VisibleTextRow]
     totalRows*: int
     widestWidth*: float32
+
+proc sourceRow*(value: int): SourceRow = SourceRow(value)
+proc foldPoint*(value: int): FoldPoint = FoldPoint(value)
+proc tabPoint*(value: int): TabPoint = TabPoint(value)
+proc wrapRow*(value: int): WrapRow = WrapRow(value)
+proc displayRow*(value: int): DisplayRow = DisplayRow(value)
+
+proc toInt*(value: SourceRow): int = int(value)
+proc toInt*(value: FoldPoint): int = int(value)
+proc toInt*(value: TabPoint): int = int(value)
+proc toInt*(value: WrapRow): int = int(value)
+proc toInt*(value: DisplayRow): int = int(value)
+
+proc `==`*(left, right: SourceRow): bool = left.toInt == right.toInt
+proc `==`*(left, right: FoldPoint): bool = left.toInt == right.toInt
+proc `==`*(left, right: TabPoint): bool = left.toInt == right.toInt
+proc `==`*(left, right: WrapRow): bool = left.toInt == right.toInt
+proc `==`*(left, right: DisplayRow): bool = left.toInt == right.toInt
+
+proc initFoldSnapshot*(text: string; version = 0'u64): FoldSnapshot =
+  result.text = text
+  result.lines = text.split('\n')
+  result.version = version
+
+proc initFoldSnapshot*(lines: seq[string]; version = 0'u64): FoldSnapshot =
+  result.lines = lines
+  result.text = lines.join("\n")
+  result.version = version
+
+proc snapshotText(fold: FoldSnapshot): string =
+  if fold.text.len > 0 or fold.lines.len == 0: fold.text
+  else: fold.lines.join("\n")
+
+proc normalizedTabSize(tabSize: int): int = max(1, tabSize)
+proc normalizedMaxExpansionColumn(maxExpansionColumn: int): int =
+  max(0, maxExpansionColumn)
+
+proc expandedTabWidth(column, tabSize, maxExpansionColumn: int): int =
+  if column >= maxExpansionColumn: return 1
+  let width = tabSize - (column mod tabSize)
+  min(width, maxExpansionColumn - column)
+
+proc buildTabSnapshot(tabSize, maxExpansionColumn: int; text: string;
+                      version: uint64): TabSnapshot =
+  result.tabSize = normalizedTabSize(tabSize)
+  result.maxExpansionColumn = normalizedMaxExpansionColumn(maxExpansionColumn)
+  result.version = version
+  result.foldToTab = @[0]
+  result.tabToFold = @[0]
+  var documentColumn = 0
+  var lineColumn = 0
+  var lineSourceOffset = 0
+  var line = TabLineSnapshot(foldToTab: @[0], tabToFold: @[0])
+  for sourceOffset in 0 ..< text.len:
+    let character = text[sourceOffset]
+    let width = if character == '\t':
+      expandedTabWidth(lineColumn, result.tabSize, result.maxExpansionColumn)
+    else: 1
+    if character == '\n':
+      line.expandedText.add(character)
+    elif character == '\t' and lineColumn - width < result.maxExpansionColumn:
+      line.expandedText.add(repeat(' ', width))
+    else:
+      line.expandedText.add(character)
+
+    lineColumn += width
+    documentColumn += width
+    line.foldToTab.add(lineColumn)
+    for tabOffset in line.tabToFold.len ..< lineColumn:
+      line.tabToFold.add(lineSourceOffset)
+    line.tabToFold.add(lineSourceOffset + 1)
+    result.foldToTab.add(documentColumn)
+    for tabOffset in (result.tabToFold.len) ..< documentColumn:
+      result.tabToFold.add(sourceOffset)
+    result.tabToFold.add(sourceOffset + 1)
+
+    if character == '\n':
+      result.lines.add(line)
+      line = TabLineSnapshot(foldToTab: @[0], tabToFold: @[0])
+      lineColumn = 0
+      lineSourceOffset = 0
+    else:
+      inc lineSourceOffset
+  result.lines.add(line)
+
+  ## foldToTab/tabToFold above are document-linear maps.  A newline is one
+  ## document position and its tab coordinate is also one position; tab stops
+  ## restart in the next line's line-local map.
+  if result.foldToTab.len != text.len + 1:
+    result.foldToTab.setLen(text.len + 1)
+  if result.tabToFold.len == 0:
+    result.tabToFold = @[0]
+
+proc initTabMap*(tabSize = 4; maxExpansionColumn = 256): TabMap =
+  result.tabSize = normalizedTabSize(tabSize)
+  result.maxExpansionColumn = normalizedMaxExpansionColumn(maxExpansionColumn)
+
+proc initTabSnapshot*(fold: FoldSnapshot; tabSize = 4;
+                      maxExpansionColumn = 256): TabSnapshot =
+  buildTabSnapshot(tabSize, maxExpansionColumn, snapshotText(fold), fold.version)
+
+proc expandedColumns*(line: string; tabSize = 4;
+                      maxExpansionColumn = 256): seq[int] =
+  ## Column at every source-text boundary, including the initial boundary.
+  let size = normalizedTabSize(tabSize)
+  let limit = normalizedMaxExpansionColumn(maxExpansionColumn)
+  result = @[0]
+  var column = 0
+  for sourceOffset in 0 ..< line.len:
+    let character = line[sourceOffset]
+    let width = if character == '\t': expandedTabWidth(column, size, limit) else: 1
+    column += width
+    result.add(column)
+
+proc expandedColumns*(snapshot: TabSnapshot; line: SourceRow): seq[int] =
+  let index = line.toInt
+  if index < 0 or index >= snapshot.lines.len: return @[0]
+  snapshot.lines[index].foldToTab
+
+proc expandedLength*(line: string; tabSize = 4;
+                     maxExpansionColumn = 256): int =
+  expandedColumns(line, tabSize, maxExpansionColumn)[^1]
+
+proc expandedLength*(snapshot: TabSnapshot; line: SourceRow): int =
+  snapshot.expandedColumns(line)[^1]
+
+proc expandTabs*(line: string; tabSize = 4;
+                 maxExpansionColumn = 256): string =
+  let size = normalizedTabSize(tabSize)
+  let limit = normalizedMaxExpansionColumn(maxExpansionColumn)
+  var column = 0
+  for sourceOffset in 0 ..< line.len:
+    let character = line[sourceOffset]
+    let width = if character == '\t': expandedTabWidth(column, size, limit) else: 1
+    if character == '\t' and column < limit:
+      result.add(repeat(' ', width))
+    else:
+      result.add(character)
+    column += width
+
+proc expandTabs*(snapshot: TabSnapshot; line: SourceRow): string =
+  let index = line.toInt
+  if index < 0 or index >= snapshot.lines.len: return ""
+  snapshot.lines[index].expandedText
+
+proc lineLocalColumns(snapshot: TabSnapshot; line: SourceRow): seq[int] =
+  let index = line.toInt
+  if index < 0 or index >= snapshot.lines.len: return @[0]
+  snapshot.lines[index].foldToTab
+
+proc foldPointToTabPoint*(snapshot: TabSnapshot; point: FoldPoint): TabPoint =
+  let offset = max(0, min(point.toInt, snapshot.foldToTab.high))
+  tabPoint(snapshot.foldToTab[offset])
+
+proc tabPointToFoldPoint*(snapshot: TabSnapshot; point: TabPoint): FoldPoint =
+  if snapshot.tabToFold.len == 0: return foldPoint(0)
+  let offset = max(0, min(point.toInt, snapshot.tabToFold.high))
+  foldPoint(snapshot.tabToFold[offset])
+
+proc foldPointToTabPoint*(snapshot: TabSnapshot; line: SourceRow;
+                         point: FoldPoint): TabPoint =
+  let columns = snapshot.lineLocalColumns(line)
+  let offset = max(0, min(point.toInt, columns.high))
+  tabPoint(columns[offset])
+
+proc tabPointToFoldPoint*(snapshot: TabSnapshot; line: SourceRow;
+                         point: TabPoint): FoldPoint =
+  let columns = snapshot.lineLocalColumns(line)
+  if columns.len == 0: return foldPoint(0)
+  var best = 0
+  for index, column in columns:
+    if column <= point.toInt: best = index
+    else: break
+  foldPoint(best)
+
+proc foldPointToTabPoint*(map: TabMap; point: FoldPoint): TabPoint =
+  map.snapshot.foldPointToTabPoint(point)
+
+proc tabPointToFoldPoint*(map: TabMap; point: TabPoint): FoldPoint =
+  map.snapshot.tabPointToFoldPoint(point)
+
+proc sync*(map: var TabMap; fold: FoldSnapshot;
+           foldEdits: seq[Edit[FoldPoint]]):
+           (TabSnapshot, seq[Edit[TabPoint]]) =
+  let next = buildTabSnapshot(map.tabSize, map.maxExpansionColumn,
+    snapshotText(fold), fold.version)
+  for edit in foldEdits:
+    let start = next.foldPointToTabPoint(edit.start)
+    let finish = next.foldPointToTabPoint(edit.finish)
+    result[1].add(Edit[TabPoint](start: start, finish: finish, text: edit.text))
+  map.snapshot = next
+  result[0] = next
 
 proc inlineBlameStartX*(lineEnd, emWidth, spaceWidth: float32; padding, minColumn: int;
                         scrollX = 0'f32): float32 =
