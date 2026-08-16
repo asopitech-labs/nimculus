@@ -29,6 +29,19 @@ type
     mainQueue*: proc(runnable: Runnable, priority: PlatformPriority) {.gcsafe.}
     delayed*: proc(durationNanoseconds: uint64, runnable: Runnable) {.gcsafe.}
 
+  PlatformCursorStyle* = enum
+    platformCursorArrow
+    platformCursorIBeam
+    platformCursorResizeLeftRight
+
+  Platform* = ref object
+    dispatcher*: PlatformDispatcher
+    clipboardGet*: proc(): string {.gcsafe.}
+    clipboardSet*: proc(text: cstring, length: uint32) {.gcsafe.}
+    promptForPaths*: proc(): cstring {.gcsafe.}
+    promptForNewPath*: proc(): cstring {.gcsafe.}
+    setCursorStyle*: proc(style: PlatformCursorStyle) {.gcsafe.}
+
   PlatformMetrics* {.bycopy.} = object
     scaleFactor*: cdouble
     widthPoints*: uint32

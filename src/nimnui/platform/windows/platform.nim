@@ -187,3 +187,14 @@ else:
   proc clipboardGet*(): string = ""
   proc chooseOpenFile*(): cstring = ""
   proc chooseSaveFile*(): cstring = ""
+
+proc newPlatform*(): Platform =
+  result = Platform()
+  result.dispatcher = newPlatformDispatcher()
+  result.clipboardGet = proc(): string {.gcsafe.} = clipboardGet()
+  result.clipboardSet = proc(text: cstring, length: uint32) {.gcsafe.} =
+    clipboardSet(text, length)
+  result.promptForPaths = proc(): cstring {.gcsafe.} = chooseOpenFile()
+  result.promptForNewPath = proc(): cstring {.gcsafe.} = chooseSaveFile()
+  result.setCursorStyle = proc(style: PlatformCursorStyle) {.gcsafe.} =
+    discard style

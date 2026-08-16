@@ -1,5 +1,6 @@
 import std/[os, strutils, unittest]
 import nimnui/platform/macos/platform
+from nimnui/platform/headless/platform import newHeadlessPlatform
 import nimculus/editor_scroll
 import nimculus/settings
 import nimnui/geometry
@@ -19,6 +20,26 @@ proc fullscreenTransitionValidationRequired(): bool =
   getEnv("NIMCULUS_REQUIRE_FULLSCREEN_TRANSITION") == "1"
 
 suite "macOS platform contract":
+  test "platform record exposes all six backend operations":
+    when defined(nimnuiHeadless):
+      let backends = [newHeadlessPlatform()]
+    else:
+      let backends = [newPlatform(), newHeadlessPlatform()]
+    for backend in backends:
+      let fields = [
+        backend.dispatcher != nil,
+        backend.clipboardGet != nil,
+        backend.clipboardSet != nil,
+        backend.promptForPaths != nil,
+        backend.promptForNewPath != nil,
+        backend.setCursorStyle != nil
+      ]
+      var nonNilFields = 0
+      for field in fields:
+        check field
+        if field: inc nonNilFields
+      check nonNilFields == 6
+
   test "metrics have a valid default scale":
     var metrics: PlatformMetrics
     platformGetMetrics(addr metrics)
