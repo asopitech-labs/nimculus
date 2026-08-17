@@ -12,6 +12,13 @@ type
   VimMode* = enum
     vimNormal, vimInsert
 
+  ScrollAmountKind* = enum
+    scrollLineAmount, scrollPageAmount, scrollColumnAmount, scrollPageWidthAmount
+
+  ScrollAmount* = object
+    kind*: ScrollAmountKind
+    value*: float64
+
   EditorViewState* = object
     selection*: Selection
     ## Zed keeps selections as an ordered collection owned by the editor item.
@@ -67,6 +74,51 @@ proc editorLineIndex(pixels, lineHeight: float32): int =
   ## Keep exact line multiples on the intended row despite the rounding of
   ## the platform's fractional comfortable line height in float32.
   int(floor(max(0'f32, pixels) / max(1'f32, lineHeight) + 0.0001'f32))
+
+proc Line*(count: float64): ScrollAmount =
+  ScrollAmount(kind: scrollLineAmount, value: count)
+
+proc Page*(count: float64): ScrollAmount =
+  ScrollAmount(kind: scrollPageAmount, value: count)
+
+proc Column*(count: float64): ScrollAmount =
+  ScrollAmount(kind: scrollColumnAmount, value: count)
+
+proc PageWidth*(count: float64): ScrollAmount =
+  ScrollAmount(kind: scrollPageWidthAmount, value: count)
+
+proc isFullPage*(amount: ScrollAmount): bool =
+  amount.kind == scrollPageAmount and abs(amount.value) == 1.0
+
+proc lines*(amount: ScrollAmount, visibleLineCount: float64): float64 =
+  case amount.kind
+  of scrollLineAmount:
+    amount.value
+  of scrollPageAmount:
+    var visible = visibleLineCount
+    if amount.isFullPage:
+      visible -= 1.0
+    trunc(visible * amount.value)
+  of scrollColumnAmount, scrollPageWidthAmount:
+    0.0
+
+proc columns*(amount: ScrollAmount, visibleColumnCount: float64): float64 =
+  case amount.kind
+  of scrollLineAmount, scrollPageAmount:
+    0.0
+  of scrollColumnAmount:
+    amount.value
+  of scrollPageWidthAmount:
+    trunc(visibleColumnCount * amount.value)
+
+proc pixels*(amount: ScrollAmount, lineHeight, height: float64): float64 =
+  case amount.kind
+  of scrollLineAmount:
+    lineHeight * amount.value
+  of scrollPageAmount:
+    height * amount.value
+  of scrollColumnAmount, scrollPageWidthAmount:
+    0.0
 
 proc reconcileScrollPosition*(view: var EditorViewState, lineHeight = editorLineHeight(),
                               maxScrollPixels = -1'f32) =
@@ -285,6 +337,17 @@ proc scrollLineDelta*(remainder: var float32, deltaY: float32,
   let whole = if remainder >= 0'f32: floor(remainder) else: ceil(remainder)
   result = int(whole)
   remainder -= float32(result)
+
+proc applyScrollAmount*(view: var EditorViewState, amount: ScrollAmount,
+                        visibleLineCount: int, lineHeight: float32,
+                        maxScrollPixels = -1'f32) =
+  ## Apply action scrolling through the same ScrollAmount conversion used by
+  ## every keyboard viewport action. Full pages retain one anchor line.
+  let height = max(1'f32, lineHeight)
+  view.reconcileScrollPosition(height, maxScrollPixels)
+  let deltaLines = amount.lines(float64(max(1, visibleLineCount)))
+  view.setScrollYPixels(view.scrollYPixels + float32(deltaLines) * height,
+    height, maxScrollPixels)
 
 proc selectedRange*(view: EditorViewState): tuple[startByte, endByte: int] =
   (startByte: min(view.selection.anchor, view.selection.active),

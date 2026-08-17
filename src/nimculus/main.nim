@@ -6927,6 +6927,16 @@ proc handleSecondaryEditorCommand(name: string, document: ptr FileDocument): boo
     let targetLine = max(0, min(activeDocument[].buffer.lineStarts.high, location.line + delta))
     view.moveCursor(activeDocument[].buffer.byteOffsetAtLineColumn(targetLine, location.column),
       selecting = name.startsWith("select"))
+  of "pageUp", "pageup", "pageDown", "pagedown":
+    let visibleLines = secondaryEditorVisibleLineCount()
+    let maxScrollPixels = float32(max(0, activeDocument[].buffer.lineStarts.len -
+      visibleLines)) * editorLineHeight()
+    let amount = if name in ["pageUp", "pageup"]: Page(-1.0) else: Page(1.0)
+    view.applyScrollAmount(amount, visibleLines, editorLineHeight(), maxScrollPixels)
+    editorSession.secondaryView = view
+    syncEditorCursor(ensureCursor = false)
+    scheduleSessionPersistence()
+    return true
   of "moveToBeginningOfLine", "selectToBeginningOfLine":
     let location = activeDocument[].buffer.lineColumn(view.cursor)
     view.moveCursor(activeDocument[].buffer.lineStarts[location.line], selecting = name.startsWith("select"))
@@ -9484,6 +9494,21 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     editorViewState.clearAdditionalSelections()
     editorViewState.moveCursor(nextBoundary(document[].buffer.toString(), editorViewState.cursor))
     syncEditorCursor()
+  elif name in ["pageUp", "pageup", "pageDown", "pagedown"] and document != nil:
+    let visibleLines = when defined(macosx):
+      editorVisibleLineCount()
+    elif defined(windows):
+      max(1, int(floor(float32(demoEditorBounds.size.height) /
+        windowsEditorLineHeight())))
+    else:
+      1
+    let maxScrollPixels = float32(max(0, document[].buffer.lineStarts.len -
+      visibleLines)) * editorLineHeight()
+    let amount = if name in ["pageUp", "pageup"]: Page(-1.0) else: Page(1.0)
+    editorViewState.applyScrollAmount(amount, visibleLines, editorLineHeight(),
+      maxScrollPixels)
+    syncEditorCursor(ensureCursor = false)
+    scheduleSessionPersistence()
   elif name in ["moveUp", "moveDown", "selectUp", "selectDown"] and document != nil:
     editorViewState.clearAdditionalSelections()
     let location = document[].buffer.lineColumn(editorViewState.cursor)
