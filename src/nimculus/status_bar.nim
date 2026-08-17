@@ -1,5 +1,6 @@
 import nimculus/settings
 import nimculus/time_format
+import nimculus/editor_view
 import std/unicode
 
 type
@@ -24,7 +25,7 @@ proc statusBarEncodingText*(encoding: string; hasBom: bool): string =
 
 proc statusBarFooter*(settings: SettingsStore; cursor, encoding, lineEnding,
     language, activeFile: string; isUtf8 = true; hasBom = false;
-    gitBlameHash = ""; gitBlameText = ""): seq[StatusBarFooterItem] =
+    gitBlameHash = ""; gitBlameText = ""; vimMode = vimNormal): seq[StatusBarFooterItem] =
   let showActiveFile = settings.boolSetting("statusBar.showActiveFile")
   let showLanguage = settings.boolSetting("statusBar.activeLanguageButton")
   let showCursor = settings.boolSetting("statusBar.cursorPositionButton")
@@ -45,6 +46,11 @@ proc statusBarFooter*(settings: SettingsStore; cursor, encoding, lineEnding,
     settings.gitInlineBlameLocation() == "status_bar"
   if showGitBlame and gitBlameHash.len > 0 and gitBlameText.len > 0:
     result.add(StatusBarFooterItem(kind: "git-blame:" & gitBlameHash, text: gitBlameText))
+  ## `vim.enabled` is intentionally read at this boundary rather than added
+  ## to the global settings schema in this first, editor-local slice.
+  if settings != nil and jsonBoolAt(settings.values, "vim.enabled", false):
+    result.add(StatusBarFooterItem(kind: "vim-mode",
+      text: if vimMode == vimInsert: "INSERT" else: "NORMAL"))
 
 proc serializeStatusBarFooter*(items: openArray[StatusBarFooterItem]): string =
   ## The native footer receives each item's kind with its text.  The first
