@@ -210,6 +210,18 @@ suite "session persistence scheduling":
     check abs(scrollPixelDelta(-120'f32, false, lineHeight) -
       120'f32 * lineHeight) < 0.001'f32
 
+  test "scroll amounts match Zed line and page conversions":
+    check Page(1.0).lines(40.0) == 39.0
+    check Page(-1.0).lines(40.0) == -39.0
+    check Page(0.5).lines(40.0) == 20.0
+    check Line(3.0).lines(40.0) == 3.0
+    check Column(4.0).columns(80.0) == 4.0
+    check PageWidth(1.0).columns(80.0) == 80.0
+
+    var view = newEditorView()
+    view.applyScrollAmount(Page(1.0), 40, 1'f32)
+    check view.scrollLine == 39
+
   test "horizontal scrollbar geometry clamps and maps scroll positions":
     let bounds = Rect(origin: Point(x: px(20), y: px(40)),
       size: Size(width: px(400), height: px(240)))
