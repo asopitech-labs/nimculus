@@ -15,6 +15,7 @@ import nimculus/editor_view
 import nimculus/editor_scroll
 import nimculus/editor_text_layout
 import nimnui/geometry
+import nimnui/text
 import nimculus/session
 import nimculus/atomic_io
 import nimculus/persistence_scheduler
@@ -25,6 +26,85 @@ static:
   doAssert not compiles((block:
     var row: WrapRow
     row = tabPoint(1)))
+
+proc blockLayerTestShaper(text: string; fontSize: Pixels;
+                          runs: openArray[FontRun]): LineLayout =
+  result.fontSize = fontSize
+  result.len = text.len
+  result.width = px(float32(text.len * 8))
+  result.ascent = px(12)
+  result.descent = px(3)
+  var shaped = ShapedRun(fontId: if runs.len > 0: runs[0].fontId else: 0)
+  for index, character in text:
+    shaped.glyphs.add(ShapedGlyph(id: uint32(ord(character)),
+      position: Point(x: px(float32(index * 8)), y: px(0)), index: index))
+  result.runs = @[shaped]
+
+suite "display map block layer":
+  test "blocks transform wrapped rows and preserve reversible points":
+    let aboveBlock = initCustomBlock(101, initBlockProperties(
+      above(10), some(2), bsFixed, 0))
+    let replaceBlock = initCustomBlock(202, initBlockProperties(
+      replace(20, 24), some(1), bsFixed, 0))
+    let snapshot = initBlockSnapshot(100, [aboveBlock, replaceBlock])
+    check snapshot.displayRowCount == 98
+
+    var mismatches = 0
+    for row in 0 ..< snapshot.displayRowCount:
+      let token = snapshot.blockRowToWrapRow(row)
+      if snapshot.wrapRowToBlockPoint(token) != row:
+        inc mismatches
+    check mismatches == 0
+    check snapshot.blockIdAtDisplayRow(10) == some(101)
+    check snapshot.blockIdAtDisplayRow(11) == some(101)
+    check snapshot.sourceLineAtDisplayRow(10).isNone
+    check snapshot.sourceLineAtDisplayRow(11).isNone
+    check snapshot.sourceLineAtDisplayRow(12) == some(10)
+
+  test "a block without measured height occupies no rows":
+    let aboveBlock = initCustomBlock(101, initBlockProperties(
+      above(10), some(2), bsFixed, 0))
+    let replaceBlock = initCustomBlock(202, initBlockProperties(
+      replace(20, 24), some(1), bsFixed, 0))
+    let unmeasured = initCustomBlock(303, initBlockProperties(
+      above(40), none(int), bsFlex, 0))
+    let snapshot = initBlockSnapshot(100, [aboveBlock, replaceBlock, unmeasured])
+    check unmeasured.effectiveHeight == 0
+    check snapshot.displayRowCount == 98
+
+  test "blocks at one placement are ordered by ascending priority":
+    let high = initCustomBlock(1, initBlockProperties(
+      above(5), some(1), bsFixed, 1))
+    let low = initCustomBlock(0, initBlockProperties(
+      above(5), some(1), bsFixed, 0))
+    let snapshot = initBlockSnapshot(10, [high, low])
+    check snapshot.blockIdAtDisplayRow(5) == some(0)
+    check snapshot.blockIdAtDisplayRow(6) == some(1)
+
+  test "spacer and fixed styles report their gutter policy":
+    check not bsSpacer.paintsGutter
+    check bsFixed.paintsGutter
+    let spacer = initSpacerBlock(1, initBlockProperties(
+      above(0), some(1), bsSpacer, 0))
+    let fixed = initCustomBlock(2, initBlockProperties(
+      above(0), some(1), bsFixed, 0))
+    check not spacer.paintsGutter
+    check fixed.paintsGutter
+
+  test "zero-block snapshot leaves existing visible rows unchanged":
+    let buffer = initPieceTable("one\ntwo\nthree")
+    let cache = newLineLayoutCache(blockLayerTestShaper)
+    let layout = buildVisibleEditorLayout(buffer, 0, 20, false, 120'f32,
+      px(12), cache, @[], @[])
+    let snapshot = initBlockSnapshot(layout.totalRows, @[])
+    check snapshot.displayRowCount == layout.totalRows
+    check snapshot.transforms.len == (if layout.totalRows > 0: 1 else: 0)
+    for rowIndex, row in layout.rows:
+      check row.displayRow == rowIndex
+      check row.sourceLine == rowIndex
+      check snapshot.sourceLineAtDisplayRow(rowIndex) == some(row.sourceLine)
+      check row.sourceStartByte == buffer.lineStarts[row.sourceLine]
+      check row.segmentStartByte == row.sourceStartByte
 
 suite "display map tab coordinate layer":
   test "tab expansion follows tab stops at size four":
