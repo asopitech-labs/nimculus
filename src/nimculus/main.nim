@@ -41,6 +41,7 @@ import nimculus/task_service
 import nimculus/update_service
 import nimculus/terminal
 import nimculus/settings
+import nimculus/app as app_module
 import nimculus/status_bar
 when defined(windows):
   import nimculus/windows_terminal
@@ -852,7 +853,7 @@ proc nativeCommandAction(name: string): Action =
       if name == alias[0]: commandName = alias[1]
   buildAction("nativeCommand", newJString(commandName))
 
-proc setupShortcutRegistry() =
+proc registerDefaultShortcuts() =
   shortcutRegistry = CommandRegistry()
   shortcutRegistry.register(Command(
     name: "commandPalette",
@@ -975,12 +976,15 @@ proc setupShortcutRegistry() =
   when defined(macosx):
     syncCommandPaletteActions()
 
-proc applySettingsKeymap() =
+proc setupShortcutRegistry() =
+  registerDefaultShortcuts()
+
+proc applySettingsKeymapImplementation() =
   when defined(macosx) or defined(windows):
     if appSettings == nil: return
     # Rebuild from defaults so removing a binding on disk also removes the
     # previous live binding, matching Zed's keymap reload semantics.
-    setupShortcutRegistry()
+    registerDefaultShortcuts()
     for binding in appSettings.keyBindings():
       let shortcut = shortcutFromKeyBinding(binding.key)
       var validShortcut = shortcut.keystrokes.len > 0
@@ -1021,6 +1025,34 @@ proc applySettingsKeymap() =
         shortcutRegistry.register(Command(name: "__NoAction__",
           shortcut: shortcut, whenClause: whenClause, action: noAction(),
           meta: userBindingMeta, hasMeta: true))
+
+proc applySettingsKeymap() =
+  applySettingsKeymapImplementation()
+
+proc settingsInit(app: app_module.App) =
+  when defined(macosx) or defined(windows):
+    app.settings = newSettingsStore(app.settingsGlobalPath, app.settingsWorkspacePath)
+    appSettings = app.settings
+
+proc editorInit(app: app_module.App) =
+  discard app
+  when defined(windows):
+    registerWindowsDemoImage()
+  setupDemoUi()
+
+proc workspaceInit(app: app_module.App) =
+  discard app
+  setupShortcutRegistry()
+
+proc vimInit(app: app_module.App) =
+  discard app
+  applySettingsKeymap()
+
+proc initFeatures(app: app_module.App) =
+  app.initFeature("settings", settingsInit)
+  app.initFeature("workspace", workspaceInit)
+  app.initFeature("editor", editorInit)
+  app.initFeature("vim", vimInit)
 
 when defined(macosx):
   proc resizeNativeTerminals()
@@ -4519,7 +4551,7 @@ proc reloadWorkspaceSettings(root: string) =
     when defined(macosx): inc editorGitBlameSettingsGeneration
     editorWorkspaceUi.applyPanelDockSettings(appSettings)
     editorWorkspaceUi.saveWorkspaceUi(editorSession)
-    applySettingsKeymap()
+    applySettingsKeymapImplementation()
     applySettingsTheme()
 
 proc openActiveWorkspace(path: string) =
@@ -5187,7 +5219,7 @@ proc refreshDocumentLanguageSettings() =
       except ValueError:
         discard
     if appSettings.setLanguageId(languageId):
-      applySettingsKeymap()
+      applySettingsKeymapImplementation()
       applySettingsTheme()
     editorViewState.softWrap = softWrapEnabledForPath(
       if document == nil: "" else: document[].path,
@@ -6131,7 +6163,7 @@ when defined(macosx):
       inc editorGitBlameSettingsGeneration
       editorWorkspaceUi.applyPanelDockSettings(appSettings)
       editorWorkspaceUi.saveWorkspaceUi(editorSession)
-      applySettingsKeymap()
+      applySettingsKeymapImplementation()
       applySettingsTheme()
       if activeDocument() != nil: refreshEditorSyntax()
       editorViewState.statusMessage = "Settings reloaded"
@@ -7718,7 +7750,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           when defined(macosx): inc editorGitBlameSettingsGeneration
           editorWorkspaceUi.applyPanelDockSettings(appSettings)
           editorWorkspaceUi.saveWorkspaceUi(editorSession)
-      applySettingsKeymap()
+      applySettingsKeymapImplementation()
       applySettingsTheme()
       editorViewState.statusMessage = "Settings applied"
     except CatchableError as error:
@@ -10060,18 +10092,17 @@ when isMainModule:
   when defined(macosx):
     setupPersistencePaths()
     platformInstallCrashHandler(crashReportPath.cstring)
-    setupShortcutRegistry()
     restoreSession()
     syncRecentFiles()
-    renderDemoUi()
     let restoredRoot = if editorSession.workspaceRoots.len > 0 and
         dirExists(editorSession.workspaceRoots[0]): editorSession.workspaceRoots[0] else: ""
     let initialRoot = if restoredRoot.len > 0: restoredRoot else: getHomeDir()
     # The workspace preview resolves file icons through SettingsStore. Build
     # the settings layer before opening the workspace so the first refresh is
     # identical to subsequent root changes.
-    appSettings = newSettingsStore(settingsFilePath,
+    let app = app_module.newApp(settingsFilePath,
       if restoredRoot.len > 0: restoredRoot / ".nimculus" / "settings.json" else: "")
+    initFeatures(app)
     editorWorkspaceUi.applyPanelDockSettings(appSettings)
     let extensionRoots = if restoredRoot.len > 0:
       @[getHomeDir() / ".nimculus" / "extensions", restoredRoot / ".nimculus" / "extensions"]
@@ -10085,13 +10116,11 @@ when isMainModule:
       # Treating it as a project would enumerate the entire machine. Leave the
       # docks closed until the user opens one explicitly.
       editorWorkspaceUi.focusedRegion = regionCenter
-      renderDemoUi()
     if activeWorkspace != nil and editorSession.workspaceRoots.len > 1:
       for root in editorSession.workspaceRoots[1 .. ^1]:
         if dirExists(root): activeWorkspace.addRoot(root)
       activeWorkspace.startWatching()
       refreshWorkspacePreview()
-    applySettingsKeymap()
     applySettingsTheme()
     if activeWorkspace == nil:
       let files = "Files\n────────\nOpen a folder to start a workspace."
@@ -10141,16 +10170,14 @@ when isMainModule:
   elif defined(windows):
     setupPersistencePaths()
     restoreSession()
-    setupShortcutRegistry()
-    platformSetShortcutCallback(dispatchNativeShortcut)
     let initialRoot = if editorSession.workspaceRoots.len > 0:
       editorSession.workspaceRoots[0] else: getCurrentDir()
     let workspaceRoot = if dirExists(initialRoot): initialRoot else: getCurrentDir()
-    appSettings = newSettingsStore(settingsFilePath,
+    let app = app_module.newApp(settingsFilePath,
       workspaceRoot / ".nimculus" / "settings.json")
+    initFeatures(app)
+    platformSetShortcutCallback(dispatchNativeShortcut)
     applySettingsTheme()
-    registerWindowsDemoImage()
-    renderDemoUi()
     openActiveWorkspace(workspaceRoot)
     platformSetTextCallback(receiveNativeText)
     platformSetInputCallback(receiveNativeInput)
