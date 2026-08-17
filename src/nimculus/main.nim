@@ -4414,11 +4414,11 @@ when defined(macosx):
         fontSize: float32(fontSize), ascent: float32(row.layout.ascent),
         descent: float32(row.layout.descent))
       for glyph in row.glyphs:
-        let kind = decorationKindAt(row.sourceStartByte + glyph.glyph.index, decorations)
+        let kind = decorationKindAt(row.sourceStartByte + glyph.sourceIndex, decorations)
         let color = if kind >= 0 and kind < colors.len: colors[kind] else: primaryColor
         nativeGlyphs.add(NativeEditorLayoutGlyph(glyphId: glyph.glyph.id,
           x: float32(glyph.glyph.position.x), y: float32(glyph.glyph.position.y),
-          index: uint32(max(0, glyph.glyph.index)), fontId: glyph.fontId,
+          index: uint32(max(0, glyph.sourceIndex)), fontId: glyph.fontId,
           colorKind: if kind >= 0 and kind < colors.len: uint32(kind) else: high(uint32),
           isEmoji: glyph.glyph.isEmoji, red: color.red, green: color.green,
           blue: color.blue, alpha: color.alpha))

@@ -6,6 +6,7 @@ when defined(posix):
 import std/strutils
 import std/options
 import std/times
+import std/unicode
 import nimculus/editor_buffer
 import nimculus/editor_diagnostics
 import nimculus/lsp
@@ -35,10 +36,89 @@ proc blockLayerTestShaper(text: string; fontSize: Pixels;
   result.ascent = px(12)
   result.descent = px(3)
   var shaped = ShapedRun(fontId: if runs.len > 0: runs[0].fontId else: 0)
-  for index, character in text:
+  var index = 0
+  for character in text.runes:
     shaped.glyphs.add(ShapedGlyph(id: uint32(ord(character)),
       position: Point(x: px(float32(index * 8)), y: px(0)), index: index))
+    index += character.toUTF8.len
   result.runs = @[shaped]
+
+proc zwjClusterTestShaper(text: string; fontSize: Pixels;
+                          runs: openArray[FontRun]): LineLayout =
+  result.fontSize = fontSize
+  result.len = text.len
+  result.width = px(8'f32)
+  result.ascent = px(12)
+  result.descent = px(3)
+  if text == "👩‍💻":
+    result.runs = @[ShapedRun(fontId: if runs.len > 0: runs[0].fontId else: 0,
+      glyphs: @[ShapedGlyph(id: 1, position: Point(x: px(0), y: px(0)), index: 0)])]
+  else:
+    var shaped = ShapedRun(fontId: if runs.len > 0: runs[0].fontId else: 0)
+    for index, character in text:
+      shaped.glyphs.add(ShapedGlyph(id: uint32(ord(character)),
+        position: Point(x: px(float32(index * 8)), y: px(0)), index: index))
+    result.runs = @[shaped]
+
+suite "editor invisible character rendering":
+  test "FORMAT and OTHER match Zed range endpoints exactly":
+    const expectedFormat: array[21, RuneRange] = [
+      (Rune(0xad), Rune(0xad)), (Rune(0x600), Rune(0x605)),
+      (Rune(0x61c), Rune(0x61c)), (Rune(0x6dd), Rune(0x6dd)),
+      (Rune(0x70f), Rune(0x70f)), (Rune(0x890), Rune(0x891)),
+      (Rune(0x8e2), Rune(0x8e2)), (Rune(0x180e), Rune(0x180e)),
+      (Rune(0x200b), Rune(0x200f)), (Rune(0x202a), Rune(0x202e)),
+      (Rune(0x2060), Rune(0x2064)), (Rune(0x2066), Rune(0x206f)),
+      (Rune(0xfeff), Rune(0xfeff)), (Rune(0xfff9), Rune(0xfffb)),
+      (Rune(0x110bd), Rune(0x110bd)), (Rune(0x110cd), Rune(0x110cd)),
+      (Rune(0x13430), Rune(0x1343f)), (Rune(0x1bca0), Rune(0x1bca3)),
+      (Rune(0x1d173), Rune(0x1d17a)), (Rune(0xe0001), Rune(0xe0001)),
+      (Rune(0xe0020), Rune(0xe007f))]
+    const expectedOther: array[10, RuneRange] = [
+      (Rune(0x34f), Rune(0x34f)), (Rune(0x115f), Rune(0x1160)),
+      (Rune(0x17b4), Rune(0x17b5)), (Rune(0x180b), Rune(0x180d)),
+      (Rune(0x2800), Rune(0x2800)), (Rune(0x3164), Rune(0x3164)),
+      (Rune(0xfe00), Rune(0xfe0d)), (Rune(0xffa0), Rune(0xffa0)),
+      (Rune(0xfffc), Rune(0xfffc)), (Rune(0xe0100), Rune(0xe01ef))]
+    check FORMAT.len == 21
+    check OTHER.len == 10
+    for index in 0 ..< FORMAT.len:
+      check FORMAT[index].start == expectedFormat[index].start
+      check FORMAT[index].finish == expectedFormat[index].finish
+    for index in 0 ..< OTHER.len:
+      check OTHER[index].start == expectedOther[index].start
+      check OTHER[index].finish == expectedOther[index].finish
+
+  test "invisible replacement is non-empty and PRESERVE remains unchanged":
+    check replacement(Rune(0x200b)).len > 0
+    for item in PRESERVE:
+      for value in int(item.start) .. int(item.finish):
+        check replacement(Rune(value)).len == 0
+
+  test "ZWJ emoji remains one shaped glyph":
+    let buffer = initPieceTable("👩‍💻")
+    let cache = newLineLayoutCache(zwjClusterTestShaper)
+    let layout = buildVisibleEditorLayout(buffer, 0, 10, false, 120'f32,
+      px(12), cache, @[], @[])
+    check layout.rows.len == 1
+    check layout.rows[0].glyphs.len == 1
+
+  test "U+200B creates a replacement glyph at its source column":
+    let withInvisible = initPieceTable("A\u200B")
+    let withoutInvisible = initPieceTable("A")
+    let withCache = newLineLayoutCache(blockLayerTestShaper)
+    let withoutCache = newLineLayoutCache(blockLayerTestShaper)
+    let withLayout = buildVisibleEditorLayout(withInvisible, 0, 10, false, 120'f32,
+      px(12), withCache, @[], @[])
+    let withoutLayout = buildVisibleEditorLayout(withoutInvisible, 0, 10, false, 120'f32,
+      px(12), withoutCache, @[], @[])
+    var replacementGlyphs = 0
+    for glyph in withLayout.rows[0].glyphs:
+      if glyph.sourceIndex == 1 and glyph.glyph.id == uint32(0x2007):
+        inc replacementGlyphs
+    check replacementGlyphs == 1
+    for glyph in withoutLayout.rows[0].glyphs:
+      check glyph.sourceIndex != 1
 
 suite "display map block layer":
   test "blocks transform wrapped rows and preserve reversible points":
@@ -487,7 +567,8 @@ suite "M4 editor buffer":
 
   test "Save As canonicalizes identity and detects an open destination":
     let source = getTempDir() / ("nimculus-save-as-日本語-source🙂-" & $getCurrentProcessId() & ".txt")
-    let destination = getTempDir() / ("nimculus-save-as-日本語-destination🙂-" & $getCurrentProcessId() & ".txt")
+    let destination = getTempDir() / ("nimculus-save-as-日本語-destination🙂-" &
+        $getCurrentProcessId() & ".txt")
     writeFile(source, "source")
     writeFile(destination, "destination")
     defer:

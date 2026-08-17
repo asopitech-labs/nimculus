@@ -1,6 +1,7 @@
 import std/algorithm
 import std/options
 import std/strutils
+import std/unicode
 import nimculus/editor_buffer
 import nimculus/syntax
 import nimnui/text
@@ -63,6 +64,17 @@ type
   VisibleGlyph* = object
     glyph*: ShapedGlyph
     fontId*: uint32
+    ## Byte offset in the source line. `glyph.index` remains an offset in the
+    ## rendered (possibly replacement-expanded) string used by the shaper.
+    sourceIndex*: int
+
+  RuneRange* = tuple[start, finish: Rune]
+
+  InvisibleLine* = object
+    ## Display text and the source-byte position at every display-byte
+    ## boundary. The final entry is the source end boundary.
+    text*: string
+    sourceByteAt*: seq[int]
 
   ## A block is anchored in the wrapped-row coordinate space.  The placement
   ## is deliberately a variant: Replace is the only placement whose anchor
@@ -585,7 +597,94 @@ proc lineText(buffer: PieceTable; line: int): string =
   let bounds = buffer.lineTextBounds(line)
   buffer.substring(bounds.start, bounds.start + bounds.length)
 
-proc fontRunsForLine(lineStart, textLength: int;
+const FORMAT*: array[21, RuneRange] = [
+  (Rune(0xad), Rune(0xad)),
+  (Rune(0x600), Rune(0x605)),
+  (Rune(0x61c), Rune(0x61c)),
+  (Rune(0x6dd), Rune(0x6dd)),
+  (Rune(0x70f), Rune(0x70f)),
+  (Rune(0x890), Rune(0x891)),
+  (Rune(0x8e2), Rune(0x8e2)),
+  (Rune(0x180e), Rune(0x180e)),
+  (Rune(0x200b), Rune(0x200f)),
+  (Rune(0x202a), Rune(0x202e)),
+  (Rune(0x2060), Rune(0x2064)),
+  (Rune(0x2066), Rune(0x206f)),
+  (Rune(0xfeff), Rune(0xfeff)),
+  (Rune(0xfff9), Rune(0xfffb)),
+  (Rune(0x110bd), Rune(0x110bd)),
+  (Rune(0x110cd), Rune(0x110cd)),
+  (Rune(0x13430), Rune(0x1343f)),
+  (Rune(0x1bca0), Rune(0x1bca3)),
+  (Rune(0x1d173), Rune(0x1d17a)),
+  (Rune(0xe0001), Rune(0xe0001)),
+  (Rune(0xe0020), Rune(0xe007f))]
+
+const OTHER*: array[10, RuneRange] = [
+  (Rune(0x34f), Rune(0x34f)),
+  (Rune(0x115f), Rune(0x1160)),
+  (Rune(0x17b4), Rune(0x17b5)),
+  (Rune(0x180b), Rune(0x180d)),
+  (Rune(0x2800), Rune(0x2800)),
+  (Rune(0x3164), Rune(0x3164)),
+  (Rune(0xfe00), Rune(0xfe0d)),
+  (Rune(0xffa0), Rune(0xffa0)),
+  (Rune(0xfffc), Rune(0xfffc)),
+  (Rune(0xe0100), Rune(0xe01ef))]
+
+const PRESERVE*: array[6, RuneRange] = [
+  (Rune(0x34f), Rune(0x34f)),
+  (Rune(0x200d), Rune(0x200d)),
+  (Rune(0x17b4), Rune(0x17b5)),
+  (Rune(0x180b), Rune(0x180d)),
+  (Rune(0xe0061), Rune(0xe007a)),
+  (Rune(0xe007f), Rune(0xe007f))]
+
+proc inRuneRanges(rune: Rune; ranges: openArray[RuneRange]): bool =
+  for item in ranges:
+    if int(item.start) <= int(rune) and int(rune) <= int(item.finish):
+      return true
+  false
+
+proc isInvisible*(rune: Rune): bool =
+  if int(rune) <= 0x1f:
+    return rune != Rune('\t') and rune != Rune('\n') and rune != Rune('\r')
+  if int(rune) >= 0x7f:
+    return int(rune) <= 0x9f or
+      (isWhiteSpace(rune) and rune != Rune(0x3000)) or
+      inRuneRanges(rune, FORMAT) or inRuneRanges(rune, OTHER)
+  false
+
+proc replacement*(rune: Rune): string =
+  if int(rune) <= 0x1f:
+    const c0Symbols = [
+      "␀", "␁", "␂", "␃", "␄", "␅", "␆", "␇", "␈", "␉", "␊", "␋", "␌",
+      "␍", "␎", "␏",
+      "␐", "␑", "␒", "␓", "␔", "␕", "␖", "␗", "␘", "␙", "␚", "␛", "␜",
+      "␝", "␞", "␟"]
+    return c0Symbols[int(rune)]
+  if rune == Rune(0x7f): return "␡"
+  if inRuneRanges(rune, PRESERVE): return ""
+  if isInvisible(rune): return " "
+  ""
+
+proc renderInvisibleText*(text: string; sourceStartByte = 0): InvisibleLine =
+  result.sourceByteAt.add(sourceStartByte)
+  var sourceOffset = 0
+  for rune in text.runes:
+    let sourceRune = rune.toUTF8
+    let replacementText = if isInvisible(rune): replacement(rune) else: ""
+    let rendered = if replacementText.len > 0: replacementText else: sourceRune
+    result.text.add(rendered)
+    for index in 0 ..< rendered.len:
+      let boundary = if index + 1 == rendered.len:
+        sourceStartByte + sourceOffset + sourceRune.len
+      else:
+        sourceStartByte + sourceOffset
+      result.sourceByteAt.add(boundary)
+    sourceOffset += sourceRune.len
+
+proc fontRunsForLine(lineStart, sourceTextLength: int; rendered: InvisibleLine;
                      decorations: openArray[TextDecoration];
                      decorationIndex: var int): seq[FontRun] =
   ## This is the app-side equivalent of Zed's `LineWithInvisibles::from_chunks`:
@@ -593,9 +692,8 @@ proc fontRunsForLine(lineStart, textLength: int;
   ## extend the previous run when its font identity is unchanged. The syntax
   ## producer supplies chunks in document order, so this path deliberately
   ## does not collect, sort, deduplicate, or rescan boundaries.
-  if textLength == 0: return @[FontRun(len: 0, fontId: 0)]
-  var cursor = 0
-  let lineEnd = lineStart + textLength
+  if sourceTextLength == 0: return @[FontRun(len: 0, fontId: 0)]
+  let lineEnd = lineStart + sourceTextLength
   while decorationIndex < decorations.len and
       decorations[decorationIndex].endByte <= lineStart:
     inc decorationIndex
@@ -608,23 +706,23 @@ proc fontRunsForLine(lineStart, textLength: int;
       result.add(FontRun(len: runLength, fontId: runFontId))
 
   var scanIndex = decorationIndex
-  while scanIndex < decorations.len:
-    let decoration = decorations[scanIndex]
-    let start = max(0, decoration.startByte - lineStart)
-    let finish = min(textLength, decoration.endByte - lineStart)
-    if decoration.startByte >= lineEnd: break
-    if finish <= start or finish <= cursor:
+  var displayOffset = 0
+  while displayOffset < rendered.text.len:
+    let sourceOffset = rendered.sourceByteAt[displayOffset]
+    while scanIndex < decorations.len and decorations[scanIndex].endByte <= sourceOffset:
       inc scanIndex
-      continue
-    if start > cursor: appendRun(start - cursor, 0)
-    let runStart = max(start, cursor)
-    appendRun(finish - runStart, uint32(max(0, decoration.kind + 1)))
-    cursor = finish
-    if decoration.endByte >= lineEnd: break
+    let fontId = if scanIndex < decorations.len and
+        decorations[scanIndex].startByte <= sourceOffset and
+        sourceOffset < decorations[scanIndex].endByte:
+      uint32(max(0, decorations[scanIndex].kind + 1))
+    else:
+      0'u32
+    let runeLength = rendered.text[displayOffset .. ^1].runeAt(0).toUTF8.len
+    appendRun(runeLength, fontId)
+    displayOffset += runeLength
+  while scanIndex < decorations.len and decorations[scanIndex].endByte <= lineEnd:
     inc scanIndex
-    if cursor >= textLength: break
   decorationIndex = scanIndex
-  if cursor < textLength: appendRun(textLength - cursor, 0)
 
 proc decorationKindAt*(byteOffset: int; decorations: openArray[TextDecoration]): int =
   for decoration in decorations:
@@ -644,30 +742,36 @@ proc xAt(layout: LineLayout; byteOffset: int): float32 =
   float32(layout.width)
 
 proc addWrappedRows(result: var EditorTextLayout; sourceLine, displayBase,
-                    sourceStart, textLength: int; wrapped: ref WrappedLineLayout;
+                    sourceStart, sourceTextLength: int; rendered: InvisibleLine;
+                    wrapped: ref WrappedLineLayout;
                     decorations: openArray[TextDecoration]) =
-  var starts = @[0]
+  var displayStarts = @[0]
   for boundary in wrapped.wrapBoundaries:
-    starts.add(glyphByteAt(wrapped.unwrappedLayout[], boundary.runIx, boundary.glyphIx))
-  starts.sort()
-  var unique: seq[int]
-  for value in starts:
-    if unique.len == 0 or unique[^1] != value: unique.add(value)
-  unique.add(textLength)
-  for rowIndex in 0 ..< max(1, unique.len - 1):
-    let start = max(0, min(textLength, unique[rowIndex]))
-    let finish = max(start, min(textLength, unique[rowIndex + 1]))
-    let lineStartX = xAt(wrapped.unwrappedLayout[], start)
+    displayStarts.add(glyphByteAt(wrapped.unwrappedLayout[], boundary.runIx, boundary.glyphIx))
+  displayStarts.sort()
+  var uniqueDisplayStarts: seq[int]
+  for value in displayStarts:
+    if uniqueDisplayStarts.len == 0 or uniqueDisplayStarts[^1] != value:
+      uniqueDisplayStarts.add(value)
+  uniqueDisplayStarts.add(rendered.text.len)
+  for rowIndex in 0 ..< max(1, uniqueDisplayStarts.len - 1):
+    let displayStart = max(0, min(rendered.text.len, uniqueDisplayStarts[rowIndex]))
+    let displayFinish = max(displayStart,
+      min(rendered.text.len, uniqueDisplayStarts[rowIndex + 1]))
+    let sourceStartOffset = rendered.sourceByteAt[displayStart] - sourceStart
+    let sourceFinishOffset = rendered.sourceByteAt[displayFinish] - sourceStart
+    let lineStartX = xAt(wrapped.unwrappedLayout[], displayStart)
     var row = VisibleTextRow(sourceLine: sourceLine, displayRow: displayBase + rowIndex,
-      sourceStartByte: sourceStart, segmentStartByte: sourceStart + start,
-      segmentEndByte: sourceStart + finish, layout: wrapped.unwrappedLayout)
+      sourceStartByte: sourceStart, segmentStartByte: sourceStart + sourceStartOffset,
+      segmentEndByte: sourceStart + sourceFinishOffset, layout: wrapped.unwrappedLayout)
     for shapedRun in wrapped.unwrappedLayout[].runs:
       for glyph in shapedRun.glyphs:
-        if glyph.index >= start and glyph.index < finish:
+        if glyph.index >= displayStart and glyph.index < displayFinish:
           var positioned = glyph
           positioned.position.x = px(float32(glyph.position.x) - lineStartX)
           positioned.position.y = px(0)
-          row.glyphs.add(VisibleGlyph(glyph: positioned, fontId: shapedRun.fontId))
+          row.glyphs.add(VisibleGlyph(glyph: positioned, fontId: shapedRun.fontId,
+            sourceIndex: rendered.sourceByteAt[glyph.index] - sourceStart))
           result.widestWidth = max(result.widestWidth,
             float32(positioned.position.x) + 1'f32)
     result.rows.add(row)
@@ -697,17 +801,21 @@ proc buildVisibleEditorLayout*(buffer: PieceTable; firstLine, visibleRows: int;
       inc sourceLine
       continue
     let sourceStart = buffer.lineStarts[sourceLine]
-    let textLength = buffer.lineTextBounds(sourceLine).length
-    let textHash = buffer.lineHash(sourceLine)
-    let runs = fontRunsForLine(sourceStart, textLength, decorations, decorationIndex)
-    let wrapped = cache.layoutWrappedLineByHash(textHash, textLength, fontSize, runs,
-      wrapWidth, proc(): string = lineText(buffer, sourceLine), wrap)
+    let sourceText = lineText(buffer, sourceLine)
+    let sourceTextLength = sourceText.len
+    let rendered = renderInvisibleText(sourceText, sourceStart)
+    let textHash = rendered.text.textHash
+    let runs = fontRunsForLine(sourceStart, sourceTextLength, rendered,
+      decorations, decorationIndex)
+    let wrapped = cache.layoutWrappedLineByHash(textHash, rendered.text.len, fontSize, runs,
+      wrapWidth, proc(): string = rendered.text, wrap)
     let rowsBefore = result.rows.len
-    addWrappedRows(result, sourceLine, displayRow, sourceStart, textLength, wrapped, decorations)
+    addWrappedRows(result, sourceLine, displayRow, sourceStart, sourceTextLength,
+      rendered, wrapped, decorations)
     let count = wrappedRowCount(wrapped[])
     displayRow += count
     result.totalRows += count
-    if result.rows.len == rowsBefore and textLength == 0:
+    if result.rows.len == rowsBefore and sourceTextLength == 0:
       result.totalRows += 1
     inc sourceLine
   result
@@ -730,12 +838,14 @@ proc displayRowsBeforeLine*(buffer: PieceTable; lineLimit: int; wrap: bool;
         hidden = true
         break
     if hidden: continue
-    let textLength = buffer.lineTextBounds(sourceLine).length
-    let textHash = buffer.lineHash(sourceLine)
-    let runs = fontRunsForLine(buffer.lineStarts[sourceLine], textLength, decorations,
-      decorationIndex)
-    let layout = cache.layoutWrappedLineByHash(textHash, textLength, fontSize, runs,
-      wrapWidth, proc(): string = lineText(buffer, sourceLine), wrap)
+    let sourceStart = buffer.lineStarts[sourceLine]
+    let sourceText = lineText(buffer, sourceLine)
+    let rendered = renderInvisibleText(sourceText, sourceStart)
+    let runs = fontRunsForLine(sourceStart, sourceText.len, rendered,
+      decorations, decorationIndex)
+    let layout = cache.layoutWrappedLineByHash(rendered.text.textHash,
+      rendered.text.len, fontSize, runs, wrapWidth,
+      proc(): string = rendered.text, wrap)
     result += wrappedRowCount(layout[])
 
 proc displayRowCount*(buffer: PieceTable; wrap: bool; wrapWidth: float32;
@@ -761,12 +871,14 @@ proc sourceLineForDisplayRow*(buffer: PieceTable; displayRow: int; wrap: bool;
         hidden = true
         break
     if hidden: continue
-    let textLength = buffer.lineTextBounds(sourceLine).length
-    let textHash = buffer.lineHash(sourceLine)
-    let runs = fontRunsForLine(buffer.lineStarts[sourceLine], textLength, decorations,
-      decorationIndex)
-    let layout = cache.layoutWrappedLineByHash(textHash, textLength, fontSize, runs,
-      wrapWidth, proc(): string = lineText(buffer, sourceLine), wrap)
+    let sourceStart = buffer.lineStarts[sourceLine]
+    let sourceText = lineText(buffer, sourceLine)
+    let rendered = renderInvisibleText(sourceText, sourceStart)
+    let runs = fontRunsForLine(sourceStart, sourceText.len, rendered,
+      decorations, decorationIndex)
+    let layout = cache.layoutWrappedLineByHash(rendered.text.textHash,
+      rendered.text.len, fontSize, runs, wrapWidth,
+      proc(): string = rendered.text, wrap)
     let count = wrappedRowCount(layout[])
     if row < count: return sourceLine
     row -= count
