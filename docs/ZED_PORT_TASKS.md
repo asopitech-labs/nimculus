@@ -336,7 +336,7 @@
 - [x] **The five-layer transform chain (inlay → fold → tab → wrap → block)** — Zed `crates/editor/src/display_map.rs:1 (module doc describing the contract), :213 (DisplayMap fields), :604 (snapshot() driving the chain)`
 - [ ] **Tab expansion layer** — Zed `crates/editor/src/display_map/tab_map.rs:20 (TabMap), :197 (TabSnapshot with tab_size and max_expansion_column), :41 (sync)`
 - [x] **Block layer: non-text rows and replacement blocks** — Zed `crates/editor/src/display_map/block_map.rs:38 (BlockMap), :75 (BlockSnapshot), :163 (BlockPlacement Above/Below/Near/Replace), :377 (enum Block: Custom, FoldedBuffer, ExcerptBoundary, BufferHeader, Spacer), :282 (BlockProperties), :303 (BlockStyle)`
-- [ ] **Invisible character rendering** — Zed `crates/editor/src/display_map/invisibles.rs:34 is_invisible, :49 replacement, :75 FORMAT, :100 OTHER, :114 PRESERVE`
+- [x] **Invisible character rendering** — Zed `crates/editor/src/display_map/invisibles.rs:34 is_invisible, :49 replacement, :75 FORMAT, :100 OTHER, :114 PRESERVE`
 - [ ] **EditorMode: one Editor type, several shapes** — Zed `crates/editor/src/editor.rs:464 (enum EditorMode: SingleLine, AutoHeight, Full, Minimap)`
 
 **移植済み**
@@ -424,7 +424,7 @@
 - [ ] **Worktree snapshot + background scanner with scan ids** — Zed `crates/worktree/src/worktree.rs:176 (Snapshot), :249 (LocalSnapshot), :270 (BackgroundScannerState), :410 (enum ScanState), :4295 (BackgroundScanner), :4304 (BackgroundScannerPhase)`
 - [ ] **Repository as an entity with a snapshot + a serialized job queue** — Zed `crates/project/src/git_store.rs:505 (struct Repository), :430 (RepositorySnapshot), :636 (GitJob), :643 (enum GitJobKey), :527 (Deref<Target=RepositorySnapshot>)`
 - [ ] **Anchored diff hunks with secondary (staged) status** — Zed `crates/buffer_diff/src/buffer_diff.rs:117 (DiffHunk: range as Points, buffer_range as Anchors, diff_base_byte_range, secondary_status, word diffs), :87 (DiffHunkStatus), :85 (DiffHunkSecondaryStatus with the 5 states incl. the two Pending ones), :142 (PendingHunk), :440 hunks_in_row_range`
-- [ ] **Git status scan → panel projection (staged / unstaged / conflicts)** — Zed `crates/project/src/git_store.rs:326 (StatusEntry), :395 (impl sum_tree::Item so statuses roll up per directory), crates/git/src/status.rs:10 (FileStatus), :31 (TrackedStatus: index_status + worktree_status), :351 (GitSummary)`
+- [x] **Git status scan → panel projection (staged / unstaged / conflicts)** — Zed `crates/project/src/git_store.rs:326 (StatusEntry), :395 (impl sum_tree::Item so statuses roll up per directory), crates/git/src/status.rs:10 (FileStatus), :31 (TrackedStatus: index_status + worktree_status), :351 (GitSummary)`
 - [ ] **Blame: entries by line range, plus batch commit-message fetch** — Zed `crates/git/src/blame.rs:17 (struct Blame: entries, messages by Oid, tag_names by Oid), :164 (BlameEntry: sha, range: Range<u32>, original_line_number, author/committer fields, summary), :29-58 (unique SHAs then one batched get_messages/get_tag_names); crates/project/src/git_store.rs:1967 blame_buffer`
 - [x] **Per-buffer LSP request keying and cancellation** — Zed `crates/project/src/lsp_store.rs:4098 (BufferLspData: buffer_version, per-feature caches, lsp_requests: HashMap<LspKey, HashMap<LspRequestId, Task<()>>>), :4265 (LspKey = request TypeId + server id), :4291-4208 remove_server_data`
 - [ ] **Buffer→server document synchronization with snapshot history for incremental didChange** — Zed `crates/project/src/lsp_store.rs:8534 on_buffer_edited (:8568-8470 builds incremental changes from edits_since against the last snapshot), :331 (buffer_snapshots: buffer_id → server_id → Vec<LspBufferSnapshot>), :14165 (LspBufferSnapshot), :246 (OpenLspBufferHandle — refcounted 'this buffer is open in servers'), :328 (registered_buffers: BufferId → count)`
@@ -482,7 +482,7 @@
 
 **無い**
 
-- [ ] **Crate init() registration order** — Zed `crates/zed/src/main.rs:491-771`
+- [x] **Crate init() registration order** — Zed `crates/zed/src/main.rs:491-771`
 - [x] **Settings UI (schema-driven)** — Zed `crates/settings_ui/src/settings_ui.rs (6797 lines) with page_data.rs, pages/, components/`
 - [x] **Vim modal editing as an editor addon** — Zed `crates/vim/src/vim.rs:286 init (crate 47454 lines, 39 files); registered after editor at crates/zed/src/main.rs:761`
 - [ ] **Collaboration (collab, collab_ui, call, channel, livekit)** — Zed `crates/collab_ui/src/collab_ui.rs (62 lines entry; crate 6392, collab server 15013), init at crates/zed/src/main.rs:749 (channel) and :771 (call)`
