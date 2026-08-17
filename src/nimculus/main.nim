@@ -157,6 +157,9 @@ when defined(macosx):
   proc syncSecondaryEditorView(ensureCursor = true)
   proc syncSecondaryNativeDiagnostics(document: ptr FileDocument)
 proc persistSession()
+proc scheduleSessionPersistence(trailingDelay = TextEditPersistenceTrailingDelay,
+    maximumDelay = TextEditPersistenceMaximumDelay)
+proc openWorkspacePanel(panel: PanelKind)
 
 var demoTree = newUiTree()
 var shortcutRegistry: CommandRegistry
@@ -1742,7 +1745,7 @@ when defined(macosx):
       platformSetTerminalVisible(false)
       platformSetTaskOutputVisible(true)
       platformSetTaskOutputCancellable(true)
-      editorWorkspaceUi.openPanel(panelTasks)
+      openWorkspacePanel(panelTasks)
       invalidateDemoUi()
       platformSetTaskOutputTitle("Agent".cstring, uint32("Agent".len))
       platformSetTaskOutputText(editorAgentOutput.cstring, uint32(editorAgentOutput.len))
@@ -1880,7 +1883,7 @@ when defined(macosx):
     editorTaskOutputVisible = true
     platformSetTaskOutputVisible(true)
     platformSetTaskOutputCancellable(true)
-    editorWorkspaceUi.openPanel(panelTasks)
+    openWorkspacePanel(panelTasks)
     invalidateDemoUi()
     let title = "Extension Catalog"
     platformSetTaskOutputTitle(title.cstring, uint32(title.len))
@@ -2022,7 +2025,7 @@ when defined(macosx):
     editorTaskOutputVisible = true
     platformSetTaskOutputVisible(true)
     platformSetTaskOutputCancellable(true)
-    editorWorkspaceUi.openPanel(panelTasks)
+    openWorkspacePanel(panelTasks)
     invalidateDemoUi()
     let title = "WASM Component — " & manifest.name
     platformSetTaskOutputTitle(title.cstring, uint32(title.len))
@@ -2055,7 +2058,7 @@ when defined(macosx):
     editorTaskOutputVisible = true
     platformSetTaskOutputVisible(true)
     platformSetTaskOutputCancellable(true)
-    editorWorkspaceUi.openPanel(panelTasks)
+    openWorkspacePanel(panelTasks)
     invalidateDemoUi()
     let title = "Extension — " & manifest.name
     platformSetTaskOutputTitle(title.cstring, uint32(title.len))
@@ -2109,7 +2112,7 @@ when defined(macosx):
       editorTaskOutputVisible = true
       platformSetTaskOutputVisible(true)
       platformSetTaskOutputCancellable(true)
-      editorWorkspaceUi.openPanel(panelTasks)
+      openWorkspacePanel(panelTasks)
       invalidateDemoUi()
       let title = "WASM — " & selected.name
       platformSetTaskOutputTitle(title.cstring, uint32(title.len))
@@ -2269,7 +2272,7 @@ when defined(macosx):
 
   proc showNativeDapSidebar() =
     editorSidebarMode = sidebarDebugger
-    editorWorkspaceUi.openPanel(panelDebugger)
+    openWorkspacePanel(panelDebugger)
     # Opening the panel must not steal the editor's first responder. This is
     # the same distinction Zed makes between panel visibility and focus.
     editorWorkspaceUi.focusCenter()
@@ -2354,7 +2357,7 @@ when defined(macosx):
       platformSetTerminalVisible(false)
       platformSetTaskOutputVisible(true)
       platformSetTaskOutputCancellable(false)
-      editorWorkspaceUi.openPanel(panelTasks)
+      openWorkspacePanel(panelTasks)
       showNativeDapSidebar()
       let request = editorDapSession.sendRequest("initialize", initializeArguments())
       appendNativeDapOutput("→ initialize (#" & $request.seq & ")")
@@ -2708,7 +2711,7 @@ when defined(macosx):
                 editorDapTerminalJobs.add(job)
                 editorTaskOutputVisible = true
                 platformSetTaskOutputVisible(true)
-                editorWorkspaceUi.openPanel(panelTasks)
+                openWorkspacePanel(panelTasks)
                 editorDapSession.sendResponse(message, true, %*{
                   "processId": job.processId,
                   "shellProcessId": job.processId
@@ -2796,7 +2799,7 @@ when defined(macosx):
 
   proc renderNativeGitHistory(commits: seq[GitCommit], title = "Git History",
                               path = "") =
-    editorWorkspaceUi.openPanel(panelGit)
+    openWorkspacePanel(panelGit)
     invalidateDemoUi()
     editorSidebarMode = sidebarGitHistory
     editorGitHistory = commits
@@ -2819,7 +2822,7 @@ when defined(macosx):
     ## Match Zed's History state machine: the tab owns a clear Loading/Error/
     ## Empty transition rather than retaining whatever sidebar happened to be
     ## visible before the asynchronous Git job started.
-    editorWorkspaceUi.openPanel(panelGit)
+    openWorkspacePanel(panelGit)
     invalidateDemoUi()
     editorSidebarMode = sidebarGitHistory
     editorGitHistory.setLen(0)
@@ -2834,7 +2837,7 @@ when defined(macosx):
     ## Keep Git discoverable even before a project resolves to a repository.
     ## The sidebar owns the primary next action instead of leaving a stale
     ## Files/Outline list visible behind a status-bar-only error.
-    editorWorkspaceUi.openPanel(panelGit)
+    openWorkspacePanel(panelGit)
     invalidateDemoUi()
     editorSidebarMode = sidebarGitStatus
     editorGitRepository = nil
@@ -2893,7 +2896,7 @@ when defined(macosx):
     showNativeLspPanel("Git Blame", lines)
 
   proc renderNativeGitStatus(entries: seq[GitStatusEntry]) =
-    editorWorkspaceUi.openPanel(panelGit)
+    openWorkspacePanel(panelGit)
     invalidateDemoUi()
     ## Keep conflicts explicit and ahead of ordinary changes. As in Zed's
     ## separate conflict section, this is informational only: bulk stage or
@@ -2966,7 +2969,7 @@ when defined(macosx):
     syncNativeSidebarSelection()
 
   proc renderNativeGitBranches(branches: seq[GitBranch]) =
-    editorWorkspaceUi.openPanel(panelGit)
+    openWorkspacePanel(panelGit)
     invalidateDemoUi()
     editorSidebarMode = sidebarGitBranches
     editorGitBranches = branches
@@ -3197,7 +3200,7 @@ when defined(macosx):
     editorTaskOutputVisible = true
     platformSetTaskOutputVisible(true)
     platformSetTaskOutputCancellable(true)
-    editorWorkspaceUi.openPanel(panelTasks)
+    openWorkspacePanel(panelTasks)
     invalidateDemoUi()
     let title = "Task — " & command
     platformSetTaskOutputTitle(title.cstring, uint32(title.len))
@@ -4459,14 +4462,20 @@ proc persistSession() =
   except CatchableError:
     discard
 
-proc scheduleSessionPersistence() =
+proc scheduleSessionPersistence(trailingDelay = TextEditPersistenceTrailingDelay,
+    maximumDelay = TextEditPersistenceMaximumDelay) =
   ## Text input can arrive at frame rate. Persisting the full session from
   ## both the AppKit timer and idle callback serialized every open buffer over
   ## and over again while typing. Debounce ordinary edits, but cap the delay
   ## so crash recovery is never deferred indefinitely during continuous input.
   if sessionFilePath.len == 0: return
   let now = epochTime()
-  sessionPersistence.schedule(now)
+  sessionPersistence.schedule(now, trailingDelay, maximumDelay)
+
+proc openWorkspacePanel(panel: PanelKind) =
+  editorWorkspaceUi.openPanel(panel)
+  scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+    WorkspaceCompositionPersistenceDelay)
 
 proc flushScheduledSessionPersistence() =
   if sessionPersistence.isDue(epochTime()):
@@ -4563,7 +4572,7 @@ proc openActiveWorkspace(path: string) =
     when defined(macosx):
       # A folder chosen from the welcome surface should immediately become a
       # visible project, but keyboard focus remains in the center editor.
-      editorWorkspaceUi.openPanel(panelFiles)
+      openWorkspacePanel(panelFiles)
       editorWorkspaceUi.focusedRegion = regionCenter
       invalidateDemoUi()
 
@@ -4933,7 +4942,7 @@ proc renderWorkspaceSearch() =
       # A workspace grep is navigation state, not a replacement document.
       # Keep the active editor (and any split) visible while presenting the
       # streaming result list in its own dock, following Zed's Search panel.
-      editorWorkspaceUi.openPanel(panelSearch)
+      openWorkspacePanel(panelSearch)
       editorSidebarMode = sidebarWorkspaceSearch
       editorWorkspaceUi.replacePanelItems(panelSearch,
         workspaceSearchResults[0 ..< visibleCount].mapIt(
@@ -4975,7 +4984,7 @@ proc renderQuickOpen() =
       # a split editor look empty) until a file was chosen. Reuse the native
       # Files list so click, keyboard selection, and Enter retain their normal
       # workspace semantics while the edited document remains visible.
-      editorWorkspaceUi.openPanel(panelFiles)
+      openWorkspacePanel(panelFiles)
       editorSidebarMode = sidebarFiles
       editorWorkspaceUi.replacePanelItems(panelFiles,
         workspacePreviewEntries[0 ..< visibleCount].mapIt(it.path))
@@ -6545,7 +6554,8 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
         # next typed character or IME composition after the file is opened.
         when defined(macosx): platformFocusEditor()
         refreshEditorSyntax()
-        persistSession()
+        scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+          WorkspaceCompositionPersistenceDelay)
         return
       workspacePreviewEntries.setLen(0)
       workspacePreviewMode = ""
@@ -6564,7 +6574,8 @@ proc receiveNativeFile(path: cstring, saving: bool) {.cdecl.} =
       syncEditorCursor()
       when defined(macosx): platformFocusEditor()
       refreshEditorSyntax()
-      persistSession()
+      scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+        WorkspaceCompositionPersistenceDelay)
     except CatchableError:
       discard
 
@@ -6608,7 +6619,8 @@ proc openFilesDockEntry(path: string) =
     # which would route the next keyboard event or IME composition into the
     # sidebar instead of the newly opened document.
     platformFocusEditor()
-    persistSession()
+    scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+      WorkspaceCompositionPersistenceDelay)
   except CatchableError as error:
     editorViewState.statusMessage = "Open failed: " & error.msg
 
@@ -7171,7 +7183,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         "Editor split horizontally" else: "Editor split vertically"
       invalidateDemoUi()
       syncEditorCursor()
-      persistSession()
+      scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+        WorkspaceCompositionPersistenceDelay)
   elif name == "closeSplit":
     if editorSession.split:
       editorSession.closeSplit()
@@ -7183,7 +7196,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       editorViewState.statusMessage = "Split closed"
       invalidateDemoUi()
       syncEditorCursor()
-      persistSession()
+      scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+        WorkspaceCompositionPersistenceDelay)
   elif name == "quitRequest":
     when defined(macosx):
       if editorSession.hasDirtyTabs(): platformRequestQuit()
@@ -7338,7 +7352,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         else:
           refreshEditorSyntax()
         syncEditorCursor()
-      persistSession()
+      scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+        WorkspaceCompositionPersistenceDelay)
   elif name == "reopenClosedTab":
     editorSession.saveActiveView(editorViewState)
     editorSession.saveSecondaryActiveView(editorSession.secondaryView)
@@ -7360,7 +7375,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       editorViewState.statusMessage = "Reopened " & editorSession.displayTitle(reopened)
       syncEditorCursor()
       refreshEditorSyntax()
-      persistSession()
+      scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+        WorkspaceCompositionPersistenceDelay)
   elif name in ["previousTab", "nextTab"]:
     let delta = if name == "previousTab": -1 else: 1
     let pane = editorWorkspaceUi.focusedPane
@@ -7411,7 +7427,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       resetEditorTransientState()
       syncEditorCursor()
       refreshEditorSyntax()
-      persistSession()
+      scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+        WorkspaceCompositionPersistenceDelay)
     except ValueError:
       discard
   elif name.startsWith("closePaneTab:"):
@@ -7480,7 +7497,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           editorSession.loadSecondaryActiveView()
           editorViewState.statusMessage = "Tab reordered"
           syncEditorCursor()
-          persistSession()
+          scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+            WorkspaceCompositionPersistenceDelay)
       except ValueError:
         discard
   elif name.startsWith("editorTabContext:"):
@@ -7508,14 +7526,16 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
                 discard editorWorkspaceUi.selectPaneTab(editorWorkspaceUi.center.second.pane.id,
                   editorSession.effectiveSplitSecondaryTab())
             editorViewState.statusMessage = if pin: "Tab pinned" else: "Tab unpinned"
-            persistSession()
+            scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+              WorkspaceCompositionPersistenceDelay)
             syncEditorCursor()
           else:
             editorViewState.statusMessage = if pin: "Tab is already pinned" else: "Tab is not pinned"
         of "unpinAll":
           if editorSession.unpinAllTabs():
             editorViewState.statusMessage = "All tabs unpinned"
-            persistSession()
+            scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+              WorkspaceCompositionPersistenceDelay)
             syncEditorCursor()
           else:
             editorViewState.statusMessage = "No pinned tabs"
@@ -7543,7 +7563,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           else: "No clean tabs closed"
           syncWorkspaceUiTabs()
           syncEditorCursor()
-          persistSession()
+          scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+            WorkspaceCompositionPersistenceDelay)
         of "copyPath":
           if document == nil or document[].path.len == 0:
             editorViewState.statusMessage = "Tab has no file path"
@@ -7579,7 +7600,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           syntaxState = nil
         syncEditorCursor()
         refreshEditorSyntax()
-        persistSession()
+        scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+          WorkspaceCompositionPersistenceDelay)
     except ValueError:
       discard
   elif name.startsWith("workspaceAddRoot:") and activeWorkspace != nil:
@@ -7764,7 +7786,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     when defined(macosx):
       editorWorkspaceUi.resetDockSize(editorWorkspaceUi.panelDockSide(panelFiles))
       invalidateDemoUi()
-      persistSession()
+      scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+        WorkspaceCompositionPersistenceDelay)
   elif name == "extensionPermissions:allow":
     let action = pendingExtensionPermissionAction
     let manifest = pendingExtensionPermission
@@ -8260,16 +8283,18 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       when defined(macosx):
         toggleNativeTerminal()
         if editorTerminalVisible:
-          editorWorkspaceUi.openPanel(panelTerminal)
+          openWorkspacePanel(panelTerminal)
           platformFocusEditor()
-        elif editorTaskOutputVisible: editorWorkspaceUi.openPanel(panelTasks)
+        elif editorTaskOutputVisible: openWorkspacePanel(panelTasks)
         else: editorWorkspaceUi.bottomDock.isOpen = false
         invalidateDemoUi()
         resizeNativeTerminals()
+        scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+          WorkspaceCompositionPersistenceDelay)
     of "__new_terminal__":
       when defined(macosx):
         newNativeTerminal()
-        if editorTerminalVisible: editorWorkspaceUi.openPanel(panelTerminal)
+        if editorTerminalVisible: openWorkspacePanel(panelTerminal)
         invalidateDemoUi()
         resizeNativeTerminals()
     of "__close_terminal__":
@@ -8278,6 +8303,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         if not editorTerminalVisible and not editorTaskOutputVisible:
           editorWorkspaceUi.bottomDock.isOpen = false
         invalidateDemoUi()
+        scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+          WorkspaceCompositionPersistenceDelay)
     of "__next_terminal__":
       when defined(macosx): switchNativeTerminal(1)
     of "__previous_terminal__":
@@ -8285,11 +8312,13 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "__task_output__":
       when defined(macosx):
         toggleNativeTaskOutput()
-        if editorTaskOutputVisible: editorWorkspaceUi.openPanel(panelTasks)
-        elif editorTerminalVisible: editorWorkspaceUi.openPanel(panelTerminal)
+        if editorTaskOutputVisible: openWorkspacePanel(panelTasks)
+        elif editorTerminalVisible: openWorkspacePanel(panelTerminal)
         else: editorWorkspaceUi.bottomDock.isOpen = false
         invalidateDemoUi()
         resizeNativeTerminals()
+        scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+          WorkspaceCompositionPersistenceDelay)
       when defined(windows): toggleWindowsTaskOutput()
     of "__workspace_search__":
       let query = if rawCommand.len > 17: rawCommand[17 .. ^1].strip else: ""
@@ -8309,7 +8338,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     of "cancel search": cancelWorkspaceSearch()
     of "__show_files__":
       when defined(macosx):
-        editorWorkspaceUi.openPanel(panelFiles)
+        openWorkspacePanel(panelFiles)
         invalidateDemoUi()
         if activeWorkspace == nil:
           editorSidebarMode = sidebarFiles
@@ -8339,6 +8368,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           refreshWorkspacePreview()
         if didFocusPanel: platformFocusEditorSidebar()
         else: platformFocusEditor()
+        scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+          WorkspaceCompositionPersistenceDelay)
     of "__toggle_workspace_dock__":
       when defined(macosx):
         # The footer owns one dock toggle, while the dock's active panel and
@@ -8349,14 +8380,15 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         if editorWorkspaceUi.dock(editorWorkspaceUi.panelDockSide(panelFiles)).isOpen:
           platformFocusEditorSidebar()
         else: platformFocusEditor()
-        persistSession()
+        scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+          WorkspaceCompositionPersistenceDelay)
     of "__reveal_active_file__":
       when defined(macosx): revealActiveDocumentInWorkspace()
     of "__collapse_all_files__":
       when defined(macosx): collapseAllWorkspaceEntries()
     of "__show_outline__":
       when defined(macosx):
-        editorWorkspaceUi.openPanel(panelOutline)
+        openWorkspacePanel(panelOutline)
         invalidateDemoUi()
         editorSidebarMode = sidebarOutline
         syncNativeSymbolTree()
@@ -8387,6 +8419,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           platformFocusEditorSidebar()
         else:
           platformFocusEditor()
+        scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+          WorkspaceCompositionPersistenceDelay)
     of "__expand_selection__":
       when defined(macosx): expandNativeSyntaxSelection(true)
     of "__shrink_selection__":
@@ -8444,9 +8478,11 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
           # inventing a second source-control presenter.
           receiveNativeCommand("commandPalette:git status".cstring)
           platformFocusEditorSidebar()
+        scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+          WorkspaceCompositionPersistenceDelay)
     of "git status":
       when defined(macosx):
-        editorWorkspaceUi.openPanel(panelGit)
+        openWorkspacePanel(panelGit)
         # Project the Git surface before the cancellable status job returns.
         # Zed keeps the Changes panel visible in its loading state; leaving the
         # Files projection in place made a slow repository look as if the Git
@@ -8491,7 +8527,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
             line)
     of "git log":
       when defined(macosx):
-        editorWorkspaceUi.openPanel(panelGit)
+        openWorkspacePanel(panelGit)
         let repository = gitRepositoryForDocument(document)
         if repository == nil:
           renderNativeGitEmpty()
@@ -8502,7 +8538,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
             "log", "--format=%H%x00%an%x00%ae%x00%at%x00%s%x00", "-n", "100"])
     of "__git_file_history__":
       when defined(macosx):
-        editorWorkspaceUi.openPanel(panelGit)
+        openWorkspacePanel(panelGit)
         let repository = gitRepositoryForDocument(document)
         let relative = gitRelativePathForDocument(document, repository)
         if repository == nil or relative.len == 0:
@@ -8515,7 +8551,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
             "--", relative])
     of "__git_branches__":
       when defined(macosx):
-        editorWorkspaceUi.openPanel(panelGit)
+        openWorkspacePanel(panelGit)
         let repository = gitRepositoryForDocument(document)
         if repository == nil:
           renderNativeGitEmpty()
@@ -8630,7 +8666,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     externalAlertTab = -1
   elif name == "showOutlinePicker":
     when defined(macosx):
-      editorWorkspaceUi.openPanel(panelOutline)
+      openWorkspacePanel(panelOutline)
       editorSidebarMode = sidebarOutline
       syncNativeSymbolTree()
       platformShowOutlinePicker()
@@ -9231,7 +9267,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
         editorViewState.statusMessage = "Terminal path is outside workspace"
       else:
         newNativeTerminal(cwd)
-        if editorTerminalVisible: editorWorkspaceUi.openPanel(panelTerminal)
+        if editorTerminalVisible: openWorkspacePanel(panelTerminal)
         invalidateDemoUi()
         resizeNativeTerminals()
   elif name.startsWith("workspaceCopyPath:"):
@@ -9616,10 +9652,13 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           editorWorkspaceUi.resizeDock(dockBottom,
             viewportHeight - uiY - DefaultStatusHeight, viewportHeight)
         invalidateDemoUi()
+        scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+          WorkspaceCompositionPersistenceDelay)
         return
       elif kind == pointerUp:
         editorWorkspaceUi.endDockResize()
-        persistSession()
+        scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+          WorkspaceCompositionPersistenceDelay)
         return
     if kind == pointerDown and editorWorkspaceUi.leftDock.isOpen and
         abs(float32(event.x) - leftDividerX) <= 4'f32:
@@ -9818,12 +9857,15 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
       demoSplitRatio = editorSession.effectiveSplitRatio
       discard editorWorkspaceUi.setRootSplitRatio(demoSplitRatio)
       invalidateDemoUi()
+      scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+        WorkspaceCompositionPersistenceDelay)
       splitPointerHandled = true
     elif demoSplitDragging and kind == pointerUp:
       demoSplitDragging = false
       # Persist the settled divider once.  Writing an atomic session for every
       # pointer sample would create avoidable I/O and cache churn while dragging.
-      persistSession()
+      scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+        WorkspaceCompositionPersistenceDelay)
       splitPointerHandled = true
     elif document != nil and kind == pointerDown and demoSplitEnabled:
       let targetPane = editorWorkspaceUi.paneIndexAt(demoTree.node(demoScrollNode).bounds, point)

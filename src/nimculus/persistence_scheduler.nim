@@ -9,11 +9,17 @@ type
     startedAt*: float
     dueAt*: float
 
+const
+  WorkspaceCompositionPersistenceDelay* = 0.2
+  TextEditPersistenceTrailingDelay* = 1.0
+  TextEditPersistenceMaximumDelay* = 5.0
+
 proc clear*(schedule: var PersistenceSchedule) =
   schedule = PersistenceSchedule()
 
 proc schedule*(schedule: var PersistenceSchedule, now: float,
-    trailingDelay = 1.0, maximumDelay = 5.0) =
+    trailingDelay = TextEditPersistenceTrailingDelay,
+    maximumDelay = TextEditPersistenceMaximumDelay) =
   ## Move the trailing deadline for a new edit, without postponing recovery
   ## forever when input is continuous.
   if not schedule.pending:

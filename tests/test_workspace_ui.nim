@@ -5,9 +5,44 @@ import nimnui/geometry
 import nimculus/editor_app
 import nimculus/settings
 import nimculus/session
+import nimculus/persistence_scheduler
 import nimculus/workspace_ui
 
 suite "workspace UI state":
+  test "composition persistence coalesces rapid scheduling at its starvation cap":
+    var schedule: PersistenceSchedule
+    let startedAt = 100.0
+    for index in 0 ..< 50:
+      schedule.schedule(startedAt + float(index) * 0.016,
+        trailingDelay = WorkspaceCompositionPersistenceDelay,
+        maximumDelay = WorkspaceCompositionPersistenceDelay)
+
+    var dueCount = 0
+    if schedule.isDue(startedAt + 49.0 * 0.016):
+      inc dueCount
+    check dueCount == 1
+    check schedule.dueAt <=
+      schedule.startedAt + WorkspaceCompositionPersistenceDelay
+    schedule.clear()
+    check not schedule.isDue(startedAt + 49.0 * 0.016)
+
+  test "dock resize pointer moves use one counting persistence write":
+    var schedule: PersistenceSchedule
+    var writeCount = 0
+    let startedAt = 200.0
+    for index in 0 ..< 40:
+      schedule.schedule(startedAt + float(index) * 0.016,
+        trailingDelay = WorkspaceCompositionPersistenceDelay,
+        maximumDelay = WorkspaceCompositionPersistenceDelay)
+    # The pointer-up is the final event in the same debounced write window.
+    schedule.schedule(startedAt + 40.0 * 0.016,
+      trailingDelay = WorkspaceCompositionPersistenceDelay,
+      maximumDelay = WorkspaceCompositionPersistenceDelay)
+    if schedule.isDue(startedAt + 40.0 * 0.016):
+      inc writeCount
+      schedule.clear()
+    check writeCount == 1
+
   test "dock side and panel position APIs are exhaustive without moving panels":
     let settings = newSettingsStore("", "", "")
     check dockLeft != dockRight
