@@ -335,7 +335,7 @@
 - [ ] **Anchor: an edit-surviving position** — Zed `crates/multi_buffer/src/anchor.rs:17 (ExcerptAnchor), :28 (enum Anchor {Min, Excerpt, Max})`
 - [x] **The five-layer transform chain (inlay → fold → tab → wrap → block)** — Zed `crates/editor/src/display_map.rs:1 (module doc describing the contract), :213 (DisplayMap fields), :604 (snapshot() driving the chain)`
 - [ ] **Tab expansion layer** — Zed `crates/editor/src/display_map/tab_map.rs:20 (TabMap), :197 (TabSnapshot with tab_size and max_expansion_column), :41 (sync)`
-- [ ] **Block layer: non-text rows and replacement blocks** — Zed `crates/editor/src/display_map/block_map.rs:38 (BlockMap), :75 (BlockSnapshot), :163 (BlockPlacement Above/Below/Near/Replace), :377 (enum Block: Custom, FoldedBuffer, ExcerptBoundary, BufferHeader, Spacer), :282 (BlockProperties), :303 (BlockStyle)`
+- [x] **Block layer: non-text rows and replacement blocks** — Zed `crates/editor/src/display_map/block_map.rs:38 (BlockMap), :75 (BlockSnapshot), :163 (BlockPlacement Above/Below/Near/Replace), :377 (enum Block: Custom, FoldedBuffer, ExcerptBoundary, BufferHeader, Spacer), :282 (BlockProperties), :303 (BlockStyle)`
 - [ ] **Invisible character rendering** — Zed `crates/editor/src/display_map/invisibles.rs:34 is_invisible, :49 replacement, :75 FORMAT, :100 OTHER, :114 PRESERVE`
 - [ ] **EditorMode: one Editor type, several shapes** — Zed `crates/editor/src/editor.rs:464 (enum EditorMode: SingleLine, AutoHeight, Full, Minimap)`
 
@@ -484,9 +484,9 @@
 
 - [ ] **Crate init() registration order** — Zed `crates/zed/src/main.rs:491-771`
 - [x] **Settings UI (schema-driven)** — Zed `crates/settings_ui/src/settings_ui.rs (6797 lines) with page_data.rs, pages/, components/`
-- [ ] **Vim modal editing as an editor addon** — Zed `crates/vim/src/vim.rs:286 init (crate 47454 lines, 39 files); registered after editor at crates/zed/src/main.rs:761`
+- [x] **Vim modal editing as an editor addon** — Zed `crates/vim/src/vim.rs:286 init (crate 47454 lines, 39 files); registered after editor at crates/zed/src/main.rs:761`
 - [ ] **Collaboration (collab, collab_ui, call, channel, livekit)** — Zed `crates/collab_ui/src/collab_ui.rs (62 lines entry; crate 6392, collab server 15013), init at crates/zed/src/main.rs:749 (channel) and :771 (call)`
-- [ ] **REPL / notebook** — Zed `crates/repl/src/repl.rs:31 init (crate 12400 lines), notebook initialised separately at crates/zed/src/main.rs:733`
+- [x] **REPL / notebook** — Zed `crates/repl/src/repl.rs:31 init (crate 12400 lines), notebook initialised separately at crates/zed/src/main.rs:733`
 - [ ] **Auxiliary viewers (image_viewer, markdown_preview, svg_preview, csv_preview)** — Zed `crates/image_viewer (1050 lines), crates/markdown_preview (2609), init at crates/zed/src/main.rs:732`
 
 **不明（読めていない）**
