@@ -49,6 +49,8 @@ type
     action*: Action
     ## Source layer: User 0 < Vim 1 < Base 2 < Default 3.
     meta*: uint32
+    ## Whether meta was explicitly supplied. Missing metadata resolves as User.
+    hasMeta*: bool
 
   CommandRegistry* = object
     commands*: seq[Command]
@@ -189,12 +191,18 @@ proc setWhenClause*(command: var Command, whenClause: string) =
 
 proc register*(registry: var CommandRegistry, command: Command) =
   var registered = command
+  if registered.meta != userBindingMeta:
+    registered.hasMeta = true
   registered.predicate = parseCommandPredicate(registered.whenClause)
   registry.commands.add(registered)
 
 proc matchingDepth(command: Command, contexts: openArray[KeyContext]): int =
   let depth = command.predicate.depthOf(contexts)
   if depth.matched: depth.depth else: -1
+
+proc effectiveMeta(command: Command): uint32 =
+  ## Zed treats a binding without source metadata as a user binding.
+  if command.hasMeta or command.meta != 0: command.meta else: userBindingMeta
 
 proc rememberCommandPaletteShortcuts(registry: CommandRegistry,
                                      actions: openArray[string],
@@ -364,13 +372,13 @@ proc applyBindingMarkers(matches: seq[MatchingCommand]): seq[Command] =
   for match in matches:
     if match.command.action.isNoAction:
       hasNoAction = true
-      noActionMeta = min(noActionMeta, match.command.meta)
+      noActionMeta = min(noActionMeta, match.command.effectiveMeta())
 
   var unbound: seq[Command]
   for match in matches:
     let candidate = match.command
     if candidate.action.isNoAction: continue
-    if hasNoAction and candidate.meta >= noActionMeta: continue
+    if hasNoAction and candidate.effectiveMeta() >= noActionMeta: continue
     if candidate.action.isUnbind:
       unbound.add(candidate)
       continue
