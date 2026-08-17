@@ -5,6 +5,7 @@ license       = "MIT"
 srcDir        = "src"
 bin           = @ ["nimculus/main"]
 testEntryPoint = "tests/test_runner.nim"
+# tests/test_runner.nim discovers every tests/test_*.nim, including test_vim.nim.
 
 requires "nim >= 2.0.0"
 requires "graphemes >= 0.12.0"

@@ -9,6 +9,9 @@ import nimculus/syntax
 import nimculus/editor_scroll
 
 type
+  VimMode* = enum
+    vimNormal, vimInsert
+
   EditorViewState* = object
     selection*: Selection
     ## Zed keeps selections as an ordered collection owned by the editor item.
@@ -39,12 +42,19 @@ type
     foldedRanges*: seq[FoldRange]
     commandPaletteOpen*: bool
     statusMessage*: string
+    ## Vim is opt-in. Keep the mode on each editor view so split panes and
+    ## tabs cannot accidentally share modal state.
+    vimMode*: VimMode
+    vimEnabled*: bool
+    vimPendingKeystrokes*: seq[Keystroke]
+    vimCount*: int
 
-proc newEditorView*(): EditorViewState =
+proc newEditorView*(vimEnabled = false): EditorViewState =
   # Zed keeps long lines unwrapped by default. Turning soft-wrap on remains a
   # per-view preference and is restored when a session explicitly saved it.
   EditorViewState(showLineNumbers: true, softWrap: false,
-    showIndentGuides: true, indentWidth: 2, ongoingScroll: newOngoingScroll())
+    showIndentGuides: true, indentWidth: 2, ongoingScroll: newOngoingScroll(),
+    vimMode: vimNormal, vimEnabled: vimEnabled)
 
 proc editorLineHeight*(): float32 =
   ## One metric shared by rendering, scrolling, hit testing, IME placement,
