@@ -521,9 +521,10 @@ suite "M2 UI foundation":
       inc invoked
       true)
     registry.register(Command(name: "default-save", shortcut: shortcut,
-      action: buildAction("testUserNoActionStop", nil), meta: defaultBindingMeta))
+      action: buildAction("testUserNoActionStop", nil), meta: defaultBindingMeta,
+      hasMeta: true))
     registry.register(Command(name: "user-no-action", shortcut: shortcut,
-      action: noAction(), meta: userBindingMeta))
+      action: noAction(), meta: userBindingMeta, hasMeta: true))
     check registry.bindingsForInput(shortcut, []).len == 0
     check not registry.dispatchShortcut(shortcut)
     check invoked == 0
@@ -537,11 +538,13 @@ suite "M2 UI foundation":
       inc invoked
       true)
     registry.register(Command(name: "default-save", shortcut: shortcut,
-      action: buildAction("testBaseNoActionFallthrough", nil), meta: defaultBindingMeta))
+      action: buildAction("testBaseNoActionFallthrough", nil),
+      meta: defaultBindingMeta, hasMeta: true))
     registry.register(Command(name: "user-save", shortcut: shortcut,
-      action: buildAction("testBaseNoActionFallthrough", nil), meta: userBindingMeta))
+      action: buildAction("testBaseNoActionFallthrough", nil),
+      meta: userBindingMeta, hasMeta: true))
     registry.register(Command(name: "base-no-action", shortcut: shortcut,
-      action: noAction(), meta: baseBindingMeta))
+      action: noAction(), meta: baseBindingMeta, hasMeta: true))
     let bindings = registry.bindingsForInput(shortcut, [])
     check bindings.len == 1
     check bindings[0].name == "user-save"
@@ -564,9 +567,10 @@ suite "M2 UI foundation":
       inc invoked
       true)
     registry.register(Command(name: "save", shortcut: shortcut,
-      action: buildAction("testNullActionDefault", nil), meta: defaultBindingMeta))
+      action: buildAction("testNullActionDefault", nil),
+      meta: defaultBindingMeta, hasMeta: true))
     registry.register(Command(name: "settings-null-action", shortcut: shortcut,
-      action: noAction(), meta: userBindingMeta))
+      action: noAction(), meta: userBindingMeta, hasMeta: true))
     check not registry.dispatchShortcut(shortcut)
     check invoked == 0
     removeFile(path)
@@ -588,10 +592,75 @@ suite "M2 UI foundation":
     let shortcut = shortcutFromKeyBinding(configured[0].key)
     check registry.bindingsForInput(shortcut, []).len == 0
     registry.register(Command(name: configured[0].command, shortcut: shortcut,
-      action: buildAction(configured[0].command, nil), meta: userBindingMeta))
+      action: buildAction(configured[0].command, nil),
+      meta: userBindingMeta, hasMeta: true))
     check registry.dispatchShortcut(shortcut)
     check invoked == 1
     removeFile(path)
+
+  test "a settings rebind appends after the built-in binding":
+    let path = getTempDir() / ("nimculus-save-keymap-" &
+      $getCurrentProcessId() & ".json")
+    writeFile(path, """{"keymap":[{"key":"cmd+alt+s","command":"save"}]}""")
+    let settings = newSettingsStore(path, "", "")
+    let configured = settings.keyBindings()
+    check configured.len == 1
+
+    var registry: CommandRegistry
+    registry.register(Command(name: "save",
+      shortcut: shortcutFromKeyBinding("cmd+s"),
+      action: Action(name: "save", kind: actionCommand),
+      meta: defaultBindingMeta, hasMeta: true))
+    let userShortcut = shortcutFromKeyBinding(configured[0].key)
+    registry.register(Command(name: configured[0].command,
+      shortcut: userShortcut, action: Action(name: "save", kind: actionCommand),
+      meta: userBindingMeta, hasMeta: true))
+
+    var saveCount = 0
+    for command in registry.commands:
+      if command.name == "save": inc saveCount
+    check saveCount == 2
+    let bindings = registry.bindingsForInput(userShortcut, [])
+    check bindings.len == 1
+    check bindings[0].name == "save"
+    check bindings[0].meta == userBindingMeta
+    removeFile(path)
+
+  test "source precedence keeps a user binding above a base disable":
+    var registry: CommandRegistry
+    let shortcut = shortcutFromKeyBinding("cmd+k")
+    registry.register(Command(name: "commandA", shortcut: shortcut,
+      action: Action(name: "commandA", kind: actionCommand),
+      meta: defaultBindingMeta, hasMeta: true))
+    registry.register(Command(name: "base-disable", shortcut: shortcut,
+      action: noAction(), meta: baseBindingMeta, hasMeta: true))
+    registry.register(Command(name: "commandB", shortcut: shortcut,
+      action: Action(name: "commandB", kind: actionCommand),
+      meta: userBindingMeta, hasMeta: true))
+
+    var bindings = registry.bindingsForInput(shortcut, [])
+    check bindings.len == 1
+    check bindings[0].name == "commandB"
+
+    registry.commands.setLen(2)
+    bindings = registry.bindingsForInput(shortcut, [])
+    check bindings.len == 0
+
+  test "a binding without metadata resolves as a user binding":
+    var registry: CommandRegistry
+    let shortcut = shortcutFromKeyBinding("cmd+k")
+    registry.register(Command(name: "commandA", shortcut: shortcut,
+      action: Action(name: "commandA", kind: actionCommand),
+      meta: defaultBindingMeta, hasMeta: true))
+    registry.register(Command(name: "base-disable", shortcut: shortcut,
+      action: noAction(), meta: baseBindingMeta, hasMeta: true))
+    registry.register(Command(name: "commandB", shortcut: shortcut,
+      action: Action(name: "commandB", kind: actionCommand)))
+
+    let bindings = registry.bindingsForInput(shortcut, [])
+    check not registry.commands[2].hasMeta
+    check bindings.len == 1
+    check bindings[0].name == "commandB"
 
   test "a mismatched contextual binding falls back to the outer binding":
     var tree = newUiTree()

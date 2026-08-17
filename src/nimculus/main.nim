@@ -968,6 +968,7 @@ proc setupShortcutRegistry() =
     shortcutRegistry.register(Command(name: name, action: nativeCommandAction(name)))
   for index in 0 ..< shortcutRegistry.commands.len:
     shortcutRegistry.commands[index].meta = defaultBindingMeta
+    shortcutRegistry.commands[index].hasMeta = true
   when defined(macosx):
     syncCommandPaletteActions()
 
@@ -990,7 +991,7 @@ proc applySettingsKeymap() =
           break
       shortcutRegistry.register(Command(name: binding.command,
         shortcut: shortcut, whenClause: binding.whenClause,
-        action: action, meta: userBindingMeta))
+        action: action, meta: userBindingMeta, hasMeta: true))
 
     # `SettingsStore.keyBindings` intentionally exposes only string commands.
     # Read the raw keymap here as well so a JSON null can act as Zed's
@@ -1016,7 +1017,7 @@ proc applySettingsKeymap() =
             item["when"].getStr else: ""
         shortcutRegistry.register(Command(name: "__NoAction__",
           shortcut: shortcut, whenClause: whenClause, action: noAction(),
-          meta: userBindingMeta))
+          meta: userBindingMeta, hasMeta: true))
 
 when defined(macosx):
   proc resizeNativeTerminals()
