@@ -158,7 +158,7 @@
 - [x] **Action as a type-erased, registered value** — Zed `crates/gpui/src/action.rs:117 (trait Action), :233 (ActionRegistry), :293 (insert_action), :351 (build_action)`
 - [x] **NoAction / Unbind disable markers** — Zed `crates/gpui/src/action.rs:425-458, crates/gpui/src/keymap.rs:29 (disabled_binding_matches_context), :40 (binding_is_unbound), :195-225`
 - [x] **KeyBinding: a keystroke *sequence* with prefix matching** — Zed `crates/gpui/src/keymap/binding.rs:10 (struct), :48 (load, splits on whitespace), :89 (match_keystrokes returning Option<bool> where the bool means "pending")`
-- [ ] **Binding source metadata (user > vim > base > default)** — Zed `crates/gpui/src/keymap/binding.rs:143 (KeyBindingMetaIndex), crates/gpui/src/keymap.rs:199 (NoAction only breaks for user-sourced bindings), keymap.rs:831 (test documenting User 0 > Vim 1 > Base 2 > Default 3)`
+- [x] **Binding source metadata (user > vim > base > default)** — Zed `crates/gpui/src/keymap/binding.rs:143 (KeyBindingMetaIndex), crates/gpui/src/keymap.rs:199 (NoAction only breaks for user-sourced bindings), keymap.rs:831 (test documenting User 0 > Vim 1 > Base 2 > Default 3)`
 - [ ] **Reverse lookup: bindings_for_action, with shadow filtering** — Zed `crates/gpui/src/keymap.rs:95 (bindings_for_action), crates/gpui/src/key_dispatch.rs:401 (bindings_for_action), :420 (highest_precedence_binding_for_action), :435 (binding_matches_predicate_and_not_shadowed)`
 - [x] **Multi-keystroke pending state and replay** — Zed `crates/gpui/src/key_dispatch.rs:116 (Replay), :121 (DispatchResult with pending / pending_has_binding / bindings / to_replay), :483 (dispatch_key), :523 (flush_dispatch), :538 (replay_prefix); crates/gpui/src/window.rs:4868-4933 (pending buffer, focus invalidation, timeout)`
 - [x] **available_actions / is_action_available for the command palette** — Zed `crates/gpui/src/key_dispatch.rs:363 (available_actions, walks the dispatch path collecting listener action types and building a default instance of each), :382 (is_action_available)`
@@ -237,7 +237,7 @@
 - [ ] **Tab bar rendering (tabs, nav buttons, pinned row, drop targets)** — Zed `crates/workspace/src/pane.rs:3396 render_tab_bar, per-tab at pane.rs:2825 render_tab, drop target at pane.rs:3626`
 - [ ] **Item toolbar / breadcrumb slot** — Zed `crates/workspace/src/toolbar.rs:64 Toolbar, ToolbarItemLocation at toolbar.rs:56; Item side at item.rs:343 breadcrumb_location, :347 breadcrumbs`
 - [x] **Workspace serialization (DockStructure + pane tree + items)** — Zed `crates/workspace/src/persistence/model.rs:153 DockStructure, :203 DockData, :234 SerializedPaneGroup, :339 SerializedPane, :424 SerializedItem; writer at workspace.rs:7075 serialize_workspace_internal`
-- [ ] **Serialization throttle** — Zed `crates/workspace/src/workspace.rs:7058 serialize_workspace`
+- [x] **Serialization throttle** — Zed `crates/workspace/src/workspace.rs:7058 serialize_workspace`
 
 **無い**
 
@@ -324,7 +324,7 @@
 - [ ] **SelectionsCollection: disjoint anchored selections plus a pending one** — Zed `crates/editor/src/selections_collection.rs:26 (SelectionsCollection), :20 (PendingSelection), :560 change_with, :992 move_with, :1041 move_heads_with`
 - [ ] **Anchor-based scroll position** — Zed `crates/editor/src/scroll.rs:38 (ScrollAnchor {anchor, offset}), :305 ScrollManager::scroll_position, :51 ScrollAnchor::scroll_position`
 - [ ] **Autoscroll strategies** — Zed `crates/editor/src/scroll/autoscroll.rs:16 (enum Autoscroll), :100 (AutoscrollStrategy), :127 autoscroll_vertically, :345 autoscroll_horizontally; request queued on ScrollManager at scroll.rs:169`
-- [ ] **ScrollAmount: line / page / column / page-width** — Zed `crates/editor/src/scroll/scroll_amount.rs:19 (enum ScrollAmount), :30 lines(), :46 columns(), :53 pixels()`
+- [x] **ScrollAmount: line / page / column / page-width** — Zed `crates/editor/src/scroll/scroll_amount.rs:19 (enum ScrollAmount), :30 lines(), :46 columns(), :53 pixels()`
 - [ ] **Scrollbar geometry and thumb state** — Zed `crates/editor/src/scroll.rs:165 (ScrollbarThumbState), :161 (ActiveScrollbarState), :438 show_scrollbars, SCROLLBAR_SHOW_INTERVAL at :31`
 - [ ] **Edit transactions grouped with selection history** — Zed `crates/editor/src/editor.rs:8286 transact, :8392 start_transaction_at, :8414 end_transaction_at, :1394 SelectionHistory, :1297 SelectionHistoryMode`
 - [ ] **Highlight layering on top of the transform chain** — Zed `crates/editor/src/display_map.rs:229 (text_highlights, inlay_highlights, semantic_token_highlights fields), :161 (HighlightKey), :334 (HighlightStyleInterner), :1408 (HighlightedChunk); custom_highlights.rs:30`
