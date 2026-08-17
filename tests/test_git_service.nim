@@ -3,6 +3,7 @@ import std/osproc
 import std/strutils
 import std/sequtils
 import std/times
+import std/tables
 import std/unicode
 import std/unittest
 when defined(posix):
@@ -115,6 +116,35 @@ suite "M9 Git service":
     check entries[1].path == "new.txt"
     check entries[1].originalPath == "old.txt"
     check entries[2].conflict
+
+  test "rolls Git status up through every directory to the repository root":
+    let entries = @[
+      GitStatusEntry(indexStatus: ' ', worktreeStatus: 'M', path: "a/b/c.txt"),
+      GitStatusEntry(indexStatus: 'A', worktreeStatus: ' ', path: "a/d.txt")]
+    let summaries = summariesByDirectory(entries)
+    check summaries.hasKey("")
+    check summaries.hasKey("a")
+    check summaries.hasKey("a/b")
+    check summaries["a"].indexCount == 1
+    check summaries["a"].worktreeCount == 1
+    check summaries["a"].conflictCount == 0
+    check summaries["a/b"].indexCount == 0
+    check summaries["a/b"].worktreeCount == 1
+    check summaries["a/b"].conflictCount == 0
+    check summaries[""].indexCount == 1
+    check summaries[""].worktreeCount == 1
+
+  test "Git status flag lookup is cached per generation":
+    var entries = newSeq[GitStatusEntry](5_000)
+    for index in 0 ..< entries.len:
+      entries[index] = GitStatusEntry(indexStatus: ' ', worktreeStatus: 'M',
+        path: "directory/file" & $index & ".txt")
+    let generation = 7_341'u64
+    discard gitStatusFlagMaskForPath(entries, generation, "directory", true)
+    let started = cpuTime()
+    for _ in 0 ..< 10_000:
+      discard gitStatusFlagMaskForPath(entries, generation, "directory", true)
+    check (cpuTime() - started) * 1_000.0 < 50.0
 
   test "runs status, diff, stage, commit, log and blame":
     let root = m9TempDir("git")

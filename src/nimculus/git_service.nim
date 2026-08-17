@@ -30,6 +30,19 @@ type
     originalPath*: string
     conflict*: bool
 
+  GitSummary* = object
+    indexCount*: int
+    worktreeCount*: int
+    conflictCount*: int
+
+  GitSummaryCache = object
+    generation: uint64
+    sourceAddress: pointer
+    sourceLength: int
+    summaries: Table[string, GitSummary]
+    fileFlags: Table[string, int32]
+    initialized: bool
+
   GitCommit* = object
     hash*: string
     author*: string
@@ -78,6 +91,88 @@ type
 
 const MaxGitOutputBytes* = 16 * 1024 * 1024
 const GitProbeTimeoutMs = 2_000
+
+const
+  GitStatusFlagAdded = 2'i32
+  GitStatusFlagModified = 4'i32
+  GitStatusFlagDeleted = 8'i32
+
+proc normalizedStatusPath(path: string): string =
+  result = path.replace("\\", "/")
+  while result.startsWith("/"):
+    result = result[1 .. ^1]
+  while result.endsWith("/"):
+    result.setLen(result.len - 1)
+
+proc incrementSummary(summaries: var Table[string, GitSummary]; directory: string;
+                      entry: GitStatusEntry) =
+  var summary = summaries.getOrDefault(directory)
+  if entry.indexStatus notin {' ', '?', '!'}:
+    inc summary.indexCount
+  if entry.worktreeStatus notin {' ', '!'}:
+    inc summary.worktreeCount
+  if entry.conflict:
+    inc summary.conflictCount
+  summaries[directory] = summary
+
+proc addPathSummaries(summaries: var Table[string, GitSummary]; path: string;
+                      entry: GitStatusEntry) =
+  incrementSummary(summaries, "", entry)
+  var separator = path.rfind('/')
+  while separator >= 0:
+    incrementSummary(summaries, path[0 ..< separator], entry)
+    separator = path.rfind('/', 0, separator - 1)
+
+proc statusFlag(entry: GitStatusEntry): int32 =
+  if entry.conflict or entry.indexStatus in {'U', 'A'} and
+      entry.worktreeStatus in {'U', 'D'} or entry.worktreeStatus == 'D':
+    return GitStatusFlagDeleted
+  if entry.indexStatus in {'M', 'R'} or entry.worktreeStatus == 'M':
+    return GitStatusFlagModified
+  if entry.indexStatus in {'A', 'C', '?'} or entry.worktreeStatus == '?':
+    return GitStatusFlagAdded
+
+proc summariesByDirectory*(entries: openArray[GitStatusEntry]): Table[string, GitSummary] =
+  result = initTable[string, GitSummary]()
+  for entry in entries:
+    let path = normalizedStatusPath(entry.path)
+    if path.len == 0: continue
+    addPathSummaries(result, path, entry)
+
+proc refreshGitSummaryCache(cache: var GitSummaryCache;
+                            entries: openArray[GitStatusEntry]; generation: uint64) =
+  let sourceAddress = if entries.len == 0: nil else:
+    cast[pointer](unsafeAddr entries[0])
+  if cache.initialized and cache.generation == generation and
+      cache.sourceAddress == sourceAddress and cache.sourceLength == entries.len:
+    return
+  cache.summaries = summariesByDirectory(entries)
+  cache.fileFlags = initTable[string, int32]()
+  for entry in entries:
+    let path = normalizedStatusPath(entry.path)
+    if path.len > 0:
+      cache.fileFlags[path] = statusFlag(entry)
+  cache.generation = generation
+  cache.sourceAddress = sourceAddress
+  cache.sourceLength = entries.len
+  cache.initialized = true
+
+proc gitStatusFlagMaskForPath*(entries: openArray[GitStatusEntry]; generation: uint64;
+                               path: string; directory: bool): int32 =
+  ## Build the directory aggregate once for a status generation, then keep
+  ## project-panel row lookups to hash-table reads.
+  var cache {.global.}: GitSummaryCache
+  refreshGitSummaryCache(cache, entries, generation)
+  let candidate = normalizedStatusPath(path)
+  if not directory:
+    return cache.fileFlags.getOrDefault(candidate)
+  let summary = cache.summaries.getOrDefault(candidate)
+  if summary.conflictCount > 0:
+    return GitStatusFlagDeleted
+  if summary.indexCount > 0:
+    result = result or GitStatusFlagModified
+  if summary.worktreeCount > 0:
+    result = result or GitStatusFlagAdded
 
 proc appendBoundedGitOutput*(current, chunk: string;
     limit: int = MaxGitOutputBytes): tuple[output: string; truncated: bool] =

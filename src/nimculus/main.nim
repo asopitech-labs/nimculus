@@ -1376,38 +1376,21 @@ when defined(macosx):
 when defined(macosx):
   const
     SidebarLineFlagIgnored = 1
-    SidebarLineFlagAdded = 2
-    SidebarLineFlagModified = 4
-    SidebarLineFlagDeleted = 8
 
   proc workspaceGitStatusFlag(entry: WorkspaceEntry): int32 =
-    ## Project-panel labels follow Zed's precedence: conflict/deleted,
-    ## modified, added/untracked, then ignored. The source entries are the
-    ## existing asynchronous porcelain result, so Files never runs Git on
-    ## the UI thread just to paint a row.
+    ## Project-panel labels use the directory aggregate built for the current
+    ## Git status generation. Files never runs Git or scans every status entry
+    ## on the UI thread just to paint a row.
     if entry.relativePath.len == 0:
       return 0'i32
     let candidate = entry.relativePath.replace("\\", "/")
-    var best = 0
     let statusRootMatches = editorGitStatusRepository == nil or entry.rootPath.len == 0 or
       normalizedPath(entry.rootPath) == normalizedPath(editorGitStatusRepository.root)
     if statusRootMatches:
-      for status in editorGitStatusSourceEntries:
-        let statusPath = status.path.replace("\\", "/")
-        let matches = statusPath == candidate or
-          (entry.kind == WorkspaceFileKind.directory and
-            statusPath.startsWith(candidate & "/"))
-        if not matches: continue
-        let flag = if status.conflict or status.indexStatus in {'U', 'A'} and
-            status.worktreeStatus in {'U', 'D'} or status.worktreeStatus == 'D':
-          SidebarLineFlagDeleted
-        elif status.indexStatus in {'M', 'R'} or status.worktreeStatus == 'M':
-          SidebarLineFlagModified
-        elif status.indexStatus in {'A', 'C', '?'} or status.worktreeStatus == '?':
-          SidebarLineFlagAdded
-        else: 0
-        best = max(best, flag)
-    if best > 0: return int32(best)
+      let flag = gitStatusFlagMaskForPath(editorGitStatusSourceEntries,
+        editorGitStatusGeneration, candidate,
+        entry.kind == WorkspaceFileKind.directory)
+      if flag > 0: return flag
     if entry.ignored: return int32(SidebarLineFlagIgnored)
     0'i32
 
