@@ -1,66 +1,87 @@
 # Zed UI パリティ作業 引き継ぎメモ
 
-最終更新: 2026-08-15 / ブランチ `main`（push 済み、`5ba36f1`）
+最終更新: 2026-08-15 / ブランチ `main`（push 済み、`a60f30e`）
 
-## 0. セッション引き継ぎ（2026-08-15 時点）
+## 0. セッション引き継ぎ（2026-08-15 時点、長時間セッションの最終更新）
 
-**次にやること**: 下記「`platformtrait` の続き」を先に検討すること
-（`../nimculus-wt-platformtrait` に未完了のまま残置）。それ以外は
-`docs/ZED_PORT_TASKS.md` の `[ ]` から新規タスクを選ぶ。
-[nimculus-parallel-dev] スキルの手順でワークトリーを作り、
-`.claude/port-briefs/briefs.json` の指示書を使う。
+**次にやること（優先順）**:
+1. **下記「VM ゴールデンイメージが壊れている」を必ず先に読むこと。** 現状、
+   VM 経由の計測・スモークテストが一切できない状態で本セッションを終えている。
+2. `docs/ZED_PORT_TASKS.md` の `[ ]` から新規タスクを選ぶ。持ち越しの未完了
+   ワークトリーはない（`platformtrait` は本セッション中に完了・統合済み）。
+   [nimculus-parallel-dev] スキルの手順でワークトリーを作り、
+   `.claude/port-briefs/briefs.json` の指示書を使う。
 
 ### 現在地
 
-- 台帳: **228 / 116**（`docs/ZED_PORT_TASKS.md`、`[x]` 228 / `[ ]` 116）
+- 台帳: **241 / 103**（`docs/ZED_PORT_TASKS.md`、`[x]` 241 / `[ ]` 103。
+  セッション開始時は 216/128 だった）
 - `main` は `git status` クリーン、push 済み。`.nimcache` 全消しで
-  テストランナー 45/45、`nimble packageMacos` rc=0 を確認済み
-- このセッションで `main` に入った項目（12件、すべて実測で確認済み）:
-  - Entity handle + type-erased entity store（`src/nimnui/entity.nim`）
-  - TextStyle and its refinement/highlight composition（`src/nimnui/text.nim`）
-  - Double-buffered Frame with element-state carryover（2段階のバグ修正、VM 3回計測）
-  - Context<'a,T> - entity-scoped view of App（`src/nimnui/entity_context.nim`、entity 依存）
-  - Batching: merging sorted streams into draw calls（`src/nimnui/render.nim`、Step1のみ。
-    Metal側の固定8パス削除＝Step2は別タスクとして残る）
-  - Builder traits shared across components（`src/nimnui/controls.nim`）
-  - **Sprite atlas with shelf packing and keyed tiles**（`ar`、下記参照。3ラウンド、VM計測5回）
-  - Effect queue + flush_effects re-entrancy guard（`src/nimnui/effects.nim`、entity 依存）
-  - Per-element retained state keyed by GlobalElementId（既存の double-buffered Frame と
-    同じ土台に統合。`test_frame_double_buffer.nim` が壊れていないことを個別確認済み）
-  - Icon source abstraction and square hit box（`src/nimnui/controls.nim`）
-  - Hsla and alpha derivation（`src/nimnui/text.nim`。色ラダー置換はフォローアップで別途残る）
-  - ListItem slot layout（`src/nimnui/controls.nim`。所有ファイル内の既存描画パス
-    `paintOverlay` に実配線済み。ObjC側の行描画はフォローアップ）
+  テストランナー 48/48、`nimble packageMacos` rc=0 を確認済み（host 上、VM 抜きで）
+- このセッションで `main` に入った項目は25件。詳細は `git log --oneline` の
+  `Merge port/*` コミットを参照。カテゴリだけ記す:
+  - nimnui フレームワーク層（entity/entity_context/effects/text style/hsla/
+    controls builder traits・icon・list item/per-element state/batching step1）
+  - editor 層（multibuffer step1/five-layer chain step1(tab)/block layer step1/
+    invisible character rendering/scroll amount/vim step1）
+  - workspace/git 層（entry identity/git status summary/serialization throttle）
+  - platform 層（Platform trait step1）
+  - repl（Jupyter v5 message layer step1）
+  - **Sprite atlas with shelf packing and keyed tiles**（`ar`、後述。3ラウンド、VM計測5回）
+  - **Double-buffered Frame with element-state carryover**（`as`、2段階のバグ修正、VM 3回計測）
+  - crate init 順序（`initFeatures(app)`）
+  - keybinding source metadata
 - スクロール比（nimculus/zed の ms per 100px）の健全帯は概ね 0.85〜1.02
 - unit-test 判定かつ `macos_platform.m`/`main.nim` 未変更（既存経路に未配線の純フレームワーク
-  追加）のタスクは VM 計測を省略してよい、という判断基準を継続適用
+  追加）のタスクは VM 計測を省略してよい、という判断基準を継続適用。
+  `main.nim` を触るタスクも、VM 計測ではなく **ローカルゲート（nim check・
+  クリーンテストランナー・packageMacos rc=0）で十分**と判断したものが多数
+  （後述の VM 障害もありこの基準が実務上さらに重要になった）
 - **受け入れ条件が所有外のファイル（大抵 `macos_platform.m`）を要求している一文が
   混じっていることがある**（`briefs.json` は自動生成のため）。指示書を作る前に
   acceptance 全文を読み、所有外を要求する部分は明示的に「このタスクの範囲外」と
-  指示書に書いて除外すること（hsla・listitem・platformtrait で実施）
+  指示書に書いて除外すること
+- `main.nim` を同時に触る複数タスクでも、**異なる機能領域（dock 永続化、
+  pageUp/pageDown dispatch、keybinding 登録、git status flag、起動シーケンス等）
+  であれば `git merge` は自動マージで衝突しないことが多い**と分かった
+  （このセッションで main.nim 関連 9 タスクを統合し、手動コンフリクト解決は 0 件）。
+  ただし触る「関数・呼び出し箇所」が近いタスク同士は避けて束ねること
 
-### `platformtrait`（The Platform trait as the OS boundary）— 未完了・main 未統合
+### VM ゴールデンイメージが壊れている（次セッション最優先で確認）
 
-`../nimculus-wt-platformtrait`（ブランチ `port/platformtrait`）にコミットせず残置。
-`nim check` は通り、テストランナーも壊れていないが、**acceptance の数値ゲートを
-満たしていない**と codex 自身が正直に報告して停止した。
+セッション終盤、`cratelinit`（起動シーケンス変更）の実起動確認のため
+`tools/ui_test.sh smoke` を実行したところ、VM 内で
 
-acceptance:「`Platform*` レコードを作り、6つのクロージャフィールド（dispatcher/
-clipboardGet/clipboardSet/promptForPaths/promptForNewPath/setCursorStyle）に
-まとめたら、`platform.nim` 内の `importc: "nimculus_platform_` の出現数が
-**最低6件減る**はず」。実際は既存の `clipboardGet`/`chooseOpenFile` 等の
-`importc` 宣言をそのまま残して `Platform` レコードから呼び出す形にしたため、
-新規に `platformSetCursorStyleNative` の importc が1件増え、**250→251件と
-逆に増加した**。数値ゲートを満たすには、既存の6つの `importc` 宣言そのものを
-どこかへ移すか消す必要があり、それは所有ファイル外（`dispatcher.nim` または
-`macos_platform.m`）に触れることになるため、指示書の制約により実施せず停止した。
+```
+Warning: Error processing requirements for gitignore: Package gitignore@>= 0.1.0 not found.
+Error: Dependency gitignore not found in the graph
+Error: Couldnt find a solution for the packages. Unsatisfiable dependencies.
+```
 
-**次にやること**: acceptance の数値ゲートの意図を確認すること。おそらく
-「個別の `importc` 宣言を残したまま record でラップする」のではなく、
-「既存の `importc` 宣言自体を record 構築の内側だけに閉じ込め、`platform.nim`
-の外側（`main.nim` 等）からは record 経由でしか呼べなくする」ことを求めている。
-所有ファイルを広げて（`dispatcher.nim` を含める）再指示するか、数値ゲートを
-達成可能な形に指示書側で調整してから再着手すること。
+で `nimble packageMacos` 自体が失敗した。2回リトライしても同じ。
+**コントロール実験として、何も変更していない `main` 自体でも同じ smoke テストを
+回したところ、同一のエラーで失敗した。** つまりこれは今回のどの変更が
+原因でもなく、**このセッションのどこかで VM ゴールデンイメージ（または
+その nimble パッケージキャッシュ）が壊れた/失われた**ことを示す。
+
+このセッションの前半（`ar`/`as` の VM 計測、5回以上）では `tools/ui_test.sh
+parity` 経由の `packageMacos` は正常に成功していたので、**セッション後半の
+どこかで劣化した**と考えられる（原因は不明。連続で多数の VM を作っては
+消したことが影響した可能性はあるが未検証）。
+
+**次にやること**:
+1. まず `tools/ui_test.sh smoke`（や `parity`）を素の `main` で回して
+   再現するか確認する（直っている可能性もゼロではない）
+2. 再現する場合、ゴールデンイメージを作り直す
+   （`docs/MACOS_UI_TEST_GUIDELINES.md` 参照、`tart clone
+   ghcr.io/cirruslabs/macos-tahoe-xcode:latest ui-test-base` 相当）か、
+   イメージ内の nimble パッケージキャッシュ（`~/.nimble/pkgs2/gitignore-*`
+   に相当するもの）を復旧すること
+3. **直るまでは、`verifiable_by: capture-pixels` のタスクや、スクロール
+   コスト系タスク（`ar`/`as` のような回帰）は着手しないこと。** ローカル
+   ゲートだけでは検出できない種類の後退（グリフ描画欠落、スクロール性能
+   劣化）を過去に複数回このセッションで捕まえているため、VM が使えない間は
+   「実測できない＝未完了」の原則に従う
 
 ### `ar`（Sprite atlas with shelf packing and keyed tiles）— 完了・main に統合済み
 
