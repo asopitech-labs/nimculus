@@ -1,4 +1,5 @@
 import std/algorithm
+import std/options
 import std/strutils
 import nimculus/editor_buffer
 import nimculus/syntax
@@ -63,6 +64,89 @@ type
     glyph*: ShapedGlyph
     fontId*: uint32
 
+  ## A block is anchored in the wrapped-row coordinate space.  The placement
+  ## is deliberately a variant: Replace is the only placement whose anchor
+  ## is a range rather than a single row.
+  BlockPlacementKind* = enum
+    bpAbove, bpBelow, bpNear, bpReplace
+
+  BlockPlacement* = object
+    case kind*: BlockPlacementKind
+    of bpAbove, bpBelow, bpNear:
+      row*: int
+    of bpReplace:
+      range*: Slice[int]
+
+  BlockStyle* = enum
+    bsFixed, bsFlex, bsSpacer, bsSticky
+
+  BlockProperties* = object
+    placement*: BlockPlacement
+    height*: Option[int]
+    style*: BlockStyle
+    priority*: int
+
+  ## The multibuffer block kinds are part of the public shape now, although
+  ## their payload is intentionally reserved for the multibuffer task.
+  ExcerptBoundaryInfo* = object
+    discard
+
+  BlockKind* = enum
+    bkCustom, bkSpacer, bkFoldedBuffer, bkExcerptBoundary, bkBufferHeader
+
+  Block* = object
+    id*: int
+    properties*: BlockProperties
+    case kind*: BlockKind
+    of bkCustom:
+      discard
+    of bkSpacer:
+      discard
+    of bkFoldedBuffer, bkExcerptBoundary, bkBufferHeader:
+      excerptBoundaryInfo*: ExcerptBoundaryInfo
+
+  TransformKind* = enum
+    tkIsomorphic, tkBlock
+
+  ## A transform covers either a contiguous run of wrap rows or a run of
+  ## rows belonging to one block.  Both forms retain their display start so
+  ## the snapshot can be inspected without reconstructing the map.
+  Transform* = object
+    displayStart*: int
+    wrapStart*: int
+    rowCount*: int
+    case kind*: TransformKind
+    of tkIsomorphic:
+      discard
+    of tkBlock:
+      blockId*: int
+
+  BlockPointKind* = enum
+    bpkWrap, bpkBlock
+
+  BlockPoint* = object
+    displayRow*: int
+    wrapRow*: int
+    case kind*: BlockPointKind
+    of bpkWrap:
+      discard
+    of bpkBlock:
+      blockId*: int
+
+  BlockRow* = distinct int
+  BlockRowToken* = distinct int
+
+  BlockSnapshot* = object
+    wrapRowCount*: int
+    displayRowCount*: int
+    transforms*: seq[Transform]
+    blocks*: seq[Block]
+    ## These arrays are the compact point map used by the conversion helpers.
+    ## A negative wrap value is a reversible token for a block row.
+    displayToWrap*: seq[int]
+    displayToBlock*: seq[int]
+    wrapToDisplay*: seq[int]
+
   EditorTextLayout* = object
     rows*: seq[VisibleTextRow]
     totalRows*: int
@@ -73,18 +157,241 @@ proc foldPoint*(value: int): FoldPoint = FoldPoint(value)
 proc tabPoint*(value: int): TabPoint = TabPoint(value)
 proc wrapRow*(value: int): WrapRow = WrapRow(value)
 proc displayRow*(value: int): DisplayRow = DisplayRow(value)
+proc blockRow*(value: int): BlockRow = BlockRow(value)
+proc blockRowToken*(value: int): BlockRowToken = BlockRowToken(value)
 
 proc toInt*(value: SourceRow): int = int(value)
 proc toInt*(value: FoldPoint): int = int(value)
 proc toInt*(value: TabPoint): int = int(value)
 proc toInt*(value: WrapRow): int = int(value)
 proc toInt*(value: DisplayRow): int = int(value)
+proc toInt*(value: BlockRow): int = int(value)
+proc toInt*(value: BlockRowToken): int = int(value)
 
 proc `==`*(left, right: SourceRow): bool = left.toInt == right.toInt
 proc `==`*(left, right: FoldPoint): bool = left.toInt == right.toInt
 proc `==`*(left, right: TabPoint): bool = left.toInt == right.toInt
 proc `==`*(left, right: WrapRow): bool = left.toInt == right.toInt
 proc `==`*(left, right: DisplayRow): bool = left.toInt == right.toInt
+proc `==`*(left, right: BlockRow): bool = left.toInt == right.toInt
+
+proc above*(row: int): BlockPlacement =
+  BlockPlacement(kind: bpAbove, row: row)
+
+proc below*(row: int): BlockPlacement =
+  BlockPlacement(kind: bpBelow, row: row)
+
+proc near*(row: int): BlockPlacement =
+  BlockPlacement(kind: bpNear, row: row)
+
+proc replace*(first, last: int): BlockPlacement =
+  BlockPlacement(kind: bpReplace, range: first .. last)
+
+proc initBlockProperties*(placement: BlockPlacement; height: Option[int] = none(int);
+                          style = bsFixed; priority = 0): BlockProperties =
+  BlockProperties(placement: placement, height: height, style: style,
+    priority: priority)
+
+proc initCustomBlock*(id: int; properties: BlockProperties): Block =
+  Block(id: id, kind: bkCustom, properties: properties)
+
+proc initSpacerBlock*(id: int; properties: BlockProperties): Block =
+  Block(id: id, kind: bkSpacer, properties: properties)
+
+proc effectiveHeight*(item: Block): int =
+  if item.properties.height.isSome:
+    max(0, item.properties.height.get)
+  else:
+    0
+
+proc paintsGutter*(style: BlockStyle): bool = style != bsSpacer
+proc paintsGutter*(item: Block): bool = item.properties.style.paintsGutter
+
+proc blockId*(item: Block): int = item.id
+
+proc appendIsomorphicTransform(snapshot: var BlockSnapshot;
+                               displayStart, wrapStart, rowCount: int) =
+  if rowCount <= 0: return
+  if snapshot.transforms.len > 0:
+    let previous = snapshot.transforms[^1]
+    if previous.kind == tkIsomorphic and
+        previous.displayStart + previous.rowCount == displayStart and
+        previous.wrapStart + previous.rowCount == wrapStart:
+      snapshot.transforms[^1].rowCount += rowCount
+      return
+  snapshot.transforms.add(Transform(kind: tkIsomorphic,
+    displayStart: displayStart, wrapStart: wrapStart, rowCount: rowCount))
+
+proc appendBlockTransform(snapshot: var BlockSnapshot;
+                          displayStart, rowCount, blockId: int) =
+  if rowCount <= 0: return
+  snapshot.transforms.add(Transform(kind: tkBlock, displayStart: displayStart,
+    wrapStart: -1, rowCount: rowCount, blockId: blockId))
+
+proc blockSort(left, right: Block): int =
+  if left.properties.priority != right.properties.priority:
+    return cmp(left.properties.priority, right.properties.priority)
+  cmp(left.id, right.id)
+
+proc initBlockSnapshot*(wrapRows: int; blocks: openArray[Block]): BlockSnapshot =
+  ## Build a display map from the existing wrapped rows.  Source rows are
+  ## never copied or mutated; only their display intervals are transformed.
+  result.wrapRowCount = max(0, wrapRows)
+  result.blocks = @blocks
+  result.displayToWrap = @[]
+  result.displayToBlock = @[]
+  result.wrapToDisplay = newSeq[int](result.wrapRowCount)
+  for index in 0 ..< result.wrapToDisplay.len:
+    result.wrapToDisplay[index] = -1
+
+  var replacements: seq[int] = @[]
+  var aboveAt = newSeq[seq[int]](result.wrapRowCount + 1)
+  var belowAt = newSeq[seq[int]](result.wrapRowCount)
+  for blockIndex, item in result.blocks:
+    let placement = item.properties.placement
+    case placement.kind
+    of bpAbove:
+      let row = max(0, min(result.wrapRowCount, placement.row))
+      aboveAt[row].add(blockIndex)
+    of bpBelow:
+      if result.wrapRowCount > 0:
+        let row = max(0, min(result.wrapRowCount - 1, placement.row))
+        belowAt[row].add(blockIndex)
+    of bpNear:
+      let row = max(0, min(result.wrapRowCount, placement.row))
+      aboveAt[row].add(blockIndex)
+    of bpReplace:
+      replacements.add(blockIndex)
+  let blockItems = result.blocks
+  for row in 0 .. result.wrapRowCount:
+    aboveAt[row].sort(proc (left, right: int): int =
+      blockSort(blockItems[left], blockItems[right]))
+  for row in 0 ..< result.wrapRowCount:
+    belowAt[row].sort(proc (left, right: int): int =
+      blockSort(blockItems[left], blockItems[right]))
+  replacements.sort(proc (left, right: int): int =
+    let leftPlacement = blockItems[left].properties.placement.range
+    let rightPlacement = blockItems[right].properties.placement.range
+    if leftPlacement.a != rightPlacement.a: cmp(leftPlacement.a, rightPlacement.a)
+    else: blockSort(blockItems[left], blockItems[right]))
+
+  var replacementAt = newSeq[int](result.wrapRowCount)
+  for row in 0 ..< replacementAt.len: replacementAt[row] = -1
+  var replacementEnd = newSeq[int](result.wrapRowCount)
+  for row in 0 ..< replacementEnd.len: replacementEnd[row] = -1
+  for blockIndex in replacements:
+    let item = result.blocks[blockIndex]
+    let placement = item.properties.placement.range
+    let first = max(0, min(result.wrapRowCount, placement.a))
+    let last = max(first - 1, min(result.wrapRowCount - 1, placement.b))
+    if first >= result.wrapRowCount: continue
+    if replacementAt[first] != -1: continue
+    replacementAt[first] = blockIndex
+    replacementEnd[first] = last
+
+  var displayRow = 0
+  var wrapRow = 0
+  while wrapRow < result.wrapRowCount:
+    for blockIndex in aboveAt[wrapRow]:
+      let height = result.blocks[blockIndex].effectiveHeight
+      if height > 0:
+        result.appendBlockTransform(displayRow, height,
+          result.blocks[blockIndex].id)
+        for offset in 0 ..< height:
+          result.displayToWrap.add(-displayRow - offset - 1)
+          result.displayToBlock.add(result.blocks[blockIndex].id)
+        displayRow += height
+
+    if replacementAt[wrapRow] != -1:
+      let blockIndex = replacementAt[wrapRow]
+      let height = result.blocks[blockIndex].effectiveHeight
+      if height > 0:
+        result.appendBlockTransform(displayRow, height,
+          result.blocks[blockIndex].id)
+        for offset in 0 ..< height:
+          result.displayToWrap.add(-displayRow - offset - 1)
+          result.displayToBlock.add(result.blocks[blockIndex].id)
+        displayRow += height
+      wrapRow = replacementEnd[wrapRow] + 1
+      continue
+
+    let startDisplay = displayRow
+    result.displayToWrap.add(wrapRow)
+    result.displayToBlock.add(-1)
+    result.wrapToDisplay[wrapRow] = displayRow
+    inc displayRow
+    inc wrapRow
+    if displayRow - startDisplay > 0:
+      result.appendIsomorphicTransform(startDisplay, wrapRow - 1, 1)
+    for blockIndex in belowAt[wrapRow - 1]:
+      let height = result.blocks[blockIndex].effectiveHeight
+      if height > 0:
+        result.appendBlockTransform(displayRow, height,
+          result.blocks[blockIndex].id)
+        for offset in 0 ..< height:
+          result.displayToWrap.add(-displayRow - offset - 1)
+          result.displayToBlock.add(result.blocks[blockIndex].id)
+        displayRow += height
+
+  for blockIndex in aboveAt[result.wrapRowCount]:
+    let height = result.blocks[blockIndex].effectiveHeight
+    if height > 0:
+      result.appendBlockTransform(displayRow, height, result.blocks[blockIndex].id)
+      for offset in 0 ..< height:
+        result.displayToWrap.add(-displayRow - offset - 1)
+        result.displayToBlock.add(result.blocks[blockIndex].id)
+      displayRow += height
+  result.displayRowCount = displayRow
+
+proc newBlockSnapshot*(wrapRows: int; blocks: openArray[Block]): BlockSnapshot =
+  initBlockSnapshot(wrapRows, blocks)
+
+proc blockIdAtDisplayRow*(snapshot: BlockSnapshot; row: int): Option[int] =
+  if row < 0 or row >= snapshot.displayToBlock.len: return none(int)
+  let id = snapshot.displayToBlock[row]
+  if id < 0: none(int) else: some(id)
+
+proc sourceLineAtDisplayRow*(snapshot: BlockSnapshot; row: int): Option[int] =
+  if row < 0 or row >= snapshot.displayToWrap.len: return none(int)
+  if snapshot.displayToBlock[row] >= 0: return none(int)
+  some(snapshot.displayToWrap[row])
+
+proc blockPointAtDisplayRow*(snapshot: BlockSnapshot; row: int): BlockPoint =
+  if row < 0 or row >= snapshot.displayToWrap.len:
+    return BlockPoint(kind: bpkWrap, displayRow: row, wrapRow: -1)
+  let wrap = snapshot.displayToWrap[row]
+  let id = snapshot.displayToBlock[row]
+  if id >= 0:
+    BlockPoint(kind: bpkBlock, displayRow: row, wrapRow: -wrap - 1,
+      blockId: id)
+  else:
+    BlockPoint(kind: bpkWrap, displayRow: row, wrapRow: wrap)
+
+proc wrapRowToBlockPoint*(snapshot: BlockSnapshot; row: int): BlockPoint =
+  if row < 0 or row >= snapshot.wrapToDisplay.len:
+    return BlockPoint(kind: bpkWrap, displayRow: -1, wrapRow: row)
+  BlockPoint(kind: bpkWrap, displayRow: snapshot.wrapToDisplay[row], wrapRow: row)
+
+proc blockRowToWrapRow*(snapshot: BlockSnapshot; row: int): BlockRowToken =
+  ## Integer form is a reversible point token.  Text rows carry their wrap
+  ## row; block rows carry a negative token so every display row round-trips.
+  if row < 0 or row >= snapshot.displayToWrap.len: return blockRowToken(-1)
+  blockRowToken(snapshot.displayToWrap[row])
+
+proc wrapRowToBlockPoint*(snapshot: BlockSnapshot; token: BlockRowToken): int =
+  ## Inverse of the integer point-token form above.
+  let value = token.toInt
+  if value < 0:
+    return -value - 1
+  if value >= 0 and value < snapshot.wrapToDisplay.len:
+    return snapshot.wrapToDisplay[value]
+  -1
+
+proc blockRowToWrapRow*(snapshot: BlockSnapshot; row: BlockRow): WrapRow =
+  wrapRow(snapshot.blockRowToWrapRow(row.toInt).toInt)
+
+proc wrapRowToBlockPoint*(snapshot: BlockSnapshot; row: WrapRow): BlockPoint =
+  snapshot.wrapRowToBlockPoint(row.toInt)
 
 proc initFoldSnapshot*(text: string; version = 0'u64): FoldSnapshot =
   result.text = text
