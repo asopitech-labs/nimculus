@@ -1,6 +1,6 @@
 # Zed UI パリティ作業 引き継ぎメモ
 
-最終更新: 2026-08-19 / ブランチ `main`（push 済み、`c883b01`）
+最終更新: 2026-08-19 / ブランチ `main`（push 済み、`e523620`）
 
 ## 0. セッション引き継ぎ（2026-08-19 時点、長時間セッションの最終更新）
 
@@ -13,8 +13,15 @@
    作り、`.claude/port-briefs/briefs.json` の指示書を使う。**ワークトリーを
    作ったら `git worktree add` だけで終わらせず、`git submodule update
    --init --recursive` と `references/zed` へのシンボリックリンクを必ず
-   続けて打つこと**（このセッションで2回とも忘れて手戻りした。詳細は
-   `.claude/skills/nimculus-parallel-dev/SKILL.md` の該当セクション）。
+   続けて打つこと**（前回このセッションで2回とも忘れて手戻りした。今回の
+   バッチではチェックリスト通りに実施し、3件とも初回から48/48でクリーンに
+   通った ── 手順を守れば効く、という確認が取れた）。**さらに注意**:
+   `git submodule update --init --recursive` がタイムアウト等で中断すると、
+   一部のサブモジュールが `.git` gitlink ファイルだけ存在して中身が空、
+   という状態になることがある(`git submodule status` の `+`/`-` 印だけでは
+   判別できない)。`ls references/tree-sitter-*/  | wc -l` 相当で中身が
+   1個(`.git`のみ)しかないサブモジュールが無いか必ず確認すること。
+   詳細は `.claude/skills/nimculus-parallel-dev/SKILL.md` の該当セクション。
 3. **`Panel trait / dock contract` が完了したことで、`blocked_by` でこれに
    依存していた大物タスク（Agent panel/agent runtime、Debugger panel/
    DAP client、Extension host wasm+store UI）が着手可能になった。**
@@ -23,11 +30,11 @@
 
 ### 現在地
 
-- 台帳: **246 / 98**（`docs/ZED_PORT_TASKS.md`、`[x]` 246 / `[ ]` 98）
+- 台帳: **249 / 95**（`docs/ZED_PORT_TASKS.md`、`[x]` 249 / `[ ]` 95）
 - `main` は `git status` クリーン、push 済み。`.nimcache` 全消しで
   テストランナー 48/48、`nim check` 成功、`nimble packageMacos` rc=0 を
   確認済み（host 上）
-- 本セッションで `main` に入った項目は5件。うち3件（Panel trait descriptor
+- 本セッションで `main` に入った項目は8件。うち5件（Panel trait descriptor
   table / Task templates and spawn UI / GitBlame entity 編集追従）は
   前々回このメモに書いたとおり。今回さらに2件追加:
   - **Edit transactions grouped with selection history**（`editor_buffer.nim`）
@@ -44,6 +51,30 @@
     ②activation priority ソートが代替パネル選出ロジックまで巻き込んだ、
     ③ワイルドカード import が ObjC の weak fallback シンボルを上書きした）。
     詳細は下記「踏んだ罠」参照
+  - **Repository as an entity with a snapshot + a serialized job queue**
+    （`git_service.nim`）— `GitRepository` に snapshot と `Deque[GitJob]`
+    (keyed) を追加。main.nim に散らばっていた `editorGit*Job` モジュール
+    変数群を撤去しキュー経由へ統一。隣接する同一キーのジョブは追加でなく
+    置き換えるため、編集・保存の連打でも実際に起動する git プロセスは
+    1つに収束する
+  - **Anchor: an edit-surviving position**（`editor_buffer.nim`、
+    transform ベース）— edit/applyEdits が適用済み Edit のリストを返し、
+    キャレット・selection・fold を `transform(offset, edits, bias)` 経由で
+    編集に追従させる方式に変更。従来はクランプ(範囲外に出たときだけ引き
+    戻す)のみで、編集位置より手前の挿入・削除があると保存済み位置が
+    指すテキストが黙って変わっていた
+  - **Dock resize handle geometry and double-click reset**
+    （`workspace_ui.nim`）— `DockResizeHandleSize`(6pt)を名前付き定数化
+    し、main.nim に3箇所重複していた裸のリテラル `4'f32`(実際は無関係な
+    Zed定数の値を誤用していた)を撤去。ダブルクリックでのデフォルトサイズ
+    リセット配線、zoom中のハンドル非表示、辺ごとのリサイズカーソルを追加
+  - この3件はワークトリー設定チェックリスト(submodule init +
+    references/zed symlink)を守ったこともあり、**3件とも初回から
+    ローカルゲート(nim check・48/48・packageMacos)がクリーンに通り、
+    回帰は0件だった**（前バッチの panelcontract のような差し戻しラウンドは
+    発生しなかった）。ただし codex は3件中2件で「4件失敗、環境依存」と
+    自己診断してきており、独立検証で自環境では再現しないことを確認した
+    （罠21と同種の教訓を再確認）
 - 前々セッションで `main` に入った項目は3件（Panel trait descriptor table /
   Task templates and spawn UI / GitBlame entity 編集追従）。
 - さらに前セッションで `main` に入った項目は25件。詳細は `git log --oneline` の

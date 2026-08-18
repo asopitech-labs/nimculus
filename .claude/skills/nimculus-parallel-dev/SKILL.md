@@ -117,6 +117,34 @@ git fetch /Users/yoshinori/work/nimculus/references/tree-sitter-typescript
 git checkout $(git -C /Users/yoshinori/work/nimculus/references/tree-sitter-typescript rev-parse HEAD)
 ```
 
+### Bash ツールのタイムアウトで `submodule update` が中断すると、再実行してもスキップされたままになる(2026-08-19)
+
+上とは別の壊れ方。`git submodule update --init --recursive` を長時間(複数
+ワークトリー分をループで)実行して Bash ツール側のタイムアウト(3分)に
+引っかかると、プロセスが強制終了される。このとき、**クローン順で先に
+処理されたはずのサブモジュールの一部が、`.git` gitlink ファイルだけ書かれて
+中身の checkout が終わっていない状態で残ることがある。**
+
+厄介なのは、`git submodule status` で見ると **`+`/`-` の異常マーカーが
+付かない**(git 側は「記録されたリビジョンと一致している」と判断している)
+ため、上の shallow クローンのケースと違って `fatal:` エラーも出ず、
+**`git submodule update --init --recursive` を素直に再実行しても
+何も起きずスキップされる**こと。
+
+確認は `ls references/tree-sitter-<name>/` の中身が `.git` の1個だけに
+なっていないかを直接見ること(このセッションでは `tree-sitter-nim` と
+`tree-sitter-python` がこの状態だった)。直し方は空の該当ディレクトリを
+消してから対象だけ指定して再取得する:
+
+```bash
+rm -rf references/tree-sitter-nim references/tree-sitter-python
+git submodule update --init -- references/tree-sitter-nim references/tree-sitter-python
+```
+
+**複数ワークトリーの submodule 初期化を1つの `for` ループで連続実行しない
+（少なくとも Bash ツールのデフォルトタイムアウトに収まらない場合は）。**
+1本ずつ実行し、実行後に必ず中身の有無を確認すること。
+
 ### そのリンクで参照実装を全部消した（2026-08-10）
 
 **`.gitignore` の末尾スラッシュはディレクトリにしか一致しない。**
