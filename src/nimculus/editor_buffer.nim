@@ -1,6 +1,8 @@
 import std/algorithm
+import std/monotimes
 import std/sequtils
 import std/tables
+import std/times
 import std/unicode
 import nimnui/text
 
@@ -20,13 +22,18 @@ type
   EditTransaction = object
     records*: seq[EditRecord]
     beforeContentVersion, afterContentVersion: uint64
+    selectionsBefore, selectionsAfter: seq[Selection]
+    lastEditAt: MonoTime
   PieceTable* = object
     original*, additions*: string
     pieces*: seq[Piece]
     lineStarts*: seq[int]
     undoStack*, redoStack*: seq[EditTransaction]
+    undoSelections*, redoSelections*: seq[Selection]
     savedVersion*, version*: uint64
     savedContentVersion, contentVersion, nextContentVersion: uint64
+    lastEditAt: MonoTime
+    canGroupUndo: bool
   Excerpt* = object
     ## Source ranges use Nim's inclusive Slice representation. The aggregate
     ## offset space treats the end as `b + 1`, so context length is
@@ -183,7 +190,37 @@ proc validateEditRange(table: PieceTable, startByte, endByte: int, replacement: 
       not table.isUtf8Boundary(startByte) or not table.isUtf8Boundary(endByte):
     raise newException(ValueError, "edit range must use UTF-8 boundaries")
 
-proc edit*(table: var PieceTable, edit: Edit, recordUndo = true) =
+const
+  ## Zed groups edits through Editor::transact/start_transaction_at/end_transaction_at
+  ## at crates/editor/src/editor.rs:8286, :8299, and :8321.
+  EDIT_TRANSACTION_GROUPING_INTERVAL* = initDuration(milliseconds = 300)
+
+proc transactionSelections(edits: seq[Edit], after: bool): seq[Selection] =
+  var cumulativeShift = 0
+  for edit in edits:
+    let offset = edit.startByte + (if after: cumulativeShift + edit.text.len else: 0)
+    if after:
+      result.add(Selection(anchor: offset, active: offset))
+    else:
+      result.add(Selection(anchor: edit.startByte, active: edit.endByte))
+    cumulativeShift += edit.text.len - (edit.endByte - edit.startByte)
+
+proc effectiveTransactionSelections(edits: seq[Edit], selections: seq[Selection],
+                                    after: bool): seq[Selection] =
+  if selections.len > 0: return selections
+  edits.transactionSelections(after)
+
+proc canGroupTransaction(table: PieceTable, beforeContentVersion: uint64,
+                         at: MonoTime): bool =
+  table.canGroupUndo and table.undoStack.len > 0 and
+    table.undoStack[^1].afterContentVersion == beforeContentVersion and
+    at - table.lastEditAt <= EDIT_TRANSACTION_GROUPING_INTERVAL
+
+proc edit*(table: var PieceTable, edit: Edit, recordUndo = true,
+           at = MonoTime(), selectionsBefore: seq[Selection] = @[],
+           selectionsAfter: seq[Selection] = @[]) =
+  let hasExplicitTimestamp = at != MonoTime()
+  let editAt = if hasExplicitTimestamp: at else: getMonoTime()
   table.validateEditRange(edit.startByte, edit.endByte, edit.text)
   let start = edit.startByte
   let finish = edit.endByte
@@ -193,16 +230,36 @@ proc edit*(table: var PieceTable, edit: Edit, recordUndo = true) =
   let afterContentVersion = table.nextContentVersion
   table.replaceInternal(start, finish, edit.text)
   if recordUndo:
-    table.undoStack.add(EditTransaction(
-      records: @[EditRecord(beforeStartByte: start, afterStartByte: start,
-        before: oldText, after: edit.text)],
-      beforeContentVersion: beforeContentVersion,
-      afterContentVersion: afterContentVersion))
+    let edits = @[edit]
+    let beforeSelections = edits.effectiveTransactionSelections(selectionsBefore, false)
+    let afterSelections = edits.effectiveTransactionSelections(selectionsAfter, true)
+    let record = EditRecord(beforeStartByte: start, afterStartByte: start,
+      before: oldText, after: edit.text)
+    if hasExplicitTimestamp and table.canGroupTransaction(beforeContentVersion, editAt):
+      var transaction = table.undoStack[^1]
+      transaction.records.add(record)
+      transaction.afterContentVersion = afterContentVersion
+      transaction.selectionsAfter = afterSelections
+      transaction.lastEditAt = editAt
+      table.undoStack[^1] = transaction
+    else:
+      table.undoStack.add(EditTransaction(records: @[record],
+        beforeContentVersion: beforeContentVersion,
+        afterContentVersion: afterContentVersion,
+        selectionsBefore: beforeSelections,
+        selectionsAfter: afterSelections,
+        lastEditAt: editAt))
     table.redoStack.setLen(0)
+    table.canGroupUndo = true
+    table.lastEditAt = editAt
+  else:
+    table.canGroupUndo = false
   table.contentVersion = afterContentVersion
   inc table.version
 
-proc applyEdits*(table: var PieceTable, edits: seq[Edit]) =
+proc applyEdits*(table: var PieceTable, edits: seq[Edit],
+                 at = getMonoTime(), selectionsBefore: seq[Selection] = @[],
+                 selectionsAfter: seq[Selection] = @[]) =
   if edits.len == 0: return
   var ordered = edits
   for edit in ordered:
@@ -211,13 +268,16 @@ proc applyEdits*(table: var PieceTable, edits: seq[Edit]) =
   for index in 1 ..< ordered.len:
     if ordered[index - 1].endByte > ordered[index].startByte:
       raise newException(ValueError, "overlapping edits are not atomic")
-  ordered.reverse()
   let beforeContentVersion = table.contentVersion
   inc table.nextContentVersion
   let afterContentVersion = table.nextContentVersion
   var transaction = EditTransaction(records: newSeq[EditRecord](edits.len))
   transaction.beforeContentVersion = beforeContentVersion
   transaction.afterContentVersion = afterContentVersion
+  transaction.selectionsBefore = effectiveTransactionSelections(ordered, selectionsBefore, false)
+  transaction.selectionsAfter = effectiveTransactionSelections(ordered, selectionsAfter, true)
+  transaction.lastEditAt = at
+  ordered.reverse()
   var cumulativeShift = 0
   var recordsByStart = ordered
   recordsByStart.reverse()
@@ -228,8 +288,18 @@ proc applyEdits*(table: var PieceTable, edits: seq[Edit]) =
     cumulativeShift += edit.text.len - (edit.endByte - edit.startByte)
   for edit in ordered:
     table.replaceInternal(edit.startByte, edit.endByte, edit.text)
-  table.undoStack.add(transaction)
+  if table.canGroupTransaction(beforeContentVersion, at):
+    var grouped = table.undoStack[^1]
+    grouped.records.add(transaction.records)
+    grouped.afterContentVersion = transaction.afterContentVersion
+    grouped.selectionsAfter = transaction.selectionsAfter
+    grouped.lastEditAt = at
+    table.undoStack[^1] = grouped
+  else:
+    table.undoStack.add(transaction)
   table.redoStack.setLen(0)
+  table.canGroupUndo = true
+  table.lastEditAt = at
   table.contentVersion = afterContentVersion
   inc table.version
 
@@ -242,6 +312,8 @@ proc undo*(table: var PieceTable): bool =
     table.replaceInternal(record.afterStartByte, record.afterStartByte + record.after.len,
       record.before)
   table.redoStack.add(transaction)
+  table.undoSelections = transaction.selectionsBefore
+  table.canGroupUndo = false
   table.contentVersion = transaction.beforeContentVersion
   inc table.version
   true
@@ -255,9 +327,17 @@ proc redo*(table: var PieceTable): bool =
     table.replaceInternal(record.beforeStartByte, record.beforeStartByte + record.before.len,
       record.after)
   table.undoStack.add(transaction)
+  table.redoSelections = transaction.selectionsAfter
+  table.canGroupUndo = false
   table.contentVersion = transaction.afterContentVersion
   inc table.version
   true
+
+proc selectionsAfterUndo*(table: PieceTable): seq[Selection] =
+  table.undoSelections
+
+proc selectionsAfterRedo*(table: PieceTable): seq[Selection] =
+  table.redoSelections
 
 proc markSaved*(table: var PieceTable) =
   table.savedVersion = table.version
