@@ -5,6 +5,7 @@ when defined(posix):
   import std/files
 import std/strutils
 import std/options
+import std/monotimes
 import std/times
 import std/unicode
 import nimculus/editor_buffer
@@ -531,6 +532,39 @@ suite "M4 editor buffer":
     check buffer.toString() == "x y z"
     check buffer.undo()
     check buffer.toString() == "a a a"
+
+  test "grouped edits undo as one transaction and restore the caret":
+    var buffer = initPieceTable("prefix ")
+    var view = newEditorView()
+    view.moveCursor(7)
+    let before = buffer.toString()
+    let firstEditAt = getMonoTime()
+    for index, character in "hello":
+      let start = view.cursor
+      buffer.edit(Edit(startByte: start, endByte: start, text: $character),
+        at = firstEditAt + initDuration(milliseconds = int64(index * 10)))
+      view.moveCursor(start + 1)
+    check buffer.toString() == before & "hello"
+    check buffer.undo()
+    view.restoreSelections(buffer.selectionsAfterUndo(), buffer.toString())
+    check buffer.toString() == before
+    check view.cursor == 7
+
+  test "edits after the grouping interval undo separately":
+    var buffer = initPieceTable("prefix ")
+    let firstEditAt = getMonoTime()
+    for index, character in "hello":
+      buffer.edit(Edit(startByte: 7 + index, endByte: 7 + index, text: $character),
+        at = firstEditAt + initDuration(milliseconds = int64(index * 10)))
+    let lastFirstGroupEditAt = firstEditAt + initDuration(milliseconds = 40)
+    let secondEditAt = lastFirstGroupEditAt + EDIT_TRANSACTION_GROUPING_INTERVAL +
+      initDuration(milliseconds = 1)
+    for index, character in "world":
+      buffer.edit(Edit(startByte: 12 + index, endByte: 12 + index, text: $character),
+        at = secondEditAt + initDuration(milliseconds = int64(index * 10)))
+    check buffer.toString() == "prefix helloworld"
+    check buffer.undo()
+    check buffer.toString() == "prefix hello"
 
   test "overlapping edits fail before mutating the buffer":
     var buffer = initPieceTable("abcdef")

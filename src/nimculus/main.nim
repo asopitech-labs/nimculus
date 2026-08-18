@@ -7067,11 +7067,13 @@ proc handleSecondaryEditorCommand(name: string, document: ptr FileDocument): boo
     discard deleteEditorSelections(activeDocument, view, name)
   of "undo":
     if activeDocument[].buffer.undo():
-      view.moveCursor(min(view.cursor, activeDocument[].buffer.toString().len))
+      view.restoreSelections(activeDocument[].buffer.selectionsAfterUndo(),
+        activeDocument[].buffer.toString())
       refreshEditorSyntax()
   of "redo":
     if activeDocument[].buffer.redo():
-      view.moveCursor(min(view.cursor, activeDocument[].buffer.toString().len))
+      view.restoreSelections(activeDocument[].buffer.selectionsAfterRedo(),
+        activeDocument[].buffer.toString())
       refreshEditorSyntax()
   of "copy":
     let copied = copyEditorSelections(activeDocument, view)
@@ -9693,13 +9695,15 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       scheduleSessionPersistence()
   elif name == "undo" and document != nil:
     if document[].buffer.undo():
-      editorViewState.moveCursor(min(editorViewState.cursor, document[].buffer.toString().len))
+      editorViewState.restoreSelections(document[].buffer.selectionsAfterUndo(),
+        document[].buffer.toString())
       syncEditorCursor()
       refreshEditorSyntax()
       scheduleSessionPersistence()
   elif name == "redo" and document != nil:
     if document[].buffer.redo():
-      editorViewState.moveCursor(min(editorViewState.cursor, document[].buffer.toString().len))
+      editorViewState.restoreSelections(document[].buffer.selectionsAfterRedo(),
+        document[].buffer.toString())
       syncEditorCursor()
       refreshEditorSyntax()
       scheduleSessionPersistence()

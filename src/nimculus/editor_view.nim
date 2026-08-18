@@ -177,6 +177,7 @@ proc clearAdditionalSelections*(view: var EditorViewState) =
   view.additionalSelections.setLen(0)
 
 proc floorGraphemeBoundary*(text: string, offset: int): int
+proc clampSelectionToText*(view: var EditorViewState, text: string)
 
 proc addCaret*(view: var EditorViewState, byteOffset: int, text: string): bool =
   ## Add a collapsed caret without disturbing the primary selection. This is
@@ -194,6 +195,15 @@ proc makeSingleSelection*(view: var EditorViewState, anchor, active: int) =
 proc moveCursor*(view: var EditorViewState, byteOffset: int, selecting = false) =
   if not selecting: view.selection.anchor = byteOffset
   view.selection.active = byteOffset
+
+proc restoreSelections*(view: var EditorViewState, selections: openArray[Selection],
+                        text: string) =
+  if selections.len == 0: return
+  view.selection = selections[0]
+  view.additionalSelections.setLen(0)
+  for selection in selections[1 ..< selections.len]:
+    view.additionalSelections.add(selection)
+  view.clampSelectionToText(text)
 
 proc byteOffsetAtLineColumn*(buffer: PieceTable, line, column: int): int =
   ## Convert a logical grapheme column into a UTF-8 byte offset.
