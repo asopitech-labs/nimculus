@@ -1,42 +1,52 @@
 # Zed UI パリティ作業 引き継ぎメモ
 
-最終更新: 2026-08-18 / ブランチ `main`（push 済み、`410062f`）
+最終更新: 2026-08-19 / ブランチ `main`（push 済み、`c883b01`）
 
-## 0. セッション引き継ぎ（2026-08-18 時点、長時間セッションの最終更新）
+## 0. セッション引き継ぎ（2026-08-19 時点、長時間セッションの最終更新）
 
 **次にやること（優先順）**:
-1. VM ゴールデンイメージは前セッションで完全復旧済み（`make vm-verify`成功、
+1. VM ゴールデンイメージは前々セッションで完全復旧済み（`make vm-verify`成功、
    `tools/ui_test.sh smoke` も実 Zed 比較込みで成功確認済み）。復旧手順は
    `Makefile`/`tools/vm_golden_image.sh` として常設化されている（下記参照）。
 2. `docs/ZED_PORT_TASKS.md` の `[ ]` から新規タスクを選ぶ。持ち越しの未完了
-   ワークトリーはない（`paneltrait`/`tasktemplate`/`gitblame` は本セッション中に
-   完了・統合済み）。[nimculus-parallel-dev] スキルの手順でワークトリーを作り、
-   `.claude/port-briefs/briefs.json` の指示書を使う。
-3. **`paneltrait`（Panel trait descriptor table）が完了したことで、
-   `blocked_by` でこれに依存していた大物タスク（Agent panel/agent runtime、
-   Debugger panel/DAP client、Extension host wasm+store UI）が着手可能になった。**
-   次バッチの有力候補。
+   ワークトリーはない。[nimculus-parallel-dev] スキルの手順でワークトリーを
+   作り、`.claude/port-briefs/briefs.json` の指示書を使う。**ワークトリーを
+   作ったら `git worktree add` だけで終わらせず、`git submodule update
+   --init --recursive` と `references/zed` へのシンボリックリンクを必ず
+   続けて打つこと**（このセッションで2回とも忘れて手戻りした。詳細は
+   `.claude/skills/nimculus-parallel-dev/SKILL.md` の該当セクション）。
+3. **`Panel trait / dock contract` が完了したことで、`blocked_by` でこれに
+   依存していた大物タスク（Agent panel/agent runtime、Debugger panel/
+   DAP client、Extension host wasm+store UI）が着手可能になった。**
+   次バッチの有力候補。ただしどれも `size: large`（Zed 側で数万行規模）
+   なので、着手前に分割方針を検討すること。
 
 ### 現在地
 
-- 台帳: **244 / 100**（`docs/ZED_PORT_TASKS.md`、`[x]` 244 / `[ ]` 100）
+- 台帳: **246 / 98**（`docs/ZED_PORT_TASKS.md`、`[x]` 246 / `[ ]` 98）
 - `main` は `git status` クリーン、push 済み。`.nimcache` 全消しで
   テストランナー 48/48、`nim check` 成功、`nimble packageMacos` rc=0 を
   確認済み（host 上）
-- 本セッションで `main` に入った項目は3件:
-  - **Panel trait descriptor table**（`workspace_ui.nim`/`macos_platform.m`/
-    `session.nim`）— 8パネル分の設定を単一 `PanelInfo` テーブルに集約、
-    `case panel` を撤廃。ObjC 側の ordinal リテラルは Nim エクスポート値を
-    weak symbol 経由で参照する方式に変更
-  - **Task templates and spawn UI**（`task_service.nim`）— `TaskTemplate`/
-    `resolveTaskTemplate` と `${VAR:default}` 置換、`.nimculus/tasks.json` 読込
-  - **GitBlame entity 編集追従**（`git_blame.nim`）— `documentVersion` キー方式
-    (1文字入力で blame が消える不具合の原因)を廃止し `applyEdit` によるその場
-    スプライスに変更。**所有外の `tests/test_git_service.nim` の既存2テストが
-    まさに廃止対象の旧仕様を検証しており衝突していた**（codex は所有外のため
-    未修正・報告のみで停止、正しい振る舞い）。新契約に合わせて自分で書き直し、
-    独立に再検証した（下記「踏んだ罠」に詳細）
-- 前セッションで `main` に入った項目は25件。詳細は `git log --oneline` の
+- 本セッションで `main` に入った項目は5件。うち3件（Panel trait descriptor
+  table / Task templates and spawn UI / GitBlame entity 編集追従）は
+  前々回このメモに書いたとおり。今回さらに2件追加:
+  - **Edit transactions grouped with selection history**（`editor_buffer.nim`）
+    — undo/redo でのキャレット復元をトランザクションが保持するセレクション
+    情報から行うようにし、main.nim の旧クランプ式復元（誤魔化し）を撤去。
+    300ms 以内の連続編集は1つの undo ステップにグルーピング。**codex 自身が
+    追加した受け入れテストが実際には失敗していた**（グルーピング境界の
+    時刻計算が、グループ最初の編集時刻ではなく直近の編集時刻を基準に
+    判定する実装と食い違っていた）ものを1往復で検出・修正させた
+  - **Panel trait / dock contract**（`workspace_ui.nim`）—
+    Panel trait descriptor table の上位版。dock zoom・activation priority
+    順序・ObjC側 identifier 完全撤去を追加。**3ラウンドの独立検証で3件の
+    回帰を発見**（①footer mask を復元しないままにするテスト追加、
+    ②activation priority ソートが代替パネル選出ロジックまで巻き込んだ、
+    ③ワイルドカード import が ObjC の weak fallback シンボルを上書きした）。
+    詳細は下記「踏んだ罠」参照
+- 前々セッションで `main` に入った項目は3件（Panel trait descriptor table /
+  Task templates and spawn UI / GitBlame entity 編集追従）。
+- さらに前セッションで `main` に入った項目は25件。詳細は `git log --oneline` の
   `Merge port/*` コミットを参照。カテゴリだけ記す:
   - nimnui フレームワーク層（entity/entity_context/effects/text style/hsla/
     controls builder traits・icon・list item/per-element state/batching step1）
@@ -509,6 +519,32 @@ overall  identical 70.97%   diff<=2 71.53%   >32 7.29%   mean 12.02
     確認してから書き直すこと。当て推量で消さない — 実際に何を検証しているかを
     読み、新しい契約でも同じ観点＝「identity の一致条件」「無効化のトリガー」を
     テストし続けるように書き換える）。
+21. **codex の「テストランナー 48/48」報告は、ワークトリー環境そのものが
+    壊れていても出ることがある**（2026-08-18、`edittx`/`panelcontract`）→
+    `git worktree add` 直後に `git submodule update --init --recursive` と
+    `references/zed` へのシンボリックリンクを打ち忘れたまま codex を走らせた。
+    codex 自身は「tree-sitter サブモジュール由来」「GUI/LaunchServices 環境
+    依存」と自己診断して報告してきたが、**依頼側で同じコマンドを打つと
+    再現し、原因はコードではなく worktree セットアップの手順漏れだった**。
+    `git submodule update --init --recursive` を打つだけで 12 件の失敗が
+    消え、`references/zed` のリンクを張るだけでさらに1件（絵文字フォント
+    契約テスト、`references/zed/assets/fonts/...` を実行時に cwd 相対で
+    読む）が消えた。**codex の「環境依存」という自己診断を鵜呑みにせず、
+    まず自分の環境で同じコマンドを打ち直して再現するか確認すること。**
+    詳細は `.claude/skills/nimculus-parallel-dev/SKILL.md`。
+22. **ワイルドカード import が無関係なネイティブテストを壊すことがある**
+    （2026-08-18、`panelcontract`）→ `tests/test_platform_contract.nim`
+    に `import nimculus/workspace_ui` を1行足しただけで、footer mask とは
+    一切無関係な2つのネイティブ契約テスト（Git sidebar tabs, workspace
+    toolbar）が壊れた。原因は `editor_view.nim` が `import nimnui/nimnui`
+    （モジュール全体）をしており、これが `nimnui/controls` の Nim 実装を
+    このテストバイナリに新たにリンクさせ、ObjC 側の `__attribute__((weak))`
+    フォールバックシンボルを静かに上書きしていたこと。**「1行 import を
+    足しただけなのに無関係なテストが壊れる」ときは、その import が
+    別のワイルドカード import を経由して意図しないシンボルをリンクして
+    いないか疑うこと。** 切り分け方: 疑わしい import を外した最小構成と、
+    テストファイルは main の元のまま・本体側だけ差分を残した構成の
+    2通りを作り、どちらで症状が消えるかを比較する。
 
 ## 5. 次にやること（優先順）
 

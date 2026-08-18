@@ -159,6 +159,50 @@ git ls-files に ../nimculus-wt-* は載らない
 作りっぱなしにしない。ワークトリーは作業ツリーの実体なので、
 放置すると `main` の状態が分からなくなる。**マージしたら畳む。**
 
+### `git worktree add` を生で打つと上の2つを両方忘れる(2026-08-18)
+
+`git worktree add ../nimculus-wt-X -b port/X` の後、`git submodule update
+--init --recursive` と `references/zed` へのシンボリックリンクを**手作業で
+続けて打たないと**、両方とも欠けたまま気付かずに codex を走らせてしまう。
+このセッションで実際に3本中2本で踏んだ:
+
+- サブモジュール未初期化 → tree-sitter 関連ファイルのコンパイル失敗で
+  ランナーが `48/36` 相当の大量失敗を出す(§2 既述の症状そのもの)
+- `references/zed` 未リンク → **ビルドは通るが特定のネイティブ契約テストだけ
+  静かに落ちる**(下記「参照実装のファイルを実行時に読むテスト」)
+
+**必ず「作る」の直後に3行セット(submodule update / ln -s / check-ignore)を
+続けて打つこと。`git worktree add` 単体で終わらせない。**
+
+### 参照実装のファイルを実行時に読むテストは worktree で静かに落ちる(2026-08-18)
+
+`references/zed` はビルド時の行番号引用だけでなく、**一部のネイティブ契約
+テストが実行時に実ファイルとして読む**(例:
+`nimnui_platform_validate_color_emoji_sequences` が
+`references/zed/assets/fonts/lilex/Lilex-Regular.ttf` を
+`[[NSFileManager defaultManager] currentDirectoryPath]` 相対で読む)。
+シンボリックリンクを張り忘れると、**ビルドも `nim check` も通ったまま、
+そのテストだけ `main` と結果が食い違う**。tree-sitter のようにコンパイル
+段階で派手に落ちないため見落としやすい。`main` で同じテストを実行して
+差分が出るかを必ず控えの判定材料にすること(このセッションでは
+`./tests/test_platform_contract` を `main` と当該ワークトリーで両方走らせ
+比較して発見した)。
+
+### ワイルドカード import が ObjC の weak fallback シンボルを不意に上書きする(2026-08-18)
+
+`nimnui/nimnui` のような「モジュール全体を読み込む」import を新たに
+テストファイルへ足すと、**そのテストバイナリだけに `nimnui/controls` 等の
+Nim実装が新たにリンクされ**、ObjC 側の `__attribute__((weak))` フォール
+バックシンボルを静かに置き換えることがある。結果、footer mask のような
+無関係なグローバル状態を一切触っていないネイティブ契約テストが、
+importを1行足しただけで壊れる。**原因の切り分け方**: 疑わしい import を
+一時的に外した最小構成でビルド・実行し直し、症状が消えるかを確認する
+(逆に main 側の生成物と対象ファイルだけ差し替えて症状が再現するかも
+確認する)。直し方は「必要な proc/型だけを個別 import に絞る」であり、
+モジュール全体の import を安易に足さないこと — 特にテストファイルは
+歴史的に import を最小限に保つ設計になっていることが多い(このリポジトリ
+では `tests/test_platform_contract.nim` がそれに該当した)。
+
 ## 3. 作業の割り当て — ファイルを 1 タスクだけが所有する
 
 Nimculus は Zed のような層分割が済んでおらず、実装が 2 ファイルに集中している。
