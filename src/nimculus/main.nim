@@ -1302,6 +1302,27 @@ when defined(macosx):
   var editorGitBlameInlineShown = false
   var editorGitBlameDelayGeneration = 0'u64
   var editorGitBlameConfiguredDelayMs = -1
+
+  proc applyEditorEditsWithGitBlame(document: ptr FileDocument;
+                                    edits: seq[Edit]) =
+    if document == nil or edits.len == 0:
+      return
+    var changes: seq[tuple[startLine, removedLines, insertedLines: int]]
+    for edit in edits:
+      let startLine = document[].buffer.lineColumn(edit.startByte).line
+      let endLine = document[].buffer.lineColumn(edit.endByte).line
+      changes.add((startLine: startLine,
+        removedLines: max(0, endLine - startLine),
+        insertedLines: edit.text.count('\n')))
+    document[].buffer.applyEdits(edits)
+    if not editorGitBlameCache.valid or
+        editorGitBlameCache.key.documentPath != document[].path:
+      return
+    changes.sort(proc(left, right: tuple[startLine, removedLines, insertedLines: int]): int =
+      cmp(right.startLine, left.startLine))
+    for change in changes:
+      editorGitBlameCache.applyEdit(change.startLine, change.removedLines,
+        change.insertedLines)
   var editorGitRepository: GitRepository
   var editorGitPath = ""
   var editorSecondaryGitPath = ""
@@ -5278,7 +5299,7 @@ when defined(macosx):
   proc scheduleNativeGitBlame(document: ptr FileDocument): bool =
     let documentPath = if document == nil: "" else: document[].path
     let documentVersion = if document == nil: 0'u64 else: document[].buffer.version
-    if editorGitBlameCache.unavailableMatches(documentPath, documentVersion) and
+    if editorGitBlameCache.unavailableMatches(documentPath) and
         editorGitBlameUnavailableSettingsGeneration == editorGitBlameSettingsGeneration:
       return false
     if editorGitBlameSuppressed and editorGitBlameSuppressedPath == documentPath and
@@ -5301,7 +5322,7 @@ when defined(macosx):
       cancelNativeGitBlame()
       platformSetIdleForBlame(false)
       inc editorGitBlameDelayGeneration
-      editorGitBlameCache.beginUnavailable(documentPath, documentVersion)
+      editorGitBlameCache.beginUnavailable(documentPath)
       editorGitBlameUnavailableSettingsGeneration = editorGitBlameSettingsGeneration
       editorGitBlameLine = -1
       editorGitBlameEntry = GitBlameLine()
@@ -5313,8 +5334,7 @@ when defined(macosx):
     let line = max(0, document[].buffer.lineColumn(activeEditorCursor()).line)
     let lineEmpty = document[].buffer.lineIsEmpty(line)
     let repositoryRoot = repository.root
-    let sameDocument = editorGitBlameCache.matches(repositoryRoot, document[].path,
-      documentVersion)
+    let sameDocument = editorGitBlameCache.matches(repositoryRoot, document[].path)
     let previousLine = editorGitBlameLine
     let delayMs = appSettings.gitInlineBlameDelayMs()
     let delayChanged = delayMs != editorGitBlameConfiguredDelayMs
@@ -5326,7 +5346,7 @@ when defined(macosx):
         editorGitBlameCache.entryAt(line) else: GitBlameLine()
     else:
       cancelNativeGitBlame()
-      editorGitBlameCache.begin(repositoryRoot, document[].path, documentVersion)
+      editorGitBlameCache.begin(repositoryRoot, document[].path)
       editorGitBlameLine = line
       editorGitBlameLineEmpty = lineEmpty
       editorGitBlameEntry = GitBlameLine()
@@ -5344,8 +5364,8 @@ when defined(macosx):
         editorGitBlameInlineShown = true
     platformSetIdleForBlame(not editorGitBlameCache.loaded or editorGitBlameJob != nil or
       (delayMs > 0 and not editorGitBlameInlineShown))
-    if not editorGitBlameCache.shouldStart(repositoryRoot, document[].path, documentVersion,
-        lineEmpty, editorGitBlameJob != nil): return true
+    if not editorGitBlameCache.shouldStart(repositoryRoot, document[].path, lineEmpty,
+        editorGitBlameJob != nil): return true
     editorGitBlameJob = repository.startGitJob(["blame", "--line-porcelain", "--", relative])
     platformSetIdleForBlame(true)
     true
@@ -6805,7 +6825,10 @@ proc editEditorSelections(document: ptr FileDocument, view: var EditorViewState,
     cumulativeShift += replacement.len - (endByte - startByte)
     previousEnd = endByte
   if edits.len == 0: return false
-  document[].buffer.applyEdits(edits)
+  when defined(macosx):
+    applyEditorEditsWithGitBlame(document, edits)
+  else:
+    document[].buffer.applyEdits(edits)
   # Byte-anchored fold ranges are invalidated by edits until Tree-sitter has
   # produced a fresh display map. Recomputing them avoids hiding a different
   # source region after an insertion shifts the old range.
@@ -6847,7 +6870,10 @@ proc deleteEditorSelections(document: ptr FileDocument, view: var EditorViewStat
     cumulativeShift -= endByte - startByte
     previousEnd = endByte
   if edits.len == 0: return false
-  document[].buffer.applyEdits(edits)
+  when defined(macosx):
+    applyEditorEditsWithGitBlame(document, edits)
+  else:
+    document[].buffer.applyEdits(edits)
   view.foldedRanges.setLen(0)
   view.selection = nextSelections[0]
   view.additionalSelections = if nextSelections.len > 1:
