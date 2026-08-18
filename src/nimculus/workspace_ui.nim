@@ -5,6 +5,7 @@
 ## and focus in one place, as Zed's Workspace does.
 
 import nimnui/geometry
+import std/algorithm
 import std/json
 import std/os
 import std/sequtils
@@ -76,7 +77,7 @@ type
   DockState* = object
     side*: DockSide
     isOpen*: bool
-    zoom*: bool
+    zoomed*: bool
     activePanel*: PanelKind
     minimumSize*: float32
     entries*: seq[PanelKind]
@@ -86,7 +87,7 @@ type
     ## Width is stored per panel in WorkspaceUiState, not on the dock.
     side*: DockSide
     isOpen*: bool
-    zoom*: bool
+    zoomed*: bool
     activePanel*: PanelKind
     size*: float32
     minimumSize*: float32
@@ -131,7 +132,7 @@ type
 
 proc `==`*(a, b: PaneId): bool {.borrow.}
 
-const
+var
   PanelInfo*: array[PanelKind, PanelDescriptor] = [
     PanelDescriptor(settingKey: "projectPanel.dock", persistentKey: "projectPanel.dock",
       defaultSide: dockRight, validSides: {dockLeft, dockRight},
@@ -165,6 +166,8 @@ const
       defaultSide: dockLeft, validSides: {dockLeft, dockRight},
       defaultSize: 240'f32, minSize: 160'f32, iconName: "sparkles",
       startsOpen: false, activationPriority: 10)]
+
+const
   PanelPersistentName*: array[PanelKind, string] = [
     "Project Panel", "Git Panel", "Outline Panel", "TerminalPanel",
     "Tasks Panel", "Search Panel", "Debugger Panel", "Agent Panel"]
@@ -184,16 +187,6 @@ const
   MinimumPaneWidth* = 80'f32
   MinimumPaneHeight* = 100'f32
   PaneDividerThickness* = 2'f32
-
-const
-  NimculusPanelKindTerminal* = ord(panelTerminal)
-  NimculusPanelKindAgent* = ord(panelAgent)
-
-proc nimculus_panel_kind_terminal*(): cint {.exportc, dynlib, cdecl.} =
-  cint(NimculusPanelKindTerminal)
-
-proc nimculus_panel_kind_agent*(): cint {.exportc, dynlib, cdecl.} =
-  cint(NimculusPanelKindAgent)
 
 proc panelPersistentKey*(panel: PanelKind): string =
   ## Stable identifiers are independent of PanelKind declaration order.
@@ -349,7 +342,7 @@ proc fromJson*(node: JsonNode): PaneTree =
   var nextPaneId = 1
   fromJsonImpl(node, nextPaneId)
 
-proc defaultPanelDockSide(panel: PanelKind): DockSide =
+proc defaultPanelDockSide*(panel: PanelKind): DockSide =
   PanelInfo[panel].defaultSide
 
 proc axis*(side: DockSide): DockAxis =
@@ -369,6 +362,20 @@ proc defaultPanelForDock*(side: DockSide): PanelKind =
 
 proc panelMinimumSize(panel: PanelKind): float32 =
   PanelInfo[panel].minSize
+
+proc sortDockEntries(entries: var seq[PanelKind]) =
+  ## Keep the dock tab order in the same priority order as Zed's Panel trait.
+  ## Declaration order is the deterministic tie-breaker for equal priorities.
+  entries.sort(proc (left, right: PanelKind): int =
+    let priorityOrder = cmp(PanelInfo[right].activationPriority,
+      PanelInfo[left].activationPriority)
+    if priorityOrder != 0: priorityOrder else: cmp(ord(left), ord(right)))
+
+proc dockDisplayOrder(entries: seq[PanelKind]): seq[PanelKind] =
+  ## Keep ownership and replacement selection in declaration/addition order.
+  ## Only the read-only view exposed to tab rendering uses activation priority.
+  result = entries
+  sortDockEntries(result)
 
 proc dockRegion(side: DockSide): WorkspaceRegion =
   case side
@@ -399,14 +406,14 @@ proc initWorkspaceUi*(tabCount = 0, activeTab = -1,
     of dockLeft: result.leftDock.entries.add(panel)
     of dockBottom: result.bottomDock.entries.add(panel)
     of dockRight: result.rightDock.entries.add(panel)
-  result.leftDock = DockState(side: dockLeft, isOpen: false, zoom: false,
+  result.leftDock = DockState(side: dockLeft, isOpen: false, zoomed: false,
     activePanel: if result.agentDisabled: panelSearch else: panelAgent,
     minimumSize: panelMinimumSize(if result.agentDisabled: panelSearch else: panelAgent),
     entries: result.leftDock.entries)
-  result.bottomDock = DockState(side: dockBottom, isOpen: false, zoom: false,
+  result.bottomDock = DockState(side: dockBottom, isOpen: false, zoomed: false,
     activePanel: panelTerminal, minimumSize: panelMinimumSize(panelTerminal),
     entries: result.bottomDock.entries)
-  result.rightDock = DockState(side: dockRight, isOpen: false, zoom: false,
+  result.rightDock = DockState(side: dockRight, isOpen: false, zoomed: false,
     activePanel: panelFiles,
     minimumSize: panelMinimumSize(panelFiles), entries: result.rightDock.entries)
   result.center = newPane(1, tabs, activeTab)
@@ -506,9 +513,9 @@ proc initWorkspaceUi*(session: EditorSession, settings: SettingsStore = nil,
                       hasFolderWorktree = false): WorkspaceUiState =
   let hasFolder = hasFolderWorktree or session.workspaceRoots.len > 0
   result = initWorkspaceUi(session.tabs.len, session.activeTab, settings, hasFolder)
-  result.leftDock.zoom = session.workspaceLeftDockZoom
-  result.bottomDock.zoom = session.workspaceBottomDockZoom
-  result.rightDock.zoom = session.workspaceRightDockZoom
+  result.leftDock.zoomed = session.workspaceLeftDockZoom
+  result.bottomDock.zoomed = session.workspaceBottomDockZoom
+  result.rightDock.zoomed = session.workspaceRightDockZoom
   if session.workspacePaneTree != nil:
     let restoredTree = fromJson(session.workspacePaneTree)
     if not restoredTree.isNil:
@@ -647,6 +654,10 @@ proc applyPanelDockSettings*(state: var WorkspaceUiState, settings: SettingsStor
         of dockLeft: state.leftDock.activePanel = replacement
         of dockBottom: state.bottomDock.activePanel = replacement
         of dockRight: state.rightDock.activePanel = replacement
+        case source
+        of dockLeft: state.leftDock.minimumSize = panelMinimumSize(replacement)
+        of dockBottom: state.bottomDock.minimumSize = panelMinimumSize(replacement)
+        of dockRight: state.rightDock.minimumSize = panelMinimumSize(replacement)
 
   if state.agentDisabled:
     for side in DockSide:
@@ -687,7 +698,6 @@ proc applyPanelDockSettings*(state: var WorkspaceUiState, settings: SettingsStor
       of dockLeft: state.leftDock.entries.add(panelAgent)
       of dockBottom: state.bottomDock.entries.add(panelAgent)
       of dockRight: state.rightDock.entries.add(panelAgent)
-
 proc saveWorkspaceUi*(state: WorkspaceUiState, session: var EditorSession) =
   session.workspaceLeftDockOpen = state.leftDock.isOpen
   session.workspaceBottomDockOpen = state.bottomDock.isOpen
@@ -695,9 +705,9 @@ proc saveWorkspaceUi*(state: WorkspaceUiState, session: var EditorSession) =
   session.workspaceLeftDockSize = state.panelSizes[state.leftDock.activePanel]
   session.workspaceBottomDockSize = state.panelSizes[state.bottomDock.activePanel]
   session.workspaceRightDockSize = state.panelSizes[state.rightDock.activePanel]
-  session.workspaceLeftDockZoom = state.leftDock.zoom
-  session.workspaceBottomDockZoom = state.bottomDock.zoom
-  session.workspaceRightDockZoom = state.rightDock.zoom
+  session.workspaceLeftDockZoom = state.leftDock.zoomed
+  session.workspaceBottomDockZoom = state.bottomDock.zoomed
+  session.workspaceRightDockZoom = state.rightDock.zoomed
   ## Keep the integer fields usable for older in-process callers, but never
   ## use them as the persisted identity.
   let leftPanel = state.leftDock.activePanel
@@ -719,22 +729,25 @@ proc dock*(state: WorkspaceUiState, side: DockSide): DockView =
   case side
   of dockLeft:
     DockView(side: state.leftDock.side, isOpen: state.leftDock.isOpen,
-      zoom: state.leftDock.zoom,
+      zoomed: state.leftDock.zoomed,
       activePanel: state.leftDock.activePanel,
       size: state.panelSizes[state.leftDock.activePanel],
-      minimumSize: state.leftDock.minimumSize, entries: state.leftDock.entries)
+      minimumSize: state.leftDock.minimumSize,
+      entries: dockDisplayOrder(state.leftDock.entries))
   of dockBottom:
     DockView(side: state.bottomDock.side, isOpen: state.bottomDock.isOpen,
-      zoom: state.bottomDock.zoom,
+      zoomed: state.bottomDock.zoomed,
       activePanel: state.bottomDock.activePanel,
       size: state.panelSizes[state.bottomDock.activePanel],
-      minimumSize: state.bottomDock.minimumSize, entries: state.bottomDock.entries)
+      minimumSize: state.bottomDock.minimumSize,
+      entries: dockDisplayOrder(state.bottomDock.entries))
   of dockRight:
     DockView(side: state.rightDock.side, isOpen: state.rightDock.isOpen,
-      zoom: state.rightDock.zoom,
+      zoomed: state.rightDock.zoomed,
       activePanel: state.rightDock.activePanel,
       size: state.panelSizes[state.rightDock.activePanel],
-      minimumSize: state.rightDock.minimumSize, entries: state.rightDock.entries)
+      minimumSize: state.rightDock.minimumSize,
+      entries: dockDisplayOrder(state.rightDock.entries))
 
 proc panelIsActive*(state: WorkspaceUiState, panel: PanelKind): bool =
   if panel == panelAgent and state.agentDisabled: return false
@@ -749,6 +762,13 @@ proc toggleDock*(state: var WorkspaceUiState, side: DockSide) =
   of dockBottom: state.bottomDock.isOpen = not wasOpen
   of dockRight: state.rightDock.isOpen = not wasOpen
   state.focusedRegion = if wasOpen: regionCenter else: dockRegion(side)
+
+proc toggleDockZoom*(state: var WorkspaceUiState, side: DockSide) =
+  ## Toggle the active dock's zoom without changing its visibility or panel.
+  case side
+  of dockLeft: state.leftDock.zoomed = not state.leftDock.zoomed
+  of dockBottom: state.bottomDock.zoomed = not state.bottomDock.zoomed
+  of dockRight: state.rightDock.zoomed = not state.rightDock.zoomed
 
 proc panelBelongsTo*(state: WorkspaceUiState, panel: PanelKind, side: DockSide): bool =
   state.panelDockSide(panel) == side
@@ -950,10 +970,15 @@ proc resizeDock*(state: var WorkspaceUiState, side: DockSide, requested: float32
   case side
   of dockLeft, dockBottom, dockRight:
     let current = state.dock(side)
+    let activeMinimum = panelMinimumSize(current.activePanel)
+    case side
+    of dockLeft: state.leftDock.minimumSize = activeMinimum
+    of dockBottom: state.bottomDock.minimumSize = activeMinimum
+    of dockRight: state.rightDock.minimumSize = activeMinimum
     let centerMinimum = if side in {dockLeft, dockRight}:
       MinimumCenterWidth else: MinimumCenterHeight
-    let upperBound = max(current.minimumSize, available - centerMinimum)
-    let size = min(upperBound, max(current.minimumSize, requested))
+    let upperBound = max(activeMinimum, available - centerMinimum)
+    let size = min(upperBound, max(activeMinimum, requested))
     case side
     of dockLeft: state.panelSizes[state.leftDock.activePanel] = size
     of dockBottom: state.panelSizes[state.bottomDock.activePanel] = size

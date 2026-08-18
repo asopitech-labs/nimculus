@@ -3,10 +3,16 @@ import std/algorithm
 import std/unicode
 import std/math
 import nimculus/editor_buffer
-import nimnui/text
-import nimnui/nimnui
 import nimculus/syntax
 import nimculus/editor_scroll
+import nimnui/commands
+import nimnui/text
+when defined(macosx):
+  import nimnui/platform/macos/platform
+elif defined(windows):
+  import nimnui/platform/windows/platform
+else:
+  import nimnui/platform/headless/platform
 
 type
   VimMode* = enum

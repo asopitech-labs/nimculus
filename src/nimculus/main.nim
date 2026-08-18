@@ -554,6 +554,10 @@ proc setupDemoUi() =
     workspaceLayout.rightDock else: workspaceLayout.leftDock
   demoTree.node(statusBar.node).bounds = demoBottomDockBounds
   demoTree.node(statusItem.node).bounds = demoBottomDockBounds
+  when defined(macosx):
+    # Push the Nim-owned placement before any native presenter can draw its
+    # first frame. ObjC starts with an intentionally empty mask.
+    platformSetFooterPanelDockSides(editorWorkspaceUi.panelDockSideMask())
   # Install the current pane geometry before measuring native visible lines or
   # constructing scrollbars.  The native width/soft-wrap state is otherwise
   # one composition behind, which can suppress a valid horizontal thumb.
@@ -744,7 +748,6 @@ proc setupDemoUi() =
   when defined(macosx):
     platformSetEditorSidebarVisible(sidebarCanPresent)
     platformSetEditorSidebarOnRight(sidebarOnRight)
-    platformSetFooterPanelDockSides(editorWorkspaceUi.panelDockSideMask())
     platformSetTerminalPanelRect(float64(float32(demoBottomDockBounds.origin.x)),
       float64(float32(demoBottomDockBounds.origin.y)),
       float64(float32(demoBottomDockBounds.size.width)),
@@ -1244,12 +1247,33 @@ proc focusedEditorView(): EditorViewState
 proc storeFocusedEditorView(view: EditorViewState)
 
 proc workspacePanelForSidebarMode(mode: EditorSidebarMode): PanelKind =
-  case mode
-  of sidebarFiles: panelFiles
-  of sidebarGitHistory, sidebarGitStatus, sidebarGitBranches: panelGit
-  of sidebarOutline: panelOutline
-  of sidebarWorkspaceSearch: panelSearch
-  of sidebarDebugger: panelDebugger
+  let persistentKey = case mode
+    of sidebarFiles: "projectPanel.dock"
+    of sidebarGitHistory, sidebarGitStatus, sidebarGitBranches: "gitPanel.dock"
+    of sidebarOutline: "outlinePanel.dock"
+    of sidebarWorkspaceSearch: "search.dock"
+    of sidebarDebugger: "debugger.dock"
+  for panel in PanelKind:
+    if PanelInfo[panel].persistentKey == persistentKey:
+      return panel
+  panelFiles
+
+proc dockSideForZoom(state: WorkspaceUiState): DockSide =
+  case state.focusedRegion
+  of regionLeftDock: dockLeft
+  of regionBottomDock: dockBottom
+  of regionRightDock: dockRight
+  else:
+    if state.rightDock.isOpen: dockRight
+    elif state.leftDock.isOpen: dockLeft
+    elif state.bottomDock.isOpen: dockBottom
+    else: state.panelDockSide(panelFiles)
+
+proc toggleFocusedDockZoom() =
+  editorWorkspaceUi.toggleDockZoom(dockSideForZoom(editorWorkspaceUi))
+  invalidateDemoUi()
+  scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+    WorkspaceCompositionPersistenceDelay)
 
 when defined(macosx):
   proc syncNativeSidebarSelection() =
@@ -7911,6 +7935,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       invalidateDemoUi()
       scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
         WorkspaceCompositionPersistenceDelay)
+  elif name == "toggleDockZoom":
+    when defined(macosx): toggleFocusedDockZoom()
   elif name == "extensionPermissions:allow":
     let action = pendingExtensionPermissionAction
     let manifest = pendingExtensionPermission
@@ -7998,6 +8024,7 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       elif command == "quick open": "quickOpen"
       elif command in ["split", "split editor", "split vertical"]: "splitEditor"
       elif command in ["split horizontal", "split editor horizontally"]: "splitEditorHorizontal"
+      elif command == "zoom pane": "toggleDockZoom"
       elif command in ["close split", "unsplit"]: "closeSplit"
       elif command in ["reopen closed tab", "reopen closed file"]: "reopenClosedTab"
       elif command.startsWith("workspace search "): "__workspace_search__"
@@ -8071,6 +8098,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
       else: command
     editorViewState.closeCommandPalette()
     case dispatchCommand
+    of "toggleDockZoom":
+      toggleFocusedDockZoom()
     of "new": receiveNativeCommand("newDocument".cstring)
     of "save":
       receiveNativeCommand("save".cstring)
