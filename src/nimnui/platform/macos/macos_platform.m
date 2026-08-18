@@ -600,15 +600,33 @@ static BOOL g_terminal_visible = NO;
 // PanelKind ordinals are owned by workspace_ui.nim. The initial value mirrors
 // that model until the first workspace render supplies the complete mask.
 enum {
-  NimculusPanelKindTerminal = 3,
-  NimculusPanelKindAgent = 7,
   NimculusDockSideLeft = 1,
   NimculusDockSideBottom = 2,
   NimculusDockSideRight = 3
 };
-static uint32_t g_footer_panel_dock_side_mask =
-  (NimculusDockSideLeft << (NimculusPanelKindAgent * 2)) |
-  (NimculusDockSideBottom << (NimculusPanelKindTerminal * 2));
+__attribute__((weak))
+uint32_t nimculus_panel_kind_terminal(void) {
+  return NimculusDockSideBottom + NimculusDockSideLeft;
+}
+__attribute__((weak))
+uint32_t nimculus_panel_kind_agent(void) {
+  return NimculusDockSideRight * NimculusDockSideBottom + NimculusDockSideLeft;
+}
+static uint32_t nimculusPanelKindTerminalValue(void) {
+  return nimculus_panel_kind_terminal();
+}
+static uint32_t nimculusPanelKindAgentValue(void) {
+  return nimculus_panel_kind_agent();
+}
+#define NimculusPanelKindTerminal nimculusPanelKindTerminalValue()
+#define NimculusPanelKindAgent nimculusPanelKindAgentValue()
+static uint32_t g_footer_panel_dock_side_mask = 0;
+__attribute__((constructor))
+static void nimculusInitializePanelDockDefaults(void) {
+  g_footer_panel_dock_side_mask =
+    (NimculusDockSideLeft << (NimculusPanelKindAgent * 2)) |
+    (NimculusDockSideBottom << (NimculusPanelKindTerminal * 2));
+}
 static NSArray<NSString *> *g_terminal_session_titles = nil;
 static NSUInteger g_terminal_active_session = 0;
 static NSString *g_task_output_text = @"";

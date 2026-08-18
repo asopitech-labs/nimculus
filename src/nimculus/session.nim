@@ -134,14 +134,17 @@ proc saveSession*(session: EditorSession, path: string, preserveDirty = true) =
                 "workspaceBottomDockZoom": session.workspaceBottomDockZoom,
                 "workspaceRightDockZoom": session.workspaceRightDockZoom,
                 "workspaceLeftPanel": if session.workspaceLeftPanelName.len > 0:
-                  session.workspaceLeftPanelName else:
-                    panelNameForOrdinal(session.workspaceLeftPanel, panelFiles),
+                    session.workspaceLeftPanelName else:
+                    panelNameForOrdinal(session.workspaceLeftPanel,
+                      defaultPanelForDock(dockLeft)),
                 "workspaceBottomPanel": if session.workspaceBottomPanelName.len > 0:
-                  session.workspaceBottomPanelName else:
-                    panelNameForOrdinal(session.workspaceBottomPanel, panelTerminal),
+                    session.workspaceBottomPanelName else:
+                    panelNameForOrdinal(session.workspaceBottomPanel,
+                      defaultPanelForDock(dockBottom)),
                 "workspaceRightPanel": if session.workspaceRightPanelName.len > 0:
-                  session.workspaceRightPanelName else:
-                    panelNameForOrdinal(session.workspaceRightPanel, panelFiles),
+                    session.workspaceRightPanelName else:
+                    panelNameForOrdinal(session.workspaceRightPanel,
+                      defaultPanelForDock(dockRight)),
                 "paneTree": paneTree,
                 "activePane": activePane}
   var tabs = newJArray()
@@ -256,9 +259,12 @@ proc loadSession*(path: string): EditorSession =
   result.workspaceLeftDockZoom = jsonBool(root, "workspaceLeftDockZoom", false)
   result.workspaceBottomDockZoom = jsonBool(root, "workspaceBottomDockZoom", false)
   result.workspaceRightDockZoom = jsonBool(root, "workspaceRightDockZoom", false)
-  let leftPanel = panelSessionValue(root, "workspaceLeftPanel", panelFiles)
-  let bottomPanel = panelSessionValue(root, "workspaceBottomPanel", panelTerminal)
-  let rightPanel = panelSessionValue(root, "workspaceRightPanel", panelFiles)
+  let leftPanel = panelSessionValue(root, "workspaceLeftPanel",
+    defaultPanelForDock(dockLeft))
+  let bottomPanel = panelSessionValue(root, "workspaceBottomPanel",
+    defaultPanelForDock(dockBottom))
+  let rightPanel = panelSessionValue(root, "workspaceRightPanel",
+    defaultPanelForDock(dockRight))
   result.workspaceLeftPanel = leftPanel.ordinal
   result.workspaceBottomPanel = bottomPanel.ordinal
   result.workspaceRightPanel = rightPanel.ordinal
