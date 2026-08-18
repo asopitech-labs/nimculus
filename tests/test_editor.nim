@@ -8,6 +8,8 @@ import std/options
 import std/times
 import std/unicode
 import nimculus/editor_buffer
+import nimculus/git_service
+import nimculus/git_blame
 import nimculus/editor_diagnostics
 import nimculus/lsp
 import nimculus/editor_app
@@ -223,6 +225,46 @@ suite "display map tab coordinate layer":
     check mismatches == 0
 
 suite "session persistence scheduling":
+  test "Git blame rows splice around edits and preserve unaffected entries":
+    var cache: GitBlameCache
+    cache.begin("/repo", "/repo/main.nim")
+    var entries: seq[GitBlameLine]
+    for index in 0 ..< 100:
+      entries.add(GitBlameLine(hash: "hash-" & $index, author: "Author " & $index))
+    cache.finish(entries)
+    let beforeEdit = cache.entries
+    cache.applyEdit(10, 0, 2)
+    check cache.entries.len == 102
+    check cache.entries[9] == beforeEdit[9]
+    check cache.entries[10].hash.len == 0
+    check cache.entries[11].hash.len == 0
+    check cache.entries[12] == beforeEdit[10]
+
+    let beforeDelete = cache.entries
+    cache.applyEdit(50, 3, 0)
+    check cache.entries.len == 99
+    check cache.entries[50] == beforeDelete[53]
+
+    cache.finish(beforeEdit[0 ..< 100])
+    let buffer = initPieceTable("line\n".repeat(100))
+    cache.applyEdit(10, 0, 0)
+    check not cache.shouldShow(buffer, 10)
+    check cache.shouldShow(buffer, 9)
+    check cache.shouldShow(buffer, 11)
+
+  test "Git blame cache reports author width and row windows":
+    var cache: GitBlameCache
+    cache.begin("/repo", "/repo/main.nim")
+    cache.finish(@[
+      GitBlameLine(hash: "a", author: "A"),
+      GitBlameLine(hash: "b", author: "山田太郎"),
+      GitBlameLine(hash: "c", author: "CC")])
+    var window: seq[string]
+    for entry in cache.blameForRows(1, 2):
+      window.add(entry.author)
+    check window == @["山田太郎", "CC"]
+    check cache.maxAuthorLength() == 4
+
   test "inline blame padding uses typographic em width":
     let typographicMWidth = 5'f32
     let mAdvance = 9'f32

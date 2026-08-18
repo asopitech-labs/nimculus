@@ -27,34 +27,40 @@ proc m9TempDir(label: string): string =
     $int(epochTime() * 1_000_000))
 
 suite "M9 Git service":
-  test "Git blame cache remembers an unavailable repository by document version":
+  test "Git blame cache remembers an unavailable document regardless of edits":
+    ## documentVersion no longer participates in cache identity (git_blame.nim
+    ## applyEdit splices rows in place instead of invalidating by version), so
+    ## an unavailable result stays remembered for the same path across edits
+    ## and is only distinguished by document path.
     var cache: GitBlameCache
-    cache.beginUnavailable("/tmp/DEVELOPMENT_GUIDELINES.md", 4)
-    check cache.unavailableMatches("/tmp/DEVELOPMENT_GUIDELINES.md", 4)
-    check not cache.unavailableMatches("/tmp/DEVELOPMENT_GUIDELINES.md", 5)
-    check not cache.unavailableMatches("/tmp/other.md", 4)
+    cache.beginUnavailable("/tmp/DEVELOPMENT_GUIDELINES.md")
+    check cache.unavailableMatches("/tmp/DEVELOPMENT_GUIDELINES.md")
+    check not cache.unavailableMatches("/tmp/other.md")
 
-  test "Git blame cache is keyed by document version, not cursor line":
+  test "Git blame cache identity is repository plus document path; edits invalidate via applyEdit":
+    ## Superseded "keyed by document version" behaviour: identity is now
+    ## repository root + document path only. Rows are kept in sync with edits
+    ## by splicing (applyEdit), which flips needsRegeneration and makes
+    ## shouldStart true again, rather than by comparing document versions.
     var cache: GitBlameCache
-    cache.begin("/repo", "/repo/main.nim", 7)
+    cache.begin("/repo", "/repo/main.nim")
     cache.finish(@[
       GitBlameLine(hash: "aaa", author: "First"),
       GitBlameLine(hash: "bbb", author: "Second")])
     let buffer = initPieceTable("first\nsecond\n")
-    check cache.matches("/repo", "/repo/main.nim", 7)
-    check not cache.shouldStart("/repo", "/repo/main.nim", 7, false, false)
+    check cache.matches("/repo", "/repo/main.nim")
+    check not cache.shouldStart("/repo", "/repo/main.nim", false, false)
     check cache.entryAt(0).hash == "aaa"
     check cache.entryAt(1).hash == "bbb"
     check cache.shouldShow(buffer, 0)
     check cache.shouldShow(buffer, 1)
-    check cache.matches("/repo", "/repo/main.nim", 7)
-    check not cache.matches("/repo", "/repo/main.nim", 8)
-    check cache.shouldStart("/repo", "/repo/main.nim", 8, false, false)
-    var edited = initPieceTable("first\nsecond\n")
-    let beforeEdit = edited.version
-    edited.edit(Edit(startByte: 0, endByte: 5, text: "changed"))
-    check edited.version != beforeEdit
-    check not cache.matches("/repo", "/repo/main.nim", edited.version)
+    # Cache identity survives an edit to the same document...
+    check cache.matches("/repo", "/repo/main.nim")
+    # ...but the edited row is invalidated in place and regeneration is requested.
+    cache.applyEdit(0, 1, 1)
+    check cache.shouldStart("/repo", "/repo/main.nim", false, false)
+    check cache.entryAt(0).hash.len == 0
+    check cache.entryAt(1).hash == "bbb"
 
   test "Git blame cache hides empty lines and empty results":
     let buffer = initPieceTable("first\n\nthird\n")
