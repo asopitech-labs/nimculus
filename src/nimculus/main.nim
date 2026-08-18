@@ -3203,6 +3203,38 @@ when defined(macosx):
       return splitFile(absolutePath(document[].path)).dir
     getCurrentDir()
 
+  proc taskContextForDocument(document: ptr FileDocument): TaskContext =
+    if document == nil or document[].path.len == 0: return
+    let path = absolutePath(document[].path)
+    let parts = splitFile(path)
+    result.file = path
+    result.dirname = parts.dir
+    result.filename = parts.name & parts.ext
+    result.stem = parts.name
+    if activeWorkspace != nil:
+      try:
+        let location = activeWorkspace.splitWorkspacePath(path)
+        result.worktreeRoot = location.root
+        result.relativeFile = location.relative
+      except CatchableError:
+        discard
+    let cursor = if editorSession.split and editorSession.splitActivePane == 1:
+      editorSession.secondaryView.cursor else: editorViewState.cursor
+    let location = document[].buffer.lineColumn(cursor)
+    result.row = location.line + 1
+    result.column = location.column + 1
+
+  proc resolveNativeTask(command: string, document: ptr FileDocument): TaskSpec =
+    let context = taskContextForDocument(document)
+    if context.worktreeRoot.len > 0:
+      for taskDefinition in loadProjectTaskTemplates(context.worktreeRoot):
+        if taskDefinition.label == command or
+            (taskDefinition.label.len == 0 and taskDefinition.command == command):
+          return resolveTaskTemplate(taskDefinition, context)
+    resolveTaskTemplate(TaskTemplate(command: "/bin/zsh",
+      args: @["-lc", command],
+      workingDirectory: taskWorkingDirectory(document)), context)
+
   proc startNativeTask(command: string) =
     if editorTaskJob != nil and not editorTaskJob.done:
       editorTaskJob.cancel()
@@ -3220,8 +3252,11 @@ when defined(macosx):
     invalidateDemoUi()
     let title = "Task — " & command
     platformSetTaskOutputTitle(title.cstring, uint32(title.len))
-    editorTaskJob = startTask(TaskSpec(command: "/bin/zsh",
-      args: @["-lc", command], workingDirectory: taskWorkingDirectory(activeDocument())))
+    try:
+      editorTaskJob = startTask(resolveNativeTask(command, activeDocument()))
+    except CatchableError as error:
+      editorViewState.statusMessage = "Task failed: " & error.msg
+      return
     editorViewState.statusMessage = "Task: running " & command
 
   proc cancelNativeTask() =
@@ -6244,6 +6279,38 @@ when defined(windows):
       return splitFile(absolutePath(document[].path)).dir
     getCurrentDir()
 
+  proc windowsTaskContextForDocument(document: ptr FileDocument): TaskContext =
+    if document == nil or document[].path.len == 0: return
+    let path = absolutePath(document[].path)
+    let parts = splitFile(path)
+    result.file = path
+    result.dirname = parts.dir
+    result.filename = parts.name & parts.ext
+    result.stem = parts.name
+    if activeWorkspace != nil:
+      try:
+        let location = activeWorkspace.splitWorkspacePath(path)
+        result.worktreeRoot = location.root
+        result.relativeFile = location.relative
+      except CatchableError:
+        discard
+    let cursor = if editorSession.split and editorSession.splitActivePane == 1:
+      editorSession.secondaryView.cursor else: editorViewState.cursor
+    let location = document[].buffer.lineColumn(cursor)
+    result.row = location.line + 1
+    result.column = location.column + 1
+
+  proc resolveWindowsTask(command: string, document: ptr FileDocument): TaskSpec =
+    let context = windowsTaskContextForDocument(document)
+    if context.worktreeRoot.len > 0:
+      for taskDefinition in loadProjectTaskTemplates(context.worktreeRoot):
+        if taskDefinition.label == command or
+            (taskDefinition.label.len == 0 and taskDefinition.command == command):
+          return resolveTaskTemplate(taskDefinition, context)
+    resolveTaskTemplate(TaskTemplate(command: "cmd.exe",
+      args: @["/C", command],
+      workingDirectory: windowsTaskWorkingDirectory(document)), context)
+
   proc startWindowsTask(command: string) =
     if windowsTaskJob != nil and not windowsTaskJob.done:
       windowsTaskJob.cancel()
@@ -6252,9 +6319,11 @@ when defined(windows):
     windowsTaskProblems.setLen(0)
     windowsTaskOutputVisible = false
     platformSetTaskOutputVisible(false)
-    windowsTaskJob = startTask(TaskSpec(command: "cmd.exe",
-      args: @["/C", command],
-      workingDirectory: windowsTaskWorkingDirectory(activeDocument())))
+    try:
+      windowsTaskJob = startTask(resolveWindowsTask(command, activeDocument()))
+    except CatchableError as error:
+      editorViewState.statusMessage = "Task failed: " & error.msg
+      return
     editorViewState.statusMessage = "Task: running " & command
 
   proc cancelWindowsTask() =
