@@ -9,6 +9,22 @@ import nimculus/persistence_scheduler
 import nimculus/workspace_ui
 
 suite "workspace UI state":
+  test "panel descriptors cover every panel and valid default sides":
+    let panelsWithSettings = [
+      panelFiles, panelGit, panelOutline, panelTerminal, panelDebugger, panelAgent]
+    for panel in PanelKind:
+      if panel in panelsWithSettings:
+        check PanelInfo[panel].settingKey.len > 0
+      else:
+        check PanelInfo[panel].settingKey == ""
+      check PanelInfo[panel].defaultSide in PanelInfo[panel].validSides
+
+  test "native panel ordinal exports match the Nim enum":
+    check NimculusPanelKindTerminal == ord(panelTerminal)
+    check NimculusPanelKindAgent == ord(panelAgent)
+    check int(nimculus_panel_kind_terminal()) == NimculusPanelKindTerminal
+    check int(nimculus_panel_kind_agent()) == NimculusPanelKindAgent
+
   test "composition persistence coalesces rapid scheduling at its starvation cap":
     var schedule: PersistenceSchedule
     let startedAt = 100.0

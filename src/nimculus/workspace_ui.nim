@@ -25,6 +25,17 @@ type
   DockSide* = enum
     dockLeft, dockBottom, dockRight
 
+  PanelDescriptor* = object
+    settingKey*: string
+    persistentKey*: string
+    defaultSide*: DockSide
+    validSides*: set[DockSide]
+    defaultSize*: float32
+    minSize*: float32
+    iconName*: string
+    startsOpen*: bool
+    activationPriority*: int
+
   DockAxis* = enum
     dockHorizontal, dockVertical
 
@@ -121,6 +132,39 @@ type
 proc `==`*(a, b: PaneId): bool {.borrow.}
 
 const
+  PanelInfo*: array[PanelKind, PanelDescriptor] = [
+    PanelDescriptor(settingKey: "projectPanel.dock", persistentKey: "projectPanel.dock",
+      defaultSide: dockRight, validSides: {dockLeft, dockRight},
+      defaultSize: 240'f32, minSize: 160'f32, iconName: "file-tree",
+      startsOpen: true, activationPriority: 10),
+    PanelDescriptor(settingKey: "gitPanel.dock", persistentKey: "gitPanel.dock",
+      defaultSide: dockRight, validSides: {dockLeft, dockRight},
+      defaultSize: 240'f32, minSize: 160'f32, iconName: "git-branch",
+      startsOpen: false, activationPriority: 0),
+    PanelDescriptor(settingKey: "outlinePanel.dock", persistentKey: "outlinePanel.dock",
+      defaultSide: dockRight, validSides: {dockLeft, dockRight},
+      defaultSize: 240'f32, minSize: 160'f32, iconName: "list-tree",
+      startsOpen: false, activationPriority: 0),
+    PanelDescriptor(settingKey: "terminal.dock", persistentKey: "terminal.dock",
+      defaultSide: dockBottom, validSides: {dockLeft, dockBottom, dockRight},
+      defaultSize: 260'f32, minSize: 160'f32, iconName: "terminal",
+      startsOpen: false, activationPriority: 10),
+    PanelDescriptor(settingKey: "", persistentKey: "tasks.dock",
+      defaultSide: dockBottom, validSides: {dockBottom},
+      defaultSize: 260'f32, minSize: 160'f32, iconName: "checklist",
+      startsOpen: false, activationPriority: 0),
+    PanelDescriptor(settingKey: "", persistentKey: "search.dock",
+      defaultSide: dockLeft, validSides: {dockLeft},
+      defaultSize: 240'f32, minSize: 160'f32, iconName: "magnifying-glass",
+      startsOpen: false, activationPriority: 0),
+    PanelDescriptor(settingKey: "debugger.dock", persistentKey: "debugger.dock",
+      defaultSide: dockBottom, validSides: {dockLeft, dockBottom, dockRight},
+      defaultSize: 260'f32, minSize: 160'f32, iconName: "bug",
+      startsOpen: false, activationPriority: 0),
+    PanelDescriptor(settingKey: "agent.dock", persistentKey: "agent.dock",
+      defaultSide: dockLeft, validSides: {dockLeft, dockRight},
+      defaultSize: 240'f32, minSize: 160'f32, iconName: "sparkles",
+      startsOpen: false, activationPriority: 10)]
   PanelPersistentName*: array[PanelKind, string] = [
     "Project Panel", "Git Panel", "Outline Panel", "TerminalPanel",
     "Tasks Panel", "Search Panel", "Debugger Panel", "Agent Panel"]
@@ -141,17 +185,19 @@ const
   MinimumPaneHeight* = 100'f32
   PaneDividerThickness* = 2'f32
 
+const
+  NimculusPanelKindTerminal* = ord(panelTerminal)
+  NimculusPanelKindAgent* = ord(panelAgent)
+
+proc nimculus_panel_kind_terminal*(): cint {.exportc, dynlib, cdecl.} =
+  cint(NimculusPanelKindTerminal)
+
+proc nimculus_panel_kind_agent*(): cint {.exportc, dynlib, cdecl.} =
+  cint(NimculusPanelKindAgent)
+
 proc panelPersistentKey*(panel: PanelKind): string =
   ## Stable identifiers are independent of PanelKind declaration order.
-  case panel
-  of panelFiles: "projectPanel.dock"
-  of panelGit: "gitPanel.dock"
-  of panelOutline: "outlinePanel.dock"
-  of panelTerminal: "terminal.dock"
-  of panelTasks: "tasks.dock"
-  of panelSearch: "search.dock"
-  of panelDebugger: "debugger.dock"
-  of panelAgent: "agent.dock"
+  PanelInfo[panel].persistentKey
 
 proc normalizedRatio*(ratio: float32): float32 =
   min(0.9'f32, max(0.1'f32, ratio))
@@ -304,20 +350,25 @@ proc fromJson*(node: JsonNode): PaneTree =
   fromJsonImpl(node, nextPaneId)
 
 proc defaultPanelDockSide(panel: PanelKind): DockSide =
-  case panel
-  of panelFiles, panelGit, panelOutline: dockRight
-  of panelTerminal, panelDebugger, panelTasks: dockBottom
-  of panelAgent, panelSearch: dockLeft
+  PanelInfo[panel].defaultSide
 
 proc axis*(side: DockSide): DockAxis =
   case side
   of dockLeft, dockRight: dockHorizontal
   of dockBottom: dockVertical
 
-proc defaultDockSize(side: DockSide): float32 =
-  case side
-  of dockLeft, dockRight: DefaultLeftDockWidth
-  of dockBottom: DefaultBottomDockHeight
+proc defaultPanelForDock*(side: DockSide): PanelKind =
+  ## Pick the dock's default active panel from the descriptor table. Higher
+  ## activation priority wins; declaration order remains the tie-breaker.
+  var bestPriority = low(int)
+  for panel in PanelKind:
+    let descriptor = PanelInfo[panel]
+    if descriptor.defaultSide == side and descriptor.activationPriority > bestPriority:
+      result = panel
+      bestPriority = descriptor.activationPriority
+
+proc panelMinimumSize(panel: PanelKind): float32 =
+  PanelInfo[panel].minSize
 
 proc dockRegion(side: DockSide): WorkspaceRegion =
   case side
@@ -343,20 +394,21 @@ proc initWorkspaceUi*(tabCount = 0, activeTab = -1,
     if result.agentDisabled and panel == panelAgent: continue
     result.panelDockSides[panel] = if settings == nil:
       defaultPanelDockSide(panel) else: panelDockSide(panel, settings)
-    result.panelSizes[panel] = defaultDockSize(result.panelDockSides[panel])
+    result.panelSizes[panel] = PanelInfo[panel].defaultSize
     case result.panelDockSides[panel]
     of dockLeft: result.leftDock.entries.add(panel)
     of dockBottom: result.bottomDock.entries.add(panel)
     of dockRight: result.rightDock.entries.add(panel)
   result.leftDock = DockState(side: dockLeft, isOpen: false, zoom: false,
     activePanel: if result.agentDisabled: panelSearch else: panelAgent,
-    minimumSize: DefaultDockMinimumSize, entries: result.leftDock.entries)
+    minimumSize: panelMinimumSize(if result.agentDisabled: panelSearch else: panelAgent),
+    entries: result.leftDock.entries)
   result.bottomDock = DockState(side: dockBottom, isOpen: false, zoom: false,
-    activePanel: panelTerminal, minimumSize: DefaultDockMinimumSize,
+    activePanel: panelTerminal, minimumSize: panelMinimumSize(panelTerminal),
     entries: result.bottomDock.entries)
   result.rightDock = DockState(side: dockRight, isOpen: false, zoom: false,
     activePanel: panelFiles,
-    minimumSize: DefaultDockMinimumSize, entries: result.rightDock.entries)
+    minimumSize: panelMinimumSize(panelFiles), entries: result.rightDock.entries)
   result.center = newPane(1, tabs, activeTab)
   ## The count-only constructor is used by UI tests and by the early native
   ## bootstrap, before a session has supplied real documents. Keep a matching
@@ -391,7 +443,7 @@ proc panelFromSession(name: string, ordinal: int, fallback: PanelKind): PanelKin
 
 proc restoreDock(state: var WorkspaceUiState, side: DockSide, isOpen: bool,
                  size: float32, panel: PanelKind) =
-  let restoredSize = max(DefaultDockMinimumSize, size)
+  let restoredSize = max(panelMinimumSize(panel), size)
   var restoredPanel = panel
   if state.agentDisabled and panel == panelAgent:
     restoredPanel = case side
@@ -402,23 +454,23 @@ proc restoreDock(state: var WorkspaceUiState, side: DockSide, isOpen: bool,
   of dockLeft:
     state.leftDock.isOpen = isOpen
     state.leftDock.activePanel = restoredPanel
+    state.leftDock.minimumSize = panelMinimumSize(restoredPanel)
     state.panelSizes[restoredPanel] = restoredSize
   of dockBottom:
     state.bottomDock.isOpen = isOpen
     state.bottomDock.activePanel = restoredPanel
+    state.bottomDock.minimumSize = panelMinimumSize(restoredPanel)
     state.panelSizes[restoredPanel] = restoredSize
   of dockRight:
     state.rightDock.isOpen = isOpen
     state.rightDock.activePanel = restoredPanel
+    state.rightDock.minimumSize = panelMinimumSize(restoredPanel)
     state.panelSizes[restoredPanel] = restoredSize
 
 proc panelStartsOpen*(panel: PanelKind, settings: SettingsStore,
                       hasFolderWorktree: bool): bool =
-  case panel
-  of panelFiles:
-    hasFolderWorktree and (settings == nil or settings.projectPanelStartsOpen())
-  else:
-    false
+  PanelInfo[panel].startsOpen and hasFolderWorktree and
+    (settings == nil or settings.projectPanelStartsOpen())
 
 proc restoreStartsOpen(state: var WorkspaceUiState, settings: SettingsStore,
                        hasFolderWorktree: bool,
@@ -542,7 +594,7 @@ proc applyPanelDockSettings*(state: var WorkspaceUiState, settings: SettingsStor
       of dockRight: oldRight
     let wasVisible = sourceDock.isOpen and sourceDock.activePanel == panel
     if source.axis != target.axis:
-      state.panelSizes[panel] = defaultDockSize(target)
+      state.panelSizes[panel] = PanelInfo[panel].defaultSize
 
     case source
     of dockLeft:
@@ -564,12 +616,15 @@ proc applyPanelDockSettings*(state: var WorkspaceUiState, settings: SettingsStor
       of dockLeft:
         state.leftDock.isOpen = true
         state.leftDock.activePanel = panel
+        state.leftDock.minimumSize = panelMinimumSize(panel)
       of dockBottom:
         state.bottomDock.isOpen = true
         state.bottomDock.activePanel = panel
+        state.bottomDock.minimumSize = panelMinimumSize(panel)
       of dockRight:
         state.rightDock.isOpen = true
         state.rightDock.activePanel = panel
+        state.rightDock.minimumSize = panelMinimumSize(panel)
       if state.focusedRegion == dockRegion(source):
         state.focusedRegion = dockRegion(target)
 
@@ -702,9 +757,7 @@ proc panelDockSettingKey*(panel: PanelKind): string =
   ## Settings names mirror Zed's panel-scoped keys while following Nimculus's
   ## camelCase path convention. Tasks and Search have no corresponding Zed
   ## panel setting yet and retain their legacy dock until a setting is added.
-  case panel
-  of panelTasks, panelSearch: ""
-  else: panelPersistentKey(panel)
+  PanelInfo[panel].settingKey
 
 proc dockSideFromSetting(value: string, fallback: DockSide): DockSide =
   case value
@@ -716,28 +769,19 @@ proc dockSideFromSetting(value: string, fallback: DockSide): DockSide =
 proc panelDockSide*(panel: PanelKind, settings: SettingsStore): DockSide =
   ## Read the panel's configured position without applying it to workspace
   ## ownership yet. Applying this result is the follow-up ownership migration.
-  let configured = case panel
-    of panelFiles: dockSideFromSetting(settings.projectPanelDock(), dockRight)
-    of panelGit: dockSideFromSetting(settings.gitPanelDock(), dockRight)
-    of panelOutline: dockSideFromSetting(settings.outlinePanelDock(), dockRight)
-    of panelTerminal: dockSideFromSetting(settings.terminalDock(), dockBottom)
-    of panelDebugger: dockSideFromSetting(settings.debuggerDock(), dockBottom)
-    of panelAgent: dockSideFromSetting(settings.agentDock(), dockLeft)
-    of panelTasks: dockBottom
-    of panelSearch: dockLeft
-  if panelPositionIsValid(panel, configured): configured else: defaultPanelDockSide(panel)
+  let descriptor = PanelInfo[panel]
+  let configured = if settings == nil or descriptor.settingKey.len == 0:
+    descriptor.defaultSide
+  else:
+    dockSideFromSetting(settings.stringSetting(descriptor.settingKey),
+      descriptor.defaultSide)
+  if panelPositionIsValid(panel, configured): configured else: descriptor.defaultSide
 
 proc panelPositionIsValid*(panel: PanelKind, side: DockSide): bool =
   ## Match Zed's panel-specific position predicates. Tasks and Search have no
   ## corresponding Zed panel and retain their current side until they receive
   ## panel-scoped settings.
-  case panel
-  of panelFiles: side in {dockLeft, dockRight}
-  of panelGit, panelOutline: side in {dockLeft, dockRight}
-  of panelAgent: side != dockBottom
-  of panelTerminal, panelDebugger: true
-  of panelTasks: side == dockBottom
-  of panelSearch: side == dockLeft
+  side in PanelInfo[panel].validSides
 
 proc panelDockSideMask*(state: WorkspaceUiState): uint32 =
   ## AppKit receives two bits per panel: 1 = left, 2 = bottom, 3 = right.
@@ -754,12 +798,15 @@ proc openPanel*(state: var WorkspaceUiState, panel: PanelKind) =
   case side
   of dockLeft:
     state.leftDock.activePanel = panel
+    state.leftDock.minimumSize = panelMinimumSize(panel)
     state.leftDock.isOpen = true
   of dockBottom:
     state.bottomDock.activePanel = panel
+    state.bottomDock.minimumSize = panelMinimumSize(panel)
     state.bottomDock.isOpen = true
   of dockRight:
     state.rightDock.activePanel = panel
+    state.rightDock.minimumSize = panelMinimumSize(panel)
     state.rightDock.isOpen = true
   state.focusedRegion = dockRegion(side)
 
@@ -888,9 +935,15 @@ proc resetDockSize*(state: var WorkspaceUiState, side: DockSide) =
   ## Match Zed's resize-handle double-click behavior without exposing a
   ## platform event detail to the shared workspace model.
   case side
-  of dockLeft: state.panelSizes[state.leftDock.activePanel] = DefaultLeftDockWidth
-  of dockBottom: state.panelSizes[state.bottomDock.activePanel] = DefaultBottomDockHeight
-  of dockRight: state.panelSizes[state.rightDock.activePanel] = DefaultLeftDockWidth
+  of dockLeft:
+    state.panelSizes[state.leftDock.activePanel] =
+      PanelInfo[state.leftDock.activePanel].defaultSize
+  of dockBottom:
+    state.panelSizes[state.bottomDock.activePanel] =
+      PanelInfo[state.bottomDock.activePanel].defaultSize
+  of dockRight:
+    state.panelSizes[state.rightDock.activePanel] =
+      PanelInfo[state.rightDock.activePanel].defaultSize
 
 proc resizeDock*(state: var WorkspaceUiState, side: DockSide, requested: float32,
                  available: float32) =
