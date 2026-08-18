@@ -14,6 +14,8 @@ type
   Edit* = object
     startByte*, endByte*: int
     text*: string
+  Bias* = enum
+    left, right
   Selection* = object
     anchor*, active*: int
   EditRecord = object
@@ -216,9 +218,36 @@ proc canGroupTransaction(table: PieceTable, beforeContentVersion: uint64,
     table.undoStack[^1].afterContentVersion == beforeContentVersion and
     at - table.lastEditAt <= EDIT_TRANSACTION_GROUPING_INTERVAL
 
+proc transform*(offset: int, edits: openArray[Edit], bias: Bias = right): int =
+  ## Translate an old document offset through a non-overlapping edit batch.
+  ## Insertions at an offset use the requested side; offsets inside a replaced
+  ## range collapse to its start, regardless of side.
+  var ordered = @edits
+  ordered.sort(proc(a, b: Edit): int = cmp(a.startByte, b.startByte))
+  var shift = 0
+  for edit in ordered:
+    let removed = edit.endByte - edit.startByte
+    if removed == 0:
+      if offset < edit.startByte: break
+      if offset == edit.startByte:
+        if bias == right: shift += edit.text.len
+        continue
+      shift += edit.text.len
+      continue
+    if offset < edit.startByte: break
+    if offset < edit.endByte:
+      return edit.startByte + shift
+    shift += edit.text.len - removed
+  max(0, offset + shift)
+
+proc transform*(selection: Selection, edits: openArray[Edit],
+                bias: Bias = right): Selection =
+  Selection(anchor: transform(selection.anchor, edits, bias),
+    active: transform(selection.active, edits, bias))
+
 proc edit*(table: var PieceTable, edit: Edit, recordUndo = true,
            at = MonoTime(), selectionsBefore: seq[Selection] = @[],
-           selectionsAfter: seq[Selection] = @[]) =
+           selectionsAfter: seq[Selection] = @[]): seq[Edit] {.discardable.} =
   let hasExplicitTimestamp = at != MonoTime()
   let editAt = if hasExplicitTimestamp: at else: getMonoTime()
   table.validateEditRange(edit.startByte, edit.endByte, edit.text)
@@ -256,15 +285,17 @@ proc edit*(table: var PieceTable, edit: Edit, recordUndo = true,
     table.canGroupUndo = false
   table.contentVersion = afterContentVersion
   inc table.version
+  @[edit]
 
 proc applyEdits*(table: var PieceTable, edits: seq[Edit],
                  at = getMonoTime(), selectionsBefore: seq[Selection] = @[],
-                 selectionsAfter: seq[Selection] = @[]) =
+                 selectionsAfter: seq[Selection] = @[]): seq[Edit] {.discardable.} =
   if edits.len == 0: return
   var ordered = edits
   for edit in ordered:
     table.validateEditRange(edit.startByte, edit.endByte, edit.text)
   ordered.sort(proc(a, b: Edit): int = cmp(a.startByte, b.startByte))
+  result = ordered
   for index in 1 ..< ordered.len:
     if ordered[index - 1].endByte > ordered[index].startByte:
       raise newException(ValueError, "overlapping edits are not atomic")
@@ -602,7 +633,7 @@ proc edit*(multiBuffer: MultiBuffer, bufferId: int, edit: Edit) =
   if not multiBuffer.buffers.hasKey(bufferId):
     raise newException(KeyError, "edit refers to an unknown buffer")
   var buffer = multiBuffer.buffers[bufferId]
-  buffer.edit(edit)
+  discard buffer.edit(edit)
   multiBuffer.buffers[bufferId] = buffer
   for index in 0 ..< multiBuffer.excerpts.len:
     if multiBuffer.excerpts[index].bufferId != bufferId: continue

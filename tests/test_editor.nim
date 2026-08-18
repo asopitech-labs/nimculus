@@ -16,6 +16,7 @@ import nimculus/lsp
 import nimculus/editor_app
 import nimculus/search
 import nimculus/editor_view
+import nimculus/syntax
 import nimculus/editor_scroll
 import nimculus/editor_text_layout
 import nimnui/geometry
@@ -1124,6 +1125,31 @@ suite "M5 editor services":
     view.clampSelectionToText("A🙂")
     check view.selection.anchor == "A🙂".len
     check view.selection.active == 1
+
+  test "edit transforms caret and fold positions before clamping":
+    var buffer = initPieceTable(newString(400))
+    var view = newEditorView()
+    view.selection = Selection(anchor: 100, active: 100)
+    view.foldedRanges = @[FoldRange(startByte: 200, endByte: 300)]
+    discard buffer.applyEditsAndTransform(view, @[
+      Edit(startByte: 10, endByte: 10, text: "12345")])
+    check view.selection == Selection(anchor: 105, active: 105)
+    check view.foldedRanges == @[FoldRange(startByte: 205, endByte: 305)]
+
+  test "edit transforms a caret inside a deletion to its start":
+    var buffer = initPieceTable(newString(200))
+    var view = newEditorView()
+    view.selection = Selection(anchor: 100, active: 100)
+    let deletion = @[Edit(startByte: 50, endByte: 150, text: "")]
+    discard buffer.applyEditsAndTransform(view, deletion)
+    check transform(100, deletion, left) == 50
+    check transform(100, deletion, right) == 50
+    check view.cursor == 50
+
+  test "insertion bias chooses the side of an equal offset":
+    let insertion = @[Edit(startByte: 100, endByte: 100, text: "12345")]
+    check transform(100, insertion, right) == 105
+    check transform(100, insertion, left) == 100
 
   test "Zed-style multiple selections normalize and add carets":
     var view = newEditorView()
