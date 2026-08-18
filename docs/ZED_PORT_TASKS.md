@@ -226,7 +226,7 @@
 
 **一部のみ — 先に片付ける**
 
-- [ ] **Panel trait (what a dock can contain)** — Zed `crates/workspace/src/dock.rs:36`
+- [x] **Panel trait (what a dock can contain)** — Zed `crates/workspace/src/dock.rs:36`
 - [x] **Dock container: open bit, active panel index, per-panel size state** — Zed `crates/workspace/src/dock.rs:269`
 - [ ] **Dock resize handle geometry and double-click reset** — Zed `crates/workspace/src/dock.rs:1132 (Render for Dock), handle placement at dock.rs:1124-1150`
 - [ ] **PanelButtons (the status-bar dock toggles)** — Zed `crates/workspace/src/dock.rs:356, Render at dock.rs:1252, StatusItemView at dock.rs:1449`
@@ -374,7 +374,7 @@
 - [ ] **calculate_wrap_width — soft wrap mode to a pixel width** — Zed `crates/editor/src/element.rs:10624, consumed at crates/editor/src/element.rs:8023 and :10672`
 - [ ] **layout_selections + active_rows** — Zed `crates/editor/src/element.rs:767, SelectionLayout at crates/editor/src/element.rs:142 and :159`
 - [ ] **CursorLayout — shape, bounds, block glyph, collaborator name** — Zed `crates/editor/src/element.rs:10318 (struct), crates/editor/src/element.rs:10362 (bounds), crates/editor/src/element.rs:10421 (paint); construction at crates/editor/src/element.rs:1001 (layout_visible_cursors)`
-- [ ] **GitBlame entity — blame kept in sync with edits** — Zed `crates/editor/src/git/blame.rs:75 (struct GitBlame), :305 (blame_for_rows), :368 (sync), :505 (generate), :681 (regenerate_on_edit), :697 (build_blame_entry_sum_tree)`
+- [x] **GitBlame entity — blame kept in sync with edits** — Zed `crates/editor/src/git/blame.rs:75 (struct GitBlame), :305 (blame_for_rows), :368 (sync), :505 (generate), :681 (regenerate_on_edit), :697 (build_blame_entry_sum_tree)`
 - [ ] **The prepaint→paint split and EditorLayout** — Zed `crates/editor/src/element.rs:7954 (prepaint), :9632 (struct EditorLayout), :9431 (paint)`
 - [ ] **paint_background — active line and highlighted rows** — Zed `crates/editor/src/element.rs:4890`
 - [ ] **items.rs tab_content — the tab label element** — Zed `crates/editor/src/items.rs:751; MAX_TAB_TITLE_LEN=24 at items.rs:66; entry_git_aware_label_color at items.rs:2205; entry_label_color at items.rs:2177`
@@ -477,7 +477,7 @@
 - [ ] **Extension host (wasm) and extension store UI** — Zed `crates/extension_host/src/extension_host.rs (1995 lines), crates/extensions_ui/src/extensions_ui.rs (2096), registered at crates/zed/src/main.rs:526 and :663`
 - [ ] **Picker: one modal, many delegates** — Zed `crates/picker/src/picker.rs (1898 lines); delegates in file_finder/src/file_finder.rs:1, command_palette/src/command_palette.rs:1, tab_switcher, outline, project_symbols, theme_selector, language_selector, toolchain_selector, recent_projects, go_to_line`
 - [ ] **Diagnostics as a multibuffer Item** — Zed `crates/diagnostics/src/diagnostics.rs (1154 lines), init at crates/zed/src/main.rs:734`
-- [ ] **Task templates and spawn UI** — Zed `crates/tasks_ui/src/tasks_ui.rs (625 lines), init at crates/zed/src/main.rs:747; model in crates/task`
+- [x] **Task templates and spawn UI** — Zed `crates/tasks_ui/src/tasks_ui.rs (625 lines), init at crates/zed/src/main.rs:747; model in crates/task`
 - [ ] **Status bar, title bar, breadcrumbs, activity indicator** — Zed `crates/title_bar/src/title_bar.rs (1446 lines), crates/breadcrumbs (127), crates/activity_indicator (781), crates/notifications (684)`
 
 **無い**
