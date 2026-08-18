@@ -1,24 +1,42 @@
 # Zed UI パリティ作業 引き継ぎメモ
 
-最終更新: 2026-08-15 / ブランチ `main`（push 済み、`a60f30e`）
+最終更新: 2026-08-18 / ブランチ `main`（push 済み、`410062f`）
 
-## 0. セッション引き継ぎ（2026-08-15 時点、長時間セッションの最終更新）
+## 0. セッション引き継ぎ（2026-08-18 時点、長時間セッションの最終更新）
 
 **次にやること（優先順）**:
-1. **下記「VM ゴールデンイメージが壊れている」を必ず先に読むこと。** 現状、
-   VM 経由の計測・スモークテストが一切できない状態で本セッションを終えている。
+1. VM ゴールデンイメージは前セッションで完全復旧済み（`make vm-verify`成功、
+   `tools/ui_test.sh smoke` も実 Zed 比較込みで成功確認済み）。復旧手順は
+   `Makefile`/`tools/vm_golden_image.sh` として常設化されている（下記参照）。
 2. `docs/ZED_PORT_TASKS.md` の `[ ]` から新規タスクを選ぶ。持ち越しの未完了
-   ワークトリーはない（`platformtrait` は本セッション中に完了・統合済み）。
-   [nimculus-parallel-dev] スキルの手順でワークトリーを作り、
+   ワークトリーはない（`paneltrait`/`tasktemplate`/`gitblame` は本セッション中に
+   完了・統合済み）。[nimculus-parallel-dev] スキルの手順でワークトリーを作り、
    `.claude/port-briefs/briefs.json` の指示書を使う。
+3. **`paneltrait`（Panel trait descriptor table）が完了したことで、
+   `blocked_by` でこれに依存していた大物タスク（Agent panel/agent runtime、
+   Debugger panel/DAP client、Extension host wasm+store UI）が着手可能になった。**
+   次バッチの有力候補。
 
 ### 現在地
 
-- 台帳: **241 / 103**（`docs/ZED_PORT_TASKS.md`、`[x]` 241 / `[ ]` 103。
-  セッション開始時は 216/128 だった）
+- 台帳: **244 / 100**（`docs/ZED_PORT_TASKS.md`、`[x]` 244 / `[ ]` 100）
 - `main` は `git status` クリーン、push 済み。`.nimcache` 全消しで
-  テストランナー 48/48、`nimble packageMacos` rc=0 を確認済み（host 上、VM 抜きで）
-- このセッションで `main` に入った項目は25件。詳細は `git log --oneline` の
+  テストランナー 48/48、`nim check` 成功、`nimble packageMacos` rc=0 を
+  確認済み（host 上）
+- 本セッションで `main` に入った項目は3件:
+  - **Panel trait descriptor table**（`workspace_ui.nim`/`macos_platform.m`/
+    `session.nim`）— 8パネル分の設定を単一 `PanelInfo` テーブルに集約、
+    `case panel` を撤廃。ObjC 側の ordinal リテラルは Nim エクスポート値を
+    weak symbol 経由で参照する方式に変更
+  - **Task templates and spawn UI**（`task_service.nim`）— `TaskTemplate`/
+    `resolveTaskTemplate` と `${VAR:default}` 置換、`.nimculus/tasks.json` 読込
+  - **GitBlame entity 編集追従**（`git_blame.nim`）— `documentVersion` キー方式
+    (1文字入力で blame が消える不具合の原因)を廃止し `applyEdit` によるその場
+    スプライスに変更。**所有外の `tests/test_git_service.nim` の既存2テストが
+    まさに廃止対象の旧仕様を検証しており衝突していた**（codex は所有外のため
+    未修正・報告のみで停止、正しい振る舞い）。新契約に合わせて自分で書き直し、
+    独立に再検証した（下記「踏んだ罠」に詳細）
+- 前セッションで `main` に入った項目は25件。詳細は `git log --oneline` の
   `Merge port/*` コミットを参照。カテゴリだけ記す:
   - nimnui フレームワーク層（entity/entity_context/effects/text style/hsla/
     controls builder traits・icon・list item/per-element state/batching step1）
@@ -479,6 +497,18 @@ overall  identical 70.97%   diff<=2 71.53%   >32 7.29%   mean 12.02
     Zed が何を表示しているかはキャプチャを人が見るしかない。
     上の 4 件のうち 3 件は Zed 側の状態だったので、
     **Nimculus 側の assert だけでは半分しか塞げていない。**
+20. **タスクの意図的なAPI変更が、所有外の既存テストと衝突することがある**
+    （2026-08-18、`gitblame`）→ `git_blame.nim` の `documentVersion` キー方式
+    キャッシュ無効化を廃止する設計変更で、`tests/test_git_service.nim`
+    （このタスクの所有ファイルではない）の既存2テストが、まさに廃止対象の
+    旧仕様（「version が変われば cache は不一致になる」）を検証しており、
+    ビルドは通るがテストが落ちた。codex は所有外ファイルのため正しく
+    「修正せず報告して止まる」を選んだ。**この場合、指示側（自分）が
+    所有外テストを新しい契約に合わせて書き直す責任を持つ**（テストを
+    通すために実装を歪めるのではなく、テストの方が旧仕様のアサーションだと
+    確認してから書き直すこと。当て推量で消さない — 実際に何を検証しているかを
+    読み、新しい契約でも同じ観点＝「identity の一致条件」「無効化のトリガー」を
+    テストし続けるように書き換える）。
 
 ## 5. 次にやること（優先順）
 
