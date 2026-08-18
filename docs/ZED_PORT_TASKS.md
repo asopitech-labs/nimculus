@@ -326,7 +326,7 @@
 - [ ] **Autoscroll strategies** — Zed `crates/editor/src/scroll/autoscroll.rs:16 (enum Autoscroll), :100 (AutoscrollStrategy), :127 autoscroll_vertically, :345 autoscroll_horizontally; request queued on ScrollManager at scroll.rs:169`
 - [x] **ScrollAmount: line / page / column / page-width** — Zed `crates/editor/src/scroll/scroll_amount.rs:19 (enum ScrollAmount), :30 lines(), :46 columns(), :53 pixels()`
 - [ ] **Scrollbar geometry and thumb state** — Zed `crates/editor/src/scroll.rs:165 (ScrollbarThumbState), :161 (ActiveScrollbarState), :438 show_scrollbars, SCROLLBAR_SHOW_INTERVAL at :31`
-- [ ] **Edit transactions grouped with selection history** — Zed `crates/editor/src/editor.rs:8286 transact, :8392 start_transaction_at, :8414 end_transaction_at, :1394 SelectionHistory, :1297 SelectionHistoryMode`
+- [x] **Edit transactions grouped with selection history** — Zed `crates/editor/src/editor.rs:8286 transact, :8392 start_transaction_at, :8414 end_transaction_at, :1394 SelectionHistory, :1297 SelectionHistoryMode`
 - [ ] **Highlight layering on top of the transform chain** — Zed `crates/editor/src/display_map.rs:229 (text_highlights, inlay_highlights, semantic_token_highlights fields), :161 (HighlightKey), :334 (HighlightStyleInterner), :1408 (HighlightedChunk); custom_highlights.rs:30`
 
 **無い**
