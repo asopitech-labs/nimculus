@@ -7931,10 +7931,17 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     editorViewState.statusMessage = "Git commit requires a message"
   elif name == "resetWorkspaceSidebarWidth":
     when defined(macosx):
-      editorWorkspaceUi.resetDockSize(editorWorkspaceUi.panelDockSide(panelFiles))
-      invalidateDemoUi()
-      scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
-        WorkspaceCompositionPersistenceDelay)
+      let side = editorWorkspaceUi.panelDockSide(panelFiles)
+      if editorWorkspaceUi.dockResizePointerDown(side, clickCount = 2):
+        invalidateDemoUi()
+        scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+          WorkspaceCompositionPersistenceDelay)
+  elif name == "resetWorkspaceBottomDock":
+    when defined(macosx):
+      if editorWorkspaceUi.dockResizePointerDown(dockBottom, clickCount = 2):
+        invalidateDemoUi()
+        scheduleSessionPersistence(WorkspaceCompositionPersistenceDelay,
+          WorkspaceCompositionPersistenceDelay)
   elif name == "toggleDockZoom":
     when defined(macosx): toggleFocusedDockZoom()
   elif name == "extensionPermissions:allow":
@@ -9804,11 +9811,12 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
     let workspaceLayout = editorWorkspaceUi.layout(workspaceViewport)
     let logicalRightDockWidth = float32(workspaceLayout.rightDock.size.width)
     let presentedDockWidth = projectDockPresentationWidth(logicalRightDockWidth, 128'f32)
-    let leftDividerX = editorWorkspaceUi.dockResizeDivider(dockLeft,
-      viewportWidth)
-    let rightDividerX = editorWorkspaceUi.dockResizeDivider(dockRight,
-      viewportWidth)
-    let bottomDividerY = float32(workspaceLayout.bottomDock.origin.y)
+    let leftHandle = editorWorkspaceUi.dockResizeHandleRect(dockLeft,
+      workspaceViewport)
+    let rightHandle = editorWorkspaceUi.dockResizeHandleRect(dockRight,
+      workspaceViewport)
+    let bottomHandle = editorWorkspaceUi.dockResizeHandleRect(dockBottom,
+      workspaceViewport)
     if editorWorkspaceUi.isResizingDock:
       if kind == pointerMove:
         if editorWorkspaceUi.resizingDock == dockLeft:
@@ -9830,17 +9838,17 @@ proc receiveNativeInput(event: ptr NimculusInputEvent) {.cdecl.} =
           WorkspaceCompositionPersistenceDelay)
         return
     if kind == pointerDown and editorWorkspaceUi.leftDock.isOpen and
-        abs(float32(event.x) - leftDividerX) <= 4'f32:
-      editorWorkspaceUi.beginDockResize(dockLeft)
+        leftHandle.contains(point):
+      discard editorWorkspaceUi.dockResizePointerDown(dockLeft, clickCount = 1)
       return
     if kind == pointerDown and presentedDockWidth > 0'f32 and
         editorWorkspaceUi.rightDock.isOpen and
-        abs(float32(event.x) - rightDividerX) <= 4'f32:
-      editorWorkspaceUi.beginDockResize(dockRight)
+        rightHandle.contains(point):
+      discard editorWorkspaceUi.dockResizePointerDown(dockRight, clickCount = 1)
       return
     if kind == pointerDown and editorWorkspaceUi.bottomDock.isOpen and
-        abs(uiY - bottomDividerY) <= 4'f32:
-      editorWorkspaceUi.beginDockResize(dockBottom)
+        bottomHandle.contains(point):
+      discard editorWorkspaceUi.dockResizePointerDown(dockBottom, clickCount = 1)
       return
     if kind == pointerDown:
       case workspaceLayout.presentedRegionAt(workspaceViewport, point,

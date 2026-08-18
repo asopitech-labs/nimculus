@@ -178,6 +178,7 @@ const
   ## seam in the shared layout so the editor reaches that presenter.
   DefaultStatusHeight* = 2'f32
   DefaultDockMinimumSize* = 160'f32
+  DockResizeHandleSize* = 6'f32
   MinimumCenterWidth* = 360'f32
   MinimumCenterHeight* = 180'f32
   ## Match Zed's PaneGroup floor: a side-by-side editor remains wide enough
@@ -964,6 +965,38 @@ proc resetDockSize*(state: var WorkspaceUiState, side: DockSide) =
   of dockRight:
     state.panelSizes[state.rightDock.activePanel] =
       PanelInfo[state.rightDock.activePanel].defaultSize
+
+proc dockResizePointerDown*(state: var WorkspaceUiState, side: DockSide,
+                            clickCount: int): bool =
+  ## Return true when a double-click consumed the pointer-down as a reset.
+  if state.dock(side).zoomed:
+    return false
+  if clickCount >= 2:
+    state.resetDockSize(side)
+    return true
+  state.beginDockResize(side)
+  false
+
+proc dockResizeHandleRect*(state: WorkspaceUiState, side: DockSide,
+                           viewport: Size): Rect =
+  ## The handle is centered on the divider and overhangs it by half its size.
+  ## A zoomed dock is not resizable, so it has no hit region at all.
+  if state.dock(side).zoomed:
+    return Rect(size: Size(width: px(0), height: px(0)))
+  let width = max(0'f32, float32(viewport.width))
+  let height = max(0'f32, float32(viewport.height))
+  let available = if side == dockBottom:
+      max(0'f32, height - DefaultStatusHeight) else:
+      width
+  let divider = state.dockResizeDivider(side, available)
+  let half = DockResizeHandleSize / 2'f32
+  case side
+  of dockLeft, dockRight:
+    Rect(origin: Point(x: px(divider - half), y: px(0)),
+      size: Size(width: px(DockResizeHandleSize), height: px(height)))
+  of dockBottom:
+    Rect(origin: Point(x: px(0), y: px(divider - half)),
+      size: Size(width: px(width), height: px(DockResizeHandleSize)))
 
 proc resizeDock*(state: var WorkspaceUiState, side: DockSide, requested: float32,
                  available: float32) =
