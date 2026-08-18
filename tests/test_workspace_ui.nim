@@ -19,11 +19,60 @@ suite "workspace UI state":
         check PanelInfo[panel].settingKey == ""
       check PanelInfo[panel].defaultSide in PanelInfo[panel].validSides
 
-  test "native panel ordinal exports match the Nim enum":
-    check NimculusPanelKindTerminal == ord(panelTerminal)
-    check NimculusPanelKindAgent == ord(panelAgent)
-    check int(nimculus_panel_kind_terminal()) == NimculusPanelKindTerminal
-    check int(nimculus_panel_kind_agent()) == NimculusPanelKindAgent
+  test "descriptor defaults preserve the existing panel dock sides":
+    check PanelInfo[panelFiles].defaultSide == defaultPanelDockSide(panelFiles)
+    check PanelInfo[panelGit].defaultSide == defaultPanelDockSide(panelGit)
+    check PanelInfo[panelOutline].defaultSide == defaultPanelDockSide(panelOutline)
+    check PanelInfo[panelTerminal].defaultSide == defaultPanelDockSide(panelTerminal)
+    check PanelInfo[panelDebugger].defaultSide == defaultPanelDockSide(panelDebugger)
+    check PanelInfo[panelTasks].defaultSide == defaultPanelDockSide(panelTasks)
+    check PanelInfo[panelAgent].defaultSide == defaultPanelDockSide(panelAgent)
+    check PanelInfo[panelSearch].defaultSide == defaultPanelDockSide(panelSearch)
+    check defaultPanelDockSide(panelFiles) == dockRight
+    check defaultPanelDockSide(panelGit) == dockRight
+    check defaultPanelDockSide(panelOutline) == dockRight
+    check defaultPanelDockSide(panelTerminal) == dockBottom
+    check defaultPanelDockSide(panelDebugger) == dockBottom
+    check defaultPanelDockSide(panelTasks) == dockBottom
+    check defaultPanelDockSide(panelAgent) == dockLeft
+    check defaultPanelDockSide(panelSearch) == dockLeft
+
+  test "dock entries are sorted by activation priority":
+    check PanelInfo[panelFiles].activationPriority == 10
+    check PanelInfo[panelGit].activationPriority == 0
+    check PanelInfo[panelOutline].activationPriority == 0
+    let state = initWorkspaceUi()
+    check state.dock(dockRight).entries == @[panelFiles, panelGit, panelOutline]
+
+  test "dock resize uses the active panel minimum size":
+    let filesDescriptor = PanelInfo[panelFiles]
+    let gitDescriptor = PanelInfo[panelGit]
+    PanelInfo[panelFiles].minSize = 200'f32
+    PanelInfo[panelGit].minSize = 160'f32
+    var state = initWorkspaceUi()
+    state.openPanel(panelFiles)
+    state.resizeDock(dockRight, 100'f32, 1200'f32)
+    check state.dock(dockRight).size == 200'f32
+    state.openPanel(panelGit)
+    state.resizeDock(dockRight, 100'f32, 1200'f32)
+    check state.dock(dockRight).size == 160'f32
+    PanelInfo[panelFiles] = filesDescriptor
+    PanelInfo[panelGit] = gitDescriptor
+
+  test "dock zoom toggles without changing visibility or active panel":
+    var state = initWorkspaceUi()
+    state.openPanel(panelFiles)
+    let wasOpen = state.rightDock.isOpen
+    let activePanel = state.rightDock.activePanel
+    check not state.rightDock.zoomed
+    state.toggleDockZoom(dockRight)
+    check state.rightDock.zoomed
+    check state.rightDock.isOpen == wasOpen
+    check state.rightDock.activePanel == activePanel
+    state.toggleDockZoom(dockRight)
+    check not state.rightDock.zoomed
+    check state.rightDock.isOpen == wasOpen
+    check state.rightDock.activePanel == activePanel
 
   test "composition persistence coalesces rapid scheduling at its starvation cap":
     var schedule: PersistenceSchedule
@@ -327,7 +376,7 @@ suite "workspace UI state":
     var state = initWorkspaceUi(tabCount = 3, activeTab = 0)
     discard state.splitFocusedPane(paneVertical)
     state.rightDock.activePanel = panelGit
-    state.rightDock.zoom = true
+    state.rightDock.zoomed = true
     state.center.children[0].pane.pinnedCount = 1
     var session: EditorSession
     state.saveWorkspaceUi(session)
@@ -344,7 +393,7 @@ suite "workspace UI state":
     check not saved.hasKey("splitSecondaryTab")
     let restored = initWorkspaceUi(loadSession(path))
     check restored.rightDock.activePanel == panelGit
-    check restored.rightDock.zoom
+    check restored.rightDock.zoomed
     check restored.center.kind == paneSplit
     check restored.center.children.len == 2
     check restored.center.children[0].pane.pinnedCount == 1

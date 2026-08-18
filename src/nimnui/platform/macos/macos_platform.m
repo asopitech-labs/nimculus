@@ -597,36 +597,14 @@ static NimculusTerminalRun *g_terminal_runs = NULL;
 static uint32_t g_terminal_run_count = 0;
 static NSMutableArray<NSString *> *g_terminal_hyperlinks = nil;
 static BOOL g_terminal_visible = NO;
-// PanelKind ordinals are owned by workspace_ui.nim. The initial value mirrors
-// that model until the first workspace render supplies the complete mask.
+// The workspace owns panel ordinals and pushes the complete dock-side mask
+// before the first frame. AppKit intentionally starts with no panel placement.
 enum {
   NimculusDockSideLeft = 1,
   NimculusDockSideBottom = 2,
   NimculusDockSideRight = 3
 };
-__attribute__((weak))
-uint32_t nimculus_panel_kind_terminal(void) {
-  return NimculusDockSideBottom + NimculusDockSideLeft;
-}
-__attribute__((weak))
-uint32_t nimculus_panel_kind_agent(void) {
-  return NimculusDockSideRight * NimculusDockSideBottom + NimculusDockSideLeft;
-}
-static uint32_t nimculusPanelKindTerminalValue(void) {
-  return nimculus_panel_kind_terminal();
-}
-static uint32_t nimculusPanelKindAgentValue(void) {
-  return nimculus_panel_kind_agent();
-}
-#define NimculusPanelKindTerminal nimculusPanelKindTerminalValue()
-#define NimculusPanelKindAgent nimculusPanelKindAgentValue()
 static uint32_t g_footer_panel_dock_side_mask = 0;
-__attribute__((constructor))
-static void nimculusInitializePanelDockDefaults(void) {
-  g_footer_panel_dock_side_mask =
-    (NimculusDockSideLeft << (NimculusPanelKindAgent * 2)) |
-    (NimculusDockSideBottom << (NimculusPanelKindTerminal * 2));
-}
 static NSArray<NSString *> *g_terminal_session_titles = nil;
 static NSUInteger g_terminal_active_session = 0;
 static NSString *g_task_output_text = @"";
@@ -8278,7 +8256,7 @@ static NSView *newFooterDivider(void) {
   NimculusFooterStatusButton *agent = newPanelButton(self, @"Agent", @"sparkles",
     NimculusFooterActionAgent);
   NimculusFooterStatusButton *panelButtons[] = {agent, terminalButton};
-  const uint32_t panelKinds[] = {NimculusPanelKindAgent, NimculusPanelKindTerminal};
+  const uint32_t panelKinds[] = {7u, 3u};
   BOOL panelOnLeft[] = {NO, NO};
   BOOL hasLeftPanelButtons = NO;
   BOOL hasRightPanelButtons = NO;
@@ -8386,7 +8364,7 @@ bool nimculus_platform_validate_editor_footer_items(void) {
     NSString *previous = [g_editor_footer retain];
     const uint32_t previousMask = g_footer_panel_dock_side_mask;
     nimculus_platform_set_footer_panel_dock_sides(
-      NimculusDockSideLeft << (NimculusPanelKindAgent * 2));
+      NimculusDockSideLeft << (7u * 2u));
     nimculus_platform_set_editor_footer("cursor=1:1\tlanguage=Markdown\tencoding=UTF-8\tline-ending=LF");
     NimculusFooterOverlay *footer = [[NimculusFooterOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 30.0)];
@@ -8766,7 +8744,7 @@ bool nimculus_platform_validate_editor_panel_footer(void) {
     g_search_button = YES;
     g_diagnostics_button = NO;
     nimculus_platform_set_footer_panel_dock_sides(
-      NimculusDockSideLeft << (NimculusPanelKindAgent * 2));
+      NimculusDockSideLeft << (7u * 2u));
     nimculus_platform_set_editor_footer("cursor=1:1\tlanguage=Markdown");
     NimculusFooterOverlay *footer = [[NimculusFooterOverlay alloc]
       initWithFrame:NSMakeRect(0.0, 0.0, 640.0, 30.0)];
@@ -17377,6 +17355,9 @@ void nimculus_platform_set_footer_panel_dock_sides(uint32_t panel_dock_side_mask
       break;
     }
   }
+}
+uint32_t nimculus_platform_get_footer_panel_dock_sides(void) {
+  return g_footer_panel_dock_side_mask;
 }
 void nimculus_platform_set_welcome_visible(bool visible) {
   g_welcome_visible = visible ? YES : NO;

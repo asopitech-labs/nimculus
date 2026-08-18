@@ -3,6 +3,7 @@ import nimnui/platform/macos/platform
 from nimnui/platform/headless/platform import newHeadlessPlatform
 import nimculus/editor_scroll
 import nimculus/settings
+import nimculus/workspace_ui
 import nimnui/geometry
 
 proc nativeGuiValidationRequired(): bool =
@@ -245,6 +246,11 @@ suite "macOS platform contract":
     check platformValidateEditorActivityIndicator()
 
   test "native project search button matches Zed's label and setting visibility":
+    let previousMask = platformGetFooterPanelDockSides()
+    defer:
+      platformSetFooterPanelDockSides(previousMask)
+    let workspaceUi = initWorkspaceUi()
+    platformSetFooterPanelDockSides(workspaceUi.panelDockSideMask())
     check platformValidateEditorSearchButton()
 
   test "native panel footer follows dock ownership and divider boundaries":
