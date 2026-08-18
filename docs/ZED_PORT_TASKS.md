@@ -466,7 +466,7 @@
 
 **一部のみ — 先に片付ける**
 
-- [ ] **Panel trait / dock contract** — Zed `crates/workspace/src/dock.rs:36 (trait Panel), :106 (PanelHandle), :284 (DockPosition)`
+- [x] **Panel trait / dock contract** — Zed `crates/workspace/src/dock.rs:36 (trait Panel), :106 (PanelHandle), :284 (DockPosition)`
 - [x] **Panel persistence identity (persistent_name)** — Zed `crates/project_panel/src/project_panel.rs:7607, crates/outline_panel/src/outline_panel.rs:4955, crates/terminal_view/src/terminal_panel.rs:1625`
 - [x] **Startup panel construction** — Zed `crates/zed/src/zed.rs:775 initialize_panels, :874 initialize_agent_panel`
 - [ ] **Outline panel** — Zed `crates/outline_panel/src/outline_panel.rs:653 init, :4954 impl Panel`
