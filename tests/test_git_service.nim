@@ -4,6 +4,8 @@ import std/strutils
 import std/sequtils
 import std/times
 import std/tables
+import std/deques
+import std/options
 import std/unicode
 import std/unittest
 when defined(posix):
@@ -272,6 +274,48 @@ suite "M9 Git service":
     check job.done
     check job.cancelled
     check job.result.exitCode == -1
+
+  test "collapses consecutive RefreshStatuses jobs in the repository queue":
+    let root = m9TempDir("refresh-queue")
+    createDir(root)
+    defer: removeDir(root)
+    discard git(root, "init", "-q")
+    let repository = newGitRepositorySync(root)
+    var started = 0
+    setGitJobStartHook(proc(repository: GitRepository; job: GitJob) =
+      inc started)
+    defer: setGitJobStartHook(nil)
+    for _ in 0 ..< 20:
+      discard repository.enqueueGitJob(["status", "--porcelain"], RefreshStatuses)
+      check len(repository.jobs) <= 1
+    check started == 1
+    let completed = waitForTest("RefreshStatuses queue completion", timeoutMs = 10_000,
+      condition = proc(): bool = repository.pollGitJobs() != nil)
+    check checkTestWait(completed)
+    if len(repository.jobs) > 0:
+      repository.finishGitJob(repository.jobs[0])
+
+  test "only adjacent keyed jobs collapse and preserve execution order":
+    let root = m9TempDir("queue-order")
+    createDir(root)
+    defer: removeDir(root)
+    discard git(root, "init", "-q")
+    let repository = newGitRepositorySync(root)
+    var execution: seq[GitJobKey]
+    setGitJobStartHook(proc(repository: GitRepository; job: GitJob) =
+      execution.add(job.key.get()))
+    defer: setGitJobStartHook(nil)
+    discard repository.enqueueGitJob(["status", "--porcelain"], RefreshStatuses)
+    discard repository.enqueueGitJob(["add", "-A"], WriteIndex)
+    discard repository.enqueueGitJob(["status", "--porcelain"], RefreshStatuses)
+    check len(repository.jobs) == 3
+    while len(repository.jobs) > 0:
+      let completed = waitForTest("serialized Git queue", timeoutMs = 10_000,
+        condition = proc(): bool = repository.pollGitJobs() != nil)
+      check checkTestWait(completed)
+      if len(repository.jobs) == 0: break
+      repository.finishGitJob(repository.jobs[0])
+    check execution == @[RefreshStatuses, WriteIndex, RefreshStatuses]
 
   test "cancels a Git process that is waiting for stdin":
     let root = m9TempDir("blocked-job")

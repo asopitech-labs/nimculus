@@ -6,6 +6,8 @@ import std/strutils
 import std/times
 import std/asyncdispatch
 import std/asyncfutures
+import std/deques
+import std/options
 import nimnui/executor
 import nimnui/platform/contracts
 when defined(posix):
@@ -79,15 +81,35 @@ type
     changedRanges*: seq[GitDiffLineRange]
     patchText*: string
 
+  GitJobKey* = enum
+    WriteIndex,
+    ReloadBufferDiffBases,
+    ReloadSecondaryBufferDiffBases,
+    RefreshStatuses
+
+  RepositorySnapshot* = object
+    statuses*: seq[GitStatusEntry]
+    branch*: string
+    branchList*: seq[GitBranch]
+    head*: string
+    scanId*: uint64
+
   GitJob* = ref object
     process: Process
     output: Stream
+    args: seq[string]
+    input: string
     done*: bool
     cancelled*: bool
     result*: GitResult
+    key*: Option[GitJobKey]
 
   GitRepository* = ref object
     root*: string
+    snapshot*: RepositorySnapshot
+    jobs*: Deque[GitJob]
+
+  GitJobStartHook* = proc(repository: GitRepository; job: GitJob)
 
 const MaxGitOutputBytes* = 16 * 1024 * 1024
 const GitProbeTimeoutMs = 2_000
@@ -231,6 +253,13 @@ proc gitProcessOptions(): set[ProcessOption] =
 proc newGitJob(process: Process): GitJob {.gcsafe.} =
   result = GitJob(process: process, output: process.peekableOutputStream())
 
+var gitJobStartHook: GitJobStartHook
+
+proc setGitJobStartHook*(hook: GitJobStartHook) =
+  ## Test-only instrumentation for the serialized repository queue. Keeping
+  ## the hook at the process boundary also counts jobs started by the UI.
+  gitJobStartHook = hook
+
 var gitRepositoryCache: ptr Table[string, GitRepository]
 gitRepositoryCache = cast[ptr Table[string, GitRepository]](
   allocShared0(sizeof(Table[string, GitRepository])))
@@ -275,7 +304,8 @@ proc resolveGitRepositorySync(root: string): GitRepository =
   let resolved = job.result.output.strip()
   if resolved.len == 0:
     return nil
-  result = try: GitRepository(root: absolutePath(resolved))
+  result = try: GitRepository(root: absolutePath(resolved),
+    jobs: initDeque[GitJob]())
     except CatchableError: nil
 
 proc newGitRepository*(root: string; executor: BackgroundExecutor): Future[GitRepository] =
@@ -350,27 +380,93 @@ proc runGitInput(repository: GitRepository; args: openArray[string]; input: stri
     sleep(1)
   result = job.result
 
+proc startGitProcess(repository: GitRepository; job: GitJob) =
+  if repository == nil or job == nil or job.process != nil: return
+  var commandArgs = @["-C", repository.root]
+  commandArgs.add(job.args)
+  let process = startProcess("git", "", commandArgs,
+    options = gitProcessOptions())
+  job.process = process
+  job.output = process.peekableOutputStream()
+  if gitJobStartHook != nil:
+    gitJobStartHook(repository, job)
+  if job.input.len > 0:
+    try:
+      process.inputStream.write(job.input)
+      process.inputStream.close()
+    except CatchableError:
+      job.cancel()
+
 proc startGitJob*(repository: GitRepository; args: openArray[string]): GitJob =
   if repository == nil: return GitJob(done: true,
     result: GitResult(exitCode: -1, output: "not a git repository"))
-  var commandArgs = @["-C", repository.root]
-  commandArgs.add(args)
-  let process = startProcess("git", "", commandArgs,
-    options = gitProcessOptions())
-  result = newGitJob(process)
+  result = GitJob(args: @args)
+  startGitProcess(repository, result)
 
 proc startGitJobInput*(repository: GitRepository; args: openArray[string];
                        input: string): GitJob =
   ## Start a cancellable Git process with a bounded patch/input payload.
   ## The caller must keep the payload small enough to write before polling;
   ## this is intended for one diff hunk, not repository-sized stdin.
-  result = repository.startGitJob(args)
-  if result == nil or result.done: return
-  try:
-    result.process.inputStream.write(input)
-    result.process.inputStream.close()
-  except CatchableError:
-    result.cancel()
+  if repository == nil:
+    return GitJob(done: true, result: GitResult(exitCode: -1,
+      output: "not a git repository"))
+  result = GitJob(args: @args, input: input)
+  startGitProcess(repository, result)
+
+proc enqueueGitJob*(repository: GitRepository; args: openArray[string];
+                    key: Option[GitJobKey] = none(GitJobKey);
+                    input = ""): GitJob =
+  ## Add one serialized Git operation to the repository-owned queue.
+  ## Supersession is deliberately local to the tail: adjacent keyed refreshes
+  ## collapse, while a different keyed operation preserves the order between
+  ## two refreshes (RefreshStatuses, WriteIndex, RefreshStatuses).
+  if repository == nil:
+    return GitJob(done: true, key: key,
+      result: GitResult(exitCode: -1, output: "not a git repository"))
+  if len(repository.jobs) == 0:
+    repository.jobs = initDeque[GitJob]()
+  var queuedArgs: seq[string]
+  for arg in args: queuedArgs.add(arg)
+  if key.isSome and len(repository.jobs) > 0:
+    let tail = repository.jobs[^1]
+    if tail.key == key:
+      if tail.process == nil and not tail.done:
+        tail.args = queuedArgs
+        tail.input = input
+      return tail
+  result = GitJob(args: queuedArgs, input: input, key: key)
+  repository.jobs.addLast(result)
+  if len(repository.jobs) == 1:
+    startGitProcess(repository, result)
+
+proc enqueueGitJob*(repository: GitRepository; args: openArray[string];
+                    key: GitJobKey; input = ""): GitJob =
+  repository.enqueueGitJob(args, some(key), input)
+
+proc pollGitJobs*(repository: GitRepository): GitJob =
+  ## Poll only the head. A completed job remains visible until its consumer
+  ## calls finishGitJob, so UI consumers can inspect the result without a
+  ## second module-level job handle.
+  if repository == nil or len(repository.jobs) == 0: return
+  let job = repository.jobs[0]
+  if job.process == nil:
+    startGitProcess(repository, job)
+  if job.poll(): result = job
+
+proc finishGitJob*(repository: GitRepository; job: GitJob) =
+  if repository == nil or job == nil or len(repository.jobs) == 0 or
+      repository.jobs[0] != job or not job.done:
+    return
+  discard repository.jobs.popFirst()
+  if len(repository.jobs) > 0:
+    startGitProcess(repository, repository.jobs[0])
+
+proc cancelGitJobs*(repository: GitRepository) =
+  if repository == nil: return
+  for job in repository.jobs:
+    job.cancel()
+  repository.jobs.clear()
 
 proc cancel*(job: GitJob) {.gcsafe.} =
   if job == nil or job.done: return
@@ -412,6 +508,7 @@ proc parseStatus*(output: string): seq[GitStatusEntry] =
   while index < records.len:
     let record = records[index]
     inc index
+    if record.startsWith("## "): continue
     if record.len < 3: continue
     let x = record[0]
     let y = record[1]
@@ -423,8 +520,31 @@ proc parseStatus*(output: string): seq[GitStatusEntry] =
         inc index
     result.add(GitStatusEntry(indexStatus: x, worktreeStatus: y,
       path: path, originalPath: original,
-      conflict: x == 'U' or y == 'U' or (x == 'A' and y == 'A') or
+        conflict: x == 'U' or y == 'U' or (x == 'A' and y == 'A') or
         (x == 'D' and y == 'D')))
+
+proc parseStatusWithBranch*(output: string): tuple[statuses: seq[GitStatusEntry];
+                                                  branch: string] =
+  ## Parse the branch header emitted by `status --branch` together with the
+  ## normal porcelain entries. The snapshot can therefore update status and
+  ## branch from one serialized Git process.
+  let records = output.split('\0')
+  var statusOutput = ""
+  for record in records:
+    if record.startsWith("## "):
+      var branch = record[3 .. ^1].strip()
+      const noCommitsPrefix = "No commits yet on "
+      if branch.startsWith(noCommitsPrefix):
+        branch = branch[noCommitsPrefix.len .. ^1]
+      elif branch == "HEAD (no branch)":
+        branch = "(detached)"
+      let upstream = branch.find("...")
+      if upstream >= 0: branch = branch[0 ..< upstream]
+      result.branch = branch
+    elif record.len > 0:
+      statusOutput.add(record)
+      statusOutput.add('\0')
+  result.statuses = parseStatus(statusOutput)
 
 proc status*(repository: GitRepository): seq[GitStatusEntry] =
   let output = repository.runGit(["status", "--porcelain=v1", "--untracked-files=all", "-z"])
