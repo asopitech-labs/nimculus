@@ -9938,11 +9938,18 @@ static NSCursor *nimculusCursorForStyle(NimculusCursorStyle style) {
   }
 }
 
+static NSCursor *nimculusCursorForDockAxis(BOOL vertical) {
+  return vertical ? [NSCursor resizeUpDownCursor] : [NSCursor resizeLeftRightCursor];
+}
+
+static const CGFloat NimculusDockResizeHandleSize = 6.0;
+
 static NimculusCursorStyle nimculusCursorStyleForLogicalPoint(NSPoint point) {
   const CGFloat dividerX = g_editor_rect[0] + g_editor_rect[2] + 8.0;
   if (point.y <= 30.0) return NIMCULUS_CURSOR_ARROW;
-  if (g_editor_sidebar_visible && g_editor_sidebar_on_right &&
-      fabs(point.x - dividerX) <= 4.0 &&
+  if (g_editor_sidebar_visible &&
+      fabs(point.x - (g_editor_sidebar_on_right ? dividerX :
+        g_editor_rect[0] - 8.0)) <= 4.0 &&
       point.y >= g_editor_rect[1] &&
       point.y <= g_editor_rect[1] + g_editor_rect[3]) {
     return NIMCULUS_CURSOR_RESIZE_LEFT_RIGHT;
@@ -9971,11 +9978,28 @@ static NimculusCursorStyle nimculusCursorStyleForLogicalPoint(NSPoint point) {
     NSMakeRect(g_editor_rect[0], g_editor_rect[1], g_editor_rect[2], g_editor_rect[3]));
   [self addCursorRect:editorRect cursor:[NSCursor IBeamCursor]];
 
-  if (g_editor_sidebar_visible && g_editor_sidebar_on_right) {
-    const CGFloat dividerX = g_editor_rect[0] + g_editor_rect[2] + 8.0;
+  if (g_editor_sidebar_visible) {
+    const CGFloat dividerX = g_editor_sidebar_on_right
+      ? g_editor_rect[0] + g_editor_rect[2] + 8.0
+      : g_editor_rect[0] - 8.0;
+    const CGFloat logicalDividerX = g_editor_sidebar_on_right
+      ? g_editor_rect[0] + g_editor_rect[2]
+      : g_editor_rect[0];
     NSRect dividerRect = appKitFrameForLogicalTopRect(self,
       NSMakeRect(dividerX - 4.0, g_editor_rect[1], 8.0, g_editor_rect[3]));
-    [self addCursorRect:dividerRect cursor:[NSCursor resizeLeftRightCursor]];
+    [self addCursorRect:dividerRect cursor:nimculusCursorForDockAxis(NO)];
+    NSRect logicalDividerRect = appKitFrameForLogicalTopRect(self,
+      NSMakeRect(logicalDividerX - NimculusDockResizeHandleSize / 2.0,
+        g_editor_rect[1], NimculusDockResizeHandleSize, g_editor_rect[3]));
+    [self addCursorRect:logicalDividerRect cursor:nimculusCursorForDockAxis(NO)];
+  }
+
+  if ((g_terminal_visible || g_task_output_visible) &&
+      g_terminal_panel_rect[2] > 0.0 && g_terminal_panel_rect[3] > 0.0) {
+    NSRect bottomHandle = appKitFrameForLogicalTopRect(self,
+      NSMakeRect(g_terminal_panel_rect[0], g_terminal_panel_rect[1] - 3.0,
+        g_terminal_panel_rect[2], 6.0));
+    [self addCursorRect:bottomHandle cursor:nimculusCursorForDockAxis(YES)];
   }
 
   // The status bar is at the bottom in AppKit coordinates and must remain an
@@ -11329,22 +11353,41 @@ static void drawPolychromeGlyphSprites(id<MTLRenderCommandEncoder> encoder,
 }
 - (void)keyUp:(NSEvent *)event { logInput(@"keyUp", event); }
 - (void)flagsChanged:(NSEvent *)event { logInput(@"flagsChanged", event); }
-- (void)mouseDown:(NSEvent *)event { logInput(@"mouseDown", event); }
-- (void)mouseUp:(NSEvent *)event {
-  // Zed gives its sidebar resize handle a double-click reset.  The right
-  // Project dock is native macOS presentation, so keep this gesture here and
-  // let the Nim workspace model own only the resulting default width.
-  if (event.clickCount >= 2 && g_editor_sidebar_visible &&
-      g_editor_sidebar_on_right && g_command_callback) {
+- (void)mouseDown:(NSEvent *)event {
+  // AppKit owns click counting. Forward a second pointer-down at a dock
+  // handle as a model command so the shared workspace code receives an
+  // explicit clickCount instead of starting a platform timer.
+  if (event.clickCount >= 2 && g_command_callback) {
     NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
-    const CGFloat dividerX = g_editor_rect[0] + g_editor_rect[2] + 8.0;
-    if (fabs(point.x - dividerX) <= 4.0) {
+    const CGFloat dividerX = g_editor_sidebar_on_right
+      ? g_editor_rect[0] + g_editor_rect[2] + 8.0
+      : g_editor_rect[0] - 8.0;
+    const CGFloat logicalDividerX = g_editor_sidebar_on_right
+      ? g_editor_rect[0] + g_editor_rect[2]
+      : g_editor_rect[0];
+    const BOOL sidebarHandle = g_editor_sidebar_visible &&
+      (fabs(point.x - dividerX) <= 4.0 ||
+       fabs(point.x - logicalDividerX) <= NimculusDockResizeHandleSize / 2.0) &&
+      point.y >= g_editor_rect[1] &&
+      point.y <= g_editor_rect[1] + g_editor_rect[3];
+    if (sidebarHandle) {
       g_command_callback("resetWorkspaceSidebarWidth");
       return;
     }
+    if ((g_terminal_visible || g_task_output_visible) &&
+        g_terminal_panel_rect[2] > 0.0 && g_terminal_panel_rect[3] > 0.0) {
+      NSRect bottomHandle = appKitFrameForLogicalTopRect(self,
+        NSMakeRect(g_terminal_panel_rect[0], g_terminal_panel_rect[1] - 4.0,
+          g_terminal_panel_rect[2], 8.0));
+      if (NSPointInRect(point, bottomHandle)) {
+        g_command_callback("resetWorkspaceBottomDock");
+        return;
+      }
+    }
   }
-  logInput(@"mouseUp", event);
+  logInput(@"mouseDown", event);
 }
+- (void)mouseUp:(NSEvent *)event { logInput(@"mouseUp", event); }
 - (void)mouseMoved:(NSEvent *)event { logInput(@"mouseMoved", event); }
 - (void)mouseDragged:(NSEvent *)event { logInput(@"mouseDragged", event); }
 - (void)rightMouseDragged:(NSEvent *)event { logInput(@"rightMouseDragged", event); }
@@ -13029,6 +13072,10 @@ bool nimculus_platform_validate_cursor_styles(void) {
       g_editor_rect[2], g_editor_rect[3]};
     const BOOL previousSidebarVisible = g_editor_sidebar_visible;
     const BOOL previousSidebarOnRight = g_editor_sidebar_on_right;
+    const BOOL previousTerminalVisible = g_terminal_visible;
+    const BOOL previousTaskOutputVisible = g_task_output_visible;
+    const double previousTerminalRect[4] = {g_terminal_panel_rect[0],
+      g_terminal_panel_rect[1], g_terminal_panel_rect[2], g_terminal_panel_rect[3]};
     const NimculusCursorStyle previousStyle = g_cursor_style;
     id previousView = g_active_view;
     NSCursor *previousCursor = [[NSCursor currentCursor] retain];
@@ -13044,6 +13091,12 @@ bool nimculus_platform_validate_cursor_styles(void) {
       g_editor_rect[1] = 80.0;
       g_editor_rect[2] = 372.0;
       g_editor_rect[3] = 300.0;
+      g_terminal_visible = YES;
+      g_task_output_visible = NO;
+      g_terminal_panel_rect[0] = 48.0;
+      g_terminal_panel_rect[1] = 330.0;
+      g_terminal_panel_rect[2] = 372.0;
+      g_terminal_panel_rect[3] = 80.0;
 
       // The reset hook is the AppKit boundary under test. The assertions
       // below use the same logical points as the registered cursor rects,
@@ -13062,9 +13115,14 @@ bool nimculus_platform_validate_cursor_styles(void) {
       BOOL editorCursor = [NSCursor currentCursor] == [NSCursor IBeamCursor];
       [nimculusCursorForStyle(nimculusCursorStyleForLogicalPoint(dividerPoint)) set];
       BOOL dividerCursor = [NSCursor currentCursor] == [NSCursor resizeLeftRightCursor];
+      BOOL leftDockCursor = nimculusCursorForDockAxis(NO) ==
+        [NSCursor resizeLeftRightCursor];
+      BOOL bottomDockCursor = nimculusCursorForDockAxis(YES) ==
+        [NSCursor resizeUpDownCursor];
       [nimculusCursorForStyle(nimculusCursorStyleForLogicalPoint(statusPoint)) set];
       BOOL statusCursor = [NSCursor currentCursor] == [NSCursor arrowCursor];
-      valid = editorCursor && dividerCursor && statusCursor;
+      valid = editorCursor && dividerCursor && leftDockCursor && bottomDockCursor &&
+        statusCursor;
     }
 
     g_editor_rect[0] = previousRect[0];
@@ -13073,6 +13131,12 @@ bool nimculus_platform_validate_cursor_styles(void) {
     g_editor_rect[3] = previousRect[3];
     g_editor_sidebar_visible = previousSidebarVisible;
     g_editor_sidebar_on_right = previousSidebarOnRight;
+    g_terminal_visible = previousTerminalVisible;
+    g_task_output_visible = previousTaskOutputVisible;
+    g_terminal_panel_rect[0] = previousTerminalRect[0];
+    g_terminal_panel_rect[1] = previousTerminalRect[1];
+    g_terminal_panel_rect[2] = previousTerminalRect[2];
+    g_terminal_panel_rect[3] = previousTerminalRect[3];
     g_cursor_style = previousStyle;
     g_active_view = previousView;
     [previousCursor set];

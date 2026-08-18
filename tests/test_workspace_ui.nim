@@ -592,6 +592,51 @@ suite "workspace UI state":
     check state.dockResizeDivider(dockLeft, 1200) == DefaultLeftDockWidth
     check dockResizeRequest(dockLeft, 300, 1200) == 300
 
+  test "dock resize handles are six points wide and centered on each divider":
+    var state = initWorkspaceUi()
+    let viewport = Size(width: px(1200), height: px(800))
+    state.panelSizes[panelAgent] = 240'f32
+    state.leftDock.activePanel = panelAgent
+    state.panelSizes[panelFiles] = 240'f32
+    state.panelSizes[panelTerminal] = 260'f32
+
+    let left = state.dockResizeHandleRect(dockLeft, viewport)
+    check float32(left.origin.x) == 237'f32
+    check float32(left.size.width) == DockResizeHandleSize
+    check float32(left.origin.x) + float32(left.size.width) / 2'f32 ==
+      state.dockResizeDivider(dockLeft, float32(viewport.width))
+
+    let right = state.dockResizeHandleRect(dockRight, viewport)
+    check float32(right.origin.x) == 957'f32
+    check float32(right.size.width) == DockResizeHandleSize
+    check float32(right.origin.x) + float32(right.size.width) / 2'f32 ==
+      state.dockResizeDivider(dockRight, float32(viewport.width))
+
+    let bottom = state.dockResizeHandleRect(dockBottom, viewport)
+    check float32(bottom.origin.y) == 535'f32
+    check float32(bottom.size.height) == DockResizeHandleSize
+    check float32(bottom.origin.y) + float32(bottom.size.height) / 2'f32 ==
+      state.dockResizeDivider(dockBottom,
+        float32(viewport.height) - DefaultStatusHeight)
+
+  test "dock resize double click resets the active panel through clickCount":
+    var state = initWorkspaceUi()
+    state.openPanel(panelFiles)
+    state.resizeDock(dockRight, 360'f32, 1200'f32)
+    check state.dockResizePointerDown(dockRight, clickCount = 1) == false
+    state.endDockResize()
+    check state.dockResizePointerDown(dockRight, clickCount = 2)
+    check state.dock(dockRight).size == PanelInfo[panelFiles].defaultSize
+    check not state.isResizingDock
+
+  test "zoomed docks expose no resize handle":
+    var state = initWorkspaceUi()
+    state.rightDock.zoomed = true
+    let handle = state.dockResizeHandleRect(dockRight,
+      Size(width: px(1200), height: px(800)))
+    check float32(handle.size.width) == 0'f32
+    check float32(handle.size.height) == 0'f32
+
   test "right project dock presentation uses its measured width":
     check projectDockPresentationWidth(DefaultLeftDockWidth, 128'f32,
       ) == DefaultLeftDockWidth
