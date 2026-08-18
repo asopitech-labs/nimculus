@@ -51,8 +51,20 @@ Tart は 2026 年に Cirrus Labs から OpenAI 側へ移管された。
 ```bash
 brew trust openai/tools          # 未 trust の tap は依存 formula の読み込みを拒否される
 brew install openai/tools/tart
-tart clone ghcr.io/cirruslabs/macos-tahoe-xcode:latest ui-test-base
-tart set ui-test-base --cpu 4 --memory 8192
+```
+
+**golden image の作成・復旧・確認は手作業でなく `make vm-provision` /
+`make vm-verify` / `make vm-recreate` を使うこと。** 以下の「golden image に
+焼き込むもの」「初回起動の障害」の節は `tools/vm_golden_image.sh` が
+冪等に自動化している内容の説明であり、手順書としては下記コマンドが正。
+詳細と踏んだ罠は [`UI_PARITY_HANDOFF.md`](./UI_PARITY_HANDOFF.md) の
+「VM ゴールデンイメージ」節を参照。
+
+```bash
+make vm-status      # 非破壊: 存在確認
+make vm-verify       # 非破壊: 使い捨てクローンで packageMacos が通るか確認
+make vm-provision     # 冪等: 無ければ作成、セットアップ手順を再適用（既存は消さない）
+make vm-recreate      # 明示実行のみ: 既存を消してから作り直す
 ```
 
 Tart の標準値は 2 CPU / 4GB。Xcode + App + WindowServer + XCTest を同居させるなら

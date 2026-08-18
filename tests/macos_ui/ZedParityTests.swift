@@ -694,4 +694,52 @@ final class ZedParityTests: XCTestCase {
       write(window.screenshot().pngRepresentation, "\(label)-emoji.png")
     }
   }
+
+  /// One-time golden-image setup, not a measurement. See
+  /// docs/MACOS_UI_TEST_GUIDELINES.md §0 "golden image で片付けておく初回起動の障害":
+  /// Zed's first launch shows an onboarding screen, and opening a project for
+  /// the first time shows an "Unrecognized Project / Restricted Mode" trust
+  /// dialog. Both are one-time-per-image, not per-run - every disposable clone
+  /// afterward inherits whichever state is baked into the image at the moment
+  /// this test runs.
+  ///
+  /// `activate()` + `typeKey(.return)`, not `launch()` with the same document
+  /// argument: `launch()` opens a *new* untitled window and the trust grant
+  /// applies to that window, not to the project this suite actually opens
+  /// later (see testCaptureBothWindows's doc comment for the same trap hit a
+  /// second time). Opening the document via `launchArguments` first mirrors
+  /// opening it from the CLI, which is what collapses the onboarding screen.
+  ///
+  /// Idempotent: if neither dialog is showing (already provisioned, or a
+  /// build where they never appeared), the extra Return keystrokes are inert
+  /// - Zed's editor does not treat a lone Return in an unfocused window as a
+  /// buffer edit here because focus never lands in the text view before the
+  /// keystroke is sent.
+  func testProvisionGoldenImage() {
+    let app = XCUIApplication(bundleIdentifier: "dev.zed.Zed")
+    app.launchArguments = [Self.document]
+    app.launch()
+    XCTAssertTrue(app.wait(for: .runningForeground, timeout: 60))
+    sleep(3)
+
+    app.activate()
+    sleep(1)
+    app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+    sleep(2)
+    // A second dismissal in case the trust dialog itself is preceded by an
+    // onboarding "Get Started" screen that also accepts Return.
+    app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+    sleep(1)
+
+    XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10),
+                  "Zed is not in the foreground after dismissing first-run dialogs")
+    let window = self.window(of: app)
+    XCTAssertTrue(
+      Self.showsDocument(window),
+      "Zed is not showing \(Self.document) after provisioning; a trust or " +
+      "onboarding dialog may still be blocking it - inspect the golden " +
+      "image manually (see docs/MACOS_UI_TEST_GUIDELINES.md §0 " +
+      "'構築中の VM を目で確認する')")
+    write(window.screenshot().pngRepresentation, "provision-zed-window.png")
+  }
 }

@@ -47,41 +47,64 @@
   （このセッションで main.nim 関連 9 タスクを統合し、手動コンフリクト解決は 0 件）。
   ただし触る「関数・呼び出し箇所」が近いタスク同士は避けて束ねること
 
-### VM ゴールデンイメージが壊れている（次セッション最優先で確認）
+### VM ゴールデンイメージ — 破損は解消済み、復旧手順を常設ツール化した
 
 セッション終盤、`cratelinit`（起動シーケンス変更）の実起動確認のため
-`tools/ui_test.sh smoke` を実行したところ、VM 内で
+`tools/ui_test.sh smoke` を実行したところ VM 内で `nimble packageMacos` が
+「gitignore package not found」で失敗した。無変更の `main` でも同じエラーが
+再現し、このセッション中に VM ゴールデンイメージ（`ui-test-base`）が
+壊れた/劣化したことを確認した。
 
+**`make vm-recreate` で復旧済み。** さらに、この復旧手順を毎回手作業で
+やり直さずに済むよう、`tools/vm_golden_image.sh` と `Makefile` を新設した:
+
+```bash
+make vm-status     # 非破壊: イメージの有無・状態だけ見る
+make vm-verify      # 非破壊: 使い捨てクローンを立てて `nimble packageMacos`
+                     # が実際に通るか確認する（壊れているかの一次判定）
+make vm-provision    # 冪等: イメージが無ければ作り、全セットアップ手順を
+                     # （既に終わっている手順はスキップしつつ）適用する。
+                     # 既存イメージは削除しない
+make vm-recreate     # 明示実行のみ: 既存イメージを消してから provision
 ```
-Warning: Error processing requirements for gitignore: Package gitignore@>= 0.1.0 not found.
-Error: Dependency gitignore not found in the graph
-Error: Couldnt find a solution for the packages. Unsatisfiable dependencies.
-```
 
-で `nimble packageMacos` 自体が失敗した。2回リトライしても同じ。
-**コントロール実験として、何も変更していない `main` 自体でも同じ smoke テストを
-回したところ、同一のエラーで失敗した。** つまりこれは今回のどの変更が
-原因でもなく、**このセッションのどこかで VM ゴールデンイメージ（または
-その nimble パッケージキャッシュ）が壊れた/失われた**ことを示す。
+**設計方針は「失敗前提・冪等」。** `provision` の各ステップは実行前に
+現在の状態を確認してから動く（brew パッケージは無ければ入れる、
+quarantine 属性は付いていれば外す、設定ファイルは無ければ書く）ので、
+`provision` が途中で失敗しても、直して `make vm-provision` を再実行すれば
+最初からやり直さずに再開できる。既存イメージを消すのは `recreate` だけ、
+それも明示的に呼んだときだけ。
 
-このセッションの前半（`ar`/`as` の VM 計測、5回以上）では `tools/ui_test.sh
-parity` 経由の `packageMacos` は正常に成功していたので、**セッション後半の
-どこかで劣化した**と考えられる（原因は不明。連続で多数の VM を作っては
-消したことが影響した可能性はあるが未検証）。
+**このセッションで実際に踏んだ罠（`tools/vm_golden_image.sh` にも
+コメントとして残してある）:**
 
-**次にやること**:
-1. まず `tools/ui_test.sh smoke`（や `parity`）を素の `main` で回して
-   再現するか確認する（直っている可能性もゼロではない）
-2. 再現する場合、ゴールデンイメージを作り直す
-   （`docs/MACOS_UI_TEST_GUIDELINES.md` 参照、`tart clone
-   ghcr.io/cirruslabs/macos-tahoe-xcode:latest ui-test-base` 相当）か、
-   イメージ内の nimble パッケージキャッシュ（`~/.nimble/pkgs2/gitignore-*`
-   に相当するもの）を復旧すること
-3. **直るまでは、`verifiable_by: capture-pixels` のタスクや、スクロール
-   コスト系タスク（`ar`/`as` のような回帰）は着手しないこと。** ローカル
-   ゲートだけでは検出できない種類の後退（グリフ描画欠落、スクロール性能
-   劣化）を過去に複数回このセッションで捕まえているため、VM が使えない間は
-   「実測できない＝未完了」の原則に従う
+1. **`trap cleanup EXIT` を関数内の `local` 変数に依存させると壊れる。**
+   `cmd_verify`/`cmd_provision` それぞれで `local vm=...`; `trap cleanup EXIT`
+   を関数内で設定したところ、`cleanup` 自体は関数が return した**後**
+   （スクリプト全体の EXIT で）実行されるため、`local` 変数は既にスコープ外で
+   `set -u` が `unbound variable` を出して **cleanup 自体が失敗し、
+   使い捨て VM が消されず生き残った**。修正: 該当変数を `local` から外し、
+   スクリプト内で generally 参照可能にする。
+2. **`brew install --cask zed` 直後は `XCUIApplication(bundleIdentifier:
+   "dev.zed.Zed")` が「アプリが見つからない」で失敗する。** Homebrew Cask は
+   `.app` を `/Applications` に移すだけで Launch Services には即座に反映
+   されない。`nimble packageMacos` が作る `Nimculus.app`（`build/macos/` 直下、
+   `/Applications` にも置かれない）も同様に失敗した。**両方とも
+   `lsregister -f <app>` を明示的に呼んで解決**
+   （`/System/Library/Frameworks/CoreServices.framework/Frameworks/
+   LaunchServices.framework/Support/lsregister`）。
+3. Zed の初回起動ダイアログ（オンボーディング／"Unrecognized Project"
+   信頼ダイアログ）は `ZedParityTests.swift` に追加した
+   `testProvisionGoldenImage` が XCUITest 経由で片付ける
+   （`docs/MACOS_UI_TEST_GUIDELINES.md` §0 の手順を自動化したもの）。
+   `activate()` → `typeKey(.return)` の順で、`launch()` は使わない
+   （`launch()` は新規 untitled ウィンドウを開き、信頼はそのウィンドウにしか
+   適用されない）。
+
+**次にやること**: 特になし。`make vm-verify` は現在成功する
+（`tools/ui_test.sh smoke` も実際の Zed 比較込みで成功を確認済み）。
+今後 VM 計測で謎の失敗が出たら、まず `make vm-status` → `make vm-verify` で
+「VM 自体が壊れているのか」を切り分けてから、コードの調査に進むこと。
 
 ### `ar`（Sprite atlas with shelf packing and keyed tiles）— 完了・main に統合済み
 
