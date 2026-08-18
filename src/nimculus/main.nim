@@ -1297,12 +1297,8 @@ var suppressRecoveryWrite = false
 var discardDirtyOnExit = false
 when defined(macosx):
   var lspBridge: LspEditorBridge
-  var editorGitDiffJob: GitJob
-  var editorSecondaryGitDiffJob: GitJob
-  var editorGitStatusJob: GitJob
-  var editorGitBranchJob: GitJob
   var editorGitStatusRepository: GitRepository
-  var editorGitBranchRepository: GitRepository
+  var editorSecondaryGitRepository: GitRepository
   var editorGitStatusDocumentPath = ""
   var editorGitActionJob: GitJob
   var editorGitAction = ""
@@ -2799,19 +2795,12 @@ when defined(macosx):
   proc renderNativeGitStatus(entries: seq[GitStatusEntry])
 
   proc refreshNativeGitPanelBranch(repository: GitRepository) =
-    ## Keep branch resolution cancellable and off the idle/UI path. A direct
-    ## `currentBranch` call spawns Git synchronously and can wait on a slow
-    ## repository filesystem operation.
-    if editorGitBranchJob != nil and not editorGitBranchJob.done:
-      editorGitBranchJob.cancel()
-    editorGitBranchJob = nil
-    editorGitBranchRepository = repository
+    ## Branch is part of the repository snapshot produced by RefreshStatuses.
+    ## Do not spawn a second process just to repaint its already-known value.
     editorGitBranchGeneration = editorGitStatusGeneration
-    editorGitPanelBranch = ""
-    platformSetEditorGitBranch("".cstring)
-    if repository != nil:
-      editorGitBranchJob = repository.startGitJob([
-        "symbolic-ref", "--quiet", "--short", "HEAD"])
+    editorGitPanelBranch = if repository == nil or repository.snapshot.branch.len == 0:
+      "" else: repository.snapshot.branch
+    platformSetEditorGitBranch(editorGitPanelBranch.cstring)
 
   proc cancelNativeGitAction() =
     if editorGitActionJob != nil and not editorGitActionJob.done:
@@ -3144,8 +3133,8 @@ when defined(macosx):
       # mutation. This avoids stale staging affordances and never blocks UI.
       scheduleNativeGitHunks(activeDocument())
       scheduleNativeSecondaryGitHunks(secondaryPaneDocument())
-      startNativeGitAction(editorGitRepository, "refresh status", "", [
-        "status", "--porcelain=v1", "--untracked-files=all", "-z"], source = action)
+      editorViewState.statusMessage = "Git: " & action & " complete"
+      cancelNativeGitAction()
       return
     elif action == "refresh status":
       let entries = parseStatus(job.result.output)
@@ -3235,9 +3224,6 @@ when defined(macosx):
     platformSetSecondaryEditorGitHunks(nil, 0)
 
   proc resetNativeSecondaryGitHunks() =
-    if editorSecondaryGitDiffJob != nil:
-      editorSecondaryGitDiffJob.cancel()
-      editorSecondaryGitDiffJob = nil
     editorSecondaryGitPath = ""
     clearNativeSecondaryGitHunks()
 
@@ -4242,19 +4228,13 @@ when defined(macosx):
       activeWorkspace.stopWatching()
     activeWorkspace = nil
     cancelNativeUpdateDownload()
-    if editorGitDiffJob != nil and not editorGitDiffJob.done:
-      editorGitDiffJob.cancel()
-    editorGitDiffJob = nil
-    if editorSecondaryGitDiffJob != nil and not editorSecondaryGitDiffJob.done:
-      editorSecondaryGitDiffJob.cancel()
-    editorSecondaryGitDiffJob = nil
-    if editorGitStatusJob != nil and not editorGitStatusJob.done:
-      editorGitStatusJob.cancel()
-    editorGitStatusJob = nil
-    if editorGitBranchJob != nil and not editorGitBranchJob.done:
-      editorGitBranchJob.cancel()
-    editorGitBranchJob = nil
-    editorGitBranchRepository = nil
+    if editorGitRepository != nil:
+      editorGitRepository.cancelGitJobs()
+    if editorSecondaryGitRepository != nil and
+        editorSecondaryGitRepository != editorGitRepository:
+      editorSecondaryGitRepository.cancelGitJobs()
+    editorGitRepository = nil
+    editorSecondaryGitRepository = nil
     cancelNativeGitAction()
     if editorTaskJob != nil and not editorTaskJob.done:
       editorTaskJob.cancel()
@@ -4329,44 +4309,39 @@ when defined(macosx):
         syncNativeTerminalSelection()
 
   proc scheduleNativeGitHunks(document: ptr FileDocument) =
+    let previousRepository = editorGitRepository
     inc editorGitStatusGeneration
-    if editorGitDiffJob != nil:
-      editorGitDiffJob.cancel()
-      editorGitDiffJob = nil
-    if editorGitStatusJob != nil:
-      editorGitStatusJob.cancel()
-      editorGitStatusJob = nil
-    if editorGitBranchJob != nil:
-      editorGitBranchJob.cancel()
-      editorGitBranchJob = nil
     editorGitStatusRepository = nil
-    editorGitBranchRepository = nil
     editorGitPanelBranch = ""
     platformSetEditorGitBranch("".cstring)
     editorGitStatusDocumentPath = ""
     editorGitRepository = nil
     editorGitPath = ""
     clearNativeGitHunks()
-    if document == nil or document[].path.len == 0: return
+    if document == nil or document[].path.len == 0:
+      if previousRepository != nil: previousRepository.cancelGitJobs()
+      return
     let repository = gitRepositoryForDocument(document)
     if repository == nil: return
     let relative = gitRelativePathForDocument(document, repository)
     if relative.len == 0: return
+    if previousRepository != nil and previousRepository != repository:
+      previousRepository.cancelGitJobs()
     editorGitRepository = repository
     editorGitPath = document[].path
     editorGitStatusRepository = repository
     editorGitStatusDocumentPath = document[].path
-    editorGitDiffJob = repository.startGitJob([
-      "diff", "--no-ext-diff", "--unified=3", "--", relative])
-    editorGitStatusJob = repository.startGitJob([
-      "status", "--porcelain=v1", "--untracked-files=all", "-z"])
-    refreshNativeGitPanelBranch(repository)
+    discard repository.enqueueGitJob([
+      "status", "--porcelain=v1", "--branch", "--untracked-files=all", "-z"],
+      RefreshStatuses)
 
   proc pollNativeGitHunks() =
-    if editorGitDiffJob == nil or not editorGitDiffJob.poll(): return
-    let completedJob = editorGitDiffJob
+    if editorGitRepository == nil: return
+    let queuedJob = editorGitRepository.pollGitJobs()
+    if queuedJob == nil or queuedJob.key != some(ReloadBufferDiffBases): return
+    let completedJob = queuedJob
     let output = completedJob.result
-    editorGitDiffJob = nil
+    editorGitRepository.finishGitJob(completedJob)
     let document = activeDocument()
     if document == nil or document[].path != editorGitPath or output.exitCode != 0:
       return
@@ -4393,14 +4368,18 @@ when defined(macosx):
     let relative = gitRelativePathForDocument(document, repository)
     if relative.len == 0: return
     editorSecondaryGitPath = document[].path
-    editorSecondaryGitDiffJob = repository.startGitJob([
-      "diff", "--no-ext-diff", "--unified=3", "--", relative])
+    editorSecondaryGitRepository = repository
+    discard repository.enqueueGitJob([
+      "diff", "--no-ext-diff", "--unified=3", "--", relative],
+      ReloadSecondaryBufferDiffBases)
 
   proc pollNativeSecondaryGitHunks() =
-    if editorSecondaryGitDiffJob == nil or not editorSecondaryGitDiffJob.poll(): return
-    let completedJob = editorSecondaryGitDiffJob
+    if editorSecondaryGitRepository == nil: return
+    let queuedJob = editorSecondaryGitRepository.pollGitJobs()
+    if queuedJob == nil or queuedJob.key != some(ReloadSecondaryBufferDiffBases): return
+    let completedJob = queuedJob
     let output = completedJob.result
-    editorSecondaryGitDiffJob = nil
+    editorSecondaryGitRepository.finishGitJob(completedJob)
     let document = secondaryPaneDocument()
     if document == nil or document[].path != editorSecondaryGitPath or output.exitCode != 0:
       return
@@ -4418,14 +4397,22 @@ when defined(macosx):
       resetNativeSecondaryGitHunks()
 
   proc pollNativeGitStatus() =
-    if editorGitStatusJob == nil or not editorGitStatusJob.poll(): return
-    let completedJob = editorGitStatusJob
-    editorGitStatusJob = nil
+    if editorGitRepository == nil: return
+    let queuedJob = editorGitRepository.pollGitJobs()
+    if queuedJob == nil or queuedJob.key != some(RefreshStatuses): return
+    let completedJob = queuedJob
+    let repository = editorGitRepository
     let document = activeDocument()
     if document == nil or document[].path != editorGitStatusDocumentPath or
         completedJob.result.exitCode != 0:
+      repository.finishGitJob(completedJob)
       return
-    let entries = parseStatus(completedJob.result.output)
+    let parsed = parseStatusWithBranch(completedJob.result.output)
+    let entries = parsed.statuses
+    repository.snapshot.statuses = entries
+    repository.snapshot.branch = if parsed.branch.len > 0: parsed.branch else: "(detached)"
+    inc repository.snapshot.scanId
+    editorGitStatusGeneration = repository.snapshot.scanId
     editorGitStatusSourceEntries = entries
     var conflicts = 0
     for entry in entries:
@@ -4434,18 +4421,17 @@ when defined(macosx):
       " changed, " & $conflicts & " conflict(s)"
     if activeWorkspace != nil and editorSidebarMode == sidebarFiles:
       refreshWorkspacePreview()
-
-  proc pollNativeGitBranch() =
-    if editorGitBranchJob == nil or not editorGitBranchJob.poll(): return
-    let completedJob = editorGitBranchJob
-    let repository = editorGitBranchRepository
-    editorGitBranchJob = nil
-    editorGitBranchRepository = nil
-    if repository == nil or completedJob.cancelled: return
-    let branch = if completedJob.result.exitCode == 0:
-      completedJob.result.output.strip else: "(detached)"
-    editorGitPanelBranch = if branch.len > 0: branch else: "(detached)"
+    editorGitPanelBranch = repository.snapshot.branch
     platformSetEditorGitBranch(editorGitPanelBranch.cstring)
+    refreshNativeGitPanelBranch(repository)
+    repository.finishGitJob(completedJob)
+    let currentDocument = activeDocument()
+    if currentDocument != nil and currentDocument[].path == editorGitPath:
+      let relative = gitRelativePathForDocument(currentDocument, repository)
+      if relative.len > 0:
+        discard repository.enqueueGitJob([
+          "diff", "--no-ext-diff", "--unified=3", "--", relative],
+          ReloadBufferDiffBases)
     # The branch can arrive before or after porcelain status. Repaint only an
     # already-visible Changes list; no Git command or filesystem access occurs
     # on this path.
@@ -6248,7 +6234,6 @@ when defined(macosx):
       editorViewState.statusMessage = "Settings reloaded"
     pollNativeGitHunks()
     pollNativeSecondaryGitHunks()
-    pollNativeGitBranch()
     pollNativeGitStatus()
     pollNativeGitBlame()
     if pendingGitRepository != nil and pendingGitRepository.finished:
