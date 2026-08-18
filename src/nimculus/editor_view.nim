@@ -185,6 +185,40 @@ proc clearAdditionalSelections*(view: var EditorViewState) =
 proc floorGraphemeBoundary*(text: string, offset: int): int
 proc clampSelectionToText*(view: var EditorViewState, text: string)
 
+proc normalizeSelections(view: var EditorViewState) =
+  var unique: seq[Selection]
+  for selection in view.additionalSelections:
+    var duplicate = selection == view.selection
+    if not duplicate:
+      for existing in unique:
+        if existing == selection:
+          duplicate = true
+          break
+    if not duplicate: unique.add(selection)
+  view.additionalSelections = unique
+
+proc transformAfterEdits*(view: var EditorViewState, edits: openArray[Edit]) =
+  ## Update every byte-anchored view position from the same edit transaction.
+  ## Selection endpoints use right bias, while fold boundaries enclose text
+  ## inserted at either edge of an existing fold.
+  if edits.len == 0: return
+  view.selection = view.selection.transform(edits, right)
+  for index in 0 ..< view.additionalSelections.len:
+    view.additionalSelections[index] = view.additionalSelections[index].transform(edits, right)
+  var transformedFolds: seq[FoldRange]
+  for folded in view.foldedRanges:
+    let startByte = transform(int(folded.startByte), edits, left)
+    let endByte = transform(int(folded.endByte), edits, right)
+    if endByte > startByte:
+      transformedFolds.add(FoldRange(startByte: uint32(startByte), endByte: uint32(endByte)))
+  view.foldedRanges = transformedFolds
+  view.normalizeSelections()
+
+proc applyEditsAndTransform*(table: var PieceTable, view: var EditorViewState,
+                             edits: seq[Edit]): seq[Edit] =
+  result = table.applyEdits(edits)
+  view.transformAfterEdits(result)
+
 proc addCaret*(view: var EditorViewState, byteOffset: int, text: string): bool =
   ## Add a collapsed caret without disturbing the primary selection. This is
   ## the Option-click entry point used by Zed-like editors.
@@ -382,17 +416,7 @@ proc clampSelectionToText*(view: var EditorViewState, text: string) =
       min(max(0, view.additionalSelections[index].anchor), text.len))
     view.additionalSelections[index].active = floorGraphemeBoundary(text,
       min(max(0, view.additionalSelections[index].active), text.len))
-  var unique: seq[Selection]
-  for selection in view.additionalSelections:
-    var duplicate = false
-    for existing in unique:
-      if existing.anchor == selection.anchor and existing.active == selection.active:
-        duplicate = true
-        break
-    if not duplicate and not (selection.anchor == view.selection.anchor and
-        selection.active == view.selection.active):
-      unique.add(selection)
-  view.additionalSelections = unique
+  view.normalizeSelections()
 
 proc lineNumber*(buffer: PieceTable, line: int): string = $(line + 1)
 

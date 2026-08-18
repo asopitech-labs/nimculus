@@ -1189,15 +1189,22 @@ proc applyWorkspaceReplacement*(session: var EditorSession, path, query, replace
   result.usedOpenTab = tabIndex >= 0
   if tabIndex >= 0:
     let matches = session.tabs[tabIndex].document.search(query, options)
+    var edits: seq[Edit]
     if matchOffset >= 0:
       for match in matches:
         if match.startByte == matchOffset:
-          session.tabs[tabIndex].document.buffer.applyEdits(@[Edit(
-            startByte: match.startByte, endByte: match.endByte, text: replacement)])
-          result.count = 1
+          edits.add(Edit(startByte: match.startByte, endByte: match.endByte,
+            text: replacement))
           break
     else:
-      result.count = session.tabs[tabIndex].document.replaceAll(query, replacement, options)
+      for match in matches:
+        edits.add(Edit(startByte: match.startByte, endByte: match.endByte,
+          text: replacement))
+    if edits.len > 0:
+      let applied = session.tabs[tabIndex].document.buffer.applyEdits(edits)
+      session.tabs[tabIndex].view.transformAfterEdits(applied)
+      session.tabs[tabIndex].secondaryView.transformAfterEdits(applied)
+      result.count = applied.len
     return
 
   var target = openDocument(path)
@@ -1328,7 +1335,7 @@ when defined(macosx):
   var editorGitBlameConfiguredDelayMs = -1
 
   proc applyEditorEditsWithGitBlame(document: ptr FileDocument;
-                                    edits: seq[Edit]) =
+                                    edits: seq[Edit]): seq[Edit] =
     if document == nil or edits.len == 0:
       return
     var changes: seq[tuple[startLine, removedLines, insertedLines: int]]
@@ -1338,7 +1345,7 @@ when defined(macosx):
       changes.add((startLine: startLine,
         removedLines: max(0, endLine - startLine),
         insertedLines: edit.text.count('\n')))
-    document[].buffer.applyEdits(edits)
+    result = document[].buffer.applyEdits(edits)
     if not editorGitBlameCache.valid or
         editorGitBlameCache.key.documentPath != document[].path:
       return
@@ -1449,6 +1456,15 @@ when defined(macosx):
   var editorExtensionPackageJob: UpdateDownloadJob
   var editorExtensionPackageEntry: ExtensionCatalogEntry
   var editorExtensionPackagePath = ""
+
+proc applyEditorEdits(document: var FileDocument, view: var EditorViewState,
+                      edits: seq[Edit]): seq[Edit] =
+  if edits.len == 0: return
+  when defined(macosx):
+    result = applyEditorEditsWithGitBlame(addr document, edits)
+  else:
+    result = document.buffer.applyEdits(edits)
+  view.transformAfterEdits(result)
 
 when defined(macosx):
   const
@@ -3832,7 +3848,10 @@ when defined(macosx):
         bufferEdits.add(Edit(startByte: startByte, endByte: endByte,
           text: textEdit.newText))
       try:
-        target.buffer.applyEdits(bufferEdits)
+        let applied = target.buffer.applyEdits(bufferEdits)
+        if tabIndex >= 0:
+          editorSession.tabs[tabIndex].view.transformAfterEdits(applied)
+          editorSession.tabs[tabIndex].secondaryView.transformAfterEdits(applied)
       except CatchableError as error:
         editorViewState.statusMessage = label & " rejected: " & error.msg
         return false
@@ -5688,8 +5707,6 @@ proc syncEditorCursor(ensureCursor = true) =
     invalidateDemoUi()
   elif defined(windows):
     let document = activeDocument()
-    if document != nil:
-      editorViewState.clampSelectionToText(document[].buffer.toString())
     let visibleLines = max(1, int(floor(float32(demoEditorBounds.size.height) /
       windowsEditorLineHeight())))
     let location = if document == nil: (line: 0, column: 0) else:
@@ -6286,8 +6303,8 @@ when defined(macosx):
     if document == nil or lspBridge == nil or not lspBridge.completionVisible: return
     let edit = lspBridge.completionEdit(document[].buffer)
     if edit.endByte <= edit.startByte and edit.text.len == 0: return
-    document[].buffer.edit(Edit(startByte: edit.startByte, endByte: edit.endByte,
-      text: edit.text))
+    discard applyEditorEdits(document[], editorViewState, @[Edit(
+      startByte: edit.startByte, endByte: edit.endByte, text: edit.text)])
     moveActiveEditorCursor(edit.startByte + edit.text.len)
     lspBridge.hideCompletion()
     platformSetEditorCompletions("".cstring, 0)
@@ -6826,8 +6843,7 @@ when defined(macosx):
       bufferEdits.add(Edit(startByte: startByte, endByte: endByte,
         text: edit.newText))
     try:
-      document[].buffer.applyEdits(bufferEdits)
-      editorViewState.clampSelectionToText(document[].buffer.toString())
+      discard applyEditorEdits(document[], editorViewState, bufferEdits)
       editorViewState.statusMessage = "LSP: formatted"
       syncEditorCursor()
       refreshEditorSyntax()
@@ -6918,14 +6934,7 @@ proc editEditorSelections(document: ptr FileDocument, view: var EditorViewState,
     cumulativeShift += replacement.len - (endByte - startByte)
     previousEnd = endByte
   if edits.len == 0: return false
-  when defined(macosx):
-    applyEditorEditsWithGitBlame(document, edits)
-  else:
-    document[].buffer.applyEdits(edits)
-  # Byte-anchored fold ranges are invalidated by edits until Tree-sitter has
-  # produced a fresh display map. Recomputing them avoids hiding a different
-  # source region after an insertion shifts the old range.
-  view.foldedRanges.setLen(0)
+  discard applyEditorEdits(document[], view, edits)
   view.selection = nextSelections[0]
   view.additionalSelections = if nextSelections.len > 1:
     nextSelections[1 .. ^1] else: @[]
@@ -6963,11 +6972,7 @@ proc deleteEditorSelections(document: ptr FileDocument, view: var EditorViewStat
     cumulativeShift -= endByte - startByte
     previousEnd = endByte
   if edits.len == 0: return false
-  when defined(macosx):
-    applyEditorEditsWithGitBlame(document, edits)
-  else:
-    document[].buffer.applyEdits(edits)
-  view.foldedRanges.setLen(0)
+  discard applyEditorEdits(document[], view, edits)
   view.selection = nextSelections[0]
   view.additionalSelections = if nextSelections.len > 1:
     nextSelections[1 .. ^1] else: @[]
@@ -9552,7 +9557,8 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     runDocumentSearch(query, selectFirst = false)
     if documentSearchMatches.len > 0 and documentSearchMatchIndex >= 0:
       let match = documentSearchMatches[documentSearchMatchIndex]
-      document[].buffer.applyEdits(@[Edit(startByte: match.startByte, endByte: match.endByte,
+      discard applyEditorEdits(document[], editorViewState, @[Edit(
+        startByte: match.startByte, endByte: match.endByte,
         text: documentSearchReplacement)])
       runDocumentSearch(query, selectFirst = false)
       editorViewState.statusMessage = "Replaced next match"
@@ -9610,12 +9616,15 @@ proc receiveNativeCommand(command: cstring) {.cdecl.} =
     let query = payload[0 ..< separator]
     let replacement = if separator + 1 < payload.len: payload[separator + 1 .. ^1] else: ""
     documentSearchReplacement = replacement
-    let count = document[].replaceAll(query, replacement, documentSearchOptions)
-    let text = document[].buffer.toString()
-    editorViewState.clampSelectionToText(text)
+    let matches = document[].search(query, documentSearchOptions)
+    var edits: seq[Edit]
+    for match in matches:
+      edits.add(Edit(startByte: match.startByte, endByte: match.endByte,
+        text: replacement))
+    let applied = applyEditorEdits(document[], editorViewState, edits)
     if editorSession.split:
-      editorSession.secondaryView.clampSelectionToText(text)
-    editorViewState.statusMessage = "Replaced " & $count & " matches"
+      editorSession.secondaryView.transformAfterEdits(applied)
+    editorViewState.statusMessage = "Replaced " & $applied.len & " matches"
     syncEditorCursor()
     refreshEditorSyntax()
     runDocumentSearch(query, selectFirst = false)
