@@ -228,7 +228,7 @@
 
 - [x] **Panel trait (what a dock can contain)** — Zed `crates/workspace/src/dock.rs:36`
 - [x] **Dock container: open bit, active panel index, per-panel size state** — Zed `crates/workspace/src/dock.rs:269`
-- [ ] **Dock resize handle geometry and double-click reset** — Zed `crates/workspace/src/dock.rs:1132 (Render for Dock), handle placement at dock.rs:1124-1150`
+- [x] **Dock resize handle geometry and double-click reset** — Zed `crates/workspace/src/dock.rs:1132 (Render for Dock), handle placement at dock.rs:1124-1150`
 - [ ] **PanelButtons (the status-bar dock toggles)** — Zed `crates/workspace/src/dock.rs:356, Render at dock.rs:1252, StatusItemView at dock.rs:1449`
 - [ ] **Item trait (what a tab knows how to be)** — Zed `crates/workspace/src/item.rs:170`
 - [ ] **Tab detail disambiguation** — Zed `crates/workspace/src/pane.rs:4965 tab_details, called from render_tab_bar at pane.rs:3400`
@@ -332,7 +332,7 @@
 **無い**
 
 - [x] **MultiBuffer: N buffers presented as one text** — Zed `crates/multi_buffer/src/multi_buffer.rs:73 (struct MultiBuffer), :691 (MultiBufferSnapshot), :842 (ExcerptRange)`
-- [ ] **Anchor: an edit-surviving position** — Zed `crates/multi_buffer/src/anchor.rs:17 (ExcerptAnchor), :28 (enum Anchor {Min, Excerpt, Max})`
+- [x] **Anchor: an edit-surviving position** — Zed `crates/multi_buffer/src/anchor.rs:17 (ExcerptAnchor), :28 (enum Anchor {Min, Excerpt, Max})`
 - [x] **The five-layer transform chain (inlay → fold → tab → wrap → block)** — Zed `crates/editor/src/display_map.rs:1 (module doc describing the contract), :213 (DisplayMap fields), :604 (snapshot() driving the chain)`
 - [ ] **Tab expansion layer** — Zed `crates/editor/src/display_map/tab_map.rs:20 (TabMap), :197 (TabSnapshot with tab_size and max_expansion_column), :41 (sync)`
 - [x] **Block layer: non-text rows and replacement blocks** — Zed `crates/editor/src/display_map/block_map.rs:38 (BlockMap), :75 (BlockSnapshot), :163 (BlockPlacement Above/Below/Near/Replace), :377 (enum Block: Custom, FoldedBuffer, ExcerptBoundary, BufferHeader, Spacer), :282 (BlockProperties), :303 (BlockStyle)`
@@ -422,7 +422,7 @@
 **一部のみ — 先に片付ける**
 
 - [ ] **Worktree snapshot + background scanner with scan ids** — Zed `crates/worktree/src/worktree.rs:176 (Snapshot), :249 (LocalSnapshot), :270 (BackgroundScannerState), :410 (enum ScanState), :4295 (BackgroundScanner), :4304 (BackgroundScannerPhase)`
-- [ ] **Repository as an entity with a snapshot + a serialized job queue** — Zed `crates/project/src/git_store.rs:505 (struct Repository), :430 (RepositorySnapshot), :636 (GitJob), :643 (enum GitJobKey), :527 (Deref<Target=RepositorySnapshot>)`
+- [x] **Repository as an entity with a snapshot + a serialized job queue** — Zed `crates/project/src/git_store.rs:505 (struct Repository), :430 (RepositorySnapshot), :636 (GitJob), :643 (enum GitJobKey), :527 (Deref<Target=RepositorySnapshot>)`
 - [ ] **Anchored diff hunks with secondary (staged) status** — Zed `crates/buffer_diff/src/buffer_diff.rs:117 (DiffHunk: range as Points, buffer_range as Anchors, diff_base_byte_range, secondary_status, word diffs), :87 (DiffHunkStatus), :85 (DiffHunkSecondaryStatus with the 5 states incl. the two Pending ones), :142 (PendingHunk), :440 hunks_in_row_range`
 - [x] **Git status scan → panel projection (staged / unstaged / conflicts)** — Zed `crates/project/src/git_store.rs:326 (StatusEntry), :395 (impl sum_tree::Item so statuses roll up per directory), crates/git/src/status.rs:10 (FileStatus), :31 (TrackedStatus: index_status + worktree_status), :351 (GitSummary)`
 - [ ] **Blame: entries by line range, plus batch commit-message fetch** — Zed `crates/git/src/blame.rs:17 (struct Blame: entries, messages by Oid, tag_names by Oid), :164 (BlameEntry: sha, range: Range<u32>, original_line_number, author/committer fields, summary), :29-58 (unique SHAs then one batched get_messages/get_tag_names); crates/project/src/git_store.rs:1967 blame_buffer`
