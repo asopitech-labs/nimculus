@@ -1,4 +1,6 @@
 import std/osproc
+import std/json
+import std/os
 import std/streams
 import std/strtabs
 import std/strutils
@@ -19,6 +21,27 @@ type
     taskRunning, taskSucceeded, taskFailed, taskCancelled
 
   TaskSpec* = object
+    command*: string
+    args*: seq[string]
+    workingDirectory*: string
+    environment*: seq[tuple[key, value: string]]
+
+  TaskContext* = object
+    ## Values available to project task templates. Empty strings and zero
+    ## positions mean that the corresponding value is not available.
+    file*: string
+    relativeFile*: string
+    dirname*: string
+    filename*: string
+    stem*: string
+    worktreeRoot*: string
+    row*: int
+    column*: int
+
+  TaskTemplate* = object
+    ## A project task definition before its context-dependent values are
+    ## resolved. `label` is the name used by the task picker/command palette.
+    label*: string
     command*: string
     args*: seq[string]
     workingDirectory*: string
@@ -45,6 +68,132 @@ type
     done*: bool
 
 const MaxTaskOutputBytes* = 4 * 1024 * 1024
+
+const projectTaskFileNames = [
+  ".nimculus" / "tasks.json",
+  ".zed" / "tasks.json",
+  "tasks.json"
+]
+
+proc taskJsonString(node: JsonNode, name: string, fallback = ""): string =
+  if node != nil and node.kind == JObject and node.hasKey(name) and
+      node[name].kind == JString:
+    return node[name].getStr
+  fallback
+
+proc taskJsonStringList(node: JsonNode, name: string): seq[string] =
+  if node == nil or node.kind != JObject or not node.hasKey(name): return
+  let value = node[name]
+  if value.kind == JArray:
+    for item in value:
+      if item.kind != JString:
+        raise newException(ValueError, "task " & name & " entries must be strings")
+      result.add(item.getStr)
+  elif value.kind == JString:
+    result = value.getStr.splitWhitespace
+  else:
+    raise newException(ValueError, "task " & name & " must be a string array")
+
+proc taskJsonEnvironment(node: JsonNode, name: string): seq[tuple[key, value: string]] =
+  if node == nil or node.kind != JObject or not node.hasKey(name): return
+  let value = node[name]
+  if value.kind != JObject:
+    raise newException(ValueError, "task " & name & " must be an object")
+  for key, item in value:
+    if item.kind != JString:
+      raise newException(ValueError, "task environment values must be strings")
+    result.add((key, item.getStr))
+
+proc taskTemplateFromJson(node: JsonNode, source: string): TaskTemplate =
+  if node == nil or node.kind != JObject:
+    raise newException(ValueError, "task entry in " & source & " must be an object")
+  result.label = taskJsonString(node, "label", taskJsonString(node, "name"))
+  result.command = taskJsonString(node, "command")
+  if result.command.len == 0:
+    raise newException(ValueError, "task entry in " & source & " has no command")
+  result.args = taskJsonStringList(node, "args")
+  result.workingDirectory = taskJsonString(node, "cwd",
+    taskJsonString(node, "workingDirectory"))
+  result.environment = taskJsonEnvironment(node, "env")
+  if result.environment.len == 0:
+    result.environment = taskJsonEnvironment(node, "environment")
+
+proc loadTaskTemplates*(path: string): seq[TaskTemplate] =
+  ## Load a Zed-compatible JSON task list. Both a top-level array and an
+  ## object containing a `tasks` array are accepted so project files can carry
+  ## a small amount of metadata if needed later.
+  if not fileExists(path): return
+  let root = try:
+    parseJson(readFile(path))
+  except CatchableError as error:
+    raise newException(ValueError, "cannot parse task file " & path & ": " & error.msg)
+  let entries = if root.kind == JArray: root
+    elif root.kind == JObject and root.hasKey("tasks") and root["tasks"].kind == JArray:
+      root["tasks"]
+    else:
+      raise newException(ValueError, "task file " & path & " must contain a task array")
+  for entry in entries:
+    result.add(taskTemplateFromJson(entry, path))
+
+proc loadProjectTaskTemplates*(worktreeRoot: string): seq[TaskTemplate] =
+  ## Project-local tasks live in `.nimculus/tasks.json`; `.zed/tasks.json`
+  ## and a root `tasks.json` are accepted for easy migration from Zed and
+  ## other task-file conventions. The first existing file wins.
+  if worktreeRoot.len == 0: return
+  for relativePath in projectTaskFileNames:
+    let path = worktreeRoot / relativePath
+    if fileExists(path): return loadTaskTemplates(path)
+
+proc taskContextValue(ctx: TaskContext, name: string): tuple[found: bool; value: string] =
+  case name
+  of "NIMCULUS_FILE": (ctx.file.len > 0, ctx.file)
+  of "NIMCULUS_RELATIVE_FILE": (ctx.relativeFile.len > 0, ctx.relativeFile)
+  of "NIMCULUS_DIRNAME": (ctx.dirname.len > 0, ctx.dirname)
+  of "NIMCULUS_FILENAME": (ctx.filename.len > 0, ctx.filename)
+  of "NIMCULUS_STEM": (ctx.stem.len > 0, ctx.stem)
+  of "NIMCULUS_WORKTREE_ROOT": (ctx.worktreeRoot.len > 0, ctx.worktreeRoot)
+  of "NIMCULUS_ROW": (ctx.row > 0, $ctx.row)
+  of "NIMCULUS_COLUMN": (ctx.column > 0, $ctx.column)
+  else: (false, "")
+
+proc resolveTaskString(value: string, ctx: TaskContext, fieldName: string): string =
+  var position = 0
+  while true:
+    let marker = value.find("${", position)
+    if marker < 0:
+      if position < value.len: result.add(value[position .. ^1])
+      break
+    result.add(value[position ..< marker])
+    let closing = value.find('}', marker + 2)
+    if closing < 0:
+      raise newException(ValueError, "unterminated task variable in " & fieldName)
+    let expression = value[marker + 2 ..< closing]
+    let separator = expression.find(':')
+    let name = if separator < 0: expression else: expression[0 ..< separator]
+    let defaultValue = if separator < 0: "" else: expression[separator + 1 .. ^1]
+    let resolved = taskContextValue(ctx, name)
+    if resolved.found:
+      result.add(resolved.value)
+    elif separator >= 0:
+      result.add(defaultValue)
+    else:
+      raise newException(ValueError, "task variable " & name &
+        " is unavailable in " & fieldName)
+    position = closing + 1
+
+proc resolveTaskTemplate*(t: TaskTemplate, ctx: TaskContext): TaskSpec =
+  ## Resolve every command, argument, working-directory, and environment
+  ## value. Missing values are errors rather than silently becoming empty
+  ## strings, which is especially important for an absent worktree root.
+  result.command = resolveTaskString(t.command, ctx, "command")
+  if result.command.strip.len == 0:
+    raise newException(ValueError, "resolved task command is empty")
+  for index, arg in t.args:
+    result.args.add(resolveTaskString(arg, ctx, "args[" & $index & "]"))
+  result.workingDirectory = resolveTaskString(t.workingDirectory, ctx, "cwd")
+  for entry in t.environment:
+    result.environment.add((entry.key,
+      resolveTaskString(entry.value, ctx, "environment[" & entry.key & "]")))
 
 proc appendBoundedTaskOutput*(current, chunk: string;
     limit: int = MaxTaskOutputBytes): tuple[output: string; truncated: bool] =
